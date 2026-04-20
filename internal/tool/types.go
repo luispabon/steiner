@@ -19,8 +19,8 @@ type ToolDef struct {
 }
 
 type JSONEnvelope struct {
-	OK     bool            `json:"ok"`
-	Result any             `json:"result,omitempty"`
+	OK     bool               `json:"ok"`
+	Result any                `json:"result,omitempty"`
 	Error  *JSONEnvelopeError `json:"error,omitempty"`
 }
 

@@ -63,10 +63,10 @@ func runBash(ctx context.Context, payload []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"command": req.Command,
-		"cwd":     cwd,
-		"stdout":  stdout.String(),
-		"stderr":  stderr.String(),
+		"command":   req.Command,
+		"cwd":       cwd,
+		"stdout":    stdout.String(),
+		"stderr":    stderr.String(),
 		"exit_code": 0,
 	}, nil
 }

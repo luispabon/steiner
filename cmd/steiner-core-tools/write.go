@@ -45,7 +45,7 @@ func runWrite(ctx context.Context, payload []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"path":         req.Path,
+		"path":          req.Path,
 		"bytes_written": len(req.Contents),
 	}, nil
 }
