@@ -1,0 +1,126 @@
+stages:
+  - id: stage-1
+    objective: Establish the module, package layout, and canonical configuration surface for Stage 0.
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: Bootstrap the Go module and implement the full configuration package with deterministic precedence and validation.
+        scope: Own the initial repository scaffold plus all config loading, merging, env expansion, and validation logic under internal/config.
+        files:
+          - go.mod
+          - go.sum
+          - cmd/steiner/main.go
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/env.go
+          - internal/config/validate.go
+          - internal/config/*.go
+        constraints:
+          - Keep all config schema, defaults, merge logic, env mapping, interpolation, and validation inside internal/config only.
+          - Match the PRD Stage 0 config schema, including provider, limits, approval, sub_agent, tools, project_context, paths, and logging sections.
+          - Enforce the documented precedence order: compiled defaults, global config, project config, environment variables, then CLI flags.
+          - Do not implement agent execution, provider transport, REPL, or real --exec behavior in this step.
+          - Keep CLI work in this step limited to bootstrap/hooks needed for config loading and later Stage 0 stubs.
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Go module initialized with Stage 0 dependencies: cobra, yaml.v3, and golang.org/x/sync.
+          - Canonical Config types and load path implemented under internal/config.
+          - Validation errors are actionable and cover required fields, ranges, and unsupported provider types.
+          - Unit tests cover precedence, env interpolation, and invalid config rejection.
+        acceptance:
+          - internal/config exposes a single entry path that returns the resolved config after applying all five precedence layers.
+          - Env variable handling covers the documented STEINER_ mappings and supports os.ExpandEnv-style interpolation.
+          - No non-config package performs config merging or env expansion.
+          - go test for internal/config passes.
+        handoff: Complete the module bootstrap and config subsystem so later steps can depend on stable types and config loading without revisiting schema decisions.
+        verification:
+          - gofmt -w cmd/steiner/main.go internal/config/*.go internal/config/*_test.go
+          - go test ./internal/config/...
+      - id: stage-1-step-2
+        objective: Define the Stage 0 runtime contracts and scheduler across provider, agent, tool, prompt, and output packages.
+        scope: Own the architecture skeleton types for non-config internal packages and the central scheduler abstraction that enforces provider.parallelism.
+        files:
+          - internal/provider/interface.go
+          - internal/provider/types.go
+          - internal/provider/scheduler.go
+          - internal/provider/*_test.go
+          - internal/agent/types.go
+          - internal/agent/state.go
+          - internal/agent/limits.go
+          - internal/tool/types.go
+          - internal/tool/registry.go
+          - internal/tool/schema.go
+          - internal/tool/*_test.go
+          - internal/prompt/types.go
+          - internal/output/log.go
+        constraints:
+          - Respect AGENTS.md package boundaries; keep transport details out of internal/agent and keep prompt assembly out of internal/prompt for Stage 0.
+          - Use one canonical internal message model for agent state and one canonical provider request/response model for provider-facing interfaces.
+          - Scheduler must centrally gate provider usage via semaphore acquisition/release and be cancellation-aware through context.Context.
+          - Tool schema generation must produce OpenAI-compatible JSON function schemas from ToolDef without introducing execution behavior.
+          - Do not add provider implementations, tool executor logic, prompt assembly, or delegation behavior.
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Provider interface and normalized request/response/message/tool-call types.
+          - Scheduler abstraction with tests proving blocking/gating beyond configured parallelism.
+          - Agent state, limits, and stop-reason types.
+          - Tool registry and OpenAI schema generation.
+          - Prompt context-source and output event/logging types.
+        acceptance:
+          - internal packages compile cleanly with no import-cycle violations against the documented boundaries.
+          - Scheduler tests prove configured parallelism is enforced rather than left to future agent code.
+          - Tool schema generation is unit-tested against representative ToolDef inputs.
+          - No package in this step performs real runtime execution.
+        handoff: Deliver the stable Stage 0 seams so the final step only has to wire CLI stubs and end-to-end compile/verification coverage.
+        verification:
+          - gofmt -w internal/provider/*.go internal/agent/*.go internal/tool/*.go internal/prompt/*.go internal/output/*.go
+          - go test ./internal/provider/... ./internal/agent/... ./internal/tool/...
+  - id: stage-2
+    objective: Wire the CLI stubs to the config/runtime skeleton and finish Stage 0 with targeted tests plus repo-level verification.
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: Finish the Stage 0 CLI surface and validate the repository through unit and integration-style command coverage.
+        scope: Own the final cmd/steiner wiring, version/config command behavior, noop exec flag plumbing, and repo-level verification needed to declare Stage 0 execution-ready.
+        files:
+          - cmd/steiner/main.go
+          - cmd/steiner/*_test.go
+          - internal/config/*.go
+          - internal/provider/*.go
+          - internal/agent/*.go
+          - internal/tool/*.go
+          - internal/prompt/*.go
+          - internal/output/*.go
+        constraints:
+          - Keep --exec wired but noop; Stage 0 must not start an agent loop or provider call.
+          - version and config subcommands must be user-facing and rely on the resolved config path from internal/config.
+          - Do not expand scope into tools, REPL, prompt assembly, or provider transport.
+          - Preserve the approved verification strategy: broad checks defer until the end of implementation unless a step-local failure requires earlier reruns.
+        depends_on:
+          - stage-1-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Root Cobra CLI with version and config subcommands plus Stage 0 flag stubs.
+          - Tests covering resolved config printing and non-zero behavior for invalid config paths or invalid config content.
+          - Stage 0 repo passes build and relevant tests.
+        acceptance:
+          - go build ./... succeeds.
+          - steiner version prints a version string.
+          - steiner config loads and prints resolved YAML config using the documented precedence model.
+          - Invalid config exits non-zero with actionable output.
+          - Final verification covers formatting, vet, build, and tests per overview.md.
+        handoff: Close Stage 0 by making the repo compile, exposing the planned CLI surface, and leaving a clean foundation for Stage 1 provider and agent-loop work.
+        verification:
+          - gofmt -w ./...
+          - go vet ./...
+          - go build ./...
+          - go test -race ./...
