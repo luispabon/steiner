@@ -4,12 +4,12 @@
 - Execution branch: `cl/2026-04-20_stage-1-core-single-agent-loop`
 - Initial branch HEAD: `56e9194f091fbc31ad7d5de95df9884ad2470119`
 - Executor start (UTC): `2026-04-20T22:28:50Z`
-- Current phase: `running stage-1-step-3`
+- Current phase: `running stage-2-step-1`
 - Plan summary:
   - `stage-1-step-1`: implemented
   - `stage-1-step-2`: implemented
-  - `stage-1-step-3`: running
-  - `stage-2-step-1`: pending
+  - `stage-1-step-3`: implemented
+  - `stage-2-step-1`: running
   - `stage-2-step-2`: pending
   - `stage-3-step-1`: pending
 
@@ -53,6 +53,11 @@
 - `2026-04-20T22:44:09Z`: closed sub-agent for `stage-1-step-2`, removed worktree `/tmp/steiner-stage-1-step-2`, and deleted temp branch `tmp/stage-1-step-2`.
 - `2026-04-20T22:44:09Z`: marked `stage-1-step-2` implemented.
 - `2026-04-20T22:44:09Z`: marked `stage-1-step-3` as running.
+- `2026-04-20T22:49:53Z`: merged `tmp/stage-1-step-3` into the execution branch as merge commit `f5045ce`.
+- `2026-04-20T22:49:53Z`: reran step verification in the execution checkout: `go test ./internal/prompt/... ./internal/skill/...`.
+- `2026-04-20T22:49:53Z`: closed sub-agent for `stage-1-step-3`, removed worktree `/tmp/steiner-stage-1-step-3`, and deleted temp branch `tmp/stage-1-step-3`.
+- `2026-04-20T22:49:53Z`: marked `stage-1-step-3` implemented.
+- `2026-04-20T22:49:53Z`: marked `stage-2-step-1` as running.
 
 ## Completed Step
 
@@ -93,24 +98,42 @@
   - `cmd/steiner-core-tools/search.go`
   - `cmd/steiner-core-tools/bash.go`
 
-## Active Step
+## Completed Step
 
 - Step id: `stage-1-step-3`
-- Objective: `Implement bounded prompt assembly and skill loading with the repository-mandated context precedence order`
-- Scope: `internal/prompt` and `internal/skill` only
-- Files in scope:
+- Outcome: `implemented`
+- Worker model: `gpt-5.4-mini` (`cheaper`)
+- Worker branch: `tmp/stage-1-step-3`
+- Worker commit: `773b5b2`
+- Merge result: `clean`
+- Changed files:
   - `internal/prompt/types.go`
   - `internal/prompt/system.go`
   - `internal/prompt/agents.go`
   - `internal/prompt/context.go`
   - `internal/prompt/skills.go`
   - `internal/prompt/assemble.go`
+  - `internal/prompt/assemble_test.go`
   - `internal/skill/loader.go`
+  - `internal/skill/loader_test.go`
+
+## Active Step
+
+- Step id: `stage-2-step-1`
+- Objective: `Implement the main single-agent ReAct loop with stop controls, tool branching, and event emission`
+- Scope: `internal/agent` and `internal/output` orchestration only
+- Files in scope:
+  - `internal/agent/types.go`
+  - `internal/agent/state.go`
+  - `internal/agent/limits.go`
+  - `internal/agent/loop.go`
+  - `internal/output/log.go`
+  - `internal/output/stream.go`
 - Planned verification:
-  - `gofmt -w internal/prompt/*.go internal/skill/*.go`
-  - `go test ./internal/prompt/... ./internal/skill/...`
+  - `gofmt -w internal/agent/*.go internal/output/*.go`
+  - `go test ./internal/agent/... ./internal/output/...`
 - Sub-agent dispatch:
-  - step id: `stage-1-step-3`
+  - step id: `stage-2-step-1`
   - model: `gpt-5.4-mini`
   - tier vs current runtime: `cheaper`
   - execution mode: `serial`
