@@ -110,3 +110,31 @@ func TestNewRegistryFromConfigCopiesDefinitions(t *testing.T) {
 		t.Fatalf("Approval = %q, want auto", def.Approval)
 	}
 }
+
+func TestRegistryOpenAISchemas(t *testing.T) {
+	reg := NewRegistry(
+		ToolDef{Name: "write", Description: "Write files"},
+		ToolDef{Name: "read", Description: "Read files"},
+	)
+
+	schemas := reg.OpenAISchemas()
+	if got := len(schemas); got != 2 {
+		t.Fatalf("len(OpenAISchemas) = %d, want 2", got)
+	}
+
+	firstFunction, ok := schemas[0]["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("schemas[0][function] type = %T, want map[string]any", schemas[0]["function"])
+	}
+	if got := firstFunction["name"]; got != "read" {
+		t.Fatalf("schemas[0].function.name = %v, want read", got)
+	}
+
+	secondFunction, ok := schemas[1]["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("schemas[1][function] type = %T, want map[string]any", schemas[1]["function"])
+	}
+	if got := secondFunction["name"]; got != "write" {
+		t.Fatalf("schemas[1].function.name = %v, want write", got)
+	}
+}

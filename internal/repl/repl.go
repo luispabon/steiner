@@ -1,0 +1,264 @@
+package repl
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
+)
+
+type Runner interface {
+	Run(ctx context.Context, conversation []agent.Message, skillNames []string) (RunResult, error)
+}
+
+type RunResult struct {
+	Conversation []agent.Message
+	Reply        string
+}
+
+type Session struct {
+	Runner       Runner
+	In           io.Reader
+	Out          *output.Stream
+	Events       output.EventSink
+	ToolNames    []string
+	SkillNames   []string
+	ActiveSkills []string
+	Conversation []agent.Message
+	Completer    Completer
+}
+
+func NewSession(runner Runner, in io.Reader, out *output.Stream, events output.EventSink, toolNames, skillNames []string) *Session {
+	return &Session{
+		Runner:       runner,
+		In:           in,
+		Out:          out,
+		Events:       events,
+		ToolNames:    append([]string(nil), toolNames...),
+		SkillNames:   append([]string(nil), skillNames...),
+		Completer:    Completer{Commands: BuiltinCommands(), Skills: append([]string(nil), skillNames...)},
+		ActiveSkills: nil,
+	}
+}
+
+func (s *Session) Run(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	reader := s.In
+	if reader == nil {
+		return fmt.Errorf("input is required")
+	}
+	bufReader, ok := reader.(*bufio.Reader)
+	if !ok {
+		bufReader = bufio.NewReader(reader)
+	}
+	for {
+		s.printPrompt()
+		line, err := bufReader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if err == io.EOF && line == "" {
+			return nil
+		}
+		done, err := s.HandleLine(ctx, strings.TrimRight(line, "\r\n"))
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
+}
+
+func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false, nil
+	}
+
+	if command, ok := ParseCommand(line); ok {
+		return s.handleCommand(command)
+	}
+
+	if s.Runner == nil {
+		return false, fmt.Errorf("runner is required")
+	}
+
+	user := agent.Message{Role: agent.MessageRoleUser, Content: line}
+	conversation := cloneMessages(s.Conversation)
+	conversation = append(conversation, user)
+
+	result, err := s.Runner.Run(ctx, conversation, append([]string(nil), s.ActiveSkills...))
+	if err != nil {
+		return false, err
+	}
+
+	if len(result.Conversation) > 0 {
+		s.Conversation = cloneMessages(result.Conversation)
+	} else {
+		s.Conversation = conversation
+	}
+
+	reply := strings.TrimSpace(result.Reply)
+	if reply != "" {
+		s.Println(reply)
+	}
+
+	return false, nil
+}
+
+func (s *Session) handleCommand(command Command) (bool, error) {
+	switch command.Name {
+	case "help":
+		s.printHelp()
+	case "tools":
+		s.printTools()
+	case "skills":
+		s.printSkills()
+	case "clear":
+		s.Conversation = nil
+		s.Println("conversation cleared")
+	case "exit":
+		return true, nil
+	default:
+		if s.toggleSkill(command.Name) {
+			return false, nil
+		}
+		s.Printf("unknown command: /%s\n", command.Name)
+	}
+	return false, nil
+}
+
+func (s *Session) printPrompt() {
+	s.Printf("> ")
+}
+
+func (s *Session) Println(args ...any) {
+	if s != nil && s.Out != nil {
+		s.Out.Println(args...)
+	}
+}
+
+func (s *Session) Printf(format string, args ...any) {
+	if s != nil && s.Out != nil {
+		s.Out.Printf(format, args...)
+	}
+}
+
+func (s *Session) printHelp() {
+	s.Println("commands:")
+	for _, name := range BuiltinCommands() {
+		s.Printf("  /%s\n", name)
+	}
+	if len(s.SkillNames) > 0 {
+		s.Println("skills:")
+		for _, name := range s.SkillNames {
+			s.Printf("  /%s\n", name)
+		}
+	}
+}
+
+func (s *Session) printTools() {
+	if len(s.ToolNames) == 0 {
+		s.Println("no tools configured")
+		return
+	}
+	s.Println("tools:")
+	for _, name := range s.ToolNames {
+		s.Printf("  %s\n", name)
+	}
+}
+
+func (s *Session) printSkills() {
+	if len(s.SkillNames) == 0 {
+		s.Println("no skills available")
+		return
+	}
+	s.Println("skills:")
+	for _, name := range s.SkillNames {
+		enabled := ""
+		if containsString(s.ActiveSkills, name) {
+			enabled = " [active]"
+		}
+		s.Printf("  %s%s\n", name, enabled)
+	}
+}
+
+func (s *Session) toggleSkill(name string) bool {
+	if !containsString(s.SkillNames, name) {
+		return false
+	}
+	if idx := indexOfString(s.ActiveSkills, name); idx >= 0 {
+		s.ActiveSkills = append(s.ActiveSkills[:idx], s.ActiveSkills[idx+1:]...)
+		s.Printf("skill disabled: %s\n", name)
+		return true
+	}
+	s.ActiveSkills = append(s.ActiveSkills, name)
+	s.Printf("skill enabled: %s\n", name)
+	return true
+}
+
+func cloneMessages(messages []agent.Message) []agent.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]agent.Message, len(messages))
+	copy(out, messages)
+	for i := range out {
+		if len(out[i].ToolCalls) == 0 {
+			continue
+		}
+		calls := make([]agent.ToolCall, len(out[i].ToolCalls))
+		copy(calls, out[i].ToolCalls)
+		for j := range calls {
+			calls[j].Arguments = cloneInput(calls[j].Arguments)
+		}
+		out[i].ToolCalls = calls
+	}
+	return out
+}
+
+func cloneInput(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = cloneValue(value)
+	}
+	return cloned
+}
+
+func cloneValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneInput(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = cloneValue(v[i])
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func containsString(values []string, want string) bool {
+	return indexOfString(values, want) >= 0
+}
+
+func indexOfString(values []string, want string) int {
+	for i, value := range values {
+		if value == want {
+			return i
+		}
+	}
+	return -1
+}
