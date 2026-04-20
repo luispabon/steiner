@@ -48,7 +48,7 @@
 | Step ID | Status | Notes |
 |---|---|---|
 | `stage-1-step-1` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-1`; sub-agent commit `7e6cd3a` |
-| `stage-1-step-2` | `ready` | `stage-1-step-1` merged and cleanup complete |
+| `stage-1-step-2` | `running` | Isolated worktree `/tmp/steiner-stage-0-step-2` on `exec/2026-04-20-stage-0-step-2` |
 | `stage-2-step-1` | `pending` | Blocked on `stage-1-step-2` |
 
 ## Execution Notes
@@ -62,3 +62,5 @@
 - 2026-04-20: Step-local verification reported by sub-agent: `gofmt -w cmd/steiner/main.go internal/config/*.go internal/config/*_test.go` and `env GOCACHE=/tmp/steiner-gocache GOMODCACHE=/tmp/steiner-gomodcache go test ./internal/config/...` both passed.
 - 2026-04-20: Merge-back initially failed because the feature branch checkout contained conflicting untracked copies of `cmd/`, `internal/`, and `go.mod`. Those files were moved to `/tmp/steiner-executor-backup-step1` to preserve them while keeping the committed isolated branch as the merge source of truth.
 - 2026-04-20: Merged `exec/2026-04-20-stage-0-step-1` into `cl/2026-04-20_stage-0-foundations`, removed worktree `/tmp/steiner-stage-0-step-1`, and deleted temporary branch `exec/2026-04-20-stage-0-step-1`.
+- 2026-04-20: Began `stage-1-step-2` in isolated worktree `/tmp/steiner-stage-0-step-2` on temporary branch `exec/2026-04-20-stage-0-step-2`.
+- 2026-04-20: Spawned implementation sub-agent for `stage-1-step-2` using `gpt-5.4-mini` (cheaper than the current runtime model), serial execution.
