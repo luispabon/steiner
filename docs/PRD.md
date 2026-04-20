@@ -1,71 +1,537 @@
 # steiner - Product Requirements Document
 
-**Version:** 0.1.0 (v1)
+**Version:** 0.2.0 (restructured draft)
 **Status:** Draft
 **Date:** 2026-04-20
+
+This revision preserves the direction of the original draft while restructuring it around context hygiene, safe execution, and staged capability delivery. It also adds provider/model parallelism control for resource-constrained environments.
 
 ---
 
 ## 1. Overview
 
-steiner is a minimal, local-first coding agent written in Go. It takes a task from the user, reasons about it using an LLM, executes tool calls against the local filesystem and shell, and iterates until the task is complete. It prioritises simplicity, extensibility, and a small system prompt footprint over framework complexity.
+steiner is a minimal, local-first coding agent written in Go. It accepts a user task, reasons about it using an LLM, executes tool calls against the local filesystem and shell, and iterates until the task is complete.
 
-steiner is not a framework. It is a single opinionated binary that ships with sensible defaults, a plugin system for tools, sub-agent support for task decomposition, and a skills system for reusable context injection.
+steiner is designed for real coding work over sessions that may become long, exploratory, or multi-step. Its central product concern is not just tool use, but disciplined context management over time. It prioritises simplicity, bounded context growth, extensibility, and a small prompt footprint over framework complexity.
 
-## 2. Design Principles
+steiner is not a framework. It is a single opinionated binary with sensible defaults, a plugin-first tool model, a skills system for explicit context injection, and an architecture that can later support delegated work through isolated sub-agents.
 
-- **Minimal system prompt injection.** The agent injects a short preamble, AGENTS.md conventions, and auto-discovered project context. The model's native capabilities do the heavy lifting.
-- **Plugin-first tools.** Core tools (read, write, bash, glob) ship as the default plugin. Additional tools use the same external binary interface - no distinction between "built-in" and "user-defined."
-- **No framework dependencies.** steiner is a single statically-linked Go binary. No Python, no Node, no runtime dependencies.
-- **Sandbox-ready architecture.** v1 executes tools directly, but the tool execution layer is designed as a clean interface that a sandbox wrapper (container-based or otherwise) can sit in front of later.
-- **LLM-agnostic with provider abstraction.** v1 targets OpenAI-compatible APIs (covering Ollama, llama.cpp, vLLM, OpenRouter, and the commercial OpenAI/Groq/etc. endpoints). The provider interface is abstract from day one.
-- **User-driven context.** Skills are never auto-loaded or surfaced to the LLM. The user decides what context the agent needs and invokes it explicitly.
+Sub-agents are a core part of the long-term product vision because context isolation is a core product requirement. They are not required in the earliest implementation stages.
 
-## 3. Architecture
+---
 
-### 3.1 Core Agent Loop
+## 2. Product Goals and Non-Goals
 
-The agent loop follows the universal ReAct pattern:
+### 2.1 Goals
 
-```
-1. Receive prompt (user input + system prompt + conversation history)
-2. Call LLM
-3. If response contains tool_calls:
-   a. Execute each tool call (with approval check if required)
-   b. Append tool results to conversation history
-   c. Go to 2
-4. If response is text-only (no tool_calls):
-   a. Display response to user
-   b. If REPL mode: wait for next user input, go to 1
-   c. If single-shot mode: exit
-```
+steiner should:
 
-The loop terminates when the LLM produces a text-only response, or when any termination control is triggered (see section 3.7).
+* complete real coding tasks through iterative LLM reasoning and tool use
+* remain usable over long sessions without uncontrolled context growth
+* keep prompt construction deliberate, inspectable, and bounded
+* allow users to inject reusable context explicitly rather than implicitly
+* support future delegated work via isolated sub-agents
+* remain easy to install and run as a single statically-linked Go binary
+* work with both local and remote OpenAI-compatible endpoints
+* operate well on resource-constrained hardware, including systems hosting local LLMs
 
-### 3.2 Provider Abstraction Layer
+### 2.2 Non-Goals
 
-All LLM communication goes through an abstract provider interface:
+steiner is not initially intended to be:
+
+* a general-purpose agent framework
+* a web application or hosted service
+* a sandboxed execution platform in early stages
+* a persistence-heavy assistant with durable memory in early stages
+* a full MCP client in early stages
+* a multi-user orchestration platform
+* an autonomous background worker
+
+---
+
+## 3. Core Product Principles
+
+### 3.1 Minimal Prompting
+
+steiner should inject only the minimum instruction required to establish operating rules, context sources, and tool availability. The model's native capabilities should do the heavy lifting.
+
+### 3.2 Local-First Operation
+
+steiner should work well with local LLMs, local projects, and local tool execution. Remote APIs are supported, but local operation is a primary use case.
+
+### 3.3 Context Cleanliness Over Convenience
+
+The system must prefer bounded, explicit, and inspectable context over convenience features that silently bloat prompt state. Long-lived usefulness depends on this.
+
+### 3.4 Plugin-First Tooling
+
+Core tools and user-defined tools should share the same registration and execution model wherever practical. The system should not grow separate tool worlds for "built-in" and "custom" behaviour.
+
+### 3.5 Safe-by-Default Execution
+
+Direct execution is acceptable in early stages, but the execution model must still support confinement, approvals, output limits, and future sandboxing.
+
+### 3.6 Provider Abstraction
+
+LLM access should be abstracted from the beginning so the agent loop does not depend on a single provider implementation.
+
+### 3.7 User-Driven Context
+
+Skills and other optional context must never be silently surfaced to the model. The user should decide what additional context enters the run.
+
+---
+
+## 4. Context Architecture
+
+Context management is a first-class architectural concern. steiner's quality over time depends on how well it controls what enters context, how long it remains there, how it is compacted, and how delegated work is isolated.
+
+### 4.1 Context Sources
+
+steiner may construct model context from the following sources:
+
+1. fixed system preamble
+2. global AGENTS.md conventions
+3. project AGENTS.md conventions
+4. auto-discovered project context
+5. user-invoked skills
+6. active conversation history
+7. tool results
+8. delegated sub-agent return payloads
+
+Not all sources are always present.
+
+### 4.2 Context Precedence
+
+The system should apply a clear precedence model:
+
+1. fixed system preamble
+2. global AGENTS.md
+3. project AGENTS.md
+4. auto-discovered project context
+5. user-invoked skills
+6. active conversation state
+7. tool results
+8. delegated sub-agent results
+
+This precedence governs conflict resolution conceptually. It does not require that all sources be encoded as the same message role.
+
+### 4.3 Context Encoding Strategy
+
+steiner should not treat every context source as an equivalent high-authority system instruction.
+
+Recommended encoding model:
+
+* fixed system preamble as the primary system message
+* AGENTS.md content included as convention blocks beneath the system contract
+* project context included as bounded reference context
+* skills injected as explicit auxiliary context, not as peer system authority
+* tool results appended as structured outputs
+* delegated sub-agent results appended as compact summaries or structured returns
+
+This prevents accidental over-authority of optional or user-added context.
+
+### 4.4 Context Retention Policy
+
+The system must define what is retained, compacted, or discarded.
+
+Policy goals:
+
+* recent turns remain verbatim
+* large tool output is truncated and summarised
+* stale exploratory noise does not remain indefinitely
+* critical constraints and active decisions remain visible
+* parent agents do not inherit full delegated transcripts by default
+
+At minimum, steiner should support these policies conceptually from the beginning:
+
+* retain recent user/assistant/tool turns verbatim
+* enforce per-tool output byte limits
+* replace oversized outputs with a summary envelope plus truncation notice
+* bound auto-discovered project context by a configurable budget
+* support future rolling compaction of older conversation history
+* keep sub-agent internals isolated from parent context unless explicitly requested
+
+### 4.5 Context Boundaries
+
+Context boundaries must be explicit.
+
+* the main agent has its own working history
+* each sub-agent has a separate working history
+* tool output is not automatically "important" merely because it exists
+* user-invoked skills remain explicit and inspectable
+* project context is reference material, not permanent high-priority instruction
+* delegated work returns compact results, not raw transcripts
+
+### 4.6 Context Failure Modes
+
+The design should explicitly guard against:
+
+* prompt bloat from large tool output
+* stale README or project metadata dominating context
+* conflicting instructions across AGENTS.md and skills
+* conversation drift during long sessions
+* parent context pollution from delegated work
+* repeated reinjection of low-value context
+* degraded responsiveness from overly large prompts on local models
+
+---
+
+## 5. User Experience Model
+
+### 5.1 Modes
+
+steiner supports two primary operating modes:
+
+* **REPL mode** - interactive terminal session in the current project
+* **Single-shot mode** - one task executed via `--exec`
+
+### 5.2 User Controls
+
+The user should be able to:
+
+* start a session in a project directory
+* run a one-shot task
+* inspect available tools
+* inspect available skills
+* activate a skill explicitly
+* clear the current conversation
+* approve or deny tool calls
+* override selected configuration values for the current session
+* see why a run stopped
+* later, inspect when delegation occurred
+
+### 5.3 Visibility and Trust
+
+The terminal UX should surface the information needed to keep the agent understandable:
+
+* tool name and relevant arguments before execution
+* approval prompts for risky tools
+* truncation notices when output is reduced
+* skill activation when skills are injected
+* current turn and budget usage where available
+* clear stop reasons when limits are hit
+* later, clear indication when a sub-agent has been used
+
+### 5.4 Resource-Constrained Operation
+
+Users running local models on limited hardware must be able to reduce runtime pressure deliberately. steiner should expose provider/model parallelism controls so users can limit the number of concurrent in-flight LLM requests.
+
+This is especially important once delegated execution exists, but the control belongs in the provider configuration from the start.
+
+---
+
+## 6. Functional Architecture
+
+### 6.1 Core Agent Loop
+
+The base agent loop follows a ReAct-style cycle:
+
+1. assemble prompt input from configured context sources
+2. call the LLM
+3. if the response contains tool calls:
+
+   * validate and approve as required
+   * execute each tool call
+   * append tool results
+   * continue
+4. if the response is textual only:
+
+   * display it
+   * in REPL mode, wait for further input
+   * in single-shot mode, exit
+
+The loop terminates when the model produces a final text response or when a termination control fires.
+
+### 6.2 Provider Abstraction Layer
+
+All model communication should go through an abstract provider interface.
 
 ```go
 type Provider interface {
-    // ChatCompletion sends a request and returns a response.
-    // Streaming is handled internally; the response contains
-    // the fully assembled message plus usage metadata.
     ChatCompletion(ctx context.Context, req ChatRequest) (*ChatResponse, error)
-
-    // StreamChatCompletion sends a request and returns a channel
-    // of streaming chunks for real-time terminal output.
     StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error)
-
-    // SupportsUsageStats reports whether this provider returns
-    // token usage in responses (needed for budget enforcement).
     SupportsUsageStats() bool
 }
 ```
 
-v1 ships with a single provider implementation: `openai_compat`, which covers any API conforming to the OpenAI Chat Completions spec. Additional providers (Anthropic native, Google Gemini) can be added as new implementations of this interface without touching the agent loop.
+v1 ships with a single provider implementation: `openai_compat`, covering APIs that follow the OpenAI Chat Completions interface.
 
-Configuration selects the provider and passes through provider-specific settings:
+Future native providers can be added without changing the main agent loop.
+
+### 6.3 Provider Runtime Parallelism
+
+Provider configuration must support a `parallelism` setting that limits how many LLM requests steiner may have in flight at once for that provider/model configuration.
+
+This is a runtime concurrency guard, not a sampling parameter.
+
+Purpose:
+
+* prevent overload on resource-constrained local machines
+* avoid excessive contention on small GPUs or integrated graphics
+* cap concurrent parent/sub-agent model calls once delegation exists
+* give users explicit control over responsiveness vs throughput
+
+Semantics:
+
+* default should be conservative
+* `parallelism: 1` means only one LLM request may be active at a time
+* higher values permit more concurrent model requests
+* the scheduler must respect this limit across all agent activity using that configured provider instance
+
+In early single-agent stages this limit will usually be functionally equivalent to 1, but the configuration belongs in the architecture from the start.
+
+### 6.4 Tool System
+
+#### 6.4.1 Tool Model
+
+steiner exposes tools to the LLM through structured function schemas derived from config.
+
+Core tools ship with the project, but user-defined tools should fit the same registration model wherever possible.
+
+#### 6.4.2 Tool Registration
+
+Tools are declared in YAML config with:
+
+* name
+* executable path
+* optional subcommand
+* description
+* parameter schema
+* timeout
+* approval mode
+* optional execution constraints
+
+#### 6.4.3 Tool Execution Contract
+
+The tool contract must be explicit and consistent.
+
+Primary contract:
+
+* structured JSON input
+* structured JSON output
+* non-zero exit codes treated as errors
+
+If simple script-style tooling is to be supported, that should be an explicit adapter mode rather than an implicit contradiction of the JSON contract.
+
+#### 6.4.4 Core Tools
+
+The initial core tool set should remain intentionally small:
+
+* `read`
+* `glob`
+* `search`
+* `write`
+* `bash`
+
+However, the long-term editing model should not rely only on full-file overwrites.
+
+#### 6.4.5 Tool Output Policy
+
+Tool output must be bounded.
+
+The execution layer should support:
+
+* max stdout/stderr bytes captured
+* truncation markers
+* optional summarisation envelopes for large results
+* binary output detection
+* clear error propagation
+
+This is required for context hygiene.
+
+### 6.5 Editing Model
+
+File mutation deserves its own design treatment.
+
+Initial support may include `write`, but the product should be designed to support safer edit primitives later, such as:
+
+* exact replace
+* patch application
+* append
+* structured file edits where appropriate
+
+Full-file overwrite is acceptable as an early primitive, but should not remain the only mutation path if the product is expected to perform reliable coding tasks.
+
+### 6.6 Execution Safety Model
+
+Even before sandboxing, v1 should define execution safety rules.
+
+The execution layer should support:
+
+* project-root-based path resolution
+* path confinement by default
+* configurable writable path rules
+* timeout enforcement
+* cancellation propagation
+* optional restrictions on dangerous paths
+* explicit working directory handling for shell commands
+
+This layer should be abstract enough to permit future containerised execution without redesigning the agent loop.
+
+---
+
+## 7. Delegation Architecture
+
+Delegation exists to support context isolation, not novelty.
+
+### 7.1 Purpose of Delegation
+
+Sub-agents exist to:
+
+* isolate exploratory or bulky work
+* keep parent context compact
+* allow bounded subtask execution with separate limits
+* return concise results to the parent agent
+
+### 7.2 Sub-Agent Model
+
+A sub-agent is an isolated agent loop instance with:
+
+* its own empty conversation history
+* its own task prompt
+* its own limits
+* an allowed tool subset
+* no automatic access to the parent transcript beyond what is explicitly passed
+
+The parent agent should only receive the sub-agent's final result payload unless more detail is explicitly requested.
+
+### 7.3 Parent/Sub-Agent Contract
+
+A delegation contract should define what the parent sends:
+
+* task
+* scoped context
+* allowed tools
+* limits
+* optional execution metadata
+
+And what the sub-agent returns:
+
+* final answer
+* optional compact summary
+* optional artifact references
+* status metadata
+
+It should not return its full internal transcript by default.
+
+### 7.4 Isolation Rules
+
+* sub-agents do not inherit full parent history
+* parent agents do not ingest sub-agent tool chatter
+* sub-agents cannot nest by default
+* delegated work is bounded by separate turn/token/runtime limits
+* provider parallelism limits still apply globally
+
+### 7.5 Deferred Delegation Features
+
+These are intentionally deferred:
+
+* nested sub-agents
+* parallel sub-agents
+* shared memory between agents
+* parent inspection of full sub-agent transcript by default
+* complex delegation graphs
+
+Sub-agents are a core architectural requirement, but not an initial implementation requirement.
+
+---
+
+## 8. Skills and Convention System
+
+### 8.1 AGENTS.md Conventions
+
+steiner should support two optional convention sources:
+
+1. global: `~/.config/steiner/AGENTS.md`
+2. project: `./AGENTS.md`
+
+Both may be included in the prompt assembly, with global conventions preceding project conventions.
+
+### 8.2 Skills
+
+Skills are reusable context snippets that the user explicitly injects.
+
+Global skill location:
+
+```text
+~/.config/steiner/skills/
+  skill-name/
+    SKILL.md
+```
+
+Each skill is identified by its directory name and loaded only when explicitly invoked.
+
+### 8.3 Skill Invocation
+
+In REPL mode:
+
+```text
+/skill-name
+```
+
+In single-shot mode:
+
+```bash
+steiner --exec "task" --skill skill-name
+```
+
+### 8.4 Skill Authority
+
+Skills must not be treated as peer system authority. They are explicit contextual assistance blocks added below the fixed system contract and conventions hierarchy.
+
+This is important to avoid accidental prompt corruption through optional user-provided material.
+
+---
+
+## 9. Project Context Discovery
+
+steiner may auto-discover bounded project context to help initial grounding.
+
+### 9.1 Sources
+
+Suggested discovery categories:
+
+| Category               | Candidate files                                                      |
+| ---------------------- | -------------------------------------------------------------------- |
+| Project description    | `README.md`, `README`, `README.txt`                                  |
+| Build/runtime metadata | `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Makefile` |
+
+### 9.2 Behaviour
+
+Project context should be:
+
+* discovered automatically
+* bounded by a configurable token budget
+* truncated or excerpted when large
+* treated as reference context rather than permanent instruction
+* overridable through config
+
+### 9.3 Configuration
+
+The project context system should support:
+
+* max budget
+* extra files
+* ignore files
+* future per-category policies
+
+---
+
+## 10. Configuration Model
+
+### 10.1 Hierarchy
+
+Configuration should resolve in this order:
+
+1. compiled defaults
+2. global config - `~/.config/steiner/config.yaml`
+3. project config - `.steiner/config.yaml`
+4. environment variables
+5. CLI flags
+
+Later layers override earlier ones.
+
+### 10.2 Full Config Schema
 
 ```yaml
 provider:
@@ -75,391 +541,20 @@ provider:
   model: ${STEINER_MODEL:-qwen3-35b-a3b}
   temperature: 0.2
   max_completion_tokens: 8192
-```
-
-Environment variable interpolation in YAML values allows secrets to stay out of config files. The config file sets defaults; environment variables can override any value.
-
-### 3.3 Tool System
-
-#### 3.3.1 Tool Execution Interface
-
-All tools - core and user-defined - are external processes conforming to the same contract:
-
-**Input:** JSON payload on stdin:
-
-```json
-{
-  "tool": "read",
-  "arguments": {
-    "path": "src/auth/middleware.go"
-  },
-  "working_directory": "/home/user/project"
-}
-```
-
-**Output:** JSON payload on stdout:
-
-```json
-{
-  "result": "package auth\n\nimport...",
-  "error": null,
-  "metadata": {
-    "bytes_read": 2048
-  }
-}
-```
-
-**Raw text fallback:** If the tool's stdout is not valid JSON, steiner wraps it in a result envelope automatically:
-
-```json
-{
-  "result": "<raw stdout content>",
-  "error": null
-}
-```
-
-If the tool exits with a non-zero exit code, steiner captures stderr and constructs an error response regardless of stdout content.
-
-This fallback means simple shell scripts work as tools without JSON awareness:
-
-```bash
-#!/bin/bash
-# tools/line-count - counts lines in a file
-wc -l "$1"
-```
-
-#### 3.3.2 Tool Registration
-
-Tools are declared in YAML config. Each tool definition includes the binary path, a description (passed to the LLM as part of the tool schema), parameter schema, and execution constraints:
-
-```yaml
-tools:
-  read:
-    binary: steiner-core-tools
-    subcommand: read
-    description: "Read the contents of a file at the given path. Use this to examine source code, configuration, documentation, or any text file."
-    parameters:
-      path:
-        type: string
-        required: true
-        description: "Absolute or relative path to the file to read"
-    timeout: 5s
-    approval: auto
-
-  write:
-    binary: steiner-core-tools
-    subcommand: write
-    description: "Write content to a file, creating it if it doesn't exist or overwriting if it does. Always read a file before writing to understand existing content and structure."
-    parameters:
-      path:
-        type: string
-        required: true
-        description: "Path to the file to write"
-      content:
-        type: string
-        required: true
-        description: "Complete file content to write"
-    timeout: 5s
-    approval: prompt
-
-  bash:
-    binary: steiner-core-tools
-    subcommand: bash
-    description: "Execute a bash command in the project directory. Use for running tests, installing dependencies, git operations, and any command-line task. Prefer targeted commands over broad ones."
-    parameters:
-      command:
-        type: string
-        required: true
-        description: "The bash command to execute"
-    timeout: 120s
-    approval: prompt
-
-  glob:
-    binary: steiner-core-tools
-    subcommand: glob
-    description: "Find files matching a glob pattern. Returns a list of matching file paths relative to the project root."
-    parameters:
-      pattern:
-        type: string
-        required: true
-        description: "Glob pattern (e.g. '**/*.go', 'src/**/*.test.ts')"
-    timeout: 10s
-    approval: auto
-
-  search:
-    binary: steiner-core-tools
-    subcommand: search
-    description: "Search file contents using a regex pattern. Returns matching lines with file paths and line numbers."
-    parameters:
-      pattern:
-        type: string
-        required: true
-        description: "Regex pattern to search for"
-      paths:
-        type: array
-        items: string
-        required: false
-        description: "File paths or glob patterns to search within. Defaults to entire project."
-    timeout: 30s
-    approval: auto
-```
-
-The `steiner-core-tools` binary is a single Go binary that multiplexes the core tools via the `subcommand` field. User-defined tools point to their own binaries.
-
-#### 3.3.3 Tool Schema Generation
-
-steiner converts the YAML tool definitions into the OpenAI-compatible `tools` array format at startup. This is the JSON schema the LLM receives:
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "read",
-    "description": "Read the contents of a file...",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "path": {"type": "string", "description": "..."}
-      },
-      "required": ["path"]
-    }
-  }
-}
-```
-
-#### 3.3.4 Tool Execution Layer
-
-The tool executor is an interface designed for future sandbox interposition:
-
-```go
-type ToolExecutor interface {
-    Execute(ctx context.Context, tool ToolDef, input ToolInput) (*ToolOutput, error)
-}
-```
-
-v1 ships with `DirectExecutor`, which spawns the tool binary as a subprocess. A future `ContainerExecutor` would implement the same interface, wrapping tool invocations in `docker run` / `podman run` calls with bind mounts and network restrictions.
-
-### 3.4 Sub-Agent System
-
-Sub-agents use Pattern A: sub-agent as tool with isolated context.
-
-The orchestrator (main agent loop) has access to a special built-in tool called `spawn_agent`. When the LLM calls `spawn_agent`, steiner creates a new agent loop instance with:
-
-- Its own empty conversation history
-- Its own system prompt (the sub-agent task description becomes the prompt)
-- Its own termination controls (configurable, defaults to lower limits than the parent)
-- Access to the same tool set as the parent (configurable - can be restricted)
-
-The sub-agent runs its loop to completion and returns its final text response as the tool result to the orchestrator. The orchestrator never sees the sub-agent's intermediate tool calls or reasoning - only the final output. This keeps the orchestrator's context window clean.
-
-```yaml
-sub_agent:
-  max_turns: 15
-  max_tokens: 100000
-  allowed_tools: [read, glob, search, write, bash]
-  # Sub-agents cannot spawn further sub-agents by default
-  allow_nesting: false
-  # Maximum concurrent sub-agents (for parallel spawn)
-  max_concurrent: 3
-```
-
-The `spawn_agent` tool schema presented to the LLM:
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "spawn_agent",
-    "description": "Spawn a sub-agent to handle a focused subtask. The sub-agent gets its own context window and runs independently. Use this for tasks that require significant exploration or work that would bloat the main conversation context. The sub-agent returns only its final result.",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "task": {
-          "type": "string",
-          "description": "Clear, specific description of the task for the sub-agent"
-        },
-        "context": {
-          "type": "string",
-          "description": "Relevant context from the current conversation that the sub-agent needs"
-        }
-      },
-      "required": ["task"]
-    }
-  }
-}
-```
-
-Parallel sub-agent support: the LLM can request multiple `spawn_agent` tool calls in a single response. steiner executes them concurrently (up to `max_concurrent`) using goroutines, collects all results, and returns them to the LLM together.
-
-### 3.5 Skills System
-
-Skills are reusable context snippets that the user injects into the conversation on demand. They are never auto-loaded and are never surfaced to the LLM unless explicitly invoked.
-
-#### 3.5.1 Skill Location and Structure
-
-Skills are stored globally at `~/.config/steiner/skills/`. Each skill is a directory containing a `SKILL.md` file:
-
-```
-~/.config/steiner/skills/
-  copy-polisher/
-    SKILL.md
-  go-conventions/
-    SKILL.md
-  terraform-patterns/
-    SKILL.md
-```
-
-The `SKILL.md` file contains the full skill content - instructions, examples, rules, templates - whatever the user wants injected into the conversation. There is no required metadata format; the file content is injected verbatim. The directory name is the skill's invocation name.
-
-#### 3.5.2 Skill Invocation
-
-Skills are invoked via the `/` command namespace in the REPL, using the directory name:
-
-```
-/copy-polisher
-/go-conventions
-/terraform-patterns
-```
-
-When invoked, the skill content is injected into the conversation history as a system message. The LLM sees it as additional context for the current and subsequent turns. A skill remains active in the conversation history for the remainder of the session (until `/clear`).
-
-In single-shot mode, skills are invoked via the `--skill` flag (repeatable):
-
-```
-steiner --exec "refactor the handler" --skill go-conventions --skill copy-polisher
-```
-
-#### 3.5.3 Skill Discovery
-
-steiner discovers available skills by scanning `~/.config/steiner/skills/` at startup. The list of available skill names is used solely for autocompletion (see section 5.4). Skill descriptions and content are never passed to the LLM unless the user explicitly invokes them.
-
-### 3.6 System Prompt
-
-The system prompt is composed of three layers, concatenated in order:
-
-**Layer 1: Agent preamble (~150-200 tokens)**
-
-A fixed, minimal preamble that establishes the agent's role and behavioural constraints:
-
-```
-You are steiner, a coding agent. You operate by reading files, understanding
-code, making changes, and verifying your work.
-
-Rules:
-- Always read a file before modifying it.
-- After making changes, verify them (run tests, linters, or re-read the file).
-- Prefer targeted, minimal changes over broad rewrites.
-- If a task is ambiguous, use available tools to gather context before
-  asking the user for clarification.
-- When spawning sub-agents, give them specific, self-contained tasks with
-  enough context to work independently.
-```
-
-This preamble is intentionally short. The model's training already knows how to write code, reason about software, and use tools. The preamble exists to establish conventions, not to teach capabilities.
-
-**Layer 2: AGENTS.md conventions (auto-discovered, variable length)**
-
-steiner loads and merges AGENTS.md files from two locations at startup:
-
-1. **Global:** `~/.config/steiner/AGENTS.md` - personal conventions that apply to all projects (coding style preferences, commit message format, preferred tools, etc.)
-2. **Project:** `./AGENTS.md` in the project root - project-specific conventions (architecture rules, test frameworks, forbidden patterns, etc.)
-
-Both files are optional. When both exist, the global file content is included first, followed by the project file content, separated by a clear delimiter:
-
-```
---- Global conventions ---
-<contents of ~/.config/steiner/AGENTS.md>
-
---- Project conventions ---
-<contents of ./AGENTS.md>
-```
-
-AGENTS.md is the emerging industry standard for AI coding agent instructions, supported by Claude Code, Codex, and others. steiner uses it as the sole mechanism for user-authored agent instructions - there is no steiner-specific alternative.
-
-**Layer 3: Project context (auto-discovered, variable length)**
-
-At startup, steiner scans the project root for context files and includes their contents (truncated if necessary) in the system prompt:
-
-Discovery order (first found wins for each category):
-
-| Category | Files checked |
-|---|---|
-| Project description | `README.md`, `README`, `README.txt` |
-| Language/framework | `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Makefile` |
-
-**Layer 4: Tool descriptions (auto-generated)**
-
-Not part of the `system` message content - these are passed via the `tools` parameter in the API request. Included here for completeness: the LLM sees tool names, descriptions, and parameter schemas as part of every request.
-
-### 3.7 Termination Controls
-
-Three independent safety valves, any of which can halt the agent loop:
-
-| Control | Scope | Default | Configurable |
-|---|---|---|---|
-| Max turns | Agent loop | 50 | `limits.max_turns` |
-| Token budget | Cumulative across all LLM calls | 500,000 | `limits.max_tokens` |
-| Per-tool timeout | Individual tool invocation | 30s | `limits.tool_timeout_default` + per-tool `timeout` |
-
-When a limit is hit:
-
-- **Max turns:** The agent stops, prints the current state, and tells the user how many turns were used and why it stopped.
-- **Token budget:** Same as max turns. If the provider doesn't return usage stats (`SupportsUsageStats() == false`), this control is skipped with a warning at startup.
-- **Per-tool timeout:** The specific tool invocation is killed (context cancellation). The error is fed back to the LLM as a tool result: `{"error": "tool execution timed out after 120s"}`. The agent loop continues - the LLM can decide how to recover.
-
-### 3.8 Approval System
-
-Each tool has an `approval` setting: `auto` (execute immediately) or `prompt` (show the user and wait for confirmation).
-
-The global `--auto-approve` CLI flag overrides all tools to `auto`. Intended for single-shot mode, CI pipelines, and users who trust their prompts.
-
-When approval is required, steiner displays:
-
-```
-[tool: write] src/auth/middleware.go
-  Writing 47 lines (1,203 bytes)
-  [y]es / [n]o / [v]iew content / [a]lways approve this tool >
-```
-
-The `[a]lways` option sets the tool to `auto` for the remainder of the session, reducing friction without permanently changing config.
-
-## 4. Configuration
-
-### 4.1 Hierarchy
-
-Configuration is loaded in order, with later sources overriding earlier ones:
-
-1. **Compiled defaults** - hardcoded in the binary
-2. **Global config** - `~/.config/steiner/config.yaml`
-3. **Project config** - `.steiner/config.yaml` in the project root (found by walking up from cwd)
-4. **Environment variables** - `STEINER_*` prefix, mapped to config keys
-5. **CLI flags** - highest priority
-
-### 4.2 Full Config Schema
-
-```yaml
-# ~/.config/steiner/config.yaml (global)
-# or .steiner/config.yaml (project)
-
-provider:
-  type: openai_compat          # Provider implementation
-  base_url: http://localhost:11434/v1
-  api_key: ${STEINER_API_KEY}
-  model: qwen3-35b-a3b
-  temperature: 0.2
-  max_completion_tokens: 8192
+  parallelism: 1
 
 limits:
   max_turns: 50
   max_tokens: 500000
   tool_timeout_default: 30s
-  tool_timeouts:              # Per-tool overrides
+  tool_timeouts:
     bash: 120s
     read: 5s
     write: 5s
+  tool_output_max_bytes: 65536
 
 approval:
-  default: prompt             # Default for new/unknown tools
+  default: prompt
   overrides:
     read: auto
     glob: auto
@@ -468,237 +563,363 @@ approval:
     bash: prompt
 
 sub_agent:
+  enabled: false
   max_turns: 15
   max_tokens: 100000
   allowed_tools: [read, glob, search, write, bash]
   allow_nesting: false
-  max_concurrent: 3
+  max_concurrent: 1
 
-tools: {}                     # Tool definitions (see section 3.3.2)
+tools: {}
 
 project_context:
-  max_tokens: 2000            # Max tokens for auto-discovered context
-  extra_files: []             # Additional files to include in context
-  ignore_files: []            # Files to exclude from auto-discovery
+  max_tokens: 2000
+  extra_files: []
+  ignore_files: []
+
+paths:
+  project_root_only: true
+  writable_paths: []
+  blocked_paths: []
 
 logging:
-  level: info                 # debug, info, warn, error
+  level: info
   file: ~/.local/share/steiner/steiner.log
 ```
 
-### 4.3 Environment Variable Mapping
+### 10.3 Parallelism Configuration
 
-Environment variables use the `STEINER_` prefix with underscore-separated paths:
+`provider.parallelism` sets the maximum number of simultaneous LLM requests steiner may have in flight for that configured provider/model.
 
-| Variable | Config path | Example |
-|---|---|---|
-| `STEINER_API_KEY` | `provider.api_key` | `sk-...` |
-| `STEINER_BASE_URL` | `provider.base_url` | `http://localhost:11434/v1` |
-| `STEINER_MODEL` | `provider.model` | `qwen3-35b-a3b` |
-| `STEINER_MAX_TURNS` | `limits.max_turns` | `100` |
-| `STEINER_LOG_LEVEL` | `logging.level` | `debug` |
+Examples:
 
-## 5. CLI Interface
+* `1` - safest for constrained local setups
+* `2` - permits limited concurrency
+* `N` - upper concurrency bound for all active agent work using that provider
 
-### 5.1 Commands
+This is especially relevant for future delegation and should be respected by any request scheduler.
 
-```
-steiner                        # Launch REPL mode in current directory
-steiner --exec "task"          # Single-shot mode
-steiner --exec "task" --auto-approve  # Single-shot, no approval prompts
-steiner --exec "task" --skill go-conventions  # Single-shot with skill
-steiner --config path          # Use specific config file
-steiner --model model-name     # Override model for this session
-steiner --verbose              # Debug-level logging to terminal
-steiner version                # Print version and exit
-steiner tools                  # List available tools and their approval status
-steiner skills                 # List available skills
-steiner config                 # Print resolved config (all layers merged)
-```
+### 10.4 Environment Variable Mapping
 
-### 5.2 REPL Commands
+Environment variables use the `STEINER_` prefix.
 
-Within the REPL, commands and skills share the `/` prefix namespace. Built-in command names are reserved and cannot be overridden by skills.
+Examples:
 
-**Built-in commands:**
+| Variable                       | Config path            |
+| ------------------------------ | ---------------------- |
+| `STEINER_API_KEY`              | `provider.api_key`     |
+| `STEINER_BASE_URL`             | `provider.base_url`    |
+| `STEINER_MODEL`                | `provider.model`       |
+| `STEINER_PROVIDER_PARALLELISM` | `provider.parallelism` |
+| `STEINER_MAX_TURNS`            | `limits.max_turns`     |
+| `STEINER_LOG_LEVEL`            | `logging.level`        |
 
-```
-/help                          # Show available commands and skills
-/tools                         # List available tools
-/skills                        # List available skills
-/history                       # Show conversation turn count and token usage
-/clear                         # Clear conversation history (start fresh)
-/config key value              # Override a config value for this session
-/exit                          # Exit the REPL
-```
+### 10.5 Runtime-Important Config
 
-**Skill invocation:**
+The most operationally significant config includes:
 
-```
-/copy-polisher                 # Inject the copy-polisher skill into context
-/go-conventions                # Inject the go-conventions skill into context
-```
+* provider type, model, and base URL
+* provider parallelism
+* max turns and token budgets
+* tool approvals
+* tool timeouts
+* tool output size limits
+* project context budget
+* writable path rules
+* sub-agent limits
 
-### 5.3 Terminal Input (Readline)
+---
 
-steiner uses `github.com/reeflective/readline` for terminal input handling, providing standard shell keybindings:
+## 11. CLI and Interaction Surface
 
-| Keybinding | Action |
-|---|---|
-| Up / Down | Navigate command history |
-| Ctrl+R | Reverse history search |
-| Alt+Backspace | Delete word backward |
-| Ctrl+W | Delete word backward (alternative) |
-| Alt+F / Alt+B | Move cursor forward/backward by word |
-| Ctrl+A / Ctrl+E | Move cursor to beginning/end of line |
-| Ctrl+C | Cancel current input |
-| Ctrl+D | Exit REPL (on empty line) |
+### 11.1 Commands
 
-**Persistent history:** Command history is stored in `~/.local/share/steiner/history` and persists across sessions.
-
-**Multi-line input:** Supported for pasting code blocks. The readline library handles line continuation and proper cursor movement across multiple lines.
-
-### 5.4 Autocompletion
-
-When the user types `/`, steiner presents a completion popup listing all available commands and skills. Entries are labelled by type to distinguish built-in commands from skills:
-
-```
-/co  ->  [cmd]   clear
-         [cmd]   config
-         [skill] copy-polisher
-         [skill] coding-standards
+```text
+steiner
+steiner --exec "task"
+steiner --exec "task" --auto-approve
+steiner --exec "task" --skill go-conventions
+steiner --config path
+steiner --model model-name
+steiner --verbose
+steiner version
+steiner tools
+steiner skills
+steiner config
 ```
 
-Completion behaviour:
+### 11.2 REPL Commands
 
-- Triggered on `/` keystroke, showing the full list
-- Filtered as the user continues typing
-- Arrow keys to navigate candidates
-- Tab or Enter to select and insert the completion
-- Esc to dismiss without selecting
-- Built-in commands appear before skills in the list
-
-Built-in command names are reserved. If a skill directory has the same name as a built-in command (e.g. a skill named `exit`), the skill is ignored and a warning is logged at startup.
-
-### 5.5 Terminal Output
-
-steiner streams LLM responses token-by-token to the terminal as plain text. Tool invocations are displayed with a brief header showing the tool name and arguments. Tool output is displayed with syntax highlighting where applicable (using chroma).
-
-```
-> find and fix the nil pointer dereference in the user handler
-
-Thinking: Let me search for the user handler files first.
-
-[tool: glob] **/*user*handler*.go
-  Found: src/handlers/user_handler.go, src/handlers/user_handler_test.go
-
-[tool: read] src/handlers/user_handler.go
-  Read 89 lines
-
-I can see the issue on line 47 - the `user` variable is used without a nil
-check after the database lookup. Let me fix that.
-
-[tool: write] src/handlers/user_handler.go
-  Approve? [y/n/v/a] > y
-  Written 92 lines
-
-[tool: bash] go test ./src/handlers/...
-  PASS (0.34s)
-
-Fixed the nil pointer dereference. The `GetUser` handler now returns a 404
-response when the user is not found, instead of dereferencing a nil pointer.
+```text
+/help
+/tools
+/skills
+/history
+/clear
+/config key value
+/exit
 ```
 
-## 6. Project Structure
+Skill invocation uses the same `/name` namespace, with built-in commands reserved.
 
-```
+### 11.3 Input Behaviour
+
+The REPL should support:
+
+* command history
+* reverse search
+* common line-editing keybindings
+* multi-line paste
+* skill and command autocompletion
+
+### 11.4 Output Behaviour
+
+The terminal should stream model output incrementally where supported.
+
+Tool execution should display:
+
+* tool name
+* key arguments
+* approval state
+* truncation status where relevant
+* result summary
+
+The UX should favour clarity over heavy visual polish.
+
+---
+
+## 12. Termination, Cancellation, and Recovery
+
+### 12.1 Termination Controls
+
+Independent controls may stop a run:
+
+* max turns
+* cumulative token budget
+* tool timeouts
+
+### 12.2 Cancellation
+
+The design should support:
+
+* cancelling the current model call
+* cancelling the current tool execution
+* aborting the current run
+* reporting cancellation clearly
+* preserving deterministic session state after interruption
+
+### 12.3 Recovery Behaviour
+
+On failure, steiner should surface actionable information:
+
+* which limit or error fired
+* which tool or provider call failed
+* what partial work was completed
+* whether the session may continue
+
+---
+
+## 13. Roadmap-Aligned Delivery Stages
+
+This section describes capability sequencing, not detailed project planning.
+
+### Stage 1 - Core Single-Agent Execution
+
+Deliver:
+
+* REPL mode
+* single-shot `--exec`
+* OpenAI-compatible provider
+* provider/model configuration including `parallelism`
+* core prompt assembly
+* bounded project context injection
+* AGENTS.md loading
+* skill discovery and explicit invocation
+* core tools: read, glob, search, write, bash
+* approval prompts
+* timeouts and max-turn limits
+* basic logging
+
+Exit condition:
+
+* the agent can complete a small multi-step coding task end-to-end with explicit tool use and bounded context assembly
+
+### Stage 2 - Safer Mutation and Context Discipline
+
+Deliver:
+
+* improved edit primitive beyond full overwrite
+* tool output truncation rules
+* binary output handling
+* clearer context retention rules in implementation
+* better approval previews
+* cancellation improvements
+* stronger path confinement
+
+Exit condition:
+
+* the agent remains usable during longer sessions without uncontrolled prompt growth from tool chatter
+
+### Stage 3 - Context Compaction Foundations
+
+Deliver:
+
+* rolling conversation compaction
+* summarised retention of older turns
+* preservation of active constraints and recent work
+* compacted prompt assembly diagnostics
+
+Exit condition:
+
+* long sessions remain coherent without naive full-history replay
+
+### Stage 4 - Delegation Foundations
+
+Deliver:
+
+* internal task handoff contract
+* structured sub-agent result envelope
+* isolated execution scaffolding
+* scheduler that respects provider parallelism across all agent activity
+
+Exit condition:
+
+* the system is architecturally ready for sub-agent execution without redesigning the main loop
+
+### Stage 5 - Sub-Agent Execution
+
+Deliver:
+
+* synchronous sub-agent spawning
+* isolated sub-agent histories
+* bounded tool subsets for delegated runs
+* result-only return to parent
+* separate delegation limits
+
+Exit condition:
+
+* delegated work reduces parent context growth rather than increasing it
+
+### Stage 6 - Advanced Extensions
+
+Potential later work:
+
+* parallel sub-agents
+* persistence
+* sandboxed executors
+* MCP support
+* richer tool ecosystems
+* more native provider implementations
+
+---
+
+## 14. Success Criteria
+
+steiner is successful when it demonstrates the following behaviours:
+
+1. it can complete a small coding task end-to-end using tool calls
+2. it can operate against both local and remote OpenAI-compatible backends
+3. optional context sources enter the prompt only when explicitly or deterministically intended
+4. large tool output does not accumulate unboundedly in model context
+5. risky operations are visible and controllable through approvals
+6. path and execution rules prevent obvious unsafe behaviour by default
+7. configuration precedence resolves deterministically
+8. local-model users can constrain concurrency through provider parallelism settings
+9. long sessions remain usable through bounded context assembly and later compaction
+10. delegated work, once implemented, returns compact results without polluting parent history
+11. failures and limits are surfaced clearly enough for the user to understand what happened
+12. user-defined tools can be added without changing core steiner code
+
+---
+
+## 15. Deferred / Explicitly Out of Scope
+
+These are deliberately deferred:
+
+* container-based sandbox execution
+* full MCP client support
+* non-OpenAI native provider implementations
+* conversation persistence
+* cost reporting beyond immediate run data
+* nested sub-agents
+* parallel sub-agents
+* shared memory between agents
+* project-local skills
+* hierarchical subdirectory AGENTS.md discovery
+* web or GUI interface
+* atomic multi-file transaction support
+
+The architecture should leave room for these later, but they are not required for early delivery.
+
+---
+
+## 16. Suggested Project Structure
+
+```text
 steiner/
   cmd/
     steiner/
-      main.go                  # CLI entrypoint, cobra setup
-  internal/
-    agent/
-      loop.go                  # Core agent loop
-      subagent.go              # Sub-agent spawning
-    provider/
-      interface.go             # Provider interface definition
-      openai_compat.go         # OpenAI-compatible provider
-    tool/
-      executor.go              # ToolExecutor interface + DirectExecutor
-      registry.go              # Tool loading from YAML config
-      schema.go                # YAML -> OpenAI tool schema conversion
-    config/
-      config.go                # Config loading, merging, env interpolation
-      defaults.go              # Compiled defaults
-    prompt/
-      system.go                # System prompt assembly
-      context.go               # Project context auto-discovery
-      agents.go                # AGENTS.md loading and merging
-    skill/
-      loader.go                # Skill discovery and loading
-    repl/
-      repl.go                  # Interactive REPL
-      completer.go             # Autocompletion for commands and skills
-    output/
-      stream.go                # Terminal output, syntax highlighting
-  cmd/
+      main.go
     steiner-core-tools/
-      main.go                  # Core tools binary (read, write, bash, glob, search)
+      main.go
       read.go
       write.go
       bash.go
       glob.go
       search.go
+  internal/
+    agent/
+      loop.go
+      state.go
+      limits.go
+    provider/
+      interface.go
+      openai_compat.go
+      scheduler.go
+    tool/
+      executor.go
+      registry.go
+      schema.go
+      output.go
+    config/
+      config.go
+      defaults.go
+    prompt/
+      system.go
+      context.go
+      agents.go
+      skills.go
+      compaction.go
+    skill/
+      loader.go
+    repl/
+      repl.go
+      completer.go
+    output/
+      stream.go
+    delegation/
+      contract.go
+      scaffold.go
   configs/
-    default.yaml               # Reference config with all options documented
+    default.yaml
   go.mod
   go.sum
   README.md
   LICENSE
 ```
 
-## 7. Key Dependencies (Go)
+---
 
-| Dependency | Purpose |
-|---|---|
-| `github.com/spf13/cobra` | CLI framework |
-| `github.com/spf13/viper` | Config loading (YAML, env vars) |
-| `gopkg.in/yaml.v3` | YAML parsing |
-| `github.com/alecthomas/chroma` | Syntax highlighting (pure Go) |
-| `github.com/charmbracelet/lipgloss` | Terminal styling |
-| `github.com/reeflective/readline` | Readline with history, keybindings, completion |
+## 17. Notes on v1 Discipline
 
-No CGo dependencies. The binary is fully statically linkable.
+The product direction includes delegated execution, but the early implementation should stay narrow.
 
-## 8. What v1 Does NOT Include
+The first shipped stages should optimise for:
 
-These are explicitly out of scope for v1 but the architecture accommodates them:
+* correctness of the single-agent loop
+* bounded and explicit context construction
+* safe tool execution
+* low operational friction for local-model users
+* preserving architectural seams needed for later delegation
 
-- **Container-based sandboxing.** The `ToolExecutor` interface is ready for a `ContainerExecutor` implementation. Not built in v1.
-- **Non-OpenAI providers.** The `Provider` interface supports them. Only `openai_compat` ships in v1.
-- **MCP server support.** The plugin interface is JSON-on-stdio, which is close to MCP stdio transport. Full MCP client support is a future addition.
-- **Conversation persistence.** v1 is ephemeral - conversation history lives in memory and dies with the process. Persistence (SQLite, file-based) is a future feature.
-- **Cost tracking / reporting.** Token usage is tracked for budget enforcement but not persisted or reported beyond the current session.
-- **Multi-file edit transactions.** v1 edits files one at a time. Atomic multi-file commits (write A + write B as a unit) are a future feature.
-- **Web/HTTP interface.** v1 is CLI-only.
-- **Hierarchical AGENTS.md.** v1 loads AGENTS.md from the project root only. Subdirectory-level AGENTS.md discovery (injecting different conventions based on which files the agent is working with) is a future feature.
-- **Project-local skills.** v1 supports global skills only (`~/.config/steiner/skills/`). Per-project skills (`.steiner/skills/`) are a future feature.
-
-## 9. Success Criteria
-
-v1 is shippable when:
-
-1. The agent loop can complete a multi-step coding task (find bug, read files, edit, run tests) using a local LLM via Ollama.
-2. The agent loop can complete the same task using a remote API (OpenRouter, OpenAI).
-3. Sub-agent spawning works for task decomposition (orchestrator delegates a search task to a sub-agent, receives results, continues).
-4. Tool approval prompts work correctly in REPL mode.
-5. `--exec` mode with `--auto-approve` runs headlessly without blocking on input.
-6. AGENTS.md loading and merging works correctly: global conventions are loaded, project conventions are appended, missing files are silently skipped.
-7. Project context auto-discovery correctly includes README content in the system prompt.
-8. Configuration hierarchy resolves correctly: defaults < global < project < env < CLI flags.
-9. All three termination controls fire correctly when limits are exceeded.
-10. A user-defined tool (external binary) can be added via YAML config and used by the agent without code changes.
-11. Skills can be invoked via `/skill-name` in REPL and `--skill` in single-shot mode, injecting content into the conversation.
-12. Autocompletion popup works for `/` commands, displaying labelled entries for built-in commands and skills.
-13. Readline keybindings work: history navigation, reverse search, word operations, line editing.
-14. Command history persists across REPL sessions.
+The easiest way to derail the product early is to implement too much orchestration before context and execution discipline are solid.
