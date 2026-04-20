@@ -30,7 +30,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "steiner",
 		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceErrors: false,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -51,6 +51,7 @@ func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the steiner version",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "steiner %s\n", version)
 			return err
@@ -62,6 +63,7 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "config",
 		Short: "Print the resolved configuration",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{

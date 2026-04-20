@@ -198,18 +198,26 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 
 	projectPath := opts.ProjectConfigPath
+	explicitProjectPath := false
 	if opts.CLI.ConfigPath != "" {
 		projectPath = opts.CLI.ConfigPath
+		explicitProjectPath = true
 	}
 	if projectPath == "" && workingDir != "" {
 		projectPath = filepath.Join(workingDir, ".steiner", "config.yaml")
 	}
 
-	for _, path := range []string{globalPath, projectPath} {
-		if path == "" {
+	for _, item := range []struct {
+		path         string
+		allowMissing bool
+	}{
+		{path: globalPath, allowMissing: true},
+		{path: projectPath, allowMissing: !explicitProjectPath},
+	} {
+		if item.path == "" {
 			continue
 		}
-		patch, err := readConfigPatch(path, env)
+		patch, err := readConfigPatch(item.path, env, item.allowMissing)
 		if err != nil {
 			return Config{}, err
 		}
@@ -298,11 +306,14 @@ type loggingPatch struct {
 	File  *string `yaml:"file"`
 }
 
-func readConfigPatch(path string, env map[string]string) (configPatch, error) {
+func readConfigPatch(path string, env map[string]string, allowMissing bool) (configPatch, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return configPatch{}, nil
+			if allowMissing {
+				return configPatch{}, nil
+			}
+			return configPatch{}, fmt.Errorf("config path %q does not exist", path)
 		}
 		return configPatch{}, fmt.Errorf("read config %q: %w", path, err)
 	}
