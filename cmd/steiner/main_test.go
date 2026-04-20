@@ -1,13 +1,21 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 	"gopkg.in/yaml.v3"
 )
 
@@ -147,6 +155,90 @@ limits:
 		t.Fatalf("stderr = %q, want provider.type validation failure", stderr.String())
 	}
 }
+
+func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	var stdout, stderr bytes.Buffer
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = flags
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+			},
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role:    provider.MessageRoleAssistant,
+							Content: "final answer",
+						},
+						FinishReason: "stop",
+						Usage:        &provider.UsageStats{TotalTokens: 2},
+					},
+				},
+			},
+			registry:    tool.NewRegistry(),
+			toolNames:   nil,
+			skillNames:  nil,
+			workDir:     t.TempDir(),
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(&stdout),
+			status:      output.NewStream(&stderr),
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "fix the bug"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := stdout.String(); !strings.Contains(got, "final answer") {
+		t.Fatalf("stdout = %q, want final answer", got)
+	}
+	if got := stderr.String(); !strings.Contains(got, "stop reason=complete") {
+		t.Fatalf("stderr = %q, want stop reason", got)
+	}
+}
+
+type fakeProvider struct {
+	requests  []provider.ChatRequest
+	responses []provider.ChatResponse
+}
+
+func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+	p.requests = append(p.requests, req)
+	if len(p.responses) == 0 {
+		return provider.ChatResponse{}, fmt.Errorf("no response configured")
+	}
+	resp := p.responses[0]
+	p.responses = p.responses[1:]
+	return resp, nil
+}
+
+func (p *fakeProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, fmt.Errorf("stream not used")
+}
+
+func (p *fakeProvider) SupportsUsageStats() bool { return true }
 
 func mustMkdirAll(t *testing.T, dir string) {
 	t.Helper()

@@ -14,6 +14,20 @@ func NewStream(w io.Writer) *Stream {
 	return &Stream{w: w}
 }
 
+func (s *Stream) Println(args ...any) {
+	if s == nil || s.w == nil {
+		return
+	}
+	fmt.Fprintln(s.w, args...)
+}
+
+func (s *Stream) Printf(format string, args ...any) {
+	if s == nil || s.w == nil {
+		return
+	}
+	fmt.Fprintf(s.w, format, args...)
+}
+
 func (s *Stream) Emit(event Event) {
 	if s == nil || s.w == nil {
 		return
