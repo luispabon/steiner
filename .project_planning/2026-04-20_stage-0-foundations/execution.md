@@ -47,9 +47,9 @@
 
 | Step ID | Status | Notes |
 |---|---|---|
-| `stage-1-step-1` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-1`; sub-agent commit `7e6cd3a` |
-| `stage-1-step-2` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-2`; sub-agent commit `b3d635b` |
-| `stage-2-step-1` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-3`; sub-agent commit `c6a3696` |
+| `stage-1-step-1` | `complete` | Merged from `exec/2026-04-20-stage-0-step-1`; sub-agent commit `7e6cd3a` |
+| `stage-1-step-2` | `complete` | Merged from `exec/2026-04-20-stage-0-step-2`; sub-agent commit `b3d635b` |
+| `stage-2-step-1` | `complete` | Merged from `exec/2026-04-20-stage-0-step-3`; sub-agent commit `c6a3696` |
 
 ## Execution Notes
 
@@ -74,3 +74,5 @@
 - 2026-04-20: Merged `exec/2026-04-20-stage-0-step-3` into `cl/2026-04-20_stage-0-foundations`, removed worktree `/tmp/steiner-stage-0-step-3`, and deleted temporary branch `exec/2026-04-20-stage-0-step-3`.
 - 2026-04-20: All planned implementation steps are now `implemented`. Starting executor-owned end-of-implementation verification on `cl/2026-04-20_stage-0-foundations`.
 - 2026-04-20: Verification strategy override: planner-recorded `gofmt -w ./...` is invalid for `gofmt` in the current repo; using `gofmt -w $(git ls-files '*.go')` as the minimal repo-wide equivalent.
+- 2026-04-20: Automated verification passed on the execution branch with: `gofmt -w $(git ls-files '*.go')`, `go vet ./...`, `go build ./...`, and `go test -race ./...`.
+- 2026-04-20: All planned steps marked `complete`. Awaiting manual verification checkpoint before reviewer handoff.
