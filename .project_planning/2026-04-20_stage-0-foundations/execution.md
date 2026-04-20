@@ -49,7 +49,7 @@
 |---|---|---|
 | `stage-1-step-1` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-1`; sub-agent commit `7e6cd3a` |
 | `stage-1-step-2` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-2`; sub-agent commit `b3d635b` |
-| `stage-2-step-1` | `running` | Isolated worktree `/tmp/steiner-stage-0-step-3` on `exec/2026-04-20-stage-0-step-3` |
+| `stage-2-step-1` | `implemented` | Merged from `exec/2026-04-20-stage-0-step-3`; sub-agent commit `c6a3696` |
 
 ## Execution Notes
 
@@ -69,3 +69,7 @@
 - 2026-04-20: Merged `exec/2026-04-20-stage-0-step-2` into `cl/2026-04-20_stage-0-foundations`, removed worktree `/tmp/steiner-stage-0-step-2`, and deleted temporary branch `exec/2026-04-20-stage-0-step-2`.
 - 2026-04-20: Began `stage-2-step-1` in isolated worktree `/tmp/steiner-stage-0-step-3` on temporary branch `exec/2026-04-20-stage-0-step-3`.
 - 2026-04-20: Spawned implementation sub-agent for `stage-2-step-1` using `gpt-5.4-mini` (cheaper than the current runtime model), serial execution.
+- 2026-04-20: `stage-2-step-1` returned with commit `c6a3696` (`stage0: finish CLI surface and config tests`).
+- 2026-04-20: Step-local verification reported by sub-agent: `gofmt -w $(git ls-files '*.go')`, `go mod tidy`, `go vet ./...`, `go build ./...`, `go test -race ./...`, and `go run ./cmd/steiner version` all passed.
+- 2026-04-20: Merged `exec/2026-04-20-stage-0-step-3` into `cl/2026-04-20_stage-0-foundations`, removed worktree `/tmp/steiner-stage-0-step-3`, and deleted temporary branch `exec/2026-04-20-stage-0-step-3`.
+- 2026-04-20: All planned implementation steps are now `implemented`. Starting executor-owned end-of-implementation verification on `cl/2026-04-20_stage-0-foundations`.
