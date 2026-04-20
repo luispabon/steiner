@@ -78,6 +78,15 @@ func (r *Registry) Definitions() []ToolDef {
 	return defs
 }
 
+func (r *Registry) OpenAISchemas() []map[string]any {
+	defs := r.Definitions()
+	schemas := make([]map[string]any, 0, len(defs))
+	for _, def := range defs {
+		schemas = append(schemas, ToOpenAISchema(def))
+	}
+	return schemas
+}
+
 func cloneToolDef(def ToolDef) ToolDef {
 	def.ParameterSchema = cloneSchemaMap(def.ParameterSchema)
 	return def
