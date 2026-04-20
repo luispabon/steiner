@@ -4,7 +4,7 @@
 - Execution branch: `cl/2026-04-20_stage-1-core-single-agent-loop`
 - Initial branch HEAD: `56e9194f091fbc31ad7d5de95df9884ad2470119`
 - Executor start (UTC): `2026-04-20T22:28:50Z`
-- Current phase: `verification_strategy_loaded`
+- Current phase: `running stage-1-step-1`
 - Plan summary:
   - `stage-1-step-1`: pending
   - `stage-1-step-2`: pending
@@ -41,3 +41,25 @@
 
 - `2026-04-20T22:28:50Z`: validated required planning artifacts and clean execution branch handoff.
 - `2026-04-20T22:28:50Z`: loaded verification strategy from `overview.md`.
+- `2026-04-20T22:28:50Z`: committed executor initialization as `9aa8a6d`.
+- `2026-04-20T22:28:50Z`: marked `stage-1-step-1` as running.
+
+## Active Step
+
+- Step id: `stage-1-step-1`
+- Objective: `Implement the OpenAI-compatible provider path and normalize streaming/non-streaming responses behind the existing provider interface and scheduler`
+- Scope: `internal/provider` only
+- Files in scope:
+  - `internal/provider/interface.go`
+  - `internal/provider/types.go`
+  - `internal/provider/openai_compat.go`
+  - `internal/provider/scheduler.go`
+  - `internal/provider/scheduler_test.go`
+- Planned verification:
+  - `gofmt -w internal/provider/*.go`
+  - `go test ./internal/provider/...`
+- Sub-agent dispatch:
+  - step id: `stage-1-step-1`
+  - model: `gpt-5.4-mini`
+  - tier vs current runtime: `cheaper`
+  - execution mode: `serial`
