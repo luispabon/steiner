@@ -4,14 +4,14 @@
 - Execution branch: `cl/2026-04-20_stage-1-core-single-agent-loop`
 - Initial branch HEAD: `56e9194f091fbc31ad7d5de95df9884ad2470119`
 - Executor start (UTC): `2026-04-20T22:28:50Z`
-- Current phase: `running stage-2-step-2`
+- Current phase: `running stage-3-step-1`
 - Plan summary:
   - `stage-1-step-1`: implemented
   - `stage-1-step-2`: implemented
   - `stage-1-step-3`: implemented
   - `stage-2-step-1`: implemented
-  - `stage-2-step-2`: running
-  - `stage-3-step-1`: pending
+  - `stage-2-step-2`: implemented
+  - `stage-3-step-1`: running
 
 ## Verification Strategy
 
@@ -63,6 +63,11 @@
 - `2026-04-20T22:56:42Z`: closed sub-agent for `stage-2-step-1`, removed worktree `/tmp/steiner-stage-2-step-1`, and deleted temp branch `tmp/stage-2-step-1`.
 - `2026-04-20T22:56:42Z`: marked `stage-2-step-1` implemented.
 - `2026-04-20T22:56:42Z`: marked `stage-2-step-2` as running.
+- `2026-04-20T23:06:57Z`: merged `tmp/stage-2-step-2` into the execution branch as merge commit `2816905`.
+- `2026-04-20T23:06:57Z`: reran step verification in the execution checkout: `go test ./cmd/steiner/...` and `go test ./internal/repl/...`.
+- `2026-04-20T23:06:57Z`: closed sub-agent for `stage-2-step-2`, removed worktree `/tmp/steiner-stage-2-step-2`, and deleted temp branch `tmp/stage-2-step-2`.
+- `2026-04-20T23:06:57Z`: marked `stage-2-step-2` implemented.
+- `2026-04-20T23:06:57Z`: marked `stage-3-step-1` as running.
 
 ## Completed Step
 
@@ -137,23 +142,43 @@
   - `internal/output/stream.go`
   - `internal/output/stream_test.go`
 
-## Active Step
+## Completed Step
 
 - Step id: `stage-2-step-2`
-- Objective: `Expose the Stage 1 loop through CLI exec mode and a minimal interactive REPL`
-- Scope: `cmd/steiner`, `internal/repl`, and terminal stream integration only
-- Files in scope:
+- Outcome: `implemented`
+- Worker model: `gpt-5.4-mini` (`cheaper`)
+- Worker branch: `tmp/stage-2-step-2`
+- Worker commit: `d1902ad`
+- Merge result: `clean`
+- Changed files:
   - `cmd/steiner/main.go`
   - `cmd/steiner/main_test.go`
-  - `internal/repl/repl.go`
+  - `internal/output/stream.go`
   - `internal/repl/commands.go`
   - `internal/repl/completer.go`
-  - `internal/output/stream.go`
+  - `internal/repl/repl.go`
+  - `internal/repl/repl_test.go`
+
+## Active Step
+
+- Step id: `stage-3-step-1`
+- Objective: `Add or finish the missing tests and fixtures needed to prove the Stage 1 exit criteria end to end`
+- Scope: `tests, fixtures, and Stage 1 closure only`
+- Files in scope:
+  - `cmd/steiner/main_test.go`
+  - `internal/config/config_test.go`
+  - `internal/provider/scheduler_test.go`
+  - `internal/tool/schema_test.go`
+  - `internal/agent/**`
+  - `internal/prompt/**`
+  - `testdata/repos/**`
 - Planned verification:
-  - `gofmt -w cmd/steiner/*.go internal/repl/*.go internal/output/*.go`
-  - `go test ./cmd/steiner/...`
+  - `gofmt -w cmd/steiner/*.go internal/agent/*.go internal/prompt/*.go internal/provider/*.go internal/tool/*.go`
+  - `go build ./...`
+  - `go test ./...`
+  - `go vet ./...`
 - Sub-agent dispatch:
-  - step id: `stage-2-step-2`
+  - step id: `stage-3-step-1`
   - model: `gpt-5.4-mini`
   - tier vs current runtime: `cheaper`
   - execution mode: `serial`
