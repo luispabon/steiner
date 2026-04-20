@@ -121,6 +121,40 @@ logging:
 	}
 }
 
+func TestLoadExpandsUnbracedEnvInterpolation(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	homeDir := filepath.Join(tempDir, "home")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `logging:
+  file: "$HOME/steiner.log"
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeDir)
+
+	cfg, err := Load(LoadOptions{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := filepath.Join(homeDir, "steiner.log")
+	if got := cfg.Logging.File; got != want {
+		t.Fatalf("logging.file = %q, want %q", got, want)
+	}
+}
+
 func TestLoadRejectsInvalidConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")
