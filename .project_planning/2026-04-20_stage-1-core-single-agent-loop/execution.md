@@ -4,11 +4,11 @@
 - Execution branch: `cl/2026-04-20_stage-1-core-single-agent-loop`
 - Initial branch HEAD: `56e9194f091fbc31ad7d5de95df9884ad2470119`
 - Executor start (UTC): `2026-04-20T22:28:50Z`
-- Current phase: `running stage-1-step-2`
+- Current phase: `running stage-1-step-3`
 - Plan summary:
   - `stage-1-step-1`: implemented
-  - `stage-1-step-2`: running
-  - `stage-1-step-3`: pending
+  - `stage-1-step-2`: implemented
+  - `stage-1-step-3`: running
   - `stage-2-step-1`: pending
   - `stage-2-step-2`: pending
   - `stage-3-step-1`: pending
@@ -47,6 +47,12 @@
 - `2026-04-20T22:28:50Z`: closed sub-agent for `stage-1-step-1`, removed worktree `/tmp/steiner-stage-1-step-1`, and deleted temp branch `tmp/stage-1-step-1`.
 - `2026-04-20T22:28:50Z`: marked `stage-1-step-1` implemented after review and verification (`gofmt -w internal/provider/*.go`, `go test ./internal/provider/...`).
 - `2026-04-20T22:28:50Z`: marked `stage-1-step-2` as running.
+- `2026-04-20T22:44:09Z`: worker for `stage-1-step-2` returned commit `9bf1711`, but a clean merge was blocked because the same step files were already present in the execution checkout as local changes while `execution.md` remained executor-owned.
+- `2026-04-20T22:44:09Z`: adopted the step-local tool changes directly on the execution branch as commits `126c4da` and `d047be1`, preserving worker output while keeping planner-owned artifacts under executor control.
+- `2026-04-20T22:44:09Z`: reran step verification in the execution checkout: `gofmt -w internal/tool/*.go cmd/steiner-core-tools/*.go`, `go test ./internal/tool/...`, and `go test ./cmd/steiner/...`.
+- `2026-04-20T22:44:09Z`: closed sub-agent for `stage-1-step-2`, removed worktree `/tmp/steiner-stage-1-step-2`, and deleted temp branch `tmp/stage-1-step-2`.
+- `2026-04-20T22:44:09Z`: marked `stage-1-step-2` implemented.
+- `2026-04-20T22:44:09Z`: marked `stage-1-step-3` as running.
 
 ## Completed Step
 
@@ -60,30 +66,51 @@
   - `internal/provider/openai_compat.go`
   - `internal/provider/scheduler_test.go`
 
-## Active Step
+## Completed Step
 
 - Step id: `stage-1-step-2`
-- Objective: `Implement JSON-contract core tool execution and the Stage 1 core tools binary`
-- Scope: `internal/tool` and `cmd/steiner-core-tools` only
-- Files in scope:
+- Outcome: `implemented`
+- Worker model: `gpt-5.4-mini` (`cheaper`)
+- Worker branch: `tmp/stage-1-step-2`
+- Worker commit: `9bf1711`
+- Merge result: `deviated`
+- Deviation: `clean merge blocked by mirrored local step files in the execution checkout; executor adopted the worker's step-local code directly as execution-branch commits and reran step verification`
+- Execution-branch commits:
+  - `126c4da`
+  - `d047be1`
+- Changed files:
   - `internal/tool/types.go`
   - `internal/tool/registry.go`
-  - `internal/tool/schema.go`
-  - `internal/tool/executor.go`
-  - `internal/tool/approval.go`
   - `internal/tool/schema_test.go`
+  - `internal/tool/approval.go`
+  - `internal/tool/approval_test.go`
+  - `internal/tool/executor.go`
+  - `internal/tool/executor_test.go`
   - `cmd/steiner-core-tools/main.go`
   - `cmd/steiner-core-tools/read.go`
   - `cmd/steiner-core-tools/write.go`
   - `cmd/steiner-core-tools/glob.go`
   - `cmd/steiner-core-tools/search.go`
   - `cmd/steiner-core-tools/bash.go`
+
+## Active Step
+
+- Step id: `stage-1-step-3`
+- Objective: `Implement bounded prompt assembly and skill loading with the repository-mandated context precedence order`
+- Scope: `internal/prompt` and `internal/skill` only
+- Files in scope:
+  - `internal/prompt/types.go`
+  - `internal/prompt/system.go`
+  - `internal/prompt/agents.go`
+  - `internal/prompt/context.go`
+  - `internal/prompt/skills.go`
+  - `internal/prompt/assemble.go`
+  - `internal/skill/loader.go`
 - Planned verification:
-  - `gofmt -w internal/tool/*.go cmd/steiner-core-tools/*.go`
-  - `go test ./internal/tool/...`
-  - `go test ./cmd/steiner/...`
+  - `gofmt -w internal/prompt/*.go internal/skill/*.go`
+  - `go test ./internal/prompt/... ./internal/skill/...`
 - Sub-agent dispatch:
-  - step id: `stage-1-step-2`
+  - step id: `stage-1-step-3`
   - model: `gpt-5.4-mini`
   - tier vs current runtime: `cheaper`
   - execution mode: `serial`
