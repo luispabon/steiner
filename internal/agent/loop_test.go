@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -52,7 +53,12 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 			if got := input["path"]; got != "note.txt" {
 				return nil, fmt.Errorf("input[path] = %v, want note.txt", got)
 			}
-			return map[string]any{"contents": "hello"}, nil
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "hello"},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 0,
+				},
+			}, nil
 		},
 	}
 
@@ -61,6 +67,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	state, err := runner.Run(context.Background(), RunRequest{
 		Provider:    providerStub,
 		Executor:    executor,
+		Tools:       []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
 		Prompt:      prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
 		Model:       "test-model",
 		Temperature: float64Ptr(0.1),
@@ -82,6 +89,12 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := len(providerStub.requests[0].Tools), 1; got != want {
+		t.Fatalf("first request tools = %d, want %d", got, want)
+	}
+	if got, want := providerStub.requests[0].Tools[0].Function.Name, "read"; got != want {
+		t.Fatalf("first request tool name = %q, want %q", got, want)
 	}
 	if got, want := len(executor.calls), 1; got != want {
 		t.Fatalf("executor calls = %d, want %d", got, want)
@@ -154,6 +167,99 @@ func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	}
 	if got, want := eventTypes(events)[len(events)-1], output.EventTypeStopReason; got != want {
 		t.Fatalf("last event type = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "hello"},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 0,
+					Stdout: tool.StreamCapture{
+						Bytes:     1024,
+						Truncated: true,
+						Preview:   strings.Repeat("hello", 4),
+					},
+				},
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix"}},
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 10},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
+		t.Fatalf("tool message content = %q, want %q", got, want)
+	}
+}
+
+func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
+	preview := tool.ApprovalPreview{
+		Tool:    "bash",
+		WorkDir: "/repo",
+		Timeout: 3 * time.Second,
+		Fields: []tool.PreviewField{
+			{Name: "cwd", Value: "/repo/subdir"},
+			{Name: "command", Value: "pwd"},
+		},
+	}
+
+	var gotPreview tool.ApprovalPreview
+	approver := NewEventingApprover(output.NoopSink{}, tool.ApproverFunc(func(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
+		gotPreview = req.Preview
+		return tool.ApprovalResponse{Allow: true, Message: "ok"}, nil
+	}))
+
+	resp, err := approver.Approve(context.Background(), tool.ApprovalRequest{
+		Tool:    tool.ToolDef{Name: "bash"},
+		Mode:    config.ApprovalModePrompt,
+		Preview: preview,
+	})
+	if err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	if !resp.Allow {
+		t.Fatal("Approve() = false, want true")
+	}
+	if got, want := gotPreview.Summary(), preview.Summary(); got != want {
+		t.Fatalf("forwarded preview summary = %q, want %q", got, want)
 	}
 }
 
@@ -266,7 +372,7 @@ func float64Ptr(v float64) *float64 { return &v }
 
 func intPtr(v int) *int { return &v }
 
-func TestRunnerRejectsMultipleToolCalls(t *testing.T) {
+func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
@@ -274,28 +380,82 @@ func TestRunnerRejectsMultipleToolCalls(t *testing.T) {
 					Role: provider.MessageRoleAssistant,
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a"}},
-						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "b"}},
+						{ID: "call_2", Name: "glob", Arguments: map[string]any{"pattern": "*.go"}},
 					},
 				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
 			},
 		},
 	}
 	executor := &fakeExecutor{execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
-		return nil, nil
+		switch toolName {
+		case "read":
+			return map[string]any{"path": input["path"], "contents": "alpha"}, nil
+		case "glob":
+			return map[string]any{"pattern": input["pattern"], "matches": []string{"main.go"}}, nil
+		default:
+			return nil, fmt.Errorf("unexpected tool %q", toolName)
+		}
 	}}
 
-	_, err := NewRunner().Run(context.Background(), RunRequest{
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider: providerStub,
 		Executor: executor,
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
 		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
-	if err == nil {
-		t.Fatal("Run() error = nil, want multiple tool call rejection")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "one") {
-		t.Fatalf("Run() error = %v, want one tool call rejection", err)
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(executor.calls), 2; got != want {
+		t.Fatalf("executor calls = %d, want %d", got, want)
+	}
+	if got, want := executor.calls[0].tool, "read"; got != want {
+		t.Fatalf("first tool = %q, want %q", got, want)
+	}
+	if got, want := executor.calls[1].tool, "glob"; got != want {
+		t.Fatalf("second tool = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	second := providerStub.requests[1]
+	if got := rolesOf(second.Messages); !containsSequence(got, []string{"assistant", "tool", "tool"}) {
+		t.Fatalf("second request roles = %v, want assistant/tool/tool sequence", got)
+	}
+	if got, want := second.Messages[len(second.Messages)-2].ToolCallID, "call_1"; got != want {
+		t.Fatalf("first tool call id = %q, want %q", got, want)
+	}
+	if got, want := second.Messages[len(second.Messages)-1].ToolCallID, "call_2"; got != want {
+		t.Fatalf("second tool call id = %q, want %q", got, want)
+	}
+
+	wantEventTypes := []string{
+		output.EventTypeModelCallStarted,
+		output.EventTypeModelCallFinished,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeModelCallStarted,
+		output.EventTypeModelCallFinished,
+		output.EventTypeStopReason,
+	}
+	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
+		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
 	}
 }

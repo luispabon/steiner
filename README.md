@@ -4,7 +4,7 @@
 
 The project is aimed at real coding work against local repositories, with a strong bias toward bounded context, explicit context injection, and simple, inspectable execution. It is designed to work with OpenAI-compatible providers, including local model servers.
 
-This repository is still in the early implementation stages. The current codebase is a foundations skeleton, not a usable end-to-end agent yet.
+This repository is past the foundations skeleton. The current codebase includes the single-agent loop, core tools binary, approvals UX, and Stage 2 execution-safety hardening, while later roadmap stages remain unfinished.
 
 ## Status
 
@@ -19,11 +19,7 @@ Current implementation state is roughly Stage 0 from the project roadmap:
 
 Not implemented yet:
 
-* model provider transport
-* agent execution loop
-* REPL or working `--exec` task execution
-* core tools binary in `cmd/steiner-core-tools`
-* approvals UX
+* REPL polish
 * project context assembly
 * skills loading and injection
 * context compaction
@@ -81,7 +77,9 @@ At the moment:
 
 * `steiner version` prints the build version
 * `steiner config` prints the resolved configuration after defaults, files, env vars, and CLI overrides are applied
-* `--exec` exists only as a stub flag and does not run an agent yet
+* `steiner tools` lists configured tools
+* `steiner skills` lists discovered skills
+* `steiner --exec "..."` runs a single prompt headlessly and prints the final assistant reply
 
 ## Configuration
 
@@ -119,7 +117,9 @@ The scheduler for `provider.parallelism` already exists and is enforced centrall
 Approval defaults are also already defined in config, even though tool execution is not wired up yet:
 
 * `read`, `glob`, `search` default to `auto`
-* `write`, `bash` default to `prompt`
+* `edit`, `write`, `bash` default to `prompt`
+
+Stage 2 adds `edit` as the preferred safer mutation primitive while keeping `write` for compatibility. The runtime surface and schemas should prefer `edit` for in-place file changes, and reserve `write` for full-file overwrites.
 
 ## Build And Test
 
@@ -139,12 +139,12 @@ Run tests:
 go test ./...
 ```
 
-The current repository test coverage is focused on the implemented foundations:
+The current repository test coverage is focused on the implemented runtime and CLI surface:
 
 * config loading and validation
 * scheduler semantics
 * tool registry and schema generation
-* CLI config/version behaviour
+* CLI config/version/tool-listing/headless execution behaviour
 
 ## Design Notes
 

@@ -19,6 +19,7 @@ type ToolExecutor interface {
 type RunRequest struct {
 	Provider    provider.Provider
 	Executor    ToolExecutor
+	Tools       []provider.ToolSpec
 	Prompt      prompt.AssemblyOptions
 	Model       string
 	Temperature *float64
@@ -85,6 +86,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		response, err := req.Provider.ChatCompletion(ctx, provider.ChatRequest{
 			Model:       req.Model,
 			Messages:    assembly.Messages,
+			Tools:       cloneProviderTools(req.Tools),
 			Temperature: req.Temperature,
 			MaxTokens:   req.MaxTokens,
 		})
@@ -109,32 +111,26 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			emitStop(req.Events, state, nil)
 			return state, nil
 		}
-		if len(response.Message.ToolCalls) > 1 {
-			err := fmt.Errorf("model returned %d tool calls; stage 1 supports only one", len(response.Message.ToolCalls))
-			state.StopReason = StopReasonError
-			emitStop(req.Events, state, err)
-			return state, err
+		for _, call := range response.Message.ToolCalls {
+			emitEvent(req.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+
+			result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+			if err != nil {
+				emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", err))
+				state.StopReason = StopReasonError
+				emitStop(req.Events, state, err)
+				return state, err
+			}
+
+			normalizedResult := normalizeToolResult(result)
+			emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, normalizedResult.Content, nil))
+			state.Conversation = append(state.Conversation, Message{
+				Role:       MessageRoleTool,
+				Content:    normalizedResult.Content,
+				ToolCallID: call.ID,
+				Name:       call.Name,
+			})
 		}
-
-		call := response.Message.ToolCalls[0]
-		emitEvent(req.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
-
-		result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
-		if err != nil {
-			emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", err))
-			state.StopReason = StopReasonError
-			emitStop(req.Events, state, err)
-			return state, err
-		}
-
-		resultContent := toolResultContent(result)
-		emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, resultContent, nil))
-		state.Conversation = append(state.Conversation, Message{
-			Role:       MessageRoleTool,
-			Content:    resultContent,
-			ToolCallID: call.ID,
-			Name:       call.Name,
-		})
 	}
 }
 
@@ -226,6 +222,18 @@ func cloneValue(value any) any {
 	}
 }
 
+func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]provider.ToolSpec, len(tools))
+	copy(out, tools)
+	for i := range out {
+		out[i].Function.Parameters = cloneInput(out[i].Function.Parameters)
+	}
+	return out
+}
+
 func assemblyOptions(base prompt.AssemblyOptions, conversation []Message) prompt.AssemblyOptions {
 	base.Conversation = toProviderMessages(conversation)
 	base.ToolResults = nil
@@ -292,23 +300,6 @@ func fromProviderMessage(message provider.Message) Message {
 		}
 	}
 	return out
-}
-
-func toolResultContent(result any) string {
-	switch v := result.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	case []byte:
-		return string(v)
-	default:
-		data, err := json.Marshal(v)
-		if err == nil {
-			return string(data)
-		}
-		return fmt.Sprint(v)
-	}
 }
 
 func emitEvent(sink output.EventSink, event output.Event) {

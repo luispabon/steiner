@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -22,18 +24,27 @@ func (f ApproverFunc) Approve(ctx context.Context, req ApprovalRequest) (Approva
 }
 
 type Executor struct {
-	registry *Registry
-	approval ApprovalResolver
-	approver Approver
-	workDir  string
+	registry    *Registry
+	approval    ApprovalResolver
+	approver    Approver
+	workDir     string
+	pathPolicy  PathPolicy
+	outputLimit int
 }
 
 func NewExecutor(registry *Registry, cfg config.Config, approver Approver, workDir string) *Executor {
+	root := normalizeExecutionRoot(workDir)
+	outputLimit := cfg.Limits.ToolOutputMaxBytes
+	if outputLimit < 1 {
+		outputLimit = 65536
+	}
 	return &Executor{
-		registry: registry,
-		approval: NewApprovalResolver(cfg),
-		approver: approver,
-		workDir:  workDir,
+		registry:    registry,
+		approval:    NewApprovalResolver(cfg),
+		approver:    approver,
+		workDir:     root,
+		pathPolicy:  NewPathPolicy(root, cfg.Paths),
+		outputLimit: outputLimit,
 	}
 }
 
@@ -47,7 +58,25 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		return nil, fmt.Errorf("tool %q is not registered", toolName)
 	}
 
+	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
+	if err != nil {
+		return nil, &ToolExecutionError{
+			Tool:    def.Name,
+			Kind:    "policy_denied",
+			Message: err.Error(),
+		}
+	}
+
 	mode := e.approval.ModeFor(def)
+	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
+	if err != nil {
+		return nil, &ToolExecutionError{
+			Tool:    def.Name,
+			Kind:    "policy_denied",
+			Message: err.Error(),
+		}
+	}
+
 	switch {
 	case IsApprovalDenied(mode):
 		return nil, &ToolExecutionError{
@@ -66,14 +95,15 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		decision, err := e.approver.Approve(ctx, ApprovalRequest{
 			Tool:    def,
 			Mode:    mode,
-			Input:   cloneInputMap(input),
-			WorkDir: e.workDir,
+			Input:   cloneInputMap(normalizedInput),
+			WorkDir: e.pathPolicy.Root(),
+			Preview: preview,
 		})
 		if err != nil {
 			return nil, err
 		}
 		if !decision.Allow {
-			message := decision.Message
+			message := strings.TrimSpace(decision.Message)
 			if message == "" {
 				message = "tool execution denied"
 			}
@@ -85,12 +115,26 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		}
 	}
 
-	payload, err := json.Marshal(cloneInputMap(input))
+	payload, err := json.Marshal(cloneInputMap(normalizedInput))
 	if err != nil {
 		return nil, fmt.Errorf("marshal tool input for %q: %w", def.Name, err)
 	}
 
-	stdout, stderr, exitCode, runErr := runSubprocess(ctx, def, payload, e.workDir)
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if def.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, def.Timeout)
+		defer cancel()
+	}
+
+	workDir := e.pathPolicy.Root()
+	if def.Name == "bash" {
+		if cwd, ok := normalizedInput["cwd"].(string); ok && strings.TrimSpace(cwd) != "" {
+			workDir = cwd
+		}
+	}
+
+	stdout, _, metadata, runErr := runSubprocess(execCtx, def, payload, workDir, e.outputLimit)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -99,9 +143,9 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 			Tool:     def.Name,
 			Kind:     "subprocess_failed",
 			Message:  runErr.Error(),
-			ExitCode: exitCode,
-			Stdout:   string(stdout),
-			Stderr:   string(stderr),
+			ExitCode: metadata.ExitCode,
+			Output:   metadata,
+			Details:  outputDetails(metadata),
 		}
 	}
 
@@ -111,9 +155,9 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 			Tool:     def.Name,
 			Kind:     "invalid_json",
 			Message:  "tool output was not valid JSON",
-			ExitCode: exitCode,
-			Stdout:   string(stdout),
-			Stderr:   string(stderr),
+			ExitCode: metadata.ExitCode,
+			Output:   metadata,
+			Details:  outputDetails(metadata),
 		}
 	}
 
@@ -128,19 +172,21 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 			Tool:     def.Name,
 			Kind:     envelope.Error.Kind,
 			Message:  envelope.Error.Message,
-			ExitCode: exitCode,
-			Stdout:   string(stdout),
-			Stderr:   string(stderr),
+			ExitCode: metadata.ExitCode,
+			Output:   metadata,
 			Details:  envelope.Error.Details,
 		}
 	}
 
-	return envelope.Result, nil
+	return ExecutionResult{
+		Value:    envelope.Result,
+		Metadata: metadata,
+	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string) ([]byte, []byte, int, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int) ([]byte, []byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
-		return nil, nil, 1, &ToolExecutionError{
+		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
 			Kind:    "invalid_definition",
 			Message: "tool exec path is empty",
@@ -158,36 +204,55 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	}
 	cmd.Stdin = bytes.NewReader(payload)
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutCapture := newBoundedCapture(limit)
+	stderrCapture := newBoundedCapture(limit)
+	cmd.Stdout = stdoutCapture
+	cmd.Stderr = stderrCapture
 
 	err := cmd.Run()
-	exitCode := 0
-	if err != nil {
-		exitCode = 1
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
-			exitCode = exitErr.ProcessState.ExitCode()
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return stdout.Bytes(), stderr.Bytes(), exitCode, ctxErr
-		}
+	metadata := ExecutionMetadata{
+		ExitCode: exitCodeFromError(err),
+		Stdout:   stdoutCapture.Capture(),
+		Stderr:   stderrCapture.Capture(),
+	}
+	if err != nil && ctx.Err() != nil {
+		return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, ctx.Err()
 	}
 
-	return stdout.Bytes(), stderr.Bytes(), exitCode, err
+	return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, err
 }
 
-func cloneInputMap(input map[string]any) map[string]any {
-	if input == nil {
-		return map[string]any{}
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
 	}
-	cloned := make(map[string]any, len(input))
-	for key, value := range input {
-		cloned[key] = cloneJSONValue(value)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
+		return exitErr.ProcessState.ExitCode()
 	}
-	return cloned
+	return 1
+}
+
+func outputDetails(metadata ExecutionMetadata) map[string]any {
+	details := map[string]any{
+		"stdout": metadata.Stdout,
+		"stderr": metadata.Stderr,
+	}
+	if metadata.ExitCode != 0 {
+		details["exit_code"] = metadata.ExitCode
+	}
+	return details
+}
+
+func normalizeExecutionRoot(workDir string) string {
+	if strings.TrimSpace(workDir) == "" {
+		return ""
+	}
+	root, err := filepath.Abs(workDir)
+	if err != nil {
+		return filepath.Clean(workDir)
+	}
+	return filepath.Clean(root)
 }
 
 func cloneJSONValue(value any) any {
@@ -210,4 +275,15 @@ func cloneJSONValue(value any) any {
 func isExitStatusError(err error) bool {
 	var exitErr *exec.ExitError
 	return errors.As(err, &exitErr)
+}
+
+func cloneInputMap(input map[string]any) map[string]any {
+	if input == nil {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = cloneJSONValue(value)
+	}
+	return cloned
 }

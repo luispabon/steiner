@@ -5,13 +5,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -153,6 +157,51 @@ limits:
 	}
 	if !strings.Contains(stderr.String(), "provider.type") {
 		t.Fatalf("stderr = %q, want provider.type validation failure", stderr.String())
+	}
+}
+
+func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
+	registry, err := runtimeRegistry(config.Config{
+		Limits: config.LimitsConfig{
+			ToolTimeoutDefault: config.MustDuration("30s"),
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"read":   config.ApprovalModeAuto,
+				"glob":   config.ApprovalModeAuto,
+				"search": config.ApprovalModeAuto,
+				"write":  config.ApprovalModePrompt,
+				"edit":   config.ApprovalModePrompt,
+				"bash":   config.ApprovalModePrompt,
+			},
+		},
+		Tools: map[string]config.ToolConfig{},
+	})
+	if err != nil {
+		t.Fatalf("runtimeRegistry() error = %v", err)
+	}
+
+	got := registry.Names()
+	want := []string{"bash", "edit", "glob", "read", "search", "write"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("registry names = %v, want %v", got, want)
+	}
+
+	bashDef, ok := registry.Get("bash")
+	if !ok {
+		t.Fatal("Get(bash) = false, want true")
+	}
+	properties, ok := bashDef.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("bash properties type = %T, want map[string]any", bashDef.ParameterSchema["properties"])
+	}
+	commandSchema, ok := properties["command"].(map[string]any)
+	if !ok {
+		t.Fatalf("bash command schema type = %T, want map[string]any", properties["command"])
+	}
+	if _, found := commandSchema["_required"]; found {
+		t.Fatalf("bash command schema leaked internal _required field: %#v", commandSchema)
 	}
 }
 
@@ -302,6 +351,241 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	}
 }
 
+func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
+	helper := mustBuildCLIHelperBinary(t)
+	tempRepo := t.TempDir()
+	mustMkdirAll(t, filepath.Join(tempRepo, "subdir"))
+
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	var stdout, stderr bytes.Buffer
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModePrompt,
+					Overrides: map[string]config.ApprovalMode{
+						"bash": config.ApprovalModePrompt,
+					},
+				},
+				Paths: config.PathsConfig{
+					ProjectRootOnly: true,
+				},
+			},
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{
+									ID:   "call_1",
+									Name: "bash",
+									Arguments: map[string]any{
+										"command": "pwd",
+										"cwd":     "subdir",
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+					{
+						Message: provider.Message{
+							Role:    provider.MessageRoleAssistant,
+							Content: "final answer",
+						},
+						FinishReason: "stop",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:       "bash",
+				ExecPath:   helper,
+				Subcommand: "bash",
+			}),
+			workDir:     tempRepo,
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(&stdout),
+			status:      output.NewStream(&stderr),
+			events:      output.NewStream(&stderr),
+			sharedInput: bufio.NewReader(strings.NewReader("y\n")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "run bash"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stderr.String()
+	wantCWD := filepath.Join(tempRepo, "subdir")
+	if !strings.Contains(got, `approve tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} [y/N]`) {
+		t.Fatalf("stderr = %q, want approval prompt with normalized args", got)
+	}
+	if !strings.Contains(stdout.String(), "final answer") {
+		t.Fatalf("stdout = %q, want final answer", stdout.String())
+	}
+}
+
+func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T) {
+	helper := mustBuildCLIHelperBinary(t)
+	tempRepo := t.TempDir()
+
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModePrompt,
+					Overrides: map[string]config.ApprovalMode{
+						"bash": config.ApprovalModePrompt,
+					},
+				},
+				Paths: config.PathsConfig{
+					ProjectRootOnly: true,
+				},
+			},
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{
+									ID:   "call_1",
+									Name: "bash",
+									Arguments: map[string]any{
+										"command": "pwd",
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:       "bash",
+				ExecPath:   helper,
+				Subcommand: "bash",
+			}),
+			workDir:     tempRepo,
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(io.Discard),
+			status:      output.NewStream(io.Discard),
+			events:      output.NoopSink{},
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+			approvalIn:  bufio.NewReader(strings.NewReader("")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{"--exec", "run bash"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval input error")
+	}
+	if !strings.Contains(err.Error(), "approval input is unavailable") {
+		t.Fatalf("Execute() error = %v, want approval input error", err)
+	}
+}
+
+func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "final answer",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model:       "test-model",
+					Temperature: 0.2,
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+			},
+			provider: providerStub,
+			registry: tool.NewRegistry(
+				tool.ToolDef{
+					Name:        "glob",
+					Description: "Find files",
+					ParameterSchema: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"pattern": map[string]any{"type": "string"},
+						},
+					},
+				},
+			),
+			workDir: t.TempDir(),
+			homeDir: t.TempDir(),
+			events:  output.NoopSink{},
+		},
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "list files"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := len(providerStub.requests[0].Tools), 1; got != want {
+		t.Fatalf("request tools = %d, want %d", got, want)
+	}
+	if got, want := providerStub.requests[0].Tools[0].Function.Name, "glob"; got != want {
+		t.Fatalf("tool name = %q, want %q", got, want)
+	}
+}
+
 type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse
@@ -336,3 +620,37 @@ func writeFile(t *testing.T, path, contents string) {
 		t.Fatal(err)
 	}
 }
+
+func mustBuildCLIHelperBinary(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(cliHelperSource), 0o644); err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+	bin := filepath.Join(dir, "helper")
+	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build helper binary: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return bin
+}
+
+const cliHelperSource = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "bash" {
+		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":{\"status\":\"ok\"}}")
+		return
+	}
+	fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
+}
+`

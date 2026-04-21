@@ -45,6 +45,7 @@ type ApprovalRequest struct {
 	Mode    config.ApprovalMode
 	Input   map[string]any
 	WorkDir string
+	Preview ApprovalPreview
 }
 
 type ApprovalResponse struct {
@@ -57,8 +58,7 @@ type ToolExecutionError struct {
 	Kind     string
 	Message  string
 	ExitCode int
-	Stdout   string
-	Stderr   string
+	Output   ExecutionMetadata
 	Details  any
 }
 
