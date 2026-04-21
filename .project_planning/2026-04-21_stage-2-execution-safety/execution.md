@@ -9,8 +9,8 @@
   - branch existed before execution: yes
   - startup working tree clean: yes
 - current_phase: `subagent_dispatch`
-- current_stage: `stage-1`
-- current_step: `stage-1-step-1`
+- current_stage: `stage-2`
+- current_step: `stage-2-step-1`
 - plan_shape:
   - execution_mode: serial
   - parallel_steps: none
@@ -60,23 +60,38 @@
 
 ## Step Status
 
-- `stage-1-step-1`: `running`
-- `stage-2-step-1`: `pending` depends on `stage-1-step-1`
+- `stage-1-step-1`: `implemented`
+- `stage-2-step-1`: `ready` depends on `stage-1-step-1`
 - `stage-3-step-1`: `pending` depends on `stage-2-step-1`
 
 ## Sub-Agent Activity
 
 - `stage-1-step-1`
-  - status: provisioning
+  - status: merged
   - suggested_model: `cheap-good`
   - current_runtime_tier_comparison: cheaper
   - execution_mode: serial
   - temporary_branch: `tmp/stage-1-step-1`
   - temporary_worktree: `/tmp/steiner-stage-1-step-1`
+  - subagent: `019daf8a-3ac5-7742-97c1-f12a29e7fa96`
+  - model: `gpt-5.4-mini`
+  - branch_commit: `e7e4b81`
+  - branch_commit_message: `stage-1-step-1: add tool safety layer`
+  - merge_commit: `merge: stage-1-step-1`
+  - step_verification:
+    - `gofmt -w <touched-go-files>`: passed
+    - `go test ./internal/tool/... ./internal/agent/...`: passed
+  - closure_status: closed
+  - cleanup:
+    - worktree_deleted: yes
+    - temporary_branch_deleted: yes
+  - contract_review: accepted; patch stayed within scope and covered policy rejection, bounded output metadata, binary-safe handling, approval preview data, and safe tool-result shaping for the agent loop
 
 ## Verification Runs
 
-- none yet
+- `stage-1-step-1`
+  - `gofmt -w <touched-go-files>`: passed
+  - `go test ./internal/tool/... ./internal/agent/...`: passed
 
 ## Manual Verification
 
