@@ -8,7 +8,7 @@
   - planning inputs present: `overview.md`, `plan.yaml`
   - branch existed before execution: yes
   - startup working tree clean: yes
-- current_phase: `manual_verification_checkpoint`
+- current_phase: `reviewer_handoff_ready`
 - current_stage: `stage-3`
 - current_step: `stage-3-step-1`
 - plan_shape:
@@ -152,7 +152,20 @@
 
 ## Manual Verification
 
-- pending user review after automated verification passed
+- round_001:
+  - automated_verification_status: passed before manual review
+  - user_response: manual checks passed
+  - outcome: accepted with no further issues reported
+
+## Final Handoff State
+
+- all_planned_steps_complete: yes
+- automated_verification_passing: yes
+- manual_verification_resolved: yes
+- execution_md_up_to_date: yes
+- working_tree_clean_required_before_handoff: yes
+- final_executor_handoff_state_committed: intended_in_next_commit
+- next_step: reviewer
 
 ## Notes
 
@@ -160,4 +173,4 @@
 - Planner inputs are treated as immutable during execution.
 - latest_stage_commit: `c1f8fda` (`stage-3-step-1: extend execution safety coverage`)
 - latest_stage_verification: `gofmt -w <touched-go-files>`, `go vet ./...`, `go build ./...`, and `go test ./...` all passed
-- manual_verification_checkpoint_required: yes
+- manual_verification_checkpoint_required: resolved
