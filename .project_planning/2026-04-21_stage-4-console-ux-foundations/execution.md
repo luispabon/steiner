@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-4-console-ux-foundations`
 - Active branch: `cl/2026-04-21_stage-4-console-ux-foundations`
 - Executor start date: `2026-04-21`
-- Current phase: `stage-2-step-1 implemented`
+- Current phase: `manual verification checkpoint`
 - Final handoff state: `not ready`
 
 ## Verification Strategy
@@ -56,9 +56,9 @@ Loaded from `overview.md` with no overrides.
 
 | Step ID | Status | Notes |
 | --- | --- | --- |
-| `stage-1-step-1` | `implemented` | Merged from `tmp/stage-1-step-1` after direct executor fallback inside isolated worktree due repeated sub-agent runtime stalls. |
-| `stage-2-step-1` | `implemented` | Merged from `tmp/stage-2-step-1` using direct executor fallback inside isolated worktree because sub-agent runtime had already proven unreliable in this session. |
-| `stage-3-step-1` | `ready` | Dependency `stage-2-step-1` implemented. |
+| `stage-1-step-1` | `complete` | Merged from `tmp/stage-1-step-1` after direct executor fallback inside isolated worktree due repeated sub-agent runtime stalls. |
+| `stage-2-step-1` | `complete` | Merged from `tmp/stage-2-step-1` using direct executor fallback inside isolated worktree because sub-agent runtime had already proven unreliable in this session. |
+| `stage-3-step-1` | `complete` | Merged from `tmp/stage-3-step-1`; interactive CLI wiring now prefers the raw stdin handle so the readline-backed prompt path can activate. |
 
 ## Sub-Agents
 
@@ -85,6 +85,14 @@ Loaded from `overview.md` with no overrides.
   - `go test ./internal/repl` — initially failed because transitive go.sum entries for the new prompt library were missing; resolved with `go mod tidy`
   - `go test ./internal/repl` — passed
   - `go test ./cmd/steiner ./internal/repl ./internal/output` — passed
+- `stage-3-step-1`
+  - `go test ./cmd/steiner ./internal/repl ./internal/output` — passed
+- end-of-implementation
+  - `gofmt -w <changed-go-files-from-main...HEAD>` — passed
+  - `go vet ./...` — passed
+  - `go test ./...` — passed
+  - `make build-binaries` — passed
+  - `go build ./cmd/steiner ./cmd/steiner-core-tools` — passed
 
 ## Manual Verification
 
@@ -109,3 +117,10 @@ Not started.
 - Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-2-step-1`.
 - Temporary worktree `/tmp/steiner-stage-2-step-1` removed after merge.
 - Temporary branch `tmp/stage-2-step-1` deleted after merge.
+- Temporary step branch `tmp/stage-3-step-1` created from `cl/2026-04-21_stage-4-console-ux-foundations`.
+- Dedicated worktree `/tmp/steiner-stage-3-step-1` created for `stage-3-step-1`.
+- `stage-3-step-1` commit on temporary branch: `f66d629abd01a5059f4bdc57cbc65d54a855abc3` (`Use raw stdin for interactive sessions`).
+- Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-3-step-1`.
+- Temporary worktree `/tmp/steiner-stage-3-step-1` removed after merge.
+- Temporary branch `tmp/stage-3-step-1` deleted after merge.
+- No merge conflicts occurred during any step merge.
