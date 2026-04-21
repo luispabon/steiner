@@ -573,6 +573,34 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	}
 }
 
+func TestRetainConversationTailKeepsMatchingUserTurn(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "first request"},
+		{Role: MessageRoleAssistant, Content: "first reply"},
+		{Role: MessageRoleTool, Content: "first tool"},
+		{Role: MessageRoleUser, Content: "second request"},
+		{Role: MessageRoleAssistant, Content: "second reply"},
+		{Role: MessageRoleTool, Content: "second tool"},
+	}
+
+	retained, dropped := retainConversationTail(messages, 1)
+	if got, want := len(dropped), 3; got != want {
+		t.Fatalf("dropped len = %d, want %d", got, want)
+	}
+	if got, want := retained[0].Role, MessageRoleUser; got != want {
+		t.Fatalf("retained[0].role = %q, want %q", got, want)
+	}
+	if got, want := retained[0].Content, "second request"; got != want {
+		t.Fatalf("retained[0].content = %q, want %q", got, want)
+	}
+	if got, want := retained[1].Content, "second reply"; got != want {
+		t.Fatalf("retained[1].content = %q, want %q", got, want)
+	}
+	if got, want := retained[2].Content, "second tool"; got != want {
+		t.Fatalf("retained[2].content = %q, want %q", got, want)
+	}
+}
+
 func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	original := RunState{
 		TurnCount:  3,

@@ -408,14 +408,23 @@ func retainConversationTail(messages []Message, recentTurns int) ([]Message, []M
 	if keepStart < 0 {
 		return cloneMessages(messages), nil
 	}
-	if keepStart == 0 {
-		return cloneMessages(messages), nil
+	turnStart := 0
+	for i := keepStart; i >= 0; i-- {
+		if messages[i].Role == MessageRoleUser {
+			turnStart = i
+			break
+		}
+	}
+	if turnStart == 0 {
+		kept := make([]Message, 0, len(messages)-keepStart+1)
+		kept = append(kept, cloneMessages(messages[:1])...)
+		kept = append(kept, cloneMessages(messages[keepStart:])...)
+		dropped := cloneMessages(messages[1:keepStart])
+		return kept, dropped
 	}
 
-	kept := make([]Message, 0, len(messages)-keepStart+1)
-	kept = append(kept, cloneMessages(messages[:1])...)
-	kept = append(kept, cloneMessages(messages[keepStart:])...)
-	dropped := cloneMessages(messages[1:keepStart])
+	kept := cloneMessages(messages[turnStart:])
+	dropped := cloneMessages(messages[:turnStart])
 	return kept, dropped
 }
 
