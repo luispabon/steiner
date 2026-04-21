@@ -93,10 +93,21 @@ Loaded from `overview.md` with no overrides.
   - `go test ./...` — passed
   - `make build-binaries` — passed
   - `go build ./cmd/steiner ./cmd/steiner-core-tools` — passed
+- manual verification round 001
+  - user reported: no visible blinking cursor after the first round-trip, and the second interactive submission appeared to do nothing
+  - created `.project_planning/2026-04-21_stage-4-console-ux-foundations/manual_fix_plan_round_001.md`
+  - `go test ./cmd/steiner ./internal/repl ./internal/output` — passed
+  - `go vet ./...` — passed
+  - `go test ./...` — passed
+  - `make build-binaries` — passed
+  - `go build ./cmd/steiner ./cmd/steiner-core-tools` — passed
 
 ## Manual Verification
 
-Not started.
+- Round 001
+  - user feedback: interactive prompt lost visible cursor state and stopped behaving correctly after the first completed turn
+  - fix approach: route interactive event/status/approval output through the same prompt-aware readline surface instead of splitting assistant output from stderr/status output
+  - status: `fix implemented; awaiting user re-test`
 
 ## Notes
 
@@ -123,4 +134,10 @@ Not started.
 - Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-3-step-1`.
 - Temporary worktree `/tmp/steiner-stage-3-step-1` removed after merge.
 - Temporary branch `tmp/stage-3-step-1` deleted after merge.
+- Temporary manual-fix branch `tmp/manual-fix-001` created from `cl/2026-04-21_stage-4-console-ux-foundations`.
+- Dedicated worktree `/tmp/steiner-manual-fix-001` created for manual verification round 001.
+- Manual-fix commit on temporary branch: `8a501ff9232dad02fe7a5eb7c69908969a694876` (`Fix interactive prompt refresh wiring`).
+- Temporary branch merged back into the feature branch with `git merge --no-ff tmp/manual-fix-001`.
+- Temporary worktree `/tmp/steiner-manual-fix-001` removed after merge.
+- Temporary branch `tmp/manual-fix-001` deleted after merge.
 - No merge conflicts occurred during any step merge.
