@@ -459,3 +459,95 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
 	}
 }
+
+func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
+	original := RunState{
+		TurnCount:  3,
+		TokenCount: 27,
+		StopReason: StopReasonMaxTokens,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "keep working"},
+		},
+		Context: ContextState{
+			ActiveConstraints: []ActiveConstraint{
+				{Text: "do not change public APIs", Source: "user", Turn: 1},
+			},
+			UnresolvedWork: []UnresolvedWorkItem{
+				{Text: "tighten retry handling", Source: "assistant", Turn: 2},
+			},
+			ActiveFocus: &ActiveFocus{
+				Text:   "finish the agent loop",
+				Source: "assistant",
+				Turn:   3,
+			},
+			RetainedSummaries: []RetainedSummary{
+				{Title: "earlier progress", Text: "implemented the scheduler", Source: "compaction", Turn: 2},
+			},
+		},
+	}
+
+	withConversation := original.WithConversation([]Message{
+		{Role: MessageRoleAssistant, Content: "new turn"},
+	})
+
+	if got, want := withConversation.TurnCount, original.TurnCount; got != want {
+		t.Fatalf("TurnCount = %d, want %d", got, want)
+	}
+	if got, want := withConversation.TokenCount, original.TokenCount; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+	if got, want := withConversation.StopReason, original.StopReason; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(withConversation.Conversation), 1; got != want {
+		t.Fatalf("Conversation len = %d, want %d", got, want)
+	}
+	if got, want := withConversation.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
+		t.Fatalf("ActiveConstraint text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
+		t.Fatalf("UnresolvedWork text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
+		t.Fatalf("ActiveFocus text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
+		t.Fatalf("RetainedSummary text = %q, want %q", got, want)
+	}
+
+	withConversation.Context.ActiveConstraints[0].Text = "changed"
+	withConversation.Context.UnresolvedWork[0].Text = "changed"
+	withConversation.Context.ActiveFocus.Text = "changed"
+	withConversation.Context.RetainedSummaries[0].Text = "changed"
+
+	if got, want := original.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
+		t.Fatalf("original constraint text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
+		t.Fatalf("original unresolved work text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
+		t.Fatalf("original active focus text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
+		t.Fatalf("original retained summary text = %q, want %q", got, want)
+	}
+
+	withContext := original.WithContext(ContextState{
+		ActiveFocus: &ActiveFocus{
+			Text:   "render compacted context blocks",
+			Source: "planner",
+			Turn:   4,
+		},
+	})
+
+	if got, want := len(withContext.Conversation), len(original.Conversation); got != want {
+		t.Fatalf("Conversation len = %d, want %d", got, want)
+	}
+	if got, want := withContext.Conversation[0].Content, "keep working"; got != want {
+		t.Fatalf("Conversation content = %q, want %q", got, want)
+	}
+	if got, want := withContext.Context.ActiveFocus.Text, "render compacted context blocks"; got != want {
+		t.Fatalf("replacement ActiveFocus text = %q, want %q", got, want)
+	}
+}
