@@ -101,12 +101,25 @@ Loaded from `overview.md` with no overrides.
   - `go test ./...` — passed
   - `make build-binaries` — passed
   - `go build ./cmd/steiner ./cmd/steiner-core-tools` — passed
+- manual verification round 002
+  - user reported: raw escape-sequence garbage such as `^[[5;3R`, Enter not submitting on the first keypress, and gradual output flush after repeated Enters
+  - created `.project_planning/2026-04-21_stage-4-console-ux-foundations/manual_fix_plan_round_002.md`
+  - re-attempted isolated sub-agent execution, but the worker again stalled without producing file activity, so direct executor fallback was used inside the isolated worktree
+  - `go test ./cmd/steiner ./internal/repl ./internal/output` — passed
+  - `go vet ./...` — passed
+  - `go test ./...` — passed
+  - `make build-binaries` — passed
+  - `go build ./cmd/steiner ./cmd/steiner-core-tools` — passed
 
 ## Manual Verification
 
 - Round 001
   - user feedback: interactive prompt lost visible cursor state and stopped behaving correctly after the first completed turn
   - fix approach: route interactive event/status/approval output through the same prompt-aware readline surface instead of splitting assistant output from stderr/status output
+  - status: `fixed but superseded by round 002 after deeper terminal-control failure was reported`
+- Round 002
+  - user feedback: interactive mode emitted raw cursor-position responses and sometimes required repeated Enter presses before the model request completed
+  - fix approach: remove the generic prompt-writer bridge entirely; use an explicit prompt event sink for interactive events and direct prompter printing for approval prompts
   - status: `fix implemented; awaiting user re-test`
 
 ## Notes
@@ -140,4 +153,8 @@ Loaded from `overview.md` with no overrides.
 - Temporary branch merged back into the feature branch with `git merge --no-ff tmp/manual-fix-001`.
 - Temporary worktree `/tmp/steiner-manual-fix-001` removed after merge.
 - Temporary branch `tmp/manual-fix-001` deleted after merge.
+- Temporary manual-fix branch `tmp/manual-fix-002` created from `cl/2026-04-21_stage-4-console-ux-foundations`.
+- Dedicated worktree `/tmp/steiner-manual-fix-002` created for manual verification round 002.
+- Manual-fix commit on temporary branch: `4837cd0b50839351385ed9e1c4642436d069c252` (`Remove unsafe prompt writer bridge`).
+- Temporary branch merged back into the feature branch with `git merge --no-ff tmp/manual-fix-002`.
 - No merge conflicts occurred during any step merge.
