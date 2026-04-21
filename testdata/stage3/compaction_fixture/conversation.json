@@ -1,0 +1,42 @@
+[
+  {
+    "role": "user",
+    "content": "turn one user: keep prompt assembly policy-driven and document bounded growth"
+  },
+  {
+    "role": "assistant",
+    "content": "turn one assistant: scheduler should retain only recent turns"
+  },
+  {
+    "role": "user",
+    "content": "turn two user: make compact summaries preserve intent"
+  },
+  {
+    "role": "assistant",
+    "content": "turn two assistant: diagnostics should expose compaction"
+  },
+  {
+    "role": "user",
+    "content": "turn three user: state preservation matters"
+  },
+  {
+    "role": "assistant",
+    "content": "turn three assistant: durable context survives compaction"
+  },
+  {
+    "role": "user",
+    "content": "turn four user: keep the last two turns verbatim"
+  },
+  {
+    "role": "assistant",
+    "content": "turn four assistant: summarize earlier context"
+  },
+  {
+    "role": "user",
+    "content": "turn five user: confirm prompt assembly snapshot"
+  },
+  {
+    "role": "assistant",
+    "content": "turn five assistant: final response"
+  }
+]

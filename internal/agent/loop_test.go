@@ -675,6 +675,68 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 	}
 }
 
+func TestCompactConversationStateRecordsSummaryAndPreservesDurableContext(t *testing.T) {
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn one user"},
+			{Role: MessageRoleAssistant, Content: "turn one assistant"},
+			{Role: MessageRoleUser, Content: "turn two user"},
+			{Role: MessageRoleAssistant, Content: "turn two assistant"},
+			{Role: MessageRoleUser, Content: "turn three user"},
+			{Role: MessageRoleAssistant, Content: "turn three assistant"},
+			{Role: MessageRoleUser, Content: "turn four user"},
+			{Role: MessageRoleAssistant, Content: "turn four assistant"},
+			{Role: MessageRoleUser, Content: "turn five user"},
+			{Role: MessageRoleAssistant, Content: "turn five assistant"},
+		},
+		Context: ContextState{
+			ActiveConstraints: []ActiveConstraint{{Text: "do not change public APIs", Source: "user", Turn: 1}},
+			UnresolvedWork:    []UnresolvedWorkItem{{Text: "tighten retry handling", Source: "assistant", Turn: 2}},
+			ActiveFocus:       &ActiveFocus{Text: "finish compaction diagnostics", Source: "assistant", Turn: 3},
+		},
+	}
+
+	next := compactConversationState(state, 5, 2, output.NoopSink{})
+
+	if got, want := len(next.Conversation), 4; got != want {
+		t.Fatalf("Conversation len = %d, want %d", got, want)
+	}
+	if got, want := next.Conversation[0].Content, "turn four user"; got != want {
+		t.Fatalf("retained conversation[0] = %q, want %q", got, want)
+	}
+	if got, want := next.Conversation[3].Content, "turn five assistant"; got != want {
+		t.Fatalf("retained conversation[3] = %q, want %q", got, want)
+	}
+	if got, want := len(next.Context.RetainedSummaries), 1; got != want {
+		t.Fatalf("RetainedSummaries len = %d, want %d", got, want)
+	}
+	summary := next.Context.RetainedSummaries[0]
+	if got, want := summary.Title, "compacted conversation history"; got != want {
+		t.Fatalf("summary title = %q, want %q", got, want)
+	}
+	if got, want := summary.Source, "loop_compaction"; got != want {
+		t.Fatalf("summary source = %q, want %q", got, want)
+	}
+	if got, want := summary.Turn, 5; got != want {
+		t.Fatalf("summary turn = %d, want %d", got, want)
+	}
+	if !strings.Contains(summary.Text, "turn one user") || !strings.Contains(summary.Text, "turn three assistant") {
+		t.Fatalf("summary text = %q, want dropped turns excerpt", summary.Text)
+	}
+	if got, want := next.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
+		t.Fatalf("ActiveConstraints preserved = %q, want %q", got, want)
+	}
+	if got, want := next.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
+		t.Fatalf("UnresolvedWork preserved = %q, want %q", got, want)
+	}
+	if next.Context.ActiveFocus == nil {
+		t.Fatal("ActiveFocus lost during compaction")
+	}
+	if got, want := next.Context.ActiveFocus.Text, "finish compaction diagnostics"; got != want {
+		t.Fatalf("ActiveFocus preserved = %q, want %q", got, want)
+	}
+}
+
 func TestRetainConversationTailKeepsMatchingUserTurn(t *testing.T) {
 	messages := []Message{
 		{Role: MessageRoleUser, Content: "first request"},

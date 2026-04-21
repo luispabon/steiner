@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,6 +251,51 @@ func TestAssembleCompactsOlderTurnsAndBoundsGrowth(t *testing.T) {
 	}
 }
 
+func TestAssembleSnapshotCapturesCompactedPromptFixture(t *testing.T) {
+	t.Parallel()
+
+	fixtureRoot := filepath.Join("..", "..", "testdata", "stage3", "compaction_fixture")
+	conversation := loadMessagesFixture(t, filepath.Join(fixtureRoot, "conversation.json"))
+
+	homeDir := t.TempDir()
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global rules")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir:                   homeDir,
+		ProjectRoot:               fixtureRoot,
+		ProjectContextBudgetBytes: 128,
+		Conversation:              conversation,
+		Policy: AssemblyPolicy{
+			Retention:  RetentionPolicy{RecentTurns: 2},
+			Compaction: CompactionPolicy{SummaryBytes: 1024},
+		},
+		ContextState: DurableContextState{
+			ActiveConstraints: []DurableContextEntry{{Text: "do not change public APIs", Source: "user", Turn: 1}},
+			UnresolvedWork:    []DurableContextEntry{{Text: "tighten retry handling", Source: "assistant", Turn: 2}},
+			ActiveFocus:       &DurableContextEntry{Text: "finish compaction diagnostics", Source: "assistant", Turn: 3},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	if got, want := len(assembly.Messages), 11; got != want {
+		t.Fatalf("len(messages) = %d, want %d", got, want)
+	}
+	if got, want := len(assembly.Blocks), 7; got != want {
+		t.Fatalf("len(blocks) = %d, want %d", got, want)
+	}
+
+	got := renderAssemblyBlocksSnapshot(assembly.Blocks)
+	want, err := os.ReadFile(filepath.Join(fixtureRoot, "assembly_blocks.snapshot"))
+	if err != nil {
+		t.Fatalf("ReadFile(snapshot) error = %v", err)
+	}
+	if got, want := strings.TrimSpace(got), strings.TrimSpace(string(want)); got != want {
+		t.Fatalf("assembly snapshot mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
 	t.Parallel()
 
@@ -282,6 +328,54 @@ func findBlockBySource(t *testing.T, blocks []ContextBlock, source ContextSource
 	}
 	t.Fatalf("block with source %q not found", source)
 	return ContextBlock{}
+}
+
+func loadMessagesFixture(t *testing.T, path string) []provider.Message {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var messages []provider.Message
+	if err := json.Unmarshal(data, &messages); err != nil {
+		t.Fatalf("Unmarshal(%s) error = %v", path, err)
+	}
+	return messages
+}
+
+func renderAssemblyBlocksSnapshot(blocks []ContextBlock) string {
+	var builder strings.Builder
+	for _, block := range blocks {
+		if block.Source == ContextSourcePreamble {
+			continue
+		}
+		fmt.Fprintf(&builder, "source=%s path=%s truncated=%t content=%s\n",
+			block.Source,
+			filepath.Base(block.Path),
+			block.Truncated,
+			renderSnapshotContent(block),
+		)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func renderSnapshotContent(block ContextBlock) string {
+	content := block.Content
+	switch block.Source {
+	case ContextSourceConversationSummary, ContextSourceDurableContext, ContextSourceToolSummary:
+		var envelope struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(block.Content), &envelope); err == nil && envelope.Content != "" {
+			content = envelope.Content
+		}
+	}
+	return normalizeSnapshotText(content)
+}
+
+func normalizeSnapshotText(text string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
 }
 
 func mustWrite(t *testing.T, dir, name, content string) {
