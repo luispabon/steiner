@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-3-context-discipline-and-compaction`
 - Active branch: `cl/2026-04-21_stage-3-context-discipline-and-compaction`
 - Initial handoff state: validated
-- Current phase: implementing `stage-3-step-1`
+- Current phase: manual verification checkpoint
 
 ## Verification Strategy
 
@@ -47,11 +47,11 @@
 
 ## Step State
 
-- `stage-1-step-1`: implemented
-- `stage-1-step-2`: implemented
-- `stage-2-step-1`: implemented
-- `stage-2-step-2`: implemented
-- `stage-3-step-1`: running
+- `stage-1-step-1`: complete
+- `stage-1-step-2`: complete
+- `stage-2-step-1`: complete
+- `stage-2-step-2`: complete
+- `stage-3-step-1`: complete
 
 ## Sub-Agent Activity
 
@@ -126,7 +126,16 @@
   - mode: serial
   - temporary branch: `exec/stage-3-step-1`
   - temporary worktree: `/tmp/steiner-stage-3-step-1`
-  - status: preparing dispatch
+  - commit: `952e737` `test(stage3): add compaction coverage snapshots`
+  - verification reported by sub-agent:
+    - `gofmt -w internal/prompt/assemble_test.go internal/agent/loop_test.go internal/output/stream_test.go internal/repl/repl_test.go`
+    - `go test ./...`
+    - `go vet ./...`
+    - `make build-binaries`
+  - merge result: merged into `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+  - conflict resolution: none
+  - cleanup: worktree deleted, temporary branch deleted
+  - sub-agent closure: closed
 
 ## Verification Runs
 
@@ -145,10 +154,20 @@
 - `stage-2-follow-up`
   - verification run: `go test ./internal/agent ./cmd/steiner`
   - result: passed
+- `stage-3-step-1`
+  - formatting: `gofmt -w internal/prompt/assemble_test.go internal/agent/loop_test.go internal/output/stream_test.go internal/repl/repl_test.go`
+  - tests: `go test ./...` passed
+  - vet: `go vet ./...` passed
+  - build: `make build-binaries` passed
+- end-of-implementation status: passed
 
 ## Manual Verification
 
-- not reached
+- requested
+- suggested focus areas:
+  - interactive `/history` output after a session that triggers compaction or context truncation
+  - long-session behavior where earlier turns compact but active constraints and active focus remain visible to the model
+  - prompt-assembly snapshot expectations under `testdata/stage3/compaction_fixture/`
 
 ## Final Handoff State
 
