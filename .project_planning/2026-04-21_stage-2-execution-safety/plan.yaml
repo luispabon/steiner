@@ -1,0 +1,131 @@
+stages:
+  - id: stage-1
+    objective: Establish centralized execution-safety controls and bounded tool-result handling in the runtime layer
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: Add centralized path policy, cwd confinement, bounded subprocess capture, truncation metadata, binary detection, and approval preview plumbing
+        scope: Own the runtime-side Stage 2 safety layer in `internal/tool` and the agent-facing result envelope, including approval preview rendering folded into this same packet
+        files:
+          - internal/tool/executor.go
+          - internal/tool/approval.go
+          - internal/tool/types.go
+          - internal/tool/schema.go
+          - internal/tool/policy.go
+          - internal/tool/output.go
+          - internal/tool/preview.go
+          - internal/tool/executor_test.go
+          - internal/tool/approval_test.go
+          - internal/tool/schema_test.go
+          - internal/agent/tool_result.go
+          - internal/agent/loop.go
+          - internal/agent/loop_test.go
+        constraints:
+          - Preserve package boundaries from `AGENTS.md`; keep policy and preview logic in `internal/tool`, not `internal/agent`
+          - Enforce project-root confinement and blocked-path decisions before tool execution rather than relying on core tool binaries alone
+          - Keep success and failure output bounded; do not continue returning raw oversized stdout/stderr strings in tool-visible errors
+          - Approval preview data must come from structured input and normalized runtime metadata, not ad hoc UI strings assembled in multiple places
+          - Do not introduce patch application or broader Stage 3 compaction concerns in this step
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Centralized path-policy implementation covering project-root confinement, blocked paths, writable path rules, and shell cwd policy
+          - Bounded subprocess output capture with explicit truncation metadata and binary-output handling
+          - Approval preview generation for prompt-mode tools exposing path/cwd/timeout and safe mutation excerpts where applicable
+          - Agent/runtime result envelope updates required to carry truncation metadata without polluting conversation context
+        acceptance:
+          - `bash` requests with disallowed cwd or out-of-root targets are rejected by policy
+          - runtime output handling marks truncation explicitly and avoids surfacing raw unbounded stdout/stderr
+          - binary output is detected and represented safely
+          - approval previews for prompt-mode tools include the Stage 2-required context instead of only raw input maps
+          - unit tests cover policy rejection, truncation behavior, binary detection, and preview generation
+        handoff: Implement the shared Stage 2 runtime safety layer first. Keep the public behavior coherent for existing tools, but route execution through centralized policy/output/preview helpers so later steps can plug into them cleanly.
+        verification:
+          - gofmt -w <touched-go-files>
+          - go test ./internal/tool/... ./internal/agent/...
+
+  - id: stage-2
+    objective: Add the safer mutation primitive and wire it into the existing tool surface without removing `write`
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: Implement the `edit` core tool, register it in the runtime surface, and prefer it in schemas/docs where Stage 2 expects safer mutation
+        scope: Own the new exact old/new replacement tool path end to end, including CLI implementation, schema/registry wiring, approval-preview compatibility, and focused tests
+        files:
+          - cmd/steiner-core-tools/main.go
+          - cmd/steiner-core-tools/edit.go
+          - cmd/steiner-core-tools/write.go
+          - internal/tool/registry.go
+          - internal/tool/schema.go
+          - internal/tool/schema_test.go
+          - internal/tool/types.go
+          - internal/tool/approval_test.go
+          - internal/tool/executor_test.go
+          - README.md
+        constraints:
+          - `edit` must be exact old/new replacement only; do not implement patch or fuzzy-apply behavior
+          - Keep `write` available for compatibility, but ensure the tool surface can prefer `edit` for safer mutations
+          - Reuse the shared preview/policy/output mechanisms from Stage 1 rather than introducing edit-specific exceptions outside those paths
+          - Fail clearly when the old content does not match exactly or when replacement inputs are malformed
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - New `edit` subcommand in `steiner-core-tools`
+          - Tool registry/schema updates exposing `edit` as a first-class mutation path
+          - Exact-match replacement behavior with clear structured success/failure payloads
+          - Focused tests for successful replacement, no-match failure, malformed input, and approval preview excerpts
+        acceptance:
+          - `edit` can replace an exact old snippet with a new snippet in a file under allowed paths
+          - `edit` fails safely when the old snippet is absent or ambiguous according to the exact-match contract
+          - tool schemas and docs expose `edit` as the preferred safer mutation primitive while retaining `write`
+          - tests cover success and failure cases for the new tool path
+        handoff: Build the safer mutation primitive on top of the Stage 1 runtime helpers. Keep the contract narrow and predictable so approval previews and policy enforcement stay simple.
+        verification:
+          - gofmt -w <touched-go-files>
+          - go test ./cmd/steiner-core-tools/... ./internal/tool/...
+
+  - id: stage-3
+    objective: Harden the Stage 2 behavior across integration boundaries and finish the repo-level validation surface
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: Add or refine integration coverage for execution safety and run the final Stage 2 verification set
+        scope: Own cross-package and temp-repo validation for bash confinement, dangerous mutation denial, large-output truncation, and approval-preview observability, then run the final repo checks required for handoff
+        files:
+          - internal/tool/executor_test.go
+          - internal/agent/loop_test.go
+          - cmd/steiner/main_test.go
+          - testdata/repos/go_tiny_bug/
+          - testdata/repos/large_output/
+          - testdata/repos/multi_file_search/
+          - README.md
+        constraints:
+          - Prefer extending existing Stage 1/2 tests before creating broad new test harnesses
+          - Keep fixtures under `testdata/` rather than embedding large payloads inline
+          - Do not broaden scope into Stage 3 compaction or Stage 4 delegation behavior
+          - Validate the actual Stage 2 user-visible outcomes, not just helper functions
+        depends_on:
+          - stage-2-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Integration coverage for bash confinement, dangerous path rejection, truncated large output, and approval preview content
+          - Any small fixture or README updates needed to reflect the final Stage 2 tool surface
+          - Final validation results for formatting, vet, build, and full test suite
+        acceptance:
+          - integration tests demonstrate shell execution remains confined under project-root policy
+          - dangerous file mutations are denied by policy rather than only by approval choice
+          - large command output is truncated cleanly with explicit metadata
+          - final repo validation passes with `gofmt`, `go vet`, `go build`, and `go test`
+        handoff: Finish by proving the Stage 2 runtime is safe enough for normal repo use without relying on user vigilance alone. Keep the validation surface explicit and limited to Stage 2 outcomes.
+        verification:
+          - gofmt -w <touched-go-files>
+          - go vet ./...
+          - go build ./...
+          - go test ./...
