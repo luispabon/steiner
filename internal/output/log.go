@@ -9,17 +9,18 @@ import (
 )
 
 const (
-	EventTypeModelCallStarted  = "model_call_started"
-	EventTypeModelCallFinished = "model_call_finished"
-	EventTypeToolCallStarted   = "tool_call_started"
-	EventTypeToolCallFinished  = "tool_call_finished"
-	EventTypeApprovalRequested = "approval_requested"
-	EventTypeApprovalAccepted  = "approval_accepted"
-	EventTypeApprovalDenied    = "approval_denied"
-	EventTypeStopReason        = "stop_reason"
-	EventTypeUserInput         = "user_input"
-	EventTypeAPIRequest        = "api_request"
-	EventTypeAPIResponse       = "api_response"
+	EventTypeModelCallStarted   = "model_call_started"
+	EventTypeModelCallFinished  = "model_call_finished"
+	EventTypeToolCallStarted    = "tool_call_started"
+	EventTypeToolCallFinished   = "tool_call_finished"
+	EventTypeApprovalRequested  = "approval_requested"
+	EventTypeApprovalAccepted   = "approval_accepted"
+	EventTypeApprovalDenied     = "approval_denied"
+	EventTypeStopReason         = "stop_reason"
+	EventTypeUserInput          = "user_input"
+	EventTypeAPIRequest         = "api_request"
+	EventTypeAPIResponse        = "api_response"
+	EventTypeContextDiagnostics = "context_diagnostics"
 )
 
 type Event struct {
@@ -266,6 +267,10 @@ func CompactJSON(value any) string {
 		return ""
 	}
 	return string(data)
+}
+
+func FormatEvent(event Event) string {
+	return formatEvent(event)
 }
 
 func SetupLogger(level string) *slog.Logger {
