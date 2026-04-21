@@ -1,7 +1,6 @@
 package repl
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -32,6 +31,7 @@ type Session struct {
 	Conversation []agent.Message
 	Diagnostics  []output.Event
 	Completer    Completer
+	prompt       Prompter
 }
 
 func NewSession(runner Runner, in io.Reader, out *output.Stream, events output.EventSink, toolNames, skillNames []string) *Session {
@@ -51,24 +51,24 @@ func (s *Session) Run(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	reader := s.In
-	if reader == nil {
+	if s.prompt == nil {
+		if s.In == nil {
+			return fmt.Errorf("input is required")
+		}
+		s.prompt = newPrompter(s.In, s.Out, s.Completer)
+	}
+	if s.prompt == nil {
 		return fmt.Errorf("input is required")
 	}
-	bufReader, ok := reader.(*bufio.Reader)
-	if !ok {
-		bufReader = bufio.NewReader(reader)
-	}
 	for {
-		s.printPrompt()
-		line, err := bufReader.ReadString('\n')
+		line, err := s.prompt.ReadLine(ctx)
 		if err != nil && err != io.EOF {
 			return err
 		}
-		if err == io.EOF && line == "" {
+		if err == io.EOF && strings.TrimSpace(line) == "" {
 			return nil
 		}
-		done, err := s.HandleLine(ctx, strings.TrimRight(line, "\r\n"))
+		done, err := s.HandleLine(ctx, line)
 		if err != nil {
 			return err
 		}
@@ -144,17 +144,21 @@ func (s *Session) handleCommand(command Command) (bool, error) {
 	return false, nil
 }
 
-func (s *Session) printPrompt() {
-	s.Printf("> ")
-}
-
 func (s *Session) Println(args ...any) {
+	if s != nil && s.prompt != nil {
+		s.prompt.Println(args...)
+		return
+	}
 	if s != nil && s.Out != nil {
 		s.Out.Println(args...)
 	}
 }
 
 func (s *Session) Printf(format string, args ...any) {
+	if s != nil && s.prompt != nil {
+		s.prompt.Printf(format, args...)
+		return
+	}
 	if s != nil && s.Out != nil {
 		s.Out.Printf(format, args...)
 	}
