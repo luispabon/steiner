@@ -127,11 +127,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, err
 		}
 
-		resultContent := toolResultContent(result)
-		emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, resultContent, nil))
+		normalizedResult := normalizeToolResult(result)
+		emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, normalizedResult.Content, nil))
 		state.Conversation = append(state.Conversation, Message{
 			Role:       MessageRoleTool,
-			Content:    resultContent,
+			Content:    normalizedResult.Content,
 			ToolCallID: call.ID,
 			Name:       call.Name,
 		})
@@ -292,23 +292,6 @@ func fromProviderMessage(message provider.Message) Message {
 		}
 	}
 	return out
-}
-
-func toolResultContent(result any) string {
-	switch v := result.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	case []byte:
-		return string(v)
-	default:
-		data, err := json.Marshal(v)
-		if err == nil {
-			return string(data)
-		}
-		return fmt.Sprint(v)
-	}
 }
 
 func emitEvent(sink output.EventSink, event output.Event) {

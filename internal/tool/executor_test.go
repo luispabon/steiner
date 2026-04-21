@@ -42,8 +42,10 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	}
 
 	var approvals []string
+	var previews []ApprovalPreview
 	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
 		approvals = append(approvals, req.Tool.Name+":"+string(req.Mode))
+		previews = append(previews, req.Preview)
 		return ApprovalResponse{Allow: true}, nil
 	}), tempRepo)
 
@@ -51,9 +53,13 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read execute: %v", err)
 	}
-	readMap, ok := readResult.(map[string]any)
+	readEnvelope, ok := readResult.(ExecutionResult)
 	if !ok {
-		t.Fatalf("read result type = %T, want map[string]any", readResult)
+		t.Fatalf("read result type = %T, want tool.ExecutionResult", readResult)
+	}
+	readMap, ok := readEnvelope.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("read result value type = %T, want map[string]any", readEnvelope.Value)
 	}
 	if got := readMap["contents"]; got != "hello\nworld\n" {
 		t.Fatalf("read contents = %v, want hello\\nworld\\n", got)
@@ -63,7 +69,8 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("glob execute: %v", err)
 	}
-	globMap := globResult.(map[string]any)
+	globEnvelope := globResult.(ExecutionResult)
+	globMap := globEnvelope.Value.(map[string]any)
 	matches := globMap["matches"].([]any)
 	if len(matches) != 1 || matches[0] != "notes.txt" {
 		t.Fatalf("glob matches = %#v, want [notes.txt]", matches)
@@ -73,7 +80,8 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search execute: %v", err)
 	}
-	searchMap := searchResult.(map[string]any)
+	searchEnvelope := searchResult.(ExecutionResult)
+	searchMap := searchEnvelope.Value.(map[string]any)
 	searchMatches := searchMap["matches"].([]any)
 	if len(searchMatches) != 1 {
 		t.Fatalf("search matches length = %d, want 1", len(searchMatches))
@@ -86,9 +94,10 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write execute: %v", err)
 	}
-	writeMap := writeResult.(map[string]any)
-	if got := writeMap["path"]; got != "generated.txt" {
-		t.Fatalf("write path = %v, want generated.txt", got)
+	writeEnvelope := writeResult.(ExecutionResult)
+	writeMap := writeEnvelope.Value.(map[string]any)
+	if got := writeMap["path"]; got != filepath.Join(tempRepo, "generated.txt") {
+		t.Fatalf("write path = %v, want %s", got, filepath.Join(tempRepo, "generated.txt"))
 	}
 
 	bashResult, err := executor.Execute(context.Background(), "bash", map[string]any{
@@ -97,7 +106,8 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bash execute: %v", err)
 	}
-	bashMap := bashResult.(map[string]any)
+	bashEnvelope := bashResult.(ExecutionResult)
+	bashMap := bashEnvelope.Value.(map[string]any)
 	if got := strings.TrimSpace(bashMap["stdout"].(string)); got != tempRepo {
 		t.Fatalf("bash stdout = %q, want repo root %q", got, tempRepo)
 	}
@@ -114,6 +124,36 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 		if approvals[i] != want {
 			t.Fatalf("approvals[%d] = %q, want %q", i, approvals[i], want)
 		}
+	}
+	if len(previews) != 2 {
+		t.Fatalf("previews len = %d, want 2", len(previews))
+	}
+	if got, want := previews[0].Tool, "write"; got != want {
+		t.Fatalf("write preview tool = %q, want %q", got, want)
+	}
+	if got, want := previews[0].WorkDir, tempRepo; got != want {
+		t.Fatalf("write preview workdir = %q, want %q", got, want)
+	}
+	if got, want := previews[0].Fields[0].Name, "path"; got != want {
+		t.Fatalf("write preview field name = %q, want %q", got, want)
+	}
+	if got, want := previews[0].Fields[0].Value, filepath.Join(tempRepo, "generated.txt"); got != want {
+		t.Fatalf("write preview path = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Tool, "bash"; got != want {
+		t.Fatalf("bash preview tool = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[0].Name, "cwd"; got != want {
+		t.Fatalf("bash preview field name = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[0].Value, tempRepo; got != want {
+		t.Fatalf("bash preview cwd = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[1].Name, "command"; got != want {
+		t.Fatalf("bash preview second field name = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[1].Value, "pwd"; got != want {
+		t.Fatalf("bash preview command = %q, want %q", got, want)
 	}
 }
 
@@ -152,6 +192,145 @@ func TestExecutorReturnsStructuredErrorForMissingFile(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatalf("mkdir blocked: %v", err)
+	}
+
+	reg := NewRegistry(
+		ToolDef{Name: "read", ExecPath: "/bin/true", Subcommand: "read"},
+		ToolDef{Name: "write", ExecPath: "/bin/true", Subcommand: "write"},
+		ToolDef{Name: "bash", ExecPath: "/bin/true", Subcommand: "bash"},
+	)
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			ProjectRootOnly: true,
+			BlockedPaths:    []string{blocked},
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+			Overrides: map[string]config.ApprovalMode{
+				"read":  config.ApprovalModeAuto,
+				"write": config.ApprovalModeAuto,
+				"bash":  config.ApprovalModeAuto,
+			},
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, nil, root)
+
+	tests := []struct {
+		name  string
+		tool  string
+		input map[string]any
+		want  string
+	}{
+		{
+			name:  "read out of root",
+			tool:  "read",
+			input: map[string]any{"path": "../escape.txt"},
+			want:  "outside project root",
+		},
+		{
+			name:  "read blocked path",
+			tool:  "read",
+			input: map[string]any{"path": filepath.Join("blocked", "note.txt")},
+			want:  "blocked by policy",
+		},
+		{
+			name:  "bash cwd out of root",
+			tool:  "bash",
+			input: map[string]any{"command": "pwd", "cwd": "../escape"},
+			want:  "outside project root",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := executor.Execute(context.Background(), tc.tool, tc.input)
+			if err == nil {
+				t.Fatal("Execute() error = nil, want policy rejection")
+			}
+			var toolErr *ToolExecutionError
+			if !errors.As(err, &toolErr) {
+				t.Fatalf("error type = %T, want *ToolExecutionError", err)
+			}
+			if toolErr.Kind != "policy_denied" {
+				t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+			}
+			if !strings.Contains(toolErr.Message, tc.want) {
+				t.Fatalf("error message = %q, want %q", toolErr.Message, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecutorCapturesTruncatedOutputAndMetadata(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{Name: "probe", ExecPath: helper, Subcommand: "stderr"})
+	cfg := config.Config{
+		Limits: config.LimitsConfig{
+			ToolOutputMaxBytes: 48,
+		},
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+
+	result, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if execResult.Metadata.Stdout.Truncated {
+		t.Fatalf("stdout truncated = true, want false")
+	}
+	if !execResult.Metadata.Stderr.Truncated {
+		t.Fatalf("stderr truncated = false, want true")
+	}
+	if execResult.Metadata.Stderr.Preview == "" {
+		t.Fatal("stderr preview = empty, want captured preview")
+	}
+	if execResult.Metadata.Stderr.Binary {
+		t.Fatal("stderr binary = true, want false")
+	}
+}
+
+func TestExecutorMarksBinaryOutputSafely(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{Name: "probe", ExecPath: helper, Subcommand: "binary"})
+	cfg := config.Config{
+		Limits: config.LimitsConfig{
+			ToolOutputMaxBytes: 8,
+		},
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+
+	_, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want binary-output failure")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "invalid_json" {
+		t.Fatalf("error kind = %q, want invalid_json", toolErr.Kind)
+	}
+	if !toolErr.Output.Stdout.Binary {
+		t.Fatal("stdout binary = false, want true")
+	}
+	if toolErr.Output.Stdout.Preview == "" {
+		t.Fatal("stdout preview = empty, want safe binary preview")
+	}
+	if strings.Contains(toolErr.Error(), "000") || strings.Contains(toolErr.Error(), "\x00") {
+		t.Fatalf("error string leaked raw binary data: %q", toolErr.Error())
+	}
+}
+
 func newCoreToolsRegistry(bin string) *Registry {
 	reg := NewRegistry(
 		ToolDef{Name: "read", ExecPath: bin, Subcommand: "read", Description: "Read a file"},
@@ -162,6 +341,51 @@ func newCoreToolsRegistry(bin string) *Registry {
 	)
 	return reg
 }
+
+func mustBuildHelperBinary(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(helperSource), 0o644); err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+	bin := filepath.Join(dir, "helper")
+	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build helper binary: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return bin
+}
+
+const helperSource = `package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	mode := "stderr"
+	if len(os.Args) > 1 {
+		mode = os.Args[1]
+	}
+	switch mode {
+	case "stderr":
+		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":{\"status\":\"ok\"}}")
+		fmt.Fprint(os.Stderr, strings.Repeat("e", 128))
+	case "binary":
+		_, _ = os.Stdout.Write([]byte{0x00, 0xff, 0x42})
+		_, _ = os.Stderr.Write([]byte{0x00, 0x01, 0x02})
+		os.Exit(1)
+	default:
+		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
+	}
+}
+`
 
 func mustBuildCoreToolsBinary(t *testing.T) string {
 	t.Helper()

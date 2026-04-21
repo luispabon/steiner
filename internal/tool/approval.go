@@ -1,6 +1,8 @@
 package tool
 
-import "github.com/luispabon/steiner/internal/config"
+import (
+	"github.com/luispabon/steiner/internal/config"
+)
 
 type ApprovalResolver struct {
 	Config config.Config
@@ -25,6 +27,18 @@ func ResolveApprovalMode(cfg config.Config, def ToolDef) config.ApprovalMode {
 
 func (r ApprovalResolver) ModeFor(def ToolDef) config.ApprovalMode {
 	return ResolveApprovalMode(r.Config, def)
+}
+
+func (r ApprovalResolver) PreviewFor(def ToolDef, input map[string]any, policy PathPolicy) (ApprovalPreview, error) {
+	normalized, err := policy.ValidateToolInput(def.Name, input)
+	if err != nil {
+		return ApprovalPreview{}, err
+	}
+	preview := buildApprovalPreview(def.Name, normalized, policy)
+	preview.Mode = r.ModeFor(def)
+	preview.Timeout = def.Timeout
+	preview.WorkDir = policy.Root()
+	return preview, nil
 }
 
 func IsApprovalPrompt(mode config.ApprovalMode) bool {

@@ -52,7 +52,12 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 			if got := input["path"]; got != "note.txt" {
 				return nil, fmt.Errorf("input[path] = %v, want note.txt", got)
 			}
-			return map[string]any{"contents": "hello"}, nil
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "hello"},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 0,
+				},
+			}, nil
 		},
 	}
 
@@ -154,6 +159,65 @@ func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	}
 	if got, want := eventTypes(events)[len(events)-1], output.EventTypeStopReason; got != want {
 		t.Fatalf("last event type = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "hello"},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 0,
+					Stdout: tool.StreamCapture{
+						Bytes:   20,
+						Preview: "hello",
+					},
+				},
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix"}},
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 10},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
+		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
 }
 
