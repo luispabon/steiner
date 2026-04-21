@@ -10,7 +10,7 @@ This turns the staged roadmap into concrete engineering work. It assumes the rew
 * single binary plus `steiner-core-tools`
 * OpenAI-compatible chat completions first
 * no persistence early
-* no sub-agents until after context compaction is real
+* no sub-agents until after context compaction is real and the single-agent console is strong
 * `provider.parallelism` enforced centrally, not inside agent code
 
 ---
@@ -459,7 +459,144 @@ Implement:
 
 ---
 
-# Stage 4 - Delegation scaffolding
+# Stage 4 - Console UX foundations
+
+## Objective
+
+Make the interactive console feel like a real terminal product without changing the single-agent architecture.
+
+## Packages / files
+
+### `internal/repl/`
+
+Files:
+
+* `repl.go`
+* `commands.go`
+* `completer.go`
+* `terminal.go` if needed
+
+Implement:
+
+* line-editing capable terminal input layer
+* history navigation
+* cleaner command/help presentation
+* stronger separation between prompt input, assistant replies, and status output
+
+### `internal/output/`
+
+Implement:
+
+* richer terminal rendering path
+* default dark theme tokens/styles
+* streaming-aware assistant output renderer
+* stronger approval/tool/status formatting
+
+### `cmd/steiner/main.go`
+
+Extend:
+
+* terminal setup and mode wiring needed for richer interactive rendering
+* keep `--exec` and interactive output paths consistent where practical
+
+## Concrete work items
+
+1. Replace line-buffered prompt handling with a real terminal input model.
+2. Add prompt history navigation and cursor movement.
+3. Split human-facing replies from status/event rendering more clearly.
+4. Add streaming-capable output path without bypassing the existing event model.
+5. Improve approval rendering so path, action, and key arguments are easier to scan.
+6. Define and apply a strong default dark theme for terminal output.
+
+## Tests
+
+### Unit
+
+* REPL command parsing still behaves correctly
+* completion behavior still respects built-in commands vs skills
+* output formatting preserves important approval/truncation details
+* streaming renderer handles incremental chunks without corrupting terminal state
+
+### Integration
+
+* interactive prompt supports history and editing behavior
+* streamed and non-streamed replies render coherently
+* approvals remain usable during interactive sessions
+* `--exec` output still remains deterministic and readable
+
+## Exit criteria
+
+* interactive use no longer feels like a basic `ReadString('\n')` loop
+* approvals, tool activity, and assistant replies are clearly distinguishable
+* richer rendering does not require changes to prompt assembly or agent state semantics
+
+---
+
+# Stage 5 - Session visibility and control
+
+## Objective
+
+Make long-running sessions inspectable and controllable from the console.
+
+## Packages / files
+
+### `internal/repl/`
+
+Implement:
+
+* additional inspection commands where needed
+* session/turn visibility helpers
+* cancellation/interruption UX hooks
+
+### `internal/output/`
+
+Implement:
+
+* context budget presentation
+* compaction/stop-reason presentation
+* compact diagnostic summaries suitable for terminal display
+
+### `internal/agent/`
+
+Implement:
+
+* any minimal event/state additions needed for user-visible session diagnostics
+* keep diagnostic data summarized rather than replaying raw prompt internals
+
+## Concrete work items
+
+1. Add context fullness/budget visibility to the interactive experience.
+2. Surface compaction events and stop reasons more clearly.
+3. Add user-facing inspection of recent diagnostic history beyond the current minimal `/history`.
+4. Improve interruption and cancellation behavior in the terminal UX.
+5. Add any missing REPL controls needed to keep long sessions manageable.
+6. Keep all visibility features summary-first, not transcript-dump-first.
+
+## Tests
+
+### Unit
+
+* budget/diagnostic summaries format correctly
+* stop reasons remain actionable and concise
+* new REPL commands preserve command namespace rules
+* interruption paths preserve deterministic session state where expected
+
+### Integration
+
+* long synthetic session exposes compaction/budget information clearly
+* interrupted run leaves session in a coherent state
+* users can inspect why a run stopped without opening log files
+* visibility improvements do not change prompt assembly outcomes
+
+## Exit criteria
+
+* users can understand what the agent is doing and why context was trimmed
+* long sessions are materially easier to operate from the console
+* session visibility is strong enough that future delegation can be explained cleanly
+
+---
+
+# Stage 6 - Delegation scaffolding
 
 ## Objective
 
@@ -526,7 +663,7 @@ Extend:
 
 ---
 
-# Stage 5 - Sub-agent execution v1
+# Stage 7 - Sub-agent execution v1
 
 ## Objective
 
@@ -590,7 +727,7 @@ Implement:
 
 ---
 
-# Stage 6 - Hardening and ergonomics
+# Stage 8 - Hardening and ergonomics
 
 ## Objective
 
@@ -710,12 +847,29 @@ Implement:
 
 ## Stage 4
 
+1. terminal input model
+2. assistant/status rendering split
+3. streaming-capable output path
+4. approval/tool rendering
+5. default theme
+6. tests
+
+## Stage 5
+
+1. budget/compaction visibility
+2. stop-reason improvements
+3. session inspection UX
+4. interruption/cancellation UX
+5. tests
+
+## Stage 6
+
 1. contract structs
 2. child state model
 3. scheduler integration checks
 4. tests
 
-## Stage 5
+## Stage 7
 
 1. synchronous child execution
 2. parent/child handoff
@@ -723,7 +877,7 @@ Implement:
 4. visibility/events
 5. tests
 
-## Stage 6
+## Stage 8
 
 1. retries
 2. diagnostics/logging
@@ -771,7 +925,7 @@ Delegation contracts and execution scaffolding.
 
 Terminal and machine-readable event output.
 
-That separation matters. If you blur these early, Stage 3 and Stage 5 will be a pain.
+That separation matters. If you blur these early, Stage 3 and Stage 7 will be a pain.
 
 ---
 
