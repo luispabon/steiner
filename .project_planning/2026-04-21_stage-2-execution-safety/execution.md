@@ -9,8 +9,8 @@
   - branch existed before execution: yes
   - startup working tree clean: yes
 - current_phase: `subagent_dispatch`
-- current_stage: `stage-2`
-- current_step: `stage-2-step-1`
+- current_stage: `stage-3`
+- current_step: `stage-3-step-1`
 - plan_shape:
   - execution_mode: serial
   - parallel_steps: none
@@ -62,7 +62,7 @@
 
 - `stage-1-step-1`: `implemented`
 - `stage-2-step-1`: `implemented` depends on `stage-1-step-1`
-- `stage-3-step-1`: `pending` depends on `stage-2-step-1`
+- `stage-3-step-1`: `ready` depends on `stage-2-step-1`
 
 ## Sub-Agent Activity
 
@@ -108,10 +108,10 @@
   - step_verification:
     - `gofmt -w <touched-go-files>`: passed
     - `go test ./cmd/steiner-core-tools/... ./internal/tool/...`: passed
-  - closure_status: close pending until cleanup
+  - closure_status: closed
   - cleanup:
-    - worktree_deleted: pending
-    - temporary_branch_deleted: pending
+    - worktree_deleted: yes
+    - temporary_branch_deleted: yes
   - contract_review: accepted after direct recovery; `edit` is present, exact-match only, `write` remains, README prefers `edit`, and focused tests cover success plus safe failure modes
 
 ## Verification Runs
