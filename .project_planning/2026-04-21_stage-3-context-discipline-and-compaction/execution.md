@@ -163,12 +163,21 @@
 
 ## Manual Verification
 
-- requested
-- suggested focus areas:
-  - interactive `/history` output after a session that triggers compaction or context truncation
-  - long-session behavior where earlier turns compact but active constraints and active focus remain visible to the model
-  - prompt-assembly snapshot expectations under `testdata/stage3/compaction_fixture/`
+- round 1
+  - request status: issued after automated verification passed
+  - suggested focus areas:
+    - interactive `/history` output after a session that triggers compaction or context truncation
+    - long-session behavior where earlier turns compact but active constraints and active focus remain visible to the model
+    - prompt-assembly snapshot expectations under `testdata/stage3/compaction_fixture/`
+  - user response: `OK`
+  - result: passed
 
 ## Final Handoff State
 
-- not ready
+- execution complete
+- all planned steps complete
+- automated verification passing
+- manual verification resolved with explicit user OK
+- `execution.md` up to date
+- final executor state committed on `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+- ready for reviewer handoff
