@@ -61,7 +61,7 @@
 ## Step Status
 
 - `stage-1-step-1`: `implemented`
-- `stage-2-step-1`: `ready` depends on `stage-1-step-1`
+- `stage-2-step-1`: `running` depends on `stage-1-step-1`
 - `stage-3-step-1`: `pending` depends on `stage-2-step-1`
 
 ## Sub-Agent Activity
@@ -86,6 +86,13 @@
     - worktree_deleted: yes
     - temporary_branch_deleted: yes
   - contract_review: accepted; patch stayed within scope and covered policy rejection, bounded output metadata, binary-safe handling, approval preview data, and safe tool-result shaping for the agent loop
+- `stage-2-step-1`
+  - status: provisioning
+  - suggested_model: `cheap-good`
+  - current_runtime_tier_comparison: cheaper
+  - execution_mode: serial
+  - temporary_branch: `tmp/stage-2-step-1`
+  - temporary_worktree: `/tmp/steiner-stage-2-step-1`
 
 ## Verification Runs
 
