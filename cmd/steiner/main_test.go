@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -302,6 +303,100 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	}
 }
 
+func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
+	helper := mustBuildCLIHelperBinary(t)
+	tempRepo := t.TempDir()
+	mustMkdirAll(t, filepath.Join(tempRepo, "subdir"))
+
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	var stdout, stderr bytes.Buffer
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModePrompt,
+					Overrides: map[string]config.ApprovalMode{
+						"bash": config.ApprovalModePrompt,
+					},
+				},
+				Paths: config.PathsConfig{
+					ProjectRootOnly: true,
+				},
+			},
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{
+									ID:   "call_1",
+									Name: "bash",
+									Arguments: map[string]any{
+										"command": "pwd",
+										"cwd":     "subdir",
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+					{
+						Message: provider.Message{
+							Role:    provider.MessageRoleAssistant,
+							Content: "final answer",
+						},
+						FinishReason: "stop",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:       "bash",
+				ExecPath:   helper,
+				Subcommand: "bash",
+			}),
+			workDir:     tempRepo,
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(&stdout),
+			status:      output.NewStream(&stderr),
+			events:      output.NewStream(&stderr),
+			sharedInput: bufio.NewReader(strings.NewReader("y\n")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "run bash"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stderr.String()
+	wantCWD := filepath.Join(tempRepo, "subdir")
+	if !strings.Contains(got, `approve tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} [y/N]`) {
+		t.Fatalf("stderr = %q, want approval prompt with normalized args", got)
+	}
+	if !strings.Contains(stdout.String(), "final answer") {
+		t.Fatalf("stdout = %q, want final answer", stdout.String())
+	}
+}
+
 type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse
@@ -336,3 +431,37 @@ func writeFile(t *testing.T, path, contents string) {
 		t.Fatal(err)
 	}
 }
+
+func mustBuildCLIHelperBinary(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(cliHelperSource), 0o644); err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+	bin := filepath.Join(dir, "helper")
+	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build helper binary: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return bin
+}
+
+const cliHelperSource = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "bash" {
+		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":{\"status\":\"ok\"}}")
+		return
+	}
+	fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
+}
+`

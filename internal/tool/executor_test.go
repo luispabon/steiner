@@ -308,6 +308,55 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestExecutorDeniesBlockedMutationWithoutApproval(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	mustWriteFile(t, filepath.Join(blocked, "secret.txt"), "secret\n")
+
+	bin := mustBuildCoreToolsBinary(t)
+	reg := newCoreToolsRegistry(bin)
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			ProjectRootOnly: true,
+			BlockedPaths:    []string{blocked},
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"write": config.ApprovalModePrompt,
+			},
+		},
+	}
+
+	approvals := 0
+	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
+		approvals++
+		return ApprovalResponse{Allow: true}, nil
+	}), root)
+
+	_, err := executor.Execute(context.Background(), "write", map[string]any{
+		"path":     filepath.Join("blocked", "secret.txt"),
+		"contents": "updated\n",
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy rejection")
+	}
+
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" {
+		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+	if !strings.Contains(toolErr.Message, "blocked by policy") {
+		t.Fatalf("error message = %q, want blocked-path policy rejection", toolErr.Message)
+	}
+	if approvals != 0 {
+		t.Fatalf("approval callbacks = %d, want 0", approvals)
+	}
+}
+
 func TestExecutorEditRequiresExactSingleMatch(t *testing.T) {
 	bin := mustBuildCoreToolsBinary(t)
 	tempRepo := t.TempDir()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -191,8 +192,9 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 				Metadata: tool.ExecutionMetadata{
 					ExitCode: 0,
 					Stdout: tool.StreamCapture{
-						Bytes:   20,
-						Preview: "hello",
+						Bytes:     1024,
+						Truncated: true,
+						Preview:   strings.Repeat("hello", 4),
 					},
 				},
 			}, nil
@@ -218,6 +220,39 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	}
 	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
+	}
+}
+
+func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
+	preview := tool.ApprovalPreview{
+		Tool:    "bash",
+		WorkDir: "/repo",
+		Timeout: 3 * time.Second,
+		Fields: []tool.PreviewField{
+			{Name: "cwd", Value: "/repo/subdir"},
+			{Name: "command", Value: "pwd"},
+		},
+	}
+
+	var gotPreview tool.ApprovalPreview
+	approver := NewEventingApprover(output.NoopSink{}, tool.ApproverFunc(func(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
+		gotPreview = req.Preview
+		return tool.ApprovalResponse{Allow: true, Message: "ok"}, nil
+	}))
+
+	resp, err := approver.Approve(context.Background(), tool.ApprovalRequest{
+		Tool:    tool.ToolDef{Name: "bash"},
+		Mode:    config.ApprovalModePrompt,
+		Preview: preview,
+	})
+	if err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	if !resp.Allow {
+		t.Fatal("Approve() = false, want true")
+	}
+	if got, want := gotPreview.Summary(), preview.Summary(); got != want {
+		t.Fatalf("forwarded preview summary = %q, want %q", got, want)
 	}
 }
 
