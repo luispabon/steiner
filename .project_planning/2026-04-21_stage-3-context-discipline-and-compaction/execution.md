@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-3-context-discipline-and-compaction`
 - Active branch: `cl/2026-04-21_stage-3-context-discipline-and-compaction`
 - Initial handoff state: validated
-- Current phase: implementing `stage-2-step-1` and `stage-2-step-2`
+- Current phase: implementing `stage-3-step-1`
 
 ## Verification Strategy
 
@@ -49,9 +49,9 @@
 
 - `stage-1-step-1`: implemented
 - `stage-1-step-2`: implemented
-- `stage-2-step-1`: running
-- `stage-2-step-2`: running
-- `stage-3-step-1`: pending
+- `stage-2-step-1`: implemented
+- `stage-2-step-2`: implemented
+- `stage-3-step-1`: running
 
 ## Sub-Agent Activity
 
@@ -87,13 +87,45 @@
   - mode: parallel
   - temporary branch: `exec/stage-2-step-1`
   - temporary worktree: `/tmp/steiner-stage-2-step-1`
-  - status: preparing dispatch
+  - review issue found before merge: recent-turn retention could drop the matching user message for a retained assistant/tool cycle
+  - review-fix commit: `a2a9600` `Fix retained turn boundary in loop compaction`
+  - commit chain: `3e62ee6` `Wire durable context compaction through loop`; `a2a9600` `Fix retained turn boundary in loop compaction`
+  - verification reported by sub-agent: `go test ./internal/agent ./internal/prompt`
+  - merge result: merged into `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+  - conflict resolution: none
+  - cleanup: worktree deleted, temporary branch deleted
+  - sub-agent closure: closed
 - `stage-2-step-2`
   - model: `gpt-5.4-mini`
   - model tier versus current runtime: cheaper
   - mode: parallel
   - temporary branch: `exec/stage-2-step-2`
   - temporary worktree: `/tmp/steiner-stage-2-step-2`
+  - verification reported by sub-agent: `go test ./internal/output ./internal/repl`
+  - merge result: merged into `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+  - conflict resolution: none
+  - cleanup: worktree deleted, temporary branch deleted
+  - sub-agent closure: closed
+- `stage-2-follow-up`
+  - reason: after merging Stage 2, review found that `/history` still could not show real session diagnostics because the runtime emitted no context-diagnostics events and the CLI runner did not return them
+  - model: `gpt-5.4-mini`
+  - model tier versus current runtime: cheaper
+  - mode: serial
+  - temporary branch: `exec/stage-2-diagnostics-wiring`
+  - temporary worktree: `/tmp/steiner-stage-2-diagnostics-wiring`
+  - commit: `d64b967` `Wire Stage 2 context diagnostics through the runner`
+  - scope deviation: minimal follow-up touching `internal/agent/loop.go`, `internal/agent/loop_test.go`, `cmd/steiner/main.go`, and `cmd/steiner/main_test.go` so Stage 2 diagnostics acceptance is true in real interactive runs
+  - verification reported by sub-agent: `go test ./internal/agent ./cmd/steiner`
+  - merge result: merged into `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+  - conflict resolution: none
+  - cleanup: worktree deleted, temporary branch deleted
+  - sub-agent closure: closed
+- `stage-3-step-1`
+  - model: `gpt-5.4-mini`
+  - model tier versus current runtime: cheaper
+  - mode: serial
+  - temporary branch: `exec/stage-3-step-1`
+  - temporary worktree: `/tmp/steiner-stage-3-step-1`
   - status: preparing dispatch
 
 ## Verification Runs
@@ -104,6 +136,15 @@
 - `stage-1-step-2`
   - sub-agent reported: `go test ./internal/prompt`
   - executor rerun: deferred per plan
+- `stage-2-step-1`
+  - verification run: `go test ./internal/agent ./internal/prompt`
+  - result: passed
+- `stage-2-step-2`
+  - verification run: `go test ./internal/output ./internal/repl`
+  - result: passed
+- `stage-2-follow-up`
+  - verification run: `go test ./internal/agent ./cmd/steiner`
+  - result: passed
 
 ## Manual Verification
 
