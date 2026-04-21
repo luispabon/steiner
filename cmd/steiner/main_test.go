@@ -264,7 +264,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "final answer") {
 		t.Fatalf("stdout = %q, want final answer", got)
 	}
-	if got := stderr.String(); !strings.Contains(got, "stop reason=complete") {
+	if got := stderr.String(); !strings.Contains(got, "status: reason=complete") {
 		t.Fatalf("stderr = %q, want stop reason", got)
 	}
 }

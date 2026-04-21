@@ -269,10 +269,6 @@ func CompactJSON(value any) string {
 	return string(data)
 }
 
-func FormatEvent(event Event) string {
-	return formatEvent(event)
-}
-
 func SetupLogger(level string) *slog.Logger {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLevel(level),
