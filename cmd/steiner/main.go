@@ -173,9 +173,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		Skills:   append([]string(nil), rt.skillNames...),
 	}
 	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
-	interactiveEvents := repl.NewPromptEventSink(prompter)
 	if originalLogger, ok := rt.provider.(loggingProvider); ok {
-		originalLogger.sink = interactiveEvents
+		originalLogger.sink = rt.events
 		rt.provider = originalLogger
 	}
 
@@ -183,7 +182,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		cliRunner{
 			runtime: rt,
 			approver: agent.NewEventingApprover(
-				interactiveEvents,
+				rt.events,
 				promptingApprover{
 					reader: approvalReader(rt),
 					out:    prompter,
@@ -192,7 +191,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		},
 		interactiveInput(rt),
 		rt.human,
-		interactiveEvents,
+		rt.events,
 		rt.toolNames,
 		rt.skillNames,
 	)

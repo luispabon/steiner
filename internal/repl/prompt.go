@@ -105,12 +105,8 @@ func (p *readlinePrompter) Printf(format string, args ...any) {
 		return
 	}
 	message := strings.TrimRight(fmt.Sprintf(format, args...), "\n")
-	if p.shell != nil {
-		_, _ = p.shell.Printf("%s", message)
-		return
-	}
 	if p.out != nil {
-		p.out.Printf(format, args...)
+		p.out.Printf("%s\n", message)
 	}
 }
 
@@ -119,12 +115,8 @@ func (p *readlinePrompter) Println(args ...any) {
 		return
 	}
 	message := strings.TrimRight(fmt.Sprintln(args...), "\n")
-	if p.shell != nil {
-		_, _ = p.shell.Printf("%s", message)
-		return
-	}
 	if p.out != nil {
-		p.out.Println(args...)
+		p.out.Println(message)
 	}
 }
 
