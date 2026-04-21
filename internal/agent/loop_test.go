@@ -337,6 +337,15 @@ func eventTypes(events []output.Event) []string {
 	return types
 }
 
+func messageContentsContain(messages []provider.Message, needle string) bool {
+	for _, message := range messages {
+		if strings.Contains(message.Content, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func equalStrings(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
@@ -457,6 +466,110 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
+	}
+}
+
+func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "b.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_3", Name: "read", Arguments: map[string]any{"path": "c.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "alpha"},
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
+			ContextState: prompt.DurableContextState{
+				ActiveConstraints: []prompt.DurableContextEntry{
+					{Text: "do not lose the active constraint", Source: "user", Turn: 1},
+				},
+				UnresolvedWork: []prompt.DurableContextEntry{
+					{Text: "finish the long-running session", Source: "assistant", Turn: 1},
+				},
+				ActiveFocus: &prompt.DurableContextEntry{
+					Text:   "keep prompt assembly policy-driven",
+					Source: "assistant",
+					Turn:   1,
+				},
+			},
+			Policy: prompt.AssemblyPolicy{
+				Retention:   prompt.RetentionPolicy{RecentTurns: 1},
+				Compaction:  prompt.CompactionPolicy{SummaryBytes: 256},
+				ToolSummary: prompt.ToolSummaryPolicy{MaxBytes: 32},
+			},
+		},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 4; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	first := len(providerStub.requests[0].Messages)
+	last := len(providerStub.requests[len(providerStub.requests)-1].Messages)
+	if got := last - first; got > 3 {
+		t.Fatalf("prompt grew by %d messages, want bounded growth", got)
+	}
+
+	lastRequest := providerStub.requests[len(providerStub.requests)-1].Messages
+	if !messageContentsContain(lastRequest, "do not lose the active constraint") {
+		t.Fatalf("last request did not retain active constraint: %#v", lastRequest)
+	}
+	if !messageContentsContain(lastRequest, "keep prompt assembly policy-driven") {
+		t.Fatalf("last request did not retain active focus: %#v", lastRequest)
+	}
+	if len(state.Context.RetainedSummaries) != 1 {
+		t.Fatalf("retained summaries = %d, want 1", len(state.Context.RetainedSummaries))
+	}
+	if got := state.Context.RetainedSummaries[0].Text; !strings.Contains(got, "read") || !strings.Contains(got, "alpha") {
+		t.Fatalf("retained summary text = %q, want compacted turn details", got)
 	}
 }
 

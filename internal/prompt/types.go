@@ -10,6 +10,7 @@ const (
 	ContextSourceProjectAgentsMD     ContextSource = "project_agents_md"
 	ContextSourceProjectContext      ContextSource = "project_context"
 	ContextSourceSkill               ContextSource = "skill"
+	ContextSourceDurableContext      ContextSource = "durable_context"
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	ContextSourceToolSummary         ContextSource = "tool_summary"
 	ContextSourceConversation        ContextSource = "conversation"
@@ -31,6 +32,7 @@ type SourceBudgetModel struct {
 	ProjectAgentsBytes       int
 	ProjectContextBytes      int
 	SkillBytes               int
+	DurableContextBytes      int
 	ConversationBytes        int
 	ConversationSummaryBytes int
 	ToolResultBytes          int
@@ -56,6 +58,26 @@ type AssemblyPolicy struct {
 	ToolSummary ToolSummaryPolicy
 }
 
+type DurableContextEntry struct {
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
+	Turn   int    `json:"turn,omitempty"`
+}
+
+type DurableSummaryEntry struct {
+	Title  string `json:"title,omitempty"`
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
+	Turn   int    `json:"turn,omitempty"`
+}
+
+type DurableContextState struct {
+	ActiveConstraints []DurableContextEntry `json:"active_constraints,omitempty"`
+	UnresolvedWork    []DurableContextEntry `json:"unresolved_work,omitempty"`
+	ActiveFocus       *DurableContextEntry  `json:"active_focus,omitempty"`
+	RetainedSummaries []DurableSummaryEntry `json:"retained_summaries,omitempty"`
+}
+
 type AssemblyOptions struct {
 	HomeDir                   string
 	ProjectRoot               string
@@ -67,6 +89,7 @@ type AssemblyOptions struct {
 	ProjectContextExtraFiles  []string
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
+	ContextState              DurableContextState
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 }

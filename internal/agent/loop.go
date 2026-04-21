@@ -37,6 +37,7 @@ func NewRunner() *Runner {
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	state := RunState{
 		Conversation: fromProviderMessages(req.Prompt.Conversation),
+		Context:      fromPromptContext(req.Prompt.ContextState),
 	}
 	if req.Provider == nil {
 		state.StopReason = StopReasonError
@@ -73,14 +74,15 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 
-		assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state.Conversation))
+		turn := state.TurnCount + 1
+		assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
 		if err != nil {
 			state.StopReason = StopReasonError
 			emitStop(req.Events, state, err)
 			return state, err
 		}
+		state.Context = updateContextState(state.Context, assembly.Blocks, turn)
 
-		turn := state.TurnCount + 1
 		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
 
 		response, err := req.Provider.ChatCompletion(ctx, provider.ChatRequest{
@@ -131,6 +133,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 				Name:       call.Name,
 			})
 		}
+
+		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns)
 	}
 }
 
@@ -234,10 +238,221 @@ func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
 	return out
 }
 
-func assemblyOptions(base prompt.AssemblyOptions, conversation []Message) prompt.AssemblyOptions {
+func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.AssemblyOptions {
+	conversation := state.Conversation
 	base.Conversation = toProviderMessages(conversation)
 	base.ToolResults = nil
+	base.ContextState = toPromptContext(state.Context)
 	return base
+}
+
+func updateContextState(current ContextState, blocks []prompt.ContextBlock, turn int) ContextState {
+	summary, ok := latestConversationSummary(blocks)
+	if !ok {
+		return current
+	}
+
+	text := summary.Content
+	title := summary.Path
+	var envelope struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(summary.Content), &envelope); err == nil {
+		if strings.TrimSpace(envelope.Title) != "" {
+			title = envelope.Title
+		}
+		if strings.TrimSpace(envelope.Content) != "" {
+			text = envelope.Content
+		}
+	}
+
+	next := current.Clone()
+	next.RetainedSummaries = []RetainedSummary{
+		{
+			Title:  title,
+			Text:   text,
+			Source: string(summary.Source),
+			Turn:   turn,
+		},
+	}
+	return next
+}
+
+func latestConversationSummary(blocks []prompt.ContextBlock) (prompt.ContextBlock, bool) {
+	for _, block := range blocks {
+		if block.Source == prompt.ContextSourceConversationSummary && block.Path == "compacted conversation history" {
+			return block, true
+		}
+	}
+	return prompt.ContextBlock{}, false
+}
+
+func toPromptContext(state ContextState) prompt.DurableContextState {
+	out := prompt.DurableContextState{
+		ActiveConstraints: make([]prompt.DurableContextEntry, 0, len(state.ActiveConstraints)),
+		UnresolvedWork:    make([]prompt.DurableContextEntry, 0, len(state.UnresolvedWork)),
+		RetainedSummaries: make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
+	}
+	for _, item := range state.ActiveConstraints {
+		out.ActiveConstraints = append(out.ActiveConstraints, prompt.DurableContextEntry{
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	for _, item := range state.UnresolvedWork {
+		out.UnresolvedWork = append(out.UnresolvedWork, prompt.DurableContextEntry{
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	if state.ActiveFocus != nil {
+		out.ActiveFocus = &prompt.DurableContextEntry{
+			Text:   state.ActiveFocus.Text,
+			Source: state.ActiveFocus.Source,
+			Turn:   state.ActiveFocus.Turn,
+		}
+	}
+	for _, item := range state.RetainedSummaries {
+		out.RetainedSummaries = append(out.RetainedSummaries, prompt.DurableSummaryEntry{
+			Title:  item.Title,
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	return out
+}
+
+func fromPromptContext(state prompt.DurableContextState) ContextState {
+	out := ContextState{
+		ActiveConstraints: make([]ActiveConstraint, 0, len(state.ActiveConstraints)),
+		UnresolvedWork:    make([]UnresolvedWorkItem, 0, len(state.UnresolvedWork)),
+		RetainedSummaries: make([]RetainedSummary, 0, len(state.RetainedSummaries)),
+	}
+	for _, item := range state.ActiveConstraints {
+		out.ActiveConstraints = append(out.ActiveConstraints, ActiveConstraint{
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	for _, item := range state.UnresolvedWork {
+		out.UnresolvedWork = append(out.UnresolvedWork, UnresolvedWorkItem{
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	if state.ActiveFocus != nil {
+		out.ActiveFocus = &ActiveFocus{
+			Text:   state.ActiveFocus.Text,
+			Source: state.ActiveFocus.Source,
+			Turn:   state.ActiveFocus.Turn,
+		}
+	}
+	for _, item := range state.RetainedSummaries {
+		out.RetainedSummaries = append(out.RetainedSummaries, RetainedSummary{
+			Title:  item.Title,
+			Text:   item.Text,
+			Source: item.Source,
+			Turn:   item.Turn,
+		})
+	}
+	return out
+}
+
+func compactConversationState(state RunState, turn int, recentTurns int) RunState {
+	retained, dropped := retainConversationTail(state.Conversation, recentTurns)
+	if len(dropped) == 0 {
+		return state
+	}
+
+	next := state.Clone()
+	next.Conversation = retained
+	if summary := summarizeDroppedConversation(dropped); summary != "" {
+		next.Context.RetainedSummaries = []RetainedSummary{
+			{
+				Title:  "compacted conversation history",
+				Text:   summary,
+				Source: "loop_compaction",
+				Turn:   turn,
+			},
+		}
+	}
+	return next
+}
+
+func retainConversationTail(messages []Message, recentTurns int) ([]Message, []Message) {
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	if recentTurns <= 0 {
+		recentTurns = 1
+	}
+
+	keepStart := -1
+	assistantSeen := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != MessageRoleAssistant {
+			continue
+		}
+		assistantSeen++
+		if assistantSeen == recentTurns {
+			keepStart = i
+			break
+		}
+	}
+	if keepStart < 0 {
+		return cloneMessages(messages), nil
+	}
+	if keepStart == 0 {
+		return cloneMessages(messages), nil
+	}
+
+	kept := make([]Message, 0, len(messages)-keepStart+1)
+	kept = append(kept, cloneMessages(messages[:1])...)
+	kept = append(kept, cloneMessages(messages[keepStart:])...)
+	dropped := cloneMessages(messages[1:keepStart])
+	return kept, dropped
+}
+
+func summarizeDroppedConversation(messages []Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if text := strings.TrimSpace(message.Content); text != "" {
+			parts = append(parts, fmt.Sprintf("%s: %s", message.Role, truncateTextLocal(text, 96)))
+			continue
+		}
+		if len(message.ToolCalls) > 0 {
+			names := make([]string, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				if call.Name != "" {
+					names = append(names, call.Name)
+				}
+			}
+			if len(names) > 0 {
+				parts = append(parts, fmt.Sprintf("%s: tool calls %s", message.Role, strings.Join(names, ", ")))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return truncateTextLocal(strings.Join(parts, " | "), 512)
+}
+
+func truncateTextLocal(content string, limit int) string {
+	if limit <= 0 || len(content) <= limit {
+		return content
+	}
+	return strings.TrimRight(content[:limit], "\n\r\t ")
 }
 
 func toProviderMessages(messages []Message) []provider.Message {

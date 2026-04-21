@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/skill"
@@ -96,6 +97,10 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		appendBlock(block)
 	}
 
+	if block, ok := durableContextBlock(a.opts.ContextState, a.policy.Compaction); ok {
+		appendBlock(block)
+	}
+
 	dropped, retained := retainRecentTurns(a.opts.Conversation, a.policy.Retention.RecentTurns)
 	if len(dropped) > 0 {
 		summary, ok := CompactConversationTurns(dropped, a.policy.Compaction)
@@ -121,6 +126,91 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	}, nil
 }
 
+func durableContextBlock(state DurableContextState, policy CompactionPolicy) (ContextBlock, bool) {
+	sections := durableContextSections(state)
+	if len(sections) == 0 {
+		return ContextBlock{}, false
+	}
+
+	joined := strings.Join(sections, "\n")
+	limit := policy.SummaryBytes
+	if limit <= 0 {
+		limit = defaultCompactionSummaryBytes
+	}
+	content := truncateText(joined, limit)
+	if content == "" {
+		return ContextBlock{}, false
+	}
+
+	envelope := struct {
+		Kind      string `json:"kind"`
+		Title     string `json:"title"`
+		ByteSize  int    `json:"byte_size"`
+		Truncated bool   `json:"truncated,omitempty"`
+		Content   string `json:"content"`
+	}{
+		Kind:     "durable_context",
+		Title:    "retained context state",
+		ByteSize: len(content),
+		Content:  content,
+	}
+	if len(content) < len(joined) {
+		envelope.Truncated = true
+	}
+
+	encoded := marshalEnvelope(envelope)
+	return ContextBlock{
+		Source:    ContextSourceDurableContext,
+		Path:      envelope.Title,
+		Content:   encoded,
+		ByteSize:  len(encoded),
+		Truncated: envelope.Truncated,
+	}, true
+}
+
+func durableContextSections(state DurableContextState) []string {
+	sections := make([]string, 0, 4)
+
+	if len(state.ActiveConstraints) > 0 {
+		lines := make([]string, 0, len(state.ActiveConstraints)+1)
+		lines = append(lines, "active constraints:")
+		for _, item := range state.ActiveConstraints {
+			lines = append(lines, "- "+compactDurableContextEntry(item))
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
+	}
+
+	if len(state.UnresolvedWork) > 0 {
+		lines := make([]string, 0, len(state.UnresolvedWork)+1)
+		lines = append(lines, "unresolved work:")
+		for _, item := range state.UnresolvedWork {
+			lines = append(lines, "- "+compactDurableContextEntry(item))
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
+	}
+
+	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
+		sections = append(sections, "active focus:\n- "+compactDurableContextEntry(*state.ActiveFocus))
+	}
+
+	return sections
+}
+
+func compactDurableContextEntry(entry DurableContextEntry) string {
+	text := compactMessageContent(entry.Text, 160)
+	metadata := make([]string, 0, 2)
+	if entry.Source != "" {
+		metadata = append(metadata, "source="+entry.Source)
+	}
+	if entry.Turn > 0 {
+		metadata = append(metadata, fmt.Sprintf("turn=%d", entry.Turn))
+	}
+	if len(metadata) == 0 {
+		return text
+	}
+	return text + " (" + strings.Join(metadata, ", ") + ")"
+}
+
 func applyBudget(tracker *budgetTracker, source ContextSource, content string) (string, bool, bool) {
 	if content == "" {
 		return "", false, true
@@ -144,6 +234,8 @@ func blockMessage(block ContextBlock) provider.Message {
 	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
+		message.Role = provider.MessageRoleAssistant
+	case ContextSourceDurableContext:
 		message.Role = provider.MessageRoleAssistant
 	case ContextSourceToolSummary, ContextSourceToolResult, ContextSourceDelegationResult:
 		message.Role = provider.MessageRoleTool
