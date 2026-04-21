@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"github.com/luispabon/steiner/internal/skill"
@@ -35,11 +34,4 @@ func LoadSkillBlocks(ctx context.Context, loader skill.Loader, names []string) (
 		})
 	}
 	return blocks, nil
-}
-
-func validateAssemblyOptions(opts AssemblyOptions) error {
-	if opts.ProjectContextBudgetBytes < 0 {
-		return fmt.Errorf("project context budget must not be negative")
-	}
-	return nil
 }
