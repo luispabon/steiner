@@ -18,6 +18,7 @@ type Runner interface {
 type RunResult struct {
 	Conversation []agent.Message
 	Reply        string
+	Diagnostics  []output.Event
 }
 
 type Session struct {
@@ -29,6 +30,7 @@ type Session struct {
 	SkillNames   []string
 	ActiveSkills []string
 	Conversation []agent.Message
+	Diagnostics  []output.Event
 	Completer    Completer
 }
 
@@ -107,6 +109,7 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 	} else {
 		s.Conversation = conversation
 	}
+	s.Diagnostics = cloneEvents(result.Diagnostics)
 
 	reply := strings.TrimSpace(result.Reply)
 	if reply != "" {
@@ -124,8 +127,11 @@ func (s *Session) handleCommand(command Command) (bool, error) {
 		s.printTools()
 	case "skills":
 		s.printSkills()
+	case "history":
+		s.printHistory()
 	case "clear":
 		s.Conversation = nil
+		s.Diagnostics = nil
 		s.Println("conversation cleared")
 	case "exit":
 		return true, nil
@@ -193,6 +199,24 @@ func (s *Session) printSkills() {
 	}
 }
 
+func (s *Session) printHistory() {
+	s.Printf("history: conversation_messages=%d diagnostics=%d\n", len(s.Conversation), len(s.Diagnostics))
+	if len(s.Diagnostics) == 0 {
+		s.Println("no context diagnostics recorded")
+		return
+	}
+
+	s.Println("context diagnostics:")
+	start := 0
+	if len(s.Diagnostics) > 5 {
+		start = len(s.Diagnostics) - 5
+		s.Printf("showing latest %d of %d\n", len(s.Diagnostics)-start, len(s.Diagnostics))
+	}
+	for _, event := range s.Diagnostics[start:] {
+		s.Printf("  %s\n", output.FormatEvent(event))
+	}
+}
+
 func (s *Session) toggleSkill(name string) bool {
 	if !containsString(s.SkillNames, name) {
 		return false
@@ -224,6 +248,15 @@ func cloneMessages(messages []agent.Message) []agent.Message {
 		}
 		out[i].ToolCalls = calls
 	}
+	return out
+}
+
+func cloneEvents(events []output.Event) []output.Event {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]output.Event, len(events))
+	copy(out, events)
 	return out
 }
 

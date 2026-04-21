@@ -146,6 +146,8 @@ func formatEvent(event Event) string {
 			parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 		}
 		return strings.Join(parts, " ")
+	case ContextDiagnosticsEvent:
+		return formatContextDiagnosticsEvent(payload)
 	default:
 		if event.Type == "" {
 			return ""

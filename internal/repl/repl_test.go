@@ -67,6 +67,18 @@ func TestSessionHandlesBuiltinsAndSkills(t *testing.T) {
 	}
 	out.Reset()
 
+	done, err = session.HandleLine(context.Background(), "/history")
+	if err != nil {
+		t.Fatalf("history error = %v", err)
+	}
+	if done {
+		t.Fatal("history returned done=true")
+	}
+	if got := out.String(); !strings.Contains(got, "history: conversation_messages=") || !strings.Contains(got, "no context diagnostics recorded") {
+		t.Fatalf("history output = %q, want empty diagnostics notice", got)
+	}
+	out.Reset()
+
 	done, err = session.HandleLine(context.Background(), "/codex")
 	if err != nil {
 		t.Fatalf("skill toggle error = %v", err)
@@ -111,6 +123,45 @@ func TestSessionHandlesBuiltinsAndSkills(t *testing.T) {
 	}
 }
 
+func TestSessionHistoryCommandShowsDiagnostics(t *testing.T) {
+	var out bytes.Buffer
+	session := &Session{
+		Out: output.NewStream(&out),
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "previous"},
+		},
+		Diagnostics: []output.Event{
+			output.NewContextCompactionEvent(3, 2, 4, 1, 2, 128, true, "compacted conversation history"),
+			output.NewContextBudgetEvent("project_context", 3, 512, 256, true, "trimmed extra files"),
+		},
+	}
+
+	done, err := session.HandleLine(context.Background(), "/history")
+	if err != nil {
+		t.Fatalf("history error = %v", err)
+	}
+	if done {
+		t.Fatal("history returned done=true")
+	}
+	got := out.String()
+	for _, want := range []string{
+		"history: conversation_messages=1 diagnostics=2",
+		"context diagnostics:",
+		"kind=compaction",
+		"retained_turns=2",
+		"compacted_turns=1",
+		"summary=compacted conversation history",
+		"kind=budget",
+		"scope=project_context",
+		"budget_bytes=256",
+		"truncated=true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("history output %q missing %q", got, want)
+		}
+	}
+}
+
 func TestSessionExitCommand(t *testing.T) {
 	session := &Session{}
 	done, err := session.HandleLine(context.Background(), "/exit")
@@ -150,12 +201,12 @@ func TestSessionEmitsUserInputEvent(t *testing.T) {
 
 func TestCompleterSuggestsCommandsAndSkills(t *testing.T) {
 	completer := Completer{
-		Commands: []string{"help", "tools", "skills"},
+		Commands: []string{"help", "history", "tools", "skills"},
 		Skills:   []string{"codex", "review"},
 	}
 
 	got := completer.Complete("/")
-	if !containsAll(got, []string{"/help", "/skills", "/review"}) {
+	if !containsAll(got, []string{"/help", "/history", "/skills", "/review"}) {
 		t.Fatalf("Complete(/) = %#v, want command and skill candidates", got)
 	}
 }
