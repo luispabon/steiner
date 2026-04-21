@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -154,6 +156,51 @@ limits:
 	}
 	if !strings.Contains(stderr.String(), "provider.type") {
 		t.Fatalf("stderr = %q, want provider.type validation failure", stderr.String())
+	}
+}
+
+func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
+	registry, err := runtimeRegistry(config.Config{
+		Limits: config.LimitsConfig{
+			ToolTimeoutDefault: config.MustDuration("30s"),
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"read":   config.ApprovalModeAuto,
+				"glob":   config.ApprovalModeAuto,
+				"search": config.ApprovalModeAuto,
+				"write":  config.ApprovalModePrompt,
+				"edit":   config.ApprovalModePrompt,
+				"bash":   config.ApprovalModePrompt,
+			},
+		},
+		Tools: map[string]config.ToolConfig{},
+	})
+	if err != nil {
+		t.Fatalf("runtimeRegistry() error = %v", err)
+	}
+
+	got := registry.Names()
+	want := []string{"bash", "edit", "glob", "read", "search", "write"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("registry names = %v, want %v", got, want)
+	}
+
+	bashDef, ok := registry.Get("bash")
+	if !ok {
+		t.Fatal("Get(bash) = false, want true")
+	}
+	properties, ok := bashDef.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("bash properties type = %T, want map[string]any", bashDef.ParameterSchema["properties"])
+	}
+	commandSchema, ok := properties["command"].(map[string]any)
+	if !ok {
+		t.Fatalf("bash command schema type = %T, want map[string]any", properties["command"])
+	}
+	if _, found := commandSchema["_required"]; found {
+		t.Fatalf("bash command schema leaked internal _required field: %#v", commandSchema)
 	}
 }
 
@@ -394,6 +441,69 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "final answer") {
 		t.Fatalf("stdout = %q, want final answer", stdout.String())
+	}
+}
+
+func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "final answer",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model:       "test-model",
+					Temperature: 0.2,
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+			},
+			provider: providerStub,
+			registry: tool.NewRegistry(
+				tool.ToolDef{
+					Name:        "glob",
+					Description: "Find files",
+					ParameterSchema: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"pattern": map[string]any{"type": "string"},
+						},
+					},
+				},
+			),
+			workDir: t.TempDir(),
+			homeDir: t.TempDir(),
+			events:  output.NoopSink{},
+		},
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "list files"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := len(providerStub.requests[0].Tools), 1; got != want {
+		t.Fatalf("request tools = %d, want %d", got, want)
+	}
+	if got, want := providerStub.requests[0].Tools[0].Function.Name, "glob"; got != want {
+		t.Fatalf("tool name = %q, want %q", got, want)
 	}
 }
 
