@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	if got, want := len(assembly.Blocks), 5; got != want {
+	if got, want := len(assembly.Blocks), 6; got != want {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
@@ -45,6 +46,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceProjectContext,
+		ContextSourceToolSummary,
 	}
 	for i, want := range wantSources {
 		if got := assembly.Blocks[i].Source; got != want {
@@ -77,8 +79,8 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	if got, want := assembly.Messages[5].Content, "how do I fix this?"; got != want {
 		t.Fatalf("message[5].content = %q, want %q", got, want)
 	}
-	if got, want := assembly.Messages[7].Content, "tool result"; got != want {
-		t.Fatalf("message[7].content = %q, want %q", got, want)
+	if got := strings.Contains(assembly.Messages[7].Content, "\"kind\":\"tool_summary\""); !got {
+		t.Fatalf("message[7].content = %q, want tool summary envelope", assembly.Messages[7].Content)
 	}
 }
 
@@ -158,6 +160,128 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	if got, want := blocks[0].ByteSize, 5; got != want {
 		t.Fatalf("block bytes = %d, want %d", got, want)
 	}
+}
+
+func TestAssembleCompactsOlderTurnsAndBoundsGrowth(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	policy := AssemblyPolicy{
+		Retention:   RetentionPolicy{RecentTurns: 2},
+		Compaction:  CompactionPolicy{SummaryBytes: 512},
+		ToolSummary: ToolSummaryPolicy{MaxBytes: 24},
+	}
+
+	shortAssembly, err := Assemble(context.Background(), AssemblyOptions{
+		ProjectRoot:               projectRoot,
+		ProjectContextBudgetBytes: 1,
+		Policy:                    policy,
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "turn one user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn one assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn two user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn two assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn three user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn three assistant"},
+		},
+		ToolResults: []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result content that is much longer than the summary budget"}},
+	})
+	if err != nil {
+		t.Fatalf("short Assemble() error = %v", err)
+	}
+
+	longAssembly, err := Assemble(context.Background(), AssemblyOptions{
+		ProjectRoot:               projectRoot,
+		ProjectContextBudgetBytes: 1,
+		Policy:                    policy,
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "turn zero user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn zero assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn one user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn one assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn two user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn two assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn three user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn three assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn four user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn four assistant"},
+			{Role: provider.MessageRoleUser, Content: "turn five user"},
+			{Role: provider.MessageRoleAssistant, Content: "turn five assistant"},
+		},
+		ToolResults: []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result content that is much longer than the summary budget"}},
+	})
+	if err != nil {
+		t.Fatalf("long Assemble() error = %v", err)
+	}
+
+	if got, want := len(shortAssembly.Messages), len(longAssembly.Messages); got != want {
+		t.Fatalf("bounded assembly length mismatch: short=%d long=%d", got, want)
+	}
+	if got, want := len(longAssembly.Messages), 7; got != want {
+		t.Fatalf("len(long messages) = %d, want %d", got, want)
+	}
+
+	summaryBlock := findBlockBySource(t, longAssembly.Blocks, ContextSourceConversationSummary)
+	var convoSummary ConversationSummaryEnvelope
+	if err := json.Unmarshal([]byte(summaryBlock.Content), &convoSummary); err != nil {
+		t.Fatalf("unmarshal conversation summary: %v", err)
+	}
+	if got, want := convoSummary.DroppedTurns, 4; got != want {
+		t.Fatalf("conversation summary dropped turns = %d, want %d", got, want)
+	}
+	if got, want := convoSummary.DroppedMessages, 8; got != want {
+		t.Fatalf("conversation summary dropped messages = %d, want %d", got, want)
+	}
+	if got := strings.Contains(summaryBlock.Content, "turn zero user"); !got {
+		t.Fatalf("conversation summary = %q, want excerpt from older turns", summaryBlock.Content)
+	}
+
+	if got, want := shortAssembly.Messages[2].Content, "turn two user"; got != want {
+		t.Fatalf("retained user turn content = %q, want %q", got, want)
+	}
+	if got, want := shortAssembly.Messages[3].Content, "turn two assistant"; got != want {
+		t.Fatalf("retained assistant turn content = %q, want %q", got, want)
+	}
+	if got := strings.Contains(longAssembly.Messages[6].Content, "\"kind\":\"tool_summary\""); !got {
+		t.Fatalf("tool summary envelope missing: %q", longAssembly.Messages[6].Content)
+	}
+	if got := strings.Contains(longAssembly.Messages[6].Content, "\"truncated\":true"); !got {
+		t.Fatalf("tool summary should be truncated: %q", longAssembly.Messages[6].Content)
+	}
+}
+
+func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
+	t.Parallel()
+
+	block, ok := CompactConversationTurns([]conversationTurn{
+		{Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat("x", 200)}}},
+	}, CompactionPolicy{SummaryBytes: 32})
+	if !ok {
+		t.Fatalf("CompactConversationTurns() ok = false, want true")
+	}
+	if !block.Truncated {
+		t.Fatalf("summary block truncated = false, want true")
+	}
+
+	var envelope ConversationSummaryEnvelope
+	if err := json.Unmarshal([]byte(block.Content), &envelope); err != nil {
+		t.Fatalf("unmarshal summary envelope: %v", err)
+	}
+	if !envelope.Truncated {
+		t.Fatalf("envelope truncated = false, want true")
+	}
+}
+
+func findBlockBySource(t *testing.T, blocks []ContextBlock, source ContextSource) ContextBlock {
+	t.Helper()
+
+	for _, block := range blocks {
+		if block.Source == source {
+			return block
+		}
+	}
+	t.Fatalf("block with source %q not found", source)
+	return ContextBlock{}
 }
 
 func mustWrite(t *testing.T, dir, name, content string) {
