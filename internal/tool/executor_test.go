@@ -35,6 +35,7 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 				"read":   config.ApprovalModeAuto,
 				"glob":   config.ApprovalModeAuto,
 				"search": config.ApprovalModeAuto,
+				"edit":   config.ApprovalModePrompt,
 				"write":  config.ApprovalModePrompt,
 				"bash":   config.ApprovalModePrompt,
 			},
@@ -100,6 +101,23 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 		t.Fatalf("write path = %v, want %s", got, filepath.Join(tempRepo, "generated.txt"))
 	}
 
+	editResult, err := executor.Execute(context.Background(), "edit", map[string]any{
+		"path": "generated.txt",
+		"old":  "done\n",
+		"new":  "updated\n",
+	})
+	if err != nil {
+		t.Fatalf("edit execute: %v", err)
+	}
+	editEnvelope := editResult.(ExecutionResult)
+	editMap := editEnvelope.Value.(map[string]any)
+	if got := editMap["path"]; got != filepath.Join(tempRepo, "generated.txt") {
+		t.Fatalf("edit path = %v, want %s", got, filepath.Join(tempRepo, "generated.txt"))
+	}
+	if got := editMap["replacements"]; got != float64(1) {
+		t.Fatalf("edit replacements = %v, want 1", got)
+	}
+
 	bashResult, err := executor.Execute(context.Background(), "bash", map[string]any{
 		"command": "pwd",
 	})
@@ -112,11 +130,11 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 		t.Fatalf("bash stdout = %q, want repo root %q", got, tempRepo)
 	}
 
-	if got := string(mustReadFile(t, filepath.Join(tempRepo, "generated.txt"))); got != "done\n" {
-		t.Fatalf("generated file contents = %q, want done\\n", got)
+	if got := string(mustReadFile(t, filepath.Join(tempRepo, "generated.txt"))); got != "updated\n" {
+		t.Fatalf("generated file contents = %q, want updated\\n", got)
 	}
 
-	wantApprovals := []string{"write:prompt", "bash:prompt"}
+	wantApprovals := []string{"write:prompt", "edit:prompt", "bash:prompt"}
 	if len(approvals) != len(wantApprovals) {
 		t.Fatalf("approvals = %#v, want %#v", approvals, wantApprovals)
 	}
@@ -125,8 +143,8 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 			t.Fatalf("approvals[%d] = %q, want %q", i, approvals[i], want)
 		}
 	}
-	if len(previews) != 2 {
-		t.Fatalf("previews len = %d, want 2", len(previews))
+	if len(previews) != 3 {
+		t.Fatalf("previews len = %d, want 3", len(previews))
 	}
 	if got, want := previews[0].Tool, "write"; got != want {
 		t.Fatalf("write preview tool = %q, want %q", got, want)
@@ -140,20 +158,35 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if got, want := previews[0].Fields[0].Value, filepath.Join(tempRepo, "generated.txt"); got != want {
 		t.Fatalf("write preview path = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Tool, "bash"; got != want {
+	if got, want := previews[1].Tool, "edit"; got != want {
+		t.Fatalf("edit preview tool = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[0].Name, "new"; got != want {
+		t.Fatalf("edit preview first field name = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[1].Name, "old"; got != want {
+		t.Fatalf("edit preview second field name = %q, want %q", got, want)
+	}
+	if got, want := previews[1].Fields[2].Name, "path"; got != want {
+		t.Fatalf("edit preview third field name = %q, want %q", got, want)
+	}
+	if got, want := previews[2].Tool, "bash"; got != want {
 		t.Fatalf("bash preview tool = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Fields[0].Name, "cwd"; got != want {
+	if got, want := previews[2].Fields[0].Name, "cwd"; got != want {
 		t.Fatalf("bash preview field name = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Fields[0].Value, tempRepo; got != want {
+	if got, want := previews[2].Fields[0].Value, tempRepo; got != want {
 		t.Fatalf("bash preview cwd = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Fields[1].Name, "command"; got != want {
+	if got, want := previews[2].Fields[1].Name, "command"; got != want {
 		t.Fatalf("bash preview second field name = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Fields[1].Value, "pwd"; got != want {
+	if got, want := previews[2].Fields[1].Value, "pwd"; got != want {
 		t.Fatalf("bash preview command = %q, want %q", got, want)
+	}
+	if got := string(mustReadFile(t, filepath.Join(tempRepo, "generated.txt"))); got != "updated\n" {
+		t.Fatalf("edited file contents = %q, want updated\\n", got)
 	}
 }
 
@@ -199,11 +232,8 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 		t.Fatalf("mkdir blocked: %v", err)
 	}
 
-	reg := NewRegistry(
-		ToolDef{Name: "read", ExecPath: "/bin/true", Subcommand: "read"},
-		ToolDef{Name: "write", ExecPath: "/bin/true", Subcommand: "write"},
-		ToolDef{Name: "bash", ExecPath: "/bin/true", Subcommand: "bash"},
-	)
+	bin := mustBuildCoreToolsBinary(t)
+	reg := newCoreToolsRegistry(bin)
 	cfg := config.Config{
 		Paths: config.PathsConfig{
 			ProjectRootOnly: true,
@@ -214,6 +244,7 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 			Overrides: map[string]config.ApprovalMode{
 				"read":  config.ApprovalModeAuto,
 				"write": config.ApprovalModeAuto,
+				"edit":  config.ApprovalModeAuto,
 				"bash":  config.ApprovalModeAuto,
 			},
 		},
@@ -245,6 +276,12 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 			input: map[string]any{"command": "pwd", "cwd": "../escape"},
 			want:  "outside project root",
 		},
+		{
+			name:  "edit out of root",
+			tool:  "edit",
+			input: map[string]any{"path": "../escape.txt", "old": "a", "new": "b"},
+			want:  "outside current working directory",
+		},
 	}
 
 	for _, tc := range tests {
@@ -257,8 +294,73 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 			if !errors.As(err, &toolErr) {
 				t.Fatalf("error type = %T, want *ToolExecutionError", err)
 			}
-			if toolErr.Kind != "policy_denied" {
+			if tc.tool == "edit" {
+				if toolErr.Kind != "edit_error" {
+					t.Fatalf("error kind = %q, want edit_error", toolErr.Kind)
+				}
+			} else if toolErr.Kind != "policy_denied" {
 				t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+			}
+			if !strings.Contains(toolErr.Message, tc.want) {
+				t.Fatalf("error message = %q, want %q", toolErr.Message, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecutorEditRequiresExactSingleMatch(t *testing.T) {
+	bin := mustBuildCoreToolsBinary(t)
+	tempRepo := t.TempDir()
+	mustWriteFile(t, filepath.Join(tempRepo, "notes.txt"), "alpha\nbeta\nalpha\n")
+
+	reg := newCoreToolsRegistry(bin)
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"edit": config.ApprovalModePrompt,
+			},
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
+		return ApprovalResponse{Allow: true}, nil
+	}), tempRepo)
+
+	tests := []struct {
+		name  string
+		input map[string]any
+		want  string
+	}{
+		{
+			name:  "missing old snippet",
+			input: map[string]any{"path": "notes.txt", "old": "gamma", "new": "delta"},
+			want:  "old snippet not found",
+		},
+		{
+			name:  "ambiguous old snippet",
+			input: map[string]any{"path": "notes.txt", "old": "alpha", "new": "delta"},
+			want:  "must match exactly once",
+		},
+		{
+			name:  "malformed replacement",
+			input: map[string]any{"path": "notes.txt", "old": "   ", "new": "delta"},
+			want:  "old is required",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := executor.Execute(context.Background(), "edit", tc.input)
+			if err == nil {
+				t.Fatal("Execute() error = nil, want edit failure")
+			}
+			var toolErr *ToolExecutionError
+			if !errors.As(err, &toolErr) {
+				t.Fatalf("error type = %T, want *ToolExecutionError", err)
+			}
+			if toolErr.Kind != "edit_error" && toolErr.Kind != "invalid_input" {
+				t.Fatalf("error kind = %q, want edit_error or invalid_input", toolErr.Kind)
 			}
 			if !strings.Contains(toolErr.Message, tc.want) {
 				t.Fatalf("error message = %q, want %q", toolErr.Message, tc.want)
@@ -336,6 +438,7 @@ func newCoreToolsRegistry(bin string) *Registry {
 		ToolDef{Name: "read", ExecPath: bin, Subcommand: "read", Description: "Read a file"},
 		ToolDef{Name: "glob", ExecPath: bin, Subcommand: "glob", Description: "Glob files"},
 		ToolDef{Name: "search", ExecPath: bin, Subcommand: "search", Description: "Search files"},
+		ToolDef{Name: "edit", ExecPath: bin, Subcommand: "edit", Description: "Edit a file with exact replacement"},
 		ToolDef{Name: "write", ExecPath: bin, Subcommand: "write", Description: "Write a file"},
 		ToolDef{Name: "bash", ExecPath: bin, Subcommand: "bash", Description: "Run shell commands"},
 	)

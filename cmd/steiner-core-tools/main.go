@@ -17,6 +17,7 @@ type handler func(context.Context, []byte) (any, error)
 var handlers = map[string]handler{
 	"read":   runRead,
 	"write":  runWrite,
+	"edit":   runEdit,
 	"glob":   runGlob,
 	"search": runSearch,
 	"bash":   runBash,

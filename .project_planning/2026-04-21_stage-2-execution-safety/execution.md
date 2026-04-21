@@ -61,7 +61,7 @@
 ## Step Status
 
 - `stage-1-step-1`: `implemented`
-- `stage-2-step-1`: `running` depends on `stage-1-step-1`
+- `stage-2-step-1`: `implemented` depends on `stage-1-step-1`
 - `stage-3-step-1`: `pending` depends on `stage-2-step-1`
 
 ## Sub-Agent Activity
@@ -87,18 +87,41 @@
     - temporary_branch_deleted: yes
   - contract_review: accepted; patch stayed within scope and covered policy rejection, bounded output metadata, binary-safe handling, approval preview data, and safe tool-result shaping for the agent loop
 - `stage-2-step-1`
-  - status: provisioning
+  - status: recovered_direct_on_feature_branch
   - suggested_model: `cheap-good`
   - current_runtime_tier_comparison: cheaper
   - execution_mode: serial
   - temporary_branch: `tmp/stage-2-step-1`
   - temporary_worktree: `/tmp/steiner-stage-2-step-1`
+  - subagent: `019dafa5-098d-7ea1-bb6f-1b57d604d2f8`
+  - model: `gpt-5.4-mini`
+  - temporary_branch_commit: `f7e3285`
+  - temporary_branch_commit_message: `Add exact-match edit core tool`
+  - deviation:
+    - isolated worker leaked step edits into the feature branch checkout instead of keeping all implementation inside the temporary worktree
+    - merge of `tmp/stage-2-step-1` was aborted because the same files were already modified in the feature branch working tree
+    - executor treated isolated execution as unsafe for this step recovery and completed the localized fix directly on the feature branch
+  - recovery_actions:
+    - validated leaked feature-branch changes with the planned step test slice
+    - fixed failing expectations in `internal/tool/executor_test.go`
+    - reran step verification successfully
+  - step_verification:
+    - `gofmt -w <touched-go-files>`: passed
+    - `go test ./cmd/steiner-core-tools/... ./internal/tool/...`: passed
+  - closure_status: close pending until cleanup
+  - cleanup:
+    - worktree_deleted: pending
+    - temporary_branch_deleted: pending
+  - contract_review: accepted after direct recovery; `edit` is present, exact-match only, `write` remains, README prefers `edit`, and focused tests cover success plus safe failure modes
 
 ## Verification Runs
 
 - `stage-1-step-1`
   - `gofmt -w <touched-go-files>`: passed
   - `go test ./internal/tool/... ./internal/agent/...`: passed
+- `stage-2-step-1`
+  - `gofmt -w <touched-go-files>`: passed
+  - `go test ./cmd/steiner-core-tools/... ./internal/tool/...`: passed
 
 ## Manual Verification
 

@@ -119,7 +119,9 @@ The scheduler for `provider.parallelism` already exists and is enforced centrall
 Approval defaults are also already defined in config, even though tool execution is not wired up yet:
 
 * `read`, `glob`, `search` default to `auto`
-* `write`, `bash` default to `prompt`
+* `edit`, `write`, `bash` default to `prompt`
+
+Stage 2 adds `edit` as the preferred safer mutation primitive while keeping `write` for compatibility. The runtime surface and schemas should prefer `edit` for in-place file changes, and reserve `write` for full-file overwrites.
 
 ## Build And Test
 
