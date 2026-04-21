@@ -2,7 +2,7 @@ package repl
 
 import "strings"
 
-var builtinCommands = []string{"help", "tools", "skills", "clear", "exit"}
+var builtinCommands = []string{"help", "history", "tools", "skills", "clear", "exit"}
 
 type Command struct {
 	Name string

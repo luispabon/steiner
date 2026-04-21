@@ -1,0 +1,174 @@
+stages:
+  - id: stage-1
+    objective: Establish Stage 3 context-state and prompt-compaction primitives without violating package boundaries
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: Add durable context-state types in the agent layer for constraints, unresolved work, and retained summaries
+        scope: Define the agent-owned state that must survive compaction and can be rendered into bounded prompt blocks later
+        files:
+          - internal/agent/context_state.go
+          - internal/agent/state.go
+          - internal/agent/types.go
+          - internal/agent/loop_test.go
+        constraints:
+          - Keep `internal/agent` independent from `internal/prompt` implementation types
+          - Preserve existing run-state semantics while extending them with Stage 3 context state
+          - Represent durable intent as typed state rather than raw transcript-only summaries
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Agent context-state types for active constraints, unresolved tasks, active focus, and retained summaries
+          - Loop/state wiring points that can be updated incrementally by later steps
+          - Unit coverage for state preservation behavior
+        acceptance:
+          - Agent state has an explicit home for durable context that should survive conversation compaction
+          - New state types do not introduce forbidden prompt-package coupling
+          - Tests cover preservation of key state fields across updates
+        handoff: Implement the minimal agent-owned context state needed by Stage 3 so later prompt assembly work consumes structured state instead of inferring everything from raw history.
+        verification:
+          - go test ./internal/agent
+
+      - id: stage-1-step-2
+        objective: Introduce prompt budgeting, retention, summary-block, and compaction primitives in internal/prompt
+        scope: Build the Stage 3 policy layer for context-source budgets, recent-turn retention, older-turn compaction, and structured tool-summary envelopes
+        files:
+          - internal/prompt/types.go
+          - internal/prompt/assembler.go
+          - internal/prompt/budget.go
+          - internal/prompt/retention.go
+          - internal/prompt/compaction.go
+          - internal/prompt/summary.go
+          - internal/prompt/assemble.go
+          - internal/prompt/assemble_test.go
+        constraints:
+          - Preserve the fixed source precedence required by `AGENTS.md`
+          - Keep tool summaries informational only, never instruction-bearing
+          - Ensure project context is rebuilt from policy each turn instead of accumulated transcript state
+          - Prefer introducing the Stage 3 files named in the implementation plan if new files are needed
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Source budget model and enforcement for prompt assembly
+          - Rolling summary block representation for compacted history
+          - Tool-result summarisation/truncation envelopes
+          - Updated prompt assembly tests and golden-style expectations where appropriate
+        acceptance:
+          - Prompt assembly no longer appends raw conversation and tool output without Stage 3 policy
+          - Recent turns are retained verbatim while older history can be compacted
+          - Tool outputs can be truncated into structured summaries without becoming authoritative instructions
+          - Tests demonstrate bounded prompt growth behavior at the assembly layer
+        handoff: Implement the Stage 3 prompt policy surface in `internal/prompt`, using the new agent context-state inputs and keeping source ordering unchanged.
+        verification:
+          - go test ./internal/prompt
+
+  - id: stage-2
+    objective: Thread Stage 3 compaction behavior through the runtime and expose compaction-aware diagnostics
+    parallel: true
+    steps:
+      - id: stage-2-step-1
+        objective: Integrate context-state updates and compaction-aware assembly into the agent loop
+        scope: Wire Stage 3 state transitions through the loop so conversation growth is bounded and important decisions survive across turns and tool use
+        files:
+          - internal/agent/loop.go
+          - internal/agent/tool_result.go
+          - internal/agent/limits.go
+          - internal/agent/loop_test.go
+          - internal/prompt/assemble.go
+          - internal/prompt/types.go
+        constraints:
+          - Do not bypass provider scheduling or existing loop limits
+          - Keep provider-facing message types canonical
+          - Do not leak raw child/delegation concepts into Stage 3 behavior beyond the existing source enum placeholder
+        depends_on:
+          - stage-1-step-1
+          - stage-1-step-2
+        parallel_group: runtime-diagnostics
+        can_run_in_parallel: true
+        suggested_model: cheap-good
+        outputs:
+          - Loop integration that updates durable context state over time
+          - Compaction-aware handling of tool results and conversation history before model calls
+          - Integration tests covering long synthetic sessions and surviving constraints
+        acceptance:
+          - The loop no longer allows prompt size to grow linearly with every tool call
+          - Important user constraints and active work context survive compaction in integration tests
+          - Prompt assembly remains policy-driven each turn rather than transcript-append-driven
+        handoff: Wire the new prompt compaction policy into the agent loop and prove it on long-session style tests.
+        verification:
+          - go test ./internal/agent ./internal/prompt
+
+      - id: stage-2-step-2
+        objective: Add compaction diagnostics to output and a minimal REPL history/debug command surface
+        scope: Surface when compaction happens, what was retained or summarized, and give users a lightweight interactive way to inspect history-related diagnostics
+        files:
+          - internal/output/log.go
+          - internal/output/debug.go
+          - internal/repl/commands.go
+          - internal/repl/repl.go
+          - internal/repl/repl_test.go
+          - internal/output/stream_test.go
+        constraints:
+          - Keep REPL command handling thin; do not reimplement prompt logic in REPL
+          - Expose diagnostics from exported state/events instead of tightly coupling to prompt internals
+          - Prefer the minimum `/history`-style surface needed for Stage 3 over speculative prompt-inspection UX
+        depends_on:
+          - stage-1-step-1
+          - stage-1-step-2
+        parallel_group: runtime-diagnostics
+        can_run_in_parallel: true
+        suggested_model: cheap-good
+        outputs:
+          - Output events or payload extensions for compaction/budget diagnostics
+          - REPL built-in command support for minimal history/compaction inspection
+          - Tests for diagnostic surfacing and command parsing/behavior
+        acceptance:
+          - Users can inspect that compaction occurred without reading internal logs directly
+          - Logs/events include retained, compacted, truncated, or budget-related context diagnostics
+          - REPL support stays within existing package responsibility boundaries
+        handoff: Add the observable Stage 3 diagnostics layer, including the minimum REPL command needed to inspect compaction-aware history behavior.
+        verification:
+          - go test ./internal/output ./internal/repl
+
+  - id: stage-3
+    objective: Harden Stage 3 behavior with repo-level verification and snapshot coverage
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: Finalize test coverage, snapshots, and end-of-stage verification for context discipline and compaction
+        scope: Close gaps in unit, integration, and golden coverage and run the repo-level validation needed to declare Stage 3 execution-ready
+        files:
+          - internal/prompt/assemble_test.go
+          - internal/agent/loop_test.go
+          - internal/output/stream_test.go
+          - internal/repl/repl_test.go
+          - testdata/**
+        constraints:
+          - Add fixtures under `testdata/` rather than embedding large inline transcripts
+          - Keep snapshot/golden coverage focused on assembled prompts and compacted summaries, not incidental formatting noise
+          - Only broaden fixtures if needed to prove bounded growth and state preservation
+        depends_on:
+          - stage-2-step-1
+          - stage-2-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Final test coverage for compaction behavior and diagnostics
+          - Golden or snapshot-style assertions for compacted conversation/prompt assembly
+          - Repo-level verification pass for formatting, vet, tests, and build
+        acceptance:
+          - Stage 3 exit criteria from the roadmap are demonstrably covered by tests or diagnostics
+          - Final validation passes with no known Stage 3 regressions
+          - Planning assumptions about verification are either confirmed or minimally updated in execution artifacts if needed
+        handoff: Finish the Stage 3 implementation by tightening coverage around long-session coherence, bounded growth, and user-visible diagnostics, then run the full end-of-implementation checks.
+        verification:
+          - gofmt -w <touched-go-files>
+          - go test ./...
+          - go vet ./...
+          - make build-binaries

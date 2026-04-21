@@ -586,6 +586,111 @@ func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 	}
 }
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
+	helper := mustBuildCLIHelperBinary(t)
+	workDir := t.TempDir()
+	writeFile(t, filepath.Join(workDir, "README.md"), strings.Repeat("project context line\n", 64))
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "bash", Arguments: map[string]any{"command": "pwd"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "bash", Arguments: map[string]any{"command": "pwd"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model:       "test-model",
+					Temperature: 0.2,
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  6,
+					MaxTokens: 100,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 64,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModeAuto,
+					Overrides: map[string]config.ApprovalMode{
+						"bash": config.ApprovalModeAuto,
+					},
+				},
+			},
+			provider: providerStub,
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:       "bash",
+				ExecPath:   helper,
+				Subcommand: "bash",
+			}),
+			workDir:     workDir,
+			homeDir:     t.TempDir(),
+			events:      output.NoopSink{},
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+		},
+	}
+
+	result, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "run bash"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(result.Diagnostics) == 0 {
+		t.Fatal("Diagnostics = empty, want context diagnostics")
+	}
+	var kinds []string
+	for _, event := range result.Diagnostics {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+		}
+		kinds = append(kinds, payload.Kind)
+	}
+	if !containsString(kinds, "budget") {
+		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
+	}
+	if !containsString(kinds, "compaction") {
+		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
+	}
+}
+
 type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse
