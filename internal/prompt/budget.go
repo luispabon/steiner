@@ -3,16 +3,17 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes      = 1024
-	defaultGlobalAgentsBudgetBytes  = 2048
-	defaultProjectAgentsBudgetBytes = 2048
-	defaultSkillBudgetBytes         = 2048
-	defaultConversationBudgetBytes  = 4096
-	defaultConversationSummaryBytes = 1024
-	defaultToolResultBudgetBytes    = 2048
-	defaultToolSummaryBudgetBytes   = 1024
-	defaultRecentTurns              = 4
-	defaultCompactionSummaryBytes   = 1024
+	defaultPreambleBudgetBytes       = 1024
+	defaultGlobalAgentsBudgetBytes   = 2048
+	defaultProjectAgentsBudgetBytes  = 2048
+	defaultSkillBudgetBytes          = 2048
+	defaultDurableContextBudgetBytes = 1024
+	defaultConversationBudgetBytes   = 4096
+	defaultConversationSummaryBytes  = 1024
+	defaultToolResultBudgetBytes     = 2048
+	defaultToolSummaryBudgetBytes    = 1024
+	defaultRecentTurns               = 4
+	defaultCompactionSummaryBytes    = 1024
 )
 
 func DefaultAssemblyPolicy() AssemblyPolicy {
@@ -23,6 +24,7 @@ func DefaultAssemblyPolicy() AssemblyPolicy {
 			ProjectAgentsBytes:       defaultProjectAgentsBudgetBytes,
 			ProjectContextBytes:      defaultProjectContextBudgetBytes,
 			SkillBytes:               defaultSkillBudgetBytes,
+			DurableContextBytes:      defaultDurableContextBudgetBytes,
 			ConversationBytes:        defaultConversationBudgetBytes,
 			ConversationSummaryBytes: defaultConversationSummaryBytes,
 			ToolResultBytes:          defaultToolResultBudgetBytes,
@@ -42,6 +44,7 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		policy.Budgets.ProjectAgentsBytes < 0 ||
 		policy.Budgets.ProjectContextBytes < 0 ||
 		policy.Budgets.SkillBytes < 0 ||
+		policy.Budgets.DurableContextBytes < 0 ||
 		policy.Budgets.ConversationBytes < 0 ||
 		policy.Budgets.ConversationSummaryBytes < 0 ||
 		policy.Budgets.ToolResultBytes < 0 ||
@@ -72,6 +75,9 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 	}
 	if policy.Budgets.SkillBytes == 0 {
 		policy.Budgets.SkillBytes = defaults.Budgets.SkillBytes
+	}
+	if policy.Budgets.DurableContextBytes == 0 {
+		policy.Budgets.DurableContextBytes = defaults.Budgets.DurableContextBytes
 	}
 	if policy.Budgets.ConversationBytes == 0 {
 		policy.Budgets.ConversationBytes = defaults.Budgets.ConversationBytes
@@ -117,6 +123,8 @@ func (m SourceBudgetModel) limitFor(source ContextSource) int {
 		return m.ProjectContextBytes
 	case ContextSourceSkill:
 		return m.SkillBytes
+	case ContextSourceDurableContext:
+		return m.DurableContextBytes
 	case ContextSourceConversationSummary:
 		return m.ConversationSummaryBytes
 	case ContextSourceToolSummary, ContextSourceDelegationResult:
@@ -149,6 +157,7 @@ func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 			ContextSourceProjectAgentsMD:     model.ProjectAgentsBytes,
 			ContextSourceProjectContext:      model.ProjectContextBytes,
 			ContextSourceSkill:               model.SkillBytes,
+			ContextSourceDurableContext:      model.DurableContextBytes,
 			ContextSourceConversation:        model.ConversationBytes,
 			ContextSourceConversationSummary: model.ConversationSummaryBytes,
 			ContextSourceToolResult:          model.ToolResultBytes,
