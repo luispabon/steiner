@@ -173,8 +173,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		Skills:   append([]string(nil), rt.skillNames...),
 	}
 	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
-	interactiveStatus := repl.NewPromptStream(prompter)
-	interactiveEvents := output.EventSink(interactiveStatus)
+	interactiveEvents := repl.NewPromptEventSink(prompter)
 	if originalLogger, ok := rt.provider.(loggingProvider); ok {
 		originalLogger.sink = interactiveEvents
 		rt.provider = originalLogger
@@ -187,12 +186,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				interactiveEvents,
 				promptingApprover{
 					reader: approvalReader(rt),
-					out:    interactiveStatus,
+					out:    prompter,
 				},
 			),
 		},
 		interactiveInput(rt),
-		interactiveStatus,
+		rt.human,
 		interactiveEvents,
 		rt.toolNames,
 		rt.skillNames,
@@ -495,9 +494,13 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
+type promptPrinter interface {
+	Printf(string, ...any)
+}
+
 type promptingApprover struct {
 	reader *bufio.Reader
-	out    *output.Stream
+	out    promptPrinter
 }
 
 func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {

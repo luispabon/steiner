@@ -250,15 +250,15 @@ func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
 	}
 }
 
-func TestPromptStreamRoutesWritesThroughPrompter(t *testing.T) {
+func TestPromptEventSinkRoutesEventsThroughPrompter(t *testing.T) {
 	var out bytes.Buffer
 	prompt := &fakePrompt{out: &out}
-	stream := NewPromptStream(prompt)
+	sink := NewPromptEventSink(prompt)
 
-	stream.Println("status line")
+	sink.Emit(output.NewStopReasonEvent(1, "complete", nil))
 
-	if got := out.String(); !strings.Contains(got, "status line") {
-		t.Fatalf("prompt stream output = %q, want routed text", got)
+	if got := out.String(); !strings.Contains(got, "status: reason=complete turn=1") {
+		t.Fatalf("prompt event sink output = %q, want routed event", got)
 	}
 }
 

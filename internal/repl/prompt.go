@@ -22,8 +22,13 @@ func NewPrompter(in io.Reader, out *output.Stream, completer Completer) Prompter
 	return newPrompter(in, out, completer)
 }
 
-func NewPromptStream(prompter Prompter) *output.Stream {
-	return output.NewStream(promptWriter{prompter: prompter})
+func NewPromptEventSink(prompter Prompter) output.EventSink {
+	return output.SinkFunc(func(event output.Event) {
+		if prompter == nil {
+			return
+		}
+		prompter.Println(output.FormatEvent(event))
+	})
 }
 
 func newPrompter(in io.Reader, out *output.Stream, completer Completer) Prompter {
@@ -72,10 +77,6 @@ func (p *linePrompter) Println(args ...any) {
 type readlinePrompter struct {
 	shell *readline.Shell
 	out   *output.Stream
-}
-
-type promptWriter struct {
-	prompter Prompter
 }
 
 func newReadlinePrompter(completer Completer, out *output.Stream) Prompter {
@@ -158,16 +159,4 @@ func asBufioReader(in io.Reader) *bufio.Reader {
 		return reader
 	}
 	return bufio.NewReader(in)
-}
-
-func (w promptWriter) Write(p []byte) (int, error) {
-	if w.prompter == nil {
-		return len(p), nil
-	}
-	text := string(p)
-	text = strings.TrimSuffix(text, "\n")
-	if text != "" {
-		w.prompter.Printf("%s", text)
-	}
-	return len(p), nil
 }
