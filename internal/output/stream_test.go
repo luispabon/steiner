@@ -20,13 +20,13 @@ func TestStreamFormatsModelToolAndStopEvents(t *testing.T) {
 
 	got := buf.String()
 	for _, want := range []string{
-		"model turn=1 start",
-		"tool turn=1 start",
-		"approval turn=1 requested",
-		"approval turn=1 accepted",
-		"approval turn=1 denied",
-		"tool turn=1 end",
-		"stop reason=complete",
+		"status: model turn=1 started",
+		"tool: turn=1 start tool=read",
+		"approval: turn=1 requested",
+		"approval: turn=1 accepted",
+		"approval: turn=1 denied",
+		"tool: turn=1 end tool=read",
+		"status: reason=complete turn=2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
@@ -43,7 +43,7 @@ func TestStreamFormatsContextDiagnosticsEvents(t *testing.T) {
 
 	got := buf.String()
 	for _, want := range []string{
-		"context diagnostics kind=compaction",
+		"context: context diagnostics kind=compaction",
 		"turn=4",
 		"retained_turns=2",
 		"retained_messages=6",
@@ -60,5 +60,22 @@ func TestStreamFormatsContextDiagnosticsEvents(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
 		}
+	}
+}
+
+func TestStreamWritesAssistantChunksAsSingleTranscriptLine(t *testing.T) {
+	var buf bytes.Buffer
+	stream := NewStream(&buf)
+
+	stream.WriteAssistantChunk("Hello")
+	stream.WriteAssistantChunk(", world")
+	stream.Emit(NewToolCallStartedEvent(1, "read", "call_1", nil))
+
+	got := buf.String()
+	if !strings.Contains(got, "assistant> Hello, world\n") {
+		t.Fatalf("stream output %q missing streamed assistant transcript", got)
+	}
+	if !strings.Contains(got, "tool: turn=1 start tool=read id=call_1") {
+		t.Fatalf("stream output %q missing tool event after assistant transcript", got)
 	}
 }
