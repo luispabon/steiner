@@ -108,6 +108,7 @@ func (p *readlinePrompter) Printf(format string, args ...any) {
 	if p.out != nil {
 		p.out.Printf("%s\n", message)
 	}
+	p.refreshPrompt()
 }
 
 func (p *readlinePrompter) Println(args ...any) {
@@ -118,6 +119,14 @@ func (p *readlinePrompter) Println(args ...any) {
 	if p.out != nil {
 		p.out.Println(message)
 	}
+	p.refreshPrompt()
+}
+
+func (p *readlinePrompter) refreshPrompt() {
+	if p == nil || p.shell == nil || p.shell.Display == nil {
+		return
+	}
+	p.shell.Display.RefreshTransient()
 }
 
 func completeWithReadline(completer Completer, line []rune, cursor int) readline.Completions {
