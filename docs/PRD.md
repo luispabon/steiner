@@ -1,10 +1,10 @@
 # steiner - Product Requirements Document
 
-**Version:** 0.2.0 (restructured draft)
+**Version:** 0.3.0
 **Status:** Draft
-**Date:** 2026-04-20
+**Date:** 2026-04-21
 
-This revision preserves the direction of the original draft while restructuring it around context hygiene, safe execution, and staged capability delivery. It also adds provider/model parallelism control for resource-constrained environments.
+This revision keeps the existing architecture constraints, preserves the implemented stage 0-3 foundation, and reorders the product story around the current priority: making the single-agent terminal experience stronger before returning to delegation.
 
 ---
 
@@ -12,11 +12,11 @@ This revision preserves the direction of the original draft while restructuring 
 
 steiner is a minimal, local-first coding agent written in Go. It accepts a user task, reasons about it using an LLM, executes tool calls against the local filesystem and shell, and iterates until the task is complete.
 
-steiner is designed for real coding work over sessions that may become long, exploratory, or multi-step. Its central product concern is not just tool use, but disciplined context management over time. It prioritises simplicity, bounded context growth, extensibility, and a small prompt footprint over framework complexity.
+steiner is designed for real coding work over sessions that may become long, exploratory, or multi-step. Its central product concern is disciplined context management over time together with a console UX that keeps the agent understandable, controllable, and usable during real terminal work.
 
 steiner is not a framework. It is a single opinionated binary with sensible defaults, a plugin-first tool model, a skills system for explicit context injection, and an architecture that can later support delegated work through isolated sub-agents.
 
-Sub-agents are a core part of the long-term product vision because context isolation is a core product requirement. They are not required in the earliest implementation stages.
+Sub-agents remain part of the long-term product direction because context isolation matters. They are not the immediate product focus after stages 0-3. The immediate priority is a stronger single-agent console experience built on the context-discipline work already in place.
 
 ---
 
@@ -29,11 +29,12 @@ steiner should:
 * complete real coding tasks through iterative LLM reasoning and tool use
 * remain usable over long sessions without uncontrolled context growth
 * keep prompt construction deliberate, inspectable, and bounded
+* make terminal interaction understandable and controllable during live use
 * allow users to inject reusable context explicitly rather than implicitly
-* support future delegated work via isolated sub-agents
 * remain easy to install and run as a single statically-linked Go binary
 * work with both local and remote OpenAI-compatible endpoints
 * operate well on resource-constrained hardware, including systems hosting local LLMs
+* preserve a clean path to future delegated work through isolated sub-agents
 
 ### 2.2 Non-Goals
 
@@ -65,7 +66,7 @@ The system must prefer bounded, explicit, and inspectable context over convenien
 
 ### 3.4 Plugin-First Tooling
 
-Core tools and user-defined tools should share the same registration and execution model wherever practical. The system should not grow separate tool worlds for "built-in" and "custom" behaviour.
+Core tools and user-defined tools should share the same registration and execution model wherever practical. The system should not grow separate tool worlds for built-in and custom behaviour.
 
 ### 3.5 Safe-by-Default Execution
 
@@ -83,7 +84,7 @@ Skills and other optional context must never be silently surfaced to the model. 
 
 ## 4. Context Architecture
 
-Context management is a first-class architectural concern. steiner's quality over time depends on how well it controls what enters context, how long it remains there, how it is compacted, and how delegated work is isolated.
+Context management is a first-class architectural concern. steiner's quality over time depends on how well it controls what enters context, how long it remains there, how it is compacted, and how future delegated work stays isolated.
 
 ### 4.1 Context Sources
 
@@ -148,7 +149,7 @@ At minimum, steiner should support these policies conceptually from the beginnin
 * enforce per-tool output byte limits
 * replace oversized outputs with a summary envelope plus truncation notice
 * bound auto-discovered project context by a configurable budget
-* support future rolling compaction of older conversation history
+* support rolling compaction of older conversation history
 * keep sub-agent internals isolated from parent context unless explicitly requested
 
 ### 4.5 Context Boundaries
@@ -157,7 +158,7 @@ Context boundaries must be explicit.
 
 * the main agent has its own working history
 * each sub-agent has a separate working history
-* tool output is not automatically "important" merely because it exists
+* tool output is not automatically important merely because it exists
 * user-invoked skills remain explicit and inspectable
 * project context is reference material, not permanent high-priority instruction
 * delegated work returns compact results, not raw transcripts
@@ -182,8 +183,8 @@ The design should explicitly guard against:
 
 steiner supports two primary operating modes:
 
-* **REPL mode** - interactive terminal session in the current project
-* **Single-shot mode** - one task executed via `--exec`
+* **interactive mode** - terminal session in the current project
+* **single-shot mode** - one task executed via `--exec`
 
 ### 5.2 User Controls
 
@@ -198,6 +199,7 @@ The user should be able to:
 * approve or deny tool calls
 * override selected configuration values for the current session
 * see why a run stopped
+* inspect recent context diagnostics and budget pressure
 * later, inspect when delegation occurred
 
 ### 5.3 Visibility and Trust
@@ -212,7 +214,19 @@ The terminal UX should surface the information needed to keep the agent understa
 * clear stop reasons when limits are hit
 * later, clear indication when a sub-agent has been used
 
-### 5.4 Resource-Constrained Operation
+### 5.4 Console UX Priorities
+
+After stages 0-3, the product should prioritise a stronger terminal experience before delegation. That work should focus on:
+
+* streaming assistant output where supported
+* console input that behaves like a real shell prompt
+* markdown-aware rendering for replies, diffs, and structured status
+* clear visibility into context pressure and compaction
+* a strong default dark terminal theme
+
+Theme switching is a later enhancement, not a current requirement.
+
+### 5.5 Resource-Constrained Operation
 
 Users running local models on limited hardware must be able to reduce runtime pressure deliberately. steiner should expose provider/model parallelism controls so users can limit the number of concurrent in-flight LLM requests.
 
@@ -220,9 +234,66 @@ This is especially important once delegated execution exists, but the control be
 
 ---
 
-## 6. Functional Architecture
+## 6. CLI and Interaction Surface
 
-### 6.1 Core Agent Loop
+### 6.1 Commands
+
+Current core surface:
+
+```text
+steiner
+steiner --exec "task"
+steiner --config path/to/config.yaml config
+steiner --model model-name config
+steiner --log-file path/to/session.log
+steiner version
+steiner tools
+steiner skills
+steiner config
+```
+
+### 6.2 REPL Commands
+
+Current built-in commands:
+
+```text
+/help
+/tools
+/skills
+/history
+/clear
+/exit
+```
+
+Skill invocation uses the same `/name` namespace, with built-in commands reserved.
+
+### 6.3 Input Behaviour
+
+The current REPL already supports command parsing, skill toggling, history inspection, and approval prompting. The next console UX pass should add:
+
+* command history navigation
+* common line-editing keybindings
+* cursor movement within the current prompt
+* better handling of pasted multi-line input
+* improved skill and command completion
+
+### 6.4 Output Behaviour
+
+The terminal should favour legibility and trust over heavy visual ornament.
+
+Current and near-term expectations:
+
+* final assistant replies are shown clearly in both interactive and single-shot modes
+* model, tool, approval, stop, and context-diagnostic events can be surfaced separately from human-facing output
+* tool execution should show tool name, key arguments, approval state, truncation status, and result summary
+* the default console presentation should use an intentional dark theme
+* future streaming output should fit the same event model rather than bypassing it
+
+---
+
+## 7. Functional Architecture
+
+### 7.1 Core Agent Loop
 
 The base agent loop follows a ReAct-style cycle:
 
@@ -237,12 +308,12 @@ The base agent loop follows a ReAct-style cycle:
 4. if the response is textual only:
 
    * display it
-   * in REPL mode, wait for further input
+   * in interactive mode, wait for further input
    * in single-shot mode, exit
 
 The loop terminates when the model produces a final text response or when a termination control fires.
 
-### 6.2 Provider Abstraction Layer
+### 7.2 Provider Abstraction Layer
 
 All model communication should go through an abstract provider interface.
 
@@ -254,11 +325,9 @@ type Provider interface {
 }
 ```
 
-v1 ships with a single provider implementation: `openai_compat`, covering APIs that follow the OpenAI Chat Completions interface.
+v1 ships with `openai_compat` and may support additional steiner-owned provider adapters without changing the main agent loop.
 
-Future native providers can be added without changing the main agent loop.
-
-### 6.3 Provider Runtime Parallelism
+### 7.3 Provider Runtime Parallelism
 
 Provider configuration must support a `parallelism` setting that limits how many LLM requests steiner may have in flight at once for that provider/model configuration.
 
@@ -278,17 +347,15 @@ Semantics:
 * higher values permit more concurrent model requests
 * the scheduler must respect this limit across all agent activity using that configured provider instance
 
-In early single-agent stages this limit will usually be functionally equivalent to 1, but the configuration belongs in the architecture from the start.
+### 7.4 Tool System
 
-### 6.4 Tool System
-
-#### 6.4.1 Tool Model
+#### 7.4.1 Tool Model
 
 steiner exposes tools to the LLM through structured function schemas derived from config.
 
 Core tools ship with the project, but user-defined tools should fit the same registration model wherever possible.
 
-#### 6.4.2 Tool Registration
+#### 7.4.2 Tool Registration
 
 Tools are declared in YAML config with:
 
@@ -301,7 +368,7 @@ Tools are declared in YAML config with:
 * approval mode
 * optional execution constraints
 
-#### 6.4.3 Tool Execution Contract
+#### 7.4.3 Tool Execution Contract
 
 The tool contract must be explicit and consistent.
 
@@ -313,19 +380,20 @@ Primary contract:
 
 If simple script-style tooling is to be supported, that should be an explicit adapter mode rather than an implicit contradiction of the JSON contract.
 
-#### 6.4.4 Core Tools
+#### 7.4.4 Core Tools
 
-The initial core tool set should remain intentionally small:
+The core tool set should remain intentionally small:
 
 * `read`
 * `glob`
 * `search`
 * `write`
 * `bash`
+* `edit`
 
-However, the long-term editing model should not rely only on full-file overwrites.
+`edit` is the preferred mutation primitive for in-place changes. `write` remains available for whole-file replacement where appropriate.
 
-#### 6.4.5 Tool Output Policy
+#### 7.4.5 Tool Output Policy
 
 Tool output must be bounded.
 
@@ -333,28 +401,28 @@ The execution layer should support:
 
 * max stdout/stderr bytes captured
 * truncation markers
-* optional summarisation envelopes for large results
+* summary envelopes for large results
 * binary output detection
 * clear error propagation
 
 This is required for context hygiene.
 
-### 6.5 Editing Model
+### 7.5 Editing Model
 
 File mutation deserves its own design treatment.
 
-Initial support may include `write`, but the product should be designed to support safer edit primitives later, such as:
+The product should prefer safer edit primitives such as:
 
 * exact replace
 * patch application
 * append
 * structured file edits where appropriate
 
-Full-file overwrite is acceptable as an early primitive, but should not remain the only mutation path if the product is expected to perform reliable coding tasks.
+Full-file overwrite is acceptable as a compatibility primitive, but should not remain the default mutation path for reliable coding tasks.
 
-### 6.6 Execution Safety Model
+### 7.6 Execution Safety Model
 
-Even before sandboxing, v1 should define execution safety rules.
+Even before sandboxing, steiner should define execution safety rules.
 
 The execution layer should support:
 
@@ -367,72 +435,6 @@ The execution layer should support:
 * explicit working directory handling for shell commands
 
 This layer should be abstract enough to permit future containerised execution without redesigning the agent loop.
-
----
-
-## 7. Delegation Architecture
-
-Delegation exists to support context isolation, not novelty.
-
-### 7.1 Purpose of Delegation
-
-Sub-agents exist to:
-
-* isolate exploratory or bulky work
-* keep parent context compact
-* allow bounded subtask execution with separate limits
-* return concise results to the parent agent
-
-### 7.2 Sub-Agent Model
-
-A sub-agent is an isolated agent loop instance with:
-
-* its own empty conversation history
-* its own task prompt
-* its own limits
-* an allowed tool subset
-* no automatic access to the parent transcript beyond what is explicitly passed
-
-The parent agent should only receive the sub-agent's final result payload unless more detail is explicitly requested.
-
-### 7.3 Parent/Sub-Agent Contract
-
-A delegation contract should define what the parent sends:
-
-* task
-* scoped context
-* allowed tools
-* limits
-* optional execution metadata
-
-And what the sub-agent returns:
-
-* final answer
-* optional compact summary
-* optional artifact references
-* status metadata
-
-It should not return its full internal transcript by default.
-
-### 7.4 Isolation Rules
-
-* sub-agents do not inherit full parent history
-* parent agents do not ingest sub-agent tool chatter
-* sub-agents cannot nest by default
-* delegated work is bounded by separate turn/token/runtime limits
-* provider parallelism limits still apply globally
-
-### 7.5 Deferred Delegation Features
-
-These are intentionally deferred:
-
-* nested sub-agents
-* parallel sub-agents
-* shared memory between agents
-* parent inspection of full sub-agent transcript by default
-* complex delegation graphs
-
-Sub-agents are a core architectural requirement, but not an initial implementation requirement.
 
 ---
 
@@ -463,17 +465,13 @@ Each skill is identified by its directory name and loaded only when explicitly i
 
 ### 8.3 Skill Invocation
 
-In REPL mode:
+In interactive mode:
 
 ```text
 /skill-name
 ```
 
-In single-shot mode:
-
-```bash
-steiner --exec "task" --skill skill-name
-```
+In single-shot mode, skills should be explicitly selectable by CLI/config surface when exposed there.
 
 ### 8.4 Skill Authority
 
@@ -501,7 +499,7 @@ Suggested discovery categories:
 Project context should be:
 
 * discovered automatically
-* bounded by a configurable token budget
+* bounded by a configurable budget
 * truncated or excerpted when large
 * treated as reference context rather than permanent instruction
 * overridable through config
@@ -551,6 +549,7 @@ limits:
     bash: 120s
     read: 5s
     write: 5s
+    edit: 5s
   tool_output_max_bytes: 65536
 
 approval:
@@ -561,12 +560,13 @@ approval:
     search: auto
     write: prompt
     bash: prompt
+    edit: prompt
 
 sub_agent:
   enabled: false
   max_turns: 15
   max_tokens: 100000
-  allowed_tools: [read, glob, search, write, bash]
+  allowed_tools: [read, glob, search, write, bash, edit]
   allow_nesting: false
   max_concurrent: 1
 
@@ -630,67 +630,9 @@ The most operationally significant config includes:
 
 ---
 
-## 11. CLI and Interaction Surface
+## 11. Termination, Cancellation, and Recovery
 
-### 11.1 Commands
-
-```text
-steiner
-steiner --exec "task"
-steiner --exec "task" --auto-approve
-steiner --exec "task" --skill go-conventions
-steiner --config path
-steiner --model model-name
-steiner --verbose
-steiner version
-steiner tools
-steiner skills
-steiner config
-```
-
-### 11.2 REPL Commands
-
-```text
-/help
-/tools
-/skills
-/history
-/clear
-/config key value
-/exit
-```
-
-Skill invocation uses the same `/name` namespace, with built-in commands reserved.
-
-### 11.3 Input Behaviour
-
-The REPL should support:
-
-* command history
-* reverse search
-* common line-editing keybindings
-* multi-line paste
-* skill and command autocompletion
-
-### 11.4 Output Behaviour
-
-The terminal should stream model output incrementally where supported.
-
-Tool execution should display:
-
-* tool name
-* key arguments
-* approval state
-* truncation status where relevant
-* result summary
-
-The UX should favour clarity over heavy visual polish.
-
----
-
-## 12. Termination, Cancellation, and Recovery
-
-### 12.1 Termination Controls
+### 11.1 Termination Controls
 
 Independent controls may stop a run:
 
@@ -698,7 +640,7 @@ Independent controls may stop a run:
 * cumulative token budget
 * tool timeouts
 
-### 12.2 Cancellation
+### 11.2 Cancellation
 
 The design should support:
 
@@ -708,7 +650,7 @@ The design should support:
 * reporting cancellation clearly
 * preserving deterministic session state after interruption
 
-### 12.3 Recovery Behaviour
+### 11.3 Recovery Behaviour
 
 On failure, steiner should surface actionable information:
 
@@ -719,9 +661,88 @@ On failure, steiner should surface actionable information:
 
 ---
 
+## 12. Delegation Architecture
+
+Delegation exists to support context isolation, not novelty.
+
+### 12.1 Purpose of Delegation
+
+Sub-agents exist to:
+
+* isolate exploratory or bulky work
+* keep parent context compact
+* allow bounded subtask execution with separate limits
+* return concise results to the parent agent
+
+### 12.2 Sub-Agent Model
+
+A sub-agent is an isolated agent loop instance with:
+
+* its own empty conversation history
+* its own task prompt
+* its own limits
+* an allowed tool subset
+* no automatic access to the parent transcript beyond what is explicitly passed
+
+The parent agent should only receive the sub-agent's final result payload unless more detail is explicitly requested.
+
+### 12.3 Parent/Sub-Agent Contract
+
+A delegation contract should define what the parent sends:
+
+* task
+* scoped context
+* allowed tools
+* limits
+* optional execution metadata
+
+And what the sub-agent returns:
+
+* final answer
+* optional compact summary
+* optional artifact references
+* status metadata
+
+It should not return its full internal transcript by default.
+
+### 12.4 Isolation Rules
+
+* sub-agents do not inherit full parent history
+* parent agents do not ingest sub-agent tool chatter
+* sub-agents cannot nest by default
+* delegated work is bounded by separate turn/token/runtime limits
+* provider parallelism limits still apply globally
+
+### 12.5 Deferred Delegation Features
+
+These are intentionally deferred:
+
+* nested sub-agents
+* parallel sub-agents
+* shared memory between agents
+* parent inspection of full sub-agent transcript by default
+* complex delegation graphs
+
+Sub-agents are a core architectural requirement, but not an immediate implementation requirement.
+
+---
+
 ## 13. Roadmap-Aligned Delivery Stages
 
-This section describes capability sequencing, not detailed project planning.
+This section describes capability sequencing, not detailed project planning. Stages 0-3 are the current implemented foundation and should remain stable while later stages are refocused around console UX before delegation.
+
+### Stage 0 - Foundations Skeleton
+
+Deliver:
+
+* config loading and validation
+* provider abstraction and scheduler
+* core state types
+* CLI skeleton and package boundaries
+
+Exit condition:
+
+* the architecture is ready for a single-agent loop without violating package boundaries or concurrency constraints
 
 ### Stage 1 - Core Single-Agent Execution
 
@@ -773,7 +794,34 @@ Exit condition:
 
 * long sessions remain coherent without naive full-history replay
 
-### Stage 4 - Delegation Foundations
+### Stage 4 - Console UX Foundations
+
+Deliver:
+
+* streaming-capable terminal output path
+* shell-like prompt editing and history navigation
+* clearer separation of assistant output from status events
+* stronger approval and tool activity presentation
+* default dark terminal theme
+
+Exit condition:
+
+* the interactive console feels responsive and legible during real coding sessions, without changing the core single-agent architecture
+
+### Stage 5 - Session Visibility and Control
+
+Deliver:
+
+* clearer context budget visibility
+* session and turn inspection improvements
+* better cancellation and interruption UX
+* richer REPL control surface where needed for usability
+
+Exit condition:
+
+* users can understand what the agent is doing, why context was trimmed, and how to control a long-running session
+
+### Stage 6 - Delegation Foundations
 
 Deliver:
 
@@ -786,7 +834,7 @@ Exit condition:
 
 * the system is architecturally ready for sub-agent execution without redesigning the main loop
 
-### Stage 5 - Sub-Agent Execution
+### Stage 7 - Sub-Agent Execution
 
 Deliver:
 
@@ -800,7 +848,7 @@ Exit condition:
 
 * delegated work reduces parent context growth rather than increasing it
 
-### Stage 6 - Advanced Extensions
+### Stage 8 - Advanced Extensions
 
 Potential later work:
 
@@ -825,10 +873,11 @@ steiner is successful when it demonstrates the following behaviours:
 6. path and execution rules prevent obvious unsafe behaviour by default
 7. configuration precedence resolves deterministically
 8. local-model users can constrain concurrency through provider parallelism settings
-9. long sessions remain usable through bounded context assembly and later compaction
-10. delegated work, once implemented, returns compact results without polluting parent history
-11. failures and limits are surfaced clearly enough for the user to understand what happened
-12. user-defined tools can be added without changing core steiner code
+9. long sessions remain usable through bounded context assembly and compaction
+10. the console makes agent activity understandable during real terminal use
+11. delegated work, once implemented, returns compact results without polluting parent history
+12. failures and limits are surfaced clearly enough for the user to understand what happened
+13. user-defined tools can be added without changing core steiner code
 
 ---
 
@@ -848,6 +897,7 @@ These are deliberately deferred:
 * hierarchical subdirectory AGENTS.md discovery
 * web or GUI interface
 * atomic multi-file transaction support
+* user-selectable theme packs
 
 The architecture should leave room for these later, but they are not required for early delivery.
 
@@ -867,6 +917,7 @@ steiner/
       bash.go
       glob.go
       search.go
+      edit.go
   internal/
     agent/
       loop.go
@@ -900,26 +951,26 @@ steiner/
     delegation/
       contract.go
       scaffold.go
-  configs/
-    default.yaml
+  testdata/
+    repos/
   go.mod
   go.sum
   README.md
-  LICENSE
 ```
 
 ---
 
 ## 17. Notes on v1 Discipline
 
-The product direction includes delegated execution, but the early implementation should stay narrow.
+The long-term product direction still includes delegated execution, but the near-term product should stay narrow.
 
-The first shipped stages should optimise for:
+The next shipped stages should optimise for:
 
 * correctness of the single-agent loop
 * bounded and explicit context construction
 * safe tool execution
+* stronger terminal usability and visibility
 * low operational friction for local-model users
 * preserving architectural seams needed for later delegation
 
-The easiest way to derail the product early is to implement too much orchestration before context and execution discipline are solid.
+The easiest way to derail the product is to add too much orchestration before the console, context, and execution discipline are solid.
