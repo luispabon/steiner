@@ -164,7 +164,7 @@
 - manual_verification_resolved: yes
 - execution_md_up_to_date: yes
 - working_tree_clean_required_before_handoff: yes
-- final_executor_handoff_state_committed: intended_in_next_commit
+- final_executor_handoff_state_committed: yes
 - next_step: reviewer
 
 ## Notes
