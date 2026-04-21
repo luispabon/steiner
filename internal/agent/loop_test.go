@@ -358,6 +358,15 @@ func equalStrings(got, want []string) bool {
 	return true
 }
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func containsSequence(values, sequence []string) bool {
 	if len(sequence) == 0 || len(values) < len(sequence) {
 		return false
@@ -570,6 +579,99 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	}
 	if got := state.Context.RetainedSummaries[0].Text; !strings.Contains(got, "read") || !strings.Contains(got, "alpha") {
 		t.Fatalf("retained summary text = %q, want compacted turn details", got)
+	}
+}
+
+func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "b.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{"contents": "alpha"},
+			}, nil
+		},
+	}
+
+	var events []output.Event
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
+			ContextState: prompt.DurableContextState{
+				ActiveConstraints: []prompt.DurableContextEntry{
+					{Text: strings.Repeat("constraint ", 8), Source: "user", Turn: 1},
+				},
+				UnresolvedWork: []prompt.DurableContextEntry{
+					{Text: strings.Repeat("unresolved ", 8), Source: "assistant", Turn: 1},
+				},
+				ActiveFocus: &prompt.DurableContextEntry{
+					Text:   strings.Repeat("focus ", 8),
+					Source: "assistant",
+					Turn:   1,
+				},
+			},
+			Policy: prompt.AssemblyPolicy{
+				Budgets: prompt.SourceBudgetModel{
+					DurableContextBytes: 64,
+				},
+				Retention: prompt.RetentionPolicy{RecentTurns: 1},
+				Compaction: prompt.CompactionPolicy{
+					SummaryBytes: 64,
+				},
+			},
+		},
+		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	var kinds []string
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+		}
+		kinds = append(kinds, payload.Kind)
+	}
+	if !containsString(kinds, "budget") {
+		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
+	}
+	if !containsString(kinds, "compaction") {
+		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
 	}
 }
 

@@ -344,6 +344,15 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		maxTokensPtr = &maxTokens
 	}
 
+	var diagnostics []output.Event
+	events := output.NewMultiSink(
+		r.runtime.events,
+		output.SinkFunc(func(event output.Event) {
+			if event.Type == output.EventTypeContextDiagnostics {
+				diagnostics = append(diagnostics, event)
+			}
+		}),
+	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
 	state, err := runner.Run(ctx, agent.RunRequest{
@@ -358,7 +367,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			MaxTurns:  r.runtime.cfg.Limits.MaxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		Events: r.runtime.events,
+		Events: events,
 	})
 	if err != nil {
 		return repl.RunResult{}, err
@@ -367,7 +376,17 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	return repl.RunResult{
 		Conversation: state.Conversation,
 		Reply:        lastAssistantReply(state.Conversation),
+		Diagnostics:  cloneEvents(diagnostics),
 	}, nil
+}
+
+func cloneEvents(events []output.Event) []output.Event {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]output.Event, len(events))
+	copy(out, events)
+	return out
 }
 
 func closeRuntime(rt cliRuntime) {

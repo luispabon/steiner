@@ -81,6 +81,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			emitStop(req.Events, state, err)
 			return state, err
 		}
+		emitAssemblyDiagnostics(req.Events, req.Prompt, turn, assembly)
 		state.Context = updateContextState(state.Context, assembly.Blocks, turn)
 
 		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
@@ -134,7 +135,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			})
 		}
 
-		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns)
+		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns, req.Events)
 	}
 }
 
@@ -364,7 +365,7 @@ func fromPromptContext(state prompt.DurableContextState) ContextState {
 	return out
 }
 
-func compactConversationState(state RunState, turn int, recentTurns int) RunState {
+func compactConversationState(state RunState, turn int, recentTurns int, sink output.EventSink) RunState {
 	retained, dropped := retainConversationTail(state.Conversation, recentTurns)
 	if len(dropped) == 0 {
 		return state
@@ -372,7 +373,7 @@ func compactConversationState(state RunState, turn int, recentTurns int) RunStat
 
 	next := state.Clone()
 	next.Conversation = retained
-	if summary := summarizeDroppedConversation(dropped); summary != "" {
+	if summary, truncated := summarizeDroppedConversation(dropped); summary != "" {
 		next.Context.RetainedSummaries = []RetainedSummary{
 			{
 				Title:  "compacted conversation history",
@@ -381,6 +382,16 @@ func compactConversationState(state RunState, turn int, recentTurns int) RunStat
 				Turn:   turn,
 			},
 		}
+		emitEvent(sink, output.NewContextCompactionEvent(
+			turn,
+			countConversationTurns(retained),
+			len(retained),
+			countConversationTurns(dropped),
+			len(dropped),
+			len(summary),
+			truncated,
+			"compacted conversation history",
+		))
 	}
 	return next
 }
@@ -428,9 +439,9 @@ func retainConversationTail(messages []Message, recentTurns int) ([]Message, []M
 	return kept, dropped
 }
 
-func summarizeDroppedConversation(messages []Message) string {
+func summarizeDroppedConversation(messages []Message) (string, bool) {
 	if len(messages) == 0 {
-		return ""
+		return "", false
 	}
 
 	parts := make([]string, 0, len(messages))
@@ -452,9 +463,118 @@ func summarizeDroppedConversation(messages []Message) string {
 		}
 	}
 	if len(parts) == 0 {
-		return ""
+		return "", false
 	}
-	return truncateTextLocal(strings.Join(parts, " | "), 512)
+	full := strings.Join(parts, " | ")
+	summary := truncateTextLocal(full, 512)
+	return summary, len(summary) < len(full)
+}
+
+func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions, turn int, assembly prompt.Assembly) {
+	if sink == nil {
+		return
+	}
+
+	budgets := diagnosticBudgets(opts)
+	for _, block := range assembly.Blocks {
+		if !block.Truncated {
+			continue
+		}
+
+		notes := make([]string, 0, 2)
+		if block.Path != "" {
+			notes = append(notes, "path="+block.Path)
+		}
+		if block.Source == prompt.ContextSourceConversationSummary {
+			notes = append(notes, "compacted conversation history")
+		}
+
+		emitEvent(sink, output.NewContextBudgetEvent(
+			string(block.Source),
+			turn,
+			block.ByteSize,
+			budgetForSource(budgets, block.Source),
+			true,
+			notes...,
+		))
+	}
+}
+
+func diagnosticBudgets(opts prompt.AssemblyOptions) prompt.SourceBudgetModel {
+	defaults := prompt.DefaultAssemblyPolicy().Budgets
+	budgets := opts.Policy.Budgets
+
+	if budgets.PreambleBytes == 0 {
+		budgets.PreambleBytes = defaults.PreambleBytes
+	}
+	if budgets.GlobalAgentsBytes == 0 {
+		budgets.GlobalAgentsBytes = defaults.GlobalAgentsBytes
+	}
+	if budgets.ProjectAgentsBytes == 0 {
+		budgets.ProjectAgentsBytes = defaults.ProjectAgentsBytes
+	}
+	if opts.ProjectContextBudgetBytes > 0 {
+		budgets.ProjectContextBytes = opts.ProjectContextBudgetBytes
+	} else if budgets.ProjectContextBytes == 0 {
+		budgets.ProjectContextBytes = defaults.ProjectContextBytes
+	}
+	if budgets.SkillBytes == 0 {
+		budgets.SkillBytes = defaults.SkillBytes
+	}
+	if budgets.DurableContextBytes == 0 {
+		budgets.DurableContextBytes = defaults.DurableContextBytes
+	}
+	if budgets.ConversationBytes == 0 {
+		budgets.ConversationBytes = defaults.ConversationBytes
+	}
+	if budgets.ConversationSummaryBytes == 0 {
+		budgets.ConversationSummaryBytes = defaults.ConversationSummaryBytes
+	}
+	if budgets.ToolResultBytes == 0 {
+		budgets.ToolResultBytes = defaults.ToolResultBytes
+	}
+	if budgets.ToolSummaryBytes == 0 {
+		budgets.ToolSummaryBytes = defaults.ToolSummaryBytes
+	}
+
+	return budgets
+}
+
+func budgetForSource(budgets prompt.SourceBudgetModel, source prompt.ContextSource) int {
+	switch source {
+	case prompt.ContextSourcePreamble:
+		return budgets.PreambleBytes
+	case prompt.ContextSourceGlobalAgentsMD:
+		return budgets.GlobalAgentsBytes
+	case prompt.ContextSourceProjectAgentsMD:
+		return budgets.ProjectAgentsBytes
+	case prompt.ContextSourceProjectContext:
+		return budgets.ProjectContextBytes
+	case prompt.ContextSourceSkill:
+		return budgets.SkillBytes
+	case prompt.ContextSourceDurableContext:
+		return budgets.DurableContextBytes
+	case prompt.ContextSourceConversation:
+		return budgets.ConversationBytes
+	case prompt.ContextSourceConversationSummary:
+		return budgets.ConversationSummaryBytes
+	case prompt.ContextSourceToolResult:
+		return budgets.ToolResultBytes
+	case prompt.ContextSourceToolSummary, prompt.ContextSourceDelegationResult:
+		return budgets.ToolSummaryBytes
+	default:
+		return 0
+	}
+}
+
+func countConversationTurns(messages []Message) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role == MessageRoleUser {
+			count++
+		}
+	}
+	return count
 }
 
 func truncateTextLocal(content string, limit int) string {
