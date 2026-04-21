@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,6 +442,84 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "final answer") {
 		t.Fatalf("stdout = %q, want final answer", stdout.String())
+	}
+}
+
+func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T) {
+	helper := mustBuildCLIHelperBinary(t)
+	tempRepo := t.TempDir()
+
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModePrompt,
+					Overrides: map[string]config.ApprovalMode{
+						"bash": config.ApprovalModePrompt,
+					},
+				},
+				Paths: config.PathsConfig{
+					ProjectRootOnly: true,
+				},
+			},
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{
+									ID:   "call_1",
+									Name: "bash",
+									Arguments: map[string]any{
+										"command": "pwd",
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:       "bash",
+				ExecPath:   helper,
+				Subcommand: "bash",
+			}),
+			workDir:     tempRepo,
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(io.Discard),
+			status:      output.NewStream(io.Discard),
+			events:      output.NoopSink{},
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+			approvalIn:  bufio.NewReader(strings.NewReader("")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{"--exec", "run bash"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval input error")
+	}
+	if !strings.Contains(err.Error(), "approval input is unavailable") {
+		t.Fatalf("Execute() error = %v, want approval input error", err)
 	}
 }
 

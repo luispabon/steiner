@@ -44,6 +44,7 @@ type cliRuntime struct {
 	status      *output.Stream
 	events      output.EventSink
 	sharedInput *bufio.Reader
+	approvalIn  *bufio.Reader
 	close       func() error
 }
 
@@ -172,7 +173,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			approver: agent.NewEventingApprover(
 				rt.events,
 				promptingApprover{
-					reader: rt.sharedInput,
+					reader: approvalReader(rt),
 					out:    rt.status,
 				},
 			),
@@ -210,7 +211,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		approver: agent.NewEventingApprover(
 			rt.events,
 			promptingApprover{
-				reader: rt.sharedInput,
+				reader: approvalReader(rt),
 				out:    rt.status,
 			},
 		),
@@ -294,6 +295,10 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillNames = append(skillNames, loaded.Name)
 	}
 
+	sharedInput := bufio.NewReader(cmd.InOrStdin())
+	approvalInput, approvalClose := openApprovalInput(cmd.InOrStdin())
+	closeFn = joinClosers(closeFn, approvalClose)
+
 	return cliRuntime{
 		cfg:         cfg,
 		provider:    provWithLogging,
@@ -305,7 +310,8 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		human:       output.NewStream(cmd.OutOrStdout()),
 		status:      output.NewStream(cmd.ErrOrStderr()),
 		events:      events,
-		sharedInput: bufio.NewReader(cmd.InOrStdin()),
+		sharedInput: sharedInput,
+		approvalIn:  approvalInput,
 		close:       closeFn,
 	}, nil
 }
@@ -370,6 +376,46 @@ func closeRuntime(rt cliRuntime) {
 	}
 }
 
+func approvalReader(rt cliRuntime) *bufio.Reader {
+	if rt.approvalIn != nil {
+		return rt.approvalIn
+	}
+	return rt.sharedInput
+}
+
+func openApprovalInput(stdin io.Reader) (*bufio.Reader, func() error) {
+	file, ok := stdin.(*os.File)
+	if !ok || file != os.Stdin {
+		return nil, nil
+	}
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil, nil
+	}
+	return bufio.NewReader(tty), tty.Close
+}
+
+func joinClosers(closers ...func() error) func() error {
+	available := make([]func() error, 0, len(closers))
+	for _, closer := range closers {
+		if closer != nil {
+			available = append(available, closer)
+		}
+	}
+	if len(available) == 0 {
+		return nil
+	}
+	return func() error {
+		var firstErr error
+		for _, closer := range available {
+			if err := closer(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	}
+}
+
 func readPromptFromInput(reader *bufio.Reader) (string, error) {
 	if reader == nil {
 		return "", fmt.Errorf("input is required")
@@ -428,6 +474,9 @@ func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest
 	line, err := a.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return tool.ApprovalResponse{}, err
+	}
+	if err == io.EOF && strings.TrimSpace(line) == "" {
+		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
 	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
