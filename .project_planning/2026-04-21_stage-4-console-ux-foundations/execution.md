@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-4-console-ux-foundations`
 - Active branch: `cl/2026-04-21_stage-4-console-ux-foundations`
 - Executor start date: `2026-04-21`
-- Current phase: `step scheduling`
+- Current phase: `stage-1-step-1 implemented`
 - Final handoff state: `not ready`
 
 ## Verification Strategy
@@ -56,17 +56,30 @@ Loaded from `overview.md` with no overrides.
 
 | Step ID | Status | Notes |
 | --- | --- | --- |
-| `stage-1-step-1` | `ready` | No dependencies. |
-| `stage-2-step-1` | `pending` | Depends on `stage-1-step-1`. |
+| `stage-1-step-1` | `implemented` | Merged from `tmp/stage-1-step-1` after direct executor fallback inside isolated worktree due repeated sub-agent runtime stalls. |
+| `stage-2-step-1` | `ready` | Dependency `stage-1-step-1` implemented. |
 | `stage-3-step-1` | `pending` | Depends on `stage-2-step-1`. |
 
 ## Sub-Agents
 
-None yet.
+- `stage-1-step-1`
+  - attempt 1
+    - agent: `019db1dc-4157-7a72-a57e-c5ad7b844d66`
+    - model: `gpt-5.4-mini`
+    - model tier vs current runtime: `cheaper`
+    - status: `closed after runtime stall with no observed file or commit activity`
+  - attempt 2
+    - agent: `019db1df-a6af-7521-8850-35617426486f`
+    - model: `gpt-5.4-mini`
+    - model tier vs current runtime: `cheaper`
+    - status: `closed after runtime stall with no observed file or commit activity`
 
 ## Verification Runs
 
-None yet.
+- `stage-1-step-1`
+  - `go test ./internal/output` — passed
+  - `go test ./cmd/steiner ./internal/output ./internal/repl` — failed once due outdated `cmd/steiner/main_test.go` expectation for the old stop-event text; fixed in-scope and reran
+  - `go test ./cmd/steiner ./internal/output ./internal/repl` — passed
 
 ## Manual Verification
 
@@ -76,3 +89,10 @@ Not started.
 
 - Startup validation passed: planning artifacts present, expected branch exists and is checked out, worktree was clean.
 - Execution order is serial because all steps are dependency-ordered and `can_run_in_parallel` is `false`.
+- Temporary step branch `tmp/stage-1-step-1` created from `cl/2026-04-21_stage-4-console-ux-foundations`.
+- Dedicated worktree `/tmp/steiner-stage-1-step-1` created for `stage-1-step-1`.
+- Direct executor fallback was used for `stage-1-step-1` only after two isolated sub-agent attempts stalled and shut down without producing edits.
+- `stage-1-step-1` commit on temporary branch: `832ae6501e54d39c6d4ccad216a685a58ed702d8` (`Add channel-aware console rendering`).
+- Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-1-step-1`.
+- Temporary worktree `/tmp/steiner-stage-1-step-1` removed after merge.
+- Temporary branch `tmp/stage-1-step-1` deleted after merge.
