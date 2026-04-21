@@ -40,6 +40,7 @@ type cliRuntime struct {
 	skillNames  []string
 	workDir     string
 	homeDir     string
+	stdin       io.Reader
 	human       *output.Stream
 	status      *output.Stream
 	events      output.EventSink
@@ -178,7 +179,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				},
 			),
 		},
-		rt.sharedInput,
+		interactiveInput(rt),
 		rt.human,
 		rt.status,
 		rt.toolNames,
@@ -307,6 +308,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillNames:  skillNames,
 		workDir:     currentDir,
 		homeDir:     homeDir,
+		stdin:       cmd.InOrStdin(),
 		human:       output.NewStream(cmd.OutOrStdout()),
 		status:      output.NewStream(cmd.ErrOrStderr()),
 		events:      events,
@@ -398,6 +400,13 @@ func closeRuntime(rt cliRuntime) {
 func approvalReader(rt cliRuntime) *bufio.Reader {
 	if rt.approvalIn != nil {
 		return rt.approvalIn
+	}
+	return rt.sharedInput
+}
+
+func interactiveInput(rt cliRuntime) io.Reader {
+	if rt.stdin != nil {
+		return rt.stdin
 	}
 	return rt.sharedInput
 }
