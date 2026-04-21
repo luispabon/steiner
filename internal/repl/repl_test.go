@@ -250,6 +250,18 @@ func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
 	}
 }
 
+func TestPromptStreamRoutesWritesThroughPrompter(t *testing.T) {
+	var out bytes.Buffer
+	prompt := &fakePrompt{out: &out}
+	stream := NewPromptStream(prompt)
+
+	stream.Println("status line")
+
+	if got := out.String(); !strings.Contains(got, "status line") {
+		t.Fatalf("prompt stream output = %q, want routed text", got)
+	}
+}
+
 type fakeRunner struct {
 	calls int
 	runFn func(context.Context, []agent.Message, []string) (RunResult, error)

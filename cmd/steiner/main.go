@@ -168,23 +168,36 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(rt)
 
+	completer := repl.Completer{
+		Commands: repl.BuiltinCommands(),
+		Skills:   append([]string(nil), rt.skillNames...),
+	}
+	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
+	interactiveStatus := repl.NewPromptStream(prompter)
+	interactiveEvents := output.EventSink(interactiveStatus)
+	if originalLogger, ok := rt.provider.(loggingProvider); ok {
+		originalLogger.sink = interactiveEvents
+		rt.provider = originalLogger
+	}
+
 	session := repl.NewSession(
 		cliRunner{
 			runtime: rt,
 			approver: agent.NewEventingApprover(
-				rt.events,
+				interactiveEvents,
 				promptingApprover{
 					reader: approvalReader(rt),
-					out:    rt.status,
+					out:    interactiveStatus,
 				},
 			),
 		},
 		interactiveInput(rt),
-		rt.human,
-		rt.status,
+		interactiveStatus,
+		interactiveEvents,
 		rt.toolNames,
 		rt.skillNames,
 	)
+	session.SetPrompter(prompter)
 	return session.Run(cmd.Context())
 }
 

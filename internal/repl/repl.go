@@ -47,6 +47,12 @@ func NewSession(runner Runner, in io.Reader, out *output.Stream, events output.E
 	}
 }
 
+func (s *Session) SetPrompter(prompt Prompter) {
+	if s != nil {
+		s.prompt = prompt
+	}
+}
+
 func (s *Session) Run(ctx context.Context) error {
 	if s == nil {
 		return nil
