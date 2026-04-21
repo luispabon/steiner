@@ -574,11 +574,18 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	if !messageContentsContain(lastRequest, "keep prompt assembly policy-driven") {
 		t.Fatalf("last request did not retain active focus: %#v", lastRequest)
 	}
-	if len(state.Context.RetainedSummaries) != 1 {
-		t.Fatalf("retained summaries = %d, want 1", len(state.Context.RetainedSummaries))
+	if len(state.Context.RetainedSummaries) == 0 {
+		t.Fatal("retained summaries = 0, want at least 1")
 	}
-	if got := state.Context.RetainedSummaries[0].Text; !strings.Contains(got, "read") || !strings.Contains(got, "alpha") {
-		t.Fatalf("retained summary text = %q, want compacted turn details", got)
+	foundToolSummary := false
+	for _, summary := range state.Context.RetainedSummaries {
+		if strings.Contains(summary.Text, "read") && strings.Contains(summary.Text, "alpha") {
+			foundToolSummary = true
+			break
+		}
+	}
+	if !foundToolSummary {
+		t.Fatalf("retained summaries = %#v, want compacted tool-call details", state.Context.RetainedSummaries)
 	}
 }
 
@@ -675,6 +682,67 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 	}
 }
 
+func TestRunnerEmitsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{}
+
+	var events []output.Event
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "older request"},
+				{Role: provider.MessageRoleAssistant, Content: "older reply"},
+				{Role: provider.MessageRoleUser, Content: "retained request payload"},
+				{Role: provider.MessageRoleAssistant, Content: "retained reply payload"},
+			},
+			Policy: prompt.AssemblyPolicy{
+				Budgets: prompt.SourceBudgetModel{
+					ConversationBytes: 12,
+				},
+				Retention: prompt.RetentionPolicy{RecentTurns: 1},
+				Compaction: prompt.CompactionPolicy{
+					SummaryBytes: 64,
+				},
+			},
+		},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	foundConversationBudget := false
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+		}
+		if payload.Kind == "budget" && payload.Scope == string(prompt.ContextSourceConversation) && payload.Truncated {
+			foundConversationBudget = true
+			break
+		}
+	}
+	if !foundConversationBudget {
+		t.Fatalf("events = %#v, want truncated conversation budget diagnostic", events)
+	}
+}
+
 func TestCompactConversationStateRecordsSummaryAndPreservesDurableContext(t *testing.T) {
 	state := RunState{
 		Conversation: []Message{
@@ -734,6 +802,40 @@ func TestCompactConversationStateRecordsSummaryAndPreservesDurableContext(t *tes
 	}
 	if got, want := next.Context.ActiveFocus.Text, "finish compaction diagnostics"; got != want {
 		t.Fatalf("ActiveFocus preserved = %q, want %q", got, want)
+	}
+}
+
+func TestCompactConversationStateAppendsRetainedSummariesAcrossPasses(t *testing.T) {
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn one user"},
+			{Role: MessageRoleAssistant, Content: "turn one assistant"},
+			{Role: MessageRoleUser, Content: "turn two user"},
+			{Role: MessageRoleAssistant, Content: "turn two assistant"},
+			{Role: MessageRoleUser, Content: "turn three user"},
+			{Role: MessageRoleAssistant, Content: "turn three assistant"},
+			{Role: MessageRoleUser, Content: "turn four user"},
+			{Role: MessageRoleAssistant, Content: "turn four assistant"},
+		},
+	}
+
+	first := compactConversationState(state, 4, 2, output.NoopSink{})
+	first.Conversation = append(first.Conversation,
+		Message{Role: MessageRoleUser, Content: "turn five user"},
+		Message{Role: MessageRoleAssistant, Content: "turn five assistant"},
+		Message{Role: MessageRoleUser, Content: "turn six user"},
+		Message{Role: MessageRoleAssistant, Content: "turn six assistant"},
+	)
+	second := compactConversationState(first, 6, 2, output.NoopSink{})
+
+	if got, want := len(second.Context.RetainedSummaries), 2; got != want {
+		t.Fatalf("RetainedSummaries len = %d, want %d", got, want)
+	}
+	if got := second.Context.RetainedSummaries[0].Text; !strings.Contains(got, "turn one user") || !strings.Contains(got, "turn two assistant") {
+		t.Fatalf("first retained summary = %q, want earliest compacted history", got)
+	}
+	if got := second.Context.RetainedSummaries[1].Text; !strings.Contains(got, "turn three user") || !strings.Contains(got, "turn four assistant") {
+		t.Fatalf("second retained summary = %q, want later compacted history", got)
 	}
 }
 

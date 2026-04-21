@@ -269,15 +269,35 @@ func updateContextState(current ContextState, blocks []prompt.ContextBlock, turn
 	}
 
 	next := current.Clone()
-	next.RetainedSummaries = []RetainedSummary{
-		{
-			Title:  title,
-			Text:   text,
-			Source: string(summary.Source),
-			Turn:   turn,
-		},
-	}
+	next.RetainedSummaries = appendRetainedSummary(next.RetainedSummaries, RetainedSummary{
+		Title:  title,
+		Text:   text,
+		Source: string(summary.Source),
+		Turn:   turn,
+	})
 	return next
+}
+
+func appendRetainedSummary(existing []RetainedSummary, summary RetainedSummary) []RetainedSummary {
+	if strings.TrimSpace(summary.Text) == "" {
+		return cloneRetainedSummaries(existing)
+	}
+	next := cloneRetainedSummaries(existing)
+	if len(next) > 0 {
+		last := next[len(next)-1]
+		if retainedSummariesEqual(last, summary) {
+			next[len(next)-1] = summary
+			return next
+		}
+	}
+	return append(next, summary)
+}
+
+func retainedSummariesEqual(a, b RetainedSummary) bool {
+	return a.Title == b.Title &&
+		a.Text == b.Text &&
+		a.Source == b.Source &&
+		a.Turn == b.Turn
 }
 
 func latestConversationSummary(blocks []prompt.ContextBlock) (prompt.ContextBlock, bool) {
@@ -374,14 +394,12 @@ func compactConversationState(state RunState, turn int, recentTurns int, sink ou
 	next := state.Clone()
 	next.Conversation = retained
 	if summary, truncated := summarizeDroppedConversation(dropped); summary != "" {
-		next.Context.RetainedSummaries = []RetainedSummary{
-			{
-				Title:  "compacted conversation history",
-				Text:   summary,
-				Source: "loop_compaction",
-				Turn:   turn,
-			},
-		}
+		next.Context.RetainedSummaries = appendRetainedSummary(next.Context.RetainedSummaries, RetainedSummary{
+			Title:  "compacted conversation history",
+			Text:   summary,
+			Source: "loop_compaction",
+			Turn:   turn,
+		})
 		emitEvent(sink, output.NewContextCompactionEvent(
 			turn,
 			countConversationTurns(retained),
@@ -494,6 +512,25 @@ func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions,
 			turn,
 			block.ByteSize,
 			budgetForSource(budgets, block.Source),
+			true,
+			notes...,
+		))
+	}
+	for _, diagnostic := range assembly.Diagnostics {
+		if !diagnostic.Truncated {
+			continue
+		}
+
+		notes := make([]string, 0, 1)
+		if diagnostic.Path != "" {
+			notes = append(notes, "path="+diagnostic.Path)
+		}
+
+		emitEvent(sink, output.NewContextBudgetEvent(
+			string(diagnostic.Source),
+			turn,
+			diagnostic.ByteSize,
+			budgetForSource(budgets, diagnostic.Source),
 			true,
 			notes...,
 		))

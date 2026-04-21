@@ -95,6 +95,14 @@ type AssemblyOptions struct {
 }
 
 type Assembly struct {
-	Messages []provider.Message
-	Blocks   []ContextBlock
+	Messages    []provider.Message
+	Blocks      []ContextBlock
+	Diagnostics []AssemblyDiagnostic
+}
+
+type AssemblyDiagnostic struct {
+	Source    ContextSource `json:"source"`
+	Path      string        `json:"path,omitempty"`
+	ByteSize  int           `json:"byte_size"`
+	Truncated bool          `json:"truncated,omitempty"`
 }

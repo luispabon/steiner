@@ -27,6 +27,7 @@ func newAssembler(opts AssemblyOptions) (Assembler, error) {
 func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	blocks := make([]ContextBlock, 0, 8)
 	messages := make([]provider.Message, 0, 8+len(a.opts.Conversation)+len(a.opts.ToolResults))
+	diagnostics := make([]AssemblyDiagnostic, 0, 4)
 	budgets := newBudgetTracker(a.policy.Budgets)
 
 	appendBlock := func(block ContextBlock) {
@@ -44,12 +45,24 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	}
 
 	appendRawMessage := func(source ContextSource, message provider.Message) {
-		clipped, _, ok := applyBudget(budgets, source, message.Content)
+		clipped, truncated, ok := applyBudget(budgets, source, message.Content)
 		if !ok && len(message.Content) > 0 {
 			return
 		}
 		message.Content = clipped
 		messages = append(messages, message)
+		if truncated {
+			path := string(message.Role)
+			if strings.TrimSpace(message.Name) != "" {
+				path = message.Name
+			}
+			diagnostics = append(diagnostics, AssemblyDiagnostic{
+				Source:    source,
+				Path:      path,
+				ByteSize:  len(clipped),
+				Truncated: true,
+			})
+		}
 	}
 
 	preamble := SystemPreamble()
@@ -121,8 +134,9 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	}
 
 	return Assembly{
-		Messages: messages,
-		Blocks:   blocks,
+		Messages:    messages,
+		Blocks:      blocks,
+		Diagnostics: diagnostics,
 	}, nil
 }
 
@@ -193,6 +207,15 @@ func durableContextSections(state DurableContextState) []string {
 		sections = append(sections, "active focus:\n- "+compactDurableContextEntry(*state.ActiveFocus))
 	}
 
+	if len(state.RetainedSummaries) > 0 {
+		lines := make([]string, 0, len(state.RetainedSummaries)+1)
+		lines = append(lines, "retained summaries:")
+		for _, item := range state.RetainedSummaries {
+			lines = append(lines, "- "+compactDurableSummaryEntry(item))
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
+	}
+
 	return sections
 }
 
@@ -209,6 +232,26 @@ func compactDurableContextEntry(entry DurableContextEntry) string {
 		return text
 	}
 	return text + " (" + strings.Join(metadata, ", ") + ")"
+}
+
+func compactDurableSummaryEntry(entry DurableSummaryEntry) string {
+	text := compactMessageContent(entry.Text, 160)
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(entry.Title) != "" {
+		parts = append(parts, entry.Title)
+	}
+	parts = append(parts, text)
+	metadata := make([]string, 0, 2)
+	if entry.Source != "" {
+		metadata = append(metadata, "source="+entry.Source)
+	}
+	if entry.Turn > 0 {
+		metadata = append(metadata, fmt.Sprintf("turn=%d", entry.Turn))
+	}
+	if len(metadata) > 0 {
+		parts = append(parts, "("+strings.Join(metadata, ", ")+")")
+	}
+	return strings.Join(parts, ": ")
 }
 
 func applyBudget(tracker *budgetTracker, source ContextSource, content string) (string, bool, bool) {

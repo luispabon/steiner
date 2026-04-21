@@ -318,6 +318,65 @@ func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
 	}
 }
 
+func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
+	t.Parallel()
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		Policy: AssemblyPolicy{
+			Compaction: CompactionPolicy{SummaryBytes: 512},
+		},
+		ContextState: DurableContextState{
+			RetainedSummaries: []DurableSummaryEntry{
+				{Title: "compacted conversation history", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	block := findBlockBySource(t, assembly.Blocks, ContextSourceDurableContext)
+	if !strings.Contains(block.Content, "retained summaries") {
+		t.Fatalf("durable context block = %q, want retained summaries section", block.Content)
+	}
+	if !strings.Contains(block.Content, "earlier request and tool output") {
+		t.Fatalf("durable context block = %q, want retained summary text", block.Content)
+	}
+}
+
+func TestAssembleRecordsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
+	t.Parallel()
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		Policy: AssemblyPolicy{
+			Budgets: SourceBudgetModel{
+				ConversationBytes: 12,
+			},
+			Retention: RetentionPolicy{RecentTurns: 1},
+		},
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "older request"},
+			{Role: provider.MessageRoleAssistant, Content: "older reply"},
+			{Role: provider.MessageRoleUser, Content: "retained request payload"},
+			{Role: provider.MessageRoleAssistant, Content: "retained reply payload"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	found := false
+	for _, diagnostic := range assembly.Diagnostics {
+		if diagnostic.Source == ContextSourceConversation && diagnostic.Truncated {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("assembly diagnostics = %#v, want truncated conversation diagnostic", assembly.Diagnostics)
+	}
+}
+
 func findBlockBySource(t *testing.T, blocks []ContextBlock, source ContextSource) ContextBlock {
 	t.Helper()
 

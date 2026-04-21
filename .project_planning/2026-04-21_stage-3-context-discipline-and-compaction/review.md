@@ -98,7 +98,16 @@
 
 ## Fixes Applied
 
-- None yet. Awaiting user approval for the reviewer fix plan.
+- Reviewer-approved fix pass applied directly in the feature branch checkout because isolated review-fix sub-agent execution was not used in this runtime.
+- `R1` resolved by:
+  - preserving cumulative retained summaries across compaction passes in `internal/agent/loop.go`
+  - preserving retained summaries when assembly-derived conversation summaries are reflected back into durable agent state
+  - rendering retained summaries into the durable-context prompt block so preserved summaries actually remain available to later turns
+  - adding focused regression coverage for repeated compaction passes and retained-summary prompt rendering
+- `R2` resolved by:
+  - recording retained-message truncation diagnostics during prompt assembly
+  - emitting budget diagnostics for truncated retained raw conversation content from the runner
+  - adding focused regression coverage for retained-message truncation diagnostics in prompt assembly and runner event output
 
 ## Verification
 
@@ -107,13 +116,24 @@
   - diff and touched-file inspection completed
   - existing Stage 3 test coverage inspected for compaction and diagnostics gaps
 - Reviewer reruns performed:
-  - none yet
+  - focused checks:
+    - `go test ./internal/agent ./internal/prompt ./internal/repl ./internal/output ./cmd/steiner` -> passed
+  - broader end-of-implementation checks:
+    - `go test ./...` -> passed
+    - `go vet ./...` -> passed
+    - `make build-binaries` -> passed
 
 ## Final Status
 
-- Review status: `fail`
-- Blocking findings:
-  - `R1`
-  - `R2`
-- `review.md` initialized and updated with current reviewer state
-- Awaiting user approval for the proposed reviewer fix pass
+- Review pass 1 status: `fail`
+  - blocking findings recorded:
+    - `R1`
+    - `R2`
+- Review pass 2 status: `pass_with_notes`
+  - blocking findings resolved:
+    - `R1`
+    - `R2`
+  - non-blocking note:
+    - unrelated pre-existing modification in `docs/IDEAS.md` leaves the feature branch working tree dirty after the reviewer-owned changes are committed
+- `review.md` updated with the final reviewer state for this pass
+- Finaliser handoff state: blocked pending a clean feature-branch working tree
