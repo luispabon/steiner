@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-3-context-discipline-and-compaction`
 - Active branch: `cl/2026-04-21_stage-3-context-discipline-and-compaction`
 - Initial handoff state: validated
-- Current phase: implementing `stage-1-step-2`
+- Current phase: implementing `stage-2-step-1` and `stage-2-step-2`
 
 ## Verification Strategy
 
@@ -48,9 +48,9 @@
 ## Step State
 
 - `stage-1-step-1`: implemented
-- `stage-1-step-2`: pending
-- `stage-2-step-1`: pending
-- `stage-2-step-2`: pending
+- `stage-1-step-2`: implemented
+- `stage-2-step-1`: running
+- `stage-2-step-2`: running
 - `stage-3-step-1`: pending
 
 ## Sub-Agent Activity
@@ -73,12 +73,36 @@
   - mode: serial
   - temporary branch: `exec/stage-1-step-2`
   - temporary worktree: `/tmp/steiner-stage-1-step-2`
+  - review issue found before merge: conversation summary truncation flag could never become true
+  - review-fix commit: `889ef19` `fix(prompt): mark compacted summaries as truncated`
+  - commit chain: `4cc32b3` `fix(prompt): add compaction and retention policy`; `889ef19` `fix(prompt): mark compacted summaries as truncated`
+  - verification reported by sub-agent: `go test ./internal/prompt`
+  - merge result: merged into `cl/2026-04-21_stage-3-context-discipline-and-compaction`
+  - conflict resolution: none
+  - cleanup: worktree deleted, temporary branch deleted
+  - sub-agent closure: closed
+- `stage-2-step-1`
+  - model: `gpt-5.4-mini`
+  - model tier versus current runtime: cheaper
+  - mode: parallel
+  - temporary branch: `exec/stage-2-step-1`
+  - temporary worktree: `/tmp/steiner-stage-2-step-1`
+  - status: preparing dispatch
+- `stage-2-step-2`
+  - model: `gpt-5.4-mini`
+  - model tier versus current runtime: cheaper
+  - mode: parallel
+  - temporary branch: `exec/stage-2-step-2`
+  - temporary worktree: `/tmp/steiner-stage-2-step-2`
   - status: preparing dispatch
 
 ## Verification Runs
 
 - `stage-1-step-1`
   - sub-agent reported: `go test ./internal/agent`
+  - executor rerun: deferred per plan
+- `stage-1-step-2`
+  - sub-agent reported: `go test ./internal/prompt`
   - executor rerun: deferred per plan
 
 ## Manual Verification
