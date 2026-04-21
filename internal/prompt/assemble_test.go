@@ -250,6 +250,28 @@ func TestAssembleCompactsOlderTurnsAndBoundsGrowth(t *testing.T) {
 	}
 }
 
+func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
+	t.Parallel()
+
+	block, ok := CompactConversationTurns([]conversationTurn{
+		{Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat("x", 200)}}},
+	}, CompactionPolicy{SummaryBytes: 32})
+	if !ok {
+		t.Fatalf("CompactConversationTurns() ok = false, want true")
+	}
+	if !block.Truncated {
+		t.Fatalf("summary block truncated = false, want true")
+	}
+
+	var envelope ConversationSummaryEnvelope
+	if err := json.Unmarshal([]byte(block.Content), &envelope); err != nil {
+		t.Fatalf("unmarshal summary envelope: %v", err)
+	}
+	if !envelope.Truncated {
+		t.Fatalf("envelope truncated = false, want true")
+	}
+}
+
 func findBlockBySource(t *testing.T, blocks []ContextBlock, source ContextSource) ContextBlock {
 	t.Helper()
 

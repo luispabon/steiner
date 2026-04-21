@@ -42,14 +42,14 @@ func CompactConversationTurns(turns []conversationTurn, policy CompactionPolicy)
 		return SummaryBlock{}, false
 	}
 
-	excerpt := summarizeConversationTurns(turns, policy.SummaryBytes)
+	excerpt, truncated := summarizeConversationTurns(turns, policy.SummaryBytes)
 	envelope := ConversationSummaryEnvelope{
 		Kind:            "conversation_summary",
 		Title:           "compacted conversation history",
 		DroppedTurns:    len(turns),
 		DroppedMessages: countTurnMessages(turns),
 		ByteSize:        len(excerpt),
-		Truncated:       len(excerpt) > policy.SummaryBytes,
+		Truncated:       truncated,
 		Content:         excerpt,
 	}
 	content := marshalEnvelope(envelope)
@@ -65,9 +65,9 @@ func CompactConversationTurns(turns []conversationTurn, policy CompactionPolicy)
 	return block, true
 }
 
-func summarizeConversationTurns(turns []conversationTurn, maxBytes int) string {
+func summarizeConversationTurns(turns []conversationTurn, maxBytes int) (string, bool) {
 	if len(turns) == 0 {
-		return ""
+		return "", false
 	}
 	if maxBytes <= 0 {
 		maxBytes = defaultCompactionSummaryBytes
@@ -78,7 +78,9 @@ func summarizeConversationTurns(turns []conversationTurn, maxBytes int) string {
 		parts = append(parts, summarizeConversationTurn(i+1, turn))
 	}
 
-	return truncateText(strings.Join(parts, "\n"), maxBytes)
+	full := strings.Join(parts, "\n")
+	truncated := len(full) > maxBytes
+	return truncateText(full, maxBytes), truncated
 }
 
 func summarizeConversationTurn(index int, turn conversationTurn) string {
