@@ -122,6 +122,30 @@ func formatEvent(event Event) string {
 			parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 		}
 		return strings.Join(parts, " ")
+	case UserInputEvent:
+		parts := []string{"user input"}
+		if payload.Mode != "" {
+			parts = append(parts, fmt.Sprintf("mode=%s", payload.Mode))
+		}
+		if payload.Content != "" {
+			parts = append(parts, fmt.Sprintf("content=%s", payload.Content))
+		}
+		return strings.Join(parts, " ")
+	case APIRequestEvent:
+		parts := []string{"api request"}
+		if payload.Model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
+		}
+		return strings.Join(parts, " ")
+	case APIResponseEvent:
+		parts := []string{"api response"}
+		if payload.FinishReason != "" {
+			parts = append(parts, fmt.Sprintf("finish=%s", payload.FinishReason))
+		}
+		if payload.Error != "" {
+			parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
+		}
+		return strings.Join(parts, " ")
 	default:
 		if event.Type == "" {
 			return ""

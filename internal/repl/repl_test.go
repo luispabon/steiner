@@ -122,6 +122,32 @@ func TestSessionExitCommand(t *testing.T) {
 	}
 }
 
+func TestSessionEmitsUserInputEvent(t *testing.T) {
+	var events []output.Event
+	session := &Session{
+		Runner: &fakeRunner{
+			runFn: func(ctx context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
+				return RunResult{Conversation: append([]agent.Message(nil), conversation...)}, nil
+			},
+		},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	}
+
+	done, err := session.HandleLine(context.Background(), "inspect bug")
+	if err != nil {
+		t.Fatalf("HandleLine() error = %v", err)
+	}
+	if done {
+		t.Fatal("HandleLine() returned done=true")
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if got, want := events[0].Type, output.EventTypeUserInput; got != want {
+		t.Fatalf("event type = %q, want %q", got, want)
+	}
+}
+
 func TestCompleterSuggestsCommandsAndSkills(t *testing.T) {
 	completer := Completer{
 		Commands: []string{"help", "tools", "skills"},

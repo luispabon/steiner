@@ -27,6 +27,7 @@ type cliFlags struct {
 	model      string
 	verbose    bool
 	exec       bool
+	logFile    string
 }
 
 type cliRuntime struct {
@@ -39,7 +40,9 @@ type cliRuntime struct {
 	homeDir     string
 	human       *output.Stream
 	status      *output.Stream
+	events      output.EventSink
 	sharedInput *bufio.Reader
+	close       func() error
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -72,6 +75,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&flags.model, "model", "", "override provider model")
 	rootCmd.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "enable verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "run a single request and exit")
+	rootCmd.PersistentFlags().StringVar(&flags.logFile, "log-file", "", "write full session logs to file")
 
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newConfigCommand(flags))
@@ -158,12 +162,13 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	if err != nil {
 		return err
 	}
+	defer closeRuntime(rt)
 
 	session := repl.NewSession(
 		cliRunner{
 			runtime: rt,
 			approver: agent.NewEventingApprover(
-				rt.status,
+				rt.events,
 				promptingApprover{
 					reader: rt.sharedInput,
 					out:    rt.status,
@@ -184,6 +189,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer closeRuntime(rt)
 
 	promptText := strings.TrimSpace(strings.Join(args, " "))
 	if promptText == "" {
@@ -195,11 +201,12 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if promptText == "" {
 		return fmt.Errorf("exec mode requires a prompt")
 	}
+	rt.events.Emit(output.NewUserInputEvent(promptText, "exec"))
 
 	result, err := cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
-			rt.status,
+			rt.events,
 			promptingApprover{
 				reader: rt.sharedInput,
 				out:    rt.status,
@@ -244,6 +251,22 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
+	provWithLogging := provider.Provider(prov)
+
+	events := output.EventSink(output.NewStream(cmd.ErrOrStderr()))
+	var closeFn func() error
+	if strings.TrimSpace(flags.logFile) != "" {
+		fileSink, err := output.NewFileLogSink(flags.logFile)
+		if err != nil {
+			return cliRuntime{}, err
+		}
+		events = output.NewMultiSink(events, fileSink)
+		closeFn = fileSink.Close
+	}
+	provWithLogging = loggingProvider{
+		inner: provWithLogging,
+		sink:  events,
+	}
 
 	registry := tool.NewRegistryFromConfig(cfg)
 
@@ -268,7 +291,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 	return cliRuntime{
 		cfg:         cfg,
-		provider:    prov,
+		provider:    provWithLogging,
 		registry:    registry,
 		toolNames:   registry.Names(),
 		skillNames:  skillNames,
@@ -276,7 +299,9 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		homeDir:     homeDir,
 		human:       output.NewStream(cmd.OutOrStdout()),
 		status:      output.NewStream(cmd.ErrOrStderr()),
+		events:      events,
 		sharedInput: bufio.NewReader(cmd.InOrStdin()),
+		close:       closeFn,
 	}, nil
 }
 
@@ -321,7 +346,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			MaxTurns:  r.runtime.cfg.Limits.MaxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		Events: r.runtime.status,
+		Events: r.runtime.events,
 	})
 	if err != nil {
 		return repl.RunResult{}, err
@@ -331,6 +356,12 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Conversation: state.Conversation,
 		Reply:        lastAssistantReply(state.Conversation),
 	}, nil
+}
+
+func closeRuntime(rt cliRuntime) {
+	if rt.close != nil {
+		_ = rt.close()
+	}
 }
 
 func readPromptFromInput(reader *bufio.Reader) (string, error) {
@@ -451,4 +482,28 @@ func cloneValue(value any) any {
 	default:
 		return value
 	}
+}
+
+type loggingProvider struct {
+	inner provider.Provider
+	sink  output.EventSink
+}
+
+func (p loggingProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+	if p.sink != nil {
+		p.sink.Emit(output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools))
+	}
+	resp, err := p.inner.ChatCompletion(ctx, req)
+	if p.sink != nil {
+		p.sink.Emit(output.NewAPIResponseEvent(resp.Message, resp.Usage, resp.FinishReason, err))
+	}
+	return resp, err
+}
+
+func (p loggingProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return p.inner.StreamChatCompletion(ctx, req)
+}
+
+func (p loggingProvider) SupportsUsageStats() bool {
+	return p.inner.SupportsUsageStats()
 }

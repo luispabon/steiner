@@ -17,6 +17,9 @@ const (
 	EventTypeApprovalAccepted  = "approval_accepted"
 	EventTypeApprovalDenied    = "approval_denied"
 	EventTypeStopReason        = "stop_reason"
+	EventTypeUserInput         = "user_input"
+	EventTypeAPIRequest        = "api_request"
+	EventTypeAPIResponse       = "api_response"
 )
 
 type Event struct {
@@ -83,6 +86,24 @@ type StopReasonEvent struct {
 	Reason string `json:"reason"`
 	Turn   int    `json:"turn,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+type UserInputEvent struct {
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"`
+}
+
+type APIRequestEvent struct {
+	Model    string `json:"model,omitempty"`
+	Messages any    `json:"messages,omitempty"`
+	Tools    any    `json:"tools,omitempty"`
+}
+
+type APIResponseEvent struct {
+	Message      any    `json:"message,omitempty"`
+	Usage        any    `json:"usage,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
@@ -195,6 +216,45 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 	}
 	return Event{
 		Type:      EventTypeStopReason,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
+func NewUserInputEvent(content, mode string) Event {
+	return Event{
+		Type:      EventTypeUserInput,
+		Timestamp: time.Now().UTC(),
+		Payload: UserInputEvent{
+			Content: content,
+			Mode:    mode,
+		},
+	}
+}
+
+func NewAPIRequestEvent(model string, messages, tools any) Event {
+	return Event{
+		Type:      EventTypeAPIRequest,
+		Timestamp: time.Now().UTC(),
+		Payload: APIRequestEvent{
+			Model:    model,
+			Messages: messages,
+			Tools:    tools,
+		},
+	}
+}
+
+func NewAPIResponseEvent(message, usage any, finishReason string, err error) Event {
+	payload := APIResponseEvent{
+		Message:      message,
+		Usage:        usage,
+		FinishReason: finishReason,
+	}
+	if err != nil {
+		payload.Error = err.Error()
+	}
+	return Event{
+		Type:      EventTypeAPIResponse,
 		Timestamp: time.Now().UTC(),
 		Payload:   payload,
 	}

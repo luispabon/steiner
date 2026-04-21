@@ -91,6 +91,9 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 	}
 
 	user := agent.Message{Role: agent.MessageRoleUser, Content: line}
+	if s.Events != nil {
+		s.Events.Emit(output.NewUserInputEvent(line, "interactive"))
+	}
 	conversation := cloneMessages(s.Conversation)
 	conversation = append(conversation, user)
 

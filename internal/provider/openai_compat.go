@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+var defaultHTTPClient = &http.Client{}
+
 type OpenAICompatConfig struct {
 	BaseURL    string
 	APIKey     string
@@ -44,7 +46,7 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{}
+		client = defaultHTTPClient
 	}
 	return &OpenAICompat{
 		baseURL:    parsed,

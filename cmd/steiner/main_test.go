@@ -198,6 +198,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 			homeDir:     t.TempDir(),
 			human:       output.NewStream(&stdout),
 			status:      output.NewStream(&stderr),
+			events:      output.NewStream(&stderr),
 			sharedInput: bufio.NewReader(strings.NewReader("")),
 		}, nil
 	}
@@ -216,6 +217,88 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	}
 	if got := stderr.String(); !strings.Contains(got, "stop reason=complete") {
 		t.Fatalf("stderr = %q, want stop reason", got)
+	}
+}
+
+func TestExecModeWritesFullLogFile(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	logPath := filepath.Join(t.TempDir(), "session.log")
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		fileSink, err := output.NewFileLogSink(flags.logFile)
+		if err != nil {
+			return cliRuntime{}, err
+		}
+		events := output.NewMultiSink(output.NewStream(cmd.ErrOrStderr()), fileSink)
+		return cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+			},
+			provider: loggingProvider{
+				inner: &fakeProvider{
+					responses: []provider.ChatResponse{
+						{
+							Message: provider.Message{
+								Role:    provider.MessageRoleAssistant,
+								Content: "logged answer",
+							},
+							FinishReason: "stop",
+							Usage:        &provider.UsageStats{TotalTokens: 3},
+						},
+					},
+				},
+				sink: events,
+			},
+			registry:    tool.NewRegistry(),
+			workDir:     t.TempDir(),
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(cmd.OutOrStdout()),
+			status:      output.NewStream(cmd.ErrOrStderr()),
+			events:      events,
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+			close:       fileSink.Close,
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "--log-file", logPath, "fix the bug"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", logPath, err)
+	}
+	logText := string(data)
+	for _, want := range []string{
+		"user_input",
+		"fix the bug",
+		"api_request",
+		`"role": "user"`,
+		"api_response",
+		`"content": "logged answer"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("log file missing %q\nlog:\n%s", want, logText)
+		}
 	}
 }
 
