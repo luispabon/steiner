@@ -1,4 +1,4 @@
-Below is a staged implementation roadmap derived from the reworked PRD and your stated priority: context hygiene first, delegation later, no architectural dead ends. Based on the current PRD draft.
+Below is a staged implementation roadmap derived from the current PRD direction: preserve the implemented stage 0-3 foundation, strengthen single-agent console UX next, and return to delegation only after the terminal experience is solid.
 
 # steiner implementation roadmap
 
@@ -10,9 +10,10 @@ Every stage must improve one or more of these without materially harming the oth
 * execution safety
 * debuggability
 * local-model operability
+* console usability
 * future delegation readiness
 
-Sub-agents are not an early deliverable. Their seams are.
+Sub-agents are not the next deliverable. A stronger console is.
 
 ---
 
@@ -234,7 +235,84 @@ Make long sessions viable.
 
 ---
 
-## Stage 4 - Delegation scaffolding
+## Stage 4 - Console UX foundations
+
+### Goal
+
+Make the terminal experience responsive, legible, and trustworthy without changing the core single-agent architecture.
+
+### Deliverables
+
+* streaming-capable terminal output path
+* shell-like prompt editing
+* history navigation in the interactive console
+* cleaner separation between assistant replies and status/event output
+* stronger approval rendering
+* clearer tool activity rendering
+* intentional default dark theme
+* event/output model reviewed so richer rendering does not fork the runtime path
+
+### Scope constraints
+
+* no delegation work yet
+* no GUI/web interface
+* no theme switching system yet
+* no terminal polish that bypasses the event model
+
+### Exit criteria
+
+* interactive use no longer feels like a line-buffered prototype
+* the console clearly distinguishes replies, approvals, tool activity, and status
+* the rendering path remains compatible with current logging and diagnostics
+* users on constrained local setups still get predictable behaviour
+
+### Risks to avoid
+
+* building terminal UI state that duplicates agent state
+* adding polish that makes approvals or truncation less visible
+* coupling streaming or rendering directly into provider code
+
+---
+
+## Stage 5 - Session visibility and control
+
+### Goal
+
+Make long-running single-agent sessions understandable and controllable.
+
+### Deliverables
+
+* context budget visibility in the console
+* clearer compaction visibility
+* turn/session inspection improvements
+* better stop-reason presentation
+* improved cancellation and interruption UX
+* richer REPL control surface where needed for usability
+* clearer surfaced summaries of recent diagnostic events
+
+### Behavioural rules
+
+* context diagnostics stay informative, not noisy
+* prompt/compaction visibility must not leak full prompt internals by default
+* cancellation should preserve deterministic session state
+* new controls must fit the existing CLI and REPL model cleanly
+
+### Exit criteria
+
+* users can tell when context was trimmed or compacted
+* users can understand why a run stopped without reading logs
+* long exploratory sessions are inspectable enough to remain usable
+* console controls improve usability without changing core prompt semantics
+
+### Risks to avoid
+
+* turning diagnostics into prompt spam
+* exposing raw internal state where a summary is enough
+* bolting on ad hoc commands without a coherent interaction model
+
+---
+
+## Stage 6 - Delegation scaffolding
 
 ### Goal
 
@@ -289,7 +367,7 @@ Build the seams for sub-agents without actually shipping full delegated executio
 
 ---
 
-## Stage 5 - Sub-agent execution v1
+## Stage 7 - Sub-agent execution v1
 
 ### Goal
 
@@ -320,6 +398,7 @@ Do not expose delegation to the model until:
 * truncation works
 * scheduler works
 * safer edits work
+* console visibility is strong enough to explain delegation clearly
 
 Otherwise you will create a more expensive mess faster.
 
@@ -338,7 +417,7 @@ Otherwise you will create a more expensive mess faster.
 
 ---
 
-## Stage 6 - Hardening and ergonomics
+## Stage 8 - Hardening and ergonomics
 
 ### Goal
 
@@ -371,7 +450,7 @@ Make the agent reliable enough for repeated use on real repos.
 
 ---
 
-## Stage 7 - Advanced capabilities
+## Stage 9 - Advanced capabilities
 
 ### Possible branches after core is solid
 
@@ -422,13 +501,38 @@ Do not start this stage until the product is already good at:
 * compaction strategy
 * explicit context source ordering
 * scheduler enforcement
+* basic event/log model
 
 ## Must happen before Stage 5
+
+* usable console rendering foundation
+* context diagnostics and compaction
+* clear stop-reason events
+
+## Must happen before Stage 6
+
+* session visibility and control improvements
+* stable console event surface
+* clear context-diagnostic presentation
+
+## Must happen before Stage 7
 
 * delegation contract
 * isolated child state
 * provider parallelism enforcement
 * output truncation and compaction
+
+## Must happen before Stage 8
+
+* first delegated execution path
+* useful delegated-event visibility
+
+## Must happen before Stage 9
+
+* bounded context
+* safe execution
+* deterministic scheduling
+* comprehensible failure modes
 
 ---
 
@@ -452,11 +556,16 @@ Target outcome: long-session viability
 ## Milestone D
 
 Stages 4-5
-Target outcome: real delegated execution without context pollution
+Target outcome: strong single-agent console UX
 
 ## Milestone E
 
 Stages 6-7
+Target outcome: delegated execution without context pollution
+
+## Milestone F
+
+Stages 8-9
 Target outcome: robustness and advanced features
 
 ---

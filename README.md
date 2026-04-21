@@ -4,28 +4,30 @@
 
 The project is aimed at real coding work against local repositories, with a strong bias toward bounded context, explicit context injection, and simple, inspectable execution. It is designed to work with OpenAI-compatible providers, including local model servers.
 
-This repository is past the foundations skeleton. The current codebase includes the single-agent loop, core tools binary, approvals UX, and Stage 2 execution-safety hardening, while later roadmap stages remain unfinished.
-
 ## Status
 
-Current implementation state is roughly Stage 0 from the project roadmap:
+Current implementation is past the foundations work and through the first context-discipline milestones from the project roadmap.
 
-* CLI skeleton in `cmd/steiner`
-* config loading, merging, env overrides, and validation in `internal/config`
-* provider abstraction and central scheduler in `internal/provider`
-* agent state/message types in `internal/agent`
-* tool registry and OpenAI-style schema generation in `internal/tool`
-* basic output/logging types in `internal/output`
+Implemented today:
 
-Not implemented yet:
+* single-agent loop with tool calling
+* interactive terminal mode and single-shot `--exec`
+* config loading, merging, validation, env overrides, and CLI overrides
+* provider abstraction with central scheduler-enforced parallelism
+* core tools binary with `read`, `glob`, `search`, `write`, `bash`, and `edit`
+* approval prompts and safer mutation via `edit`
+* project context gathering with bounded budgets
+* skill discovery, explicit loading, and REPL skill toggling
+* context diagnostics, output truncation, and conversation compaction foundations
+* terminal event/log sinks and optional session log files
 
-* REPL polish
-* project context assembly
-* skills loading and injection
-* context compaction
-* delegated sub-agents
+Still intentionally unfinished:
 
-If you are looking for the intended product shape rather than the current implementation, start with [docs/PRD.md](docs/PRD.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+* richer console UX such as streaming, shell-like line editing, and markdown-aware rendering
+* delegation and sub-agent execution
+* later advanced extensions such as sandboxing, persistence, and MCP
+
+If you are looking for the intended product shape rather than only the current implementation, start with [docs/PRD.md](docs/PRD.md).
 
 ## Project Goals
 
@@ -36,28 +38,29 @@ The product direction is defined by a few hard constraints:
 * context hygiene as a first-class engineering concern
 * plugin-first tool registration
 * safe-by-default execution with approvals and bounded output
-* future delegation through isolated sub-agents, but only after context discipline is solid
+* console UX that keeps the agent understandable and controllable in terminal use
+* future delegation through isolated sub-agents, but only after single-agent UX is strong
 
-The architecture and package boundaries in this repo are intentionally stricter than the current amount of code might suggest. That is deliberate: the project is trying to avoid painting itself into a corner before Stage 1 and Stage 3 concerns land.
+The architecture and package boundaries in this repo are intentionally stricter than the current amount of code might suggest. That is deliberate: the project is trying to avoid painting itself into a corner while the single-agent product matures.
 
 ## Repository Layout
 
-The intended package layout is already in place:
+The package layout is already in place:
 
 ```text
-cmd/steiner/            CLI entry, subcommands
-cmd/steiner-core-tools/ Core tools binary (planned, not yet implemented)
+cmd/steiner/            CLI entry and subcommands
+cmd/steiner-core-tools/ Core tools binary
 internal/agent/         Loop orchestration, state, limits
 internal/config/        Loading, merging, validation, defaults
 internal/provider/      Model transport interfaces and scheduler
-internal/tool/          Tool registry, schema, policy-facing types
-internal/prompt/        Prompt/context assembly types
-internal/skill/         Skill discovery and loading (planned)
-internal/repl/          Interactive UX (planned)
-internal/delegation/    Delegation scaffolding (planned)
+internal/tool/          Registry, schema, policy, executor, output shaping
+internal/prompt/        Context gathering, budgeting, assembly, compaction
+internal/skill/         Skill discovery and loading
+internal/repl/          Interactive UX
+internal/delegation/    Delegation contracts and execution scaffolding
 internal/output/        Terminal and machine-readable event output
+testdata/repos/         Fixture repos for integration and e2e tests
 docs/                   PRD, roadmap, and implementation planning docs
-testdata/repos/         Fixture repos for integration and e2e tests (planned)
 ```
 
 The conventions that guide the codebase live in [AGENTS.md](AGENTS.md).
@@ -67,19 +70,42 @@ The conventions that guide the codebase live in [AGENTS.md](AGENTS.md).
 The current CLI surface is intentionally small:
 
 ```bash
+steiner
+steiner --exec "fix the failing test"
 steiner version
 steiner config
-steiner --config path/to/config.yaml config
-steiner --model some-model config
+steiner tools
+steiner skills
 ```
+
+Useful flags:
+
+* `--config` overrides the project config path
+* `--model` overrides the configured provider model
+* `--verbose` enables verbose logging in resolved config
+* `--log-file` writes a full session event log to a file
 
 At the moment:
 
+* `steiner` starts the interactive REPL in the current project
+* `steiner --exec "..."` runs a single prompt headlessly and prints the final assistant reply
 * `steiner version` prints the build version
-* `steiner config` prints the resolved configuration after defaults, files, env vars, and CLI overrides are applied
+* `steiner config` prints the resolved configuration after defaults, files, env vars, and CLI overrides
 * `steiner tools` lists configured tools
 * `steiner skills` lists discovered skills
-* `steiner --exec "..."` runs a single prompt headlessly and prints the final assistant reply
+
+Current built-in REPL commands:
+
+```text
+/help
+/tools
+/skills
+/history
+/clear
+/exit
+```
+
+Discovered skills can also be toggled from the REPL by typing `/<skill-name>`.
 
 ## Configuration
 
@@ -112,14 +138,16 @@ provider:
   parallelism: 1
 ```
 
-The scheduler for `provider.parallelism` already exists and is enforced centrally in `internal/provider`. That matters later for delegated work, but the constraint is being established now rather than bolted on after the fact.
+The scheduler for `provider.parallelism` already exists and is enforced centrally in `internal/provider`.
 
-Approval defaults are also already defined in config, even though tool execution is not wired up yet:
+Approval defaults:
 
-* `read`, `glob`, `search` default to `auto`
-* `edit`, `write`, `bash` default to `prompt`
+* `read`, `glob`, `search` -> `auto`
+* `write`, `bash`, `edit` -> `prompt`
 
-Stage 2 adds `edit` as the preferred safer mutation primitive while keeping `write` for compatibility. The runtime surface and schemas should prefer `edit` for in-place file changes, and reserve `write` for full-file overwrites.
+`edit` is the preferred mutation primitive for in-place changes. `write` remains available for full-file overwrites.
+
+Project context assembly is configurable through `project_context`, including budget, extra files, and ignore files. Conversation/tool context is also bounded and emits diagnostics when budgets or compaction rules apply.
 
 ## Build And Test
 
@@ -139,37 +167,31 @@ Run tests:
 go test ./...
 ```
 
-The current repository test coverage is focused on the implemented runtime and CLI surface:
+The current test coverage is focused on the implemented runtime and CLI surface:
 
 * config loading and validation
-* scheduler semantics
-* tool registry and schema generation
-* CLI config/version/tool-listing/headless execution behaviour
+* provider scheduler semantics
+* prompt assembly, project context gathering, and compaction
+* tool registry, execution, and approval behavior
+* REPL commands and exec-mode behavior
+* terminal output/event formatting
 
 ## Design Notes
 
-Several architectural rules are already fixed even though the feature set is still small:
+Several architectural rules are already fixed:
 
 * context source precedence is explicit and must not be reordered
 * skills are auxiliary context, not system-authority instructions
-* sub-agents must be isolated and must not nest
 * provider access must go through the scheduler
 * prompt assembly and agent execution remain separate packages
 * config merging belongs only in `internal/config`
+* sub-agents must be isolated and must not nest once they exist
 
-Those constraints are documented in [AGENTS.md](AGENTS.md) and elaborated in the PRD.
+Those constraints are documented in [AGENTS.md](AGENTS.md) and elaborated in [docs/PRD.md](docs/PRD.md).
 
 ## Roadmap
 
-Planned stages:
-
-1. foundations skeleton
-2. core single-agent loop
-3. execution safety and safer mutation
-4. context discipline and compaction
-5. delegation scaffolding
-6. sub-agent execution
-7. hardening and advanced features
+The current codebase is at the point where the single-agent loop, safer mutation, and context-discipline groundwork exist. The next documentation and product work is focused on console UX before delegation returns to the front of the queue.
 
 See:
 
