@@ -8,7 +8,7 @@
   - planning inputs present: `overview.md`, `plan.yaml`
   - branch existed before execution: yes
   - startup working tree clean: yes
-- current_phase: `handoff_complete`
+- current_phase: `manual_verification_checkpoint`
 - current_stage: `stage-3`
 - current_step: `stage-3-step-1`
 - plan_shape:
@@ -60,8 +60,8 @@
 
 ## Step Status
 
-- `stage-1-step-1`: `implemented`
-- `stage-2-step-1`: `implemented` depends on `stage-1-step-1`
+- `stage-1-step-1`: `complete`
+- `stage-2-step-1`: `complete` depends on `stage-1-step-1`
 - `stage-3-step-1`: `complete` depends on `stage-2-step-1`
 
 ## Sub-Agent Activity
@@ -114,22 +114,27 @@
     - temporary_branch_deleted: yes
   - contract_review: accepted after direct recovery; `edit` is present, exact-match only, `write` remains, README prefers `edit`, and focused tests cover success plus safe failure modes
 - `stage-3-step-1`
-  - status: closed
+  - status: merged
   - suggested_model: `cheap-good`
   - current_runtime_tier_comparison: cheaper
   - execution_mode: serial
   - temporary_branch: `tmp/stage-3-step-1`
   - temporary_worktree: `/tmp/steiner-stage-3-step-1`
-  - subagent: none
+  - subagent: `019dafb0-fc4c-7c02-960c-4f384ffc6073`
+  - model: `gpt-5.4-mini`
   - branch_commit: `c1f8fda`
   - branch_commit_message: `stage-3-step-1: extend execution safety coverage`
+  - merge_commit: `merge: stage-3-step-1`
   - step_verification:
     - `gofmt -w <touched-go-files>`: passed
     - `go vet ./...`: passed
     - `go build ./...`: passed
     - `go test ./...`: passed
   - closure_status: closed
-  - working_tree_clean: yes
+  - cleanup:
+    - worktree_deleted: yes
+    - temporary_branch_deleted: yes
+  - contract_review: accepted; integration coverage now exercises bash confinement, dangerous mutation denial before approval, truncated output metadata, approval preview forwarding, and CLI-level approval preview observability
 
 ## Verification Runs
 
@@ -147,12 +152,12 @@
 
 ## Manual Verification
 
-- not needed; the required repo-wide verification completed successfully
+- pending user review after automated verification passed
 
 ## Notes
 
 - No conflicts detected between `overview.md` and `plan.yaml`.
 - Planner inputs are treated as immutable during execution.
-- final_commit: `c1f8fda` (`stage-3-step-1: extend execution safety coverage`)
-- final_verification: `gofmt -w <touched-go-files>`, `go vet ./...`, `go build ./...`, and `go test ./...` all passed
-- sub_agents_used: none
+- latest_stage_commit: `c1f8fda` (`stage-3-step-1: extend execution safety coverage`)
+- latest_stage_verification: `gofmt -w <touched-go-files>`, `go vet ./...`, `go build ./...`, and `go test ./...` all passed
+- manual_verification_checkpoint_required: yes
