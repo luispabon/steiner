@@ -3,7 +3,7 @@
 - Planning folder: `.project_planning/2026-04-21_stage-4-console-ux-foundations`
 - Active branch: `cl/2026-04-21_stage-4-console-ux-foundations`
 - Executor start date: `2026-04-21`
-- Current phase: `stage-1-step-1 implemented`
+- Current phase: `stage-2-step-1 implemented`
 - Final handoff state: `not ready`
 
 ## Verification Strategy
@@ -57,8 +57,8 @@ Loaded from `overview.md` with no overrides.
 | Step ID | Status | Notes |
 | --- | --- | --- |
 | `stage-1-step-1` | `implemented` | Merged from `tmp/stage-1-step-1` after direct executor fallback inside isolated worktree due repeated sub-agent runtime stalls. |
-| `stage-2-step-1` | `ready` | Dependency `stage-1-step-1` implemented. |
-| `stage-3-step-1` | `pending` | Depends on `stage-2-step-1`. |
+| `stage-2-step-1` | `implemented` | Merged from `tmp/stage-2-step-1` using direct executor fallback inside isolated worktree because sub-agent runtime had already proven unreliable in this session. |
+| `stage-3-step-1` | `ready` | Dependency `stage-2-step-1` implemented. |
 
 ## Sub-Agents
 
@@ -80,6 +80,11 @@ Loaded from `overview.md` with no overrides.
   - `go test ./internal/output` — passed
   - `go test ./cmd/steiner ./internal/output ./internal/repl` — failed once due outdated `cmd/steiner/main_test.go` expectation for the old stop-event text; fixed in-scope and reran
   - `go test ./cmd/steiner ./internal/output ./internal/repl` — passed
+- `stage-2-step-1`
+  - `go mod tidy` — passed; normalized the new readline dependency and transitive checksums
+  - `go test ./internal/repl` — initially failed because transitive go.sum entries for the new prompt library were missing; resolved with `go mod tidy`
+  - `go test ./internal/repl` — passed
+  - `go test ./cmd/steiner ./internal/repl ./internal/output` — passed
 
 ## Manual Verification
 
@@ -96,3 +101,11 @@ Not started.
 - Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-1-step-1`.
 - Temporary worktree `/tmp/steiner-stage-1-step-1` removed after merge.
 - Temporary branch `tmp/stage-1-step-1` deleted after merge.
+- Temporary step branch `tmp/stage-2-step-1` created from `cl/2026-04-21_stage-4-console-ux-foundations`.
+- Dedicated worktree `/tmp/steiner-stage-2-step-1` created for `stage-2-step-1`.
+- Because both `stage-1-step-1` sub-agent attempts stalled with no file activity, `stage-2-step-1` used the same isolated worktree model but direct executor fallback from the start.
+- `stage-2-step-1` integrated `github.com/reeflective/readline v1.1.4` after consulting the package docs and module source for `NewShell`, `Readline`, `Printf`, completion helpers, and history behavior.
+- `stage-2-step-1` commit on temporary branch: `a6880b6e4828d309390eda5a3ff85ea9cb1616a2` (`Integrate readline into the REPL`).
+- Temporary branch merged back into the feature branch with `git merge --no-ff tmp/stage-2-step-1`.
+- Temporary worktree `/tmp/steiner-stage-2-step-1` removed after merge.
+- Temporary branch `tmp/stage-2-step-1` deleted after merge.
