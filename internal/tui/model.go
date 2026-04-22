@@ -63,6 +63,9 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
 	// Add Shift+Enter and Alt+Enter for inserting newlines
 	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"))
+	// Init() has a value receiver, so its Focus() call only affects a copy.
+	// Focus here so the running model's textarea is focused from the start.
+	input.Focus()
 
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
 	for _, name := range cfg.SkillNames {
