@@ -4,7 +4,7 @@
 - planning_folder: `.project_planning/2026-04-22_markdown_rendering`
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
-- current_stage: `stage-6-render-go`
+- current_stage: `stage-6-git-go`
 - status: `in_progress`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
@@ -75,8 +75,8 @@
   8. `stage-6-full-build`
 - step_status:
   - `stage-6-add-glamour: implemented`
-  - `stage-6-render-go: ready`
-  - `stage-6-git-go: pending`
+  - `stage-6-render-go: implemented`
+  - `stage-6-git-go: ready`
   - `stage-6-sidebar-go: pending`
   - `stage-6-content-markdown: pending`
   - `stage-6-model-update: pending`
@@ -90,10 +90,12 @@
 - `2026-04-22`: Merged `stage-6-add-glamour` from `exec/2026-04-22_markdown_rendering-stage-6-add-glamour` into `cl/2026-04-22_markdown_rendering`.
 - `2026-04-22`: Marked `stage-6-render-go` as next ready step.
 - `2026-04-22`: Marked `stage-6-render-go` as running and prepared isolated handoff.
+- `2026-04-22`: Merged `stage-6-render-go` from `exec/2026-04-22_markdown_rendering-stage-6-render-go` into `cl/2026-04-22_markdown_rendering`.
+- `2026-04-22`: Marked `stage-6-git-go` as next ready step.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
-- `stage-6-render-go`: pending dispatch, planned model `gpt-5.4-mini` (cheaper)
+- `stage-6-render-go`: model `gpt-5.4-mini` (cheaper), agent `019db572-19be-7311-a6d2-e5f454506b2a`, completed and closed after merge
 
 ## Temporary Branches And Worktrees
 - `stage-6-add-glamour`: created branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
@@ -101,11 +103,16 @@
 - `stage-6-add-glamour`: merged temporary branch into `cl/2026-04-22_markdown_rendering`
 - `stage-6-add-glamour`: deleted worktree `/tmp/steiner-stage-6-add-glamour`
 - `stage-6-add-glamour`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
-- `stage-6-render-go`: temporary branch/worktree not yet created
+- `stage-6-render-go`: created branch `exec/2026-04-22_markdown_rendering-stage-6-render-go`
+- `stage-6-render-go`: created worktree `/tmp/steiner-stage-6-render-go`
+- `stage-6-render-go`: merged temporary branch into `cl/2026-04-22_markdown_rendering`
+- `stage-6-render-go`: deleted worktree `/tmp/steiner-stage-6-render-go`
+- `stage-6-render-go`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-render-go`
 
 ## Verification Runs
 - `stage-6-add-glamour`: worker reported `go mod tidy` succeeded
 - `stage-6-add-glamour`: worker reported `go build ./internal/tui` passed
+- `stage-6-render-go`: worker reported `go vet ./internal/tui` passed
 
 ## Fix Plans
 - none yet
