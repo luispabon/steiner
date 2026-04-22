@@ -20,10 +20,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		}
 	case output.EventTypeStopReason:
 		b.finishStreaming()
-		if line := formatTUIEvent(event); line != "" {
+		line := formatTUIEvent(event)
+		if line != "" && !shouldSuppressLine(line) {
 			b.lines = append(b.lines, line)
 			return
 		}
+		return
 	case output.EventTypeApprovalRequested:
 		b.finishStreaming()
 		b.lines = append(b.lines, formatApprovalEvent(event))
@@ -40,7 +42,8 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 	default:
 		if _, ok := event.Payload.(output.StopReasonEvent); ok {
 			b.finishStreaming()
-			if line := formatTUIEvent(event); line != "" {
+			line := formatTUIEvent(event)
+			if line != "" && !shouldSuppressLine(line) {
 				b.lines = append(b.lines, line)
 			}
 			return
@@ -51,11 +54,38 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		if _, ok := event.Payload.(output.TurnFinishedEvent); ok {
 			return
 		}
+		if _, ok := event.Payload.(output.ModelCallFinishedEvent); ok {
+			return
+		}
 	}
 	b.finishStreaming()
-	if line := strings.TrimSpace(output.FormatEvent(event)); line != "" {
+	line := formatTUIEvent(event)
+	if line == "" {
+		line = strings.TrimSpace(output.FormatEvent(event))
+	}
+	if line != "" && !shouldSuppressLine(line) {
 		b.lines = append(b.lines, line)
 	}
+}
+
+func shouldSuppressLine(line string) bool {
+	line = strings.TrimSpace(strings.ToLower(line))
+	if strings.HasPrefix(line, "status: run") {
+		return true
+	}
+	if strings.HasPrefix(line, "api:") {
+		return true
+	}
+	if strings.HasPrefix(line, "context:") {
+		return true
+	}
+	if strings.HasPrefix(line, "turn ") {
+		return true
+	}
+	if strings.HasPrefix(line, "model turn") {
+		return true
+	}
+	return false
 }
 
 func formatTUIEvent(event output.Event) string {
