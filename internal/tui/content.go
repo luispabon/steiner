@@ -45,6 +45,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 			}
 			return
 		}
+		if _, ok := event.Payload.(output.RunFinishedEvent); ok {
+			return
+		}
+		if _, ok := event.Payload.(output.TurnFinishedEvent); ok {
+			return
+		}
 	}
 	b.finishStreaming()
 	if line := strings.TrimSpace(output.FormatEvent(event)); line != "" {
@@ -54,7 +60,11 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 
 func formatTUIEvent(event output.Event) string {
 	switch event.Type {
-	case output.EventTypeRunFinished:
+	case output.EventTypeRunFinished, output.EventTypeTurnFinished:
+		return ""
+	}
+	text := strings.TrimSpace(output.FormatEvent(event))
+	if strings.HasPrefix(text, "status: run") {
 		return ""
 	}
 	switch payload := event.Payload.(type) {
@@ -65,6 +75,8 @@ func formatTUIEvent(event output.Event) string {
 		if payload.Reason != "" && payload.Reason != "complete" && payload.Reason != "max_turns" && payload.Reason != "max_tokens" {
 			return "status: " + payload.Reason
 		}
+		return ""
+	case output.RunFinishedEvent:
 		return ""
 	case output.AssistantMessageEvent:
 		return ""
