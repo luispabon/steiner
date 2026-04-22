@@ -86,6 +86,7 @@ type ApprovalEvent struct {
 	Turn    int    `json:"turn"`
 	Tool    string `json:"tool,omitempty"`
 	Mode    string `json:"mode,omitempty"`
+	Preview string `json:"preview,omitempty"`
 	Allowed bool   `json:"allowed"`
 	Message string `json:"message,omitempty"`
 }
@@ -217,19 +218,20 @@ func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, 
 	}
 }
 
-func NewApprovalRequestedEvent(turn int, toolName, mode string) Event {
+func NewApprovalRequestedEvent(turn int, toolName, mode, preview string) Event {
 	return Event{
 		Type:      EventTypeApprovalRequested,
 		Timestamp: time.Now().UTC(),
 		Payload: ApprovalEvent{
-			Turn: turn,
-			Tool: toolName,
-			Mode: mode,
+			Turn:    turn,
+			Tool:    toolName,
+			Mode:    mode,
+			Preview: preview,
 		},
 	}
 }
 
-func NewApprovalAcceptedEvent(turn int, toolName, mode, message string) Event {
+func NewApprovalAcceptedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalAccepted,
 		Timestamp: time.Now().UTC(),
@@ -237,13 +239,14 @@ func NewApprovalAcceptedEvent(turn int, toolName, mode, message string) Event {
 			Turn:    turn,
 			Tool:    toolName,
 			Mode:    mode,
+			Preview: preview,
 			Allowed: true,
 			Message: message,
 		},
 	}
 }
 
-func NewApprovalDeniedEvent(turn int, toolName, mode, message string) Event {
+func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalDenied,
 		Timestamp: time.Now().UTC(),
@@ -251,6 +254,7 @@ func NewApprovalDeniedEvent(turn int, toolName, mode, message string) Event {
 			Turn:    turn,
 			Tool:    toolName,
 			Mode:    mode,
+			Preview: preview,
 			Allowed: false,
 			Message: message,
 		},

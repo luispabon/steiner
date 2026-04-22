@@ -92,7 +92,7 @@ func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatReq
 
 		if err := p.streamChatCompletion(ctx, request, out); err != nil {
 			select {
-			case out <- ChatChunk{Done: true}:
+			case out <- ChatChunk{Done: true, Error: err.Error()}:
 			case <-ctx.Done():
 			}
 		}

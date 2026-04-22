@@ -334,6 +334,9 @@ func renderEvent(event Event) Segment {
 		if payload.Mode != "" {
 			parts = append(parts, fmt.Sprintf("mode=%s", payload.Mode))
 		}
+		if payload.Preview != "" {
+			parts = append(parts, fmt.Sprintf("args=%s", payload.Preview))
+		}
 		if payload.Message != "" {
 			parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
 		}
