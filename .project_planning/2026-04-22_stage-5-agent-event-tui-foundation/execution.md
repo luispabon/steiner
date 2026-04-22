@@ -2,7 +2,7 @@
 
 - Planning folder: `.project_planning/2026-04-22_stage-5-agent-event-tui-foundation`
 - Active branch: `cl/2026-04-22_stage-5-agent-event-tui-foundation`
-- Current stage: `initialization`
+- Current stage: `stage-1-step-2 ready`
 - Executor state: `running`
 
 ## Verification Strategy
@@ -55,8 +55,8 @@
 
 | Step ID | Status | Notes |
 | --- | --- | --- |
-| `stage-1-step-1` | `ready` | Event model and plain renderer extraction. |
-| `stage-1-step-2` | `pending` | Depends on `stage-1-step-1`. |
+| `stage-1-step-1` | `implemented` | Merged `tmp/stage-5-step-1` into the execution branch as `b503810`. |
+| `stage-1-step-2` | `ready` | Runtime event plumbing and approval-response seam. |
 | `stage-2-step-1` | `pending` | Depends on `stage-1-step-2`. |
 | `stage-2-step-2` | `pending` | Depends on `stage-2-step-1`. |
 
@@ -64,3 +64,10 @@
 
 - Initialized executor state on `cl/2026-04-22_stage-5-agent-event-tui-foundation`.
 - Loaded verification strategy from `overview.md` without overrides.
+- Started `stage-1-step-1` on temporary branch `tmp/stage-5-step-1` in worktree `/tmp/steiner-stage-5-step-1` with sub-agent `019db4c9-726b-7333-8eca-a67c04b6a453` (`gpt-5.4-mini`, cheaper tier than the current runtime), running serially.
+- Reviewed `stage-1-step-1` output against the step contract: output event model expanded, plain renderer extracted, subscriber seam introduced, and focused regression tests added under `internal/output`.
+- Merged `tmp/stage-5-step-1` into `cl/2026-04-22_stage-5-agent-event-tui-foundation` at `b503810`.
+- Closed sub-agent `019db4c9-726b-7333-8eca-a67c04b6a453`.
+- Deleted worktree `/tmp/steiner-stage-5-step-1`.
+- Deleted temporary branch `tmp/stage-5-step-1`.
+- Recorded step verification reported by the sub-agent: `go test ./internal/output ./cmd/steiner`.
