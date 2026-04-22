@@ -133,6 +133,9 @@ func (p *readlinePrompter) ReadLine(ctx context.Context) (string, error) {
 		return "", io.EOF
 	}
 	line, err := p.editor.ReadLine(ctx)
+	if errors.Is(err, context.Canceled) {
+		return "", ErrPromptInterrupted
+	}
 	if errors.Is(err, readline.CtrlC) {
 		return "", ErrPromptInterrupted
 	}
@@ -184,5 +187,5 @@ func asBufioReader(in io.Reader) *bufio.Reader {
 }
 
 func IsPromptInterrupted(err error) bool {
-	return errors.Is(err, ErrPromptInterrupted) || errors.Is(err, readline.CtrlC)
+	return errors.Is(err, ErrPromptInterrupted) || errors.Is(err, readline.CtrlC) || errors.Is(err, context.Canceled)
 }

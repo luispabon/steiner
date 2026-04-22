@@ -125,7 +125,7 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 	} else {
 		s.Conversation = conversation
 	}
-	s.Diagnostics = cloneEvents(result.Diagnostics)
+	s.Diagnostics = append(cloneEvents(s.Diagnostics), cloneEvents(result.Diagnostics)...)
 
 	reply := strings.TrimSpace(result.Reply)
 	if reply != "" {
