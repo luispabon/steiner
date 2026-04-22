@@ -51,7 +51,7 @@
 ## Step Status
 
 - stage-1-step-1: `implemented`
-- stage-2-step-1: `pending`
+- stage-2-step-1: `implemented`
 - stage-3-step-1: `pending`
 
 ## Execution Notes
@@ -74,3 +74,19 @@
   - step verification reported by sub-agent:
     - `gofmt -w internal/output/debug.go internal/output/log.go internal/output/stream.go internal/output/stream_test.go internal/agent/loop.go internal/agent/state.go cmd/steiner/main.go cmd/steiner/main_test.go` passed
     - `go test ./internal/output ./internal/agent ./cmd/steiner` passed
+- Current step: `stage-2-step-1` (`running`)
+- Sub-agent spawned for `stage-2-step-1`:
+  - agent_id: `019db45e-46f5-7bc1-9ef7-71656e01acfb`
+  - model: `gpt-5.4`
+  - tier_relative_to_executor: `same`
+  - temp_branch: `exec/stage-2-step-1`
+  - worktree: `/tmp/steiner-stage-2-step-1`
+  - status: `closed after merge`
+- `stage-2-step-1` review outcome: implementation kept the command surface focused on `/history` views, reused `internal/output` inspection summaries, and preserved summary-first session inspection.
+- `stage-2-step-1` merge outcome:
+  - merged temp branch `exec/stage-2-step-1` into `cl/2026-04-22_session-visibility-and-control`
+  - removed worktree `/tmp/steiner-stage-2-step-1`
+  - deleted merged branch `exec/stage-2-step-1`
+  - step verification reported by sub-agent:
+    - `gofmt -w internal/repl/commands.go internal/repl/repl.go internal/repl/repl_test.go internal/repl/completer.go internal/repl/prompt.go internal/output/stream.go internal/output/stream_test.go` passed
+    - `go test ./internal/repl ./internal/output` passed
