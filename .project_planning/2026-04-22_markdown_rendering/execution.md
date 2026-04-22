@@ -4,7 +4,7 @@
 - planning_folder: `.project_planning/2026-04-22_markdown_rendering`
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
-- current_stage: `plan-loaded`
+- current_stage: `stage-6-add-glamour`
 - status: `in_progress`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
@@ -86,12 +86,13 @@
 ## Execution Events
 - `2026-04-22`: Executor initialized on `cl/2026-04-22_markdown_rendering`.
 - `2026-04-22`: Loaded verification strategy from `overview.md` without overrides.
+- `2026-04-22`: Marked `stage-6-add-glamour` as running and prepared isolated handoff.
 
 ## Sub-Agents
-- none yet
+- `stage-6-add-glamour`: pending dispatch, planned model `gpt-5.4-mini` (cheaper)
 
 ## Temporary Branches And Worktrees
-- none yet
+- `stage-6-add-glamour`: temporary branch/worktree not yet created
 
 ## Verification Runs
 - none yet
