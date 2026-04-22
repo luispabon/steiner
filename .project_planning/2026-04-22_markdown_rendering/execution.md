@@ -5,7 +5,7 @@
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
 - current_stage: `stage-6-model-update`
-- status: `in_progress`
+- status: `blocked`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
 - planning_inputs_modified: `no`
@@ -79,7 +79,7 @@
   - `stage-6-git-go: implemented`
   - `stage-6-sidebar-go: implemented`
   - `stage-6-content-markdown: implemented`
-  - `stage-6-model-update: ready`
+  - `stage-6-model-update: blocked`
   - `stage-6-keys-update: pending`
   - `stage-6-full-build: pending`
 
@@ -105,6 +105,7 @@
 - `2026-04-22`: Closed a third stalled `stage-6-content-markdown` sub-agent without branch changes and switched this specific step to direct execution fallback.
 - `2026-04-22`: Completed `stage-6-content-markdown` directly on `cl/2026-04-22_markdown_rendering` after repeated sub-agent failures.
 - `2026-04-22`: Marked `stage-6-model-update` as next ready step.
+- `2026-04-22`: Marked `stage-6-model-update` as blocked because the approved plan omits the glue changes needed to supply provider endpoint and working-directory data to the TUI model.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
@@ -139,7 +140,6 @@
 - `stage-6-sidebar-go`: merged temporary branch into `cl/2026-04-22_markdown_rendering`
 - `stage-6-sidebar-go`: deleted worktree `/tmp/steiner-stage-6-sidebar-go`
 - `stage-6-sidebar-go`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-sidebar-go`
-- `stage-6-content-markdown`: temporary branch/worktree not yet created
 - `stage-6-content-markdown`: created branch `exec/2026-04-22_markdown_rendering-stage-6-content-markdown`
 - `stage-6-content-markdown`: created worktree `/tmp/steiner-stage-6-content-markdown`
 - `stage-6-content-markdown`: recreated temporary branch/worktree after retry bookkeeping commits
@@ -160,6 +160,10 @@
 ## Deviations
 - `stage-6-content-markdown`: executor used direct execution fallback after three isolated sub-agent attempts stalled without producing branch changes.
 - `stage-6-content-markdown`: direct implementation required a fresh `go mod tidy`, which updated `go.mod` and `go.sum` once `internal/tui/content.go` imported Glamour for real. This was treated as a contained dependency-metadata deviation required to make the planned build verification meaningful.
+
+## Blockers
+- `stage-6-model-update`: the sidebar acceptance criteria require live `provider endpoint` and `working dir` values, but [internal/tui/app.go](/home/luis/Projects/AI/steiner/internal/tui/app.go:9) does not carry those fields into the TUI config and [cmd/steiner/main.go](/home/luis/Projects/AI/steiner/cmd/steiner/main.go:177) only passes `Model` and `SkillNames` into `tui.NewApp(...)`.
+- `stage-6-model-update`: [internal/tui/model.go](/home/luis/Projects/AI/steiner/internal/tui/model.go:23) can wire sidebar state and event-derived metrics, but it cannot satisfy the approved sidebar data contract without widening scope to at least `internal/tui/app.go` and `cmd/steiner/main.go`.
 
 ## Manual Verification
 - not started
