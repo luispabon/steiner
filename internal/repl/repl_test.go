@@ -396,6 +396,83 @@ func TestSessionCancelledRunKeepsStateInspectable(t *testing.T) {
 	}
 }
 
+func TestSessionAccumulatesDiagnosticsAcrossTurns(t *testing.T) {
+	var out bytes.Buffer
+	var runner *fakeRunner
+	runner = &fakeRunner{
+		runFn: func(ctx context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
+			event := output.NewStopReasonEvent(runner.calls, fmt.Sprintf("turn_%d", runner.calls), nil)
+			return RunResult{
+				Conversation: append([]agent.Message(nil), conversation...),
+				Diagnostics:  []output.Event{event},
+			}, nil
+		},
+	}
+	session := &Session{
+		Runner: runner,
+		Out:    output.NewStream(&out),
+	}
+
+	if done, err := session.HandleLine(context.Background(), "first"); err != nil {
+		t.Fatalf("first turn error = %v", err)
+	} else if done {
+		t.Fatal("first turn returned done=true")
+	}
+	if done, err := session.HandleLine(context.Background(), "second"); err != nil {
+		t.Fatalf("second turn error = %v", err)
+	} else if done {
+		t.Fatal("second turn returned done=true")
+	}
+
+	if got := len(session.Diagnostics); got != 2 {
+		t.Fatalf("Diagnostics len = %d, want 2", got)
+	}
+
+	out.Reset()
+	done, err := session.HandleLine(context.Background(), "/history recent 2")
+	if err != nil {
+		t.Fatalf("history error = %v", err)
+	}
+	if done {
+		t.Fatal("history returned done=true")
+	}
+	got := out.String()
+	for _, want := range []string{
+		"history: conversation_messages=2 diagnostics=2 context_diagnostics=0",
+		"recent diagnostics:",
+		"stopped: turn_1",
+		"stopped: turn_2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("history output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestSessionRunTreatsContextCanceledAsPromptInterrupt(t *testing.T) {
+	var out bytes.Buffer
+	prompt := &fakePrompt{
+		errs:  []error{context.Canceled},
+		lines: []string{"/exit"},
+		out:   &out,
+	}
+	session := &Session{
+		Out:    output.NewStream(&out),
+		prompt: prompt,
+	}
+
+	if err := session.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(session.Diagnostics) != 1 {
+		t.Fatalf("Diagnostics len = %d, want 1", len(session.Diagnostics))
+	}
+	if got := out.String(); !strings.Contains(got, "run cancelled") {
+		t.Fatalf("Run() output = %q, want cancelled stop reason", got)
+	}
+}
+
 func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
 	if got := CompletionPrefix([]rune("/he"), 3); got != "/he" {
 		t.Fatalf("CompletionPrefix(/he) = %q, want /he", got)
