@@ -2,7 +2,7 @@
 
 - Planning folder: `.project_planning/2026-04-22_stage-5-agent-event-tui-foundation`
 - Active branch: `cl/2026-04-22_stage-5-agent-event-tui-foundation`
-- Current stage: `stage-1-step-2 ready`
+- Current stage: `stage-2-step-1 ready`
 - Executor state: `running`
 
 ## Verification Strategy
@@ -56,8 +56,8 @@
 | Step ID | Status | Notes |
 | --- | --- | --- |
 | `stage-1-step-1` | `implemented` | Merged `tmp/stage-5-step-1` into the execution branch as `b503810`. |
-| `stage-1-step-2` | `ready` | Runtime event plumbing and approval-response seam. |
-| `stage-2-step-1` | `pending` | Depends on `stage-1-step-2`. |
+| `stage-1-step-2` | `implemented` | Merged `tmp/stage-5-step-2` into the execution branch as `fe0373c`. |
+| `stage-2-step-1` | `ready` | Minimal Bubble Tea TUI package on the event stream. |
 | `stage-2-step-2` | `pending` | Depends on `stage-2-step-1`. |
 
 ## Activity Log
@@ -71,3 +71,10 @@
 - Deleted worktree `/tmp/steiner-stage-5-step-1`.
 - Deleted temporary branch `tmp/stage-5-step-1`.
 - Recorded step verification reported by the sub-agent: `go test ./internal/output ./cmd/steiner`.
+- Started `stage-1-step-2` on temporary branch `tmp/stage-5-step-2` in worktree `/tmp/steiner-stage-5-step-2` with sub-agent `019db4cf-02bd-7080-96c8-f55001628285` (`gpt-5.4-mini`, cheaper tier than the current runtime), running serially.
+- Reviewed `stage-1-step-2` output against the step contract: runtime execution now emits structured turn, stream, tool, and approval events; approval uses an explicit request/response channel; `--exec` stays on the plain event pipeline; no TUI coupling was introduced into runtime packages.
+- Merged `tmp/stage-5-step-2` into `cl/2026-04-22_stage-5-agent-event-tui-foundation` at `fe0373c`.
+- Closed sub-agent `019db4cf-02bd-7080-96c8-f55001628285`.
+- Deleted worktree `/tmp/steiner-stage-5-step-2`.
+- Deleted temporary branch `tmp/stage-5-step-2`.
+- Recorded step verification reported by the sub-agent: `go test ./internal/agent ./internal/provider ./internal/tool ./cmd/steiner -count=1`.
