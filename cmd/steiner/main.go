@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -16,9 +17,9 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
-	"github.com/luispabon/steiner/internal/repl"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -169,27 +170,41 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(rt)
 
-	completer := repl.Completer{
-		Commands: repl.BuiltinCommands(),
-		Skills:   append([]string(nil), rt.skillNames...),
-	}
-	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
-	session := repl.NewSession(
-		cliRunner{
-			runtime: rt,
-			approver: agent.NewEventingApprover(
-				rt.events,
-				stdinApprovalResponder{reader: approvalReader(rt)},
-			),
+	tuiApp := tui.NewApp(tui.Config{
+		Model:      rt.cfg.Provider.Model,
+		SkillNames: rt.skillNames,
+		OnSubmit:   nil,
+		OnApproval: nil,
+		OnSkillToggle: func(name string, enabled bool) {
 		},
-		interactiveInput(rt),
-		rt.human,
-		rt.events,
-		rt.toolNames,
-		rt.skillNames,
-	)
-	session.SetPrompter(prompter)
-	return session.Run(cmd.Context())
+	})
+	events := output.NewMultiSink(rt.events, tuiApp.EventSink())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tuiApp.Run()
+	}()
+
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+
+	completion := make(chan struct{})
+	go func() {
+		defer close(completion)
+		tuiChatLoop(ctx, rt, tuiApp, events)
+	}()
+
+	select {
+	case <-completion:
+	case <-ctx.Done():
+	}
+	wg.Wait()
+	return nil
+}
+
+func tuiChatLoop(ctx context.Context, rt cliRuntime, app *tui.App, events output.EventSink) {
 }
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
@@ -316,9 +331,15 @@ type cliRunner struct {
 	approver tool.ApprovalResponder
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (repl.RunResult, error) {
+type runResult struct {
+	Conversation []agent.Message
+	Reply        string
+	Diagnostics  []output.Event
+}
+
+func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (runResult, error) {
 	if r.runtime.provider == nil {
-		return repl.RunResult{}, fmt.Errorf("provider is required")
+		return runResult{}, fmt.Errorf("provider is required")
 	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -367,10 +388,10 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Events: events,
 	})
 	if err != nil {
-		return repl.RunResult{}, err
+		return runResult{}, err
 	}
 
-	return repl.RunResult{
+	return runResult{
 		Conversation: state.Conversation,
 		Reply:        lastAssistantReply(state.Conversation),
 		Diagnostics:  cloneEvents(diagnostics),

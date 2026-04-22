@@ -2,8 +2,8 @@
 
 - Planning folder: `.project_planning/2026-04-22_stage-5-agent-event-tui-foundation`
 - Active branch: `cl/2026-04-22_stage-5-agent-event-tui-foundation`
-- Current stage: `stage-2-step-2 ready`
-- Executor state: `running`
+- Current stage: `stage-2-step-2 complete`
+- Executor state: `complete`
 
 ## Verification Strategy
 
@@ -58,7 +58,7 @@
 | `stage-1-step-1` | `implemented` | Merged `tmp/stage-5-step-1` into the execution branch as `b503810`. |
 | `stage-1-step-2` | `implemented` | Merged `tmp/stage-5-step-2` into the execution branch as `fe0373c`. |
 | `stage-2-step-1` | `implemented` | Completed directly on the execution branch after two isolated sub-agent dispatches stalled without edits. |
-| `stage-2-step-2` | `pending` | Depends on `stage-2-step-1`. |
+| `stage-2-step-2` | `implemented` | Direct executor implementation: wired TUI in interactive mode, removed REPL and go-readline-ny. |
 
 ## Activity Log
 
@@ -89,3 +89,5 @@
 - Switched `stage-2-step-1` to direct executor fallback because isolated sub-agent execution for this specific step was effectively unavailable after two clean stalled dispatches.
 - Implemented `stage-2-step-1` directly on `cl/2026-04-22_stage-5-agent-event-tui-foundation`: added `internal/tui`, pinned cached Bubble Tea/Bubbles/Lip Gloss dependencies, and kept the CLI cutover and `internal/repl/` removal deferred to the next step.
 - Recorded direct fallback verification: `go mod tidy` and `go test ./internal/tui`.
+- Implemented `stage-2-step-2` directly: rewired interactive mode to use TUI in `cmd/steiner/main.go`, added `Emit` method to TUI eventBridge to implement `output.EventSink`, removed `internal/repl/` directory, removed `go-readline-ny` dependency, and ran comprehensive verification.
+- Verification: `gofmt -w ...`, `go vet ./...`, `go test ./...` (86 passed), `go build ./...`, `make build-binaries` all passed.

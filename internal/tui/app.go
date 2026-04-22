@@ -33,6 +33,10 @@ func (a *App) Subscriber() output.Subscriber {
 	return a.bridge
 }
 
+func (a *App) EventSink() output.EventSink {
+	return a.bridge
+}
+
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 	opts := []tea.ProgramOption{tea.WithMouseCellMotion()}
 	opts = append(opts, options...)
@@ -54,6 +58,20 @@ type eventBridge struct {
 	ch chan tea.Msg
 }
 
+func (b *eventBridge) Emit(event output.Event) {
+	if b == nil {
+		return
+	}
+	msg := runtimeEventMsg{Event: event}
+	select {
+	case b.ch <- msg:
+	default:
+		go func() {
+			b.ch <- msg
+		}()
+	}
+}
+
 type noopSubscriber struct{}
 
 func (noopSubscriber) OnEvent(output.Event) {}
@@ -73,15 +91,5 @@ func (b *eventBridge) Messages() <-chan tea.Msg {
 }
 
 func (b *eventBridge) OnEvent(event output.Event) {
-	if b == nil {
-		return
-	}
-	msg := runtimeEventMsg{Event: event}
-	select {
-	case b.ch <- msg:
-	default:
-		go func() {
-			b.ch <- msg
-		}()
-	}
+	b.Emit(event)
 }
