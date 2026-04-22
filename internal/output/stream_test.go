@@ -17,6 +17,7 @@ func TestStreamFormatsModelToolAndStopEvents(t *testing.T) {
 	stream.Emit(NewApprovalDeniedEvent(1, "bash", "prompt", "blocked"))
 	stream.Emit(NewToolCallFinishedEvent(1, "read", "call_1", `{"contents":"hello"}`, nil))
 	stream.Emit(NewStopReasonEvent(2, "complete", nil))
+	stream.Emit(NewStopReasonEvent(3, "max_turns", nil))
 
 	got := buf.String()
 	for _, want := range []string{
@@ -26,7 +27,8 @@ func TestStreamFormatsModelToolAndStopEvents(t *testing.T) {
 		"approval: turn=1 accepted",
 		"approval: turn=1 denied",
 		"tool: turn=1 end tool=read",
-		"status: reason=complete turn=2",
+		"status: run complete after 2 turns",
+		"status: stopped after 3 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
@@ -38,24 +40,13 @@ func TestStreamFormatsContextDiagnosticsEvents(t *testing.T) {
 	var buf bytes.Buffer
 	stream := NewStream(&buf)
 
-	stream.Emit(NewContextCompactionEvent(4, 2, 6, 1, 3, 128, true, "compacted conversation history"))
+	stream.Emit(NewContextCompactionEvent(4, 2, 6, 1, 3, 128, true, "compacted conversation history", "user: earlier request | assistant: earlier reply"))
 	stream.Emit(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
 
 	got := buf.String()
 	for _, want := range []string{
-		"context: context diagnostics kind=compaction",
-		"turn=4",
-		"retained_turns=2",
-		"retained_messages=6",
-		"compacted_messages=3",
-		"summary_bytes=128",
-		"summary=compacted conversation history",
-		"truncated=true",
-		"context diagnostics kind=budget",
-		"scope=project_context",
-		"used_bytes=900",
-		"budget_bytes=512",
-		"notes=trimmed extra files",
+		`context: compaction turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
+		"context: budget project context used 900/512 bytes; turn 4; truncated; notes trimmed extra files",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)

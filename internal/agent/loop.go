@@ -409,6 +409,7 @@ func compactConversationState(state RunState, turn int, recentTurns int, sink ou
 			len(summary),
 			truncated,
 			"compacted conversation history",
+			summary,
 		))
 	}
 	return next

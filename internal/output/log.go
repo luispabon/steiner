@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -84,9 +85,11 @@ type ApprovalEvent struct {
 }
 
 type StopReasonEvent struct {
-	Reason string `json:"reason"`
-	Turn   int    `json:"turn,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Reason  string `json:"reason"`
+	Turn    int    `json:"turn,omitempty"`
+	Error   string `json:"error,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Action  string `json:"action,omitempty"`
 }
 
 type UserInputEvent struct {
@@ -215,11 +218,53 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 	if err != nil {
 		payload.Error = err.Error()
 	}
+	payload.Summary, payload.Action = stopReasonSummary(reason, turn, payload.Error)
 	return Event{
 		Type:      EventTypeStopReason,
 		Timestamp: time.Now().UTC(),
 		Payload:   payload,
 	}
+}
+
+func stopReasonSummary(reason string, turn int, errText string) (string, string) {
+	switch strings.TrimSpace(reason) {
+	case "complete":
+		if turn > 0 {
+			return fmt.Sprintf("run complete after %d turn%s", turn, pluralSuffix(turn)), ""
+		}
+		return "run complete", ""
+	case "max_turns":
+		summary := "stopped after reaching the max turn limit"
+		if turn > 0 {
+			summary = fmt.Sprintf("stopped after %d turn%s: reached the max turn limit", turn, pluralSuffix(turn))
+		}
+		return summary, "increase limits.max_turns or continue in a new prompt"
+	case "max_tokens":
+		summary := "stopped after reaching the max token limit"
+		if turn > 0 {
+			summary = fmt.Sprintf("stopped at turn %d: reached the max token limit", turn)
+		}
+		return summary, "increase limits.max_tokens or reduce prompt and tool output size"
+	case "cancelled":
+		return "run cancelled", "retry when you are ready to continue"
+	case "error":
+		if strings.TrimSpace(errText) != "" {
+			return "run failed", "inspect the reported error and retry"
+		}
+		return "run failed", "inspect the reported error and retry"
+	default:
+		if strings.TrimSpace(reason) == "" {
+			return "", ""
+		}
+		return "stopped: " + reason, ""
+	}
+}
+
+func pluralSuffix(value int) string {
+	if value == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func NewUserInputEvent(content, mode string) Event {
