@@ -1,6 +1,8 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+)
 
 type inputAction struct {
 	handled      bool
@@ -51,4 +53,22 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 	default:
 		return inputAction{submit: trimmed}
 	}
+}
+
+// buildCompletionCandidates returns all candidates matching the current input prefix.
+// Candidates are built-in slash commands plus "/skill <name>" for each enabled skill.
+func buildCompletionCandidates(prefix string, skillNames []string) []string {
+	base := []string{"/exit", "/clear", "/skills", "/skill"}
+	// add "/skill +name" and "/skill -name" for each skill
+	for _, name := range skillNames {
+		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
+	}
+	// filter to those with the prefix
+	var matches []string
+	for _, c := range base {
+		if strings.HasPrefix(c, prefix) {
+			matches = append(matches, c)
+		}
+	}
+	return matches
 }
