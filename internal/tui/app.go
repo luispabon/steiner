@@ -12,6 +12,7 @@ type Config struct {
 	WorkingDir      string
 	MaxTurns        int
 	SkillNames      []string
+	Theme           string
 	OnSubmit        func(string)
 	OnApproval      func(bool)
 	OnSkillToggle   func(string, bool)
