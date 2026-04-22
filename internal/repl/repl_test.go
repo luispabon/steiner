@@ -239,14 +239,14 @@ func TestSessionRunUsesPromptAbstraction(t *testing.T) {
 }
 
 func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
-	if got := completionPrefix([]rune("/he"), 3); got != "/he" {
-		t.Fatalf("completionPrefix(/he) = %q, want /he", got)
+	if got := CompletionPrefix([]rune("/he"), 3); got != "/he" {
+		t.Fatalf("CompletionPrefix(/he) = %q, want /he", got)
 	}
-	if got := completionPrefix([]rune("/help extra"), 10); got != "/help" {
-		t.Fatalf("completionPrefix(/help extra) = %q, want /help", got)
+	if got := CompletionPrefix([]rune("/help extra"), 10); got != "/help" {
+		t.Fatalf("CompletionPrefix(/help extra) = %q, want /help", got)
 	}
-	if got := completionPrefix([]rune("plain text"), 5); got != "" {
-		t.Fatalf("completionPrefix(plain text) = %q, want empty", got)
+	if got := CompletionPrefix([]rune("plain text"), 5); got != "" {
+		t.Fatalf("CompletionPrefix(plain text) = %q, want empty", got)
 	}
 }
 

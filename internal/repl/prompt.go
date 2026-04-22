@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/reeflective/readline"
+	"github.com/nyaosorg/go-readline-ny"
+	"github.com/nyaosorg/go-readline-ny/completion"
+	"github.com/nyaosorg/go-readline-ny/keys"
 )
 
 type Prompter interface {
@@ -87,75 +89,74 @@ func (p *linePrompter) Println(_ output.Channel, args ...any) {
 }
 
 type readlinePrompter struct {
-	shell *readline.Shell
-	out   *output.Stream
+	editor    *readline.Editor
+	completer Completer
+	out       *output.Stream
 }
 
 func newReadlinePrompter(completer Completer, out *output.Stream) Prompter {
-	shell := readline.NewShell()
-	shell.Prompt.Primary(func() string { return "> " })
-	shell.Completer = func(line []rune, cursor int) readline.Completions {
-		return completeWithReadline(completer, line, cursor)
+	editor := &readline.Editor{
+		PromptWriter: func(w io.Writer) (int, error) {
+			return io.WriteString(w, "> ")
+		},
+		Writer: os.Stdout,
 	}
+
+	if len(completer.Commands) > 0 || len(completer.Skills) > 0 {
+		editor.BindKey(keys.CtrlI, &completion.CmdCompletionOrList2{
+			Delimiter: " ",
+			Enclosure: "",
+			Postfix:   "",
+			Candidates: func(field []string) (c, d []string) {
+				prefix := completionPrefixForNy(field)
+				matches := completer.Complete(prefix)
+				if len(matches) == 0 {
+					return nil, nil
+				}
+				return matches, matches
+			},
+		})
+	}
+
 	return &readlinePrompter{
-		shell: shell,
-		out:   out,
+		editor:    editor,
+		completer: completer,
+		out:       out,
 	}
 }
 
 func (p *readlinePrompter) ReadLine(ctx context.Context) (string, error) {
-	_ = ctx
-	if p == nil || p.shell == nil {
+	if p == nil || p.editor == nil {
 		return "", io.EOF
 	}
-	line, err := p.shell.Readline()
+	line, err := p.editor.ReadLine(ctx)
 	return strings.TrimRight(line, "\r\n"), err
 }
 
 func (p *readlinePrompter) Printf(channel output.Channel, format string, args ...any) {
-	if p == nil || p.shell == nil {
+	if p == nil || p.out == nil {
 		return
 	}
 	message := fmt.Sprintf(format, args...)
 	message = strings.TrimRight(message, "\n")
-
-	if p.out != nil {
-		message = p.out.Themed(channel, message)
-	}
-
-	p.shell.Printf("%s\n", message)
+	message = p.out.Themed(channel, message)
+	fmt.Fprintln(os.Stdout, message)
 }
 
 func (p *readlinePrompter) Println(channel output.Channel, args ...any) {
-	if p == nil || p.shell == nil {
+	if p == nil || p.out == nil {
 		return
 	}
 	message := strings.TrimRight(fmt.Sprintln(args...), "\n")
-
-	if p.out != nil {
-		message = p.out.Themed(channel, message)
-	}
-
-	p.shell.Printf("%s\n", message)
+	message = p.out.Themed(channel, message)
+	fmt.Fprintln(os.Stdout, message)
 }
 
-func completeWithReadline(completer Completer, line []rune, cursor int) readline.Completions {
-	prefix := completionPrefix(line, cursor)
-	matches := completer.Complete(prefix)
-	if len(matches) == 0 {
-		return readline.Completions{}
+func completionPrefixForNy(field []string) string {
+	if len(field) == 0 {
+		return ""
 	}
-	return readline.CompleteValues(matches...).NoSpace()
-}
-
-func completionPrefix(line []rune, cursor int) string {
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(line) {
-		cursor = len(line)
-	}
-	text := string(line[:cursor])
+	text := field[len(field)-1]
 	if !strings.HasPrefix(text, "/") {
 		return ""
 	}
@@ -163,6 +164,10 @@ func completionPrefix(line []rune, cursor int) string {
 		text = text[:idx]
 	}
 	return text
+}
+
+func CompletionPrefix(line []rune, cursor int) string {
+	return completionPrefixForNy([]string{string(line[:cursor])})
 }
 
 func asBufioReader(in io.Reader) *bufio.Reader {
