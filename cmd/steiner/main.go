@@ -375,9 +375,9 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 
-	events := output.EventSink(output.NewStream(cmd.ErrOrStderr()))
+	events := output.EventSink(output.NoopSink{})
 	if flags.exec {
-		events = output.NewStream(cmd.OutOrStdout())
+		events = output.EventSink(output.NewStream(cmd.OutOrStdout()))
 	}
 	var closeFn func() error
 	if strings.TrimSpace(flags.logFile) != "" {
