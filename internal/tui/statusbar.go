@@ -3,8 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 type statusState struct {
@@ -32,13 +30,8 @@ func (s statusState) view(width int, hints string) string {
 		parts = append(parts, hints)
 	}
 	text := strings.Join(parts, " | ")
-
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("24")).
-		Padding(0, 1)
 	if width > 0 {
-		style = style.Width(width)
+		return statusBarStyle.Width(width).Render(text)
 	}
-	return style.Render(text)
+	return statusBarStyle.Render(text)
 }

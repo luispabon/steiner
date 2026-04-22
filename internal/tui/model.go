@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -27,6 +28,8 @@ type Model struct {
 	input         textinput.Model
 	content       contentBuffer
 	status        statusState
+	sidebar       sidebarState
+	git           *gitState
 	keys          keyMap
 	approval      approvalState
 	external      <-chan tea.Msg
@@ -44,21 +47,34 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input.Placeholder = "Ask steiner something"
 	input.Focus()
 
+	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
+	for _, name := range cfg.SkillNames {
+		enabledSkills[name] = true
+	}
+
 	m := Model{
 		width:         80,
 		height:        24,
 		viewport:      viewport.New(80, 22),
 		input:         input,
+		sidebar:       newSidebarState(),
+		git:           newGitState(cfg.WorkingDir),
 		keys:          defaultKeyMap(),
 		external:      external,
 		autoScroll:    true,
 		skillNames:    append([]string(nil), cfg.SkillNames...),
-		enabledSkills: make(map[string]bool, len(cfg.SkillNames)),
+		enabledSkills: enabledSkills,
 		onSubmit:      cfg.OnSubmit,
 		onApproval:    cfg.OnApproval,
 		onSkillToggle: cfg.OnSkillToggle,
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
+	m.sidebar.model = strings.TrimSpace(cfg.Model)
+	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
+	m.sidebar.maxTurns = cfg.MaxTurns
+	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
+	m.git.Refresh(context.Background())
+	m.syncSidebar()
 	m.layout()
 	return m
 }
@@ -93,6 +109,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyCtrlB:
+			m.sidebar.Toggle()
+			m.layout()
+			return m, nil
 		case tea.KeyUp:
 			m.scrollUp(1)
 			return m, nil
@@ -116,19 +136,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	inputStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
-		Background(lipgloss.Color("235")).
-		Padding(0, 1)
-	if m.width > 0 {
-		inputStyle = inputStyle.Width(m.width)
+	contentWidth := maxInt(1, m.width)
+	sidebarVisible := m.sidebar.Visible(m.width)
+	if sidebarVisible {
+		contentWidth = maxInt(1, m.width-sidebarWidth)
 	}
+	contentView := contentPaneStyle.Width(contentWidth).Render(m.viewport.View())
+	if sidebarVisible {
+		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width))
+	}
+	inputView := inputAreaStyle.Width(maxInt(1, m.width)).Render(m.input.View())
+	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		m.viewport.View(),
-		inputStyle.Render(m.input.View()),
-		m.status.view(m.width, m.keys.hints(m.approval.active)),
+		contentView,
+		inputView,
+		statusView,
 	)
 }
 
@@ -138,6 +162,9 @@ func (m *Model) layout() {
 		contentHeight = 1
 	}
 	contentWidth := m.width
+	if m.sidebar.Visible(m.width) {
+		contentWidth = m.width - sidebarWidth
+	}
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -148,7 +175,7 @@ func (m *Model) layout() {
 }
 
 func (m *Model) syncViewport() {
-	m.viewport.SetContent(m.content.String())
+	m.viewport.SetContent(m.content.String(m.viewport.Width))
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}
@@ -161,6 +188,10 @@ func (m *Model) applyEvent(event output.Event) {
 	case output.RunStartedEvent:
 		if payload.Model != "" {
 			m.status.model = payload.Model
+			m.sidebar.model = payload.Model
+		}
+		if payload.MaxTurns > 0 {
+			m.sidebar.maxTurns = payload.MaxTurns
 		}
 		m.status.mode = "running"
 	case output.RunFinishedEvent:
@@ -169,12 +200,26 @@ func (m *Model) applyEvent(event output.Event) {
 		m.status.mode = strings.TrimSpace(payload.Reason)
 	case output.TurnStartedEvent:
 		m.status.turn = payload.Turn
+		m.sidebar.currentTurn = payload.Turn
 		if payload.Model != "" {
 			m.status.model = payload.Model
+			m.sidebar.model = payload.Model
 		}
 	case output.ContextDiagnosticsEvent:
 		if payload.Kind == "budget" && payload.BudgetBytes > 0 {
 			m.status.context = fmt.Sprintf("ctx %d/%d", payload.UsedBytes, payload.BudgetBytes)
+			m.sidebar.contextUsed = payload.UsedBytes
+			m.sidebar.contextBudget = payload.BudgetBytes
+		}
+		if payload.Kind == "compaction" {
+			switch {
+			case strings.TrimSpace(payload.SummaryTitle) != "":
+				m.sidebar.compaction = payload.SummaryTitle
+			case payload.CompactedTurns > 0 || payload.CompactedMessages > 0:
+				m.sidebar.compaction = fmt.Sprintf("compacted %d/%d", payload.CompactedTurns, payload.CompactedMessages)
+			default:
+				m.sidebar.compaction = "compacting"
+			}
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
@@ -197,7 +242,33 @@ func (m *Model) applyEvent(event output.Event) {
 		}
 	}
 
+	if event.Type == output.EventTypeToolCallFinished {
+		m.git.Refresh(context.Background())
+	}
+	m.syncSidebar()
 	m.syncViewport()
+}
+
+func (m *Model) syncSidebar() {
+	m.sidebar.model = strings.TrimSpace(m.status.model)
+	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
+	m.sidebar.currentTurn = m.status.turn
+	m.sidebar.activeSkills = m.enabledSkillNames()
+	if snap := m.git.Snapshot(); snap.ready {
+		m.sidebar.branch = snap.branch
+		m.sidebar.dirty = snap.dirty
+	}
+	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
+}
+
+func (m Model) enabledSkillNames() []string {
+	names := make([]string, 0, len(m.enabledSkills))
+	for _, name := range m.skillNames {
+		if m.enabledSkills[name] {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
@@ -250,6 +321,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", action.toggleSkill, state))
 		m.input.Reset()
+		m.syncSidebar()
 		m.syncViewport()
 		return m, nil
 	}

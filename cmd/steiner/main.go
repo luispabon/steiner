@@ -52,6 +52,12 @@ type cliRuntime struct {
 	close       func() error
 }
 
+type interactiveSkills struct {
+	mu      sync.RWMutex
+	enabled map[string]bool
+	order   []string
+}
+
 var buildRuntime = defaultBuildRuntime
 
 func main() {
@@ -173,10 +179,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	submissions := make(chan string, 1)
 	approvalResponse := make(chan bool, 1)
+	enabledSkills := newInteractiveSkills(rt.skillNames)
 
 	tuiApp := tui.NewApp(tui.Config{
-		Model:      rt.cfg.Provider.Model,
-		SkillNames: rt.skillNames,
+		Model:           rt.cfg.Provider.Model,
+		ProviderBaseURL: rt.cfg.Provider.BaseURL,
+		WorkingDir:      rt.workDir,
+		MaxTurns:        rt.cfg.Limits.MaxTurns,
+		SkillNames:      rt.skillNames,
 		OnSubmit: func(text string) {
 			select {
 			case submissions <- text:
@@ -190,6 +200,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 		},
 		OnSkillToggle: func(name string, enabled bool) {
+			enabledSkills.Set(name, enabled)
 		},
 	})
 	events := output.NewMultiSink(rt.events, tuiApp.EventSink())
@@ -210,13 +221,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	defer stop()
 
 	var conversation []agent.Message
+	runner := cliRunner{runtime: rt, approver: approver}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
-			result, err := runAgentLoop(ctx, rt, approver, events, conversation)
+			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
 			if err != nil {
 				events.Emit(output.Event{
 					Type:    output.EventTypeStopReason,
@@ -227,67 +239,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			conversation = result.Conversation
 		}
 	}
-}
-
-func runAgentLoop(ctx context.Context, rt cliRuntime, approver tool.ApprovalResponder, events output.EventSink, conversation []agent.Message) (runResult, error) {
-	if rt.provider == nil {
-		return runResult{}, fmt.Errorf("provider is required")
-	}
-	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
-
-	assembly := prompt.AssemblyOptions{
-		HomeDir:                   rt.homeDir,
-		ProjectRoot:               rt.workDir,
-		SkillsRoot:                prompt.DefaultSkillsRoot(rt.homeDir),
-		SkillNames:                rt.skillNames,
-		ProjectContextBudgetBytes: rt.cfg.ProjectContext.MaxTokens,
-		ProjectContextExtraFiles:  rt.cfg.ProjectContext.ExtraFiles,
-		ProjectContextIgnoreFiles: rt.cfg.ProjectContext.IgnoreFiles,
-		Conversation:              toProviderConversation(conversation),
-	}
-
-	temperature := rt.cfg.Provider.Temperature
-	maxTokens := rt.cfg.Provider.MaxCompletionTokens
-	var maxTokensPtr *int
-	if maxTokens > 0 {
-		maxTokensPtr = &maxTokens
-	}
-
-	var diagnostics []output.Event
-	diags := output.NewMultiSink(
-		events,
-		output.SinkFunc(func(event output.Event) {
-			if isRetainedDiagnosticEvent(event) {
-				diagnostics = append(diagnostics, event)
-			}
-		}),
-	)
-	executor := tool.NewExecutor(rt.registry, rt.cfg, approver, rt.workDir)
-	runner := agent.NewRunner()
-	state, err := runner.Run(runCtx, agent.RunRequest{
-		Provider:    rt.provider,
-		Executor:    executor,
-		Tools:       registryToolSpecs(rt.registry),
-		Prompt:      assembly,
-		Model:       rt.cfg.Provider.Model,
-		Temperature: &temperature,
-		MaxTokens:   maxTokensPtr,
-		Limits: agent.Limits{
-			MaxTurns:  rt.cfg.Limits.MaxTurns,
-			MaxTokens: rt.cfg.Limits.MaxTokens,
-		},
-		Events: diags,
-	})
-	if err != nil {
-		return runResult{}, err
-	}
-
-	return runResult{
-		Conversation: state.Conversation,
-		Reply:        lastAssistantReply(state.Conversation),
-		Diagnostics:  cloneEvents(diagnostics),
-	}, nil
 }
 
 type channelApprovalResponder struct {
@@ -613,6 +564,45 @@ func lastAssistantReply(messages []agent.Message) string {
 		}
 	}
 	return ""
+}
+
+func newInteractiveSkills(skillNames []string) *interactiveSkills {
+	enabled := make(map[string]bool, len(skillNames))
+	for _, name := range skillNames {
+		enabled[name] = true
+	}
+	return &interactiveSkills{
+		enabled: enabled,
+		order:   append([]string(nil), skillNames...),
+	}
+}
+
+func (s *interactiveSkills) Set(name string, enabled bool) {
+	if s == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.enabled == nil {
+		s.enabled = make(map[string]bool)
+	}
+	s.enabled[name] = enabled
+}
+
+func (s *interactiveSkills) Snapshot() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	names := make([]string, 0, len(s.order))
+	for _, name := range s.order {
+		if s.enabled[name] {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func renderNames(stream *output.Stream, heading string, names []string) {

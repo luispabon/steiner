@@ -17,7 +17,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, " world")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextBudgetEvent("project_context", 1, 100, 256, false)})
 
-	if got := m.content.String(); !strings.Contains(got, "assistant> hello world") {
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "assistant> hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
 	}
 	if got := m.status.model; got != "gpt-test" {
@@ -42,6 +42,12 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 		},
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected configured skills to start enabled")
+	}
+	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
+		t.Fatalf("sidebar.activeSkills = %#v, want review enabled by default", got)
+	}
 
 	m.input.SetValue("fix the bug")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -51,11 +57,23 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 
 	m.input.SetValue("/skill review")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.enabledSkills["review"] {
-		t.Fatal("expected review skill to be enabled")
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be disabled")
+	}
+	if len(m.sidebar.activeSkills) != 0 {
+		t.Fatalf("sidebar.activeSkills = %#v, want none enabled", m.sidebar.activeSkills)
 	}
 	if len(toggled) != 1 || toggled[0] != "review" {
 		t.Fatalf("toggled = %#v, want review", toggled)
+	}
+
+	m.input.SetValue("/skill +review")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be enabled")
+	}
+	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
+		t.Fatalf("sidebar.activeSkills = %#v, want review enabled", got)
 	}
 }
 
@@ -106,6 +124,24 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 	if m.viewport.Height != 10 {
 		t.Fatalf("viewport height = %d, want 10", m.viewport.Height)
+	}
+}
+
+func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
+	var content contentBuffer
+	content.appendMarkdownBlock("## Title\n\nThis is a long markdown paragraph that should wrap differently when the content pane width changes.")
+
+	narrow := content.String(28)
+	wide := content.String(72)
+
+	if !strings.Contains(narrow, "Title") {
+		t.Fatalf("narrow render = %q, want markdown content", narrow)
+	}
+	if !strings.Contains(wide, "Title") {
+		t.Fatalf("wide render = %q, want markdown content", wide)
+	}
+	if narrow == wide {
+		t.Fatalf("markdown render did not change across widths:\n%s", narrow)
 	}
 }
 
