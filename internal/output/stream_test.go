@@ -12,9 +12,9 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 
 	renderer.OnEvent(NewModelCallStartedEvent(1, "test-model", 5))
 	renderer.OnEvent(NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "note.txt"}))
-	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "prompt"))
-	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "prompt", "ok"))
-	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "prompt", "blocked"))
+	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`))
+	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "prompt", `{"path":"note.txt"}`, "ok"))
+	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "prompt", `{"command":"pwd"}`, "blocked"))
 	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"contents":"hello"}`, nil))
 	renderer.OnEvent(NewStopReasonEvent(2, "complete", nil))
 	renderer.OnEvent(NewStopReasonEvent(3, "max_turns", nil))
@@ -23,9 +23,9 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 	for _, want := range []string{
 		"status: model turn=1 started",
 		"tool: turn=1 start tool=read",
-		"approval: turn=1 requested",
-		"approval: turn=1 accepted",
-		"approval: turn=1 denied",
+		"approval: turn=1 requested tool=write mode=prompt args={\"path\":\"note.txt\"}",
+		"approval: turn=1 accepted tool=write mode=prompt args={\"path\":\"note.txt\"} message=ok",
+		"approval: turn=1 denied tool=bash mode=prompt args={\"command\":\"pwd\"} message=blocked",
 		"tool: turn=1 end tool=read",
 		"status: run complete after 2 turns",
 		"status: stopped after 3 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt",

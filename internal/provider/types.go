@@ -61,4 +61,5 @@ type ChatChunk struct {
 	Usage        *UsageStats `json:"usage,omitempty"`
 	Done         bool        `json:"done,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
+	Error        string      `json:"error,omitempty"`
 }

@@ -174,20 +174,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		Skills:   append([]string(nil), rt.skillNames...),
 	}
 	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
-	if originalLogger, ok := rt.provider.(loggingProvider); ok {
-		originalLogger.sink = rt.events
-		rt.provider = originalLogger
-	}
-
 	session := repl.NewSession(
 		cliRunner{
 			runtime: rt,
 			approver: agent.NewEventingApprover(
 				rt.events,
-				promptingApprovalHandler{
-					reader:    approvalReader(rt),
-					statusOut: rt.status,
-				},
+				stdinApprovalResponder{reader: approvalReader(rt)},
 			),
 		},
 		interactiveInput(rt),
@@ -219,23 +211,15 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	}
 	rt.events.Emit(output.NewUserInputEvent(promptText, "exec"))
 
-	result, err := cliRunner{
+	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
-			promptingApprovalHandler{
-				reader:    approvalReader(rt),
-				statusOut: rt.status,
-			},
+			stdinApprovalResponder{reader: approvalReader(rt)},
 		),
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
 	if err != nil {
 		return err
-	}
-
-	reply := strings.TrimSpace(result.Reply)
-	if reply != "" {
-		rt.human.Println(reply)
 	}
 	return nil
 }
@@ -267,9 +251,11 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	provWithLogging := provider.Provider(prov)
 
 	events := output.EventSink(output.NewStream(cmd.ErrOrStderr()))
+	if flags.exec {
+		events = output.NewStream(cmd.OutOrStdout())
+	}
 	var closeFn func() error
 	if strings.TrimSpace(flags.logFile) != "" {
 		fileSink, err := output.NewFileLogSink(flags.logFile)
@@ -279,11 +265,6 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		events = output.NewMultiSink(events, fileSink)
 		closeFn = fileSink.Close
 	}
-	provWithLogging = loggingProvider{
-		inner: provWithLogging,
-		sink:  events,
-	}
-
 	registry, err := runtimeRegistry(cfg)
 	if err != nil {
 		return cliRuntime{}, err
@@ -314,7 +295,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 	return cliRuntime{
 		cfg:         cfg,
-		provider:    provWithLogging,
+		provider:    prov,
 		registry:    registry,
 		toolNames:   registry.Names(),
 		skillNames:  skillNames,
@@ -332,7 +313,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 type cliRunner struct {
 	runtime  cliRuntime
-	approver tool.Approver
+	approver tool.ApprovalResponder
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (repl.RunResult, error) {
@@ -519,35 +500,35 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
-type promptingApprovalHandler struct {
-	reader    *bufio.Reader
-	statusOut *output.Stream
+type stdinApprovalResponder struct {
+	reader *bufio.Reader
 }
 
-func (h promptingApprovalHandler) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-	if h.statusOut != nil {
-		h.statusOut.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
-		if len(req.Input) > 0 {
-			h.statusOut.Printf(" args=%s", output.CompactJSON(req.Input))
-		}
-		h.statusOut.Printf(" [y/N] ")
+func (h stdinApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+	if req.Response == nil {
+		return fmt.Errorf("approval response channel is required")
 	}
 	if h.reader == nil {
-		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}
+		return fmt.Errorf("approval input is unavailable")
 	}
 	line, err := h.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
-		return tool.ApprovalResponse{}, err
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: err.Error()}
+		return err
 	}
 	if err == io.EOF && strings.TrimSpace(line) == "" {
-		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}
+		return fmt.Errorf("approval input is unavailable")
 	}
+
+	response := tool.ApprovalResponse{Allow: false, Message: "denied"}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
-		return tool.ApprovalResponse{Allow: true, Message: "approved"}, nil
-	default:
-		return tool.ApprovalResponse{Allow: false, Message: "denied"}, nil
+		response = tool.ApprovalResponse{Allow: true, Message: "approved"}
 	}
+	req.Response <- response
+	return nil
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {

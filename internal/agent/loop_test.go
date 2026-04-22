@@ -112,16 +112,90 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 
 	wantEventTypes := []string{
+		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
+		output.EventTypeTurnFinished,
+		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
+		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
+	}
+}
+
+func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
+	providerStub := &fakeProvider{
+		streamFn: func(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			chunks := make(chan provider.ChatChunk, 2)
+			go func() {
+				defer close(chunks)
+				chunks <- provider.ChatChunk{
+					Delta: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "hel",
+					},
+				}
+				chunks <- provider.ChatChunk{
+					Delta: provider.Message{
+						Content: "lo",
+					},
+					Done:         true,
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 2},
+				}
+			}()
+			return chunks, nil
+		},
+	}
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := state.TurnCount, 1; got != want {
+		t.Fatalf("TurnCount = %d, want %d", got, want)
+	}
+	if got, want := state.Conversation[len(state.Conversation)-1].Content, "hello"; got != want {
+		t.Fatalf("assistant content = %q, want %q", got, want)
+	}
+	wantTypes := []string{
+		output.EventTypeTurnStarted,
+		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAssistantChunk,
+		output.EventTypeAssistantChunk,
+		output.EventTypeAPIResponse,
+		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
+		output.EventTypeTurnFinished,
+		output.EventTypeStopReason,
+	}
+	if got := eventTypes(events); !equalStrings(got, wantTypes) {
+		t.Fatalf("event types = %v, want %v", got, wantTypes)
 	}
 }
 
@@ -251,8 +325,12 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
 	if got, want := eventTypes(events), []string{
+		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeStopReason,
@@ -333,21 +411,25 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	}
 
 	var gotPreview tool.ApprovalPreview
-	approver := NewEventingApprover(output.NoopSink{}, tool.ApproverFunc(func(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
+	approver := NewEventingApprover(output.NoopSink{}, tool.ApprovalResponderFunc(func(ctx context.Context, req tool.ApprovalRequest) error {
 		gotPreview = req.Preview
-		return tool.ApprovalResponse{Allow: true, Message: "ok"}, nil
+		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
+		return nil
 	}))
 
-	resp, err := approver.Approve(context.Background(), tool.ApprovalRequest{
-		Tool:    tool.ToolDef{Name: "bash"},
-		Mode:    config.ApprovalModePrompt,
-		Preview: preview,
+	response := make(chan tool.ApprovalResponse, 1)
+	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "bash"},
+		Mode:     config.ApprovalModePrompt,
+		Preview:  preview,
+		Response: response,
 	})
 	if err != nil {
-		t.Fatalf("Approve() error = %v", err)
+		t.Fatalf("RequestApproval() error = %v", err)
 	}
+	resp := <-response
 	if !resp.Allow {
-		t.Fatal("Approve() = false, want true")
+		t.Fatal("approval response = false, want true")
 	}
 	if got, want := gotPreview.Summary(), preview.Summary(); got != want {
 		t.Fatalf("forwarded preview summary = %q, want %q", got, want)
@@ -356,19 +438,23 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 
 func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 	var events []output.Event
-	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApproverFunc(func(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-		return tool.ApprovalResponse{Allow: true, Message: "ok"}, nil
+	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(ctx context.Context, req tool.ApprovalRequest) error {
+		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
+		return nil
 	}))
 
-	resp, err := approver.Approve(context.Background(), tool.ApprovalRequest{
-		Tool: tool.ToolDef{Name: "write"},
-		Mode: config.ApprovalModePrompt,
+	response := make(chan tool.ApprovalResponse, 1)
+	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "write"},
+		Mode:     config.ApprovalModePrompt,
+		Response: response,
 	})
 	if err != nil {
-		t.Fatalf("Approve() error = %v", err)
+		t.Fatalf("RequestApproval() error = %v", err)
 	}
+	resp := <-response
 	if !resp.Allow {
-		t.Fatal("Approve() = false, want true")
+		t.Fatal("approval response = false, want true")
 	}
 	if got, want := eventTypes(events), []string{output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted}; !equalStrings(got, want) {
 		t.Fatalf("event types = %v, want %v", got, want)
@@ -379,6 +465,7 @@ type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse
 	chatFn    func(context.Context, provider.ChatRequest) (provider.ChatResponse, error)
+	streamFn  func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error)
 }
 
 func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -395,6 +482,10 @@ func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequ
 }
 
 func (p *fakeProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	if p.streamFn != nil {
+		p.requests = append(p.requests, req)
+		return p.streamFn(ctx, req)
+	}
 	return nil, errors.New("stream not used")
 }
 
@@ -560,14 +651,24 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	}
 
 	wantEventTypes := []string{
+		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
+		output.EventTypeTurnFinished,
+		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
+		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {

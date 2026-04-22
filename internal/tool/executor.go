@@ -13,26 +13,26 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-type Approver interface {
-	Approve(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error)
+type ApprovalResponder interface {
+	RequestApproval(ctx context.Context, req ApprovalRequest) error
 }
 
-type ApproverFunc func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error)
+type ApprovalResponderFunc func(ctx context.Context, req ApprovalRequest) error
 
-func (f ApproverFunc) Approve(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
+func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req ApprovalRequest) error {
 	return f(ctx, req)
 }
 
 type Executor struct {
 	registry    *Registry
 	approval    ApprovalResolver
-	approver    Approver
+	approver    ApprovalResponder
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
 }
 
-func NewExecutor(registry *Registry, cfg config.Config, approver Approver, workDir string) *Executor {
+func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir string) *Executor {
 	root := normalizeExecutionRoot(workDir)
 	outputLimit := cfg.Limits.ToolOutputMaxBytes
 	if outputLimit < 1 {
@@ -92,15 +92,22 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 				Message: "tool execution requires approval",
 			}
 		}
-		decision, err := e.approver.Approve(ctx, ApprovalRequest{
-			Tool:    def,
-			Mode:    mode,
-			Input:   cloneInputMap(normalizedInput),
-			WorkDir: e.pathPolicy.Root(),
-			Preview: preview,
-		})
-		if err != nil {
+		responseCh := make(chan ApprovalResponse, 1)
+		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
+			Tool:     def,
+			Mode:     mode,
+			Input:    cloneInputMap(normalizedInput),
+			WorkDir:  e.pathPolicy.Root(),
+			Preview:  preview,
+			Response: responseCh,
+		}); err != nil {
 			return nil, err
+		}
+		decision := ApprovalResponse{}
+		select {
+		case decision = <-responseCh:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 		if !decision.Allow {
 			message := strings.TrimSpace(decision.Message)

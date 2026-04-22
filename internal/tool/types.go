@@ -41,11 +41,12 @@ func (e *JSONEnvelopeError) Error() string {
 }
 
 type ApprovalRequest struct {
-	Tool    ToolDef
-	Mode    config.ApprovalMode
-	Input   map[string]any
-	WorkDir string
-	Preview ApprovalPreview
+	Tool     ToolDef
+	Mode     config.ApprovalMode
+	Input    map[string]any
+	WorkDir  string
+	Preview  ApprovalPreview
+	Response chan ApprovalResponse
 }
 
 type ApprovalResponse struct {

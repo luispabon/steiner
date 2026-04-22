@@ -219,6 +219,38 @@ func TestOpenAICompatStreamChatCompletionNormalizesResponse(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatStreamChatCompletionReportsStreamErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, "bad upstream")
+	}))
+	defer server.Close()
+
+	provider := mustTestOpenAICompat(t, server.URL)
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v, want channel", err)
+	}
+
+	chunk, ok := <-ch
+	if !ok {
+		t.Fatal("stream closed before error chunk")
+	}
+	if !chunk.Done {
+		t.Fatal("error chunk Done = false, want true")
+	}
+	if chunk.Error == "" {
+		t.Fatal("error chunk Error = empty, want upstream error")
+	}
+	if _, ok := <-ch; ok {
+		t.Fatal("stream produced unexpected extra chunk after error")
+	}
+}
+
 func TestOpenAICompatSchedulerSerializesRequests(t *testing.T) {
 	var started int32
 	firstStarted := make(chan struct{})
