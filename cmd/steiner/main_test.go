@@ -264,7 +264,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "final answer") {
 		t.Fatalf("stdout = %q, want final answer", got)
 	}
-	if got := stderr.String(); !strings.Contains(got, "status: reason=complete") {
+	if got := stderr.String(); !strings.Contains(got, "status: run complete after 1 turn") {
 		t.Fatalf("stderr = %q, want stop reason", got)
 	}
 }
@@ -682,24 +682,37 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	}
 
 	if len(result.Diagnostics) == 0 {
-		t.Fatal("Diagnostics = empty, want context diagnostics")
+		t.Fatal("Diagnostics = empty, want retained diagnostics")
 	}
 	var kinds []string
+	foundStopReason := false
 	for _, event := range result.Diagnostics {
-		if event.Type != output.EventTypeContextDiagnostics {
-			continue
+		switch event.Type {
+		case output.EventTypeContextDiagnostics:
+			payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+			if !ok {
+				t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+			}
+			kinds = append(kinds, payload.Kind)
+		case output.EventTypeStopReason:
+			payload, ok := event.Payload.(output.StopReasonEvent)
+			if !ok {
+				t.Fatalf("stop payload type = %T, want output.StopReasonEvent", event.Payload)
+			}
+			if payload.Summary == "" {
+				t.Fatalf("stop reason summary = empty, want actionable summary")
+			}
+			foundStopReason = true
 		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-		}
-		kinds = append(kinds, payload.Kind)
 	}
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
 	}
 	if !containsString(kinds, "compaction") {
 		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
+	}
+	if !foundStopReason {
+		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
 	}
 }
 

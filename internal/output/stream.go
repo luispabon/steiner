@@ -270,18 +270,21 @@ func renderEvent(event Event) Segment {
 		}
 		return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
 	case StopReasonEvent:
-		parts := []string{
-			fmt.Sprintf("reason=%s", payload.Reason),
+		parts := []string{}
+		if payload.Summary != "" {
+			parts = append(parts, payload.Summary)
+		} else if payload.Reason != "" {
+			parts = append(parts, "reason="+payload.Reason)
 		}
-		if payload.Turn > 0 {
-			parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
+		if payload.Action != "" {
+			parts = append(parts, "next: "+payload.Action)
 		}
 		channel := ChannelStatus
 		label := "status"
 		if payload.Error != "" {
 			channel = ChannelError
 			label = "error"
-			parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
+			parts = append(parts, "error: "+payload.Error)
 		}
 		return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 	case UserInputEvent:
