@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -217,7 +218,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			result, err := runAgentLoop(ctx, rt, approver, events, conversation)
 			if err != nil {
-				return err
+				events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
+				})
+				continue
 			}
 			conversation = result.Conversation
 		}
@@ -357,6 +362,14 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		APIKey:    cfg.Provider.APIKey,
 		Model:     cfg.Provider.Model,
 		Scheduler: scheduler,
+		HTTPClient: &http.Client{
+			Timeout: 120 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:    1,
+				IdleConnTimeout: 90 * time.Second,
+				MaxConnsPerHost: 1,
+			},
+		},
 	})
 	if err != nil {
 		return cliRuntime{}, err
