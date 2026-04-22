@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -134,7 +135,7 @@ func (s *Session) handleCommand(command Command) (bool, error) {
 	case "skills":
 		s.printSkills()
 	case "history":
-		s.printHistory()
+		s.printHistory(command.Args)
 	case "clear":
 		s.Conversation = nil
 		s.Diagnostics = nil
@@ -209,22 +210,117 @@ func (s *Session) printSkills() {
 	}
 }
 
-func (s *Session) printHistory() {
-	s.Printf(output.ChannelStatus, "history: conversation_messages=%d diagnostics=%d\n", len(s.Conversation), len(s.Diagnostics))
-	if len(s.Diagnostics) == 0 {
-		s.Println(output.ChannelStatus, "no context diagnostics recorded")
+func (s *Session) printHistory(args []string) {
+	mode, limit, err := parseHistoryArgs(args)
+	if err != nil {
+		s.Printf(output.ChannelError, "history: %v\n", err)
+		s.Println(output.ChannelStatus, "usage: /history [summary|context|recent [count]]")
 		return
 	}
 
-	s.Println(output.ChannelStatus, "context diagnostics:")
-	start := 0
-	if len(s.Diagnostics) > 5 {
-		start = len(s.Diagnostics) - 5
-		s.Printf(output.ChannelStatus, "showing latest %d of %d\n", len(s.Diagnostics)-start, len(s.Diagnostics))
+	snapshot := output.SummarizeInspection(s.Diagnostics, limit)
+	s.Printf(
+		output.ChannelStatus,
+		"history: conversation_messages=%d diagnostics=%d context_diagnostics=%d\n",
+		len(s.Conversation),
+		snapshot.TotalDiagnostics,
+		snapshot.ContextDiagnostics,
+	)
+
+	if snapshot.TotalDiagnostics == 0 {
+		s.Println(output.ChannelStatus, "no session diagnostics recorded")
+		return
 	}
-	for _, event := range s.Diagnostics[start:] {
-		s.Printf(output.ChannelStatus, "  %s\n", output.FormatEvent(event))
+
+	switch mode {
+	case "summary":
+		s.printHistorySummary(snapshot)
+	case "context":
+		s.printHistoryContext(snapshot, limit)
+	case "recent":
+		s.printHistoryRecent(snapshot.Recent, limit, snapshot.TotalDiagnostics, "recent diagnostics")
 	}
+}
+
+func (s *Session) printHistorySummary(snapshot output.InspectionSnapshot) {
+	if snapshot.LastStopReason != "" {
+		s.Printf(output.ChannelStatus, "last stop: %s\n", snapshot.LastStopReason)
+	}
+	if snapshot.LastBudget != "" {
+		s.Printf(output.ChannelStatus, "context fullness: %s\n", snapshot.LastBudget)
+	}
+	if snapshot.LastCompaction != "" {
+		s.Printf(output.ChannelStatus, "recent compaction: %s\n", snapshot.LastCompaction)
+	}
+	if len(snapshot.Recent) == 0 {
+		return
+	}
+	s.printHistoryRecent(snapshot.Recent, len(snapshot.Recent), snapshot.TotalDiagnostics, "recent diagnostics")
+}
+
+func (s *Session) printHistoryContext(snapshot output.InspectionSnapshot, limit int) {
+	if snapshot.ContextDiagnostics == 0 {
+		s.Println(output.ChannelStatus, "no context diagnostics recorded")
+		return
+	}
+	if snapshot.LastBudget != "" {
+		s.Printf(output.ChannelStatus, "context fullness: %s\n", snapshot.LastBudget)
+	}
+	if snapshot.LastCompaction != "" {
+		s.Printf(output.ChannelStatus, "recent compaction: %s\n", snapshot.LastCompaction)
+	}
+	s.printHistoryRecent(snapshot.RecentContext, limit, snapshot.ContextDiagnostics, "recent context diagnostics")
+}
+
+func (s *Session) printHistoryRecent(lines []string, limit, total int, heading string) {
+	if len(lines) == 0 {
+		s.Printf(output.ChannelStatus, "%s: none\n", heading)
+		return
+	}
+	if total > len(lines) && limit > 0 {
+		s.Printf(output.ChannelStatus, "%s: showing latest %d of %d\n", heading, len(lines), total)
+	} else {
+		s.Printf(output.ChannelStatus, "%s:\n", heading)
+	}
+	for _, line := range lines {
+		s.Printf(output.ChannelStatus, "  %s\n", line)
+	}
+}
+
+func parseHistoryArgs(args []string) (mode string, limit int, err error) {
+	mode = "summary"
+	limit = 3
+	if len(args) == 0 {
+		return mode, limit, nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(args[0])) {
+	case "", "summary":
+		mode = "summary"
+	case "context":
+		mode = "context"
+	case "recent":
+		mode = "recent"
+		limit = 5
+	default:
+		return "", 0, fmt.Errorf("unknown view %q", args[0])
+	}
+
+	if len(args) == 1 {
+		return mode, limit, nil
+	}
+	if mode != "recent" {
+		return "", 0, fmt.Errorf("%s view does not take extra arguments", mode)
+	}
+
+	parsed, parseErr := strconv.Atoi(args[1])
+	if parseErr != nil || parsed <= 0 {
+		return "", 0, fmt.Errorf("recent count must be a positive integer")
+	}
+	if parsed > 10 {
+		parsed = 10
+	}
+	return mode, parsed, nil
 }
 
 func (s *Session) toggleSkill(name string) bool {
