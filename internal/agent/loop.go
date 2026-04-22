@@ -88,9 +88,10 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitAssemblyDiagnostics(req.Events, req.Prompt, turn, assembly)
 		state.Context = updateContextState(state.Context, assembly.Blocks, turn)
 
+		emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
 		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
 
-		response, err := req.Provider.ChatCompletion(ctx, provider.ChatRequest{
+		response, err := completeModelCall(ctx, req, turn, provider.ChatRequest{
 			Model:       req.Model,
 			Messages:    assembly.Messages,
 			Tools:       cloneProviderTools(req.Tools),
@@ -100,11 +101,13 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if err != nil {
 			if cancelled, ok := contextCancellationState(ctx, state); ok {
 				emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
+				emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 				emitStop(req.Events, cancelled, nil)
 				return cancelled, nil
 			}
 			state.StopReason = StopReasonError
 			emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, err))
+			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
 			emitStop(req.Events, state, err)
 			return state, err
 		}
@@ -114,11 +117,15 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			state.TokenCount += response.Usage.TotalTokens
 		}
 		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), tokenCount(response.Usage), nil))
+		if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
+			emitEvent(req.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
+		}
 
 		assistant := fromProviderMessage(response.Message)
 		state.Conversation = append(state.Conversation, assistant)
 
 		if len(response.Message.ToolCalls) == 0 {
+			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 			state.StopReason = StopReasonComplete
 			emitStop(req.Events, state, nil)
 			return state, nil
@@ -149,8 +156,83 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			})
 		}
 
+		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns, req.Events)
 	}
+}
+
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
+	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools))
+
+	stream, err := req.Provider.StreamChatCompletion(ctx, chatRequest)
+	if err == nil {
+		response, streamErr := consumeModelStream(ctx, req.Events, turn, stream)
+		if streamErr != nil {
+			emitEvent(req.Events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
+			return provider.ChatResponse{}, streamErr
+		}
+		emitEvent(req.Events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
+		return response, nil
+	}
+
+	response, chatErr := req.Provider.ChatCompletion(ctx, chatRequest)
+	emitEvent(req.Events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr))
+	if chatErr != nil {
+		return provider.ChatResponse{}, chatErr
+	}
+	return response, nil
+}
+
+func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk) (provider.ChatResponse, error) {
+	response := provider.ChatResponse{}
+	message := provider.Message{Role: provider.MessageRoleAssistant}
+	sawFinal := false
+
+	for chunk := range chunks {
+		if errText := strings.TrimSpace(chunk.Error); errText != "" {
+			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
+		}
+		if role := chunk.Delta.Role; role != "" {
+			message.Role = role
+		}
+		if !chunk.Done {
+			if content := chunk.Delta.Content; content != "" {
+				message.Content += content
+				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+			}
+			if len(chunk.Delta.ToolCalls) > 0 {
+				message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+			}
+			continue
+		}
+		sawFinal = true
+		response.Usage = chunk.Usage
+		response.FinishReason = chunk.FinishReason
+		if content := chunk.Delta.Content; content != "" {
+			switch {
+			case message.Content == "":
+				message.Content = content
+				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+			case strings.HasPrefix(content, message.Content):
+				message.Content = content
+			case strings.HasPrefix(message.Content, content):
+				// Final chunk already represented by prior deltas.
+			default:
+				message.Content += content
+				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+			}
+		}
+		if len(chunk.Delta.ToolCalls) > 0 {
+			message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+		}
+	}
+
+	if !sawFinal {
+		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
+	}
+
+	response.Message = message
+	return response, nil
 }
 
 func contextCancellationState(ctx context.Context, state RunState) (RunState, bool) {
@@ -162,39 +244,60 @@ func contextCancellationState(ctx context.Context, state RunState) (RunState, bo
 }
 
 type eventingApprover struct {
-	inner tool.Approver
+	inner tool.ApprovalResponder
 	sink  output.EventSink
 }
 
-func NewEventingApprover(sink output.EventSink, inner tool.Approver) tool.Approver {
+func NewEventingApprover(sink output.EventSink, inner tool.ApprovalResponder) tool.ApprovalResponder {
 	if sink == nil {
 		sink = output.NoopSink{}
 	}
 	return eventingApprover{inner: inner, sink: sink}
 }
 
-func (a eventingApprover) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, string(req.Mode)))
+func (a eventingApprover) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+	if req.Response == nil {
+		return fmt.Errorf("approval response channel is required")
+	}
+	preview := output.CompactJSON(req.Input)
+	if preview == "" && req.Preview.Summary() != "" {
+		preview = req.Preview.Summary()
+	}
+	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, string(req.Mode), preview))
 	if a.inner == nil {
-		err := fmt.Errorf("approval is required")
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), err.Error()))
-		return tool.ApprovalResponse{}, err
+		response := tool.ApprovalResponse{Allow: false, Message: "approval is required"}
+		req.Response <- response
+		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), preview, response.Message))
+		return nil
 	}
-	resp, err := a.inner.Approve(ctx, req)
-	if err != nil {
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), err.Error()))
-		return resp, err
+	bridge := make(chan tool.ApprovalResponse, 1)
+	innerReq := req
+	innerReq.Response = bridge
+	if err := a.inner.RequestApproval(ctx, innerReq); err != nil {
+		response := tool.ApprovalResponse{Allow: false, Message: err.Error()}
+		req.Response <- response
+		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), preview, response.Message))
+		return err
 	}
-	if resp.Allow {
-		emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, string(req.Mode), resp.Message))
-		return resp, nil
-	}
-	message := resp.Message
-	if strings.TrimSpace(message) == "" {
-		message = "tool execution denied"
-	}
-	emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), message))
-	return resp, nil
+	go func() {
+		var response tool.ApprovalResponse
+		select {
+		case response = <-bridge:
+		case <-ctx.Done():
+			response = tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
+		}
+		req.Response <- response
+		if response.Allow {
+			emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, string(req.Mode), preview, response.Message))
+			return
+		}
+		message := strings.TrimSpace(response.Message)
+		if message == "" {
+			message = "tool execution denied"
+		}
+		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), preview, message))
+	}()
+	return nil
 }
 
 func cloneMessages(messages []Message) []Message {
@@ -257,6 +360,18 @@ func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
 	copy(out, tools)
 	for i := range out {
 		out[i].Function.Parameters = cloneInput(out[i].Function.Parameters)
+	}
+	return out
+}
+
+func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]provider.ToolCall, len(calls))
+	copy(out, calls)
+	for i := range out {
+		out[i].Arguments = cloneInput(out[i].Arguments)
 	}
 	return out
 }

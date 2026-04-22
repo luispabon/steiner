@@ -247,7 +247,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 			homeDir:     t.TempDir(),
 			human:       output.NewStream(&stdout),
 			status:      output.NewStream(&stderr),
-			events:      output.NewStream(&stderr),
+			events:      output.NewStream(&stdout),
 			sharedInput: bufio.NewReader(strings.NewReader("")),
 		}, nil
 	}
@@ -264,8 +264,11 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "final answer") {
 		t.Fatalf("stdout = %q, want final answer", got)
 	}
-	if got := stderr.String(); !strings.Contains(got, "status: run complete after 1 turn") {
-		t.Fatalf("stderr = %q, want stop reason", got)
+	if got := stdout.String(); !strings.Contains(got, "status: run complete after 1 turn") {
+		t.Fatalf("stdout = %q, want stop reason", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
 
@@ -466,7 +469,7 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 			homeDir:     t.TempDir(),
 			human:       output.NewStream(&stdout),
 			status:      output.NewStream(&stderr),
-			events:      output.NewStream(&stderr),
+			events:      output.NewStream(&stdout),
 			sharedInput: bufio.NewReader(strings.NewReader("y\n")),
 		}, nil
 	}
@@ -480,13 +483,16 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stderr.String()
+	got := stdout.String()
 	wantCWD := filepath.Join(tempRepo, "subdir")
-	if !strings.Contains(got, `approve tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} [y/N]`) {
-		t.Fatalf("stderr = %q, want approval prompt with normalized args", got)
+	if !strings.Contains(got, `approval: turn=0 requested tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"}`) {
+		t.Fatalf("stdout = %q, want approval prompt with normalized args", got)
 	}
-	if !strings.Contains(stdout.String(), "final answer") {
-		t.Fatalf("stdout = %q, want final answer", stdout.String())
+	if !strings.Contains(got, `approval: turn=0 accepted tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} message=approved`) {
+		t.Fatalf("stdout = %q, want approval acceptance with normalized args", got)
+	}
+	if !strings.Contains(got, "final answer") {
+		t.Fatalf("stdout = %q, want final answer", got)
 	}
 }
 

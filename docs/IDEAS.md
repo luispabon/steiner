@@ -7,3 +7,5 @@
  * We need to be able to report on how full the context is somehow
  * We need to natively integrate with context-mode
  * We need to integrate with rtk
+ * Expand config to add more than one model that can be switched on the fly via /model
+ * If context fill can't be inferred or queried from the model's API, we need to be able to estimate it ourselves. The model's config should be able to specify the context size. We should be able to estimate how much context we're shoving into each request to the model.

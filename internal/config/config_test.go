@@ -108,7 +108,7 @@ logging:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{})
+	cfg, err := Load(LoadOptions{Env: map[string]string{}})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}

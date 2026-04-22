@@ -21,6 +21,12 @@ const (
 	EventTypeUserInput          = "user_input"
 	EventTypeAPIRequest         = "api_request"
 	EventTypeAPIResponse        = "api_response"
+	EventTypeRunStarted         = "run_started"
+	EventTypeRunFinished        = "run_finished"
+	EventTypeTurnStarted        = "turn_started"
+	EventTypeTurnFinished       = "turn_finished"
+	EventTypeAssistantMessage   = "assistant_message"
+	EventTypeAssistantChunk     = "assistant_chunk"
 	EventTypeContextDiagnostics = "context_diagnostics"
 )
 
@@ -80,6 +86,7 @@ type ApprovalEvent struct {
 	Turn    int    `json:"turn"`
 	Tool    string `json:"tool,omitempty"`
 	Mode    string `json:"mode,omitempty"`
+	Preview string `json:"preview,omitempty"`
 	Allowed bool   `json:"allowed"`
 	Message string `json:"message,omitempty"`
 }
@@ -108,6 +115,47 @@ type APIResponseEvent struct {
 	Usage        any    `json:"usage,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
 	Error        string `json:"error,omitempty"`
+}
+
+type RunStartedEvent struct {
+	Mode      string `json:"mode,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
+	MaxTurns  int    `json:"max_turns,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
+}
+
+type RunFinishedEvent struct {
+	Turn       int    `json:"turn,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	NextAction string `json:"next_action,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type TurnStartedEvent struct {
+	Turn         int    `json:"turn"`
+	Model        string `json:"model,omitempty"`
+	MessageCount int    `json:"message_count,omitempty"`
+}
+
+type TurnFinishedEvent struct {
+	Turn         int    `json:"turn"`
+	ToolCalls    int    `json:"tool_calls,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
+	Reply        string `json:"reply,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+type AssistantMessageEvent struct {
+	Turn    int    `json:"turn,omitempty"`
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+type AssistantChunkEvent struct {
+	Turn    int    `json:"turn,omitempty"`
+	Content string `json:"content,omitempty"`
 }
 
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
@@ -170,19 +218,20 @@ func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, 
 	}
 }
 
-func NewApprovalRequestedEvent(turn int, toolName, mode string) Event {
+func NewApprovalRequestedEvent(turn int, toolName, mode, preview string) Event {
 	return Event{
 		Type:      EventTypeApprovalRequested,
 		Timestamp: time.Now().UTC(),
 		Payload: ApprovalEvent{
-			Turn: turn,
-			Tool: toolName,
-			Mode: mode,
+			Turn:    turn,
+			Tool:    toolName,
+			Mode:    mode,
+			Preview: preview,
 		},
 	}
 }
 
-func NewApprovalAcceptedEvent(turn int, toolName, mode, message string) Event {
+func NewApprovalAcceptedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalAccepted,
 		Timestamp: time.Now().UTC(),
@@ -190,13 +239,14 @@ func NewApprovalAcceptedEvent(turn int, toolName, mode, message string) Event {
 			Turn:    turn,
 			Tool:    toolName,
 			Mode:    mode,
+			Preview: preview,
 			Allowed: true,
 			Message: message,
 		},
 	}
 }
 
-func NewApprovalDeniedEvent(turn int, toolName, mode, message string) Event {
+func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalDenied,
 		Timestamp: time.Now().UTC(),
@@ -204,6 +254,7 @@ func NewApprovalDeniedEvent(turn int, toolName, mode, message string) Event {
 			Turn:    turn,
 			Tool:    toolName,
 			Mode:    mode,
+			Preview: preview,
 			Allowed: false,
 			Message: message,
 		},
@@ -306,6 +357,89 @@ func NewAPIResponseEvent(message, usage any, finishReason string, err error) Eve
 		Type:      EventTypeAPIResponse,
 		Timestamp: time.Now().UTC(),
 		Payload:   payload,
+	}
+}
+
+func NewRunStartedEvent(mode, model, prompt string, maxTurns, maxTokens int) Event {
+	return Event{
+		Type:      EventTypeRunStarted,
+		Timestamp: time.Now().UTC(),
+		Payload: RunStartedEvent{
+			Mode:      mode,
+			Model:     model,
+			Prompt:    prompt,
+			MaxTurns:  maxTurns,
+			MaxTokens: maxTokens,
+		},
+	}
+}
+
+func NewRunFinishedEvent(turn int, reason, summary, nextAction string, err error) Event {
+	payload := RunFinishedEvent{
+		Turn:       turn,
+		Reason:     reason,
+		Summary:    summary,
+		NextAction: nextAction,
+	}
+	if err != nil {
+		payload.Error = err.Error()
+	}
+	return Event{
+		Type:      EventTypeRunFinished,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
+func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
+	return Event{
+		Type:      EventTypeTurnStarted,
+		Timestamp: time.Now().UTC(),
+		Payload: TurnStartedEvent{
+			Turn:         turn,
+			Model:        model,
+			MessageCount: messageCount,
+		},
+	}
+}
+
+func NewTurnFinishedEvent(turn, toolCalls int, finishReason, reply string, err error) Event {
+	payload := TurnFinishedEvent{
+		Turn:         turn,
+		ToolCalls:    toolCalls,
+		FinishReason: finishReason,
+		Reply:        reply,
+	}
+	if err != nil {
+		payload.Error = err.Error()
+	}
+	return Event{
+		Type:      EventTypeTurnFinished,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
+func NewAssistantMessageEvent(turn int, role, content string) Event {
+	return Event{
+		Type:      EventTypeAssistantMessage,
+		Timestamp: time.Now().UTC(),
+		Payload: AssistantMessageEvent{
+			Turn:    turn,
+			Role:    role,
+			Content: content,
+		},
+	}
+}
+
+func NewAssistantChunkEvent(turn int, content string) Event {
+	return Event{
+		Type:      EventTypeAssistantChunk,
+		Timestamp: time.Now().UTC(),
+		Payload: AssistantChunkEvent{
+			Turn:    turn,
+			Content: content,
+		},
 	}
 }
 

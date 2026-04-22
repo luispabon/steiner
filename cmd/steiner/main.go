@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -16,9 +18,9 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
-	"github.com/luispabon/steiner/internal/repl"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -169,35 +171,140 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(rt)
 
-	completer := repl.Completer{
-		Commands: repl.BuiltinCommands(),
-		Skills:   append([]string(nil), rt.skillNames...),
+	submissions := make(chan string, 1)
+	approvalResponse := make(chan bool, 1)
+
+	tuiApp := tui.NewApp(tui.Config{
+		Model:      rt.cfg.Provider.Model,
+		SkillNames: rt.skillNames,
+		OnSubmit: func(text string) {
+			select {
+			case submissions <- text:
+			default:
+			}
+		},
+		OnApproval: func(allowed bool) {
+			select {
+			case approvalResponse <- allowed:
+			default:
+			}
+		},
+		OnSkillToggle: func(name string, enabled bool) {
+		},
+	})
+	events := output.NewMultiSink(rt.events, tuiApp.EventSink())
+
+	approver := agent.NewEventingApprover(
+		events,
+		channelApprovalResponder{ch: approvalResponse},
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tuiApp.Run()
+	}()
+
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+
+	var conversation []agent.Message
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case text := <-submissions:
+			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+			result, err := runAgentLoop(ctx, rt, approver, events, conversation)
+			if err != nil {
+				events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
+				})
+				continue
+			}
+			conversation = result.Conversation
+		}
 	}
-	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
-	if originalLogger, ok := rt.provider.(loggingProvider); ok {
-		originalLogger.sink = rt.events
-		rt.provider = originalLogger
+}
+
+func runAgentLoop(ctx context.Context, rt cliRuntime, approver tool.ApprovalResponder, events output.EventSink, conversation []agent.Message) (runResult, error) {
+	if rt.provider == nil {
+		return runResult{}, fmt.Errorf("provider is required")
+	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	assembly := prompt.AssemblyOptions{
+		HomeDir:                   rt.homeDir,
+		ProjectRoot:               rt.workDir,
+		SkillsRoot:                prompt.DefaultSkillsRoot(rt.homeDir),
+		SkillNames:                rt.skillNames,
+		ProjectContextBudgetBytes: rt.cfg.ProjectContext.MaxTokens,
+		ProjectContextExtraFiles:  rt.cfg.ProjectContext.ExtraFiles,
+		ProjectContextIgnoreFiles: rt.cfg.ProjectContext.IgnoreFiles,
+		Conversation:              toProviderConversation(conversation),
 	}
 
-	session := repl.NewSession(
-		cliRunner{
-			runtime: rt,
-			approver: agent.NewEventingApprover(
-				rt.events,
-				promptingApprovalHandler{
-					reader:    approvalReader(rt),
-					statusOut: rt.status,
-				},
-			),
-		},
-		interactiveInput(rt),
-		rt.human,
-		rt.events,
-		rt.toolNames,
-		rt.skillNames,
+	temperature := rt.cfg.Provider.Temperature
+	maxTokens := rt.cfg.Provider.MaxCompletionTokens
+	var maxTokensPtr *int
+	if maxTokens > 0 {
+		maxTokensPtr = &maxTokens
+	}
+
+	var diagnostics []output.Event
+	diags := output.NewMultiSink(
+		events,
+		output.SinkFunc(func(event output.Event) {
+			if isRetainedDiagnosticEvent(event) {
+				diagnostics = append(diagnostics, event)
+			}
+		}),
 	)
-	session.SetPrompter(prompter)
-	return session.Run(cmd.Context())
+	executor := tool.NewExecutor(rt.registry, rt.cfg, approver, rt.workDir)
+	runner := agent.NewRunner()
+	state, err := runner.Run(runCtx, agent.RunRequest{
+		Provider:    rt.provider,
+		Executor:    executor,
+		Tools:       registryToolSpecs(rt.registry),
+		Prompt:      assembly,
+		Model:       rt.cfg.Provider.Model,
+		Temperature: &temperature,
+		MaxTokens:   maxTokensPtr,
+		Limits: agent.Limits{
+			MaxTurns:  rt.cfg.Limits.MaxTurns,
+			MaxTokens: rt.cfg.Limits.MaxTokens,
+		},
+		Events: diags,
+	})
+	if err != nil {
+		return runResult{}, err
+	}
+
+	return runResult{
+		Conversation: state.Conversation,
+		Reply:        lastAssistantReply(state.Conversation),
+		Diagnostics:  cloneEvents(diagnostics),
+	}, nil
+}
+
+type channelApprovalResponder struct {
+	ch chan bool
+}
+
+func (r channelApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+	if req.Response == nil {
+		return fmt.Errorf("approval response channel is required")
+	}
+	allowed, ok := <-r.ch
+	if !ok {
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval channel closed"}
+		return fmt.Errorf("approval channel closed")
+	}
+	req.Response <- tool.ApprovalResponse{Allow: allowed, Message: "approved"}
+	return nil
 }
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
@@ -219,23 +326,15 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	}
 	rt.events.Emit(output.NewUserInputEvent(promptText, "exec"))
 
-	result, err := cliRunner{
+	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
-			promptingApprovalHandler{
-				reader:    approvalReader(rt),
-				statusOut: rt.status,
-			},
+			stdinApprovalResponder{reader: approvalReader(rt)},
 		),
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
 	if err != nil {
 		return err
-	}
-
-	reply := strings.TrimSpace(result.Reply)
-	if reply != "" {
-		rt.human.Println(reply)
 	}
 	return nil
 }
@@ -263,13 +362,23 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		APIKey:    cfg.Provider.APIKey,
 		Model:     cfg.Provider.Model,
 		Scheduler: scheduler,
+		HTTPClient: &http.Client{
+			Timeout: 120 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:    1,
+				IdleConnTimeout: 90 * time.Second,
+				MaxConnsPerHost: 1,
+			},
+		},
 	})
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	provWithLogging := provider.Provider(prov)
 
-	events := output.EventSink(output.NewStream(cmd.ErrOrStderr()))
+	events := output.EventSink(output.NoopSink{})
+	if flags.exec {
+		events = output.EventSink(output.NewStream(cmd.OutOrStdout()))
+	}
 	var closeFn func() error
 	if strings.TrimSpace(flags.logFile) != "" {
 		fileSink, err := output.NewFileLogSink(flags.logFile)
@@ -279,11 +388,6 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		events = output.NewMultiSink(events, fileSink)
 		closeFn = fileSink.Close
 	}
-	provWithLogging = loggingProvider{
-		inner: provWithLogging,
-		sink:  events,
-	}
-
 	registry, err := runtimeRegistry(cfg)
 	if err != nil {
 		return cliRuntime{}, err
@@ -314,7 +418,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 	return cliRuntime{
 		cfg:         cfg,
-		provider:    provWithLogging,
+		provider:    prov,
 		registry:    registry,
 		toolNames:   registry.Names(),
 		skillNames:  skillNames,
@@ -332,12 +436,18 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 type cliRunner struct {
 	runtime  cliRuntime
-	approver tool.Approver
+	approver tool.ApprovalResponder
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (repl.RunResult, error) {
+type runResult struct {
+	Conversation []agent.Message
+	Reply        string
+	Diagnostics  []output.Event
+}
+
+func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (runResult, error) {
 	if r.runtime.provider == nil {
-		return repl.RunResult{}, fmt.Errorf("provider is required")
+		return runResult{}, fmt.Errorf("provider is required")
 	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -386,10 +496,10 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Events: events,
 	})
 	if err != nil {
-		return repl.RunResult{}, err
+		return runResult{}, err
 	}
 
-	return repl.RunResult{
+	return runResult{
 		Conversation: state.Conversation,
 		Reply:        lastAssistantReply(state.Conversation),
 		Diagnostics:  cloneEvents(diagnostics),
@@ -519,35 +629,35 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
-type promptingApprovalHandler struct {
-	reader    *bufio.Reader
-	statusOut *output.Stream
+type stdinApprovalResponder struct {
+	reader *bufio.Reader
 }
 
-func (h promptingApprovalHandler) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-	if h.statusOut != nil {
-		h.statusOut.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
-		if len(req.Input) > 0 {
-			h.statusOut.Printf(" args=%s", output.CompactJSON(req.Input))
-		}
-		h.statusOut.Printf(" [y/N] ")
+func (h stdinApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+	if req.Response == nil {
+		return fmt.Errorf("approval response channel is required")
 	}
 	if h.reader == nil {
-		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}
+		return fmt.Errorf("approval input is unavailable")
 	}
 	line, err := h.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
-		return tool.ApprovalResponse{}, err
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: err.Error()}
+		return err
 	}
 	if err == io.EOF && strings.TrimSpace(line) == "" {
-		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}
+		return fmt.Errorf("approval input is unavailable")
 	}
+
+	response := tool.ApprovalResponse{Allow: false, Message: "denied"}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
-		return tool.ApprovalResponse{Allow: true, Message: "approved"}, nil
-	default:
-		return tool.ApprovalResponse{Allow: false, Message: "denied"}, nil
+		response = tool.ApprovalResponse{Allow: true, Message: "approved"}
 	}
+	req.Response <- response
+	return nil
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {

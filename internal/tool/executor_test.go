@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -44,10 +45,11 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 
 	var approvals []string
 	var previews []ApprovalPreview
-	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
 		approvals = append(approvals, req.Tool.Name+":"+string(req.Mode))
 		previews = append(previews, req.Preview)
-		return ApprovalResponse{Allow: true}, nil
+		req.Response <- ApprovalResponse{Allow: true}
+		return nil
 	}), tempRepo)
 
 	readResult, err := executor.Execute(context.Background(), "read", map[string]any{"path": "notes.txt"})
@@ -190,6 +192,62 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	}
 }
 
+func TestExecutorWaitsForApprovalResponseChannel(t *testing.T) {
+	bin := mustBuildCoreToolsBinary(t)
+	tempRepo := t.TempDir()
+
+	reg := newCoreToolsRegistry(bin)
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"write": config.ApprovalModePrompt,
+			},
+		},
+	}
+
+	requestSeen := make(chan ApprovalRequest, 1)
+	release := make(chan struct{})
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+		requestSeen <- req
+		go func() {
+			<-release
+			req.Response <- ApprovalResponse{Allow: true, Message: "approved"}
+		}()
+		return nil
+	}), tempRepo)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := executor.Execute(context.Background(), "write", map[string]any{
+			"path":     "generated.txt",
+			"contents": "done\n",
+		})
+		done <- err
+	}()
+
+	req := <-requestSeen
+	if req.Response == nil {
+		t.Fatal("approval request response channel = nil, want channel")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Execute() returned early with err=%v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Execute() did not resume after approval response")
+	}
+}
+
 func TestExecutorReturnsStructuredErrorForMissingFile(t *testing.T) {
 	bin := mustBuildCoreToolsBinary(t)
 	tempRepo := t.TempDir()
@@ -329,9 +387,10 @@ func TestExecutorDeniesBlockedMutationWithoutApproval(t *testing.T) {
 	}
 
 	approvals := 0
-	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
 		approvals++
-		return ApprovalResponse{Allow: true}, nil
+		req.Response <- ApprovalResponse{Allow: true}
+		return nil
 	}), root)
 
 	_, err := executor.Execute(context.Background(), "write", map[string]any{
@@ -372,8 +431,9 @@ func TestExecutorEditRequiresExactSingleMatch(t *testing.T) {
 		},
 	}
 
-	executor := NewExecutor(reg, cfg, ApproverFunc(func(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error) {
-		return ApprovalResponse{Allow: true}, nil
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+		req.Response <- ApprovalResponse{Allow: true}
+		return nil
 	}), tempRepo)
 
 	tests := []struct {

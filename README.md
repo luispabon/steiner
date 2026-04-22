@@ -1,111 +1,47 @@
 # steiner
 
-`steiner` is a minimal, local-first coding agent written in Go.
+`steiner` is a minimal, local-first coding agent in Go. It is built to work against real local repositories with bounded context, explicit approvals, and OpenAI-compatible providers, including a local server on `http://localhost:11434/v1`.
 
-The project is aimed at real coding work against local repositories, with a strong bias toward bounded context, explicit context injection, and simple, inspectable execution. It is designed to work with OpenAI-compatible providers, including local model servers.
+## Today in brief
 
-## Status
+* Single-agent loop with interactive terminal mode and `--exec`
+* Config, tools, skills, and version commands are available now
+* Default provider targets a local OpenAI-compatible endpoint
+* Mutating tools are approval-gated by default; reads are auto-approved
 
-Current implementation is past the foundations work and through the first context-discipline milestones from the project roadmap.
+## Quickstart
 
-Implemented today:
+Requirements: Go `1.24+`.
 
-* single-agent loop with tool calling
-* interactive terminal mode and single-shot `--exec`
-* config loading, merging, validation, env overrides, and CLI overrides
-* provider abstraction with central scheduler-enforced parallelism
-* core tools binary with `read`, `glob`, `search`, `write`, `bash`, and `edit`
-* approval prompts and safer mutation via `edit`
-* project context gathering with bounded budgets
-* skill discovery, explicit loading, and REPL skill toggling
-* context diagnostics, output truncation, and conversation compaction foundations
-* terminal event/log sinks and optional session log files
-
-Still intentionally unfinished:
-
-* richer console UX such as streaming, shell-like line editing, and markdown-aware rendering
-* delegation and sub-agent execution
-* later advanced extensions such as sandboxing, persistence, and MCP
-
-If you are looking for the intended product shape rather than only the current implementation, start with [docs/PRD.md](docs/PRD.md).
-
-## Project Goals
-
-The product direction is defined by a few hard constraints:
-
-* minimal prompting rather than framework-heavy orchestration
-* local-first operation with OpenAI-compatible endpoints
-* context hygiene as a first-class engineering concern
-* plugin-first tool registration
-* safe-by-default execution with approvals and bounded output
-* console UX that keeps the agent understandable and controllable in terminal use
-* future delegation through isolated sub-agents, but only after single-agent UX is strong
-
-The architecture and package boundaries in this repo are intentionally stricter than the current amount of code might suggest. That is deliberate: the project is trying to avoid painting itself into a corner while the single-agent product matures.
-
-## Repository Layout
-
-The package layout is already in place:
-
-```text
-cmd/steiner/            CLI entry and subcommands
-cmd/steiner-core-tools/ Core tools binary
-internal/agent/         Loop orchestration, state, limits
-internal/config/        Loading, merging, validation, defaults
-internal/provider/      Model transport interfaces and scheduler
-internal/tool/          Registry, schema, policy, executor, output shaping
-internal/prompt/        Context gathering, budgeting, assembly, compaction
-internal/skill/         Skill discovery and loading
-internal/repl/          Interactive UX
-internal/delegation/    Delegation contracts and execution scaffolding
-internal/output/        Terminal and machine-readable event output
-testdata/repos/         Fixture repos for integration and e2e tests
-docs/                   PRD, roadmap, and implementation planning docs
-```
-
-The conventions that guide the codebase live in [AGENTS.md](AGENTS.md).
-
-## What You Can Run Today
-
-The current CLI surface is intentionally small:
+1. Start from source in this repo.
+2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the provider settings in config.
+3. Run a first request from source:
 
 ```bash
-steiner
-steiner --exec "fix the failing test"
-steiner version
-steiner config
-steiner tools
-steiner skills
+go run ./cmd/steiner --exec "summarize this repository in one sentence"
 ```
 
-Useful flags:
+4. Optional: inspect the resolved configuration before you do real work:
 
-* `--config` overrides the project config path
-* `--model` overrides the configured provider model
-* `--verbose` enables verbose logging in resolved config
-* `--log-file` writes a full session event log to a file
-
-At the moment:
-
-* `steiner` starts the interactive REPL in the current project
-* `steiner --exec "..."` runs a single prompt headlessly and prints the final assistant reply
-* `steiner version` prints the build version
-* `steiner config` prints the resolved configuration after defaults, files, env vars, and CLI overrides
-* `steiner tools` lists configured tools
-* `steiner skills` lists discovered skills
-
-Current built-in REPL commands:
-
-```text
-/help
-/tools
-/skills
-/history
-/clear
-/exit
+```bash
+go run ./cmd/steiner config
 ```
 
-Discovered skills can also be toggled from the REPL by typing `/<skill-name>`.
+If you want a local binary:
+
+```bash
+make build-binaries
+./bin/steiner
+```
+
+## Common commands
+
+* `go run ./cmd/steiner` or `./bin/steiner` - interactive mode
+* `go run ./cmd/steiner --exec "..."` - run one request and exit
+* `go run ./cmd/steiner version` - print the build version
+* `go run ./cmd/steiner config` - print the resolved configuration
+* `go run ./cmd/steiner tools` - list configured tools
+* `go run ./cmd/steiner skills` - list discovered skills
 
 ## Configuration
 
@@ -114,10 +50,10 @@ Configuration precedence is:
 1. compiled defaults
 2. `~/.config/steiner/config.yaml`
 3. `.steiner/config.yaml`
-4. environment variables with `STEINER_` prefix
+4. environment variables with the `STEINER_` prefix
 5. CLI flags
 
-Important environment variables:
+Key environment variables:
 
 * `STEINER_API_KEY`
 * `STEINER_BASE_URL`
@@ -126,7 +62,7 @@ Important environment variables:
 * `STEINER_MAX_TURNS`
 * `STEINER_LOG_LEVEL`
 
-The default provider configuration targets a local OpenAI-compatible endpoint:
+Default provider example:
 
 ```yaml
 provider:
@@ -138,63 +74,24 @@ provider:
   parallelism: 1
 ```
 
-The scheduler for `provider.parallelism` already exists and is enforced centrally in `internal/provider`.
+Approval defaults are user-facing and conservative: reads like `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first.
 
-Approval defaults:
-
-* `read`, `glob`, `search` -> `auto`
-* `write`, `bash`, `edit` -> `prompt`
-
-`edit` is the preferred mutation primitive for in-place changes. `write` remains available for full-file overwrites.
-
-Project context assembly is configurable through `project_context`, including budget, extra files, and ignore files. Conversation/tool context is also bounded and emits diagnostics when budgets or compaction rules apply.
-
-## Build And Test
-
-Requirements:
-
-* Go 1.24+
-
-Build:
+## Build and test
 
 ```bash
 go build ./...
-```
-
-Run tests:
-
-```bash
 go test ./...
+make build-binaries
+go vet ./...
 ```
 
-The current test coverage is focused on the implemented runtime and CLI surface:
+## Development notes
 
-* config loading and validation
-* provider scheduler semantics
-* prompt assembly, project context gathering, and compaction
-* tool registry, execution, and approval behavior
-* REPL commands and exec-mode behavior
-* terminal output/event formatting
+Repo layout is compact: `cmd/` for entrypoints, `internal/` for agent/provider/tool/config code, `docs/` for product docs, and `testdata/` for fixtures. Conventions and deeper repo rules live in [AGENTS.md](AGENTS.md).
 
-## Design Notes
+## Further reading
 
-Several architectural rules are already fixed:
-
-* context source precedence is explicit and must not be reordered
-* skills are auxiliary context, not system-authority instructions
-* provider access must go through the scheduler
-* prompt assembly and agent execution remain separate packages
-* config merging belongs only in `internal/config`
-* sub-agents must be isolated and must not nest once they exist
-
-Those constraints are documented in [AGENTS.md](AGENTS.md) and elaborated in [docs/PRD.md](docs/PRD.md).
-
-## Roadmap
-
-The current codebase is at the point where the single-agent loop, safer mutation, and context-discipline groundwork exist. The next documentation and product work is focused on console UX before delegation returns to the front of the queue.
-
-See:
-
+* [AGENTS.md](AGENTS.md)
 * [docs/PRD.md](docs/PRD.md)
 * [docs/ROADMAP.md](docs/ROADMAP.md)
 * [docs/INITIAL_IMPLEMENTATION_PLAN.md](docs/INITIAL_IMPLEMENTATION_PLAN.md)
