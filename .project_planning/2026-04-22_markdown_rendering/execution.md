@@ -100,6 +100,7 @@
 - `2026-04-22`: Merged `stage-6-sidebar-go` from `exec/2026-04-22_markdown_rendering-stage-6-sidebar-go` into `cl/2026-04-22_markdown_rendering`.
 - `2026-04-22`: Marked `stage-6-content-markdown` as next ready step.
 - `2026-04-22`: Marked `stage-6-content-markdown` as running and prepared isolated handoff.
+- `2026-04-22`: Closed stalled `stage-6-content-markdown` sub-agent without branch changes and prepared retry on the same clean temporary branch/worktree.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
@@ -107,7 +108,8 @@
 - `stage-6-git-go`: stalled agent `019db576-8351-7653-acfd-5fcfbc91de54`, model `gpt-5.4-mini` (cheaper), closed without changes
 - `stage-6-git-go`: recovery agent `019db579-8fb7-7103-9121-0fd35c13cdec`, model `gpt-5.4` (same tier), completed and closed after merge
 - `stage-6-sidebar-go`: model `gpt-5.4-mini` (cheaper), agent `019db57b-a2d4-70e1-8cea-15f6681f29cf`, completed and closed after merge
-- `stage-6-content-markdown`: pending dispatch, planned model `gpt-5.4` (same tier)
+- `stage-6-content-markdown`: stalled agent `019db57f-edb7-77c2-8c2c-d297d744c64e`, model `gpt-5.4` (same tier), closed without changes
+- `stage-6-content-markdown`: retry pending dispatch, planned model `gpt-5.4` (same tier)
 
 ## Temporary Branches And Worktrees
 - `stage-6-add-glamour`: created branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
