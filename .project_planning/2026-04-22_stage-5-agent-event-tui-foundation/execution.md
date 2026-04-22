@@ -2,7 +2,7 @@
 
 - Planning folder: `.project_planning/2026-04-22_stage-5-agent-event-tui-foundation`
 - Active branch: `cl/2026-04-22_stage-5-agent-event-tui-foundation`
-- Current stage: `stage-2-step-1 ready`
+- Current stage: `stage-2-step-2 ready`
 - Executor state: `running`
 
 ## Verification Strategy
@@ -57,7 +57,7 @@
 | --- | --- | --- |
 | `stage-1-step-1` | `implemented` | Merged `tmp/stage-5-step-1` into the execution branch as `b503810`. |
 | `stage-1-step-2` | `implemented` | Merged `tmp/stage-5-step-2` into the execution branch as `fe0373c`. |
-| `stage-2-step-1` | `ready` | Minimal Bubble Tea TUI package on the event stream. |
+| `stage-2-step-1` | `implemented` | Completed directly on the execution branch after two isolated sub-agent dispatches stalled without edits. |
 | `stage-2-step-2` | `pending` | Depends on `stage-2-step-1`. |
 
 ## Activity Log
@@ -78,3 +78,14 @@
 - Deleted worktree `/tmp/steiner-stage-5-step-2`.
 - Deleted temporary branch `tmp/stage-5-step-2`.
 - Recorded step verification reported by the sub-agent: `go test ./internal/agent ./internal/provider ./internal/tool ./cmd/steiner -count=1`.
+- Attempted `stage-2-step-1` on temporary branch `tmp/stage-5-step-3` in worktree `/tmp/steiner-stage-5-step-3` with sub-agent `019db4de-12fd-7ae3-97a6-aa2a872afd5d` (`gpt-5.4-mini`, cheaper tier than the current runtime), running serially.
+- Closed sub-agent `019db4de-12fd-7ae3-97a6-aa2a872afd5d` after it produced no edits and reported an interrupted, clean worktree.
+- Deleted worktree `/tmp/steiner-stage-5-step-3`.
+- Deleted temporary branch `tmp/stage-5-step-3`.
+- Attempted `stage-2-step-1` again on temporary branch `tmp/stage-5-step-3b` in worktree `/tmp/steiner-stage-5-step-3b` with sub-agent `019db4e5-dd65-7763-b5d0-ac3ad4a633b2` (`gpt-5.4`, same tier as the current runtime), running serially.
+- Closed sub-agent `019db4e5-dd65-7763-b5d0-ac3ad4a633b2` after it stalled without edits.
+- Deleted worktree `/tmp/steiner-stage-5-step-3b`.
+- Deleted temporary branch `tmp/stage-5-step-3b`.
+- Switched `stage-2-step-1` to direct executor fallback because isolated sub-agent execution for this specific step was effectively unavailable after two clean stalled dispatches.
+- Implemented `stage-2-step-1` directly on `cl/2026-04-22_stage-5-agent-event-tui-foundation`: added `internal/tui`, pinned cached Bubble Tea/Bubbles/Lip Gloss dependencies, and kept the CLI cutover and `internal/repl/` removal deferred to the next step.
+- Recorded direct fallback verification: `go mod tidy` and `go test ./internal/tui`.
