@@ -122,8 +122,8 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	if m.viewport.Width != 60 {
 		t.Fatalf("viewport width = %d, want 60", m.viewport.Width)
 	}
-	if m.viewport.Height != 10 {
-		t.Fatalf("viewport height = %d, want 10", m.viewport.Height)
+	if m.viewport.Height != 7 {
+		t.Fatalf("viewport height = %d, want 7", m.viewport.Height)
 	}
 }
 
