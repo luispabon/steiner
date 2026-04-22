@@ -5,7 +5,7 @@
 - planning_folder: `.project_planning/2026-04-22_session-visibility-and-control`
 - active_branch: `cl/2026-04-22_session-visibility-and-control`
 - executor_start_date: `2026-04-22`
-- current_phase: `sub-agent implementation`
+- current_phase: `reviewer handoff`
 - plan_status: `loaded`
 - plan_consistency: `overview.md` and `plan.yaml` agree on Stage 5 scope and verification ordering
 
@@ -118,3 +118,21 @@
   - `go test ./...` passed
   - `go build ./...` passed
 - all planned implementation steps marked `complete` after automated verification passed
+
+## Manual Verification
+
+- round: `001`
+- automated_verification_status: `passing before pause`
+- executor_prompted_user_to_check:
+  - new `/history` views: `summary`, `context`, `recent [count]`
+  - summary-first context and stop-reason output in interactive and exec flows
+  - interrupted and cancelled runs remaining inspectable after the stop
+- user_response: `OK`
+- outcome: `manual verification accepted without reported issues`
+
+## Final Handoff State
+
+- execution_status: `complete`
+- next_step: `reviewer`
+- execution.md updated after manual verification resolution
+- final executor handoff state ready to commit on `cl/2026-04-22_session-visibility-and-control`
