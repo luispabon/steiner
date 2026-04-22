@@ -4,7 +4,7 @@
 - planning_folder: `.project_planning/2026-04-22_markdown_rendering`
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
-- current_stage: `stage-6-add-glamour`
+- current_stage: `stage-6-render-go`
 - status: `in_progress`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
@@ -74,8 +74,8 @@
   7. `stage-6-keys-update`
   8. `stage-6-full-build`
 - step_status:
-  - `stage-6-add-glamour: ready`
-  - `stage-6-render-go: pending`
+  - `stage-6-add-glamour: implemented`
+  - `stage-6-render-go: ready`
   - `stage-6-git-go: pending`
   - `stage-6-sidebar-go: pending`
   - `stage-6-content-markdown: pending`
@@ -87,15 +87,22 @@
 - `2026-04-22`: Executor initialized on `cl/2026-04-22_markdown_rendering`.
 - `2026-04-22`: Loaded verification strategy from `overview.md` without overrides.
 - `2026-04-22`: Marked `stage-6-add-glamour` as running and prepared isolated handoff.
+- `2026-04-22`: Merged `stage-6-add-glamour` from `exec/2026-04-22_markdown_rendering-stage-6-add-glamour` into `cl/2026-04-22_markdown_rendering`.
+- `2026-04-22`: Marked `stage-6-render-go` as next ready step.
 
 ## Sub-Agents
-- `stage-6-add-glamour`: pending dispatch, planned model `gpt-5.4-mini` (cheaper)
+- `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
 
 ## Temporary Branches And Worktrees
-- `stage-6-add-glamour`: temporary branch/worktree not yet created
+- `stage-6-add-glamour`: created branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
+- `stage-6-add-glamour`: created worktree `/tmp/steiner-stage-6-add-glamour`
+- `stage-6-add-glamour`: merged temporary branch into `cl/2026-04-22_markdown_rendering`
+- `stage-6-add-glamour`: deleted worktree `/tmp/steiner-stage-6-add-glamour`
+- `stage-6-add-glamour`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
 
 ## Verification Runs
-- none yet
+- `stage-6-add-glamour`: worker reported `go mod tidy` succeeded
+- `stage-6-add-glamour`: worker reported `go build ./internal/tui` passed
 
 ## Fix Plans
 - none yet
