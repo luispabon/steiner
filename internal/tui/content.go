@@ -30,7 +30,8 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		return
 	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied,
 		output.EventTypeAssistantMessage,
-		output.EventTypeRunStarted, output.EventTypeTurnStarted, output.EventTypeTurnFinished,
+		output.EventTypeRunStarted, output.EventTypeRunFinished,
+		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
 		output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeToolCallStarted, output.EventTypeToolCallFinished,
 		output.EventTypeContextDiagnostics, output.EventTypeAPIRequest,
@@ -52,6 +53,10 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 }
 
 func formatTUIEvent(event output.Event) string {
+	switch event.Type {
+	case output.EventTypeRunFinished:
+		return ""
+	}
 	switch payload := event.Payload.(type) {
 	case output.StopReasonEvent:
 		if payload.Error != "" {
