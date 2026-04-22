@@ -93,11 +93,13 @@
 - `2026-04-22`: Merged `stage-6-render-go` from `exec/2026-04-22_markdown_rendering-stage-6-render-go` into `cl/2026-04-22_markdown_rendering`.
 - `2026-04-22`: Marked `stage-6-git-go` as next ready step.
 - `2026-04-22`: Marked `stage-6-git-go` as running and prepared isolated handoff.
+- `2026-04-22`: Closed stalled `stage-6-git-go` sub-agent without branch changes and prepared retry on the same clean temporary branch/worktree.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
 - `stage-6-render-go`: model `gpt-5.4-mini` (cheaper), agent `019db572-19be-7311-a6d2-e5f454506b2a`, completed and closed after merge
-- `stage-6-git-go`: pending dispatch, planned model `gpt-5.4-mini` (cheaper)
+- `stage-6-git-go`: stalled agent `019db576-8351-7653-acfd-5fcfbc91de54`, model `gpt-5.4-mini` (cheaper), closed without changes
+- `stage-6-git-go`: retry pending dispatch, planned model `gpt-5.4` (same tier)
 
 ## Temporary Branches And Worktrees
 - `stage-6-add-glamour`: created branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
