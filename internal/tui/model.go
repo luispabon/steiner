@@ -25,28 +25,30 @@ type approvalState struct {
 }
 
 type Model struct {
-	width         int
-	height        int
-	viewport      viewport.Model
-	input         textarea.Model
-	content       contentBuffer
-	status        statusState
-	sidebar       sidebarState
-	git           *gitState
-	keys          keyMap
-	approval      approvalState
-	external      <-chan tea.Msg
-	autoScroll    bool
-	skillNames    []string
-	enabledSkills map[string]bool
-	onSubmit      func(string)
-	onApproval    func(bool)
-	onSkillToggle func(string, bool)
-	activeTheme   theme.Theme
-	styles        theme.Styles
-	inputHistory  []string
-	historyIdx    int
-	historyDraft  string
+	width                int
+	height               int
+	viewport             viewport.Model
+	input                textarea.Model
+	content              contentBuffer
+	status               statusState
+	sidebar              sidebarState
+	git                  *gitState
+	keys                 keyMap
+	approval             approvalState
+	external             <-chan tea.Msg
+	autoScroll           bool
+	skillNames           []string
+	enabledSkills        map[string]bool
+	onSubmit             func(string)
+	onApproval           func(bool)
+	onSkillToggle        func(string, bool)
+	activeTheme          theme.Theme
+	styles               theme.Styles
+	inputHistory         []string
+	historyIdx           int
+	historyDraft         string
+	completionCandidates []string
+	completionIdx        int
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -152,12 +154,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouse(msg)
 		return m, nil
 	case tea.KeyMsg:
+		// Reset completion state on any non-Tab key
+		if msg.Type != tea.KeyTab {
+			m.completionCandidates = nil
+			m.completionIdx = 0
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyCtrlB:
 			m.sidebar.Toggle()
 			m.layout()
+			return m, nil
+		case tea.KeyTab:
+			current := m.input.Value()
+			if !strings.HasPrefix(current, "/") {
+				// no "/" prefix — pass Tab through to textarea (does nothing meaningful)
+				break
+			}
+			// build or advance candidates
+			if len(m.completionCandidates) == 0 {
+				m.completionCandidates = buildCompletionCandidates(current, m.skillNames)
+				m.completionIdx = 0
+			}
+			if len(m.completionCandidates) == 0 {
+				return m, nil // no matches
+			}
+			// set the value to current candidate
+			m.input.SetValue(m.completionCandidates[m.completionIdx])
+			m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
 			return m, nil
 		case tea.KeyUp:
 			if m.input.Line() == 0 && len(m.inputHistory) > 0 {
