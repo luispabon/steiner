@@ -36,6 +36,17 @@ func TestStreamFormatsModelToolAndStopEvents(t *testing.T) {
 	}
 }
 
+func TestStreamFormatsCancelledStopReasonAction(t *testing.T) {
+	var buf bytes.Buffer
+	stream := NewStream(&buf)
+
+	stream.Emit(NewStopReasonEvent(2, "cancelled", nil))
+
+	if got := buf.String(); !strings.Contains(got, "status: run cancelled at turn 2 next: inspect /history for retained diagnostics or retry when you are ready to continue") {
+		t.Fatalf("stream output %q missing cancelled stop reason", got)
+	}
+}
+
 func TestStreamFormatsContextDiagnosticsEvents(t *testing.T) {
 	var buf bytes.Buffer
 	stream := NewStream(&buf)

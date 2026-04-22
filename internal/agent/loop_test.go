@@ -170,6 +170,97 @@ func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	}
 }
 
+func TestRunnerTreatsProviderContextCancellationAsCancelled(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+			},
+		},
+	}
+	providerStub.chatFn = func(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+		<-ctx.Done()
+		return provider.ChatResponse{}, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var events []output.Event
+	state, err := NewRunner().Run(ctx, RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+		},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if got, want := state.StopReason, StopReasonCancelled; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := eventTypes(events), []string{output.EventTypeStopReason}; !equalStrings(got, want) {
+		t.Fatalf("event types = %v, want %v", got, want)
+	}
+}
+
+func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			cancelFunc := ctx.Value(cancelContextKey{}).(context.CancelFunc)
+			cancelFunc()
+			return nil, ctx.Err()
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, cancelContextKey{}, context.CancelFunc(cancel))
+
+	var events []output.Event
+	state, err := NewRunner().Run(ctx, RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+		},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if got, want := state.StopReason, StopReasonCancelled; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := eventTypes(events), []string{
+		output.EventTypeModelCallStarted,
+		output.EventTypeModelCallFinished,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeStopReason,
+	}; !equalStrings(got, want) {
+		t.Fatalf("event types = %v, want %v", got, want)
+	}
+}
+
 func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -287,10 +378,14 @@ func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse
+	chatFn    func(context.Context, provider.ChatRequest) (provider.ChatResponse, error)
 }
 
 func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 	p.requests = append(p.requests, req)
+	if p.chatFn != nil {
+		return p.chatFn(ctx, req)
+	}
 	if len(p.responses) == 0 {
 		return provider.ChatResponse{}, errors.New("no response configured")
 	}
@@ -320,6 +415,8 @@ func (e *fakeExecutor) Execute(ctx context.Context, toolName string, input map[s
 	}{tool: toolName, args: cloneInput(input)})
 	return e.execute(ctx, toolName, input)
 }
+
+type cancelContextKey struct{}
 
 func rolesOf(messages []provider.Message) []string {
 	roles := make([]string, 0, len(messages))

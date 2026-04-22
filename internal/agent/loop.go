@@ -77,6 +77,10 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		turn := state.TurnCount + 1
 		assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
 		if err != nil {
+			if cancelled, ok := contextCancellationState(ctx, state); ok {
+				emitStop(req.Events, cancelled, nil)
+				return cancelled, nil
+			}
 			state.StopReason = StopReasonError
 			emitStop(req.Events, state, err)
 			return state, err
@@ -94,6 +98,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			MaxTokens:   req.MaxTokens,
 		})
 		if err != nil {
+			if cancelled, ok := contextCancellationState(ctx, state); ok {
+				emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
+				emitStop(req.Events, cancelled, nil)
+				return cancelled, nil
+			}
 			state.StopReason = StopReasonError
 			emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, err))
 			emitStop(req.Events, state, err)
@@ -119,6 +128,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 			result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 			if err != nil {
+				if cancelled, ok := contextCancellationState(ctx, state); ok {
+					emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+					emitStop(req.Events, cancelled, nil)
+					return cancelled, nil
+				}
 				emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", err))
 				state.StopReason = StopReasonError
 				emitStop(req.Events, state, err)
@@ -137,6 +151,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns, req.Events)
 	}
+}
+
+func contextCancellationState(ctx context.Context, state RunState) (RunState, bool) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		state.StopReason = StopReasonCancelled
+		return state, true
+	}
+	return RunState{}, false
 }
 
 type eventingApprover struct {

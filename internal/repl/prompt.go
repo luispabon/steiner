@@ -3,6 +3,7 @@ package repl
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"github.com/nyaosorg/go-readline-ny/completion"
 	"github.com/nyaosorg/go-readline-ny/keys"
 )
+
+var ErrPromptInterrupted = errors.New("prompt interrupted")
 
 type Prompter interface {
 	ReadLine(context.Context) (string, error)
@@ -130,6 +133,9 @@ func (p *readlinePrompter) ReadLine(ctx context.Context) (string, error) {
 		return "", io.EOF
 	}
 	line, err := p.editor.ReadLine(ctx)
+	if errors.Is(err, readline.CtrlC) {
+		return "", ErrPromptInterrupted
+	}
 	return strings.TrimRight(line, "\r\n"), err
 }
 
@@ -175,4 +181,8 @@ func asBufioReader(in io.Reader) *bufio.Reader {
 		return reader
 	}
 	return bufio.NewReader(in)
+}
+
+func IsPromptInterrupted(err error) bool {
+	return errors.Is(err, ErrPromptInterrupted) || errors.Is(err, readline.CtrlC)
 }

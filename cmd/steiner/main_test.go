@@ -269,6 +269,51 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModeAuto,
+				},
+			},
+			provider: &fakeProvider{},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := runner.Run(ctx, []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("Diagnostics len = %d, want 1", len(result.Diagnostics))
+	}
+	stop, ok := result.Diagnostics[0].Payload.(output.StopReasonEvent)
+	if !ok {
+		t.Fatalf("diagnostic payload type = %T, want output.StopReasonEvent", result.Diagnostics[0].Payload)
+	}
+	if got, want := stop.Reason, "cancelled"; got != want {
+		t.Fatalf("stop reason = %q, want %q", got, want)
+	}
+}
+
 func TestExecModeWritesFullLogFile(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {
