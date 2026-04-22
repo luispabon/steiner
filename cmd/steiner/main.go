@@ -40,6 +40,7 @@ type cliRuntime struct {
 	skillNames  []string
 	workDir     string
 	homeDir     string
+	stdin       io.Reader
 	human       *output.Stream
 	status      *output.Stream
 	events      output.EventSink
@@ -167,23 +168,34 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(rt)
 
+	completer := repl.Completer{
+		Commands: repl.BuiltinCommands(),
+		Skills:   append([]string(nil), rt.skillNames...),
+	}
+	prompter := repl.NewPrompter(interactiveInput(rt), rt.human, completer)
+	if originalLogger, ok := rt.provider.(loggingProvider); ok {
+		originalLogger.sink = rt.events
+		rt.provider = originalLogger
+	}
+
 	session := repl.NewSession(
 		cliRunner{
 			runtime: rt,
 			approver: agent.NewEventingApprover(
 				rt.events,
-				promptingApprover{
-					reader: approvalReader(rt),
-					out:    rt.status,
+				promptingApprovalHandler{
+					reader:    approvalReader(rt),
+					statusOut: rt.status,
 				},
 			),
 		},
-		rt.sharedInput,
+		interactiveInput(rt),
 		rt.human,
-		rt.status,
+		rt.events,
 		rt.toolNames,
 		rt.skillNames,
 	)
+	session.SetPrompter(prompter)
 	return session.Run(cmd.Context())
 }
 
@@ -210,9 +222,9 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
-			promptingApprover{
-				reader: approvalReader(rt),
-				out:    rt.status,
+			promptingApprovalHandler{
+				reader:    approvalReader(rt),
+				statusOut: rt.status,
 			},
 		),
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
@@ -307,6 +319,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillNames:  skillNames,
 		workDir:     currentDir,
 		homeDir:     homeDir,
+		stdin:       cmd.InOrStdin(),
 		human:       output.NewStream(cmd.OutOrStdout()),
 		status:      output.NewStream(cmd.ErrOrStderr()),
 		events:      events,
@@ -402,6 +415,13 @@ func approvalReader(rt cliRuntime) *bufio.Reader {
 	return rt.sharedInput
 }
 
+func interactiveInput(rt cliRuntime) io.Reader {
+	if rt.stdin != nil {
+		return rt.stdin
+	}
+	return rt.sharedInput
+}
+
 func openApprovalInput(stdin io.Reader) (*bufio.Reader, func() error) {
 	file, ok := stdin.(*os.File)
 	if !ok || file != os.Stdin {
@@ -473,24 +493,23 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
-type promptingApprover struct {
-	reader *bufio.Reader
-	out    *output.Stream
+type promptingApprovalHandler struct {
+	reader    *bufio.Reader
+	statusOut *output.Stream
 }
 
-func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-	_ = ctx
-	if a.out != nil {
-		a.out.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
+func (h promptingApprovalHandler) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
+	if h.statusOut != nil {
+		h.statusOut.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
 		if len(req.Input) > 0 {
-			a.out.Printf(" args=%s", output.CompactJSON(req.Input))
+			h.statusOut.Printf(" args=%s", output.CompactJSON(req.Input))
 		}
-		a.out.Printf(" [y/N] ")
+		h.statusOut.Printf(" [y/N] ")
 	}
-	if a.reader == nil {
+	if h.reader == nil {
 		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
 	}
-	line, err := a.reader.ReadString('\n')
+	line, err := h.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return tool.ApprovalResponse{}, err
 	}

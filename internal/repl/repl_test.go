@@ -3,6 +3,8 @@ package repl
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -214,6 +216,52 @@ func TestCompleterSuggestsCommandsAndSkills(t *testing.T) {
 	}
 }
 
+func TestSessionRunUsesPromptAbstraction(t *testing.T) {
+	var out bytes.Buffer
+	prompt := &fakePrompt{
+		lines: []string{"/help", "/exit"},
+		out:   &out,
+	}
+	session := &Session{
+		Out:        output.NewStream(&out),
+		prompt:     prompt,
+		ToolNames:  []string{"read"},
+		SkillNames: []string{"codex"},
+		Completer:  Completer{Commands: BuiltinCommands(), Skills: []string{"codex"}},
+	}
+
+	if err := session.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "/help") || !strings.Contains(got, "/exit") {
+		t.Fatalf("Run() output = %q, want help text", got)
+	}
+}
+
+func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
+	if got := CompletionPrefix([]rune("/he"), 3); got != "/he" {
+		t.Fatalf("CompletionPrefix(/he) = %q, want /he", got)
+	}
+	if got := CompletionPrefix([]rune("/help extra"), 10); got != "/help" {
+		t.Fatalf("CompletionPrefix(/help extra) = %q, want /help", got)
+	}
+	if got := CompletionPrefix([]rune("plain text"), 5); got != "" {
+		t.Fatalf("CompletionPrefix(plain text) = %q, want empty", got)
+	}
+}
+
+func TestPromptEventSinkRoutesEventsThroughPrompter(t *testing.T) {
+	var out bytes.Buffer
+	prompt := &fakePrompt{out: &out}
+	sink := NewPromptEventSink(prompt)
+
+	sink.Emit(output.NewStopReasonEvent(1, "complete", nil))
+
+	if got := out.String(); !strings.Contains(got, "status: reason=complete turn=1") {
+		t.Fatalf("prompt event sink output = %q, want routed event", got)
+	}
+}
+
 type fakeRunner struct {
 	calls int
 	runFn func(context.Context, []agent.Message, []string) (RunResult, error)
@@ -231,4 +279,33 @@ func containsAll(values, want []string) bool {
 		}
 	}
 	return true
+}
+
+type fakePrompt struct {
+	lines []string
+	out   *bytes.Buffer
+}
+
+func (p *fakePrompt) ReadLine(ctx context.Context) (string, error) {
+	_ = ctx
+	if len(p.lines) == 0 {
+		return "", io.EOF
+	}
+	line := p.lines[0]
+	p.lines = p.lines[1:]
+	return line, nil
+}
+
+func (p *fakePrompt) Printf(_ output.Channel, format string, args ...any) {
+	if p.out == nil {
+		return
+	}
+	_, _ = p.out.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (p *fakePrompt) Println(_ output.Channel, args ...any) {
+	if p.out == nil {
+		return
+	}
+	_, _ = p.out.WriteString(fmt.Sprintln(args...))
 }

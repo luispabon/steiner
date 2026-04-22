@@ -264,7 +264,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "final answer") {
 		t.Fatalf("stdout = %q, want final answer", got)
 	}
-	if got := stderr.String(); !strings.Contains(got, "stop reason=complete") {
+	if got := stderr.String(); !strings.Contains(got, "status: reason=complete") {
 		t.Fatalf("stderr = %q, want stop reason", got)
 	}
 }
@@ -583,6 +583,18 @@ func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 	}
 	if got, want := providerStub.requests[0].Tools[0].Function.Name, "glob"; got != want {
 		t.Fatalf("tool name = %q, want %q", got, want)
+	}
+}
+
+func TestInteractiveInputPrefersRawStdin(t *testing.T) {
+	raw := strings.NewReader("raw")
+	shared := bufio.NewReader(strings.NewReader("shared"))
+
+	if got := interactiveInput(cliRuntime{stdin: raw, sharedInput: shared}); got != raw {
+		t.Fatalf("interactiveInput() = %#v, want raw stdin reader", got)
+	}
+	if got := interactiveInput(cliRuntime{sharedInput: shared}); got != shared {
+		t.Fatalf("interactiveInput() fallback = %#v, want shared input reader", got)
 	}
 }
 
