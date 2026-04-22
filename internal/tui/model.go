@@ -49,6 +49,7 @@ type Model struct {
 	historyDraft         string
 	completionCandidates []string
 	completionIdx        int
+	helpVisible          bool
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -159,6 +160,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.completionCandidates = nil
 			m.completionIdx = 0
 		}
+
+		// Handle ? for help toggle (only when textarea is empty)
+		if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
+			m.helpVisible = !m.helpVisible
+			return m, nil
+		}
+
+		// Handle Escape to close help
+		if msg.Type == tea.KeyEsc && m.helpVisible {
+			m.helpVisible = false
+			return m, nil
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
@@ -240,6 +254,17 @@ func (m Model) View() string {
 	if sidebarVisible {
 		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width))
 	}
+
+	// Overlay help panel if visible
+	if m.helpVisible {
+		help := renderHelp(m.styles, maxInt(20, contentWidth-4))
+		contentView = lipgloss.Place(contentWidth, m.viewport.Height,
+			lipgloss.Center, lipgloss.Center,
+			help,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
 	inputView := m.input.View()
 	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
 
