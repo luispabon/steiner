@@ -57,7 +57,7 @@ func formatTUIEvent(event output.Event) string {
 		if payload.Error != "" {
 			return "error: " + payload.Error
 		}
-		if payload.Reason != "" {
+		if payload.Reason != "" && payload.Reason != "complete" && payload.Reason != "max_turns" && payload.Reason != "max_tokens" {
 			return "status: " + payload.Reason
 		}
 		return ""
@@ -65,7 +65,7 @@ func formatTUIEvent(event output.Event) string {
 		return ""
 	}
 	if event.Type == output.EventTypeStopReason {
-		return "status: stopped"
+		return ""
 	}
 	return ""
 }
