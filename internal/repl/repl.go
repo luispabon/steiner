@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -69,6 +70,10 @@ func (s *Session) Run(ctx context.Context) error {
 	}
 	for {
 		line, err := s.prompt.ReadLine(ctx)
+		if IsPromptInterrupted(err) {
+			s.recordStopReason(agent.StopReasonCancelled, nil)
+			continue
+		}
 		if err != nil && err != io.EOF {
 			return err
 		}
@@ -108,6 +113,10 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 
 	result, err := s.Runner.Run(ctx, conversation, append([]string(nil), s.ActiveSkills...))
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.recordStopReason(agent.StopReasonCancelled, nil)
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -124,6 +133,15 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func (s *Session) recordStopReason(reason agent.StopReason, err error) {
+	if s == nil {
+		return
+	}
+	event := output.NewStopReasonEvent(0, string(reason), err)
+	s.Diagnostics = append(cloneEvents(s.Diagnostics), event)
+	s.Println(output.ChannelStatus, output.FormatEvent(event))
 }
 
 func (s *Session) handleCommand(command Command) (bool, error) {

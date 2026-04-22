@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -338,6 +339,8 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	if r.runtime.provider == nil {
 		return repl.RunResult{}, fmt.Errorf("provider is required")
 	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
 
 	assembly := prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
@@ -368,7 +371,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
-	state, err := runner.Run(ctx, agent.RunRequest{
+	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    r.runtime.provider,
 		Executor:    executor,
 		Tools:       registryToolSpecs(r.runtime.registry),

@@ -246,7 +246,10 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 		}
 		return summary, "increase limits.max_tokens or reduce prompt and tool output size"
 	case "cancelled":
-		return "run cancelled", "retry when you are ready to continue"
+		if turn > 0 {
+			return fmt.Sprintf("run cancelled at turn %d", turn), "inspect /history for retained diagnostics or retry when you are ready to continue"
+		}
+		return "run cancelled", "inspect /history for retained diagnostics or retry when you are ready to continue"
 	case "error":
 		if strings.TrimSpace(errText) != "" {
 			return "run failed", "inspect the reported error and retry"

@@ -327,6 +327,75 @@ func TestSessionRunUsesPromptAbstraction(t *testing.T) {
 	}
 }
 
+func TestSessionRunRetainsPromptInterruptForHistory(t *testing.T) {
+	var out bytes.Buffer
+	prompt := &fakePrompt{
+		lines: []string{"/history", "/exit"},
+		errs:  []error{ErrPromptInterrupted, nil},
+		out:   &out,
+	}
+	session := &Session{
+		Out:    output.NewStream(&out),
+		prompt: prompt,
+	}
+
+	if err := session.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(session.Diagnostics) != 1 {
+		t.Fatalf("Diagnostics len = %d, want 1", len(session.Diagnostics))
+	}
+	if got := out.String(); !strings.Contains(got, "run cancelled") || !strings.Contains(got, "last stop: run cancelled") {
+		t.Fatalf("Run() output = %q, want retained cancelled stop reason", got)
+	}
+}
+
+func TestSessionCancelledRunKeepsStateInspectable(t *testing.T) {
+	var out bytes.Buffer
+	runner := &fakeRunner{
+		runFn: func(ctx context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
+			return RunResult{
+				Conversation: append([]agent.Message(nil), conversation...),
+				Diagnostics:  []output.Event{output.NewStopReasonEvent(1, string(agent.StopReasonCancelled), nil)},
+			}, nil
+		},
+	}
+	session := &Session{
+		Runner:       runner,
+		Out:          output.NewStream(&out),
+		SkillNames:   []string{"codex"},
+		ActiveSkills: []string{"codex"},
+		Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "previous"}},
+	}
+
+	done, err := session.HandleLine(context.Background(), "keep working")
+	if err != nil {
+		t.Fatalf("HandleLine() error = %v", err)
+	}
+	if done {
+		t.Fatal("HandleLine() returned done=true")
+	}
+	if len(session.Conversation) != 2 {
+		t.Fatalf("Conversation len = %d, want 2", len(session.Conversation))
+	}
+	if !containsString(session.ActiveSkills, "codex") {
+		t.Fatalf("ActiveSkills = %#v, want codex retained", session.ActiveSkills)
+	}
+
+	out.Reset()
+	done, err = session.HandleLine(context.Background(), "/history")
+	if err != nil {
+		t.Fatalf("history error = %v", err)
+	}
+	if done {
+		t.Fatal("history returned done=true")
+	}
+	if got := out.String(); !strings.Contains(got, "last stop: run cancelled") {
+		t.Fatalf("history output = %q, want cancelled stop reason", got)
+	}
+}
+
 func TestCompletionPrefixOnlyUsesFirstCommandToken(t *testing.T) {
 	if got := CompletionPrefix([]rune("/he"), 3); got != "/he" {
 		t.Fatalf("CompletionPrefix(/he) = %q, want /he", got)
@@ -372,11 +441,17 @@ func containsAll(values, want []string) bool {
 
 type fakePrompt struct {
 	lines []string
+	errs  []error
 	out   *bytes.Buffer
 }
 
 func (p *fakePrompt) ReadLine(ctx context.Context) (string, error) {
 	_ = ctx
+	if len(p.errs) > 0 {
+		err := p.errs[0]
+		p.errs = p.errs[1:]
+		return "", err
+	}
 	if len(p.lines) == 0 {
 		return "", io.EOF
 	}
