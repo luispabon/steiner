@@ -90,4 +90,5 @@
 - Implemented `stage-2-step-1` directly on `cl/2026-04-22_stage-5-agent-event-tui-foundation`: added `internal/tui`, pinned cached Bubble Tea/Bubbles/Lip Gloss dependencies, and kept the CLI cutover and `internal/repl/` removal deferred to the next step.
 - Recorded direct fallback verification: `go mod tidy` and `go test ./internal/tui`.
 - Implemented `stage-2-step-2` directly: rewired interactive mode to use TUI in `cmd/steiner/main.go`, added `Emit` method to TUI eventBridge to implement `output.EventSink`, removed `internal/repl/` directory, removed `go-readline-ny` dependency, and ran comprehensive verification.
+- Fix: TUI chat loop was empty - wired up submission channel, approval channel, and agent runner to actually process user input.
 - Verification: `gofmt -w ...`, `go vet ./...`, `go test ./...` (86 passed), `go build ./...`, `make build-binaries` all passed.
