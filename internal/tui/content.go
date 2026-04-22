@@ -155,7 +155,7 @@ func (b *contentBuffer) inProgressPreview() string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return assistantProseStyle.Render(preview)
+	return assistantProseStyle.Render("assistant> " + preview)
 }
 
 func (b *contentBuffer) flushCompletedBlocks() {
@@ -275,9 +275,12 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 	if block == "" {
 		return
 	}
-	rendered := strings.TrimSpace(b.renderMarkdown(block))
+	rendered := ""
+	if isMarkdownLikeBlock(block) {
+		rendered = strings.TrimSpace(b.renderMarkdown(block))
+	}
 	if rendered == "" {
-		rendered = assistantProseStyle.Render(block)
+		rendered = assistantProseStyle.Render("assistant> " + block)
 	}
 	b.segments = append(b.segments, rendered)
 }
@@ -285,11 +288,11 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 func (b *contentBuffer) renderMarkdown(block string) string {
 	renderer := b.markdownRenderer()
 	if renderer == nil {
-		return assistantProseStyle.Render(block)
+		return assistantProseStyle.Render("assistant> " + block)
 	}
 	rendered, err := renderer.Render(block)
 	if err != nil {
-		return assistantProseStyle.Render(block)
+		return assistantProseStyle.Render("assistant> " + block)
 	}
 	return rendered
 }
@@ -322,4 +325,27 @@ func (b *contentBuffer) appendStyled(line string, style interface{ Render(...str
 		return
 	}
 	b.segments = append(b.segments, style.Render(line))
+}
+
+func isMarkdownLikeBlock(block string) bool {
+	trimmed := strings.TrimSpace(block)
+	if trimmed == "" {
+		return false
+	}
+	if strings.Contains(trimmed, "```") || strings.Contains(trimmed, "~~~") {
+		return true
+	}
+	if strings.Contains(trimmed, "\n#") || strings.HasPrefix(trimmed, "#") {
+		return true
+	}
+	if strings.Contains(trimmed, "\n- ") || strings.Contains(trimmed, "\n* ") || strings.Contains(trimmed, "\n+ ") {
+		return true
+	}
+	if strings.Contains(trimmed, "\n|") || strings.Contains(trimmed, "|") {
+		return true
+	}
+	if strings.Contains(trimmed, "`") || strings.Contains(trimmed, "**") || strings.Contains(trimmed, "__") || strings.Contains(trimmed, "_") {
+		return true
+	}
+	return false
 }

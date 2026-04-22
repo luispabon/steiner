@@ -175,8 +175,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	approvalResponse := make(chan bool, 1)
 
 	tuiApp := tui.NewApp(tui.Config{
-		Model:      rt.cfg.Provider.Model,
-		SkillNames: rt.skillNames,
+		Model:           rt.cfg.Provider.Model,
+		ProviderBaseURL: rt.cfg.Provider.BaseURL,
+		WorkingDir:      rt.workDir,
+		MaxTurns:        rt.cfg.Limits.MaxTurns,
+		SkillNames:      rt.skillNames,
 		OnSubmit: func(text string) {
 			select {
 			case submissions <- text:

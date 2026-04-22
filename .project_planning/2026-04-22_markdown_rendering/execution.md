@@ -4,8 +4,8 @@
 - planning_folder: `.project_planning/2026-04-22_markdown_rendering`
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
-- current_stage: `stage-6-model-update`
-- status: `blocked`
+- current_stage: `manual-verification`
+- status: `waiting_manual_verification`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
 - planning_inputs_modified: `no`
@@ -79,9 +79,9 @@
   - `stage-6-git-go: implemented`
   - `stage-6-sidebar-go: implemented`
   - `stage-6-content-markdown: implemented`
-  - `stage-6-model-update: blocked`
-  - `stage-6-keys-update: pending`
-  - `stage-6-full-build: pending`
+  - `stage-6-model-update: implemented`
+  - `stage-6-keys-update: implemented`
+  - `stage-6-full-build: complete`
 
 ## Execution Events
 - `2026-04-22`: Executor initialized on `cl/2026-04-22_markdown_rendering`.
@@ -106,6 +106,8 @@
 - `2026-04-22`: Completed `stage-6-content-markdown` directly on `cl/2026-04-22_markdown_rendering` after repeated sub-agent failures.
 - `2026-04-22`: Marked `stage-6-model-update` as next ready step.
 - `2026-04-22`: Marked `stage-6-model-update` as blocked because the approved plan omits the glue changes needed to supply provider endpoint and working-directory data to the TUI model.
+- `2026-04-22`: Applied approved correction and completed `stage-6-model-update` plus `stage-6-keys-update` by widening the glue scope to `internal/tui/app.go` and `cmd/steiner/main.go`.
+- `2026-04-22`: Completed repository-wide automated verification after the correction.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
@@ -153,6 +155,10 @@
 - `stage-6-git-go`: recovery worker reported `go vet ./internal/tui` passed
 - `stage-6-sidebar-go`: worker reported `go vet ./internal/tui` passed
 - `stage-6-content-markdown`: direct fallback ran `go build ./internal/tui` and it passed
+- `stage-6-model-update`: `go build ./...` passed after wiring provider, working dir, sidebar, and git state through the TUI config/model.
+- `stage-6-model-update`: `go vet ./...` passed after removing the copied mutex value from `Model`.
+- `stage-6-full-build`: `go test ./internal/tui/...` passed.
+- `stage-6-full-build`: `go test ./...` passed.
 
 ## Fix Plans
 - none yet
@@ -160,10 +166,10 @@
 ## Deviations
 - `stage-6-content-markdown`: executor used direct execution fallback after three isolated sub-agent attempts stalled without producing branch changes.
 - `stage-6-content-markdown`: direct implementation required a fresh `go mod tidy`, which updated `go.mod` and `go.sum` once `internal/tui/content.go` imported Glamour for real. This was treated as a contained dependency-metadata deviation required to make the planned build verification meaningful.
+- `stage-6-model-update`: executor widened the glue scope to `internal/tui/app.go` and `cmd/steiner/main.go` with user approval because the approved plan did not include the data plumbing required by the sidebar acceptance criteria.
 
 ## Blockers
-- `stage-6-model-update`: the sidebar acceptance criteria require live `provider endpoint` and `working dir` values, but [internal/tui/app.go](/home/luis/Projects/AI/steiner/internal/tui/app.go:9) does not carry those fields into the TUI config and [cmd/steiner/main.go](/home/luis/Projects/AI/steiner/cmd/steiner/main.go:177) only passes `Model` and `SkillNames` into `tui.NewApp(...)`.
-- `stage-6-model-update`: [internal/tui/model.go](/home/luis/Projects/AI/steiner/internal/tui/model.go:23) can wire sidebar state and event-derived metrics, but it cannot satisfy the approved sidebar data contract without widening scope to at least `internal/tui/app.go` and `cmd/steiner/main.go`.
+- none
 
 ## Manual Verification
 - not started
