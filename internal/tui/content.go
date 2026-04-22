@@ -8,13 +8,30 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-const markdownRenderWidth = 80
+const markdownRenderPadding = 4
+
+type contentSegmentKind int
+
+const (
+	segmentPlain contentSegmentKind = iota
+	segmentAssistantProse
+	segmentAssistantMarkdown
+	segmentApproval
+	segmentTool
+	segmentThinking
+)
+
+type contentSegment struct {
+	kind contentSegmentKind
+	text string
+}
 
 type contentBuffer struct {
-	segments     []string
+	segments     []contentSegment
 	streaming    bool
 	streamBuffer string
 	renderer     *glamour.TermRenderer
+	renderWidth  int
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -26,16 +43,16 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		}
 	case output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 		b.finishStreaming()
-		b.appendStyled(formatApprovalEvent(event), approvalHighlightStyle)
+		b.appendStyled(formatApprovalEvent(event), segmentApproval)
 		return
 	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
 		b.finishStreaming()
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), toolBlockStyle)
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 		return
 	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeContextDiagnostics:
 		b.finishStreaming()
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), thinkingBlockStyle)
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 		return
 	case output.EventTypeStopReason:
 		b.finishStreaming()
@@ -121,9 +138,13 @@ func (b *contentBuffer) Clear() {
 	b.streaming = false
 }
 
-func (b *contentBuffer) String() string {
+func (b *contentBuffer) String(width int) string {
 	parts := make([]string, 0, len(b.segments)+1)
-	parts = append(parts, b.segments...)
+	for _, segment := range b.segments {
+		if rendered := b.renderSegment(segment, width); rendered != "" {
+			parts = append(parts, rendered)
+		}
+	}
 	if preview := b.inProgressPreview(); preview != "" {
 		parts = append(parts, preview)
 	}
@@ -275,18 +296,36 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 	if block == "" {
 		return
 	}
-	rendered := ""
 	if isMarkdownLikeBlock(block) {
-		rendered = strings.TrimSpace(b.renderMarkdown(block))
+		b.segments = append(b.segments, contentSegment{kind: segmentAssistantMarkdown, text: block})
+		return
 	}
-	if rendered == "" {
-		rendered = assistantProseStyle.Render("assistant> " + block)
-	}
-	b.segments = append(b.segments, rendered)
+	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block})
 }
 
-func (b *contentBuffer) renderMarkdown(block string) string {
-	renderer := b.markdownRenderer()
+func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
+	switch segment.kind {
+	case segmentAssistantMarkdown:
+		rendered := strings.TrimSpace(b.renderMarkdown(segment.text, width))
+		if rendered != "" {
+			return rendered
+		}
+		return assistantProseStyle.Render("assistant> " + segment.text)
+	case segmentAssistantProse:
+		return assistantProseStyle.Render("assistant> " + segment.text)
+	case segmentApproval:
+		return approvalHighlightStyle.Render(segment.text)
+	case segmentTool:
+		return toolBlockStyle.Render(segment.text)
+	case segmentThinking:
+		return thinkingBlockStyle.Render(segment.text)
+	default:
+		return segment.text
+	}
+}
+
+func (b *contentBuffer) renderMarkdown(block string, width int) string {
+	renderer := b.markdownRenderer(width)
 	if renderer == nil {
 		return assistantProseStyle.Render("assistant> " + block)
 	}
@@ -297,19 +336,21 @@ func (b *contentBuffer) renderMarkdown(block string) string {
 	return rendered
 }
 
-func (b *contentBuffer) markdownRenderer() *glamour.TermRenderer {
-	if b.renderer != nil {
+func (b *contentBuffer) markdownRenderer(width int) *glamour.TermRenderer {
+	renderWidth := maxInt(1, width-markdownRenderPadding)
+	if b.renderer != nil && b.renderWidth == renderWidth {
 		return b.renderer
 	}
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle("dark"),
-		glamour.WithWordWrap(markdownRenderWidth),
+		glamour.WithWordWrap(renderWidth),
 		glamour.WithPreservedNewLines(),
 	)
 	if err != nil {
 		return nil
 	}
 	b.renderer = renderer
+	b.renderWidth = renderWidth
 	return renderer
 }
 
@@ -317,14 +358,14 @@ func (b *contentBuffer) appendLine(line string) {
 	if shouldSuppressLine(line) {
 		return
 	}
-	b.segments = append(b.segments, line)
+	b.segments = append(b.segments, contentSegment{kind: segmentPlain, text: line})
 }
 
-func (b *contentBuffer) appendStyled(line string, style interface{ Render(...string) string }) {
+func (b *contentBuffer) appendStyled(line string, kind contentSegmentKind) {
 	if shouldSuppressLine(line) {
 		return
 	}
-	b.segments = append(b.segments, style.Render(line))
+	b.segments = append(b.segments, contentSegment{kind: kind, text: line})
 }
 
 func isMarkdownLikeBlock(block string) bool {

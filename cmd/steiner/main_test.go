@@ -637,6 +637,72 @@ func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerUsesSelectedSkillSubset(t *testing.T) {
+	skillsRoot := filepath.Join(t.TempDir(), ".config", "steiner", "skills")
+	mustMkdirAll(t, filepath.Join(skillsRoot, "review"))
+	mustMkdirAll(t, filepath.Join(skillsRoot, "debug"))
+	writeFile(t, filepath.Join(skillsRoot, "review", "SKILL.md"), "review skill instructions")
+	writeFile(t, filepath.Join(skillsRoot, "debug", "SKILL.md"), "debug skill instructions")
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "final answer",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+			},
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  filepath.Dir(filepath.Dir(filepath.Dir(skillsRoot))),
+			events:   output.NoopSink{},
+		},
+	}
+
+	_, err := runner.Run(
+		context.Background(),
+		[]agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}},
+		[]string{"review"},
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	var contents []string
+	for _, message := range providerStub.requests[0].Messages {
+		contents = append(contents, message.Content)
+	}
+	joined := strings.Join(contents, "\n")
+	if !strings.Contains(joined, "review skill instructions") {
+		t.Fatalf("request messages missing enabled skill content:\n%s", joined)
+	}
+	if strings.Contains(joined, "debug skill instructions") {
+		t.Fatalf("request messages included disabled skill content:\n%s", joined)
+	}
+}
+
 func TestInteractiveInputPrefersRawStdin(t *testing.T) {
 	raw := strings.NewReader("raw")
 	shared := bufio.NewReader(strings.NewReader("shared"))
@@ -656,6 +722,19 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestInteractiveSkillsSnapshotTracksEnabledSubset(t *testing.T) {
+	skills := newInteractiveSkills([]string{"review", "debug", "test"})
+	if got, want := skills.Snapshot(), []string{"review", "debug", "test"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("initial Snapshot() = %v, want %v", got, want)
+	}
+
+	skills.Set("debug", false)
+	skills.Set("test", false)
+	if got, want := skills.Snapshot(), []string{"review"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered Snapshot() = %v, want %v", got, want)
+	}
 }
 
 func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {

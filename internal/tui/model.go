@@ -47,6 +47,11 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input.Placeholder = "Ask steiner something"
 	input.Focus()
 
+	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
+	for _, name := range cfg.SkillNames {
+		enabledSkills[name] = true
+	}
+
 	m := Model{
 		width:         80,
 		height:        24,
@@ -58,7 +63,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		external:      external,
 		autoScroll:    true,
 		skillNames:    append([]string(nil), cfg.SkillNames...),
-		enabledSkills: make(map[string]bool, len(cfg.SkillNames)),
+		enabledSkills: enabledSkills,
 		onSubmit:      cfg.OnSubmit,
 		onApproval:    cfg.OnApproval,
 		onSkillToggle: cfg.OnSkillToggle,
@@ -68,7 +73,6 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
 	m.sidebar.maxTurns = cfg.MaxTurns
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
-	m.sidebar.activeSkills = append([]string(nil), cfg.SkillNames...)
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()
@@ -171,7 +175,7 @@ func (m *Model) layout() {
 }
 
 func (m *Model) syncViewport() {
-	m.viewport.SetContent(m.content.String())
+	m.viewport.SetContent(m.content.String(m.viewport.Width))
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}
@@ -249,12 +253,22 @@ func (m *Model) syncSidebar() {
 	m.sidebar.model = strings.TrimSpace(m.status.model)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	m.sidebar.currentTurn = m.status.turn
-	m.sidebar.activeSkills = append(m.sidebar.activeSkills[:0], m.skillNames...)
+	m.sidebar.activeSkills = m.enabledSkillNames()
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
+}
+
+func (m Model) enabledSkillNames() []string {
+	names := make([]string, 0, len(m.enabledSkills))
+	for _, name := range m.skillNames {
+		if m.enabledSkills[name] {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
@@ -307,6 +321,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", action.toggleSkill, state))
 		m.input.Reset()
+		m.syncSidebar()
 		m.syncViewport()
 		return m, nil
 	}
