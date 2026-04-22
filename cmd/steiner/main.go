@@ -170,15 +170,33 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(rt)
 
+	submissions := make(chan string, 1)
+	approvalResponse := make(chan bool, 1)
+
 	tuiApp := tui.NewApp(tui.Config{
 		Model:      rt.cfg.Provider.Model,
 		SkillNames: rt.skillNames,
-		OnSubmit:   nil,
-		OnApproval: nil,
+		OnSubmit: func(text string) {
+			select {
+			case submissions <- text:
+			default:
+			}
+		},
+		OnApproval: func(allowed bool) {
+			select {
+			case approvalResponse <- allowed:
+			default:
+			}
+		},
 		OnSkillToggle: func(name string, enabled bool) {
 		},
 	})
 	events := output.NewMultiSink(rt.events, tuiApp.EventSink())
+
+	approver := agent.NewEventingApprover(
+		events,
+		channelApprovalResponder{ch: approvalResponse},
+	)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -190,21 +208,98 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
-	completion := make(chan struct{})
-	go func() {
-		defer close(completion)
-		tuiChatLoop(ctx, rt, tuiApp, events)
-	}()
-
-	select {
-	case <-completion:
-	case <-ctx.Done():
+	var conversation []agent.Message
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case text := <-submissions:
+			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+			result, err := runAgentLoop(ctx, rt, approver, events, conversation)
+			if err != nil {
+				return err
+			}
+			conversation = result.Conversation
+		}
 	}
-	wg.Wait()
-	return nil
 }
 
-func tuiChatLoop(ctx context.Context, rt cliRuntime, app *tui.App, events output.EventSink) {
+func runAgentLoop(ctx context.Context, rt cliRuntime, approver tool.ApprovalResponder, events output.EventSink, conversation []agent.Message) (runResult, error) {
+	if rt.provider == nil {
+		return runResult{}, fmt.Errorf("provider is required")
+	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	assembly := prompt.AssemblyOptions{
+		HomeDir:                   rt.homeDir,
+		ProjectRoot:               rt.workDir,
+		SkillsRoot:                prompt.DefaultSkillsRoot(rt.homeDir),
+		SkillNames:                rt.skillNames,
+		ProjectContextBudgetBytes: rt.cfg.ProjectContext.MaxTokens,
+		ProjectContextExtraFiles:  rt.cfg.ProjectContext.ExtraFiles,
+		ProjectContextIgnoreFiles: rt.cfg.ProjectContext.IgnoreFiles,
+		Conversation:              toProviderConversation(conversation),
+	}
+
+	temperature := rt.cfg.Provider.Temperature
+	maxTokens := rt.cfg.Provider.MaxCompletionTokens
+	var maxTokensPtr *int
+	if maxTokens > 0 {
+		maxTokensPtr = &maxTokens
+	}
+
+	var diagnostics []output.Event
+	diags := output.NewMultiSink(
+		events,
+		output.SinkFunc(func(event output.Event) {
+			if isRetainedDiagnosticEvent(event) {
+				diagnostics = append(diagnostics, event)
+			}
+		}),
+	)
+	executor := tool.NewExecutor(rt.registry, rt.cfg, approver, rt.workDir)
+	runner := agent.NewRunner()
+	state, err := runner.Run(runCtx, agent.RunRequest{
+		Provider:    rt.provider,
+		Executor:    executor,
+		Tools:       registryToolSpecs(rt.registry),
+		Prompt:      assembly,
+		Model:       rt.cfg.Provider.Model,
+		Temperature: &temperature,
+		MaxTokens:   maxTokensPtr,
+		Limits: agent.Limits{
+			MaxTurns:  rt.cfg.Limits.MaxTurns,
+			MaxTokens: rt.cfg.Limits.MaxTokens,
+		},
+		Events: diags,
+	})
+	if err != nil {
+		return runResult{}, err
+	}
+
+	return runResult{
+		Conversation: state.Conversation,
+		Reply:        lastAssistantReply(state.Conversation),
+		Diagnostics:  cloneEvents(diagnostics),
+	}, nil
+}
+
+type channelApprovalResponder struct {
+	ch chan bool
+}
+
+func (r channelApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+	if req.Response == nil {
+		return fmt.Errorf("approval response channel is required")
+	}
+	allowed, ok := <-r.ch
+	if !ok {
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval channel closed"}
+		return fmt.Errorf("approval channel closed")
+	}
+	req.Response <- tool.ApprovalResponse{Allow: allowed, Message: "approved"}
+	return nil
 }
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
