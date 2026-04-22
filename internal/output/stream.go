@@ -333,6 +333,64 @@ func FormatEvent(event Event) string {
 	return formatSegment(renderEvent(event))
 }
 
+type InspectionSnapshot struct {
+	TotalDiagnostics   int
+	ContextDiagnostics int
+	LastStopReason     string
+	LastBudget         string
+	LastCompaction     string
+	Recent             []string
+	RecentContext      []string
+}
+
+func SummarizeInspection(events []Event, recentLimit int) InspectionSnapshot {
+	if recentLimit < 0 {
+		recentLimit = 0
+	}
+
+	summary := InspectionSnapshot{
+		TotalDiagnostics: len(events),
+	}
+	if len(events) == 0 {
+		return summary
+	}
+
+	recent := make([]string, 0, minInt(len(events), recentLimit))
+	recentContext := make([]string, 0, minInt(len(events), recentLimit))
+
+	for _, event := range events {
+		if line := FormatEvent(event); strings.TrimSpace(line) != "" {
+			recent = appendRecentLine(recent, line, recentLimit)
+			if isContextDiagnosticEvent(event) {
+				recentContext = appendRecentLine(recentContext, line, recentLimit)
+			}
+		}
+
+		switch payload := event.Payload.(type) {
+		case StopReasonEvent:
+			if segment := renderEvent(event); strings.TrimSpace(segment.Text) != "" {
+				summary.LastStopReason = segment.Text
+			}
+		case ContextDiagnosticsEvent:
+			summary.ContextDiagnostics++
+			segment := renderEvent(event)
+			if strings.TrimSpace(segment.Text) == "" {
+				continue
+			}
+			switch payload.Kind {
+			case "budget":
+				summary.LastBudget = segment.Text
+			case "compaction":
+				summary.LastCompaction = segment.Text
+			}
+		}
+	}
+
+	summary.Recent = recent
+	summary.RecentContext = recentContext
+	return summary
+}
+
 func defaultTheme(w io.Writer) Theme {
 	enabled := supportsANSI(w)
 	return Theme{
@@ -406,4 +464,27 @@ func joinOrFallback(parts []string, fallback string) string {
 		return fallback
 	}
 	return strings.Join(parts, " ")
+}
+
+func appendRecentLine(lines []string, line string, limit int) []string {
+	if limit == 0 {
+		return lines
+	}
+	lines = append(lines, line)
+	if len(lines) > limit {
+		return append([]string(nil), lines[len(lines)-limit:]...)
+	}
+	return lines
+}
+
+func isContextDiagnosticEvent(event Event) bool {
+	_, ok := event.Payload.(ContextDiagnosticsEvent)
+	return ok
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
