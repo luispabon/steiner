@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 const (
@@ -28,6 +30,7 @@ type sidebarState struct {
 	dirty         bool
 	workingDir    string
 	activeSkills  []string
+	styles        theme.Styles
 }
 
 func newSidebarState() sidebarState {
@@ -59,19 +62,19 @@ func (s sidebarState) View(width int) string {
 
 	lines := s.lines(sidebarWidth)
 	body := strings.Join(lines, "\n")
-	return sidebarStyle.Width(sidebarWidth).Render(body)
+	return s.styles.Sidebar.Width(sidebarWidth).Render(body)
 }
 
 func (s sidebarState) lines(width int) []string {
 	lines := make([]string, 0, 8)
-	lines = append(lines, sidebarField("model", safeText(s.model), width))
-	lines = append(lines, sidebarField("provider", safeText(s.provider), width))
-	lines = append(lines, sidebarField("context", s.contextSummary(), width))
-	lines = append(lines, sidebarField("turn", s.turnSummary(), width))
-	lines = append(lines, sidebarField("compact", s.compactionSummary(), width))
-	lines = append(lines, sidebarField("git", s.gitSummary(), width))
-	lines = append(lines, sidebarField("workdir", s.workdirSummary(width), width))
-	lines = append(lines, sidebarField("skills", s.skillsSummary(width), width))
+	lines = append(lines, sidebarField("model", safeText(s.model), width, s.styles))
+	lines = append(lines, sidebarField("provider", safeText(s.provider), width, s.styles))
+	lines = append(lines, sidebarField("context", s.contextSummary(), width, s.styles))
+	lines = append(lines, sidebarField("turn", s.turnSummary(), width, s.styles))
+	lines = append(lines, sidebarField("compact", s.compactionSummary(), width, s.styles))
+	lines = append(lines, sidebarField("git", s.gitSummary(), width, s.styles))
+	lines = append(lines, sidebarField("workdir", s.workdirSummary(width), width, s.styles))
+	lines = append(lines, sidebarField("skills", s.skillsSummary(width), width, s.styles))
 	return lines
 }
 
@@ -146,7 +149,7 @@ func (s sidebarState) skillsSummary(width int) string {
 	return fitText(strings.Join(skills, ", "), maxInt(1, width-sidebarPathPadding))
 }
 
-func sidebarField(label, value string, width int) string {
+func sidebarField(label, value string, width int, styles theme.Styles) string {
 	label = strings.TrimSpace(label)
 	value = strings.TrimSpace(value)
 	if label == "" {
@@ -158,7 +161,7 @@ func sidebarField(label, value string, width int) string {
 
 	maxValueWidth := maxInt(1, width-len(label)-2)
 	value = fitText(value, maxValueWidth)
-	return sidebarLabelStyle.Render(label) + ": " + sidebarValueStyle.Render(value)
+	return styles.SidebarLabel.Render(label) + ": " + styles.SidebarValue.Render(value)
 }
 
 func fitText(text string, width int) string {

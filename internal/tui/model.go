@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 type approvalState struct {
@@ -39,6 +41,8 @@ type Model struct {
 	onSubmit      func(string)
 	onApproval    func(bool)
 	onSkillToggle func(string, bool)
+	activeTheme   theme.Theme
+	styles        theme.Styles
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -50,6 +54,22 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
 	for _, name := range cfg.SkillNames {
 		enabledSkills[name] = true
+	}
+
+	// Load theme
+	var t theme.Theme
+	if cfg.Theme != "" {
+		var err error
+		t, err = theme.Get(cfg.Theme)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "theme not found: %s, using default\n", cfg.Theme)
+			t = theme.Default()
+		}
+	} else {
+		t = theme.Default()
+	}
+	if t == nil {
+		t = theme.Default()
 	}
 
 	m := Model{
@@ -67,6 +87,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onSubmit:      cfg.OnSubmit,
 		onApproval:    cfg.OnApproval,
 		onSkillToggle: cfg.OnSkillToggle,
+		activeTheme:   t,
+		styles:        t.LipGlossStyles(),
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -76,6 +98,13 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()
+
+	// Set styles on content and sidebar
+	m.content.styles = m.styles
+	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
+	m.sidebar.styles = m.styles
+	m.status.styles = m.styles
+
 	return m
 }
 
@@ -141,11 +170,11 @@ func (m Model) View() string {
 	if sidebarVisible {
 		contentWidth = maxInt(1, m.width-sidebarWidth)
 	}
-	contentView := contentPaneStyle.Width(contentWidth).Render(m.viewport.View())
+	contentView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
 	if sidebarVisible {
 		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width))
 	}
-	inputView := inputAreaStyle.Width(maxInt(1, m.width)).Render(m.input.View())
+	inputView := m.styles.InputArea.Width(maxInt(1, m.width)).Render(m.input.View())
 	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
 
 	return lipgloss.JoinVertical(
