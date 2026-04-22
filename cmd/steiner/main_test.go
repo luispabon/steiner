@@ -264,8 +264,53 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "final answer") {
 		t.Fatalf("stdout = %q, want final answer", got)
 	}
-	if got := stderr.String(); !strings.Contains(got, "status: reason=complete") {
+	if got := stderr.String(); !strings.Contains(got, "status: run complete after 1 turn") {
 		t.Fatalf("stderr = %q, want stop reason", got)
+	}
+}
+
+func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: config.Config{
+				Provider: config.ProviderConfig{
+					Model: "test-model",
+				},
+				Limits: config.LimitsConfig{
+					MaxTurns:  4,
+					MaxTokens: 64,
+				},
+				ProjectContext: config.ProjectContextConfig{
+					MaxTokens: 128,
+				},
+				Approval: config.ApprovalConfig{
+					Default: config.ApprovalModeAuto,
+				},
+			},
+			provider: &fakeProvider{},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := runner.Run(ctx, []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("Diagnostics len = %d, want 1", len(result.Diagnostics))
+	}
+	stop, ok := result.Diagnostics[0].Payload.(output.StopReasonEvent)
+	if !ok {
+		t.Fatalf("diagnostic payload type = %T, want output.StopReasonEvent", result.Diagnostics[0].Payload)
+	}
+	if got, want := stop.Reason, "cancelled"; got != want {
+		t.Fatalf("stop reason = %q, want %q", got, want)
 	}
 }
 
@@ -682,24 +727,37 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	}
 
 	if len(result.Diagnostics) == 0 {
-		t.Fatal("Diagnostics = empty, want context diagnostics")
+		t.Fatal("Diagnostics = empty, want retained diagnostics")
 	}
 	var kinds []string
+	foundStopReason := false
 	for _, event := range result.Diagnostics {
-		if event.Type != output.EventTypeContextDiagnostics {
-			continue
+		switch event.Type {
+		case output.EventTypeContextDiagnostics:
+			payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+			if !ok {
+				t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+			}
+			kinds = append(kinds, payload.Kind)
+		case output.EventTypeStopReason:
+			payload, ok := event.Payload.(output.StopReasonEvent)
+			if !ok {
+				t.Fatalf("stop payload type = %T, want output.StopReasonEvent", event.Payload)
+			}
+			if payload.Summary == "" {
+				t.Fatalf("stop reason summary = empty, want actionable summary")
+			}
+			foundStopReason = true
 		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-		}
-		kinds = append(kinds, payload.Kind)
 	}
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
 	}
 	if !containsString(kinds, "compaction") {
 		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
+	}
+	if !foundStopReason {
+		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
 	}
 }
 

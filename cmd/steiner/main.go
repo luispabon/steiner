@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -338,6 +339,8 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	if r.runtime.provider == nil {
 		return repl.RunResult{}, fmt.Errorf("provider is required")
 	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
 
 	assembly := prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
@@ -361,14 +364,14 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	events := output.NewMultiSink(
 		r.runtime.events,
 		output.SinkFunc(func(event output.Event) {
-			if event.Type == output.EventTypeContextDiagnostics {
+			if isRetainedDiagnosticEvent(event) {
 				diagnostics = append(diagnostics, event)
 			}
 		}),
 	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
-	state, err := runner.Run(ctx, agent.RunRequest{
+	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    r.runtime.provider,
 		Executor:    executor,
 		Tools:       registryToolSpecs(r.runtime.registry),
@@ -398,8 +401,31 @@ func cloneEvents(events []output.Event) []output.Event {
 		return nil
 	}
 	out := make([]output.Event, len(events))
-	copy(out, events)
+	for i, event := range events {
+		out[i] = cloneEvent(event)
+	}
 	return out
+}
+
+func cloneEvent(event output.Event) output.Event {
+	cloned := event
+	switch payload := event.Payload.(type) {
+	case output.ContextDiagnosticsEvent:
+		payload.Notes = append([]string(nil), payload.Notes...)
+		cloned.Payload = payload
+	case output.StopReasonEvent:
+		cloned.Payload = payload
+	}
+	return cloned
+}
+
+func isRetainedDiagnosticEvent(event output.Event) bool {
+	switch event.Type {
+	case output.EventTypeContextDiagnostics, output.EventTypeStopReason:
+		return true
+	default:
+		return false
+	}
 }
 
 func closeRuntime(rt cliRuntime) {

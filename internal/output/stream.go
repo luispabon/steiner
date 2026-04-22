@@ -270,18 +270,21 @@ func renderEvent(event Event) Segment {
 		}
 		return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
 	case StopReasonEvent:
-		parts := []string{
-			fmt.Sprintf("reason=%s", payload.Reason),
+		parts := []string{}
+		if payload.Summary != "" {
+			parts = append(parts, payload.Summary)
+		} else if payload.Reason != "" {
+			parts = append(parts, "reason="+payload.Reason)
 		}
-		if payload.Turn > 0 {
-			parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
+		if payload.Action != "" {
+			parts = append(parts, "next: "+payload.Action)
 		}
 		channel := ChannelStatus
 		label := "status"
 		if payload.Error != "" {
 			channel = ChannelError
 			label = "error"
-			parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
+			parts = append(parts, "error: "+payload.Error)
 		}
 		return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 	case UserInputEvent:
@@ -328,6 +331,64 @@ func renderEvent(event Event) Segment {
 
 func FormatEvent(event Event) string {
 	return formatSegment(renderEvent(event))
+}
+
+type InspectionSnapshot struct {
+	TotalDiagnostics   int
+	ContextDiagnostics int
+	LastStopReason     string
+	LastBudget         string
+	LastCompaction     string
+	Recent             []string
+	RecentContext      []string
+}
+
+func SummarizeInspection(events []Event, recentLimit int) InspectionSnapshot {
+	if recentLimit < 0 {
+		recentLimit = 0
+	}
+
+	summary := InspectionSnapshot{
+		TotalDiagnostics: len(events),
+	}
+	if len(events) == 0 {
+		return summary
+	}
+
+	recent := make([]string, 0, minInt(len(events), recentLimit))
+	recentContext := make([]string, 0, minInt(len(events), recentLimit))
+
+	for _, event := range events {
+		if line := FormatEvent(event); strings.TrimSpace(line) != "" {
+			recent = appendRecentLine(recent, line, recentLimit)
+			if isContextDiagnosticEvent(event) {
+				recentContext = appendRecentLine(recentContext, line, recentLimit)
+			}
+		}
+
+		switch payload := event.Payload.(type) {
+		case StopReasonEvent:
+			if segment := renderEvent(event); strings.TrimSpace(segment.Text) != "" {
+				summary.LastStopReason = segment.Text
+			}
+		case ContextDiagnosticsEvent:
+			summary.ContextDiagnostics++
+			segment := renderEvent(event)
+			if strings.TrimSpace(segment.Text) == "" {
+				continue
+			}
+			switch payload.Kind {
+			case "budget":
+				summary.LastBudget = segment.Text
+			case "compaction":
+				summary.LastCompaction = segment.Text
+			}
+		}
+	}
+
+	summary.Recent = recent
+	summary.RecentContext = recentContext
+	return summary
 }
 
 func defaultTheme(w io.Writer) Theme {
@@ -403,4 +464,27 @@ func joinOrFallback(parts []string, fallback string) string {
 		return fallback
 	}
 	return strings.Join(parts, " ")
+}
+
+func appendRecentLine(lines []string, line string, limit int) []string {
+	if limit == 0 {
+		return lines
+	}
+	lines = append(lines, line)
+	if len(lines) > limit {
+		return append([]string(nil), lines[len(lines)-limit:]...)
+	}
+	return lines
+}
+
+func isContextDiagnosticEvent(event Event) bool {
+	_, ok := event.Payload.(ContextDiagnosticsEvent)
+	return ok
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
