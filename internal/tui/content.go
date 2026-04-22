@@ -12,15 +12,69 @@ type contentBuffer struct {
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
-	switch payload := event.Payload.(type) {
-	case output.AssistantChunkEvent:
-		b.appendAssistantChunk(payload.Content)
-	default:
+	switch event.Type {
+	case output.EventTypeAssistantChunk:
+		if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
+			b.appendAssistantChunk(payload.Content)
+			return
+		}
+	case output.EventTypeStopReason:
 		b.finishStreaming()
-		if line := strings.TrimSpace(output.FormatEvent(event)); line != "" {
+		if line := formatTUIEvent(event); line != "" {
 			b.lines = append(b.lines, line)
+			return
+		}
+	case output.EventTypeApprovalRequested:
+		b.finishStreaming()
+		b.lines = append(b.lines, formatApprovalEvent(event))
+		return
+	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+		return
+	case output.EventTypeRunStarted, output.EventTypeTurnStarted, output.EventTypeTurnFinished,
+		output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
+		output.EventTypeToolCallStarted, output.EventTypeToolCallFinished,
+		output.EventTypeContextDiagnostics, output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse, output.EventTypeUserInput:
+		return
+	default:
+		if _, ok := event.Payload.(output.StopReasonEvent); ok {
+			b.finishStreaming()
+			if line := formatTUIEvent(event); line != "" {
+				b.lines = append(b.lines, line)
+			}
+			return
 		}
 	}
+	b.finishStreaming()
+	if line := strings.TrimSpace(output.FormatEvent(event)); line != "" {
+		b.lines = append(b.lines, line)
+	}
+}
+
+func formatTUIEvent(event output.Event) string {
+	switch payload := event.Payload.(type) {
+	case output.StopReasonEvent:
+		if payload.Error != "" {
+			return "error: " + payload.Error
+		}
+		if payload.Reason != "" {
+			return "status: " + payload.Reason
+		}
+		return ""
+	case output.AssistantMessageEvent:
+		return ""
+	}
+	if event.Type == output.EventTypeStopReason {
+		return "status: stopped"
+	}
+	return ""
+}
+
+func formatApprovalEvent(event output.Event) string {
+	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+		return "approval: " + payload.Tool + " " + payload.Mode + " (yes/no)"
+	}
+	return "approval requested"
 }
 
 func (b *contentBuffer) AppendLine(line string) {
