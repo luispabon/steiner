@@ -7,7 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,7 +28,7 @@ type Model struct {
 	width         int
 	height        int
 	viewport      viewport.Model
-	input         textinput.Model
+	input         textarea.Model
 	content       contentBuffer
 	status        statusState
 	sidebar       sidebarState
@@ -43,13 +44,22 @@ type Model struct {
 	onSkillToggle func(string, bool)
 	activeTheme   theme.Theme
 	styles        theme.Styles
+	inputHistory  []string
+	historyIdx    int
+	historyDraft  string
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
-	input := textinput.New()
+	input := textarea.New()
 	input.Prompt = "> "
 	input.Placeholder = "Ask steiner something"
-	input.Focus()
+	input.ShowLineNumbers = false
+	input.CharLimit = 0
+	input.SetHeight(3)
+	// Remove ctrl+b from CharacterBackward to avoid conflict with sidebar toggle
+	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
+	// Add Shift+Enter and Alt+Enter for inserting newlines
+	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"))
 
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
 	for _, name := range cfg.SkillNames {
@@ -89,6 +99,9 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onSkillToggle: cfg.OnSkillToggle,
 		activeTheme:   t,
 		styles:        t.LipGlossStyles(),
+		inputHistory:  []string{},
+		historyIdx:    0,
+		historyDraft:  "",
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -104,6 +117,10 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
+
+	// Set textarea styles
+	m.input.FocusedStyle.Base = m.styles.InputArea
+	m.input.BlurredStyle.Base = m.styles.InputArea
 
 	return m
 }
@@ -143,11 +160,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.layout()
 			return m, nil
 		case tea.KeyUp:
-			m.scrollUp(1)
-			return m, nil
+			if m.input.Line() == 0 && len(m.inputHistory) > 0 {
+				// navigate history backward
+				if m.historyIdx == 0 {
+					m.historyDraft = m.input.Value()
+				}
+				if m.historyIdx < len(m.inputHistory) {
+					m.historyIdx++
+					m.input.SetValue(m.inputHistory[m.historyIdx-1])
+				}
+				return m, nil
+			}
+			// cursor not on first line — pass to textarea
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
 		case tea.KeyDown:
-			m.scrollDown(1)
-			return m, nil
+			if m.historyIdx > 0 {
+				m.historyIdx--
+				if m.historyIdx == 0 {
+					m.input.SetValue(m.historyDraft)
+				} else {
+					m.input.SetValue(m.inputHistory[m.historyIdx-1])
+				}
+				return m, nil
+			}
+			// pass to textarea
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
 		case tea.KeyPgUp:
 			m.scrollUp(maxInt(1, m.viewport.Height))
 			return m, nil
@@ -174,7 +215,7 @@ func (m Model) View() string {
 	if sidebarVisible {
 		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width))
 	}
-	inputView := m.styles.InputArea.Width(maxInt(1, m.width)).Render(m.input.View())
+	inputView := m.input.View()
 	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
 
 	return lipgloss.JoinVertical(
@@ -186,7 +227,7 @@ func (m Model) View() string {
 }
 
 func (m *Model) layout() {
-	contentHeight := m.height - 2
+	contentHeight := m.height - 5
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -199,7 +240,7 @@ func (m *Model) layout() {
 	}
 	m.viewport.Width = contentWidth
 	m.viewport.Height = contentHeight
-	m.input.Width = maxInt(0, contentWidth-4)
+	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }
 
@@ -260,7 +301,7 @@ func (m *Model) applyEvent(event output.Event) {
 				preview: payload.Preview,
 			}
 			m.status.mode = "approval"
-			m.input.SetValue("")
+			m.input.Reset()
 			m.input.Prompt = "approve> "
 			m.input.Placeholder = "yes or no"
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
@@ -313,6 +354,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.input.Reset()
 		m.input.Prompt = "> "
 		m.input.Placeholder = "Ask steiner something"
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
@@ -324,6 +366,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.clear {
 		m.content.Clear()
 		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
@@ -336,6 +379,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.content.AppendLine("status: skills " + strings.Join(names, ", "))
 		}
 		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
@@ -350,16 +394,23 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", action.toggleSkill, state))
 		m.input.Reset()
+		m.historyIdx = 0
 		m.syncSidebar()
 		m.syncViewport()
 		return m, nil
 	}
 	if action.submit != "" {
+		// prepend to history (non-empty submits only)
+		if value != "" {
+			m.inputHistory = append([]string{value}, m.inputHistory...)
+			m.historyIdx = 0
+		}
 		if m.onSubmit != nil {
 			m.onSubmit(action.submit)
 		}
 		m.content.AppendLine("you> " + action.submit)
 		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 	}
 	return m, nil
