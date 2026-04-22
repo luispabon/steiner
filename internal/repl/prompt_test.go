@@ -8,14 +8,14 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func TestReadlinePrompterWritesAppOutputToStream(t *testing.T) {
+func TestLinePrompterWritesAppOutputToStream(t *testing.T) {
 	var out bytes.Buffer
-	prompter := &readlinePrompter{
+	prompter := &linePrompter{
 		out: output.NewStream(&out),
 	}
 
-	prompter.Printf("status: %s", "ready")
-	prompter.Println("assistant reply")
+	prompter.Printf(output.ChannelStatus, "status: %s", "ready")
+	prompter.Println(output.ChannelAssistant, "assistant reply")
 
 	got := out.String()
 	for _, want := range []string{

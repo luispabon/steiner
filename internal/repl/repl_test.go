@@ -296,14 +296,14 @@ func (p *fakePrompt) ReadLine(ctx context.Context) (string, error) {
 	return line, nil
 }
 
-func (p *fakePrompt) Printf(format string, args ...any) {
+func (p *fakePrompt) Printf(_ output.Channel, format string, args ...any) {
 	if p.out == nil {
 		return
 	}
 	_, _ = p.out.WriteString(fmt.Sprintf(format, args...))
 }
 
-func (p *fakePrompt) Println(args ...any) {
+func (p *fakePrompt) Println(_ output.Channel, args ...any) {
 	if p.out == nil {
 		return
 	}

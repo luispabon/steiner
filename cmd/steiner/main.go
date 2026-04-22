@@ -185,7 +185,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				rt.events,
 				promptingApprover{
 					reader: approvalReader(rt),
-					out:    prompter,
+					out:    prompterAdapter{prompter: prompter},
 				},
 			),
 		},
@@ -527,6 +527,14 @@ func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest
 	default:
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}, nil
 	}
+}
+
+type prompterAdapter struct {
+	prompter repl.Prompter
+}
+
+func (a prompterAdapter) Printf(format string, args ...any) {
+	a.prompter.Printf(output.ChannelApproval, format, args...)
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {

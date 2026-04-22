@@ -14,8 +14,8 @@ import (
 
 type Prompter interface {
 	ReadLine(context.Context) (string, error)
-	Printf(string, ...any)
-	Println(...any)
+	Printf(output.Channel, string, ...any)
+	Println(output.Channel, ...any)
 }
 
 func NewPrompter(in io.Reader, out *output.Stream, completer Completer) Prompter {
@@ -27,8 +27,20 @@ func NewPromptEventSink(prompter Prompter) output.EventSink {
 		if prompter == nil {
 			return
 		}
-		prompter.Println(output.FormatEvent(event))
+		channel := channelForEvent(event)
+		prompter.Println(channel, output.FormatEvent(event))
 	})
+}
+
+func channelForEvent(event output.Event) output.Channel {
+	switch event.Type {
+	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
+		return output.ChannelTool
+	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied, output.EventTypeApprovalRequested:
+		return output.ChannelApproval
+	default:
+		return output.ChannelStatus
+	}
 }
 
 func newPrompter(in io.Reader, out *output.Stream, completer Completer) Prompter {
@@ -62,13 +74,13 @@ func (p *linePrompter) ReadLine(ctx context.Context) (string, error) {
 	return line, err
 }
 
-func (p *linePrompter) Printf(format string, args ...any) {
+func (p *linePrompter) Printf(_ output.Channel, format string, args ...any) {
 	if p != nil && p.out != nil {
 		p.out.Printf(format, args...)
 	}
 }
 
-func (p *linePrompter) Println(args ...any) {
+func (p *linePrompter) Println(_ output.Channel, args ...any) {
 	if p != nil && p.out != nil {
 		p.out.Println(args...)
 	}
@@ -100,33 +112,31 @@ func (p *readlinePrompter) ReadLine(ctx context.Context) (string, error) {
 	return strings.TrimRight(line, "\r\n"), err
 }
 
-func (p *readlinePrompter) Printf(format string, args ...any) {
-	if p == nil {
+func (p *readlinePrompter) Printf(channel output.Channel, format string, args ...any) {
+	if p == nil || p.shell == nil {
 		return
 	}
-	message := strings.TrimRight(fmt.Sprintf(format, args...), "\n")
+	message := fmt.Sprintf(format, args...)
+	message = strings.TrimRight(message, "\n")
+
 	if p.out != nil {
-		p.out.Printf("%s\n", message)
+		message = p.out.Themed(channel, message)
 	}
-	p.refreshPrompt()
+
+	p.shell.Printf("%s\n", message)
 }
 
-func (p *readlinePrompter) Println(args ...any) {
-	if p == nil {
+func (p *readlinePrompter) Println(channel output.Channel, args ...any) {
+	if p == nil || p.shell == nil {
 		return
 	}
 	message := strings.TrimRight(fmt.Sprintln(args...), "\n")
-	if p.out != nil {
-		p.out.Println(message)
-	}
-	p.refreshPrompt()
-}
 
-func (p *readlinePrompter) refreshPrompt() {
-	if p == nil || p.shell == nil || p.shell.Display == nil {
-		return
+	if p.out != nil {
+		message = p.out.Themed(channel, message)
 	}
-	p.shell.Display.RefreshTransient()
+
+	p.shell.Printf("%s\n", message)
 }
 
 func completeWithReadline(completer Completer, line []rune, cursor int) readline.Completions {

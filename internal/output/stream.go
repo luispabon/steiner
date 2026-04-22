@@ -369,6 +369,10 @@ func (t Theme) style(channel Channel) ThemeStyle {
 	}
 }
 
+func (s *Stream) Themed(channel Channel, text string) string {
+	return s.decorate(channel, text)
+}
+
 func supportsANSI(w io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false

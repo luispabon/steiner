@@ -119,7 +119,7 @@ func (s *Session) HandleLine(ctx context.Context, line string) (bool, error) {
 
 	reply := strings.TrimSpace(result.Reply)
 	if reply != "" {
-		s.Println(reply)
+		s.Println(output.ChannelAssistant, reply)
 	}
 
 	return false, nil
@@ -138,21 +138,21 @@ func (s *Session) handleCommand(command Command) (bool, error) {
 	case "clear":
 		s.Conversation = nil
 		s.Diagnostics = nil
-		s.Println("conversation cleared")
+		s.Println(output.ChannelStatus, "conversation cleared")
 	case "exit":
 		return true, nil
 	default:
 		if s.toggleSkill(command.Name) {
 			return false, nil
 		}
-		s.Printf("unknown command: /%s\n", command.Name)
+		s.Printf(output.ChannelError, "unknown command: /%s\n", command.Name)
 	}
 	return false, nil
 }
 
-func (s *Session) Println(args ...any) {
+func (s *Session) Println(channel output.Channel, args ...any) {
 	if s != nil && s.prompt != nil {
-		s.prompt.Println(args...)
+		s.prompt.Println(channel, args...)
 		return
 	}
 	if s != nil && s.Out != nil {
@@ -160,9 +160,9 @@ func (s *Session) Println(args ...any) {
 	}
 }
 
-func (s *Session) Printf(format string, args ...any) {
+func (s *Session) Printf(channel output.Channel, format string, args ...any) {
 	if s != nil && s.prompt != nil {
-		s.prompt.Printf(format, args...)
+		s.prompt.Printf(channel, format, args...)
 		return
 	}
 	if s != nil && s.Out != nil {
@@ -171,59 +171,59 @@ func (s *Session) Printf(format string, args ...any) {
 }
 
 func (s *Session) printHelp() {
-	s.Println("commands:")
+	s.Println(output.ChannelStatus, "commands:")
 	for _, name := range BuiltinCommands() {
-		s.Printf("  /%s\n", name)
+		s.Printf(output.ChannelStatus, "  /%s\n", name)
 	}
 	if len(s.SkillNames) > 0 {
-		s.Println("skills:")
+		s.Println(output.ChannelStatus, "skills:")
 		for _, name := range s.SkillNames {
-			s.Printf("  /%s\n", name)
+			s.Printf(output.ChannelStatus, "  /%s\n", name)
 		}
 	}
 }
 
 func (s *Session) printTools() {
 	if len(s.ToolNames) == 0 {
-		s.Println("no tools configured")
+		s.Println(output.ChannelStatus, "no tools configured")
 		return
 	}
-	s.Println("tools:")
+	s.Println(output.ChannelStatus, "tools:")
 	for _, name := range s.ToolNames {
-		s.Printf("  %s\n", name)
+		s.Printf(output.ChannelStatus, "  %s\n", name)
 	}
 }
 
 func (s *Session) printSkills() {
 	if len(s.SkillNames) == 0 {
-		s.Println("no skills available")
+		s.Println(output.ChannelStatus, "no skills available")
 		return
 	}
-	s.Println("skills:")
+	s.Println(output.ChannelStatus, "skills:")
 	for _, name := range s.SkillNames {
 		enabled := ""
 		if containsString(s.ActiveSkills, name) {
 			enabled = " [active]"
 		}
-		s.Printf("  %s%s\n", name, enabled)
+		s.Printf(output.ChannelStatus, "  %s%s\n", name, enabled)
 	}
 }
 
 func (s *Session) printHistory() {
-	s.Printf("history: conversation_messages=%d diagnostics=%d\n", len(s.Conversation), len(s.Diagnostics))
+	s.Printf(output.ChannelStatus, "history: conversation_messages=%d diagnostics=%d\n", len(s.Conversation), len(s.Diagnostics))
 	if len(s.Diagnostics) == 0 {
-		s.Println("no context diagnostics recorded")
+		s.Println(output.ChannelStatus, "no context diagnostics recorded")
 		return
 	}
 
-	s.Println("context diagnostics:")
+	s.Println(output.ChannelStatus, "context diagnostics:")
 	start := 0
 	if len(s.Diagnostics) > 5 {
 		start = len(s.Diagnostics) - 5
-		s.Printf("showing latest %d of %d\n", len(s.Diagnostics)-start, len(s.Diagnostics))
+		s.Printf(output.ChannelStatus, "showing latest %d of %d\n", len(s.Diagnostics)-start, len(s.Diagnostics))
 	}
 	for _, event := range s.Diagnostics[start:] {
-		s.Printf("  %s\n", output.FormatEvent(event))
+		s.Printf(output.ChannelStatus, "  %s\n", output.FormatEvent(event))
 	}
 }
 
@@ -233,11 +233,11 @@ func (s *Session) toggleSkill(name string) bool {
 	}
 	if idx := indexOfString(s.ActiveSkills, name); idx >= 0 {
 		s.ActiveSkills = append(s.ActiveSkills[:idx], s.ActiveSkills[idx+1:]...)
-		s.Printf("skill disabled: %s\n", name)
+		s.Printf(output.ChannelStatus, "skill disabled: %s\n", name)
 		return true
 	}
 	s.ActiveSkills = append(s.ActiveSkills, name)
-	s.Printf("skill enabled: %s\n", name)
+	s.Printf(output.ChannelStatus, "skill enabled: %s\n", name)
 	return true
 }
 
