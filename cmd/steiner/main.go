@@ -183,9 +183,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			runtime: rt,
 			approver: agent.NewEventingApprover(
 				rt.events,
-				promptingApprover{
-					reader: approvalReader(rt),
-					out:    prompterAdapter{prompter: prompter},
+				promptingApprovalHandler{
+					reader:    approvalReader(rt),
+					statusOut: rt.status,
 				},
 			),
 		},
@@ -222,9 +222,9 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
-			promptingApprover{
-				reader: approvalReader(rt),
-				out:    rt.status,
+			promptingApprovalHandler{
+				reader:    approvalReader(rt),
+				statusOut: rt.status,
 			},
 		),
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
@@ -493,28 +493,23 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
-type promptPrinter interface {
-	Printf(string, ...any)
+type promptingApprovalHandler struct {
+	reader    *bufio.Reader
+	statusOut *output.Stream
 }
 
-type promptingApprover struct {
-	reader *bufio.Reader
-	out    promptPrinter
-}
-
-func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
-	_ = ctx
-	if a.out != nil {
-		a.out.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
+func (h promptingApprovalHandler) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.ApprovalResponse, error) {
+	if h.statusOut != nil {
+		h.statusOut.Printf("approve tool=%s mode=%s", req.Tool.Name, req.Mode)
 		if len(req.Input) > 0 {
-			a.out.Printf(" args=%s", output.CompactJSON(req.Input))
+			h.statusOut.Printf(" args=%s", output.CompactJSON(req.Input))
 		}
-		a.out.Printf(" [y/N] ")
+		h.statusOut.Printf(" [y/N] ")
 	}
-	if a.reader == nil {
+	if h.reader == nil {
 		return tool.ApprovalResponse{Allow: false, Message: "approval input is unavailable"}, fmt.Errorf("approval input is unavailable")
 	}
-	line, err := a.reader.ReadString('\n')
+	line, err := h.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return tool.ApprovalResponse{}, err
 	}
@@ -527,14 +522,6 @@ func (a promptingApprover) Approve(ctx context.Context, req tool.ApprovalRequest
 	default:
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}, nil
 	}
-}
-
-type prompterAdapter struct {
-	prompter repl.Prompter
-}
-
-func (a prompterAdapter) Printf(format string, args ...any) {
-	a.prompter.Printf(output.ChannelApproval, format, args...)
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {
