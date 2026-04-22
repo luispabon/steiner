@@ -19,11 +19,17 @@ internal/repl/          Interactive UX only
 internal/delegation/    Delegation contracts and execution scaffolding (Stage 4+)
 internal/output/        Terminal and machine-readable event output
 testdata/repos/         Fixture repos for integration/e2e tests
+docs/                   Product design docs
+.project_planning/      Implementation logs
 ```
 
 Package boundaries are hard. Do not blur them. If `internal/agent` imports `internal/provider` directly (not through the interface), that is a violation. If `internal/prompt` imports `internal/agent`, that is a violation.
 
 ---
+
+## Product design docs
+
+The product design docs at `docs/` as well as the contents of `.project_planning/` are very large. Do NOT load them into your context unless specifically instructed to do so.
 
 ## Architecture invariants
 
