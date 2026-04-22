@@ -4,7 +4,7 @@
 - planning_folder: `.project_planning/2026-04-22_markdown_rendering`
 - active_branch: `cl/2026-04-22_markdown_rendering`
 - executor_runtime: `Codex`
-- current_stage: `stage-6-content-markdown`
+- current_stage: `stage-6-model-update`
 - status: `in_progress`
 - plan_overview: `loaded`
 - plan_yaml: `loaded`
@@ -78,8 +78,8 @@
   - `stage-6-render-go: implemented`
   - `stage-6-git-go: implemented`
   - `stage-6-sidebar-go: implemented`
-  - `stage-6-content-markdown: ready`
-  - `stage-6-model-update: pending`
+  - `stage-6-content-markdown: implemented`
+  - `stage-6-model-update: ready`
   - `stage-6-keys-update: pending`
   - `stage-6-full-build: pending`
 
@@ -102,6 +102,9 @@
 - `2026-04-22`: Marked `stage-6-content-markdown` as running and prepared isolated handoff.
 - `2026-04-22`: Closed stalled `stage-6-content-markdown` sub-agent without branch changes and prepared retry on the same clean temporary branch/worktree.
 - `2026-04-22`: Closed a second stalled `stage-6-content-markdown` sub-agent without branch changes and prepared a Codex-optimized retry on the same clean temporary branch/worktree.
+- `2026-04-22`: Closed a third stalled `stage-6-content-markdown` sub-agent without branch changes and switched this specific step to direct execution fallback.
+- `2026-04-22`: Completed `stage-6-content-markdown` directly on `cl/2026-04-22_markdown_rendering` after repeated sub-agent failures.
+- `2026-04-22`: Marked `stage-6-model-update` as next ready step.
 
 ## Sub-Agents
 - `stage-6-add-glamour`: model `gpt-5.4-mini` (cheaper), agent `019db56f-33c8-7c23-8537-1d32f4f36686`, completed and closed after merge
@@ -111,7 +114,8 @@
 - `stage-6-sidebar-go`: model `gpt-5.4-mini` (cheaper), agent `019db57b-a2d4-70e1-8cea-15f6681f29cf`, completed and closed after merge
 - `stage-6-content-markdown`: stalled agent `019db57f-edb7-77c2-8c2c-d297d744c64e`, model `gpt-5.4` (same tier), closed without changes
 - `stage-6-content-markdown`: stalled agent `019db58b-d065-7ad1-8613-1c994045dfc9`, model `gpt-5.4` (same tier), closed without changes
-- `stage-6-content-markdown`: retry pending dispatch, planned model `gpt-5.3-codex` (same tier)
+- `stage-6-content-markdown`: stalled agent `019db58d-a680-7183-b097-40142446afcb`, model `gpt-5.3-codex` (same tier), closed without changes
+- `stage-6-content-markdown`: completed via direct execution fallback after three stalled isolated retries
 
 ## Temporary Branches And Worktrees
 - `stage-6-add-glamour`: created branch `exec/2026-04-22_markdown_rendering-stage-6-add-glamour`
@@ -136,6 +140,11 @@
 - `stage-6-sidebar-go`: deleted worktree `/tmp/steiner-stage-6-sidebar-go`
 - `stage-6-sidebar-go`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-sidebar-go`
 - `stage-6-content-markdown`: temporary branch/worktree not yet created
+- `stage-6-content-markdown`: created branch `exec/2026-04-22_markdown_rendering-stage-6-content-markdown`
+- `stage-6-content-markdown`: created worktree `/tmp/steiner-stage-6-content-markdown`
+- `stage-6-content-markdown`: recreated temporary branch/worktree after retry bookkeeping commits
+- `stage-6-content-markdown`: deleted worktree `/tmp/steiner-stage-6-content-markdown` without merge after switching to direct execution fallback
+- `stage-6-content-markdown`: deleted branch `exec/2026-04-22_markdown_rendering-stage-6-content-markdown` without merge after switching to direct execution fallback
 
 ## Verification Runs
 - `stage-6-add-glamour`: worker reported `go mod tidy` succeeded
@@ -143,9 +152,14 @@
 - `stage-6-render-go`: worker reported `go vet ./internal/tui` passed
 - `stage-6-git-go`: recovery worker reported `go vet ./internal/tui` passed
 - `stage-6-sidebar-go`: worker reported `go vet ./internal/tui` passed
+- `stage-6-content-markdown`: direct fallback ran `go build ./internal/tui` and it passed
 
 ## Fix Plans
 - none yet
+
+## Deviations
+- `stage-6-content-markdown`: executor used direct execution fallback after three isolated sub-agent attempts stalled without producing branch changes.
+- `stage-6-content-markdown`: direct implementation required a fresh `go mod tidy`, which updated `go.mod` and `go.sum` once `internal/tui/content.go` imported Glamour for real. This was treated as a contained dependency-metadata deviation required to make the planned build verification meaningful.
 
 ## Manual Verification
 - not started
