@@ -28,9 +28,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.finishStreaming()
 		b.lines = append(b.lines, formatApprovalEvent(event))
 		return
-	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
-		return
-	case output.EventTypeRunStarted, output.EventTypeTurnStarted, output.EventTypeTurnFinished,
+	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied,
+		output.EventTypeAssistantMessage,
+		output.EventTypeRunStarted, output.EventTypeTurnStarted, output.EventTypeTurnFinished,
 		output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeToolCallStarted, output.EventTypeToolCallFinished,
 		output.EventTypeContextDiagnostics, output.EventTypeAPIRequest,
