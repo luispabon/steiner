@@ -30,13 +30,20 @@ func truncateTaskPreview(s string, max int) string {
 // It invokes the runner with the provided request, handles oversized output via
 // a summarisation turn, and emits delegation lifecycle events.
 func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink) (DelegationResult, error) {
+	childCtx := ctx
+	var cancel context.CancelFunc
+	if spec.Limits.Timeout > 0 {
+		childCtx, cancel = context.WithTimeout(ctx, spec.Limits.Timeout)
+		defer cancel()
+	}
+
 	// Emit delegation started
 	if events != nil {
 		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
 	}
 
 	// Run the child agent
-	state, err := runner.Run(ctx, req)
+	state, err := runner.Run(childCtx, req)
 	if err != nil {
 		result := DelegationResult{
 			AgentID: spec.AgentID,
@@ -50,20 +57,30 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	result := BuildResult(spec.AgentID, state, spec)
+	boundedOutput := result.Output
 
 	// Check if output is oversized — if so, request a summary turn
 	if CheckOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
 		summaryReq := req
 		summaryReq.Limits.MaxTurns = 1
-		summaryConversation := make([]provider.Message, len(req.Prompt.Conversation))
-		copy(summaryConversation, req.Prompt.Conversation)
+		summaryConversation := make([]provider.Message, 0, len(req.Prompt.Conversation)+2)
+		summaryConversation = append(summaryConversation, req.Prompt.Conversation...)
+		if assistantMsg, ok := lastAssistantMessage(state.Conversation); ok {
+			summaryConversation = append(summaryConversation, provider.Message{
+				Role:    provider.MessageRoleAssistant,
+				Content: assistantMsg.Content,
+			})
+		}
 		summaryConversation = append(summaryConversation, provider.Message{
-			Role:    provider.MessageRoleUser,
-			Content: "Your previous response was too long. Please provide a concise summary.",
+			Role: provider.MessageRoleUser,
+			Content: fmt.Sprintf(
+				"Your previous response was too long. Please summarize the assistant response you just gave. Keep the summary to approximately %d tokens or fewer.",
+				spec.Limits.OutputLimitTokens,
+			),
 		})
 		summaryReq.Prompt.Conversation = summaryConversation
 
-		summaryState, summaryErr := runner.Run(ctx, summaryReq)
+		summaryState, summaryErr := runner.Run(childCtx, summaryReq)
 		if summaryErr == nil {
 			summaryOutput := ""
 			for i := len(summaryState.Conversation) - 1; i >= 0; i-- {
@@ -73,12 +90,20 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 					break
 				}
 			}
-			if CheckOutputSize(summaryOutput, spec.Limits.OutputLimitTokens) {
-				summaryOutput = fmt.Sprintf("%s\n[truncated: exceeded output limit]", summaryOutput[:spec.Limits.OutputLimitTokens*4])
+			if summaryOutput != "" {
+				boundedOutput = summaryOutput
+				result.Summary = summaryOutput
 			}
-			result.Summary = summaryOutput
 		}
 	}
+
+	if CheckOutputSize(boundedOutput, spec.Limits.OutputLimitTokens) {
+		boundedOutput = truncateOutputToLimit(boundedOutput, spec.Limits.OutputLimitTokens)
+		if result.Summary != "" {
+			result.Summary = boundedOutput
+		}
+	}
+	result.Output = boundedOutput
 
 	// Emit delegation complete
 	if events != nil {
@@ -86,4 +111,27 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return result, nil
+}
+
+func lastAssistantMessage(conversation []agent.Message) (agent.Message, bool) {
+	for i := len(conversation) - 1; i >= 0; i-- {
+		if conversation[i].Role == agent.MessageRoleAssistant {
+			return conversation[i], true
+		}
+	}
+	return agent.Message{}, false
+}
+
+func truncateOutputToLimit(s string, maxTokens int) string {
+	if maxTokens <= 0 {
+		return s
+	}
+	maxBytes := maxTokens * 4
+	if len(s) <= maxBytes {
+		return s
+	}
+	if maxBytes < 3 {
+		return s[:maxBytes]
+	}
+	return s[:maxBytes-3] + "..."
 }

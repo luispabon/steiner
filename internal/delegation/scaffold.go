@@ -3,8 +3,10 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -53,17 +55,43 @@ func BuildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 	return tool.NewRegistry(childDefs...)
 }
 
-// noopExecutor is a ToolExecutor that returns an error for every tool call.
-// Used in child agents that have no external tools in the scaffold stage.
-type noopExecutor struct{ reg *tool.Registry }
+func buildChildExecutionRegistry(parent *tool.Registry) *tool.Registry {
+	if parent == nil {
+		return tool.NewRegistry()
+	}
 
-func (n *noopExecutor) Execute(ctx context.Context, toolName string, input map[string]any) (any, error) {
-	return nil, fmt.Errorf("tool %q is not available in sub-agent context", toolName)
+	defs := parent.Definitions()
+	for i := range defs {
+		defs[i].Approval = config.ApprovalModeAuto
+	}
+	return tool.NewRegistry(defs...)
+}
+
+func childProviderTools(reg *tool.Registry) []provider.ToolSpec {
+	if reg == nil {
+		return nil
+	}
+
+	defs := reg.Definitions()
+	tools := make([]provider.ToolSpec, 0, len(defs))
+	for _, def := range defs {
+		tools = append(tools, provider.ToolSpec{
+			Type: "function",
+			Function: provider.ToolFunctionSpec{
+				Name:        def.Name,
+				Description: def.Description,
+				Parameters:  def.ParameterSchema,
+			},
+		})
+	}
+	return tools
 }
 
 // BuildChildRunRequest assembles the agent.RunRequest for a child delegation.
 func BuildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink) agent.RunRequest {
 	childCtx, _ := ScaffoldChildContext(context.Background(), spec)
+	visibleReg := BuildChildToolRegistry(childReg, DelegateToolName)
+	executionReg := buildChildExecutionRegistry(visibleReg)
 
 	taskContent := spec.Task
 	if spec.Context != "" {
@@ -78,25 +106,21 @@ func BuildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg 
 		Conversation: conversation,
 	}
 
-	// Set the system prompt as a preamble via a pre-populated conversation message
-	// Since AssemblyOptions has no Preamble field, inject system prompt as first user
-	// message prefix. Instead, we prepend it to the conversation as a system message.
+	// Set the system prompt as a preamble via a pre-populated conversation message.
 	if childCtx.SystemPrompt != "" {
-		assemblyOpts.Conversation = append(
-			[]provider.Message{{Role: provider.MessageRoleUser, Content: childCtx.SystemPrompt}},
-			conversation...,
-		)
-		// Actually, put system prompt as its own system-role message first
 		assemblyOpts.Conversation = append(
 			[]provider.Message{{Role: provider.MessageRoleSystem, Content: childCtx.SystemPrompt}},
 			conversation...,
 		)
 	}
 
+	workDir, _ := os.Getwd()
+	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
+
 	req := agent.RunRequest{
 		Provider: prov,
-		Executor: &noopExecutor{reg: childReg},
-		Tools:    nil,
+		Executor: tool.NewExecutor(executionReg, childCfg, nil, workDir),
+		Tools:    childProviderTools(visibleReg),
 		Model:    spec.Model,
 		Limits:   baseLimits,
 		Events:   events,
