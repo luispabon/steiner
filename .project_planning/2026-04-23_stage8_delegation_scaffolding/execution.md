@@ -37,7 +37,7 @@
 
 ## Final Executor State
 
-All steps complete. Automated verification passing. Manual verification checkpoint pending.
+All steps complete. Automated verification passing. Manual verification approved by user (behavioural verification via `go test ./internal/delegation/... -v` confirmed; full delegation flow deferred to CLI wiring in a later stage as designed).
 
 ## Deviations / Blockers
 
