@@ -36,20 +36,21 @@ type cliFlags struct {
 }
 
 type cliRuntime struct {
-	cfg         config.Config
-	provider    provider.Provider
-	registry    *tool.Registry
-	toolNames   []string
-	skillNames  []string
-	workDir     string
-	homeDir     string
-	stdin       io.Reader
-	human       *output.Stream
-	status      *output.Stream
-	events      output.EventSink
-	sharedInput *bufio.Reader
-	approvalIn  *bufio.Reader
-	close       func() error
+	cfg             config.Config
+	provider        provider.Provider
+	providerFactory func(string) (provider.Provider, error)
+	registry        *tool.Registry
+	toolNames       []string
+	skillNames      []string
+	workDir         string
+	homeDir         string
+	stdin           io.Reader
+	human           *output.Stream
+	status          *output.Stream
+	events          output.EventSink
+	sharedInput     *bufio.Reader
+	approvalIn      *bufio.Reader
+	close           func() error
 }
 
 type interactiveSkills struct {
@@ -59,6 +60,10 @@ type interactiveSkills struct {
 }
 
 var buildRuntime = defaultBuildRuntime
+var newScheduler = provider.NewScheduler
+var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+	return provider.NewOpenAICompat(cfg)
+}
 
 func main() {
 	if err := newRootCommand().Execute(); err != nil {
@@ -85,7 +90,7 @@ func newRootCommand() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&flags.configPath, "config", "", "project config file path")
-	rootCmd.PersistentFlags().StringVar(&flags.model, "model", "", "override provider model")
+	rootCmd.PersistentFlags().StringVar(&flags.model, "model", "", "override selected model alias")
 	rootCmd.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "enable verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "run a single request and exit")
 	rootCmd.PersistentFlags().StringVar(&flags.logFile, "log-file", "", "write full session logs to file")
@@ -181,11 +186,15 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	approvalResponse := make(chan bool, 1)
 	modelSwitch := make(chan string, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
+	selected, err := selectedModelConfig(rt.cfg)
+	if err != nil {
+		return err
+	}
 
 	tuiApp := tui.NewApp(tui.Config{
-		Model:           rt.cfg.Provider.Model,
-		ModelNames:      modelAliasNames(rt.cfg.Provider.Models),
-		ProviderBaseURL: rt.cfg.Provider.BaseURL,
+		Model:           rt.cfg.Model,
+		ModelNames:      modelAliasNames(rt.cfg.Models),
+		ProviderBaseURL: selected.BaseURL,
 		WorkingDir:      rt.workDir,
 		MaxTurns:        rt.cfg.Limits.MaxTurns,
 		SkillNames:      rt.skillNames,
@@ -235,11 +244,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		case <-ctx.Done():
 			return nil
 		case name := <-modelSwitch:
-			if resolved, ok := runner.runtime.cfg.Provider.Models[name]; ok {
-				runner.runtime.cfg.Provider.Model = resolved
-			} else {
-				runner.runtime.cfg.Provider.Model = name
-			}
+			runner.runtime.cfg.Model = name
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
@@ -317,27 +322,34 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 
-	scheduler, err := provider.NewScheduler(cfg.Provider.Parallelism)
+	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
 	if err != nil {
 		return cliRuntime{}, err
 	}
 
-	prov, err := provider.NewOpenAICompat(provider.OpenAICompatConfig{
-		BaseURL:   cfg.Provider.BaseURL,
-		APIKey:    cfg.Provider.APIKey,
-		Model:     cfg.Provider.Model,
-		Scheduler: scheduler,
-		HTTPClient: &http.Client{
-			Timeout: 120 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:    1,
-				IdleConnTimeout: 90 * time.Second,
-				MaxConnsPerHost: 1,
-			},
-		},
-	})
-	if err != nil {
+	if _, err := resolveSelectedModel(cfg); err != nil {
 		return cliRuntime{}, err
+	}
+	httpClient := &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:    1,
+			IdleConnTimeout: 90 * time.Second,
+			MaxConnsPerHost: 1,
+		},
+	}
+	providerFactory := func(alias string) (provider.Provider, error) {
+		model, err := selectedModelConfigByAlias(cfg, alias)
+		if err != nil {
+			return nil, err
+		}
+		return newOpenAICompat(provider.OpenAICompatConfig{
+			BaseURL:    model.BaseURL,
+			APIKey:     model.APIKey,
+			Model:      model.Model,
+			Scheduler:  scheduler,
+			HTTPClient: httpClient,
+		})
 	}
 
 	events := output.EventSink(output.NoopSink{})
@@ -382,20 +394,20 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	closeFn = joinClosers(closeFn, approvalClose)
 
 	return cliRuntime{
-		cfg:         cfg,
-		provider:    prov,
-		registry:    registry,
-		toolNames:   registry.Names(),
-		skillNames:  skillNames,
-		workDir:     currentDir,
-		homeDir:     homeDir,
-		stdin:       cmd.InOrStdin(),
-		human:       output.NewStream(cmd.OutOrStdout()),
-		status:      output.NewStream(cmd.ErrOrStderr()),
-		events:      events,
-		sharedInput: sharedInput,
-		approvalIn:  approvalInput,
-		close:       closeFn,
+		cfg:             cfg,
+		providerFactory: providerFactory,
+		registry:        registry,
+		toolNames:       registry.Names(),
+		skillNames:      skillNames,
+		workDir:         currentDir,
+		homeDir:         homeDir,
+		stdin:           cmd.InOrStdin(),
+		human:           output.NewStream(cmd.OutOrStdout()),
+		status:          output.NewStream(cmd.ErrOrStderr()),
+		events:          events,
+		sharedInput:     sharedInput,
+		approvalIn:      approvalInput,
+		close:           closeFn,
 	}, nil
 }
 
@@ -411,11 +423,28 @@ type runResult struct {
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (runResult, error) {
-	if r.runtime.provider == nil {
-		return runResult{}, fmt.Errorf("provider is required")
-	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
+
+	selected, err := resolveSelectedModel(r.runtime.cfg)
+	if err != nil {
+		return runResult{}, err
+	}
+
+	prov := r.runtime.provider
+	if r.runtime.providerFactory != nil {
+		prov, err = r.runtime.providerFactory(r.runtime.cfg.Model)
+		if err != nil {
+			return runResult{}, err
+		}
+	}
+	if prov == nil {
+		return runResult{}, fmt.Errorf("provider is required")
+	}
+	prov = loggingProvider{
+		inner: prov,
+		sink:  r.runtime.events,
+	}
 
 	assembly := prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
@@ -426,13 +455,6 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		Conversation:              toProviderConversation(conversation),
-	}
-
-	temperature := r.runtime.cfg.Provider.Temperature
-	maxTokens := r.runtime.cfg.Provider.MaxCompletionTokens
-	var maxTokensPtr *int
-	if maxTokens > 0 {
-		maxTokensPtr = &maxTokens
 	}
 
 	var diagnostics []output.Event
@@ -446,14 +468,16 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
+	temperature := selected.Temperature
+	maxTokens := selected.MaxCompletionTokens
 	state, err := runner.Run(runCtx, agent.RunRequest{
-		Provider:    r.runtime.provider,
+		Provider:    prov,
 		Executor:    executor,
 		Tools:       registryToolSpecs(r.runtime.registry),
 		Prompt:      assembly,
-		Model:       r.runtime.cfg.Provider.Model,
+		Model:       selected.Model,
 		Temperature: &temperature,
-		MaxTokens:   maxTokensPtr,
+		MaxTokens:   &maxTokens,
 		Limits: agent.Limits{
 			MaxTurns:  r.runtime.cfg.Limits.MaxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
@@ -556,7 +580,31 @@ func joinClosers(closers ...func() error) func() error {
 	}
 }
 
-func modelAliasNames(models map[string]string) []string {
+func resolveSelectedModel(cfg config.Config) (config.ModelConfig, error) {
+	model, err := selectedModelConfig(cfg)
+	if err != nil {
+		return config.ModelConfig{}, err
+	}
+	return model, nil
+}
+
+func selectedModelConfig(cfg config.Config) (config.ModelConfig, error) {
+	return selectedModelConfigByAlias(cfg, cfg.Model)
+}
+
+func selectedModelConfigByAlias(cfg config.Config, alias string) (config.ModelConfig, error) {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return config.ModelConfig{}, fmt.Errorf("model is required")
+	}
+	model, ok := cfg.Models[alias]
+	if !ok {
+		return config.ModelConfig{}, fmt.Errorf("model %q is not defined", alias)
+	}
+	return model, nil
+}
+
+func modelAliasNames(models map[string]config.ModelConfig) []string {
 	if len(models) == 0 {
 		return nil
 	}

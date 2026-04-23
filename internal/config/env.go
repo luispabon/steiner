@@ -75,38 +75,15 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 		return value, ok
 	}
 
-	if value, ok := lookup("STEINER_PROVIDER_TYPE"); ok {
-		cfg.Provider.Type = value
-	}
-	if value, ok := lookup("STEINER_API_KEY"); ok {
-		cfg.Provider.APIKey = value
-	}
-	if value, ok := lookup("STEINER_BASE_URL"); ok {
-		cfg.Provider.BaseURL = value
-	}
 	if value, ok := lookup("STEINER_MODEL"); ok {
-		cfg.Provider.Model = value
+		cfg.Model = value
 	}
-	if value, ok := lookup("STEINER_TEMPERATURE"); ok {
-		parsed, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return fmt.Errorf("invalid STEINER_TEMPERATURE: %w", err)
-		}
-		cfg.Provider.Temperature = parsed
-	}
-	if value, ok := lookup("STEINER_MAX_COMPLETION_TOKENS"); ok {
+	if value, ok := lookup("STEINER_SCHEDULER_PARALLELISM"); ok {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("invalid STEINER_MAX_COMPLETION_TOKENS: %w", err)
+			return fmt.Errorf("invalid STEINER_SCHEDULER_PARALLELISM: %w", err)
 		}
-		cfg.Provider.MaxCompletionTokens = parsed
-	}
-	if value, ok := lookup("STEINER_PROVIDER_PARALLELISM"); ok {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid STEINER_PROVIDER_PARALLELISM: %w", err)
-		}
-		cfg.Provider.Parallelism = parsed
+		cfg.Scheduler.Parallelism = parsed
 	}
 	if value, ok := lookup("STEINER_MAX_TURNS"); ok {
 		parsed, err := strconv.Atoi(value)

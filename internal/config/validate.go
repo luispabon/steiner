@@ -8,25 +8,54 @@ import (
 func Validate(cfg Config) error {
 	var problems []string
 
-	if cfg.Provider.Type == "" {
-		problems = append(problems, "provider.type is required")
-	} else if cfg.Provider.Type != "openai_compat" {
-		problems = append(problems, fmt.Sprintf("provider.type %q is not supported", cfg.Provider.Type))
+	if strings.TrimSpace(cfg.Model) == "" {
+		problems = append(problems, "model is required")
 	}
-	if strings.TrimSpace(cfg.Provider.BaseURL) == "" {
-		problems = append(problems, "provider.base_url is required")
+	if cfg.Scheduler.Parallelism < 1 {
+		problems = append(problems, "scheduler.parallelism must be at least 1")
 	}
-	if strings.TrimSpace(cfg.Provider.Model) == "" {
-		problems = append(problems, "provider.model is required")
+	if len(cfg.Models) == 0 {
+		problems = append(problems, "models is required")
 	}
-	if cfg.Provider.Parallelism < 1 {
-		problems = append(problems, "provider.parallelism must be at least 1")
+	selected, ok := cfg.Models[strings.TrimSpace(cfg.Model)]
+	if !ok {
+		problems = append(problems, fmt.Sprintf("model %q is not defined", cfg.Model))
 	}
-	if cfg.Provider.Temperature < 0 || cfg.Provider.Temperature > 2 {
-		problems = append(problems, "provider.temperature must be between 0 and 2")
+	for name, model := range cfg.Models {
+		if strings.TrimSpace(name) == "" {
+			problems = append(problems, "models contains an empty alias")
+		}
+		if model.Type == "" {
+			problems = append(problems, fmt.Sprintf("models[%q].type is required", name))
+		} else if model.Type != "openai_compat" {
+			problems = append(problems, fmt.Sprintf("models[%q].type %q is not supported", name, model.Type))
+		}
+		if strings.TrimSpace(model.BaseURL) == "" {
+			problems = append(problems, fmt.Sprintf("models[%q].base_url is required", name))
+		}
+		if strings.TrimSpace(model.Model) == "" {
+			problems = append(problems, fmt.Sprintf("models[%q].model is required", name))
+		}
+		if model.Temperature < 0 || model.Temperature > 2 {
+			problems = append(problems, fmt.Sprintf("models[%q].temperature must be between 0 and 2", name))
+		}
+		if model.MaxCompletionTokens < 1 {
+			problems = append(problems, fmt.Sprintf("models[%q].max_completion_tokens must be at least 1", name))
+		}
+		if model.ContextSize < 1 {
+			problems = append(problems, fmt.Sprintf("models[%q].context_size must be at least 1", name))
+		}
+		if model.Compaction.SafetyMarginTokens < 0 {
+			problems = append(problems, fmt.Sprintf("models[%q].compaction.safety_margin_tokens must be at least 0", name))
+		}
+		if model.Compaction.SummaryMaxTokens < 1 {
+			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be at least 1", name))
+		}
 	}
-	if cfg.Provider.MaxCompletionTokens < 1 {
-		problems = append(problems, "provider.max_completion_tokens must be at least 1")
+	if ok {
+		if selected.Type == "" {
+			problems = append(problems, fmt.Sprintf("model %q has an empty type", cfg.Model))
+		}
 	}
 	if cfg.Limits.MaxTurns < 1 {
 		problems = append(problems, "limits.max_turns must be at least 1")
