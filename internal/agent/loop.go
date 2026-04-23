@@ -21,6 +21,7 @@ type RunRequest struct {
 	Executor    ToolExecutor
 	Tools       []provider.ToolSpec
 	Prompt      prompt.AssemblyOptions
+	ModelBudget prompt.ModelTokenBudget
 	Model       string
 	Temperature *float64
 	MaxTokens   *int
@@ -93,13 +94,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
 		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
 
-		response, err := completeModelCall(ctx, req, turn, provider.ChatRequest{
+		chatRequest := provider.ChatRequest{
 			Model:       req.Model,
 			Messages:    assembly.Messages,
 			Tools:       cloneProviderTools(req.Tools),
 			Temperature: req.Temperature,
 			MaxTokens:   req.MaxTokens,
-		})
+		}
+		response, err := completeModelCall(ctx, req, turn, chatRequest, req.ModelBudget)
 		if err != nil {
 			if cancelled, ok := contextCancellationState(ctx, state); ok {
 				emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
@@ -115,10 +117,9 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 
 		state.TurnCount = turn
-		if response.Usage != nil {
-			state.TokenCount += response.Usage.TotalTokens
-		}
-		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), tokenCount(response.Usage), nil))
+		turnTokens := tokenCount(ctx, chatRequest, response.Usage)
+		state.TokenCount += turnTokens
+		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
 		if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 			emitEvent(req.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
 		}
@@ -170,7 +171,16 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	}
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
+	if budget.ContextSize > 0 {
+		fit, err := budget.FitRequest(ctx, chatRequest)
+		if err != nil {
+			return provider.ChatResponse{}, err
+		}
+		if !fit.Fits {
+			return provider.ChatResponse{}, fmt.Errorf("request exceeds context window: %s", fit.String())
+		}
+	}
 	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools))
 
 	stream, err := req.Provider.StreamChatCompletion(ctx, chatRequest)
@@ -722,9 +732,13 @@ func emitStop(sink output.EventSink, state RunState, err error) {
 	emitEvent(sink, output.NewStopReasonEvent(state.TurnCount, string(state.StopReason), err))
 }
 
-func tokenCount(usage *provider.UsageStats) int {
-	if usage == nil {
+func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) int {
+	if count := provider.UsageTokenCount(usage); count > 0 {
+		return count
+	}
+	estimate, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
 		return 0
 	}
-	return usage.TotalTokens
+	return estimate
 }

@@ -73,6 +73,22 @@ type ToolSummaryPolicy struct {
 	MaxBytes int
 }
 
+type ModelTokenBudget struct {
+	ContextSize         int
+	MaxCompletionTokens int
+	SafetyMarginTokens  int
+	SummaryMaxTokens    int
+}
+
+type RequestTokenBudget struct {
+	EstimatedPromptTokens    int
+	ReservedCompletionTokens int
+	SafetyMarginTokens       int
+	TotalTokens              int
+	ContextSize              int
+	Fits                     bool
+}
+
 type AssemblyPolicy struct {
 	Budgets     SourceBudgetModel
 	Retention   RetentionPolicy
@@ -107,6 +123,8 @@ type AssemblyOptions struct {
 	ProjectAgentsPath         string
 	SkillsRoot                string
 	SkillNames                []string
+	Tools                     []provider.ToolSpec
+	ModelBudget               ModelTokenBudget
 	ProjectContextBudgetBytes int
 	ProjectContextExtraFiles  []string
 	ProjectContextIgnoreFiles []string

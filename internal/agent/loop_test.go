@@ -199,6 +199,52 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	}
 }
 
+func TestRunnerFallsBackToEstimatorWhenUsageIsMissing(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "estimate the fallback"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		Model:     "test-model",
+		MaxTokens: intPtr(32),
+		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:    output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	estimated, err := provider.EstimateChatRequestTokens(context.Background(), providerStub.requests[0])
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if got, want := state.TokenCount, estimated; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+}
+
 func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -383,7 +429,7 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix"}},
 		},
-		Limits: Limits{MaxTurns: 3, MaxTokens: 10},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 1000},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -618,7 +664,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
-		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 1000},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
@@ -747,7 +793,7 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 				ToolSummary: prompt.ToolSummaryPolicy{MaxBytes: 32},
 			},
 		},
-		Limits: Limits{MaxTurns: 8, MaxTokens: 100},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 2000},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

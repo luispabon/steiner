@@ -4,7 +4,7 @@
 - Planning folder: `.project_planning/2026-04-23_token-budget-compaction`
 - Active branch: `cl/2026-04-23_token-budget-compaction`
 - Executor start date: `2026-04-24`
-- Current stage: `stage-2 pending`
+- Current stage: `stage-2 complete`
 - Execution mode: isolated sub-agent worktrees when safe
 
 ## Verification Strategy
@@ -48,7 +48,7 @@
 ## Step Status
 - `stage-1-step-1`: `implemented`
 - `stage-2-step-1`: `implemented`
-- `stage-2-step-2`: `ready`
+- `stage-2-step-2`: `complete`
 - `stage-3-step-1`: `pending`
 - `stage-3-step-2`: `pending`
 - `stage-4-step-1`: `pending`
@@ -67,6 +67,8 @@
 - `2026-04-24`: Reviewed sub-agent commits `7c715e1` and `4fb3683` for `stage-2-step-1`. Initial lineage implementation introduced overly aggressive pruning; executor rejected that behavior, sent the step back for a scoped correction, and accepted the amended explicit-pruning design.
 - `2026-04-24`: Merged temporary branch `tmp/stage-2-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`.
 - `2026-04-24`: Closed sub-agent `019dbca1-94e9-76a3-ad3f-88db57b489d9`, removed worktree `/tmp/steiner-stage-2-step-1`, and deleted merged branch `tmp/stage-2-step-1-token-budget-compaction`.
+- `2026-04-24`: Implemented `stage-2-step-2` directly in the execution branch, adding the built-in tokenizer-based estimator, model-budget fit helpers, and runner fallback token accounting.
+- `2026-04-24`: Ran `gofmt -w` on changed Go files and `go test ./internal/provider ./internal/prompt ./internal/agent`; both completed successfully after `go mod tidy` updated the tokenizer module sums.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -85,6 +87,12 @@
   - worktree: `/tmp/steiner-stage-2-step-1`
   - commits: `7c715e1`, `4fb3683`
   - status: `closed after merge and cleanup`
+- `stage-2-step-2`
+  - agent id: `n/a`
+  - model: `n/a`
+  - branch: `cl/2026-04-23_token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-2-step-2`
+  - status: `completed in-place`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -110,9 +118,12 @@
 - `stage-2-step-1` correction verification:
   - command: `go test ./internal/agent`
   - result: `passed`
+- `stage-2-step-2` verification:
+  - command: `go test ./internal/provider ./internal/prompt ./internal/agent`
+  - result: `passed`
 
 ## Blockers
 - None.
 
 ## Final Handoff State
-- Not ready.
+- Ready for review.

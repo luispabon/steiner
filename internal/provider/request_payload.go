@@ -1,0 +1,56 @@
+package provider
+
+import (
+	"strings"
+)
+
+func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (openAIRequest, error) {
+	wire := openAIRequest{
+		Model:       defaultModel,
+		Messages:    make([]openAIMessage, 0, len(request.Messages)),
+		Temperature: request.Temperature,
+		MaxTokens:   request.MaxTokens,
+		TopP:        request.TopP,
+		Stream:      stream,
+	}
+	if strings.TrimSpace(request.Model) != "" {
+		wire.Model = request.Model
+	}
+	if stream {
+		wire.StreamOptions = &openAIStreamOptions{IncludeUsage: true}
+	}
+	if len(request.Tools) > 0 {
+		wire.Tools = make([]openAITool, 0, len(request.Tools))
+		for _, tool := range request.Tools {
+			wire.Tools = append(wire.Tools, openAITool{
+				Type: tool.Type,
+				Function: openAIToolFunction{
+					Name:        tool.Function.Name,
+					Description: tool.Function.Description,
+					Parameters:  tool.Function.Parameters,
+				},
+			})
+		}
+	}
+	for _, msg := range request.Messages {
+		wireMsg, err := toOpenAIMessage(msg)
+		if err != nil {
+			return openAIRequest{}, err
+		}
+		wire.Messages = append(wire.Messages, wireMsg)
+	}
+	return wire, nil
+}
+
+func normalizedTokenCount(usage *UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	if usage.TotalTokens > 0 {
+		return usage.TotalTokens
+	}
+	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		return usage.PromptTokens + usage.CompletionTokens
+	}
+	return 0
+}
