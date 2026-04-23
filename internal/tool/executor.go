@@ -58,6 +58,10 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		return nil, fmt.Errorf("tool %q is not registered", toolName)
 	}
 
+	if def.Handler != nil {
+		return def.Handler(ctx, input)
+	}
+
 	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
 	if err != nil {
 		return nil, &ToolExecutionError{

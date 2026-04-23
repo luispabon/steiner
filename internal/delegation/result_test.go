@@ -2,82 +2,65 @@ package delegation
 
 import (
 	"testing"
+
+	"github.com/luispabon/steiner/internal/agent"
 )
 
-// mockRunState implements the RunState interface for testing
-type mockRunState struct {
-	turnCount        int
-	tokenCount       int
-	stopReason       string
-	lastAssistantMsg string
+func makeRunState(turnCount, tokenCount int, stopReason agent.StopReason, lastAssistantMsg string) agent.RunState {
+	state := agent.RunState{
+		TurnCount:  turnCount,
+		TokenCount: tokenCount,
+		StopReason: stopReason,
+	}
+	if lastAssistantMsg != "" {
+		state.Conversation = []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: lastAssistantMsg},
+		}
+	}
+	return state
 }
-
-func (m mockRunState) GetTurnCount() int               { return m.turnCount }
-func (m mockRunState) GetTokenCount() int              { return m.tokenCount }
-func (m mockRunState) GetStopReason() string           { return m.stopReason }
-func (m mockRunState) GetLastAssistantMessage() string { return m.lastAssistantMsg }
 
 func TestBuildResult(t *testing.T) {
 	tests := []struct {
 		name           string
 		agentID        string
-		state          mockRunState
+		state          agent.RunState
 		wantStatus     DelegationStatus
 		wantTurnCount  int
 		wantTokenCount int
 		wantOutput     string
 	}{
 		{
-			name:    "maps complete stop reason",
-			agentID: "agent-1",
-			state: mockRunState{
-				turnCount:        5,
-				tokenCount:       1000,
-				stopReason:       "complete",
-				lastAssistantMsg: "test output",
-			},
+			name:           "maps complete stop reason",
+			agentID:        "agent-1",
+			state:          makeRunState(5, 1000, agent.StopReasonComplete, "test output"),
 			wantStatus:     StatusComplete,
 			wantTurnCount:  5,
 			wantTokenCount: 1000,
 			wantOutput:     "test output",
 		},
 		{
-			name:    "maps error stop reason",
-			agentID: "agent-2",
-			state: mockRunState{
-				turnCount:        2,
-				tokenCount:       500,
-				stopReason:       "error",
-				lastAssistantMsg: "",
-			},
+			name:           "maps error stop reason",
+			agentID:        "agent-2",
+			state:          makeRunState(2, 500, agent.StopReasonError, ""),
 			wantStatus:     StatusFailed,
 			wantTurnCount:  2,
 			wantTokenCount: 500,
 			wantOutput:     "",
 		},
 		{
-			name:    "maps cancelled stop reason",
-			agentID: "agent-3",
-			state: mockRunState{
-				turnCount:        1,
-				tokenCount:       100,
-				stopReason:       "cancelled",
-				lastAssistantMsg: "",
-			},
+			name:           "maps cancelled stop reason",
+			agentID:        "agent-3",
+			state:          makeRunState(1, 100, agent.StopReasonCancelled, ""),
 			wantStatus:     StatusCancelled,
 			wantTurnCount:  1,
 			wantTokenCount: 100,
 			wantOutput:     "",
 		},
 		{
-			name:    "unknown stop reason defaults to complete",
-			agentID: "agent-4",
-			state: mockRunState{
-				turnCount:        10,
-				tokenCount:       5000,
-				stopReason:       "max_turns",
-				lastAssistantMsg: "result",
-			},
+			name:           "max_turns stop reason defaults to complete",
+			agentID:        "agent-4",
+			state:          makeRunState(10, 5000, agent.StopReasonMaxTurns, "result"),
 			wantStatus:     StatusComplete,
 			wantTurnCount:  10,
 			wantTokenCount: 5000,

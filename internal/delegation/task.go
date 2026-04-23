@@ -2,18 +2,17 @@ package delegation
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
-
-// AgentRunRequest represents the request to run an agent.
-// This is a minimal interface to avoid circular imports with internal/agent.
-type AgentRunRequest interface{}
 
 // AgentRunner defines the contract for executing an agent with a given request.
 type AgentRunner interface {
 	// Run executes the agent and returns the final state.
-	Run(ctx context.Context, req AgentRunRequest) (RunState, error)
+	Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error)
 }
 
 func truncateTaskPreview(s string, max int) string {
@@ -28,55 +27,63 @@ func truncateTaskPreview(s string, max int) string {
 }
 
 // SpawnDelegate executes a child agent with the given specification and runner.
-// It scaffolds the child context and tool registry, invokes the runner,
-// and builds the result. Events are emitted before, during (by runner), and after execution.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, runner AgentRunner, events output.EventSink) (DelegationResult, error) {
+// It invokes the runner with the provided request, handles oversized output via
+// a summarisation turn, and emits delegation lifecycle events.
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink) (DelegationResult, error) {
 	// Emit delegation started
 	if events != nil {
 		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
 	}
 
-	// Scaffold child context
-	childCtx, err := ScaffoldChildContext(ctx, spec)
+	// Run the child agent
+	state, err := runner.Run(ctx, req)
 	if err != nil {
 		result := DelegationResult{
 			AgentID: spec.AgentID,
 			Status:  StatusFailed,
 			Error:   err.Error(),
 		}
-		// Emit delegation failed
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
 		return result, err
 	}
 
-	// Build child tool registry (from parent would be passed by the caller)
-	// For now, we just return an empty result if the registry is not provided
-	// The actual invocation will be done in agent/loop or a higher-level function
+	result := BuildResult(spec.AgentID, state, spec)
 
-	// Note: The actual runner.Run() would need:
-	// - req.Provider
-	// - req.Executor
-	// - req.Tools (from parent registry)
-	// - req.Prompt (with systemPrompt from childCtx, conversation empty, etc.)
-	// - req.Model (from spec.Model or override)
-	// - req.Limits (from spec.Limits)
-	// - req.Events (for child-agent events)
-	//
-	// This function delegates that assembly to the caller.
+	// Check if output is oversized — if so, request a summary turn
+	if CheckOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
+		summaryReq := req
+		summaryReq.Limits.MaxTurns = 1
+		summaryConversation := make([]provider.Message, len(req.Prompt.Conversation))
+		copy(summaryConversation, req.Prompt.Conversation)
+		summaryConversation = append(summaryConversation, provider.Message{
+			Role:    provider.MessageRoleUser,
+			Content: "Your previous response was too long. Please provide a concise summary.",
+		})
+		summaryReq.Prompt.Conversation = summaryConversation
 
-	_ = childCtx // Currently unused; will be used by caller when implementing RunRequest assembly
-	_ = runner   // Currently unused; will be used when RunRequest is properly defined
-
-	// Placeholder result for now
-	result := DelegationResult{
-		AgentID: spec.AgentID,
-		Status:  StatusPending,
+		summaryState, summaryErr := runner.Run(ctx, summaryReq)
+		if summaryErr == nil {
+			summaryOutput := ""
+			for i := len(summaryState.Conversation) - 1; i >= 0; i-- {
+				msg := summaryState.Conversation[i]
+				if msg.Role == agent.MessageRoleAssistant {
+					summaryOutput = msg.Content
+					break
+				}
+			}
+			if CheckOutputSize(summaryOutput, spec.Limits.OutputLimitTokens) {
+				summaryOutput = fmt.Sprintf("%s\n[truncated: exceeded output limit]", summaryOutput[:spec.Limits.OutputLimitTokens*4])
+			}
+			result.Summary = summaryOutput
+		}
 	}
+
 	// Emit delegation complete
 	if events != nil {
 		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount))
 	}
+
 	return result, nil
 }
