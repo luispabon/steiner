@@ -102,6 +102,7 @@ func (m mochaTheme) LipGlossStyles() Styles {
 			Foreground(lipgloss.Color(overlay1Hex)).
 			Italic(true),
 		AssistantProse: lipgloss.NewStyle().
+			Background(lipgloss.Color(baseHex)).
 			Foreground(lipgloss.Color(textHex)),
 		ApprovalHighlight: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(yellowHex)).
@@ -144,7 +145,7 @@ func (m mochaTheme) GlamourStyleSheet() glamour.TermRendererOption {
 				BackgroundColor: ptrStr(baseHex),
 				Color:           ptrStr(textHex),
 			},
-			Margin: ptrUint(2),
+			Margin: ptrUint(0),
 		},
 		CodeBlock: ansi.StyleCodeBlock{
 			StyleBlock: ansi.StyleBlock{

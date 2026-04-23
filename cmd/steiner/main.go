@@ -203,10 +203,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			enabledSkills.Set(name, enabled)
 		},
 	})
-	events := output.NewMultiSink(rt.events, tuiApp.EventSink())
+	rt.events = output.NewMultiSink(rt.events, tuiApp.EventSink())
 
 	approver := agent.NewEventingApprover(
-		events,
+		rt.events,
 		channelApprovalResponder{ch: approvalResponse},
 	)
 
@@ -230,7 +230,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
 			if err != nil {
-				events.Emit(output.Event{
+				rt.events.Emit(output.Event{
 					Type:    output.EventTypeStopReason,
 					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
 				})
