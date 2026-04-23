@@ -193,23 +193,32 @@ func (l ConversationLineage) HighestFidelityCandidate(fits func([]Message) bool)
 	return candidates[0], true
 }
 
-// PruneObsolete drops older generations once a newer generation has taken over.
-// The active lineage remains represented by the newest generation snapshot.
+// PruneObsolete is conservative by default and keeps all generations unless a
+// caller has separately established a concrete pruning rule.
 func (l ConversationLineage) PruneObsolete() ConversationLineage {
-	if len(l.Generations) <= 1 {
+	return l.Clone()
+}
+
+// PruneGenerationsBefore drops generations whose IDs are strictly older than
+// the supplied cutoff. Callers should only pass a cutoff after they have proven
+// those generations are no longer needed for future recompaction.
+func (l ConversationLineage) PruneGenerationsBefore(cutoffGenerationID int) ConversationLineage {
+	if cutoffGenerationID <= 0 || len(l.Generations) == 0 {
 		return l.Clone()
 	}
-	latest, ok := l.Latest()
-	if !ok {
-		return ConversationLineage{NextGenerationID: l.NextGenerationID}
+
+	next := l.Clone()
+	kept := next.Generations[:0]
+	for _, generation := range next.Generations {
+		if generation.ID >= cutoffGenerationID {
+			kept = append(kept, generation)
+		}
 	}
-	if len(latest.SummaryPrefix) == 0 && len(latest.Messages) == 0 {
-		return l.Clone()
+	if len(kept) == len(next.Generations) {
+		return next
 	}
-	return ConversationLineage{
-		Generations:      []ConversationGeneration{latest},
-		NextGenerationID: l.NextGenerationID,
-	}
+	next.Generations = kept
+	return next
 }
 
 type RunState struct {

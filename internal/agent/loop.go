@@ -166,7 +166,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 
 		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
-		state.Lineage = state.Lineage.PruneObsolete()
 		state.Conversation = state.Lineage.FullMessages()
 	}
 }
