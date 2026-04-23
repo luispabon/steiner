@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -333,4 +334,58 @@ func mustTestScheduler(t *testing.T, parallelism int) *Scheduler {
 		t.Fatalf("NewScheduler() error = %v", err)
 	}
 	return sched
+}
+
+func TestSchedulerEnforcesConcurrentLimit(t *testing.T) {
+	const (
+		parallelism = 2
+		goroutines  = 4
+	)
+
+	scheduler := mustTestScheduler(t, parallelism)
+
+	var (
+		mu            sync.Mutex
+		concurrent    int
+		maxConcurrent int
+		wg            sync.WaitGroup
+		ctx           = context.Background()
+	)
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+
+			err := scheduler.Acquire(ctx)
+			if err != nil {
+				t.Errorf("Acquire failed: %v", err)
+				return
+			}
+			defer scheduler.Release()
+
+			// Track concurrent access
+			mu.Lock()
+			concurrent++
+			if concurrent > maxConcurrent {
+				maxConcurrent = concurrent
+			}
+			mu.Unlock()
+
+			// Hold the critical section briefly
+			time.Sleep(10 * time.Millisecond)
+
+			// Decrement on exit
+			mu.Lock()
+			concurrent--
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	// Assert that max concurrent never exceeded parallelism
+	if maxConcurrent > parallelism {
+		t.Errorf("max concurrent (%d) exceeded parallelism limit (%d)", maxConcurrent, parallelism)
+	}
 }

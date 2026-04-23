@@ -2,6 +2,8 @@ package delegation
 
 import (
 	"context"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // AgentRunRequest represents the request to run an agent.
@@ -14,18 +16,39 @@ type AgentRunner interface {
 	Run(ctx context.Context, req AgentRunRequest) (RunState, error)
 }
 
+func truncateTaskPreview(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// Ensure we leave room for the ellipsis
+	if max < 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
+}
+
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It scaffolds the child context and tool registry, invokes the runner,
-// and builds the result. No events are emitted by this function.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, runner AgentRunner) (DelegationResult, error) {
+// and builds the result. Events are emitted before, during (by runner), and after execution.
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, runner AgentRunner, events output.EventSink) (DelegationResult, error) {
+	// Emit delegation started
+	if events != nil {
+		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
+	}
+
 	// Scaffold child context
 	childCtx, err := ScaffoldChildContext(ctx, spec)
 	if err != nil {
-		return DelegationResult{
+		result := DelegationResult{
 			AgentID: spec.AgentID,
 			Status:  StatusFailed,
 			Error:   err.Error(),
-		}, err
+		}
+		// Emit delegation failed
+		if events != nil {
+			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
+		}
+		return result, err
 	}
 
 	// Build child tool registry (from parent would be passed by the caller)
@@ -47,8 +70,13 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, runner AgentRunner)
 	_ = runner   // Currently unused; will be used when RunRequest is properly defined
 
 	// Placeholder result for now
-	return DelegationResult{
+	result := DelegationResult{
 		AgentID: spec.AgentID,
 		Status:  StatusPending,
-	}, nil
+	}
+	// Emit delegation complete
+	if events != nil {
+		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount))
+	}
+	return result, nil
 }
