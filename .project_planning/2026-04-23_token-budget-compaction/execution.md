@@ -48,7 +48,7 @@
 ## Step Status
 - `stage-1-step-1`: `implemented`
 - `stage-2-step-1`: `implemented`
-- `stage-2-step-2`: `blocked`
+- `stage-2-step-2`: `running`
 - `stage-3-step-1`: `pending`
 - `stage-3-step-2`: `pending`
 - `stage-4-step-1`: `pending`
@@ -70,6 +70,7 @@
 - `2026-04-24`: Dispatched `stage-2-step-2` to isolated sub-agent worktree `/tmp/steiner-stage-2-step-2` on branch `tmp/stage-2-step-2-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution.
 - `2026-04-24`: Reviewed sub-agent branch state for `stage-2-step-2`. The implementation added estimator and fit-check plumbing under `internal/provider`, `internal/prompt`, and `internal/agent`, but the live runtime injection point for `ModelBudget` remains `cmd/steiner/main.go`, which is outside the planner-owned file scope for this step.
 - `2026-04-24`: Stopped before merging `stage-2-step-2` because merging it as-is would claim live request-fit enforcement that is inert without out-of-scope runtime wiring. Reported the scope mismatch as a blocker instead of widening scope silently.
+- `2026-04-24`: User approved a narrow execution deviation to treat the step boundary as a planning defect and allow the minimum `cmd/steiner/main.go` runtime wiring needed to propagate `ModelBudget` into live execution for `stage-2-step-2`.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -130,6 +131,7 @@
 
 ## Blockers
 - `stage-2-step-2`: planner-owned file scope excludes `cmd/steiner/main.go`, but live runtime propagation of `ModelBudget` must happen there. Without that wiring, the new request-fit enforcement in `internal/agent/loop.go` remains inert in live execution, so the step cannot be merged honestly under current scope constraints.
+- Resolved by user-approved scoped deviation: `stage-2-step-2` may additionally touch `cmd/steiner/main.go` for the minimal runtime propagation needed to activate the already-implemented budgeting logic.
 
 ## Final Handoff State
 - Not ready.
