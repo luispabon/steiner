@@ -22,13 +22,14 @@ type Config struct {
 }
 
 type ProviderConfig struct {
-	Type                string  `yaml:"type"`
-	BaseURL             string  `yaml:"base_url"`
-	APIKey              string  `yaml:"api_key"`
-	Model               string  `yaml:"model"`
-	Temperature         float64 `yaml:"temperature"`
-	MaxCompletionTokens int     `yaml:"max_completion_tokens"`
-	Parallelism         int     `yaml:"parallelism"`
+	Type                string            `yaml:"type"`
+	BaseURL             string            `yaml:"base_url"`
+	APIKey              string            `yaml:"api_key"`
+	Model               string            `yaml:"model"`
+	Models              map[string]string `yaml:"models"`
+	Temperature         float64           `yaml:"temperature"`
+	MaxCompletionTokens int               `yaml:"max_completion_tokens"`
+	Parallelism         int               `yaml:"parallelism"`
 }
 
 type LimitsConfig struct {
@@ -248,13 +249,14 @@ type configPatch struct {
 }
 
 type providerPatch struct {
-	Type                *string  `yaml:"type"`
-	BaseURL             *string  `yaml:"base_url"`
-	APIKey              *string  `yaml:"api_key"`
-	Model               *string  `yaml:"model"`
-	Temperature         *float64 `yaml:"temperature"`
-	MaxCompletionTokens *int     `yaml:"max_completion_tokens"`
-	Parallelism         *int     `yaml:"parallelism"`
+	Type                *string            `yaml:"type"`
+	BaseURL             *string            `yaml:"base_url"`
+	APIKey              *string            `yaml:"api_key"`
+	Model               *string            `yaml:"model"`
+	Models              *map[string]string `yaml:"models"`
+	Temperature         *float64           `yaml:"temperature"`
+	MaxCompletionTokens *int               `yaml:"max_completion_tokens"`
+	Parallelism         *int               `yaml:"parallelism"`
 }
 
 type limitsPatch struct {
@@ -379,6 +381,14 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	}
 	if patch.Model != nil {
 		dst.Model = *patch.Model
+	}
+	if patch.Models != nil {
+		if dst.Models == nil {
+			dst.Models = make(map[string]string)
+		}
+		for k, v := range *patch.Models {
+			dst.Models[k] = v
+		}
 	}
 	if patch.Temperature != nil {
 		dst.Temperature = *patch.Temperature

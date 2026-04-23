@@ -39,9 +39,11 @@ type Model struct {
 	autoScroll           bool
 	skillNames           []string
 	enabledSkills        map[string]bool
+	modelNames           []string
 	onSubmit             func(string)
 	onApproval           func(bool)
 	onSkillToggle        func(string, bool)
+	onModelSwitch        func(string)
 	activeTheme          theme.Theme
 	styles               theme.Styles
 	inputHistory         []string
@@ -100,9 +102,11 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		autoScroll:    true,
 		skillNames:    append([]string(nil), cfg.SkillNames...),
 		enabledSkills: enabledSkills,
+		modelNames:    append([]string(nil), cfg.ModelNames...),
 		onSubmit:      cfg.OnSubmit,
 		onApproval:    cfg.OnApproval,
 		onSkillToggle: cfg.OnSkillToggle,
+		onModelSwitch: cfg.OnModelSwitch,
 		activeTheme:   t,
 		styles:        t.LipGlossStyles(),
 		inputHistory:  []string{},
@@ -191,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// build or advance candidates
 			if len(m.completionCandidates) == 0 {
-				m.completionCandidates = buildCompletionCandidates(current, m.skillNames)
+				m.completionCandidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
 				m.completionIdx = 0
 			}
 			if len(m.completionCandidates) == 0 {
@@ -449,6 +453,29 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.input.Reset()
 		m.historyIdx = 0
 		m.syncSidebar()
+		m.syncViewport()
+		return m, nil
+	}
+	if action.listModels {
+		if len(m.modelNames) == 0 {
+			m.content.AppendLine("status: no named models configured")
+		} else {
+			m.content.AppendLine("status: models " + strings.Join(m.modelNames, ", "))
+		}
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+	if action.switchModel != "" {
+		if m.onModelSwitch != nil {
+			m.onModelSwitch(action.switchModel)
+		}
+		m.status.model = action.switchModel
+		m.syncSidebar()
+		m.content.AppendLine(fmt.Sprintf("status: model switched to %s", action.switchModel))
+		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}

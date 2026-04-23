@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	Model           string
+	ModelNames      []string
 	ProviderBaseURL string
 	WorkingDir      string
 	MaxTurns        int
@@ -16,6 +17,7 @@ type Config struct {
 	OnSubmit        func(string)
 	OnApproval      func(bool)
 	OnSkillToggle   func(string, bool)
+	OnModelSwitch   func(string)
 }
 
 type App struct {

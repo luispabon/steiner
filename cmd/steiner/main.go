@@ -179,10 +179,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	submissions := make(chan string, 1)
 	approvalResponse := make(chan bool, 1)
+	modelSwitch := make(chan string, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 
 	tuiApp := tui.NewApp(tui.Config{
 		Model:           rt.cfg.Provider.Model,
+		ModelNames:      modelAliasNames(rt.cfg.Provider.Models),
 		ProviderBaseURL: rt.cfg.Provider.BaseURL,
 		WorkingDir:      rt.workDir,
 		MaxTurns:        rt.cfg.Limits.MaxTurns,
@@ -201,6 +203,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		},
 		OnSkillToggle: func(name string, enabled bool) {
 			enabledSkills.Set(name, enabled)
+		},
+		OnModelSwitch: func(name string) {
+			select {
+			case modelSwitch <- name:
+			default:
+			}
 		},
 	})
 	rt.events = output.NewMultiSink(rt.events, tuiApp.EventSink())
@@ -226,6 +234,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case name := <-modelSwitch:
+			if resolved, ok := runner.runtime.cfg.Provider.Models[name]; ok {
+				runner.runtime.cfg.Provider.Model = resolved
+			} else {
+				runner.runtime.cfg.Provider.Model = name
+			}
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
@@ -540,6 +554,17 @@ func joinClosers(closers ...func() error) func() error {
 		}
 		return firstErr
 	}
+}
+
+func modelAliasNames(models map[string]string) []string {
+	if len(models) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(models))
+	for k := range models {
+		names = append(names, k)
+	}
+	return names
 }
 
 func readPromptFromInput(reader *bufio.Reader) (string, error) {

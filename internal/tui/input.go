@@ -9,9 +9,11 @@ type inputAction struct {
 	quit         bool
 	clear        bool
 	listSkills   bool
+	listModels   bool
 	submit       string
 	toggleSkill  string
 	toggleEnable bool
+	switchModel  string
 }
 
 func parseInput(value string, enabledSkills map[string]bool) inputAction {
@@ -30,6 +32,14 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 		return inputAction{handled: true, clear: true}
 	case trimmed == "/skills":
 		return inputAction{handled: true, listSkills: true}
+	case trimmed == "/models":
+		return inputAction{handled: true, listModels: true}
+	case strings.HasPrefix(trimmed, "/model "):
+		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
+		if name == "" {
+			return inputAction{}
+		}
+		return inputAction{handled: true, switchModel: name}
 	case strings.HasPrefix(trimmed, "/skill "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill "))
 		enable := true
@@ -56,14 +66,15 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 }
 
 // buildCompletionCandidates returns all candidates matching the current input prefix.
-// Candidates are built-in slash commands plus "/skill <name>" for each enabled skill.
-func buildCompletionCandidates(prefix string, skillNames []string) []string {
-	base := []string{"/exit", "/clear", "/skills", "/skill"}
-	// add "/skill +name" and "/skill -name" for each skill
+// Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
+func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
+	base := []string{"/exit", "/clear", "/skills", "/skill", "/models", "/model"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
 	}
-	// filter to those with the prefix
+	for _, name := range modelNames {
+		base = append(base, "/model "+name)
+	}
 	var matches []string
 	for _, c := range base {
 		if strings.HasPrefix(c, prefix) {
