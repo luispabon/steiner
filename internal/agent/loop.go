@@ -35,8 +35,10 @@ func NewRunner() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
+	conversation := fromProviderMessages(req.Prompt.Conversation)
 	state := RunState{
-		Conversation: fromProviderMessages(req.Prompt.Conversation),
+		Conversation: conversation,
+		Lineage:      newConversationLineage(conversation),
 		Context:      fromPromptContext(req.Prompt.ContextState),
 	}
 	if req.Provider == nil {
@@ -123,6 +125,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 		assistant := fromProviderMessage(response.Message)
 		state.Conversation = append(state.Conversation, assistant)
+		state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
 		if len(response.Message.ToolCalls) == 0 {
 			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
@@ -154,10 +157,17 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 				ToolCallID: call.ID,
 				Name:       call.Name,
 			})
+			state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
+				Role:       MessageRoleTool,
+				Content:    normalizedResult.Content,
+				ToolCallID: call.ID,
+				Name:       call.Name,
+			}})
 		}
 
 		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
-		state = compactConversationState(state, turn, req.Prompt.Policy.Retention.RecentTurns, req.Events)
+		state.Lineage = state.Lineage.PruneObsolete()
+		state.Conversation = state.Lineage.FullMessages()
 	}
 }
 
@@ -377,7 +387,10 @@ func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
 }
 
 func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.AssemblyOptions {
-	conversation := state.Conversation
+	conversation := state.Lineage.FullMessages()
+	if len(conversation) == 0 {
+		conversation = state.Conversation
+	}
 	base.Conversation = toProviderMessages(conversation)
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
@@ -522,110 +535,6 @@ func fromPromptContext(state prompt.DurableContextState) ContextState {
 	return out
 }
 
-func compactConversationState(state RunState, turn int, recentTurns int, sink output.EventSink) RunState {
-	retained, dropped := retainConversationTail(state.Conversation, recentTurns)
-	if len(dropped) == 0 {
-		return state
-	}
-
-	next := state.Clone()
-	next.Conversation = retained
-	if summary, truncated := summarizeDroppedConversation(dropped); summary != "" {
-		next.Context.RetainedSummaries = appendRetainedSummary(next.Context.RetainedSummaries, RetainedSummary{
-			Title:  "compacted conversation history",
-			Text:   summary,
-			Source: "loop_compaction",
-			Turn:   turn,
-		})
-		emitEvent(sink, output.NewContextCompactionEvent(
-			turn,
-			countConversationTurns(retained),
-			len(retained),
-			countConversationTurns(dropped),
-			len(dropped),
-			len(summary),
-			truncated,
-			"compacted conversation history",
-			summary,
-		))
-	}
-	return next
-}
-
-func retainConversationTail(messages []Message, recentTurns int) ([]Message, []Message) {
-	if len(messages) == 0 {
-		return nil, nil
-	}
-	if recentTurns <= 0 {
-		recentTurns = 1
-	}
-
-	keepStart := -1
-	assistantSeen := 0
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != MessageRoleAssistant {
-			continue
-		}
-		assistantSeen++
-		if assistantSeen == recentTurns {
-			keepStart = i
-			break
-		}
-	}
-	if keepStart < 0 {
-		return cloneMessages(messages), nil
-	}
-	turnStart := 0
-	for i := keepStart; i >= 0; i-- {
-		if messages[i].Role == MessageRoleUser {
-			turnStart = i
-			break
-		}
-	}
-	if turnStart == 0 {
-		kept := make([]Message, 0, len(messages)-keepStart+1)
-		kept = append(kept, cloneMessages(messages[:1])...)
-		kept = append(kept, cloneMessages(messages[keepStart:])...)
-		dropped := cloneMessages(messages[1:keepStart])
-		return kept, dropped
-	}
-
-	kept := cloneMessages(messages[turnStart:])
-	dropped := cloneMessages(messages[:turnStart])
-	return kept, dropped
-}
-
-func summarizeDroppedConversation(messages []Message) (string, bool) {
-	if len(messages) == 0 {
-		return "", false
-	}
-
-	parts := make([]string, 0, len(messages))
-	for _, message := range messages {
-		if text := strings.TrimSpace(message.Content); text != "" {
-			parts = append(parts, fmt.Sprintf("%s: %s", message.Role, truncateTextLocal(text, 96)))
-			continue
-		}
-		if len(message.ToolCalls) > 0 {
-			names := make([]string, 0, len(message.ToolCalls))
-			for _, call := range message.ToolCalls {
-				if call.Name != "" {
-					names = append(names, call.Name)
-				}
-			}
-			if len(names) > 0 {
-				parts = append(parts, fmt.Sprintf("%s: tool calls %s", message.Role, strings.Join(names, ", ")))
-			}
-		}
-	}
-	if len(parts) == 0 {
-		return "", false
-	}
-	full := strings.Join(parts, " | ")
-	summary := truncateTextLocal(full, 512)
-	return summary, len(summary) < len(full)
-}
-
 func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions, turn int, assembly prompt.Assembly) {
 	if sink == nil {
 		return
@@ -740,23 +649,6 @@ func budgetForSource(budgets prompt.SourceBudgetModel, source prompt.ContextSour
 	default:
 		return 0
 	}
-}
-
-func countConversationTurns(messages []Message) int {
-	count := 0
-	for _, message := range messages {
-		if message.Role == MessageRoleUser {
-			count++
-		}
-	}
-	return count
-}
-
-func truncateTextLocal(content string, limit int) string {
-	if limit <= 0 || len(content) <= limit {
-		return content
-	}
-	return strings.TrimRight(content[:limit], "\n\r\t ")
 }
 
 func toProviderMessages(messages []Message) []provider.Message {
