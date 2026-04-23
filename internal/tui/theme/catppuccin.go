@@ -74,6 +74,7 @@ func (m mochaTheme) LipGlossStyles() Styles {
 	mantleHex := catppuccingo.Mocha.Mantle().Hex
 	textHex := catppuccingo.Mocha.Text().Hex
 	lavenderHex := catppuccingo.Mocha.Lavender().Hex
+	peachHex := catppuccingo.Mocha.Peach().Hex
 	surface0Hex := catppuccingo.Mocha.Surface0().Hex
 	overlay2Hex := catppuccingo.Mocha.Overlay2().Hex
 	overlay1Hex := catppuccingo.Mocha.Overlay1().Hex
@@ -90,9 +91,15 @@ func (m mochaTheme) LipGlossStyles() Styles {
 		Sidebar: lipgloss.NewStyle().
 			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(textHex)),
+		SidebarSection: lipgloss.NewStyle().
+			Background(lipgloss.Color(mantleHex)).
+			Foreground(lipgloss.Color(peachHex)).
+			Bold(true),
 		SidebarLabel: lipgloss.NewStyle().
+			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(lavenderHex)),
 		SidebarValue: lipgloss.NewStyle().
+			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(textHex)),
 		ToolBlock: lipgloss.NewStyle().
 			Background(lipgloss.Color(surface0Hex)).

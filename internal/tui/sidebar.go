@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	sidebarWidth       = 31
-	sidebarMinWidth    = 92
-	sidebarToggleHint  = "ctrl+b toggle sidebar"
-	sidebarSkillLimit  = 3
-	sidebarPathPadding = 12
+	sidebarWidth      = 40
+	sidebarMinWidth   = 100
+	sidebarToggleHint = "ctrl+b toggle sidebar"
+	sidebarSkillLimit = 3
+	sidebarPadding    = 1
 )
 
 type sidebarState struct {
@@ -55,26 +55,43 @@ func (s sidebarState) Visible(width int) bool {
 	return s.expanded && width >= sidebarMinWidth
 }
 
-func (s sidebarState) View(width int) string {
+func (s sidebarState) View(width, height int) string {
 	if !s.Visible(width) {
 		return ""
 	}
-
-	lines := s.lines(sidebarWidth)
+	innerWidth := sidebarWidth - sidebarPadding*2
+	lines := s.lines(innerWidth)
 	body := strings.Join(lines, "\n")
-	return s.styles.Sidebar.Width(sidebarWidth).Render(body)
+	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadding, sidebarPadding).Render(body)
 }
 
 func (s sidebarState) lines(width int) []string {
-	lines := make([]string, 0, 8)
-	lines = append(lines, sidebarField("model", safeText(s.model), width, s.styles))
-	lines = append(lines, sidebarField("provider", safeText(s.provider), width, s.styles))
-	lines = append(lines, sidebarField("context", s.contextSummary(), width, s.styles))
-	lines = append(lines, sidebarField("turn", s.turnSummary(), width, s.styles))
-	lines = append(lines, sidebarField("compact", s.compactionSummary(), width, s.styles))
-	lines = append(lines, sidebarField("git", s.gitSummary(), width, s.styles))
-	lines = append(lines, sidebarField("workdir", s.workdirSummary(width), width, s.styles))
-	lines = append(lines, sidebarField("skills", s.skillsSummary(width), width, s.styles))
+	lines := make([]string, 0, 20)
+
+	lines = append(lines, sidebarSection("Model", s.styles))
+	lines = append(lines, sidebarSubField("Endpoint", safeText(s.provider), width, s.styles))
+	lines = append(lines, sidebarSubField("Name", safeText(s.model), width, s.styles))
+	lines = append(lines, "")
+
+	lines = append(lines, sidebarSection("Context", s.styles))
+	lines = append(lines, sidebarSubField("Fill", s.contextSummary(), width, s.styles))
+	lines = append(lines, sidebarSubField("Compaction", s.compactionSummary(), width, s.styles))
+	lines = append(lines, sidebarSubField("Turn", s.turnSummary(), width, s.styles))
+	lines = append(lines, "")
+
+	lines = append(lines, sidebarSection("Repository", s.styles))
+	lines = append(lines, sidebarSubField("Workdir", s.workdirSummary(width), width, s.styles))
+	lines = append(lines, sidebarSubField("Branch", s.gitSummary(), width, s.styles))
+	lines = append(lines, "")
+
+	lines = append(lines, sidebarSection("Skills", s.styles))
+	skills := s.skillsSummary(width)
+	if skills == "" || skills == "n/a" || skills == "none" {
+		lines = append(lines, "  "+s.styles.SidebarValue.Render("None"))
+	} else {
+		lines = append(lines, sidebarSubField("", skills, width, s.styles))
+	}
+
 	return lines
 }
 
@@ -133,8 +150,7 @@ func (s sidebarState) workdirSummary(width int) string {
 	if value == "" {
 		return "n/a"
 	}
-	value = filepath.Clean(value)
-	return fitText(value, maxInt(1, width-sidebarPathPadding))
+	return filepath.Clean(value)
 }
 
 func (s sidebarState) skillsSummary(width int) string {
@@ -146,22 +162,56 @@ func (s sidebarState) skillsSummary(width int) string {
 	if len(skills) > sidebarSkillLimit {
 		skills = append(skills[:sidebarSkillLimit], fmt.Sprintf("+%d", len(s.activeSkills)-sidebarSkillLimit))
 	}
-	return fitText(strings.Join(skills, ", "), maxInt(1, width-sidebarPathPadding))
+	return strings.Join(skills, ", ")
 }
 
-func sidebarField(label, value string, width int, styles theme.Styles) string {
-	label = strings.TrimSpace(label)
+func sidebarSection(title string, styles theme.Styles) string {
+	return styles.SidebarSection.Render(title)
+}
+
+func sidebarSubField(label, value string, width int, styles theme.Styles) string {
+	const prefix = "  * "
 	value = strings.TrimSpace(value)
-	if label == "" {
-		label = "item"
-	}
 	if value == "" {
 		value = "n/a"
 	}
+	if label == "" {
+		maxVal := maxInt(1, width-len(prefix))
+		chunks := wrapChunks(value, maxVal)
+		cont := strings.Repeat(" ", len(prefix))
+		var sb strings.Builder
+		sb.WriteString(prefix + styles.SidebarValue.Render(chunks[0]))
+		for _, c := range chunks[1:] {
+			sb.WriteString("\n" + styles.SidebarValue.Render(cont+c))
+		}
+		return sb.String()
+	}
+	labelColon := label + ":"
+	// +1 for the leading space before value
+	maxVal := maxInt(1, width-len(prefix)-len(labelColon)-1)
+	chunks := wrapChunks(value, maxVal)
+	cont := strings.Repeat(" ", len(prefix)+len(labelColon)+1)
+	var sb strings.Builder
+	sb.WriteString(prefix + styles.SidebarLabel.Render(labelColon) + styles.SidebarValue.Render(" "+chunks[0]))
+	for _, c := range chunks[1:] {
+		sb.WriteString("\n" + styles.SidebarValue.Render(cont+c))
+	}
+	return sb.String()
+}
 
-	maxValueWidth := maxInt(1, width-len(label)-2)
-	value = fitText(value, maxValueWidth)
-	return styles.SidebarLabel.Render(label) + ": " + styles.SidebarValue.Render(value)
+func wrapChunks(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+	var chunks []string
+	for len(text) > width {
+		chunks = append(chunks, text[:width])
+		text = text[width:]
+	}
+	if len(text) > 0 || len(chunks) == 0 {
+		chunks = append(chunks, text)
+	}
+	return chunks
 }
 
 func fitText(text string, width int) string {

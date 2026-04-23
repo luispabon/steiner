@@ -28,6 +28,7 @@ type Theme interface {
 type Styles struct {
 	ContentPane       lipgloss.Style
 	Sidebar           lipgloss.Style
+	SidebarSection    lipgloss.Style
 	SidebarLabel      lipgloss.Style
 	SidebarValue      lipgloss.Style
 	ToolBlock         lipgloss.Style
