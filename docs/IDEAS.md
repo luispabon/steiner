@@ -10,3 +10,4 @@
   - Make it configurable on the user's config file, per-model. Default to above when not there
  * Delegation deferrals (background mode, re-promptable sessions, `touched_files` result field, parallel-sub-agent capability): see `docs/DELEGATION_FUTURE.md`.
  * Look into sandboxing for commands (bubblewrap, socat?) like claude and codex https://code.claude.com/docs/en/sandboxing
+ * I want to add a tool so that a model can request the agent to display a file to the user.
