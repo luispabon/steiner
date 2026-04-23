@@ -2,14 +2,24 @@ package config
 
 func defaultConfig() Config {
 	return Config{
-		Provider: ProviderConfig{
-			Type:                "openai_compat",
-			BaseURL:             "http://localhost:11434/v1",
-			APIKey:              "",
-			Model:               "qwen3-35b-a3b",
-			Temperature:         0.2,
-			MaxCompletionTokens: 8192,
-			Parallelism:         1,
+		Scheduler: SchedulerConfig{
+			Parallelism: 1,
+		},
+		Model: "default",
+		Models: map[string]ModelConfig{
+			"default": {
+				Type:                "openai_compat",
+				BaseURL:             "http://localhost:11434/v1",
+				APIKey:              "",
+				Model:               "qwen3-35b-a3b",
+				Temperature:         0.2,
+				MaxCompletionTokens: 8192,
+				ContextSize:         32768,
+				Compaction: CompactionConfig{
+					SafetyMarginTokens: 2048,
+					SummaryMaxTokens:   1024,
+				},
+			},
 		},
 		Limits: LimitsConfig{
 			MaxTurns:           50,
