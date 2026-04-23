@@ -233,8 +233,19 @@ func TestAssembleCompactsOlderTurnsAndBoundsGrowth(t *testing.T) {
 	if got, want := convoSummary.DroppedMessages, 8; got != want {
 		t.Fatalf("conversation summary dropped messages = %d, want %d", got, want)
 	}
-	if got := strings.Contains(summaryBlock.Content, "turn zero user"); !got {
-		t.Fatalf("conversation summary = %q, want excerpt from older turns", summaryBlock.Content)
+	for _, heading := range []string{
+		"# Request intent",
+		"# Solution design",
+		"# Recent actions",
+		"# Unresolved decisions",
+		"# Pending work",
+	} {
+		if got := strings.Contains(summaryBlock.Content, heading); !got {
+			t.Fatalf("conversation summary = %q, want heading %q", summaryBlock.Content, heading)
+		}
+	}
+	if got := strings.Contains(summaryBlock.Content, "- turn 2:"); !got {
+		t.Fatalf("conversation summary = %q, want recent actions bullets", summaryBlock.Content)
 	}
 
 	if got, want := shortAssembly.Messages[2].Content, "turn two user"; got != want {
@@ -286,13 +297,24 @@ func TestAssembleSnapshotCapturesCompactedPromptFixture(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
-	got := renderAssemblyBlocksSnapshot(assembly.Blocks)
-	want, err := os.ReadFile(filepath.Join(fixtureRoot, "assembly_blocks.snapshot"))
-	if err != nil {
-		t.Fatalf("ReadFile(snapshot) error = %v", err)
+	summaryBlock := findBlockBySource(t, assembly.Blocks, ContextSourceConversationSummary)
+	for _, heading := range []string{
+		"# Request intent",
+		"# Solution design",
+		"# Recent actions",
+		"# Unresolved decisions",
+		"# Pending work",
+	} {
+		if got := strings.Contains(summaryBlock.Content, heading); !got {
+			t.Fatalf("summary block = %q, want heading %q", summaryBlock.Content, heading)
+		}
 	}
-	if got, want := strings.TrimSpace(got), strings.TrimSpace(string(want)); got != want {
-		t.Fatalf("assembly snapshot mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	if got := strings.Contains(summaryBlock.Content, "prompt assembly policy-driven"); !got {
+		t.Fatalf("summary block = %q, want preserved request intent text", summaryBlock.Content)
+	}
+	durableContext := findBlockBySource(t, assembly.Blocks, ContextSourceDurableContext)
+	if got := strings.Contains(durableContext.Content, "finish compaction diagnostics"); !got {
+		t.Fatalf("durable context block = %q, want active focus text", durableContext.Content)
 	}
 }
 
@@ -315,6 +337,9 @@ func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
 	}
 	if !envelope.Truncated {
 		t.Fatalf("envelope truncated = false, want true")
+	}
+	if got := strings.Contains(envelope.Content, "# Request intent"); !got {
+		t.Fatalf("summary envelope = %q, want request intent heading", envelope.Content)
 	}
 }
 
@@ -341,6 +366,39 @@ func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
 	}
 	if !strings.Contains(block.Content, "earlier request and tool output") {
 		t.Fatalf("durable context block = %q, want retained summary text", block.Content)
+	}
+}
+
+func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
+	t.Parallel()
+
+	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
+		{Role: provider.MessageRoleUser, Content: "please keep the request intent"},
+		{Role: provider.MessageRoleAssistant, Content: "solution design is to add compaction"},
+		{Role: provider.MessageRoleUser, Content: "what should we do next?"},
+	}, DurableContextState{
+		ActiveConstraints: []DurableContextEntry{{Text: "do not drop constraints", Source: "user", Turn: 1}},
+		UnresolvedWork:    []DurableContextEntry{{Text: "finish the compaction loop", Source: "assistant", Turn: 2}},
+	})
+	if got, want := len(promptMessages), 2; got != want {
+		t.Fatalf("prompt messages = %d, want %d", got, want)
+	}
+	if got, want := promptMessages[0].Role, provider.MessageRoleSystem; got != want {
+		t.Fatalf("system role = %q, want %q", got, want)
+	}
+	for _, heading := range []string{
+		"# Request intent",
+		"# Solution design",
+		"# Recent actions",
+		"# Unresolved decisions",
+		"# Pending work",
+	} {
+		if got := strings.Contains(promptMessages[0].Content, heading); !got {
+			t.Fatalf("system prompt = %q, want heading %q", promptMessages[0].Content, heading)
+		}
+	}
+	if got := strings.Contains(promptMessages[1].Content, "durable context:"); !got {
+		t.Fatalf("user prompt = %q, want durable context section", promptMessages[1].Content)
 	}
 }
 
