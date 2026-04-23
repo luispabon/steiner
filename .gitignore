@@ -3,3 +3,4 @@
 .codex
 bin
 *.log
+test_config.yaml
