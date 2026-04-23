@@ -1139,7 +1139,7 @@ Extend:
 
 ## Objective
 
-Build the seam, not yet the full feature.
+Ship the delegation seam end to end: a model-facing `delegate` tool with one-shot synchronous semantics and a clean contract. Deferred delegation features (background mode, re-promptable sessions, `touched_files`, parallel-sub-agent capability) live in `docs/DELEGATION_FUTURE.md` and are explicitly out of scope here.
 
 ## Packages / files
 
@@ -1155,23 +1155,30 @@ Files:
 
 Implement:
 
-* parent->child task contract
-* child result envelope
-* scoped context handoff builder
-* sub-agent config/limit model
+* parent->child task contract (`DelegationSpec`)
+* child result envelope (`DelegationResult`) with final answer, compact summary, status, and turn/token counters
+* scoped context handoff builder: fresh child context, own system prompt, no parent transcript
+* sub-agent config/limit model with tool-arg tighten-only override of config defaults
 
 ### `internal/agent/subagent_state.go`
 
 Implement:
 
-* isolated agent state type
+* isolated agent state type for children, shares no mutable references with parent state
 
 ### `internal/provider/scheduler.go`
 
 Extend:
 
-* all agent instances share scheduler budget
-* future-safe for parent/child use
+* all agent instances share a single scheduler budget bounded by `provider.parallelism`
+* no bypass path; parent and children both acquire slots the same way
+
+### `internal/tool/` (parent and child registries)
+
+Extend:
+
+* register a `delegate` tool on the parent's tool registry
+* build child tool registries via `scaffold.go` with `delegate` omitted (nested delegation returns a clean tool error to the child)
 
 ### `internal/output/log.go`
 
@@ -1184,17 +1191,19 @@ Extend:
 
 Extend:
 
-* TUI awareness of delegation events for future rendering (placeholder handling — log to content pane as muted blocks)
+* TUI awareness of delegation events rendered as muted placeholder blocks (no dedicated polish — Stage 9 covers UX)
 
 ## Concrete work items
 
-1. Define delegation request struct.
-2. Define delegation result struct.
-3. Define what context can be passed to child.
-4. Build child state lifecycle behind interface.
-5. Ensure scheduler gates all model calls across parent/child.
-6. Add delegation event types and payloads.
-7. Add placeholder delegation event rendering in TUI.
+1. Define delegation request struct (`DelegationSpec`).
+2. Define delegation result struct (`DelegationResult`) and status enum.
+3. Define what context can be passed to child; implement the scoped handoff builder.
+4. Build child state lifecycle behind an internal interface and wire it through the normal agent loop.
+5. Register the `delegate` tool on the parent tool registry; ensure the child tool registry excludes it.
+6. Ensure scheduler gates all model calls across parent/child.
+7. Implement the oversized-output path: when child final output exceeds `output_limit_tokens`, run one extra summarisation turn inside the child before returning (no hard truncation).
+8. Add delegation event types and payloads.
+9. Add placeholder delegation event rendering in TUI.
 
 ## Tests
 
@@ -1202,18 +1211,21 @@ Extend:
 
 * delegation contract serialization
 * child state is isolated from parent state
-* allowed-tools filtering
-* limit inheritance/override rules
+* allowed-tools filtering, including `delegate` absent from child registry
+* limit defaults + tighten-only override behaviour
+* oversized-output summarisation trigger
 
 ### Integration
 
-* instantiate child run behind internal interface without surfacing to model yet
+* end-to-end child run driven via the delegation Go entrypoint (does not require live model-facing invocation to pass)
 * scheduler still enforces `parallelism` across multiple agent instances
 * delegation events flow through the event interface and appear in TUI
 
 ## Exit criteria
 
-* sub-agent execution can be added without refactoring the loop architecture
+* parent model can call the `delegate` tool and receive a structured child result
+* sub-agent execution already runs through the normal agent loop, so deeper delegation work in Stage 9 needs no loop redesign
+* scheduler correctly gates all LLM calls
 
 ---
 
@@ -1473,19 +1485,21 @@ Extend:
 
 1. contract structs
 2. child state model
-3. scheduler integration checks
-4. delegation event types
-5. TUI delegation event awareness
-6. tests
+3. scoped context handoff + child tool registry (no `delegate`)
+4. scheduler integration checks
+5. model-facing `delegate` tool on parent registry
+6. oversized-output summarisation path
+7. delegation event types
+8. TUI delegation event awareness (muted placeholders)
+9. tests
 
 ## Stage 9
 
-1. synchronous child execution
-2. parent/child handoff
-3. model-facing `spawn_agent`
-4. TUI delegation rendering
-5. visibility/events
-6. tests
+1. exercise synchronous delegation on real repo tasks
+2. parent/child handoff tuning
+3. TUI delegation rendering (muted inline block, spinner, compact result display)
+4. visibility/events polish
+5. tests
 
 ## Stage 10
 

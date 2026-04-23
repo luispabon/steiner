@@ -8,3 +8,4 @@
  * System prompt:
   - Right now, embedded on internal/prompt/system.go. Move this to a config file somewhere
   - Make it configurable on the user's config file, per-model. Default to above when not there
+ * Delegation deferrals (background mode, re-promptable sessions, `touched_files` result field, parallel-sub-agent capability): see `docs/DELEGATION_FUTURE.md`.

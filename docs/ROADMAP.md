@@ -372,18 +372,19 @@ Extract the hardcoded colour palette into a swappable theme abstraction and brin
 
 ### Goal
 
-Build the seams for sub-agents without actually shipping full delegated execution yet.
+Ship the delegation seam end to end as a model-facing tool, with one-shot synchronous semantics. Avoid any extended delegation features; those live in `docs/DELEGATION_FUTURE.md`.
 
 ### Deliverables
 
 * delegation package
+* model-facing `delegate` tool exposed on the parent agent's tool registry
 * explicit parent/subtask contract
-* scoped context handoff builder
+* scoped context handoff builder (fresh child context, no parent transcript leak)
 * structured sub-agent result envelope
-* limit inheritance/override rules
-* scheduler integration so all future agent activity respects provider parallelism
-* delegation events integrated into the event interface (DelegationStarted, DelegationComplete, DelegationFailed)
-* TUI awareness of delegation events for future rendering
+* limit defaults with tool-arg tighten-only override
+* scheduler integration so all agent activity (parent and children) respects `provider.parallelism`
+* delegation events integrated into the event interface (`DelegationStarted`, `DelegationComplete`, `DelegationFailed`)
+* TUI awareness of delegation events rendered as muted placeholder blocks
 
 ### Contract should define
 
@@ -393,35 +394,39 @@ Build the seams for sub-agents without actually shipping full delegated executio
 * scoped context
 * allowed tools
 * limits
-* optional artifact references
 
 #### Sub-agent returns
 
 * final answer
 * compact summary
 * status
-* optional structured outputs
-* optional touched file list
+* turn and token counters
+
+Other return fields (structured artifacts, touched file list, etc.) are out of scope — see `docs/DELEGATION_FUTURE.md`.
 
 ### Scope constraints
 
-* no nested delegation
-* no parallel delegation yet
+* no nested delegation (child tool registry omits `delegate`; a child that tries to delegate receives a clean tool error)
+* no re-promptable child sessions
+* no background (non-blocking) delegation
 * no full sub-agent transcript return
 * no delegation-specific UI polish yet
 
+Concurrent children are allowed via the parent emitting multiple `delegate` tool_use blocks in a single assistant turn; concurrency is capped by `provider.parallelism`.
+
 ### Exit criteria
 
-* you can instantiate a sub-agent state object and execute its lifecycle behind an internal interface
-* the main agent loop does not need redesign to call delegated runs later
+* parent model can call the `delegate` tool and receive a structured child result
+* child lifecycle runs through the normal agent loop machinery, so deeper delegation work needs no loop redesign
 * scheduler correctly gates all LLM calls through the global/provider parallelism limit
-* delegation events flow through the event interface
+* delegation events flow through the event interface and land in the TUI content pane
 
 ### Risks to avoid
 
 * leaking parent transcript wholesale
 * reusing shared mutable state between parent and child
 * encoding delegation as a hacky tool shortcut without a real contract
+* silently widening scope into features listed in `docs/DELEGATION_FUTURE.md`
 
 ---
 
@@ -429,17 +434,18 @@ Build the seams for sub-agents without actually shipping full delegated executio
 
 ### Goal
 
-Ship the first real delegated execution path.
+Make delegation actually useful. Stage 8 shipped the `delegate` tool end to end; Stage 9 focuses on exercising it on real tasks and adding the observability / UX polish that makes it pleasant to live with.
 
 ### Deliverables
 
-* `spawn_agent` exposed internally and then to the model
-* synchronous sub-agent execution only
-* isolated sub-agent conversation history
-* parent passes bounded context only
-* result-only integration back to parent
-* separate limits for sub-agent turns/tokens/runtime
+* synchronous sub-agent execution exercised against real repo tasks (search, exploration, bounded refactor)
+* isolated sub-agent conversation history proven under sustained use
+* parent passes bounded context only; verified on representative prompts
+* result-only integration back to parent; parent prompt growth measured vs non-delegated baseline
+* separate, tunable limits for sub-agent turns/tokens/runtime
 * TUI indication when delegation occurs: muted inline block showing task sent, active spinner or indicator during execution, compact result display on completion
+
+Background delegation, re-promptable sessions, and `touched_files` result metadata remain out of scope; see `docs/DELEGATION_FUTURE.md`.
 
 ### Behavioural rules
 
@@ -512,7 +518,7 @@ Make the agent reliable enough for repeated use on real repos.
 
 ### Possible branches after core is solid
 
-* parallel sub-agents
+* parallel sub-agents (see `docs/DELEGATION_FUTURE.md`)
 * native providers beyond openai_compat
 * persistence
 * sandboxed executors
