@@ -47,7 +47,7 @@
 
 ## Step Status
 - `stage-1-step-1`: `implemented`
-- `stage-2-step-1`: `ready`
+- `stage-2-step-1`: `implemented`
 - `stage-2-step-2`: `ready`
 - `stage-3-step-1`: `pending`
 - `stage-3-step-2`: `pending`
@@ -63,6 +63,10 @@
 - `2026-04-24`: Merged temporary branch `tmp/stage-1-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction` with merge commit `dd5ef0c`.
 - `2026-04-24`: Detected an out-of-scope sub-agent edit to executor-owned `.project_planning/2026-04-23_token-budget-compaction/execution.md`. Executor restored authoritative log content after merge instead of accepting the sub-agent rewrite.
 - `2026-04-24`: Closed sub-agent `019dbc97-c4d8-71d0-9001-443f227faa53`, removed worktree `/tmp/steiner-stage-1-step-1`, and deleted merged branch `tmp/stage-1-step-1-token-budget-compaction`.
+- `2026-04-24`: Dispatched `stage-2-step-1` to isolated sub-agent worktree `/tmp/steiner-stage-2-step-1` on branch `tmp/stage-2-step-1-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution.
+- `2026-04-24`: Reviewed sub-agent commits `7c715e1` and `4fb3683` for `stage-2-step-1`. Initial lineage implementation introduced overly aggressive pruning; executor rejected that behavior, sent the step back for a scoped correction, and accepted the amended explicit-pruning design.
+- `2026-04-24`: Merged temporary branch `tmp/stage-2-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`.
+- `2026-04-24`: Closed sub-agent `019dbca1-94e9-76a3-ad3f-88db57b489d9`, removed worktree `/tmp/steiner-stage-2-step-1`, and deleted merged branch `tmp/stage-2-step-1-token-budget-compaction`.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -73,6 +77,14 @@
   - worktree: `/tmp/steiner-stage-1-step-1`
   - commit: `7698af4`
   - status: `closed after merge and cleanup`
+- `stage-2-step-1`
+  - agent id: `019dbca1-94e9-76a3-ad3f-88db57b489d9`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-2-step-1-token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-2-step-1`
+  - commits: `7c715e1`, `4fb3683`
+  - status: `closed after merge and cleanup`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -81,10 +93,22 @@
 - Closed sub-agent `019dbc97-c4d8-71d0-9001-443f227faa53`.
 - Removed worktree `/tmp/steiner-stage-1-step-1`.
 - Deleted merged branch `tmp/stage-1-step-1-token-budget-compaction`.
+- Created branch `tmp/stage-2-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-2-step-1`.
+- Merged branch `tmp/stage-2-step-1-token-budget-compaction` back to feature branch.
+- Closed sub-agent `019dbca1-94e9-76a3-ad3f-88db57b489d9`.
+- Removed worktree `/tmp/steiner-stage-2-step-1`.
+- Deleted merged branch `tmp/stage-2-step-1-token-budget-compaction`.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
   - command: `go test ./internal/config ./cmd/steiner`
+  - result: `passed`
+- `stage-2-step-1` sub-agent verification:
+  - command: `go test ./internal/agent ./internal/prompt`
+  - result: `passed`
+- `stage-2-step-1` correction verification:
+  - command: `go test ./internal/agent`
   - result: `passed`
 
 ## Blockers
