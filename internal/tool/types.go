@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ type ToolDef struct {
 	ParameterSchema map[string]any
 	Timeout         time.Duration
 	Approval        config.ApprovalMode
+	Handler         func(ctx context.Context, input map[string]any) (any, error)
 }
 
 type JSONEnvelope struct {
