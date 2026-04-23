@@ -446,11 +446,19 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		sink:  r.runtime.events,
 	}
 
+	modelBudget := prompt.ModelTokenBudget{
+		ContextSize:         selected.ContextSize,
+		MaxCompletionTokens: selected.MaxCompletionTokens,
+		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
+		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+	}
+
 	assembly := prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
 		ProjectRoot:               r.runtime.workDir,
 		SkillsRoot:                prompt.DefaultSkillsRoot(r.runtime.homeDir),
 		SkillNames:                append([]string(nil), skillNames...),
+		ModelBudget:               modelBudget,
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
@@ -475,6 +483,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Executor:    executor,
 		Tools:       registryToolSpecs(r.runtime.registry),
 		Prompt:      assembly,
+		ModelBudget: modelBudget,
 		Model:       selected.Model,
 		Temperature: &temperature,
 		MaxTokens:   &maxTokens,

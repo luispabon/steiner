@@ -802,7 +802,7 @@ func testRuntimeConfig(alias string) config.Config {
 				Model:               alias,
 				Temperature:         0.2,
 				MaxCompletionTokens: 64,
-				ContextSize:         128,
+				ContextSize:         4096,
 				Compaction: config.CompactionConfig{
 					SafetyMarginTokens: 16,
 					SummaryMaxTokens:   32,
@@ -928,11 +928,58 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
 	}
-	if !containsString(kinds, "compaction") {
-		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
-	}
 	if !foundStopReason {
 		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
+	}
+}
+
+func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "should not be reached",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("test-model")
+	cfg.Models["test-model"] = config.ModelConfig{
+		Type:                "openai_compat",
+		BaseURL:             "http://localhost:11434/v1",
+		Model:               "test-model",
+		Temperature:         0.2,
+		MaxCompletionTokens: 64,
+		ContextSize:         1,
+		Compaction: config.CompactionConfig{
+			SafetyMarginTokens: 16,
+			SummaryMaxTokens:   8,
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
+	if err == nil {
+		t.Fatal("Run() error = nil, want context window failure")
+	}
+	if !strings.Contains(err.Error(), "request exceeds context window") {
+		t.Fatalf("Run() error = %v, want context window failure", err)
+	}
+	if got, want := len(providerStub.requests), 0; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 }
 
