@@ -4,7 +4,7 @@
 - Planning folder: `.project_planning/2026-04-23_token-budget-compaction`
 - Active branch: `cl/2026-04-23_token-budget-compaction`
 - Executor start date: `2026-04-24`
-- Current stage: `stage-2 pending`
+- Current stage: `stage-3 pending`
 - Execution mode: isolated sub-agent worktrees when safe
 
 ## Verification Strategy
@@ -48,8 +48,8 @@
 ## Step Status
 - `stage-1-step-1`: `implemented`
 - `stage-2-step-1`: `implemented`
-- `stage-2-step-2`: `running`
-- `stage-3-step-1`: `pending`
+- `stage-2-step-2`: `implemented`
+- `stage-3-step-1`: `ready`
 - `stage-3-step-2`: `pending`
 - `stage-4-step-1`: `pending`
 - `stage-4-step-2`: `pending`
@@ -68,9 +68,13 @@
 - `2026-04-24`: Merged temporary branch `tmp/stage-2-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`.
 - `2026-04-24`: Closed sub-agent `019dbca1-94e9-76a3-ad3f-88db57b489d9`, removed worktree `/tmp/steiner-stage-2-step-1`, and deleted merged branch `tmp/stage-2-step-1-token-budget-compaction`.
 - `2026-04-24`: Dispatched `stage-2-step-2` to isolated sub-agent worktree `/tmp/steiner-stage-2-step-2` on branch `tmp/stage-2-step-2-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution.
-- `2026-04-24`: Reviewed sub-agent branch state for `stage-2-step-2`. The implementation added estimator and fit-check plumbing under `internal/provider`, `internal/prompt`, and `internal/agent`, but the live runtime injection point for `ModelBudget` remains `cmd/steiner/main.go`, which is outside the planner-owned file scope for this step.
-- `2026-04-24`: Stopped before merging `stage-2-step-2` because merging it as-is would claim live request-fit enforcement that is inert without out-of-scope runtime wiring. Reported the scope mismatch as a blocker instead of widening scope silently.
+- `2026-04-24`: Reviewed sub-agent branch state for `stage-2-step-2`. The implementation added estimator and fit-check plumbing under `internal/provider`, `internal/prompt`, and `internal/agent`, but the live runtime injection point for `ModelBudget` remained `cmd/steiner/main.go`, which was outside the original planner-owned file scope for this step.
+- `2026-04-24`: Stopped before merging `stage-2-step-2` because merging it as-is would claim live request-fit enforcement that was inert without out-of-scope runtime wiring. Reported the scope mismatch as a blocker instead of widening scope silently.
 - `2026-04-24`: User approved a narrow execution deviation to treat the step boundary as a planning defect and allow the minimum `cmd/steiner/main.go` runtime wiring needed to propagate `ModelBudget` into live execution for `stage-2-step-2`.
+- `2026-04-24`: Resumed `stage-2-step-2` on the existing isolated branch and required the sub-agent to add only the missing runtime wiring and narrowly necessary tests.
+- `2026-04-24`: Reviewed follow-up commit `a7fa542` (`Wire model budget into CLI runner`). The live CLI runner now propagates the resolved model budget into both prompt assembly and `agent.RunRequest`, activating the previously implemented request-fit enforcement in real execution.
+- `2026-04-24`: Merged temporary branch `tmp/stage-2-step-2-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`. The only merge conflict was executor-owned `execution.md`; executor resolved it by preserving authoritative orchestration history and discarding sub-agent ownership of the log.
+- `2026-04-24`: Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`, removed worktree `/tmp/steiner-stage-2-step-2`, and deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -95,8 +99,8 @@
   - model tier relative to current runtime: `cheaper`
   - branch: `tmp/stage-2-step-2-token-budget-compaction`
   - worktree: `/tmp/steiner-stage-2-step-2`
-  - commit: `485bbfe`
-  - status: `closed; not merged due to planner-scope blocker`
+  - commits: `485bbfe`, `a7fa542`
+  - status: `closed after merge and cleanup`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -113,7 +117,10 @@
 - Deleted merged branch `tmp/stage-2-step-1-token-budget-compaction`.
 - Created branch `tmp/stage-2-step-2-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
 - Created worktree `/tmp/steiner-stage-2-step-2`.
-- Left branch `tmp/stage-2-step-2-token-budget-compaction` and worktree `/tmp/steiner-stage-2-step-2` in place because the step was not merged and may need follow-up after user direction.
+- Merged branch `tmp/stage-2-step-2-token-budget-compaction` back to feature branch.
+- Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`.
+- Removed worktree `/tmp/steiner-stage-2-step-2`.
+- Deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
@@ -125,13 +132,15 @@
 - `stage-2-step-1` correction verification:
   - command: `go test ./internal/agent`
   - result: `passed`
-- `stage-2-step-2` sub-agent verification on isolated branch:
+- `stage-2-step-2` sub-agent verification:
   - command: `go test ./internal/provider ./internal/prompt ./internal/agent`
+  - result: `passed`
+- `stage-2-step-2` follow-up runtime verification:
+  - command: `go test ./cmd/steiner -run 'TestCLIRunnerPassesRegistryToolsToProvider|TestCLIRunnerUsesSelectedSkillSubset|TestCLIRunnerReturnsContextDiagnostics|TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest'`
   - result: `passed`
 
 ## Blockers
-- `stage-2-step-2`: planner-owned file scope excludes `cmd/steiner/main.go`, but live runtime propagation of `ModelBudget` must happen there. Without that wiring, the new request-fit enforcement in `internal/agent/loop.go` remains inert in live execution, so the step cannot be merged honestly under current scope constraints.
-- Resolved by user-approved scoped deviation: `stage-2-step-2` may additionally touch `cmd/steiner/main.go` for the minimal runtime propagation needed to activate the already-implemented budgeting logic.
+- None.
 
 ## Final Handoff State
 - Not ready.

@@ -181,39 +181,9 @@ func (p *OpenAICompat) chatCompletionsURL() string {
 }
 
 func (p *OpenAICompat) marshalRequest(request ChatRequest, stream bool) ([]byte, error) {
-	wire := openAIRequest{
-		Model:       p.model,
-		Messages:    make([]openAIMessage, 0, len(request.Messages)),
-		Temperature: request.Temperature,
-		MaxTokens:   request.MaxTokens,
-		TopP:        request.TopP,
-		Stream:      stream,
-	}
-	if strings.TrimSpace(request.Model) != "" {
-		wire.Model = request.Model
-	}
-	if stream {
-		wire.StreamOptions = &openAIStreamOptions{IncludeUsage: true}
-	}
-	if len(request.Tools) > 0 {
-		wire.Tools = make([]openAITool, 0, len(request.Tools))
-		for _, tool := range request.Tools {
-			wire.Tools = append(wire.Tools, openAITool{
-				Type: tool.Type,
-				Function: openAIToolFunction{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Parameters:  tool.Function.Parameters,
-				},
-			})
-		}
-	}
-	for _, msg := range request.Messages {
-		wireMsg, err := toOpenAIMessage(msg)
-		if err != nil {
-			return nil, err
-		}
-		wire.Messages = append(wire.Messages, wireMsg)
+	wire, err := chatRequestWire(request, p.model, stream)
+	if err != nil {
+		return nil, err
 	}
 	return json.Marshal(wire)
 }
