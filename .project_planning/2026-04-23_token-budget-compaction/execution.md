@@ -74,6 +74,7 @@
 - `2026-04-24`: Resumed `stage-2-step-2` on the existing isolated branch and required the sub-agent to add only the missing runtime wiring and narrowly necessary tests.
 - `2026-04-24`: Reviewed follow-up commit `a7fa542` (`Wire model budget into CLI runner`). The live CLI runner now propagates the resolved model budget into both prompt assembly and `agent.RunRequest`, activating the previously implemented request-fit enforcement in real execution.
 - `2026-04-24`: Merged temporary branch `tmp/stage-2-step-2-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`. The only merge conflict was executor-owned `execution.md`; executor resolved it by preserving authoritative orchestration history and discarding sub-agent ownership of the log.
+- `2026-04-24`: Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`, removed worktree `/tmp/steiner-stage-2-step-2`, and deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -99,7 +100,7 @@
   - branch: `tmp/stage-2-step-2-token-budget-compaction`
   - worktree: `/tmp/steiner-stage-2-step-2`
   - commits: `485bbfe`, `a7fa542`
-  - status: `merged; pending explicit closure after cleanup`
+  - status: `closed after merge and cleanup`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -117,7 +118,9 @@
 - Created branch `tmp/stage-2-step-2-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
 - Created worktree `/tmp/steiner-stage-2-step-2`.
 - Merged branch `tmp/stage-2-step-2-token-budget-compaction` back to feature branch.
-- Cleanup pending: explicit sub-agent closure, worktree removal, branch deletion.
+- Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`.
+- Removed worktree `/tmp/steiner-stage-2-step-2`.
+- Deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
