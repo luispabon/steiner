@@ -816,10 +816,10 @@ And what the sub-agent returns:
 
 * final answer
 * optional compact summary
-* optional artifact references
 * status metadata
+* turn and token counters for cost accounting
 
-It should not return its full internal transcript by default.
+It should not return its full internal transcript by default. Other return fields (for example a structured list of touched files, or artifact references) are intentionally deferred; see `docs/DELEGATION_FUTURE.md`.
 
 ### 14.4 Isolation Rules
 
@@ -834,10 +834,15 @@ It should not return its full internal transcript by default.
 These are intentionally deferred:
 
 * nested sub-agents
-* parallel sub-agents
+* parallel sub-agents as an explicit capability (parent-driven fan-out, joins, fleet UI)
+* background (non-blocking) delegation
+* re-promptable child sessions
+* `touched_files` or other structured artifact metadata in the result envelope
 * shared memory between agents
 * parent inspection of full sub-agent transcript by default
 * complex delegation graphs
+
+Design-intent notes for the delegation-specific items above live in `docs/DELEGATION_FUTURE.md`.
 
 Sub-agents are a core architectural requirement, but not an immediate implementation requirement.
 
