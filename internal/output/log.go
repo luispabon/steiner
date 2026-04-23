@@ -28,6 +28,9 @@ const (
 	EventTypeAssistantMessage   = "assistant_message"
 	EventTypeAssistantChunk     = "assistant_chunk"
 	EventTypeContextDiagnostics = "context_diagnostics"
+	EventTypeDelegationStarted  = "delegation_started"
+	EventTypeDelegationComplete = "delegation_complete"
+	EventTypeDelegationFailed   = "delegation_failed"
 )
 
 type Event struct {
@@ -156,6 +159,24 @@ type AssistantMessageEvent struct {
 type AssistantChunkEvent struct {
 	Turn    int    `json:"turn,omitempty"`
 	Content string `json:"content,omitempty"`
+}
+
+type DelegationStartedEvent struct {
+	AgentID     string `json:"agent_id"`
+	TaskPreview string `json:"task_preview"`
+}
+
+type DelegationCompleteEvent struct {
+	AgentID    string `json:"agent_id"`
+	Status     string `json:"status"`
+	TurnCount  int    `json:"turn_count"`
+	TokenCount int    `json:"token_count"`
+}
+
+type DelegationFailedEvent struct {
+	AgentID     string `json:"agent_id"`
+	TaskPreview string `json:"task_preview"`
+	Error       string `json:"error"`
 }
 
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
@@ -439,6 +460,53 @@ func NewAssistantChunkEvent(turn int, content string) Event {
 		Payload: AssistantChunkEvent{
 			Turn:    turn,
 			Content: content,
+		},
+	}
+}
+
+func truncatePreview(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// Ensure we leave room for the ellipsis
+	if max < 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
+}
+
+func NewDelegationStartedEvent(agentID, taskPreview string) Event {
+	return Event{
+		Type:      EventTypeDelegationStarted,
+		Timestamp: time.Now().UTC(),
+		Payload: DelegationStartedEvent{
+			AgentID:     agentID,
+			TaskPreview: truncatePreview(taskPreview, 120),
+		},
+	}
+}
+
+func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event {
+	return Event{
+		Type:      EventTypeDelegationComplete,
+		Timestamp: time.Now().UTC(),
+		Payload: DelegationCompleteEvent{
+			AgentID:    agentID,
+			Status:     status,
+			TurnCount:  turns,
+			TokenCount: tokens,
+		},
+	}
+}
+
+func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
+	return Event{
+		Type:      EventTypeDelegationFailed,
+		Timestamp: time.Now().UTC(),
+		Payload: DelegationFailedEvent{
+			AgentID:     agentID,
+			TaskPreview: truncatePreview(taskPreview, 120),
+			Error:       errMsg,
 		},
 	}
 }

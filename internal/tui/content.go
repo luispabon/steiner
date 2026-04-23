@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
@@ -48,6 +49,10 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 	case output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 		b.finishStreaming()
 		b.appendStyled(formatApprovalEvent(event), segmentApproval)
+		return
+	case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
+		b.finishStreaming()
+		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
 		b.finishStreaming()
@@ -134,6 +139,35 @@ func formatApprovalEvent(event output.Event) string {
 		return strings.Join(parts, " ")
 	}
 	return "approval requested"
+}
+
+func formatDelegationEvent(event output.Event) string {
+	switch event.Type {
+	case output.EventTypeDelegationStarted:
+		if payload, ok := event.Payload.(output.DelegationStartedEvent); ok {
+			return "delegate: starting " + payload.AgentID
+		}
+		return "delegate: starting"
+	case output.EventTypeDelegationComplete:
+		if payload, ok := event.Payload.(output.DelegationCompleteEvent); ok {
+			return "delegate: complete " + payload.AgentID + " (" + pluralTurns(payload.TurnCount) + ")"
+		}
+		return "delegate: complete"
+	case output.EventTypeDelegationFailed:
+		if payload, ok := event.Payload.(output.DelegationFailedEvent); ok {
+			return "delegate: failed " + payload.AgentID
+		}
+		return "delegate: failed"
+	default:
+		return "delegate: " + event.Type
+	}
+}
+
+func pluralTurns(count int) string {
+	if count == 1 {
+		return "1 turn"
+	}
+	return fmt.Sprintf("%d turns", count)
 }
 
 func (b *contentBuffer) AppendLine(line string) {
