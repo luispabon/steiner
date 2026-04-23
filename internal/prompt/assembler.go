@@ -114,7 +114,17 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		appendBlock(block)
 	}
 
-	dropped, retained := retainRecentTurns(a.opts.Conversation, a.policy.Retention.RecentTurns)
+	// Extract the latest user message so it is always sent, even if the
+	// conversation budget is exhausted by earlier turns.
+	convHistory := a.opts.Conversation
+	var latestUserMsg *provider.Message
+	if n := len(convHistory); n > 0 && convHistory[n-1].Role == provider.MessageRoleUser {
+		msg := convHistory[n-1]
+		latestUserMsg = &msg
+		convHistory = convHistory[:n-1]
+	}
+
+	dropped, retained := retainRecentTurns(convHistory, a.policy.Retention.RecentTurns)
 	if len(dropped) > 0 {
 		summary, ok := CompactConversationTurns(dropped, a.policy.Compaction)
 		if ok {
@@ -126,6 +136,10 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		for _, message := range turn.Messages {
 			appendRawMessage(ContextSourceConversation, message)
 		}
+	}
+
+	if latestUserMsg != nil {
+		messages = append(messages, *latestUserMsg)
 	}
 
 	for _, toolResult := range a.opts.ToolResults {
@@ -277,9 +291,9 @@ func blockMessage(block ContextBlock) provider.Message {
 	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
-		message.Role = provider.MessageRoleAssistant
+		message.Role = provider.MessageRoleSystem
 	case ContextSourceDurableContext:
-		message.Role = provider.MessageRoleAssistant
+		message.Role = provider.MessageRoleSystem
 	case ContextSourceToolSummary, ContextSourceToolResult, ContextSourceDelegationResult:
 		message.Role = provider.MessageRoleTool
 	default:

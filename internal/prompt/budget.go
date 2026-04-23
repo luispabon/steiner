@@ -8,7 +8,7 @@ const (
 	defaultProjectAgentsBudgetBytes  = 2048
 	defaultSkillBudgetBytes          = 2048
 	defaultDurableContextBudgetBytes = 1024
-	defaultConversationBudgetBytes   = 4096
+	defaultConversationBudgetBytes   = 32768
 	defaultConversationSummaryBytes  = 1024
 	defaultToolResultBudgetBytes     = 2048
 	defaultToolSummaryBudgetBytes    = 1024

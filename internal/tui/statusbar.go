@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 type statusState struct {
@@ -10,6 +12,7 @@ type statusState struct {
 	turn    int
 	context string
 	mode    string
+	styles  theme.Styles
 }
 
 func (s statusState) view(width int, hints string) string {
@@ -31,7 +34,7 @@ func (s statusState) view(width int, hints string) string {
 	}
 	text := strings.Join(parts, " | ")
 	if width > 0 {
-		return statusBarStyle.Width(width).Render(text)
+		return s.styles.StatusBar.Width(width).Render(text)
 	}
-	return statusBarStyle.Render(text)
+	return s.styles.StatusBar.Render(text)
 }

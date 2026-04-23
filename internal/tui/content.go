@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/glamour"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 const markdownRenderPadding = 4
@@ -27,11 +28,14 @@ type contentSegment struct {
 }
 
 type contentBuffer struct {
-	segments     []contentSegment
-	streaming    bool
-	streamBuffer string
-	renderer     *glamour.TermRenderer
-	renderWidth  int
+	segments          []contentSegment
+	streaming         bool
+	hadChunks         bool
+	streamBuffer      string
+	renderer          *glamour.TermRenderer
+	renderWidth       int
+	styles            theme.Styles
+	glamourStyleSheet glamour.TermRendererOption
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -49,17 +53,22 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.finishStreaming()
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 		return
-	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
-		output.EventTypeContextDiagnostics:
-		b.finishStreaming()
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
-		return
 	case output.EventTypeStopReason:
 		b.finishStreaming()
 		b.appendLine(formatStopReasonEvent(event))
 		return
-	case output.EventTypeAssistantMessage,
-		output.EventTypeRunStarted, output.EventTypeRunFinished,
+	case output.EventTypeAssistantMessage:
+		if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
+			b.finishStreaming()
+			b.appendMarkdownBlock(payload.Content)
+		}
+		b.hadChunks = false
+		return
+	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
+		output.EventTypeContextDiagnostics:
+		b.finishStreaming()
+		return
+	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
 		output.EventTypeAPIRequest, output.EventTypeAPIResponse,
 		output.EventTypeUserInput:
@@ -148,7 +157,7 @@ func (b *contentBuffer) String(width int) string {
 	if preview := b.inProgressPreview(); preview != "" {
 		parts = append(parts, preview)
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, "")
 }
 
 func (b *contentBuffer) appendAssistantChunk(text string) {
@@ -156,6 +165,7 @@ func (b *contentBuffer) appendAssistantChunk(text string) {
 		return
 	}
 	b.streaming = true
+	b.hadChunks = true
 	b.streamBuffer += text
 	b.flushCompletedBlocks()
 }
@@ -176,7 +186,7 @@ func (b *contentBuffer) inProgressPreview() string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return assistantProseStyle.Render("assistant> " + preview)
+	return b.styles.AssistantProse.Render(preview) + "\n"
 }
 
 func (b *contentBuffer) flushCompletedBlocks() {
@@ -306,32 +316,33 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentAssistantMarkdown:
-		rendered := strings.TrimSpace(b.renderMarkdown(segment.text, width))
-		if rendered != "" {
-			return rendered
+		rendered := b.renderMarkdown(segment.text, width)
+		if strings.TrimSpace(rendered) != "" {
+			// keep glamour's natural trailing newlines — they carry the background color
+			return strings.TrimRight(rendered, "\n") + "\n"
 		}
-		return assistantProseStyle.Render("assistant> " + segment.text)
+		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	case segmentAssistantProse:
-		return assistantProseStyle.Render("assistant> " + segment.text)
+		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	case segmentApproval:
-		return approvalHighlightStyle.Render(segment.text)
+		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
 	case segmentTool:
-		return toolBlockStyle.Render(segment.text)
+		return b.styles.ToolBlock.Render(segment.text) + "\n"
 	case segmentThinking:
-		return thinkingBlockStyle.Render(segment.text)
+		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
 	default:
-		return segment.text
+		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
 }
 
 func (b *contentBuffer) renderMarkdown(block string, width int) string {
 	renderer := b.markdownRenderer(width)
 	if renderer == nil {
-		return assistantProseStyle.Render("assistant> " + block)
+		return b.styles.AssistantProse.Render("assistant> " + block)
 	}
 	rendered, err := renderer.Render(block)
 	if err != nil {
-		return assistantProseStyle.Render("assistant> " + block)
+		return b.styles.AssistantProse.Render("assistant> " + block)
 	}
 	return rendered
 }
@@ -341,11 +352,16 @@ func (b *contentBuffer) markdownRenderer(width int) *glamour.TermRenderer {
 	if b.renderer != nil && b.renderWidth == renderWidth {
 		return b.renderer
 	}
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
+	opts := []glamour.TermRendererOption{
 		glamour.WithWordWrap(renderWidth),
 		glamour.WithPreservedNewLines(),
-	)
+	}
+	if b.glamourStyleSheet != nil {
+		opts = append([]glamour.TermRendererOption{b.glamourStyleSheet}, opts...)
+	} else {
+		opts = append([]glamour.TermRendererOption{glamour.WithStandardStyle("dark")}, opts...)
+	}
+	renderer, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
 		return nil
 	}

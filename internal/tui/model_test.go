@@ -17,7 +17,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, " world")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextBudgetEvent("project_context", 1, 100, 256, false)})
 
-	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "assistant> hello world") {
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
 	}
 	if got := m.status.model; got != "gpt-test" {
@@ -122,8 +122,8 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	if m.viewport.Width != 60 {
 		t.Fatalf("viewport width = %d, want 60", m.viewport.Width)
 	}
-	if m.viewport.Height != 10 {
-		t.Fatalf("viewport height = %d, want 10", m.viewport.Height)
+	if m.viewport.Height != 7 {
+		t.Fatalf("viewport height = %d, want 7", m.viewport.Height)
 	}
 }
 
