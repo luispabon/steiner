@@ -1060,7 +1060,7 @@ func TestConversationLineageChoosesHighestFidelityCandidateDeterministically(t *
 	}
 }
 
-func TestConversationLineagePrunesObsoleteGenerationsAfterTakeover(t *testing.T) {
+func TestConversationLineagePruneObsoleteIsConservative(t *testing.T) {
 	lineage := ConversationLineage{
 		Generations: []ConversationGeneration{
 			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
@@ -1069,7 +1069,28 @@ func TestConversationLineagePrunesObsoleteGenerationsAfterTakeover(t *testing.T)
 		NextGenerationID: 3,
 	}
 
-	pruned := lineage.PruneObsolete()
+	kept := lineage.PruneObsolete()
+	if got, want := len(kept.Generations), 2; got != want {
+		t.Fatalf("kept generation count = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[0].ID, 1; got != want {
+		t.Fatalf("kept generation[0] id = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[1].ID, 2; got != want {
+		t.Fatalf("kept generation[1] id = %d, want %d", got, want)
+	}
+}
+
+func TestConversationLineagePruneGenerationsBeforeDropsOnlyProvenObsoleteHistory(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
+			newConversationGeneration(2, []Message{{Role: MessageRoleSummary, Content: "summary"}}, []Message{{Role: MessageRoleUser, Content: "new user"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	pruned := lineage.PruneGenerationsBefore(2)
 	if got, want := len(pruned.Generations), 1; got != want {
 		t.Fatalf("pruned generation count = %d, want %d", got, want)
 	}
