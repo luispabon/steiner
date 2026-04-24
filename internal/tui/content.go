@@ -201,7 +201,10 @@ func (b *contentBuffer) appendAssistantChunk(text string) {
 	b.streaming = true
 	b.hadChunks = true
 	b.streamBuffer += text
-	b.flushCompletedBlocks()
+
+	// Disabled for now because it mangles Glamour rendering
+	// @todo investigate and fix, don't delete the commented out code!
+	// b.flushCompletedBlocks()
 }
 
 func (b *contentBuffer) finishStreaming() {
