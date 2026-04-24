@@ -128,8 +128,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			emitStop(req.Events, state, err)
 			return state, err
 		}
+		emitRequestTokenDiagnostic(req.Events, turn, fit, !fit.Fits)
 		if !fit.Fits {
-			emitBudgetPressureDiagnostic(req.Events, turn, fit)
 			compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, &compactionCount)
 			if err != nil {
 				if cancelled, ok := contextCancellationState(ctx, state); ok {
@@ -478,14 +478,16 @@ func retainedSummariesEqual(a, b RetainedSummary) bool {
 		a.Turn == b.Turn
 }
 
-func emitBudgetPressureDiagnostic(sink output.EventSink, turn int, fit prompt.RequestTokenBudget) {
+func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.RequestTokenBudget, truncated bool) {
 	if sink == nil {
 		return
 	}
 	notes := []string{
-		fmt.Sprintf("request exceeds context window: %s", fit.String()),
 		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
 		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
+	}
+	if truncated {
+		notes = append(notes, fmt.Sprintf("request exceeds context window: %s", fit.String()))
 	}
 	emitEvent(sink, output.NewContextTokenBudgetEvent(
 		string(prompt.ContextSourceConversation),
@@ -494,7 +496,7 @@ func emitBudgetPressureDiagnostic(sink output.EventSink, turn int, fit prompt.Re
 		fit.ReservedCompletionTokens,
 		fit.TotalTokens,
 		fit.ContextSize,
-		true,
+		truncated,
 		notes...,
 	))
 }

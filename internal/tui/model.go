@@ -40,6 +40,7 @@ type Model struct {
 	skillNames           []string
 	enabledSkills        map[string]bool
 	modelNames           []string
+	modelContexts        map[string]int
 	onSubmit             func(string)
 	onApproval           func(bool)
 	onSkillToggle        func(string, bool)
@@ -103,6 +104,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		skillNames:    append([]string(nil), cfg.SkillNames...),
 		enabledSkills: enabledSkills,
 		modelNames:    append([]string(nil), cfg.ModelNames...),
+		modelContexts: cloneModelContexts(cfg.ModelContexts),
 		onSubmit:      cfg.OnSubmit,
 		onApproval:    cfg.OnApproval,
 		onSkillToggle: cfg.OnSkillToggle,
@@ -115,6 +117,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
+	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
 	m.sidebar.maxTurns = cfg.MaxTurns
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
@@ -333,11 +336,7 @@ func (m *Model) applyEvent(event output.Event) {
 			m.sidebar.model = payload.Model
 		}
 	case output.ContextDiagnosticsEvent:
-		if payload.Kind == "budget" && payload.BudgetBytes > 0 {
-			m.status.context = fmt.Sprintf("ctx %d/%d", payload.UsedBytes, payload.BudgetBytes)
-			m.sidebar.contextUsed = payload.UsedBytes
-			m.sidebar.contextBudget = payload.BudgetBytes
-		}
+		m.applyContextBudget(payload)
 		if payload.Kind == "compaction" {
 			m.sidebar.compaction = compactionSidebarSummary(payload)
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
@@ -528,6 +527,13 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.onModelSwitch(action.switchModel)
 		}
 		m.status.model = action.switchModel
+		m.sidebar.contextBudget = m.contextBudgetForModel(action.switchModel)
+		m.sidebar.contextUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
 		m.syncSidebar()
 		m.content.AppendLine(fmt.Sprintf("status: model switched to %s", action.switchModel))
 		m.input.Reset()
@@ -550,6 +556,38 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.syncViewport()
 	}
 	return m, nil
+}
+
+func cloneModelContexts(src map[string]int) map[string]int {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]int, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func (m *Model) contextBudgetForModel(name string) int {
+	if m == nil || len(m.modelContexts) == 0 {
+		return 0
+	}
+	return m.modelContexts[strings.TrimSpace(name)]
+}
+
+func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool {
+	if m == nil || payload.ContextTokens <= 0 {
+		return false
+	}
+	used := payload.TotalTokens
+	if used < 0 {
+		used = 0
+	}
+	m.sidebar.contextUsed = used
+	m.sidebar.contextBudget = payload.ContextTokens
+	m.status.context = fmt.Sprintf("ctx %d/%d", used, payload.ContextTokens)
+	return true
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) {

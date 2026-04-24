@@ -112,6 +112,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 
 	wantEventTypes := []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -121,6 +122,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -183,6 +185,7 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 		t.Fatalf("assistant content = %q, want %q", got, want)
 	}
 	wantTypes := []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -415,6 +418,7 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
 	if got, want := eventTypes(events), []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -741,6 +745,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	}
 
 	wantEventTypes := []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -752,6 +757,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -1025,6 +1031,65 @@ func TestRunnerEmitsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
 	}
 }
 
+func TestRunnerEmitsTokenBudgetDiagnosticsForNormalTurns(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{}
+
+	var events []output.Event
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "say hello"},
+			},
+		},
+		Limits: Limits{MaxTurns: 1, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	foundTokenBudget := false
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+		}
+		if payload.Kind == "budget" && payload.ContextTokens == 4096 {
+			foundTokenBudget = true
+			if payload.TotalTokens <= 0 {
+				t.Fatalf("payload.TotalTokens = %d, want > 0", payload.TotalTokens)
+			}
+			if payload.Truncated {
+				t.Fatalf("payload.Truncated = true, want false for fitting request")
+			}
+			break
+		}
+	}
+	if !foundTokenBudget {
+		t.Fatalf("events = %#v, want token budget diagnostic", events)
+	}
+}
+
 func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -1150,7 +1215,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := compactionCounts[1], 2; got != want {
 		t.Fatalf("second compaction count = %d, want %d", got, want)
 	}
-	if got, want := budgetCount, 2; got != want {
+	if got, want := budgetCount, 3; got != want {
 		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
 	}
 }

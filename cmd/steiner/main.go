@@ -194,6 +194,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	tuiApp := tui.NewApp(tui.Config{
 		Model:           rt.cfg.Model,
 		ModelNames:      modelAliasNames(rt.cfg.Models),
+		ModelContexts:   modelContextSizes(rt.cfg.Models),
 		ProviderBaseURL: selected.BaseURL,
 		WorkingDir:      rt.workDir,
 		MaxTurns:        rt.cfg.Limits.MaxTurns,
@@ -622,6 +623,19 @@ func modelAliasNames(models map[string]config.ModelConfig) []string {
 		names = append(names, k)
 	}
 	return names
+}
+
+func modelContextSizes(models map[string]config.ModelConfig) map[string]int {
+	if len(models) == 0 {
+		return nil
+	}
+	sizes := make(map[string]int, len(models))
+	for name, model := range models {
+		if model.ContextSize > 0 {
+			sizes[name] = model.ContextSize
+		}
+	}
+	return sizes
 }
 
 func readPromptFromInput(reader *bufio.Reader) (string, error) {

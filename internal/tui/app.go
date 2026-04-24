@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Model           string
 	ModelNames      []string
+	ModelContexts   map[string]int
 	ProviderBaseURL string
 	WorkingDir      string
 	MaxTurns        int
