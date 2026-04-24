@@ -1,0 +1,86 @@
+scheduler:
+    parallelism: 1
+
+model: gemma4
+
+models:
+    qwopus:
+        type: openai_compat
+        base_url: http://localhost:1234/v1
+        model: qwen3.5-9b-glm5.1-distill-v1
+        context_size: 131072
+        max_completion_tokens: 8192
+        compaction:
+            safety_margin_tokens: 30720
+            summary_max_tokens: 7168
+
+    qwen36:
+        type: openai_compat
+        base_url: http://localhost:1234/v1
+        model: qwen3.6-35b-a3b
+        context_size: 65536
+        max_completion_tokens: 4096
+        compaction:
+            safety_margin_tokens: 16384
+            summary_max_tokens: 4096
+
+    gemma4:
+        type: openai_compat
+        base_url: http://localhost:1234/v1
+        model: gemma-4-26b-a4b-it@iq4_nl
+        context_size: 65536
+        max_completion_tokens: 4096
+        compaction:
+            safety_margin_tokens: 16384
+            summary_max_tokens: 4096
+
+limits:
+    max_turns: 50
+    max_tokens: 500000
+    tool_timeout_default: 30s
+    tool_timeouts:
+        bash: 2m0s
+        read: 5s
+        write: 5s
+    tool_output_max_bytes: 65536
+
+approval:
+    default: prompt
+    # default: auto
+    overrides:
+        # bash: prompt
+        bash: auto
+        glob: auto
+        read: auto
+        search: auto
+        # write: prompt
+        write: auto
+
+sub_agent:
+    enabled: false
+    max_turns: 15
+    max_tokens: 100000
+    allowed_tools:
+        - read
+        - glob
+        - search
+        - write
+        - bash
+    allow_nesting: false
+    max_concurrent: 1
+
+tools: {}
+
+project_context:
+    max_tokens: 2000
+    extra_files: []
+    ignore_files: []
+
+paths:
+    project_root_only: true
+    writable_paths: []
+    blocked_paths: []
+
+logging:
+    level: info
+    file: /home/luis/.local/share/steiner/steiner.log
