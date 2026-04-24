@@ -46,6 +46,7 @@ type Model struct {
 	onApproval           func(bool)
 	onSkillToggle        func(string, bool)
 	onModelSwitch        func(string)
+	onClear              func()
 	activeTheme          theme.Theme
 	styles               theme.Styles
 	inputHistory         []string
@@ -111,6 +112,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onApproval:       cfg.OnApproval,
 		onSkillToggle:    cfg.OnSkillToggle,
 		onModelSwitch:    cfg.OnModelSwitch,
+		onClear:          cfg.OnClear,
 		activeTheme:      t,
 		styles:           t.LipGlossStyles(),
 		inputHistory:     []string{},
@@ -187,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.Type {
-		case tea.KeyCtrlC:
+		case tea.KeyCtrlC, tea.KeyCtrlD:
 			return m, tea.Quit
 		case tea.KeyCtrlB:
 			m.sidebar.Toggle()
@@ -470,6 +472,17 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.clear {
 		m.content.Clear()
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
+		m.syncSidebar()
+		if m.onClear != nil {
+			m.onClear()
+		}
 		m.input.Reset()
 		m.historyIdx = 0
 		m.syncViewport()

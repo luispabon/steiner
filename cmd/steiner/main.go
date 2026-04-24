@@ -193,6 +193,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	contextInspect := make(chan struct{}, 1)
 	approvalResponse := make(chan bool, 1)
 	modelSwitch := make(chan string, 1)
+	clearSession := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	selected, err := selectedModelConfig(rt.cfg)
@@ -236,6 +237,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			default:
 			}
 		},
+		OnClear: func() {
+			select {
+			case clearSession <- struct{}{}:
+			default:
+			}
+		},
 	})
 	rt.events = output.NewMultiSink(
 		rt.events,
@@ -259,15 +266,16 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		channelApprovalResponder{ch: approvalResponse},
 	)
 
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		tuiApp.Run()
+		stop()
 	}()
-
-	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
 
 	var conversation []agent.Message
 	runner := cliRunner{runtime: rt, approver: approver}
@@ -287,6 +295,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 			rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
 			continue
+		case <-clearSession:
+			conversation = nil
 		case name := <-modelSwitch:
 			runner.runtime.cfg.Model = name
 		case text := <-submissions:

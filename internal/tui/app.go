@@ -21,6 +21,7 @@ type Config struct {
 	OnApproval       func(bool)
 	OnSkillToggle    func(string, bool)
 	OnModelSwitch    func(string)
+	OnClear          func()
 }
 
 type App struct {
