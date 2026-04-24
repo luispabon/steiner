@@ -259,7 +259,7 @@ func (m Model) View() string {
 	}
 	contentView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
 	if sidebarVisible {
-		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width, m.height))
+		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width, m.viewport.Height))
 	}
 
 	// Overlay help panel if visible
