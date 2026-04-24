@@ -339,14 +339,12 @@ func (m *Model) applyEvent(event output.Event) {
 			m.sidebar.contextBudget = payload.BudgetBytes
 		}
 		if payload.Kind == "compaction" {
-			switch {
-			case strings.TrimSpace(payload.SummaryTitle) != "":
-				m.sidebar.compaction = payload.SummaryTitle
-			case payload.CompactedTurns > 0 || payload.CompactedMessages > 0:
-				m.sidebar.compaction = fmt.Sprintf("compacted %d/%d", payload.CompactedTurns, payload.CompactedMessages)
-			default:
-				m.sidebar.compaction = "compacting"
-			}
+			m.sidebar.compaction = compactionSidebarSummary(payload)
+			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+		}
+		if payload.Kind == "session_health" {
+			m.sidebar.compaction = compactionSidebarSummary(payload)
+			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
@@ -396,6 +394,64 @@ func (m Model) enabledSkillNames() []string {
 		}
 	}
 	return names
+}
+
+func appendStatusContext(base, fragment string) string {
+	base = strings.TrimSpace(base)
+	fragment = strings.TrimSpace(fragment)
+	if fragment == "" {
+		return base
+	}
+	if base == "" {
+		return fragment
+	}
+	return base + " | " + fragment
+}
+
+func compactionSidebarSummary(payload output.ContextDiagnosticsEvent) string {
+	parts := make([]string, 0, 4)
+	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		parts = append(parts, severity)
+	}
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("#%d", payload.CompactionCount))
+	}
+	if state := strings.TrimSpace(payload.SessionState); state != "" {
+		parts = append(parts, state)
+	}
+	if guidance := strings.TrimSpace(payload.RestartGuidance); guidance != "" {
+		parts = append(parts, guidance)
+	}
+	if len(parts) == 0 {
+		switch {
+		case strings.TrimSpace(payload.SummaryTitle) != "":
+			return payload.SummaryTitle
+		case payload.CompactedTurns > 0 || payload.CompactedMessages > 0:
+			return fmt.Sprintf("compacted %d/%d", payload.CompactedTurns, payload.CompactedMessages)
+		default:
+			return "compacting"
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
+	parts := make([]string, 0, 3)
+	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		parts = append(parts, severity)
+	}
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("compaction #%d", payload.CompactionCount))
+	}
+	if payload.Severity == "critical" && strings.TrimSpace(payload.RestartGuidance) != "" {
+		parts = append(parts, "restart now")
+	} else if payload.Severity == "warning" && strings.TrimSpace(payload.RestartGuidance) != "" {
+		parts = append(parts, "restart soon")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {

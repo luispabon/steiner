@@ -51,16 +51,66 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewPlainRenderer(&buf)
 
-	renderer.OnEvent(NewContextCompactionEvent(4, 2, 6, 1, 3, 128, true, "compacted conversation history", "user: earlier request | assistant: earlier reply"))
+	renderer.OnEvent(NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:              "compaction",
+		Scope:             "conversation",
+		Turn:              4,
+		Severity:          "warning",
+		SessionState:      "fragile",
+		CompactionCount:   2,
+		RestartGuidance:   "restart soon in a fresh session; repeated compaction is making retention fragile",
+		RetainedTurns:     2,
+		RetainedMessages:  6,
+		CompactedTurns:    1,
+		CompactedMessages: 3,
+		SummaryTitle:      "compacted conversation history",
+		SummaryPreview:    "user: earlier request | assistant: earlier reply",
+		SummaryBytes:      128,
+		Truncated:         true,
+	}))
+	renderer.OnEvent(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 	renderer.OnEvent(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
 
 	got := buf.String()
 	for _, want := range []string{
-		`context: compaction turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
+		`context: warning: compaction #2 turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; compactions 2; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
+		`context: warning: session health #2 turn 4; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; after 2 compactions`,
 		"context: budget project context used 900/512 bytes; turn 4; truncated; notes trimmed extra files",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestContextDiagnosticsPayloadCarriesEscalationFields(t *testing.T) {
+	compaction := NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Scope:           "conversation",
+		Turn:            7,
+		Severity:        "critical",
+		SessionState:    "likely_lossy",
+		CompactionCount: 3,
+		RestartGuidance: "restart now in a new session; retained context is likely to be lossy",
+	})
+	sessionHealth := NewContextSessionHealthEvent("conversation", 7, 3, "critical", "likely_lossy", "restart now in a new session; retained context is likely to be lossy")
+
+	for _, event := range []Event{compaction, sessionHealth} {
+		payload, ok := event.Payload.(ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("payload type = %T, want ContextDiagnosticsEvent", event.Payload)
+		}
+		if got, want := payload.Severity, "critical"; got != want {
+			t.Fatalf("severity = %q, want %q", got, want)
+		}
+		if got, want := payload.SessionState, "likely_lossy"; got != want {
+			t.Fatalf("session state = %q, want %q", got, want)
+		}
+		if got, want := payload.CompactionCount, 3; got != want {
+			t.Fatalf("compaction count = %d, want %d", got, want)
+		}
+		if got, want := payload.RestartGuidance, "restart now in a new session; retained context is likely to be lossy"; got != want {
+			t.Fatalf("restart guidance = %q, want %q", got, want)
 		}
 	}
 }

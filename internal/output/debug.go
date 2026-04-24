@@ -10,6 +10,10 @@ type ContextDiagnosticsEvent struct {
 	Kind              string   `json:"kind"`
 	Scope             string   `json:"scope,omitempty"`
 	Turn              int      `json:"turn,omitempty"`
+	Severity          string   `json:"severity,omitempty"`
+	SessionState      string   `json:"session_state,omitempty"`
+	CompactionCount   int      `json:"compaction_count,omitempty"`
+	RestartGuidance   string   `json:"restart_guidance,omitempty"`
 	RetainedTurns     int      `json:"retained_turns,omitempty"`
 	RetainedMessages  int      `json:"retained_messages,omitempty"`
 	CompactedTurns    int      `json:"compacted_turns,omitempty"`
@@ -57,6 +61,19 @@ func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedT
 	})
 }
 
+func NewContextSessionHealthEvent(scope string, turn, compactionCount int, severity, sessionState, restartGuidance string, notes ...string) Event {
+	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:            "session_health",
+		Scope:           scope,
+		Turn:            turn,
+		Severity:        severity,
+		SessionState:    sessionState,
+		CompactionCount: compactionCount,
+		RestartGuidance: restartGuidance,
+		Notes:           append([]string(nil), notes...),
+	})
+}
+
 func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:        "budget",
@@ -89,6 +106,8 @@ func formatContextDiagnosticsEvent(payload ContextDiagnosticsEvent) string {
 		return formatContextBudgetSummary(payload)
 	case "compaction":
 		return formatContextCompactionSummary(payload)
+	case "session_health":
+		return formatContextSessionHealthSummary(payload)
 	default:
 		return formatGenericContextDiagnostics(payload)
 	}
@@ -101,6 +120,7 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	}
 
 	parts := []string{}
+	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	switch {
 	case payload.TotalTokens > 0 || payload.PromptTokens > 0 || payload.ReservedTokens > 0 || payload.ContextTokens > 0:
 		contextTokens := payload.ContextTokens
@@ -131,20 +151,8 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 }
 
 func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
-	parts := []string{
-		fmt.Sprintf(
-			"compaction turn %d compacted %d %s/%d %s; retained %d %s/%d %s",
-			payload.Turn,
-			payload.CompactedTurns,
-			pluralizeDiagnosticWord(payload.CompactedTurns, "turn"),
-			payload.CompactedMessages,
-			pluralizeDiagnosticWord(payload.CompactedMessages, "message"),
-			payload.RetainedTurns,
-			pluralizeDiagnosticWord(payload.RetainedTurns, "turn"),
-			payload.RetainedMessages,
-			pluralizeDiagnosticWord(payload.RetainedMessages, "message"),
-		),
-	}
+	parts := []string{formatDiagnosticHeadline(payload, "compaction")}
+	parts = append(parts, formatDiagnosticEscalation(payload)...)
 
 	summary := strings.TrimSpace(payload.SummaryTitle)
 	if preview := strings.TrimSpace(payload.SummaryPreview); preview != "" {
@@ -168,6 +176,18 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	return strings.Join(parts, "; ")
 }
 
+func formatContextSessionHealthSummary(payload ContextDiagnosticsEvent) string {
+	parts := []string{formatDiagnosticHeadline(payload, "session health")}
+	parts = append(parts, formatDiagnosticEscalation(payload)...)
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("after %d compaction%s", payload.CompactionCount, pluralSuffix(payload.CompactionCount)))
+	}
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
+	}
+	return strings.Join(parts, "; ")
+}
+
 func formatGenericContextDiagnostics(payload ContextDiagnosticsEvent) string {
 	parts := []string{fmt.Sprintf("context diagnostics kind=%s", payload.Kind)}
 	if payload.Scope != "" {
@@ -176,6 +196,7 @@ func formatGenericContextDiagnostics(payload ContextDiagnosticsEvent) string {
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
 	}
+	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	if payload.Truncated {
 		parts = append(parts, "truncated=true")
 	}
@@ -206,6 +227,48 @@ func joinDiagnosticNotes(notes []string) string {
 		filtered = append(filtered, strings.ReplaceAll(note, "=", " "))
 	}
 	return strings.Join(filtered, ", ")
+}
+
+func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) string {
+	parts := make([]string, 0, 5)
+	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		parts = append(parts, severity+":")
+	}
+	parts = append(parts, subject)
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("#%d", payload.CompactionCount))
+	}
+	if payload.Turn > 0 {
+		parts = append(parts, fmt.Sprintf("turn %d", payload.Turn))
+	}
+	if subject == "compaction" {
+		parts = append(parts, fmt.Sprintf(
+			"compacted %d %s/%d %s; retained %d %s/%d %s",
+			payload.CompactedTurns,
+			pluralizeDiagnosticWord(payload.CompactedTurns, "turn"),
+			payload.CompactedMessages,
+			pluralizeDiagnosticWord(payload.CompactedMessages, "message"),
+			payload.RetainedTurns,
+			pluralizeDiagnosticWord(payload.RetainedTurns, "turn"),
+			payload.RetainedMessages,
+			pluralizeDiagnosticWord(payload.RetainedMessages, "message"),
+		))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 3)
+	if state := strings.TrimSpace(payload.SessionState); state != "" {
+		parts = append(parts, "state "+state)
+	}
+	if guidance := strings.TrimSpace(payload.RestartGuidance); guidance != "" {
+		parts = append(parts, guidance)
+	}
+	if payload.Kind != "session_health" && payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("compactions %d", payload.CompactionCount))
+	}
+	return parts
 }
 
 func truncateDiagnosticText(text string, limit int) string {

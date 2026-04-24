@@ -35,6 +35,24 @@ func NewRunner() *Runner {
 	return &Runner{}
 }
 
+const (
+	compactionWarningThreshold        = 2
+	compactionCriticalThreshold       = 3
+	compactionFragilityOveragePercent = 20
+)
+
+const (
+	compactionRestartGuidanceStable   = "continue, but watch for another compaction"
+	compactionRestartGuidanceWarn     = "restart soon in a fresh session; repeated compaction is making retention fragile"
+	compactionRestartGuidanceCritical = "restart now in a new session; retained context is likely to be lossy"
+)
+
+type compactionEscalation struct {
+	Severity        string
+	SessionState    string
+	RestartGuidance string
+}
+
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	conversation := fromProviderMessages(req.Prompt.Conversation)
 	state := RunState{
@@ -59,6 +77,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
 	compactionHistory := map[string]bool{}
+	compactionCount := 0
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -111,7 +130,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 		if !fit.Fits {
 			emitBudgetPressureDiagnostic(req.Events, turn, fit)
-			compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory)
+			compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, &compactionCount)
 			if err != nil {
 				if cancelled, ok := contextCancellationState(ctx, state); ok {
 					emitStop(req.Events, cancelled, nil)
@@ -481,7 +500,95 @@ func emitBudgetPressureDiagnostic(sink output.EventSink, turn int, fit prompt.Re
 	))
 }
 
-func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, skipped map[string]bool) (bool, error) {
+func compactionEscalationForFit(compactionCount int, fit prompt.RequestTokenBudget) compactionEscalation {
+	fragile := compactionBudgetIsFragile(fit)
+	switch {
+	case compactionCount >= compactionCriticalThreshold:
+		return compactionEscalation{
+			Severity:        "critical",
+			SessionState:    "likely_lossy",
+			RestartGuidance: compactionRestartGuidanceCritical,
+		}
+	case compactionCount >= compactionWarningThreshold:
+		if fragile {
+			return compactionEscalation{
+				Severity:        "critical",
+				SessionState:    "likely_lossy",
+				RestartGuidance: compactionRestartGuidanceCritical,
+			}
+		}
+		return compactionEscalation{
+			Severity:        "warning",
+			SessionState:    "fragile",
+			RestartGuidance: compactionRestartGuidanceWarn,
+		}
+	default:
+		if fragile {
+			return compactionEscalation{
+				Severity:        "warning",
+				SessionState:    "fragile",
+				RestartGuidance: compactionRestartGuidanceWarn,
+			}
+		}
+		return compactionEscalation{
+			Severity:        "info",
+			SessionState:    "stable",
+			RestartGuidance: compactionRestartGuidanceStable,
+		}
+	}
+}
+
+func compactionBudgetIsFragile(fit prompt.RequestTokenBudget) bool {
+	if fit.ContextSize <= 0 || fit.TotalTokens <= 0 {
+		return false
+	}
+	overage := fit.TotalTokens - fit.ContextSize
+	if overage <= 0 {
+		return false
+	}
+	return overage*100 >= fit.ContextSize*compactionFragilityOveragePercent
+}
+
+func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, fit prompt.RequestTokenBudget, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string) {
+	if sink == nil {
+		return
+	}
+
+	escalation := compactionEscalationForFit(compactionCount, fit)
+	notes := []string{
+		fmt.Sprintf("source generation=%d view=%s", candidate.GenerationID, candidate.View),
+		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
+		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
+	}
+	if promptText != "" {
+		notes = append(notes, "prompt="+promptText)
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:              "compaction",
+		Scope:             "conversation",
+		Turn:              turn,
+		Severity:          escalation.Severity,
+		SessionState:      escalation.SessionState,
+		CompactionCount:   compactionCount,
+		RestartGuidance:   escalation.RestartGuidance,
+		CompactedTurns:    len(candidate.Messages),
+		CompactedMessages: countMessages(candidate.Messages),
+		RetainedTurns:     countTurns(retainedMessages),
+		RetainedMessages:  countMessages(retainedMessages),
+		SummaryTitle:      "compacted conversation history",
+		SummaryPreview:    summarizeTextPreview(summaryText, 120),
+		SummaryBytes:      len(summaryText),
+		PromptTokens:      fit.EstimatedPromptTokens,
+		ReservedTokens:    fit.ReservedCompletionTokens,
+		ContextTokens:     fit.ContextSize,
+		TotalTokens:       fit.TotalTokens,
+		Truncated:         fit.TotalTokens > fit.ContextSize && fit.ContextSize > 0,
+		Notes:             notes,
+	}))
+	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
+}
+
+func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, skipped map[string]bool, compactionCount *int) (bool, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
 		return false, nil
@@ -517,33 +624,10 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	state.Lineage = nextLineage
 	state.Conversation = nextLineage.FullMessages()
 	state.Context = recordCompactionSummary(state.Context, summaryText, candidate, turn)
-
-	notes := []string{
-		fmt.Sprintf("source generation=%d view=%s", candidate.GenerationID, candidate.View),
-		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
-		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
+	if compactionCount != nil {
+		(*compactionCount)++
+		emitCompactionDiagnostics(req.Events, turn, *compactionCount, fit, retainedMessages, candidate, summaryText, promptText)
 	}
-	if promptText != "" {
-		notes = append(notes, "prompt="+promptText)
-	}
-	emitEvent(req.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		Scope:             "conversation",
-		Turn:              turn,
-		CompactedTurns:    len(candidate.Messages),
-		CompactedMessages: countMessages(candidate.Messages),
-		RetainedTurns:     countTurns(retainedMessages),
-		RetainedMessages:  countMessages(retainedMessages),
-		SummaryTitle:      "compacted conversation history",
-		SummaryPreview:    summarizeTextPreview(summaryText, 120),
-		SummaryBytes:      len(summaryText),
-		PromptTokens:      fit.EstimatedPromptTokens,
-		ReservedTokens:    fit.ReservedCompletionTokens,
-		ContextTokens:     fit.ContextSize,
-		TotalTokens:       fit.TotalTokens,
-		Truncated:         fit.TotalTokens > fit.ContextSize && fit.ContextSize > 0,
-		Notes:             notes,
-	}))
 
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
