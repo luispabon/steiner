@@ -151,7 +151,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 		emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
 		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
-		response, err := completeModelCall(ctx, req, turn, chatRequest, req.ModelBudget)
+		response, err := completeModelCall(ctx, req, turn, chatRequest, assembly.Blocks, req.ModelBudget)
 		if err != nil {
 			if cancelled, ok := contextCancellationState(ctx, state); ok {
 				emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
@@ -221,7 +221,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	}
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
 	if budget.ContextSize > 0 {
 		fit, err := budget.FitRequest(ctx, chatRequest)
 		if err != nil {
@@ -231,7 +231,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 			return provider.ChatResponse{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
-	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools))
+	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools, chatRequest.MaxTokens, blocks, budget))
 
 	stream, err := req.Provider.StreamChatCompletion(ctx, chatRequest)
 	if err == nil {
@@ -644,7 +644,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			return provider.ChatResponse{}, fmt.Errorf("compaction request exceeds context window: %s", fit.String())
 		}
 	}
-	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools))
+	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools, chatRequest.MaxTokens, nil, budget))
 
 	stream, err := req.Provider.StreamChatCompletion(ctx, chatRequest)
 	if err == nil {

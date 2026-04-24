@@ -69,6 +69,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		}
 		b.hadChunks = false
 		return
+	case output.EventTypeContextReport:
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok && strings.TrimSpace(payload.Content) != "" {
+			b.finishStreaming()
+			b.appendMarkdownBlock(payload.Content)
+		}
+		return
 	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeContextDiagnostics:
 		b.finishStreaming()

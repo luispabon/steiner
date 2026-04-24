@@ -59,6 +59,11 @@ type interactiveSkills struct {
 	order   []string
 }
 
+type requestSnapshotStore struct {
+	mu       sync.RWMutex
+	snapshot *output.RequestContextSnapshot
+}
+
 var buildRuntime = defaultBuildRuntime
 var newScheduler = provider.NewScheduler
 var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
@@ -183,9 +188,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	defer closeRuntime(rt)
 
 	submissions := make(chan string, 1)
+	contextInspect := make(chan struct{}, 1)
 	approvalResponse := make(chan bool, 1)
 	modelSwitch := make(chan string, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
+	requestSnapshots := &requestSnapshotStore{}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -205,6 +212,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			default:
 			}
 		},
+		OnContextInspect: func() {
+			select {
+			case contextInspect <- struct{}{}:
+			default:
+			}
+		},
 		OnApproval: func(allowed bool) {
 			select {
 			case approvalResponse <- allowed:
@@ -221,7 +234,22 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 		},
 	})
-	rt.events = output.NewMultiSink(rt.events, tuiApp.EventSink())
+	rt.events = output.NewMultiSink(
+		rt.events,
+		tuiApp.EventSink(),
+		output.SinkFunc(func(event output.Event) {
+			if payload, ok := event.Payload.(output.APIRequestEvent); ok {
+				requestSnapshots.Store(output.RequestContextSnapshot{
+					Model:       payload.Model,
+					Messages:    payload.Messages,
+					Tools:       payload.Tools,
+					MaxTokens:   payload.MaxTokens,
+					Blocks:      payload.Blocks,
+					ModelBudget: payload.ModelBudget,
+				})
+			}
+		}),
+	)
 
 	approver := agent.NewEventingApprover(
 		rt.events,
@@ -244,6 +272,18 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-contextInspect:
+			if snapshot, ok := requestSnapshots.Snapshot(); ok {
+				report, err := output.BuildContextReport(ctx, snapshot)
+				if err != nil {
+					rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
+					continue
+				}
+				rt.events.Emit(output.NewContextReportEvent(report))
+				continue
+			}
+			rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
+			continue
 		case name := <-modelSwitch:
 			runner.runtime.cfg.Model = name
 		case text := <-submissions:
@@ -701,6 +741,43 @@ func (s *interactiveSkills) Snapshot() []string {
 	return names
 }
 
+func (s *requestSnapshotStore) Store(snapshot output.RequestContextSnapshot) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cloned := output.RequestContextSnapshot{
+		Model:       snapshot.Model,
+		Messages:    append([]provider.Message(nil), snapshot.Messages...),
+		Tools:       append([]provider.ToolSpec(nil), snapshot.Tools...),
+		MaxTokens:   cloneOptionalInt(snapshot.MaxTokens),
+		Blocks:      append([]prompt.ContextBlock(nil), snapshot.Blocks...),
+		ModelBudget: snapshot.ModelBudget,
+	}
+	s.snapshot = &cloned
+}
+
+func (s *requestSnapshotStore) Snapshot() (output.RequestContextSnapshot, bool) {
+	if s == nil {
+		return output.RequestContextSnapshot{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.snapshot == nil {
+		return output.RequestContextSnapshot{}, false
+	}
+	cloned := output.RequestContextSnapshot{
+		Model:       s.snapshot.Model,
+		Messages:    append([]provider.Message(nil), s.snapshot.Messages...),
+		Tools:       append([]provider.ToolSpec(nil), s.snapshot.Tools...),
+		MaxTokens:   cloneOptionalInt(s.snapshot.MaxTokens),
+		Blocks:      append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
+		ModelBudget: s.snapshot.ModelBudget,
+	}
+	return cloned, true
+}
+
 func renderNames(stream *output.Stream, heading string, names []string) {
 	if stream == nil {
 		return
@@ -797,6 +874,14 @@ func cloneValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func cloneOptionalInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func runtimeRegistry(cfg config.Config) (*tool.Registry, error) {
@@ -966,9 +1051,6 @@ type loggingProvider struct {
 }
 
 func (p loggingProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
-	if p.sink != nil {
-		p.sink.Emit(output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools))
-	}
 	resp, err := p.inner.ChatCompletion(ctx, req)
 	if p.sink != nil {
 		p.sink.Emit(output.NewAPIResponseEvent(resp.Message, resp.Usage, resp.FinishReason, err))

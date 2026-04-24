@@ -7,18 +7,19 @@ import (
 )
 
 type Config struct {
-	Model           string
-	ModelNames      []string
-	ModelContexts   map[string]int
-	ProviderBaseURL string
-	WorkingDir      string
-	MaxTurns        int
-	SkillNames      []string
-	Theme           string
-	OnSubmit        func(string)
-	OnApproval      func(bool)
-	OnSkillToggle   func(string, bool)
-	OnModelSwitch   func(string)
+	Model            string
+	ModelNames       []string
+	ModelContexts    map[string]int
+	ProviderBaseURL  string
+	WorkingDir       string
+	MaxTurns         int
+	SkillNames       []string
+	Theme            string
+	OnSubmit         func(string)
+	OnContextInspect func()
+	OnApproval       func(bool)
+	OnSkillToggle    func(string, bool)
+	OnModelSwitch    func(string)
 }
 
 type App struct {

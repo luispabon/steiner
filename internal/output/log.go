@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 const (
@@ -27,6 +30,7 @@ const (
 	EventTypeTurnFinished       = "turn_finished"
 	EventTypeAssistantMessage   = "assistant_message"
 	EventTypeAssistantChunk     = "assistant_chunk"
+	EventTypeContextReport      = "context_report"
 	EventTypeContextDiagnostics = "context_diagnostics"
 	EventTypeDelegationStarted  = "delegation_started"
 	EventTypeDelegationComplete = "delegation_complete"
@@ -108,9 +112,12 @@ type UserInputEvent struct {
 }
 
 type APIRequestEvent struct {
-	Model    string `json:"model,omitempty"`
-	Messages any    `json:"messages,omitempty"`
-	Tools    any    `json:"tools,omitempty"`
+	Model       string                  `json:"model,omitempty"`
+	Messages    []provider.Message      `json:"messages,omitempty"`
+	Tools       []provider.ToolSpec     `json:"tools,omitempty"`
+	MaxTokens   *int                    `json:"max_tokens,omitempty"`
+	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
+	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
 }
 
 type APIResponseEvent struct {
@@ -353,14 +360,17 @@ func NewUserInputEvent(content, mode string) Event {
 	}
 }
 
-func NewAPIRequestEvent(model string, messages, tools any) Event {
+func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) Event {
 	return Event{
 		Type:      EventTypeAPIRequest,
 		Timestamp: time.Now().UTC(),
 		Payload: APIRequestEvent{
-			Model:    model,
-			Messages: messages,
-			Tools:    tools,
+			Model:       model,
+			Messages:    cloneProviderMessages(messages),
+			Tools:       cloneProviderTools(tools),
+			MaxTokens:   cloneOptionalInt(maxTokens),
+			Blocks:      append([]prompt.ContextBlock(nil), blocks...),
+			ModelBudget: budget,
 		},
 	}
 }

@@ -983,6 +983,112 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 	}
 }
 
+func TestRequestSnapshotStoreStartsEmpty(t *testing.T) {
+	store := &requestSnapshotStore{}
+	if _, ok := store.Snapshot(); ok {
+		t.Fatal("Snapshot() ok = true, want false")
+	}
+}
+
+func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
+	store := &requestSnapshotStore{}
+	sink := output.SinkFunc(func(event output.Event) {
+		payload, ok := event.Payload.(output.APIRequestEvent)
+		if !ok {
+			return
+		}
+		store.Store(output.RequestContextSnapshot{
+			Model:       payload.Model,
+			Messages:    payload.Messages,
+			Tools:       payload.Tools,
+			MaxTokens:   payload.MaxTokens,
+			Blocks:      payload.Blocks,
+			ModelBudget: payload.ModelBudget,
+		})
+	})
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "one"},
+				FinishReason: "stop",
+			},
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "two"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("small")
+	cfg.Models = map[string]config.ModelConfig{
+		"small": {
+			Type:                "openai_compat",
+			BaseURL:             "http://localhost:11434/v1",
+			Model:               "gpt-4o-mini",
+			Temperature:         0.2,
+			MaxCompletionTokens: 32,
+			ContextSize:         1024,
+			Compaction: config.CompactionConfig{
+				SafetyMarginTokens: 8,
+				SummaryMaxTokens:   16,
+			},
+		},
+		"large": {
+			Type:                "openai_compat",
+			BaseURL:             "http://localhost:11434/v1",
+			Model:               "gpt-4o",
+			Temperature:         0.2,
+			MaxCompletionTokens: 96,
+			ContextSize:         8192,
+			Compaction: config.CompactionConfig{
+				SafetyMarginTokens: 24,
+				SummaryMaxTokens:   48,
+			},
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   sink,
+		},
+	}
+
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	first, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("first Snapshot() ok = false, want true")
+	}
+	if got, want := first.ModelBudget.ContextSize, 1024; got != want {
+		t.Fatalf("first context size = %d, want %d", got, want)
+	}
+	if got, want := first.ModelBudget.MaxCompletionTokens, 32; got != want {
+		t.Fatalf("first max completion tokens = %d, want %d", got, want)
+	}
+
+	runner.runtime.cfg.Model = "large"
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil); err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	second, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("second Snapshot() ok = false, want true")
+	}
+	if got, want := second.ModelBudget.ContextSize, 8192; got != want {
+		t.Fatalf("second context size = %d, want %d", got, want)
+	}
+	if got, want := second.ModelBudget.MaxCompletionTokens, 96; got != want {
+		t.Fatalf("second max completion tokens = %d, want %d", got, want)
+	}
+}
+
 type fakeProvider struct {
 	requests  []provider.ChatRequest
 	responses []provider.ChatResponse

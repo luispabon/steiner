@@ -22,6 +22,48 @@ const (
 	listEntryOverheadTokens = 1
 )
 
+func EstimateMessageTokens(ctx context.Context, model string, message Message) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	enc, err := tokenizerForModel(model)
+	if err != nil {
+		return 0, err
+	}
+	estimator := semanticTokenEstimator{
+		ctx: ctx,
+		enc: enc,
+	}
+	total := estimator.countMessage(message)
+	if estimator.err != nil {
+		return 0, estimator.err
+	}
+	return total, nil
+}
+
+func EstimateToolSpecTokens(ctx context.Context, model string, tool ToolSpec) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	enc, err := tokenizerForModel(model)
+	if err != nil {
+		return 0, err
+	}
+	estimator := semanticTokenEstimator{
+		ctx: ctx,
+		enc: enc,
+	}
+	total := estimator.countToolSpec(tool)
+	if estimator.err != nil {
+		return 0, estimator.err
+	}
+	return total, nil
+}
+
+func RequestOverheadTokens() int {
+	return requestOverheadTokens
+}
+
 func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err

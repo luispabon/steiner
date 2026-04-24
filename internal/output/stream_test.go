@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
@@ -154,7 +156,7 @@ func TestPlainRendererExecBaseline(t *testing.T) {
 	renderer := NewPlainRenderer(&buf)
 
 	renderer.OnEvent(NewUserInputEvent("fix the bug", "exec"))
-	renderer.OnEvent(NewAPIRequestEvent("test-model", nil, nil))
+	renderer.OnEvent(NewAPIRequestEvent("test-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}))
 	renderer.OnEvent(NewAPIResponseEvent(nil, nil, "stop", nil))
 	renderer.OnEvent(NewStopReasonEvent(1, "complete", nil))
 

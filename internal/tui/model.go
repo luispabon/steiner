@@ -42,6 +42,7 @@ type Model struct {
 	modelNames           []string
 	modelContexts        map[string]int
 	onSubmit             func(string)
+	onContextInspect     func()
 	onApproval           func(bool)
 	onSkillToggle        func(string, bool)
 	onModelSwitch        func(string)
@@ -92,28 +93,29 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	}
 
 	m := Model{
-		width:         80,
-		height:        24,
-		viewport:      viewport.New(80, 22),
-		input:         input,
-		sidebar:       newSidebarState(),
-		git:           newGitState(cfg.WorkingDir),
-		keys:          defaultKeyMap(),
-		external:      external,
-		autoScroll:    true,
-		skillNames:    append([]string(nil), cfg.SkillNames...),
-		enabledSkills: enabledSkills,
-		modelNames:    append([]string(nil), cfg.ModelNames...),
-		modelContexts: cloneModelContexts(cfg.ModelContexts),
-		onSubmit:      cfg.OnSubmit,
-		onApproval:    cfg.OnApproval,
-		onSkillToggle: cfg.OnSkillToggle,
-		onModelSwitch: cfg.OnModelSwitch,
-		activeTheme:   t,
-		styles:        t.LipGlossStyles(),
-		inputHistory:  []string{},
-		historyIdx:    0,
-		historyDraft:  "",
+		width:            80,
+		height:           24,
+		viewport:         viewport.New(80, 22),
+		input:            input,
+		sidebar:          newSidebarState(),
+		git:              newGitState(cfg.WorkingDir),
+		keys:             defaultKeyMap(),
+		external:         external,
+		autoScroll:       true,
+		skillNames:       append([]string(nil), cfg.SkillNames...),
+		enabledSkills:    enabledSkills,
+		modelNames:       append([]string(nil), cfg.ModelNames...),
+		modelContexts:    cloneModelContexts(cfg.ModelContexts),
+		onSubmit:         cfg.OnSubmit,
+		onContextInspect: cfg.OnContextInspect,
+		onApproval:       cfg.OnApproval,
+		onSkillToggle:    cfg.OnSkillToggle,
+		onModelSwitch:    cfg.OnModelSwitch,
+		activeTheme:      t,
+		styles:           t.LipGlossStyles(),
+		inputHistory:     []string{},
+		historyIdx:       0,
+		historyDraft:     "",
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -477,6 +479,15 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.clear {
 		m.content.Clear()
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+	if action.inspectContext {
+		if m.onContextInspect != nil {
+			m.onContextInspect()
+		}
 		m.input.Reset()
 		m.historyIdx = 0
 		m.syncViewport()

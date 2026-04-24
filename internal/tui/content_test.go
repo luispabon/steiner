@@ -230,6 +230,21 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 	}
 }
 
+func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	buffer.AppendEvent(output.NewContextReportEvent("# Last Request Context\n\nPrompt tokens: `42`"))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].text; !strings.Contains(got, "Last Request Context") || !strings.Contains(got, "Prompt tokens") {
+		t.Fatalf("segment text = %q, want context report block", got)
+	}
+}
+
 func TestPluralTurns(t *testing.T) {
 	tests := []struct {
 		count int

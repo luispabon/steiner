@@ -254,6 +254,8 @@ func renderEvent(event Event) Segment {
 			parts = append(parts, fmt.Sprintf("chunk=%s", payload.Content))
 		}
 		return Segment{Channel: ChannelAssistant, Label: "assistant", Text: strings.Join(parts, " ")}
+	case ContextReportEvent:
+		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	case ModelCallStartedEvent:
 		return Segment{
 			Channel: ChannelStatus,

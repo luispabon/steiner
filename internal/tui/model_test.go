@@ -99,6 +99,34 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestModelHandlesContextCommandLocally(t *testing.T) {
+	var submitted []string
+	contextInspections := 0
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+		OnContextInspect: func() {
+			contextInspections++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/context")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no provider submission", submitted)
+	}
+	if contextInspections != 1 {
+		t.Fatalf("contextInspections = %d, want 1", contextInspections)
+	}
+	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+		t.Fatalf("content = %q, want no local echo", got)
+	}
+}
+
 func TestModelApprovalModeTransitions(t *testing.T) {
 	var approved []bool
 
