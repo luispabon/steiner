@@ -78,7 +78,7 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     api_key: ""
-    model: qwen3-35b-a3b
+    model: <required-backend-model>
     temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
@@ -89,7 +89,7 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     api_key: ""
-    model: qwen3-8b
+    model: yi-coder:9b
     temperature: 0.1
     max_completion_tokens: 4096
     context_size: 16384
