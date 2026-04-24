@@ -49,7 +49,7 @@
 - `stage-1-step-1`: `implemented`
 - `stage-2-step-1`: `implemented`
 - `stage-2-step-2`: `implemented`
-- `stage-3-step-1`: `ready`
+- `stage-3-step-1`: `implemented`
 - `stage-3-step-2`: `pending`
 - `stage-4-step-1`: `pending`
 - `stage-4-step-2`: `pending`
@@ -75,6 +75,13 @@
 - `2026-04-24`: Reviewed follow-up commit `a7fa542` (`Wire model budget into CLI runner`). The live CLI runner now propagates the resolved model budget into both prompt assembly and `agent.RunRequest`, activating the previously implemented request-fit enforcement in real execution.
 - `2026-04-24`: Merged temporary branch `tmp/stage-2-step-2-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`. The only merge conflict was executor-owned `execution.md`; executor resolved it by preserving authoritative orchestration history and discarding sub-agent ownership of the log.
 - `2026-04-24`: Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`, removed worktree `/tmp/steiner-stage-2-step-2`, and deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
+- `2026-04-25`: Dispatched `stage-3-step-1` to isolated sub-agent worktree `/tmp/steiner-stage-3-step-1` on branch `tmp/stage-3-step-1-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution.
+- `2026-04-25`: Execution resumed from preserved branch state after quota interruption. Verified the existing worktree was intact at sub-agent commit `2560fdb` (`Implement pre-request model compaction`) and continued from that branch instead of restarting the step.
+- `2026-04-25`: Reviewed the resumed `stage-3-step-1` branch and found one executor-side integration issue after merge conflict resolution: the compaction path could fall through to empty stripped candidates, and normal prompt assembly still needed to avoid the old turn-retention path in live execution.
+- `2026-04-25`: Applied a narrow executor-side integration fix during merge resolution for `stage-3-step-1`: skip empty compaction candidates, map synthetic summary messages to provider `system` role, and feed stripped raw lineage messages into prompt assembly while disabling turn-count retention in the live loop.
+- `2026-04-25`: Reran `GOCACHE=/tmp/steiner-gocache go test ./internal/agent ./internal/prompt` after the integration fix; the step passed.
+- `2026-04-25`: Merged temporary branch `tmp/stage-3-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`.
+- `2026-04-25`: Closed sub-agent `019dbcb9-4450-71f1-ae2c-0b7433abf787`, removed worktree `/tmp/steiner-stage-3-step-1`, and deleted merged branch `tmp/stage-3-step-1-token-budget-compaction`.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -101,6 +108,14 @@
   - worktree: `/tmp/steiner-stage-2-step-2`
   - commits: `485bbfe`, `a7fa542`
   - status: `closed after merge and cleanup`
+- `stage-3-step-1`
+  - agent id: `019dbcb9-4450-71f1-ae2c-0b7433abf787`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-3-step-1-token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-3-step-1`
+  - commit: `2560fdb`
+  - status: `closed after merge and cleanup`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -121,6 +136,12 @@
 - Closed sub-agent `019dbca8-c076-7a92-96e8-5739476f4c32`.
 - Removed worktree `/tmp/steiner-stage-2-step-2`.
 - Deleted merged branch `tmp/stage-2-step-2-token-budget-compaction`.
+- Created branch `tmp/stage-3-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-3-step-1`.
+- Merged branch `tmp/stage-3-step-1-token-budget-compaction` back to feature branch.
+- Closed sub-agent `019dbcb9-4450-71f1-ae2c-0b7433abf787`.
+- Removed worktree `/tmp/steiner-stage-3-step-1`.
+- Deleted merged branch `tmp/stage-3-step-1-token-budget-compaction`.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
@@ -137,6 +158,9 @@
   - result: `passed`
 - `stage-2-step-2` follow-up runtime verification:
   - command: `go test ./cmd/steiner -run 'TestCLIRunnerPassesRegistryToolsToProvider|TestCLIRunnerUsesSelectedSkillSubset|TestCLIRunnerReturnsContextDiagnostics|TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest'`
+  - result: `passed`
+- `stage-3-step-1` resumed branch verification:
+  - command: `GOCACHE=/tmp/steiner-gocache go test ./internal/agent ./internal/prompt`
   - result: `passed`
 
 ## Blockers
