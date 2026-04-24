@@ -4,7 +4,7 @@
 - Planning folder: `.project_planning/2026-04-23_token-budget-compaction`
 - Active branch: `cl/2026-04-23_token-budget-compaction`
 - Executor start date: `2026-04-24`
-- Current stage: `stage-3 pending`
+- Current stage: `stage-4 ready`
 - Execution mode: isolated sub-agent worktrees when safe
 
 ## Verification Strategy
@@ -51,8 +51,9 @@
 - `stage-2-step-2`: `implemented`
 - `stage-3-step-1`: `implemented`
 - `stage-3-step-2`: `implemented`
-- `stage-4-step-1`: `pending`
-- `stage-4-step-2`: `pending`
+- `stage-4-step-1`: `ready`
+- `stage-5-step-1`: `pending`
+- `stage-5-step-2`: `pending`
 
 ## Activity Log
 - `2026-04-24`: Validated planner handoff. Found required `overview.md` and `plan.yaml`, confirmed branch `cl/2026-04-23_token-budget-compaction` exists, checked out the branch, and observed a clean working tree before executor initialization.
@@ -87,6 +88,8 @@
 - `2026-04-25`: Cherry-picked only scoped step commit `b6977e9` onto `cl/2026-04-23_token-budget-compaction` instead of merging branch HEAD, preserving the user-authored out-of-scope branch-only changes without widening stage scope.
 - `2026-04-25`: Ran `go test ./internal/output ./internal/agent` on the feature branch after cherry-picking `stage-3-step-2`; the step passed.
 - `2026-04-25`: Closed sub-agent `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`. Left `/tmp/steiner-stage-3-step-2` and branch `tmp/stage-3-step-2-token-budget-compaction` intact because they contain additional user-authored out-of-scope commits (`57b4fc9`, `db55968`, `18ff9cc`) that were intentionally not merged as part of executor step scope.
+- `2026-04-25`: User requested that the tokenizer fallback stop counting marshaled JSON transport syntax and become the definitive semantic estimator for this feature class. Treated this as a planner-input correction rather than a late bug fix.
+- `2026-04-25`: Updated `overview.md` and `plan.yaml` to insert a new `stage-4-step-1` for semantic estimator replacement, and shifted docs/final verification to `stage-5`.
 
 ## Sub-Agents
 - `stage-1-step-1`

@@ -170,10 +170,46 @@ stages:
           - go test ./internal/output ./internal/agent
 
   - id: stage-4
-    objective: Refresh documentation and perform full verification for the completed migration.
+    objective: Replace the interim wire-payload token estimator with the definitive semantic chat estimator.
     parallel: false
     steps:
       - id: stage-4-step-1
+        objective: Rework prompt/request token estimation so the fallback estimator counts semantic chat payload content and explicit bookkeeping overhead instead of marshaled JSON transport syntax.
+        scope: Own the estimator design correction across provider and prompt budgeting so the final implementation is stable at the message/tool level rather than the HTTP wire-body level.
+        files:
+          - internal/provider/
+          - internal/prompt/
+          - internal/agent/loop.go
+          - internal/agent/loop_test.go
+          - go.mod
+          - go.sum
+        constraints:
+          - Keep backend-reported usage as the preferred source when available.
+          - The fallback estimator must not directly tokenize the marshaled JSON wire request body.
+          - Count message content, tool schemas, tool-call arguments, tool results, and explicit overhead constants as needed for a conservative semantic estimate.
+          - Keep the estimator internal and non-configurable.
+        depends_on:
+          - stage-3-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Steiner uses a semantic chat/request estimator instead of wire-JSON token counting for fallback budgeting.
+          - Prompt-fit and compaction-fit checks continue to share common logic and model metadata.
+          - Tests cover tool-heavy semantic budgeting and confirm transport wrapper syntax is not the counted abstraction.
+        acceptance:
+          - Request budgeting continues to estimate whether a normal call or compaction call fits a model context window.
+          - Backend-reported usage remains preferred when present without becoming mandatory for correctness.
+          - The fallback estimator no longer depends on marshaling the OpenAI-compatible wire request body to count tokens.
+        handoff: Finalize the estimator design so the remaining docs and verification stages describe the definitive budgeting implementation.
+        verification:
+          - go test ./internal/provider ./internal/prompt ./internal/agent
+
+  - id: stage-5
+    objective: Refresh documentation and perform full verification for the completed migration.
+    parallel: false
+    steps:
+      - id: stage-5-step-1
         objective: Update docs and examples to the new model config shape and remove references to the old provider and turn-compaction model.
         scope: Own README and any directly relevant documentation updates tied to the implemented behavior and configuration.
         files:
@@ -186,7 +222,7 @@ stages:
           - Show the new `scheduler`, `model`, and `models` config shape.
         depends_on:
           - stage-1-step-1
-          - stage-3-step-2
+          - stage-4-step-1
         parallel_group: null
         can_run_in_parallel: false
         suggested_model: cheap-good
@@ -200,7 +236,7 @@ stages:
         verification:
           - go test ./cmd/steiner ./internal/config
 
-      - id: stage-4-step-2
+      - id: stage-5-step-2
         objective: Run final repo verification and fix any fallout from the migration.
         scope: Own formatting, broad tests, vet, and build validation across the repository after all feature work lands.
         files:
@@ -215,7 +251,7 @@ stages:
           - Run repo-wide checks only after implementation is complete.
           - Keep any final cleanup tightly scoped to verification fallout from this feature.
         depends_on:
-          - stage-4-step-1
+          - stage-5-step-1
         parallel_group: null
         can_run_in_parallel: false
         suggested_model: cheap-good

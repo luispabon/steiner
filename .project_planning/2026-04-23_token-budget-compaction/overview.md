@@ -48,12 +48,23 @@ The implementation should likely break into these pieces:
 - diagnostics and tests that report token-budget pressure and compaction decisions instead of turn-retention counts
 - README and config sample updates that document only the new configuration shape
 
+The request estimator must operate at the semantic chat/request level rather than by tokenizing the compact JSON wire payload. Counting transport wrapper syntax such as braces, field names, and other OpenAI-compatible marshaling details would make budget behavior depend on HTTP serialization instead of the prompt/tool content actually sent to the model. The definitive fallback estimator should therefore count:
+- message contents and role framing
+- tool schemas
+- tool-call arguments
+- tool results
+- explicit overhead constants for chat-format bookkeeping where needed
+
+It should not directly tokenize the marshaled wire JSON body.
+
 The built-in estimator should be treated as a guardrail, not an oracle. Exact token parity across OpenAI-compatible backends is not realistic. The sane design is:
 - explicit `context_size` in config
 - explicit model-level safety margin
 - backend usage when available
 - internal tokenizer estimate as fallback
 - conservative thresholds
+
+That fallback estimate still needs to be stable at the semantic chat layer. It should be conservative because of explicit overhead constants and safety margin, not because transport JSON punctuation is being counted accidentally.
 
 The compaction prompt needs special care. For small local models, generic summarization is not good enough. The summary must reconstruct working state, not just compress history. It should explicitly capture:
 - original request and success criteria
@@ -187,6 +198,7 @@ Likely code areas:
 
 ### Uncertainties
 - how much post-call calibration Steiner should retain from backend-reported usage beyond diagnostics and logging
+- the smallest useful set of explicit per-message and per-tool overhead constants needed to keep the semantic estimator conservative without coupling it back to wire-format details
 
 ## Decision Log
 - Turn-count-based retention is the wrong abstraction and will be removed, not tuned.
@@ -194,6 +206,7 @@ Likely code areas:
 - `context_size` is a required explicit provider setting; Steiner should not depend on portable auto-discovery from OpenAI-compatible APIs.
 - Steiner should use backend-reported usage when available and fall back to one built-in tokenizer-based estimator when it is not.
 - The estimator is an internal implementation detail, not a configurable user-facing subsystem.
+- The definitive fallback estimator should model semantic chat payload content and explicit bookkeeping overhead, not the compact marshaled JSON wire body.
 - The compaction threshold should be based on:
   - estimated prompt tokens
   - reserved completion headroom from `max_completion_tokens`
