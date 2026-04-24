@@ -21,7 +21,8 @@ type sidebarState struct {
 	expanded      bool
 	model         string
 	provider      string
-	contextUsed   int
+	promptUsed    int
+	budgetUsed    int
 	contextBudget int
 	currentTurn   int
 	maxTurns      int
@@ -74,7 +75,8 @@ func (s sidebarState) lines(width int) []string {
 	lines = append(lines, "")
 
 	lines = append(lines, sidebarSection("Context", s.styles))
-	lines = append(lines, sidebarSubField("Fill", s.contextSummary(), width, s.styles))
+	lines = append(lines, sidebarSubField("Prompt", s.promptSummary(), width, s.styles))
+	lines = append(lines, sidebarSubField("Budget", s.budgetSummary(), width, s.styles))
 	lines = append(lines, sidebarSubField("Compaction", s.compactionSummary(), width, s.styles))
 	lines = append(lines, sidebarSubField("Turn", s.turnSummary(), width, s.styles))
 	lines = append(lines, "")
@@ -95,22 +97,48 @@ func (s sidebarState) lines(width int) []string {
 	return lines
 }
 
-func (s sidebarState) contextSummary() string {
-	if s.contextBudget <= 0 {
-		if s.contextUsed <= 0 {
+func (s sidebarState) promptSummary() string {
+	return occupancySummary(s.promptUsed, s.contextBudget)
+}
+
+func (s sidebarState) budgetSummary() string {
+	return occupancySummary(s.budgetUsed, s.contextBudget)
+}
+
+func occupancySummary(used, budget int) string {
+	if budget <= 0 {
+		if used <= 0 {
 			return "n/a"
 		}
-		return fmt.Sprintf("%d used", s.contextUsed)
+		return fmt.Sprintf("%d used", used)
 	}
 
 	percent := 0
-	if s.contextBudget > 0 {
-		percent = (s.contextUsed * 100) / s.contextBudget
+	if budget > 0 {
+		percent = (used * 100) / budget
 	}
 	if percent < 0 {
 		percent = 0
 	}
-	return fmt.Sprintf("%d/%d %d%%", s.contextUsed, s.contextBudget, percent)
+	return fmt.Sprintf("%d/%d %d%%", used, budget, percent)
+}
+
+func (s sidebarState) contextSummary() string {
+	if s.contextBudget <= 0 {
+		if s.promptUsed <= 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%d used", s.promptUsed)
+	}
+
+	percent := 0
+	if s.contextBudget > 0 {
+		percent = (s.promptUsed * 100) / s.contextBudget
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	return fmt.Sprintf("%d/%d %d%%", s.promptUsed, s.contextBudget, percent)
 }
 
 func (s sidebarState) turnSummary() string {

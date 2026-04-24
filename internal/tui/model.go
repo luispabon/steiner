@@ -539,7 +539,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.status.model = action.switchModel
 		m.sidebar.contextBudget = m.contextBudgetForModel(action.switchModel)
-		m.sidebar.contextUsed = 0
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
 		if m.sidebar.contextBudget > 0 {
 			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 		} else {
@@ -591,13 +592,18 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	if m == nil || payload.ContextTokens <= 0 {
 		return false
 	}
-	used := payload.TotalTokens
-	if used < 0 {
-		used = 0
+	promptUsed := payload.PromptTokens
+	if promptUsed < 0 {
+		promptUsed = 0
 	}
-	m.sidebar.contextUsed = used
+	budgetUsed := payload.TotalTokens
+	if budgetUsed < 0 {
+		budgetUsed = 0
+	}
+	m.sidebar.promptUsed = promptUsed
+	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = payload.ContextTokens
-	m.status.context = fmt.Sprintf("ctx %d/%d", used, payload.ContextTokens)
+	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, payload.ContextTokens)
 	return true
 }
 

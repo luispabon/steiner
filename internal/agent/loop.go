@@ -485,6 +485,7 @@ func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.Requ
 	notes := []string{
 		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
 		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
+		fmt.Sprintf("safety=%d", fit.SafetyMarginTokens),
 	}
 	if truncated {
 		notes = append(notes, fmt.Sprintf("request exceeds context window: %s", fit.String()))
@@ -494,6 +495,7 @@ func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.Requ
 		turn,
 		fit.EstimatedPromptTokens,
 		fit.ReservedCompletionTokens,
+		fit.SafetyMarginTokens,
 		fit.TotalTokens,
 		fit.ContextSize,
 		truncated,
@@ -560,31 +562,33 @@ func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int,
 		fmt.Sprintf("source generation=%d view=%s", candidate.GenerationID, candidate.View),
 		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
 		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
+		fmt.Sprintf("safety=%d", fit.SafetyMarginTokens),
 	}
 	if promptText != "" {
 		notes = append(notes, "prompt="+promptText)
 	}
 	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		Scope:             "conversation",
-		Turn:              turn,
-		Severity:          escalation.Severity,
-		SessionState:      escalation.SessionState,
-		CompactionCount:   compactionCount,
-		RestartGuidance:   escalation.RestartGuidance,
-		CompactedTurns:    len(candidate.Messages),
-		CompactedMessages: countMessages(candidate.Messages),
-		RetainedTurns:     countTurns(retainedMessages),
-		RetainedMessages:  countMessages(retainedMessages),
-		SummaryTitle:      "compacted conversation history",
-		SummaryPreview:    summarizeTextPreview(summaryText, 120),
-		SummaryBytes:      len(summaryText),
-		PromptTokens:      fit.EstimatedPromptTokens,
-		ReservedTokens:    fit.ReservedCompletionTokens,
-		ContextTokens:     fit.ContextSize,
-		TotalTokens:       fit.TotalTokens,
-		Truncated:         fit.TotalTokens > fit.ContextSize && fit.ContextSize > 0,
-		Notes:             notes,
+		Kind:               "compaction",
+		Scope:              "conversation",
+		Turn:               turn,
+		Severity:           escalation.Severity,
+		SessionState:       escalation.SessionState,
+		CompactionCount:    compactionCount,
+		RestartGuidance:    escalation.RestartGuidance,
+		CompactedTurns:     len(candidate.Messages),
+		CompactedMessages:  countMessages(candidate.Messages),
+		RetainedTurns:      countTurns(retainedMessages),
+		RetainedMessages:   countMessages(retainedMessages),
+		SummaryTitle:       "compacted conversation history",
+		SummaryPreview:     summarizeTextPreview(summaryText, 120),
+		SummaryBytes:       len(summaryText),
+		PromptTokens:       fit.EstimatedPromptTokens,
+		ReservedTokens:     fit.ReservedCompletionTokens,
+		SafetyMarginTokens: fit.SafetyMarginTokens,
+		ContextTokens:      fit.ContextSize,
+		TotalTokens:        fit.TotalTokens,
+		Truncated:          fit.TotalTokens > fit.ContextSize && fit.ContextSize > 0,
+		Notes:              notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
 }

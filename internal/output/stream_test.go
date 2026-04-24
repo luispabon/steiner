@@ -72,12 +72,14 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	}))
 	renderer.OnEvent(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 	renderer.OnEvent(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
+	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 4096, 16384, 22162, 65536, false))
 
 	got := buf.String()
 	for _, want := range []string{
 		`context: warning: compaction #2 turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; compactions 2; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
 		`context: warning: session health #2 turn 4; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; after 2 compactions`,
 		"context: budget project context used 900/512 bytes; turn 4; truncated; notes trimmed extra files",
+		"context: budget conversation prompt=1682 reserve=4096 safety=16384 budget=22162/65536 tokens; turn 4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
@@ -171,7 +173,7 @@ func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 		NewToolCallStartedEvent(1, "read", "call_1", nil),
 		NewContextCompactionEvent(2, 3, 8, 2, 4, 144, false, "compacted conversation history"),
 		NewStopReasonEvent(2, "max_tokens", nil),
-		NewContextBudgetEvent("project_context", 2, 800, 512, true, "trimmed extra files"),
+		NewContextTokenBudgetEvent("conversation", 2, 1682, 4096, 16384, 22162, 65536, false),
 	}
 
 	got := SummarizeInspection(events, 2)
@@ -184,7 +186,7 @@ func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"stopped at turn 2: reached the max token limit",
-		"budget project context used 800/512 bytes; turn 2; truncated; notes trimmed extra files",
+		"budget conversation prompt=1682 reserve=4096 safety=16384 budget=22162/65536 tokens; turn 2",
 		"compaction turn 2 compacted 2 turns/4 messages; retained 3 turns/8 messages; kept summary \"compacted conversation history\"; summary 144 bytes",
 	} {
 		if !strings.Contains(got.LastStopReason+got.LastBudget+got.LastCompaction, want) {

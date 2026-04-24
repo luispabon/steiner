@@ -7,28 +7,29 @@ import (
 )
 
 type ContextDiagnosticsEvent struct {
-	Kind              string   `json:"kind"`
-	Scope             string   `json:"scope,omitempty"`
-	Turn              int      `json:"turn,omitempty"`
-	Severity          string   `json:"severity,omitempty"`
-	SessionState      string   `json:"session_state,omitempty"`
-	CompactionCount   int      `json:"compaction_count,omitempty"`
-	RestartGuidance   string   `json:"restart_guidance,omitempty"`
-	RetainedTurns     int      `json:"retained_turns,omitempty"`
-	RetainedMessages  int      `json:"retained_messages,omitempty"`
-	CompactedTurns    int      `json:"compacted_turns,omitempty"`
-	CompactedMessages int      `json:"compacted_messages,omitempty"`
-	SummaryTitle      string   `json:"summary_title,omitempty"`
-	SummaryPreview    string   `json:"summary_preview,omitempty"`
-	SummaryBytes      int      `json:"summary_bytes,omitempty"`
-	BudgetBytes       int      `json:"budget_bytes,omitempty"`
-	UsedBytes         int      `json:"used_bytes,omitempty"`
-	PromptTokens      int      `json:"prompt_tokens,omitempty"`
-	ReservedTokens    int      `json:"reserved_tokens,omitempty"`
-	ContextTokens     int      `json:"context_tokens,omitempty"`
-	TotalTokens       int      `json:"total_tokens,omitempty"`
-	Truncated         bool     `json:"truncated,omitempty"`
-	Notes             []string `json:"notes,omitempty"`
+	Kind               string   `json:"kind"`
+	Scope              string   `json:"scope,omitempty"`
+	Turn               int      `json:"turn,omitempty"`
+	Severity           string   `json:"severity,omitempty"`
+	SessionState       string   `json:"session_state,omitempty"`
+	CompactionCount    int      `json:"compaction_count,omitempty"`
+	RestartGuidance    string   `json:"restart_guidance,omitempty"`
+	RetainedTurns      int      `json:"retained_turns,omitempty"`
+	RetainedMessages   int      `json:"retained_messages,omitempty"`
+	CompactedTurns     int      `json:"compacted_turns,omitempty"`
+	CompactedMessages  int      `json:"compacted_messages,omitempty"`
+	SummaryTitle       string   `json:"summary_title,omitempty"`
+	SummaryPreview     string   `json:"summary_preview,omitempty"`
+	SummaryBytes       int      `json:"summary_bytes,omitempty"`
+	BudgetBytes        int      `json:"budget_bytes,omitempty"`
+	UsedBytes          int      `json:"used_bytes,omitempty"`
+	PromptTokens       int      `json:"prompt_tokens,omitempty"`
+	ReservedTokens     int      `json:"reserved_tokens,omitempty"`
+	SafetyMarginTokens int      `json:"safety_margin_tokens,omitempty"`
+	ContextTokens      int      `json:"context_tokens,omitempty"`
+	TotalTokens        int      `json:"total_tokens,omitempty"`
+	Truncated          bool     `json:"truncated,omitempty"`
+	Notes              []string `json:"notes,omitempty"`
 }
 
 func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
@@ -86,17 +87,18 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 	})
 }
 
-func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
+func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, safetyMarginTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:           "budget",
-		Scope:          scope,
-		Turn:           turn,
-		PromptTokens:   promptTokens,
-		ReservedTokens: reservedTokens,
-		ContextTokens:  contextTokens,
-		TotalTokens:    totalTokens,
-		Truncated:      truncated,
-		Notes:          append([]string(nil), notes...),
+		Kind:               "budget",
+		Scope:              scope,
+		Turn:               turn,
+		PromptTokens:       promptTokens,
+		ReservedTokens:     reservedTokens,
+		SafetyMarginTokens: safetyMarginTokens,
+		ContextTokens:      contextTokens,
+		TotalTokens:        totalTokens,
+		Truncated:          truncated,
+		Notes:              append([]string(nil), notes...),
 	})
 }
 
@@ -122,16 +124,17 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	switch {
-	case payload.TotalTokens > 0 || payload.PromptTokens > 0 || payload.ReservedTokens > 0 || payload.ContextTokens > 0:
+	case payload.TotalTokens > 0 || payload.PromptTokens > 0 || payload.ReservedTokens > 0 || payload.SafetyMarginTokens > 0 || payload.ContextTokens > 0:
 		contextTokens := payload.ContextTokens
 		if contextTokens == 0 {
 			contextTokens = payload.BudgetBytes
 		}
 		parts = append(parts, fmt.Sprintf(
-			"budget %s used prompt=%d reserve=%d total=%d/%d tokens",
+			"budget %s prompt=%d reserve=%d safety=%d budget=%d/%d tokens",
 			scope,
 			payload.PromptTokens,
 			payload.ReservedTokens,
+			payload.SafetyMarginTokens,
 			payload.TotalTokens,
 			contextTokens,
 		))
