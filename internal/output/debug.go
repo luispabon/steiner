@@ -19,6 +19,10 @@ type ContextDiagnosticsEvent struct {
 	SummaryBytes      int      `json:"summary_bytes,omitempty"`
 	BudgetBytes       int      `json:"budget_bytes,omitempty"`
 	UsedBytes         int      `json:"used_bytes,omitempty"`
+	PromptTokens      int      `json:"prompt_tokens,omitempty"`
+	ReservedTokens    int      `json:"reserved_tokens,omitempty"`
+	ContextTokens     int      `json:"context_tokens,omitempty"`
+	TotalTokens       int      `json:"total_tokens,omitempty"`
 	Truncated         bool     `json:"truncated,omitempty"`
 	Notes             []string `json:"notes,omitempty"`
 }
@@ -65,6 +69,20 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 	})
 }
 
+func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
+	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:           "budget",
+		Scope:          scope,
+		Turn:           turn,
+		PromptTokens:   promptTokens,
+		ReservedTokens: reservedTokens,
+		ContextTokens:  contextTokens,
+		TotalTokens:    totalTokens,
+		Truncated:      truncated,
+		Notes:          append([]string(nil), notes...),
+	})
+}
+
 func formatContextDiagnosticsEvent(payload ContextDiagnosticsEvent) string {
 	switch payload.Kind {
 	case "budget":
@@ -82,7 +100,24 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 		scope = "context"
 	}
 
-	parts := []string{fmt.Sprintf("budget %s used %d/%d bytes", scope, payload.UsedBytes, payload.BudgetBytes)}
+	parts := []string{}
+	switch {
+	case payload.TotalTokens > 0 || payload.PromptTokens > 0 || payload.ReservedTokens > 0 || payload.ContextTokens > 0:
+		contextTokens := payload.ContextTokens
+		if contextTokens == 0 {
+			contextTokens = payload.BudgetBytes
+		}
+		parts = append(parts, fmt.Sprintf(
+			"budget %s used prompt=%d reserve=%d total=%d/%d tokens",
+			scope,
+			payload.PromptTokens,
+			payload.ReservedTokens,
+			payload.TotalTokens,
+			contextTokens,
+		))
+	default:
+		parts = append(parts, fmt.Sprintf("budget %s used %d/%d bytes", scope, payload.UsedBytes, payload.BudgetBytes))
+	}
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn %d", payload.Turn))
 	}
@@ -126,6 +161,9 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")
+	}
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
 	}
 	return strings.Join(parts, "; ")
 }
