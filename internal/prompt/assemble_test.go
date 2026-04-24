@@ -163,183 +163,60 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 }
 
-func TestAssembleCompactsOlderTurnsAndBoundsGrowth(t *testing.T) {
+// TestAssemblePassesFullConversationUnfiltered verifies that all conversation
+// messages are forwarded to the model without byte-budget filtering, even when
+// the total size exceeds the old 32 KB limit, and that in-progress tool
+// exchanges (assistant tool_call + tool result) are never dropped.
+func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 	t.Parallel()
 
-	projectRoot := t.TempDir()
-	policy := AssemblyPolicy{
-		Retention:   RetentionPolicy{RecentTurns: 2},
-		Compaction:  CompactionPolicy{SummaryBytes: 512},
-		ToolSummary: ToolSummaryPolicy{MaxBytes: 24},
+	// Build a conversation whose total size exceeds 32768 bytes (old limit).
+	bigContent := strings.Repeat("a", 4096)
+	conversation := make([]provider.Message, 0, 20)
+	for i := range 8 {
+		conversation = append(conversation,
+			provider.Message{Role: provider.MessageRoleUser, Content: fmt.Sprintf("user turn %d: %s", i, bigContent)},
+			provider.Message{Role: provider.MessageRoleAssistant, Content: fmt.Sprintf("assistant turn %d: %s", i, bigContent)},
+		)
 	}
 
-	shortAssembly, err := Assemble(context.Background(), AssemblyOptions{
-		ProjectRoot:               projectRoot,
-		ProjectContextBudgetBytes: 1,
-		Policy:                    policy,
-		Conversation: []provider.Message{
-			{Role: provider.MessageRoleUser, Content: "turn one user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn one assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn two user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn two assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn three user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn three assistant"},
-		},
-		ToolResults: []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result content that is much longer than the summary budget"}},
-	})
-	if err != nil {
-		t.Fatalf("short Assemble() error = %v", err)
-	}
-
-	longAssembly, err := Assemble(context.Background(), AssemblyOptions{
-		ProjectRoot:               projectRoot,
-		ProjectContextBudgetBytes: 1,
-		Policy:                    policy,
-		Conversation: []provider.Message{
-			{Role: provider.MessageRoleUser, Content: "turn zero user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn zero assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn one user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn one assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn two user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn two assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn three user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn three assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn four user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn four assistant"},
-			{Role: provider.MessageRoleUser, Content: "turn five user"},
-			{Role: provider.MessageRoleAssistant, Content: "turn five assistant"},
-		},
-		ToolResults: []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result content that is much longer than the summary budget"}},
-	})
-	if err != nil {
-		t.Fatalf("long Assemble() error = %v", err)
-	}
-
-	if got, want := len(shortAssembly.Messages), len(longAssembly.Messages); got != want {
-		t.Fatalf("bounded assembly length mismatch: short=%d long=%d", got, want)
-	}
-	if got, want := len(longAssembly.Messages), 7; got != want {
-		t.Fatalf("len(long messages) = %d, want %d", got, want)
-	}
-
-	summaryBlock := findBlockBySource(t, longAssembly.Blocks, ContextSourceConversationSummary)
-	var convoSummary ConversationSummaryEnvelope
-	if err := json.Unmarshal([]byte(summaryBlock.Content), &convoSummary); err != nil {
-		t.Fatalf("unmarshal conversation summary: %v", err)
-	}
-	if got, want := convoSummary.DroppedTurns, 4; got != want {
-		t.Fatalf("conversation summary dropped turns = %d, want %d", got, want)
-	}
-	if got, want := convoSummary.DroppedMessages, 8; got != want {
-		t.Fatalf("conversation summary dropped messages = %d, want %d", got, want)
-	}
-	for _, heading := range []string{
-		"# Request intent",
-		"# Solution design",
-		"# Recent actions",
-		"# Unresolved decisions",
-		"# Pending work",
-	} {
-		if got := strings.Contains(summaryBlock.Content, heading); !got {
-			t.Fatalf("conversation summary = %q, want heading %q", summaryBlock.Content, heading)
-		}
-	}
-	if got := strings.Contains(summaryBlock.Content, "- turn 2:"); !got {
-		t.Fatalf("conversation summary = %q, want recent actions bullets", summaryBlock.Content)
-	}
-
-	if got, want := shortAssembly.Messages[2].Content, "turn two user"; got != want {
-		t.Fatalf("retained user turn content = %q, want %q", got, want)
-	}
-	if got, want := shortAssembly.Messages[3].Content, "turn two assistant"; got != want {
-		t.Fatalf("retained assistant turn content = %q, want %q", got, want)
-	}
-	if got := strings.Contains(longAssembly.Messages[6].Content, "\"kind\":\"tool_summary\""); !got {
-		t.Fatalf("tool summary envelope missing: %q", longAssembly.Messages[6].Content)
-	}
-	if got := strings.Contains(longAssembly.Messages[6].Content, "\"truncated\":true"); !got {
-		t.Fatalf("tool summary should be truncated: %q", longAssembly.Messages[6].Content)
-	}
-}
-
-func TestAssembleSnapshotCapturesCompactedPromptFixture(t *testing.T) {
-	t.Parallel()
-
-	fixtureRoot := filepath.Join("..", "..", "testdata", "stage3", "compaction_fixture")
-	conversation := loadMessagesFixture(t, filepath.Join(fixtureRoot, "conversation.json"))
-
-	homeDir := t.TempDir()
-	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global rules")
+	// Append an in-progress tool exchange at the end.
+	toolCallMsg := provider.Message{Role: provider.MessageRoleAssistant, Content: `{"tool":"read","id":"call_1"}`}
+	toolResultMsg := provider.Message{Role: provider.MessageRoleTool, Name: "read", Content: "file contents"}
+	conversation = append(conversation, toolCallMsg, toolResultMsg)
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
-		HomeDir:                   homeDir,
-		ProjectRoot:               fixtureRoot,
-		ProjectContextBudgetBytes: 128,
-		Conversation:              conversation,
-		Policy: AssemblyPolicy{
-			Retention:  RetentionPolicy{RecentTurns: 2},
-			Compaction: CompactionPolicy{SummaryBytes: 1024},
-		},
-		ContextState: DurableContextState{
-			ActiveConstraints: []DurableContextEntry{{Text: "do not change public APIs", Source: "user", Turn: 1}},
-			UnresolvedWork:    []DurableContextEntry{{Text: "tighten retry handling", Source: "assistant", Turn: 2}},
-			ActiveFocus:       &DurableContextEntry{Text: "finish compaction diagnostics", Source: "assistant", Turn: 3},
-		},
+		Conversation: conversation,
 	})
 	if err != nil {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	if got, want := len(assembly.Messages), 11; got != want {
-		t.Fatalf("len(messages) = %d, want %d", got, want)
-	}
-	if got, want := len(assembly.Blocks), 7; got != want {
-		t.Fatalf("len(blocks) = %d, want %d", got, want)
+	// Every conversation message must appear verbatim in Assembly.Messages.
+	msgMap := make(map[string]bool, len(assembly.Messages))
+	for _, m := range assembly.Messages {
+		msgMap[m.Content] = true
 	}
 
-	summaryBlock := findBlockBySource(t, assembly.Blocks, ContextSourceConversationSummary)
-	for _, heading := range []string{
-		"# Request intent",
-		"# Solution design",
-		"# Recent actions",
-		"# Unresolved decisions",
-		"# Pending work",
-	} {
-		if got := strings.Contains(summaryBlock.Content, heading); !got {
-			t.Fatalf("summary block = %q, want heading %q", summaryBlock.Content, heading)
+	if !msgMap[toolCallMsg.Content] {
+		t.Errorf("assistant tool_call message missing from Assembly.Messages")
+	}
+	if !msgMap[toolResultMsg.Content] {
+		t.Errorf("tool result message missing from Assembly.Messages")
+	}
+
+	// Count conversation messages in the output (preamble system message comes first).
+	convCount := 0
+	for _, m := range assembly.Messages {
+		for _, cm := range conversation {
+			if m.Content == cm.Content && m.Role == cm.Role {
+				convCount++
+				break
+			}
 		}
 	}
-	if got := strings.Contains(summaryBlock.Content, "prompt assembly policy-driven"); !got {
-		t.Fatalf("summary block = %q, want preserved request intent text", summaryBlock.Content)
-	}
-	durableContext := findBlockBySource(t, assembly.Blocks, ContextSourceDurableContext)
-	if got := strings.Contains(durableContext.Content, "finish compaction diagnostics"); !got {
-		t.Fatalf("durable context block = %q, want active focus text", durableContext.Content)
-	}
-}
-
-func TestCompactConversationTurnsMarksTruncation(t *testing.T) {
-	t.Parallel()
-
-	block, ok := CompactConversationTurns([]conversationTurn{
-		{Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat("x", 200)}}},
-	}, CompactionPolicy{SummaryBytes: 32})
-	if !ok {
-		t.Fatalf("CompactConversationTurns() ok = false, want true")
-	}
-	if !block.Truncated {
-		t.Fatalf("summary block truncated = false, want true")
-	}
-
-	var envelope ConversationSummaryEnvelope
-	if err := json.Unmarshal([]byte(block.Content), &envelope); err != nil {
-		t.Fatalf("unmarshal summary envelope: %v", err)
-	}
-	if !envelope.Truncated {
-		t.Fatalf("envelope truncated = false, want true")
-	}
-	if got := strings.Contains(envelope.Content, "# Request intent"); !got {
-		t.Fatalf("summary envelope = %q, want request intent heading", envelope.Content)
+	if convCount != len(conversation) {
+		t.Errorf("Assembly.Messages contains %d/%d conversation messages; want all", convCount, len(conversation))
 	}
 }
 
@@ -399,39 +276,6 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 	}
 	if got := strings.Contains(promptMessages[1].Content, "durable context:"); !got {
 		t.Fatalf("user prompt = %q, want durable context section", promptMessages[1].Content)
-	}
-}
-
-func TestAssembleRecordsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
-	t.Parallel()
-
-	assembly, err := Assemble(context.Background(), AssemblyOptions{
-		Policy: AssemblyPolicy{
-			Budgets: SourceBudgetModel{
-				ConversationBytes: 12,
-			},
-			Retention: RetentionPolicy{RecentTurns: 1},
-		},
-		Conversation: []provider.Message{
-			{Role: provider.MessageRoleUser, Content: "older request"},
-			{Role: provider.MessageRoleAssistant, Content: "older reply"},
-			{Role: provider.MessageRoleUser, Content: "retained request payload"},
-			{Role: provider.MessageRoleAssistant, Content: "retained reply payload"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Assemble() error = %v", err)
-	}
-
-	found := false
-	for _, diagnostic := range assembly.Diagnostics {
-		if diagnostic.Source == ContextSourceConversation && diagnostic.Truncated {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("assembly diagnostics = %#v, want truncated conversation diagnostic", assembly.Diagnostics)
 	}
 }
 

@@ -27,20 +27,14 @@ type ContextBlock struct {
 }
 
 type SourceBudgetModel struct {
-	PreambleBytes            int
-	GlobalAgentsBytes        int
-	ProjectAgentsBytes       int
-	ProjectContextBytes      int
-	SkillBytes               int
-	DurableContextBytes      int
-	ConversationBytes        int
-	ConversationSummaryBytes int
-	ToolResultBytes          int
-	ToolSummaryBytes         int
-}
-
-type RetentionPolicy struct {
-	RecentTurns int
+	PreambleBytes       int
+	GlobalAgentsBytes   int
+	ProjectAgentsBytes  int
+	ProjectContextBytes int
+	SkillBytes          int
+	DurableContextBytes int
+	ToolResultBytes     int
+	ToolSummaryBytes    int
 }
 
 type CompactionPolicy struct {
@@ -91,7 +85,6 @@ type RequestTokenBudget struct {
 
 type AssemblyPolicy struct {
 	Budgets     SourceBudgetModel
-	Retention   RetentionPolicy
 	Compaction  CompactionPolicy
 	ToolSummary ToolSummaryPolicy
 }

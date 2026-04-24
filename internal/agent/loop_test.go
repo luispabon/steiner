@@ -838,7 +838,6 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 				},
 			},
 			Policy: prompt.AssemblyPolicy{
-				Retention:   prompt.RetentionPolicy{RecentTurns: 1},
 				Compaction:  prompt.CompactionPolicy{SummaryBytes: 256},
 				ToolSummary: prompt.ToolSummaryPolicy{MaxBytes: 32},
 			},
@@ -938,7 +937,6 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 				Budgets: prompt.SourceBudgetModel{
 					DurableContextBytes: 64,
 				},
-				Retention: prompt.RetentionPolicy{RecentTurns: 1},
 				Compaction: prompt.CompactionPolicy{
 					SummaryBytes: 64,
 				},
@@ -967,67 +965,6 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 	}
 	if containsString(kinds, "compaction") {
 		t.Fatalf("diagnostic kinds = %v, want no compaction event at this stage", kinds)
-	}
-}
-
-func TestRunnerEmitsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
-	providerStub := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{
-				Message: provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: "done",
-				},
-				FinishReason: "stop",
-			},
-		},
-	}
-	executor := &fakeExecutor{}
-
-	var events []output.Event
-	_, err := NewRunner().Run(context.Background(), RunRequest{
-		Provider: providerStub,
-		Executor: executor,
-		Prompt: prompt.AssemblyOptions{
-			Conversation: []provider.Message{
-				{Role: provider.MessageRoleUser, Content: "older request"},
-				{Role: provider.MessageRoleAssistant, Content: "older reply"},
-				{Role: provider.MessageRoleUser, Content: "retained request payload"},
-				{Role: provider.MessageRoleAssistant, Content: "retained reply payload"},
-			},
-			Policy: prompt.AssemblyPolicy{
-				Budgets: prompt.SourceBudgetModel{
-					ConversationBytes: 12,
-				},
-				Retention: prompt.RetentionPolicy{RecentTurns: 1},
-				Compaction: prompt.CompactionPolicy{
-					SummaryBytes: 64,
-				},
-			},
-		},
-		Limits: Limits{MaxTurns: 2, MaxTokens: 100},
-		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
-	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-
-	foundConversationBudget := false
-	for _, event := range events {
-		if event.Type != output.EventTypeContextDiagnostics {
-			continue
-		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-		}
-		if payload.Kind == "budget" && payload.Scope == string(prompt.ContextSourceConversation) && payload.Truncated {
-			foundConversationBudget = true
-			break
-		}
-	}
-	if !foundConversationBudget {
-		t.Fatalf("events = %#v, want truncated conversation budget diagnostic", events)
 	}
 }
 
@@ -1138,7 +1075,6 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 60)},
 			},
 			Policy: prompt.AssemblyPolicy{
-				Retention:  prompt.RetentionPolicy{RecentTurns: 1},
 				Compaction: prompt.CompactionPolicy{SummaryBytes: 128},
 			},
 		},
