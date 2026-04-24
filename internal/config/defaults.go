@@ -11,6 +11,7 @@ func defaultConfig() Config {
 				Type:                "openai_compat",
 				BaseURL:             "http://localhost:11434/v1",
 				APIKey:              "",
+				Model:               "qwen3-35b-a3b",
 				MaxCompletionTokens: 8192,
 				ContextSize:         32768,
 				Compaction: CompactionConfig{
