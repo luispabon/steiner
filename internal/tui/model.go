@@ -55,6 +55,8 @@ type Model struct {
 	completionCandidates []string
 	completionIdx        int
 	helpVisible          bool
+	showThinking         bool
+	accentPreset         string
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -93,6 +95,12 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		t = theme.Default()
 	}
 
+	// Resolve accent hex from preset name
+	accentHex := theme.AccentPresets[cfg.AccentPreset]
+	if accentHex == "" {
+		accentHex = theme.AccentPresets["amber"] // fallback
+	}
+
 	m := Model{
 		width:            80,
 		height:           24,
@@ -114,10 +122,12 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onModelSwitch:    cfg.OnModelSwitch,
 		onClear:          cfg.OnClear,
 		activeTheme:      t,
-		styles:           t.LipGlossStyles(),
+		styles:           theme.BuildStyles(accentHex),
 		inputHistory:     []string{},
 		historyIdx:       0,
 		historyDraft:     "",
+		showThinking:     cfg.ShowThinking,
+		accentPreset:     cfg.AccentPreset,
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
