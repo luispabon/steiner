@@ -70,7 +70,6 @@ func (m mochaTheme) SyntaxOperator() lipgloss.Color {
 }
 
 func (m mochaTheme) LipGlossStyles() Styles {
-	baseHex := catppuccingo.Mocha.Base().Hex
 	mantleHex := catppuccingo.Mocha.Mantle().Hex
 	textHex := catppuccingo.Mocha.Text().Hex
 	lavenderHex := catppuccingo.Mocha.Lavender().Hex
@@ -86,7 +85,6 @@ func (m mochaTheme) LipGlossStyles() Styles {
 
 	return Styles{
 		ContentPane: lipgloss.NewStyle().
-			Background(lipgloss.Color(baseHex)).
 			Foreground(lipgloss.Color(textHex)),
 		Sidebar: lipgloss.NewStyle().
 			Background(lipgloss.Color(mantleHex)).
@@ -109,7 +107,6 @@ func (m mochaTheme) LipGlossStyles() Styles {
 			Foreground(lipgloss.Color(overlay1Hex)).
 			Italic(true),
 		AssistantProse: lipgloss.NewStyle().
-			Background(lipgloss.Color(baseHex)).
 			Foreground(lipgloss.Color(textHex)),
 		ApprovalHighlight: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(yellowHex)).
@@ -133,7 +130,6 @@ func (m mochaTheme) LipGlossStyles() Styles {
 }
 
 func (m mochaTheme) GlamourStyleSheet() glamour.TermRendererOption {
-	baseHex := catppuccingo.Mocha.Base().Hex
 	textHex := catppuccingo.Mocha.Text().Hex
 	mantleHex := catppuccingo.Mocha.Mantle().Hex
 	lavenderHex := catppuccingo.Mocha.Lavender().Hex
@@ -149,8 +145,7 @@ func (m mochaTheme) GlamourStyleSheet() glamour.TermRendererOption {
 	return glamour.WithStyles(ansi.StyleConfig{
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				BackgroundColor: ptrStr(baseHex),
-				Color:           ptrStr(textHex),
+				Color: ptrStr(textHex),
 			},
 			Margin: ptrUint(0),
 		},
