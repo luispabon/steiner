@@ -11,6 +11,7 @@ type Config struct {
 	ModelNames       []string
 	ModelContexts    map[string]int
 	ProviderBaseURL  string
+	HomeDir          string
 	WorkingDir       string
 	MaxTurns         int
 	SkillNames       []string

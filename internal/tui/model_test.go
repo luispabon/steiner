@@ -38,11 +38,32 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if got := m.sidebar.budgetUsed; got != 164 {
 		t.Fatalf("sidebar.budgetUsed = %d, want 164", got)
 	}
-	for got, want := m.sidebar.promptSummary(), "100/4096 2%"; got != want; {
-		t.Fatalf("sidebar.promptSummary() = %q, want %q", got, want)
+	lines := m.sidebar.lines(38)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Compaction: idle",
+		"[",
+		"] 2%",
+		"100 / 4096",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("sidebar = %q, want %q", joined, want)
+		}
 	}
-	for got, want := m.sidebar.budgetSummary(), "164/4096 4%"; got != want; {
-		t.Fatalf("sidebar.budgetSummary() = %q, want %q", got, want)
+	if strings.Contains(joined, "Budget") {
+		t.Fatalf("sidebar = %q, want no Budget row", joined)
+	}
+	if strings.Contains(joined, "* ") {
+		t.Fatalf("sidebar = %q, want no bullet prefixes", joined)
+	}
+	if strings.Contains(joined, "Prompt") {
+		t.Fatalf("sidebar = %q, want no Prompt header", joined)
+	}
+	if strings.Contains(joined, "Turn:") {
+		t.Fatalf("sidebar = %q, want no Turn row", joined)
+	}
+	if !strings.Contains(joined, "Compaction: idle\n\n") {
+		t.Fatalf("sidebar = %q, want blank line after compaction", joined)
 	}
 }
 
@@ -82,9 +103,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected configured skills to start enabled")
 	}
-	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
-		t.Fatalf("sidebar.activeSkills = %#v, want review enabled by default", got)
-	}
 
 	m.input.SetValue("fix the bug")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -97,9 +115,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
 	}
-	if len(m.sidebar.activeSkills) != 0 {
-		t.Fatalf("sidebar.activeSkills = %#v, want none enabled", m.sidebar.activeSkills)
-	}
 	if len(toggled) != 1 || toggled[0] != "review" {
 		t.Fatalf("toggled = %#v, want review", toggled)
 	}
@@ -108,9 +123,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be enabled")
-	}
-	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
-		t.Fatalf("sidebar.activeSkills = %#v, want review enabled", got)
 	}
 }
 

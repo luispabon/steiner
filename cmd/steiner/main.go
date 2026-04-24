@@ -205,6 +205,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		ModelNames:      modelAliasNames(rt.cfg.Models),
 		ModelContexts:   modelContextSizes(rt.cfg.Models),
 		ProviderBaseURL: selected.BaseURL,
+		HomeDir:         rt.homeDir,
 		WorkingDir:      rt.workDir,
 		MaxTurns:        0,
 		SkillNames:      rt.skillNames,
