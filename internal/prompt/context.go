@@ -9,17 +9,6 @@ import (
 
 const defaultProjectContextBudgetBytes = 2000
 
-var defaultProjectContextFiles = []string{
-	"README.md",
-	"README",
-	"README.txt",
-	"go.mod",
-	"package.json",
-	"Cargo.toml",
-	"pyproject.toml",
-	"Makefile",
-}
-
 type ProjectContextOptions struct {
 	Root        string
 	BudgetBytes int
@@ -42,9 +31,7 @@ func GatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 	blocks := make([]ContextBlock, 0)
 	remaining := budget
 
-	candidates := make([]string, 0, len(defaultProjectContextFiles)+len(opts.ExtraFiles))
-	candidates = append(candidates, defaultProjectContextFiles...)
-	candidates = append(candidates, opts.ExtraFiles...)
+	candidates := append([]string(nil), opts.ExtraFiles...)
 
 	for _, candidate := range candidates {
 		if remaining <= 0 {

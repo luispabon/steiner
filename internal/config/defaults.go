@@ -52,8 +52,8 @@ func defaultConfig() Config {
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
 			MaxTokens:   2000,
-			ExtraFiles:  []string{},
-			IgnoreFiles: []string{},
+			ExtraFiles:  nil,
+			IgnoreFiles: nil,
 		},
 		Paths: PathsConfig{
 			ProjectRootOnly: true,

@@ -32,6 +32,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "how do I fix this?"}, {Role: provider.MessageRoleAssistant, Content: "use the tools"}},
 		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result"}},
 		ProjectContextBudgetBytes: 1024,
+		ProjectContextExtraFiles:  []string{"README.md", "go.mod"},
 	})
 	if err != nil {
 		t.Fatalf("Assemble() error = %v", err)
@@ -144,6 +145,7 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	blocks, err := GatherProjectContext(ProjectContextOptions{
 		Root:        projectRoot,
 		BudgetBytes: 5,
+		ExtraFiles:  []string{"README.md", "go.mod"},
 	})
 	if err != nil {
 		t.Fatalf("GatherProjectContext() error = %v", err)
@@ -160,6 +162,25 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 	if got, want := blocks[0].ByteSize, 5; got != want {
 		t.Fatalf("block bytes = %d, want %d", got, want)
+	}
+}
+
+func TestGatherProjectContextDoesNotLoadImplicitFilesByDefault(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	mustWrite(t, projectRoot, "README.md", "project readme")
+	mustWrite(t, projectRoot, "go.mod", "module example.com/test\n")
+
+	blocks, err := GatherProjectContext(ProjectContextOptions{
+		Root:        projectRoot,
+		BudgetBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("GatherProjectContext() error = %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("len(blocks) = %d, want 0 with no explicit extra files", len(blocks))
 	}
 }
 

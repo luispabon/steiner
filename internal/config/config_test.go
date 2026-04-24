@@ -3,9 +3,21 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
+	cfg := defaultConfig()
+
+	if !reflect.DeepEqual(cfg.ProjectContext.ExtraFiles, []string(nil)) {
+		t.Fatalf("project_context.extra_files = %#v, want nil", cfg.ProjectContext.ExtraFiles)
+	}
+	if !reflect.DeepEqual(cfg.ProjectContext.IgnoreFiles, []string(nil)) {
+		t.Fatalf("project_context.ignore_files = %#v, want nil", cfg.ProjectContext.IgnoreFiles)
+	}
+}
 
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
