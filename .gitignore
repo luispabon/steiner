@@ -4,3 +4,4 @@
 bin
 *.log
 test_config.yaml
+tmp/

@@ -72,6 +72,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeContextDiagnostics:
 		b.finishStreaming()
+		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
+			switch payload.Kind {
+			case "compaction", "session_health":
+				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
+			}
+		}
 		return
 	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,

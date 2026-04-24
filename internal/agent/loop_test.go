@@ -199,6 +199,96 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	}
 }
 
+func TestRunnerFallsBackToEstimatorWhenUsageIsMissing(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "estimate the fallback"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		Model:     "test-model",
+		MaxTokens: intPtr(32),
+		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:    output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	estimated, err := provider.EstimateChatRequestTokens(context.Background(), providerStub.requests[0])
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if got, want := state.TokenCount, estimated; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+}
+
+func TestRunnerPrefersReportedUsageOverFallbackEstimate(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 1},
+			},
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "prefer usage when it is reported"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		Model:     "test-model",
+		MaxTokens: intPtr(32),
+		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:    output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	estimated, err := provider.EstimateChatRequestTokens(context.Background(), providerStub.requests[0])
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if got, want := state.TokenCount, 1; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+	if got := state.TokenCount; got == estimated {
+		t.Fatalf("TokenCount = %d, want usage to override fallback estimate %d", got, estimated)
+	}
+}
+
 func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -383,7 +473,7 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix"}},
 		},
-		Limits: Limits{MaxTurns: 3, MaxTokens: 10},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 1000},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -618,7 +708,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
-		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 1000},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
@@ -747,7 +837,7 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 				ToolSummary: prompt.ToolSummaryPolicy{MaxBytes: 32},
 			},
 		},
-		Limits: Limits{MaxTurns: 8, MaxTokens: 100},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 2000},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -759,10 +849,14 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 
-	first := len(providerStub.requests[0].Messages)
-	last := len(providerStub.requests[len(providerStub.requests)-1].Messages)
-	if got := last - first; got > 3 {
-		t.Fatalf("prompt grew by %d messages, want bounded growth", got)
+	if got, want := len(state.Lineage.Generations), 1; got != want {
+		t.Fatalf("lineage generations = %d, want %d", got, want)
+	}
+	if got, want := len(state.Lineage.FullMessages()), len(state.Conversation); got != want {
+		t.Fatalf("lineage/full conversation len = %d, want %d", got, want)
+	}
+	if got, want := state.Lineage.FullMessages()[0].Content, "start"; got != want {
+		t.Fatalf("lineage first message = %q, want %q", got, want)
 	}
 
 	lastRequest := providerStub.requests[len(providerStub.requests)-1].Messages
@@ -772,18 +866,8 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	if !messageContentsContain(lastRequest, "keep prompt assembly policy-driven") {
 		t.Fatalf("last request did not retain active focus: %#v", lastRequest)
 	}
-	if len(state.Context.RetainedSummaries) == 0 {
-		t.Fatal("retained summaries = 0, want at least 1")
-	}
-	foundToolSummary := false
-	for _, summary := range state.Context.RetainedSummaries {
-		if strings.Contains(summary.Text, "read") && strings.Contains(summary.Text, "alpha") {
-			foundToolSummary = true
-			break
-		}
-	}
-	if !foundToolSummary {
-		t.Fatalf("retained summaries = %#v, want compacted tool-call details", state.Context.RetainedSummaries)
+	if got, want := state.Context.ActiveFocus.Text, "keep prompt assembly policy-driven"; got != want {
+		t.Fatalf("ActiveFocus = %q, want %q", got, want)
 	}
 }
 
@@ -875,8 +959,8 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
 	}
-	if !containsString(kinds, "compaction") {
-		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
+	if containsString(kinds, "compaction") {
+		t.Fatalf("diagnostic kinds = %v, want no compaction event at this stage", kinds)
 	}
 }
 
@@ -941,127 +1025,419 @@ func TestRunnerEmitsDiagnosticsForTruncatedRetainedConversation(t *testing.T) {
 	}
 }
 
-func TestCompactConversationStateRecordsSummaryAndPreservesDurableContext(t *testing.T) {
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "turn one user"},
-			{Role: MessageRoleAssistant, Content: "turn one assistant"},
-			{Role: MessageRoleUser, Content: "turn two user"},
-			{Role: MessageRoleAssistant, Content: "turn two assistant"},
-			{Role: MessageRoleUser, Content: "turn three user"},
-			{Role: MessageRoleAssistant, Content: "turn three assistant"},
-			{Role: MessageRoleUser, Content: "turn four user"},
-			{Role: MessageRoleAssistant, Content: "turn four assistant"},
-			{Role: MessageRoleUser, Content: "turn five user"},
-			{Role: MessageRoleAssistant, Content: "turn five assistant"},
+func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: strings.Repeat("first compaction summary ", 40),
+				},
+				FinishReason: "stop",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "second summary keeps the intent but is much shorter",
+				},
+				FinishReason: "stop",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
 		},
-		Context: ContextState{
-			ActiveConstraints: []ActiveConstraint{{Text: "do not change public APIs", Source: "user", Turn: 1}},
-			UnresolvedWork:    []UnresolvedWorkItem{{Text: "tighten retry handling", Source: "assistant", Turn: 2}},
-			ActiveFocus:       &ActiveFocus{Text: "finish compaction diagnostics", Source: "assistant", Turn: 3},
+	}
+	executor := &fakeExecutor{}
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         320,
+			MaxCompletionTokens: 32,
+			SummaryMaxTokens:    32,
 		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 18)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 16)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 14)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 12)},
+			},
+			ToolResults: []provider.Message{
+				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 60)},
+			},
+			Policy: prompt.AssemblyPolicy{
+				Retention:  prompt.RetentionPolicy{RecentTurns: 1},
+				Compaction: prompt.CompactionPolicy{SummaryBytes: 128},
+			},
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 400},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 3; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := len(state.Lineage.Generations), 3; got != want {
+		t.Fatalf("lineage generations = %d, want %d", got, want)
+	}
+	if got, want := state.Lineage.Generations[2].SummaryPrefix[0].Content, "second summary keeps the intent but is much shorter"; got != want {
+		t.Fatalf("latest summary prefix = %q, want %q", got, want)
 	}
 
-	next := compactConversationState(state, 5, 2, output.NoopSink{})
-
-	if got, want := len(next.Conversation), 4; got != want {
-		t.Fatalf("Conversation len = %d, want %d", got, want)
+	var compactionCount int
+	var sessionHealthCount int
+	var budgetCount int
+	var compactionCounts []int
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+		}
+		switch payload.Kind {
+		case "compaction":
+			compactionCount++
+			compactionCounts = append(compactionCounts, payload.CompactionCount)
+			if payload.Severity == "" {
+				t.Fatalf("compaction payload = %#v, want severity", payload)
+			}
+			if payload.SessionState == "" {
+				t.Fatalf("compaction payload = %#v, want session state", payload)
+			}
+			if payload.RestartGuidance == "" {
+				t.Fatalf("compaction payload = %#v, want restart guidance", payload)
+			}
+		case "session_health":
+			sessionHealthCount++
+			if payload.CompactionCount == 0 {
+				t.Fatalf("session health payload = %#v, want compaction count", payload)
+			}
+			if payload.Severity == "" {
+				t.Fatalf("session health payload = %#v, want severity", payload)
+			}
+		case "budget":
+			if payload.PromptTokens > 0 || payload.TotalTokens > 0 {
+				budgetCount++
+			}
+		}
 	}
-	if got, want := next.Conversation[0].Content, "turn four user"; got != want {
-		t.Fatalf("retained conversation[0] = %q, want %q", got, want)
+	if got, want := compactionCount, 2; got != want {
+		t.Fatalf("compaction events = %d, want %d", got, want)
 	}
-	if got, want := next.Conversation[3].Content, "turn five assistant"; got != want {
-		t.Fatalf("retained conversation[3] = %q, want %q", got, want)
+	if got, want := sessionHealthCount, 2; got != want {
+		t.Fatalf("session health events = %d, want %d", got, want)
 	}
-	if got, want := len(next.Context.RetainedSummaries), 1; got != want {
-		t.Fatalf("RetainedSummaries len = %d, want %d", got, want)
+	if got, want := len(compactionCounts), 2; got != want {
+		t.Fatalf("compaction counts = %v, want %d entries", compactionCounts, want)
 	}
-	summary := next.Context.RetainedSummaries[0]
-	if got, want := summary.Title, "compacted conversation history"; got != want {
-		t.Fatalf("summary title = %q, want %q", got, want)
+	if got, want := compactionCounts[0], 1; got != want {
+		t.Fatalf("first compaction count = %d, want %d", got, want)
 	}
-	if got, want := summary.Source, "loop_compaction"; got != want {
-		t.Fatalf("summary source = %q, want %q", got, want)
+	if got, want := compactionCounts[1], 2; got != want {
+		t.Fatalf("second compaction count = %d, want %d", got, want)
 	}
-	if got, want := summary.Turn, 5; got != want {
-		t.Fatalf("summary turn = %d, want %d", got, want)
-	}
-	if !strings.Contains(summary.Text, "turn one user") || !strings.Contains(summary.Text, "turn three assistant") {
-		t.Fatalf("summary text = %q, want dropped turns excerpt", summary.Text)
-	}
-	if got, want := next.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
-		t.Fatalf("ActiveConstraints preserved = %q, want %q", got, want)
-	}
-	if got, want := next.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
-		t.Fatalf("UnresolvedWork preserved = %q, want %q", got, want)
-	}
-	if next.Context.ActiveFocus == nil {
-		t.Fatal("ActiveFocus lost during compaction")
-	}
-	if got, want := next.Context.ActiveFocus.Text, "finish compaction diagnostics"; got != want {
-		t.Fatalf("ActiveFocus preserved = %q, want %q", got, want)
+	if got, want := budgetCount, 2; got != want {
+		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
 	}
 }
 
-func TestCompactConversationStateAppendsRetainedSummariesAcrossPasses(t *testing.T) {
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "turn one user"},
-			{Role: MessageRoleAssistant, Content: "turn one assistant"},
-			{Role: MessageRoleUser, Content: "turn two user"},
-			{Role: MessageRoleAssistant, Content: "turn two assistant"},
-			{Role: MessageRoleUser, Content: "turn three user"},
-			{Role: MessageRoleAssistant, Content: "turn three assistant"},
-			{Role: MessageRoleUser, Content: "turn four user"},
-			{Role: MessageRoleAssistant, Content: "turn four assistant"},
+func TestCompactionEscalationPolicy(t *testing.T) {
+	stableFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 460}
+	fragileFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 560}
+
+	tests := []struct {
+		name         string
+		count        int
+		fit          prompt.RequestTokenBudget
+		wantSeverity string
+		wantState    string
+	}{
+		{
+			name:         "first compaction stays informational when healthy",
+			count:        1,
+			fit:          stableFit,
+			wantSeverity: "info",
+			wantState:    "stable",
+		},
+		{
+			name:         "second compaction warns when healthy",
+			count:        2,
+			fit:          stableFit,
+			wantSeverity: "warning",
+			wantState:    "fragile",
+		},
+		{
+			name:         "third compaction is critical when healthy",
+			count:        3,
+			fit:          stableFit,
+			wantSeverity: "critical",
+			wantState:    "likely_lossy",
+		},
+		{
+			name:         "first compaction escalates early when fragile",
+			count:        1,
+			fit:          fragileFit,
+			wantSeverity: "warning",
+			wantState:    "fragile",
+		},
+		{
+			name:         "second compaction becomes critical when fragile",
+			count:        2,
+			fit:          fragileFit,
+			wantSeverity: "critical",
+			wantState:    "likely_lossy",
 		},
 	}
 
-	first := compactConversationState(state, 4, 2, output.NoopSink{})
-	first.Conversation = append(first.Conversation,
-		Message{Role: MessageRoleUser, Content: "turn five user"},
-		Message{Role: MessageRoleAssistant, Content: "turn five assistant"},
-		Message{Role: MessageRoleUser, Content: "turn six user"},
-		Message{Role: MessageRoleAssistant, Content: "turn six assistant"},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			escalation := compactionEscalationForFit(tt.count, tt.fit)
+			if got, want := escalation.Severity, tt.wantSeverity; got != want {
+				t.Fatalf("severity = %q, want %q", got, want)
+			}
+			if got, want := escalation.SessionState, tt.wantState; got != want {
+				t.Fatalf("session state = %q, want %q", got, want)
+			}
+			if strings.TrimSpace(escalation.RestartGuidance) == "" {
+				t.Fatal("restart guidance = empty, want non-empty")
+			}
+		})
+	}
+}
+
+func TestCompactionCandidateFallbackKeepsRicherGenerationWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "gen1 user one"},
+				{Role: MessageRoleAssistant, Content: "gen1 assistant one"},
+				{Role: MessageRoleUser, Content: "gen1 user two"},
+			}),
+			newConversationGeneration(2, []Message{
+				{Role: MessageRoleSummary, Content: "gen2 summary prefix"},
+			}, []Message{
+				{Role: MessageRoleUser, Content: "gen2 retained user"},
+				{Role: MessageRoleAssistant, Content: "gen2 retained assistant"},
+			}),
+			newConversationGeneration(3, []Message{
+				{Role: MessageRoleSummary, Content: "gen3 summary prefix"},
+			}, []Message{
+				{Role: MessageRoleUser, Content: "gen3 retained user"},
+			}),
+		},
+	}
+
+	candidate, ok := selectCompactionCandidate(lineage, map[string]bool{
+		compactionCandidateKey(ConversationCandidate{GenerationID: 1, View: ConversationViewFull}): true,
+	})
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	if got, want := candidate.GenerationID, 2; got != want {
+		t.Fatalf("candidate generation = %d, want %d", got, want)
+	}
+	if got, want := candidate.View, ConversationViewFull; got != want {
+		t.Fatalf("candidate view = %q, want %q", got, want)
+	}
+
+	retained := retainedMessagesForCandidate(lineage, candidate)
+	if got, want := len(retained), 2; got != want {
+		t.Fatalf("retained messages = %d, want %d", got, want)
+	}
+	if got, want := retained[0].Content, "gen2 retained user"; got != want {
+		t.Fatalf("retained[0] = %q, want %q", got, want)
+	}
+	if got, want := retained[1].Content, "gen2 retained assistant"; got != want {
+		t.Fatalf("retained[1] = %q, want %q", got, want)
+	}
+}
+
+func TestConversationGenerationViewsArePrefixAware(t *testing.T) {
+	generation := newConversationGeneration(7,
+		[]Message{
+			{Role: MessageRoleSummary, Content: "summary prefix one"},
+			{Role: MessageRoleSummary, Content: "summary prefix two"},
+		},
+		[]Message{
+			{Role: MessageRoleUser, Content: "raw user"},
+			{Role: MessageRoleAssistant, Content: "raw assistant"},
+		},
 	)
-	second := compactConversationState(first, 6, 2, output.NoopSink{})
 
-	if got, want := len(second.Context.RetainedSummaries), 2; got != want {
-		t.Fatalf("RetainedSummaries len = %d, want %d", got, want)
+	full := generation.FullMessages()
+	if got, want := len(full), 4; got != want {
+		t.Fatalf("full len = %d, want %d", got, want)
 	}
-	if got := second.Context.RetainedSummaries[0].Text; !strings.Contains(got, "turn one user") || !strings.Contains(got, "turn two assistant") {
-		t.Fatalf("first retained summary = %q, want earliest compacted history", got)
+	if got, want := full[0].Content, "summary prefix one"; got != want {
+		t.Fatalf("full[0] = %q, want %q", got, want)
 	}
-	if got := second.Context.RetainedSummaries[1].Text; !strings.Contains(got, "turn three user") || !strings.Contains(got, "turn four assistant") {
-		t.Fatalf("second retained summary = %q, want later compacted history", got)
+	if got, want := full[3].Content, "raw assistant"; got != want {
+		t.Fatalf("full[3] = %q, want %q", got, want)
+	}
+
+	stripped := generation.SummaryPrefixStrippedMessages()
+	if got, want := len(stripped), 2; got != want {
+		t.Fatalf("stripped len = %d, want %d", got, want)
+	}
+	if got, want := stripped[0].Content, "raw user"; got != want {
+		t.Fatalf("stripped[0] = %q, want %q", got, want)
+	}
+	if got, want := stripped[1].Content, "raw assistant"; got != want {
+		t.Fatalf("stripped[1] = %q, want %q", got, want)
+	}
+
+	full[0].Content = "changed"
+	stripped[0].Content = "changed"
+	if got, want := generation.SummaryPrefix[0].Content, "summary prefix one"; got != want {
+		t.Fatalf("generation summary prefix mutated = %q, want %q", got, want)
+	}
+	if got, want := generation.Messages[0].Content, "raw user"; got != want {
+		t.Fatalf("generation raw messages mutated = %q, want %q", got, want)
 	}
 }
 
-func TestRetainConversationTailKeepsMatchingUserTurn(t *testing.T) {
-	messages := []Message{
-		{Role: MessageRoleUser, Content: "first request"},
-		{Role: MessageRoleAssistant, Content: "first reply"},
-		{Role: MessageRoleTool, Content: "first tool"},
-		{Role: MessageRoleUser, Content: "second request"},
-		{Role: MessageRoleAssistant, Content: "second reply"},
-		{Role: MessageRoleTool, Content: "second tool"},
+func TestConversationLineageChoosesHighestFidelityCandidateDeterministically(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "gen1 user"},
+				{Role: MessageRoleAssistant, Content: "gen1 assistant"},
+			}),
+			newConversationGeneration(2,
+				[]Message{{Role: MessageRoleSummary, Content: "summary for gen2"}},
+				[]Message{
+					{Role: MessageRoleUser, Content: "gen2 user"},
+					{Role: MessageRoleAssistant, Content: "gen2 assistant"},
+				},
+			),
+			newConversationGeneration(3,
+				[]Message{
+					{Role: MessageRoleSummary, Content: "summary for gen2"},
+					{Role: MessageRoleSummary, Content: "summary for gen3"},
+				},
+				[]Message{
+					{Role: MessageRoleUser, Content: "gen3 user"},
+					{Role: MessageRoleAssistant, Content: "gen3 assistant"},
+				},
+			),
+		},
+		NextGenerationID: 4,
 	}
 
-	retained, dropped := retainConversationTail(messages, 1)
-	if got, want := len(dropped), 3; got != want {
-		t.Fatalf("dropped len = %d, want %d", got, want)
+	candidates := lineage.Candidates()
+	if got, want := len(candidates), 5; got != want {
+		t.Fatalf("candidate count = %d, want %d", got, want)
 	}
-	if got, want := retained[0].Role, MessageRoleUser; got != want {
-		t.Fatalf("retained[0].role = %q, want %q", got, want)
+	if got, want := candidates[0].GenerationID, 3; got != want {
+		t.Fatalf("candidate[0] generation = %d, want %d", got, want)
 	}
-	if got, want := retained[0].Content, "second request"; got != want {
-		t.Fatalf("retained[0].content = %q, want %q", got, want)
+	if got, want := candidates[0].View, ConversationViewFull; got != want {
+		t.Fatalf("candidate[0] view = %q, want %q", got, want)
 	}
-	if got, want := retained[1].Content, "second reply"; got != want {
-		t.Fatalf("retained[1].content = %q, want %q", got, want)
+	if got, want := candidates[1].View, ConversationViewSummaryPrefixStripped; got != want {
+		t.Fatalf("candidate[1] view = %q, want %q", got, want)
 	}
-	if got, want := retained[2].Content, "second tool"; got != want {
-		t.Fatalf("retained[2].content = %q, want %q", got, want)
+	if got, want := candidates[1].Messages[0].Content, "gen3 user"; got != want {
+		t.Fatalf("candidate[1] first message = %q, want %q", got, want)
+	}
+	if got, want := candidates[2].GenerationID, 2; got != want {
+		t.Fatalf("candidate[2] generation = %d, want %d", got, want)
+	}
+
+	candidate, ok := lineage.HighestFidelityCandidate(func(messages []Message) bool {
+		return len(messages) <= 2
+	})
+	if !ok {
+		t.Fatal("HighestFidelityCandidate() ok = false, want true")
+	}
+	if got, want := candidate.GenerationID, 3; got != want {
+		t.Fatalf("candidate generation = %d, want %d", got, want)
+	}
+	if got, want := candidate.View, ConversationViewSummaryPrefixStripped; got != want {
+		t.Fatalf("candidate view = %q, want %q", got, want)
+	}
+	if got, want := len(candidate.Messages), 2; got != want {
+		t.Fatalf("candidate messages len = %d, want %d", got, want)
+	}
+	if got, want := candidate.Messages[0].Content, "gen3 user"; got != want {
+		t.Fatalf("candidate first message = %q, want %q", got, want)
+	}
+
+	fallback, ok := lineage.HighestFidelityCandidate(func(messages []Message) bool {
+		return len(messages) == 0
+	})
+	if !ok {
+		t.Fatal("fallback candidate ok = false, want true")
+	}
+	if got, want := fallback.GenerationID, 3; got != want {
+		t.Fatalf("fallback generation = %d, want %d", got, want)
+	}
+	if got, want := fallback.View, ConversationViewFull; got != want {
+		t.Fatalf("fallback view = %q, want %q", got, want)
+	}
+}
+
+func TestConversationLineagePruneObsoleteIsConservative(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
+			newConversationGeneration(2, []Message{{Role: MessageRoleSummary, Content: "summary"}}, []Message{{Role: MessageRoleUser, Content: "new user"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	kept := lineage.PruneObsolete()
+	if got, want := len(kept.Generations), 2; got != want {
+		t.Fatalf("kept generation count = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[0].ID, 1; got != want {
+		t.Fatalf("kept generation[0] id = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[1].ID, 2; got != want {
+		t.Fatalf("kept generation[1] id = %d, want %d", got, want)
+	}
+}
+
+func TestConversationLineagePruneGenerationsBeforeDropsOnlyProvenObsoleteHistory(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
+			newConversationGeneration(2, []Message{{Role: MessageRoleSummary, Content: "summary"}}, []Message{{Role: MessageRoleUser, Content: "new user"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	pruned := lineage.PruneGenerationsBefore(2)
+	if got, want := len(pruned.Generations), 1; got != want {
+		t.Fatalf("pruned generation count = %d, want %d", got, want)
+	}
+	if got, want := pruned.Generations[0].ID, 2; got != want {
+		t.Fatalf("pruned generation id = %d, want %d", got, want)
+	}
+	if got, want := len(pruned.FullMessages()), 2; got != want {
+		t.Fatalf("pruned full message count = %d, want %d", got, want)
+	}
+	if got, want := pruned.FullMessages()[0].Content, "summary"; got != want {
+		t.Fatalf("pruned full[0] = %q, want %q", got, want)
+	}
+	if got, want := pruned.FullMessages()[1].Content, "new user"; got != want {
+		t.Fatalf("pruned full[1] = %q, want %q", got, want)
 	}
 }
 
@@ -1073,6 +1449,9 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 		Conversation: []Message{
 			{Role: MessageRoleUser, Content: "keep working"},
 		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "keep working"},
+		}),
 		Context: ContextState{
 			ActiveConstraints: []ActiveConstraint{
 				{Text: "do not change public APIs", Source: "user", Turn: 1},
@@ -1107,6 +1486,12 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := len(withConversation.Conversation), 1; got != want {
 		t.Fatalf("Conversation len = %d, want %d", got, want)
 	}
+	if got, want := len(withConversation.Lineage.Generations), 1; got != want {
+		t.Fatalf("Lineage generations = %d, want %d", got, want)
+	}
+	if got, want := withConversation.Lineage.FullMessages()[0].Content, "new turn"; got != want {
+		t.Fatalf("Lineage full content = %q, want %q", got, want)
+	}
 	if got, want := withConversation.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
 		t.Fatalf("ActiveConstraint text = %q, want %q", got, want)
 	}
@@ -1137,6 +1522,9 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := original.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
 		t.Fatalf("original retained summary text = %q, want %q", got, want)
 	}
+	if got, want := original.Lineage.FullMessages()[0].Content, "keep working"; got != want {
+		t.Fatalf("original lineage content = %q, want %q", got, want)
+	}
 
 	withContext := original.WithContext(ContextState{
 		ActiveFocus: &ActiveFocus{
@@ -1154,5 +1542,8 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	}
 	if got, want := withContext.Context.ActiveFocus.Text, "render compacted context blocks"; got != want {
 		t.Fatalf("replacement ActiveFocus text = %q, want %q", got, want)
+	}
+	if got, want := withContext.Lineage.FullMessages()[0].Content, "keep working"; got != want {
+		t.Fatalf("WithContext lineage content = %q, want %q", got, want)
 	}
 }

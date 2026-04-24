@@ -119,11 +119,11 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
-	if m.viewport.Width != 60 {
-		t.Fatalf("viewport width = %d, want 60", m.viewport.Width)
+	if m.viewport.Width != 58 {
+		t.Fatalf("viewport width = %d, want 58 after pane chrome", m.viewport.Width)
 	}
-	if m.viewport.Height != 7 {
-		t.Fatalf("viewport height = %d, want 7", m.viewport.Height)
+	if m.viewport.Height != 5 {
+		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
 	}
 }
 

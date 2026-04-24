@@ -11,25 +11,36 @@ import (
 )
 
 type Config struct {
-	Provider       ProviderConfig        `yaml:"provider"`
-	Limits         LimitsConfig          `yaml:"limits"`
-	Approval       ApprovalConfig        `yaml:"approval"`
-	SubAgent       SubAgentConfig        `yaml:"sub_agent"`
-	Tools          map[string]ToolConfig `yaml:"tools"`
-	ProjectContext ProjectContextConfig  `yaml:"project_context"`
-	Paths          PathsConfig           `yaml:"paths"`
-	Logging        LoggingConfig         `yaml:"logging"`
+	Scheduler      SchedulerConfig        `yaml:"scheduler"`
+	Model          string                 `yaml:"model"`
+	Models         map[string]ModelConfig `yaml:"models"`
+	Limits         LimitsConfig           `yaml:"limits"`
+	Approval       ApprovalConfig         `yaml:"approval"`
+	SubAgent       SubAgentConfig         `yaml:"sub_agent"`
+	Tools          map[string]ToolConfig  `yaml:"tools"`
+	ProjectContext ProjectContextConfig   `yaml:"project_context"`
+	Paths          PathsConfig            `yaml:"paths"`
+	Logging        LoggingConfig          `yaml:"logging"`
 }
 
-type ProviderConfig struct {
-	Type                string            `yaml:"type"`
-	BaseURL             string            `yaml:"base_url"`
-	APIKey              string            `yaml:"api_key"`
-	Model               string            `yaml:"model"`
-	Models              map[string]string `yaml:"models"`
-	Temperature         float64           `yaml:"temperature"`
-	MaxCompletionTokens int               `yaml:"max_completion_tokens"`
-	Parallelism         int               `yaml:"parallelism"`
+type SchedulerConfig struct {
+	Parallelism int `yaml:"parallelism"`
+}
+
+type ModelConfig struct {
+	Type                string           `yaml:"type"`
+	BaseURL             string           `yaml:"base_url"`
+	APIKey              string           `yaml:"api_key"`
+	Model               string           `yaml:"model"`
+	Temperature         float64          `yaml:"temperature"`
+	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
+	ContextSize         int              `yaml:"context_size"`
+	Compaction          CompactionConfig `yaml:"compaction"`
+}
+
+type CompactionConfig struct {
+	SafetyMarginTokens int `yaml:"safety_margin_tokens"`
+	SummaryMaxTokens   int `yaml:"summary_max_tokens"`
 }
 
 type LimitsConfig struct {
@@ -238,25 +249,36 @@ func Load(opts LoadOptions) (Config, error) {
 }
 
 type configPatch struct {
-	Provider       *providerPatch        `yaml:"provider"`
-	Limits         *limitsPatch          `yaml:"limits"`
-	Approval       *approvalPatch        `yaml:"approval"`
-	SubAgent       *subAgentPatch        `yaml:"sub_agent"`
-	Tools          *map[string]toolPatch `yaml:"tools"`
-	ProjectContext *projectContextPatch  `yaml:"project_context"`
-	Paths          *pathsPatch           `yaml:"paths"`
-	Logging        *loggingPatch         `yaml:"logging"`
+	Scheduler      *schedulerPatch        `yaml:"scheduler"`
+	Model          *string                `yaml:"model"`
+	Models         *map[string]modelPatch `yaml:"models"`
+	Limits         *limitsPatch           `yaml:"limits"`
+	Approval       *approvalPatch         `yaml:"approval"`
+	SubAgent       *subAgentPatch         `yaml:"sub_agent"`
+	Tools          *map[string]toolPatch  `yaml:"tools"`
+	ProjectContext *projectContextPatch   `yaml:"project_context"`
+	Paths          *pathsPatch            `yaml:"paths"`
+	Logging        *loggingPatch          `yaml:"logging"`
 }
 
-type providerPatch struct {
-	Type                *string            `yaml:"type"`
-	BaseURL             *string            `yaml:"base_url"`
-	APIKey              *string            `yaml:"api_key"`
-	Model               *string            `yaml:"model"`
-	Models              *map[string]string `yaml:"models"`
-	Temperature         *float64           `yaml:"temperature"`
-	MaxCompletionTokens *int               `yaml:"max_completion_tokens"`
-	Parallelism         *int               `yaml:"parallelism"`
+type schedulerPatch struct {
+	Parallelism *int `yaml:"parallelism"`
+}
+
+type modelPatch struct {
+	Type                *string          `yaml:"type"`
+	BaseURL             *string          `yaml:"base_url"`
+	APIKey              *string          `yaml:"api_key"`
+	Model               *string          `yaml:"model"`
+	Temperature         *float64         `yaml:"temperature"`
+	MaxCompletionTokens *int             `yaml:"max_completion_tokens"`
+	ContextSize         *int             `yaml:"context_size"`
+	Compaction          *compactionPatch `yaml:"compaction"`
+}
+
+type compactionPatch struct {
+	SafetyMarginTokens *int `yaml:"safety_margin_tokens"`
+	SummaryMaxTokens   *int `yaml:"summary_max_tokens"`
 }
 
 type limitsPatch struct {
@@ -336,8 +358,21 @@ func readConfigPatch(path string, env map[string]string, allowMissing bool) (con
 }
 
 func applyPatch(cfg *Config, patch configPatch) {
-	if patch.Provider != nil {
-		applyProviderPatch(&cfg.Provider, patch.Provider)
+	if patch.Scheduler != nil {
+		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
+	}
+	if patch.Model != nil {
+		cfg.Model = *patch.Model
+	}
+	if patch.Models != nil {
+		if cfg.Models == nil {
+			cfg.Models = make(map[string]ModelConfig)
+		}
+		for name, model := range *patch.Models {
+			current := cfg.Models[name]
+			applyModelPatch(&current, &model)
+			cfg.Models[name] = current
+		}
 	}
 	if patch.Limits != nil {
 		applyLimitsPatch(&cfg.Limits, patch.Limits)
@@ -369,7 +404,13 @@ func applyPatch(cfg *Config, patch configPatch) {
 	}
 }
 
-func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
+func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
+	if patch.Parallelism != nil {
+		dst.Parallelism = *patch.Parallelism
+	}
+}
+
+func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.Type != nil {
 		dst.Type = *patch.Type
 	}
@@ -382,22 +423,26 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	if patch.Model != nil {
 		dst.Model = *patch.Model
 	}
-	if patch.Models != nil {
-		if dst.Models == nil {
-			dst.Models = make(map[string]string)
-		}
-		for k, v := range *patch.Models {
-			dst.Models[k] = v
-		}
-	}
 	if patch.Temperature != nil {
 		dst.Temperature = *patch.Temperature
 	}
 	if patch.MaxCompletionTokens != nil {
 		dst.MaxCompletionTokens = *patch.MaxCompletionTokens
 	}
-	if patch.Parallelism != nil {
-		dst.Parallelism = *patch.Parallelism
+	if patch.ContextSize != nil {
+		dst.ContextSize = *patch.ContextSize
+	}
+	if patch.Compaction != nil {
+		applyCompactionPatch(&dst.Compaction, patch.Compaction)
+	}
+}
+
+func applyCompactionPatch(dst *CompactionConfig, patch *compactionPatch) {
+	if patch.SafetyMarginTokens != nil {
+		dst.SafetyMarginTokens = *patch.SafetyMarginTokens
+	}
+	if patch.SummaryMaxTokens != nil {
+		dst.SummaryMaxTokens = *patch.SummaryMaxTokens
 	}
 }
 
@@ -518,7 +563,7 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 
 func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Model != "" {
-		cfg.Provider.Model = cli.Model
+		cfg.Model = cli.Model
 	}
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"

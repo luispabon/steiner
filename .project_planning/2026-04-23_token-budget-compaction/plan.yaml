@@ -1,0 +1,269 @@
+stages:
+  - id: stage-1
+    objective: Replace the old provider configuration model with model-alias-based runtime selection and shared scheduler settings.
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: Migrate config loading, defaults, validation, env overrides, and CLI/runtime wiring from `provider` to top-level `model`, `models`, and `scheduler.parallelism`.
+        scope: Own the breaking configuration migration and make the runtime resolve an active model alias into the selected model entry everywhere the current singular provider config is used.
+        files:
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/validate.go
+          - internal/config/env.go
+          - internal/config/config_test.go
+          - cmd/steiner/main.go
+          - cmd/steiner/main_test.go
+        constraints:
+          - Remove the old singular `provider` shape rather than supporting both schemas.
+          - Keep `STEINER_MODEL` as the alias selector for the active model.
+          - Keep scheduler concerns separate from model budgeting concerns.
+          - Preserve current transport support for `openai_compat`.
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Resolved config exposes `scheduler.parallelism`, `model`, and `models.<alias>`.
+          - Runtime and TUI use the selected model alias and its resolved backend settings.
+          - Tests cover the new config precedence and alias semantics.
+        acceptance:
+          - Loading config with the new schema succeeds and the old schema is no longer treated as valid.
+          - CLI runtime builds the provider from the resolved model entry plus scheduler settings.
+          - Existing user-facing model switching behavior now targets aliases in `models`.
+        handoff: Update config and runtime plumbing so later steps can rely on one resolved active model with context and compaction metadata.
+        verification:
+          - go test ./internal/config ./cmd/steiner
+
+  - id: stage-2
+    objective: Introduce token-budget-aware conversation lineage state and request estimation primitives.
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: Replace recent-turn retention with explicit lineage/generation state that can reconstruct the highest-fidelity compaction input still within budget.
+        scope: Own the agent-side conversation state model, including generation metadata, summary-prefix-aware views, pruning rules for permanently unusable generations, and unit tests around candidate assembly.
+        files:
+          - internal/agent/state.go
+          - internal/agent/loop.go
+          - internal/agent/loop_test.go
+          - internal/prompt/types.go
+        constraints:
+          - Use clearer internal names than `conversation_history` if better names fit the design.
+          - Each generation must expose full and summary-prefix-stripped views without caller-side slicing logic.
+          - Prune very old generations only after they are provably unusable for future recompaction and a newer generation has taken over.
+          - Do not reintroduce turn-count-based compaction triggers.
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Agent state can represent raw and summarized generations explicitly.
+          - Candidate reconstruction logic supports first, second, and later compactions with deterministic fallback.
+          - Tests cover no-duplication, no-gap, fallback, and pruning behavior.
+        acceptance:
+          - The highest-fidelity fitting candidate is chosen deterministically for compaction input.
+          - Older generations can be pruned once permanently unusable without breaking future compactions.
+          - Existing loop tests are updated to reflect lineage-based state rather than retained recent turns.
+        handoff: Establish lineage state and reconstruction rules so the compaction engine can work from canonical source material when it fits.
+        verification:
+          - go test ./internal/agent
+
+      - id: stage-2-step-2
+        objective: Add a built-in tokenizer-based request estimator with backend-usage preference and fallback logic for prompt budgeting.
+        scope: Own token estimation primitives and payload-level fit checks for requests and compaction calls, including model-level safety margin and summary budget accounting.
+        files:
+          - internal/provider/
+          - internal/prompt/
+          - internal/agent/loop.go
+          - go.mod
+          - go.sum
+        constraints:
+          - The estimator is an internal implementation detail, not user-configurable.
+          - Prefer backend-reported usage or count information when available; fall back to the internal tokenizer otherwise.
+          - Fit checks must operate on the exact intended payload shape, not only cached token arithmetic.
+          - Include completion reserve, safety margin, tool schemas, and tool outputs in budget calculations.
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Steiner has a single built-in tokenizer-based estimator wired into request budgeting.
+          - Prompt-fit and compaction-fit checks share common logic and model metadata.
+          - Tests cover fallback when backend usage is absent and budgeting with tool-heavy payloads.
+        acceptance:
+          - Request budgeting can estimate whether a normal call or compaction call fits a model's context window.
+          - Backend-reported usage is preferred when present without making it mandatory for correctness.
+          - The selected estimator dependency is integrated cleanly into the Go module graph.
+        handoff: Provide reusable token-budget calculations for both the main loop and compaction decision logic.
+        verification:
+          - go test ./internal/provider ./internal/prompt ./internal/agent
+
+  - id: stage-3
+    objective: Implement model-based compaction, structured summaries, and visible session-health warnings.
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: Replace the old dropped-history summary path with pre-request model-based compaction that uses lineage reconstruction and a fixed-heading summary format.
+        scope: Own compaction execution, summary prompt design, summary-prefix generation creation, fallback across generations, and emergency degradation when only the newest generation fits.
+        files:
+          - internal/agent/loop.go
+          - internal/agent/loop_test.go
+          - internal/prompt/compaction.go
+          - internal/prompt/assemble_test.go
+          - internal/output/debug.go
+          - internal/output/log.go
+        constraints:
+          - Compaction must happen before the next model call when budget pressure demands it.
+          - The compaction call uses the currently active model.
+          - The summary format must use fixed headings with terse bullets and preserve request intent, solution design, recent actions, unresolved decisions, and pending work.
+          - Recompaction should prefer the richest fitting lineage candidate and only fall back to more summarized generations when necessary.
+        depends_on:
+          - stage-2-step-1
+          - stage-2-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Model-based compaction replaces the old recent-turn compaction path.
+          - New generations are created with explicit summary prefixes after compaction.
+          - Diagnostics reflect token-budget-driven compaction decisions.
+        acceptance:
+          - Multiple compaction generations can be created and reused according to the approved fallback logic.
+          - The old `RecentTurns`-driven logic is gone from the live execution path.
+          - Tests cover repeated compactions and summary regeneration from higher-fidelity source material when available.
+        handoff: Wire the actual compaction behavior around the new lineage and budgeting primitives so repeated compactions degrade as gracefully as possible.
+        verification:
+          - go test ./internal/agent ./internal/prompt
+
+      - id: stage-3-step-2
+        objective: Add compaction visibility, warning escalation, and near-exhaustion user messaging in the terminal and event output.
+        scope: Own compaction-count tracking, warning escalation policy, visible restart guidance, and machine-readable event payloads for compaction and session-health state.
+        files:
+          - internal/agent/loop.go
+          - internal/output/debug.go
+          - internal/output/plain.go
+          - internal/output/log.go
+          - internal/tui/
+          - internal/output/stream_test.go
+        constraints:
+          - Inform the user on every compaction event.
+          - The second compaction must trigger a warning.
+          - The third and later compactions must trigger a strong likely-lossy warning.
+          - Thresholds should be easy-to-change code constants, not user-facing config.
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Compaction events carry explicit severity and restart guidance.
+          - TUI and stream output make repeated compaction highly visible.
+          - Tests cover escalation behavior across repeated compactions.
+        acceptance:
+          - First, second, and third-plus compactions produce distinct user-facing messaging.
+          - Severity can escalate earlier if budget viability logic determines the session is already fragile.
+          - Event payloads remain structured and testable.
+        handoff: Make compaction state visible enough that users know when to start a fresh session before fidelity collapses.
+        verification:
+          - go test ./internal/output ./internal/agent
+
+  - id: stage-4
+    objective: Replace the interim wire-payload token estimator with the definitive semantic chat estimator.
+    parallel: false
+    steps:
+      - id: stage-4-step-1
+        objective: Rework prompt/request token estimation so the fallback estimator counts semantic chat payload content and explicit bookkeeping overhead instead of marshaled JSON transport syntax.
+        scope: Own the estimator design correction across provider and prompt budgeting so the final implementation is stable at the message/tool level rather than the HTTP wire-body level.
+        files:
+          - internal/provider/
+          - internal/prompt/
+          - internal/agent/loop.go
+          - internal/agent/loop_test.go
+          - go.mod
+          - go.sum
+        constraints:
+          - Keep backend-reported usage as the preferred source when available.
+          - The fallback estimator must not directly tokenize the marshaled JSON wire request body.
+          - Count message content, tool schemas, tool-call arguments, tool results, and explicit overhead constants as needed for a conservative semantic estimate.
+          - Keep the estimator internal and non-configurable.
+        depends_on:
+          - stage-3-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Steiner uses a semantic chat/request estimator instead of wire-JSON token counting for fallback budgeting.
+          - Prompt-fit and compaction-fit checks continue to share common logic and model metadata.
+          - Tests cover tool-heavy semantic budgeting and confirm transport wrapper syntax is not the counted abstraction.
+        acceptance:
+          - Request budgeting continues to estimate whether a normal call or compaction call fits a model context window.
+          - Backend-reported usage remains preferred when present without becoming mandatory for correctness.
+          - The fallback estimator no longer depends on marshaling the OpenAI-compatible wire request body to count tokens.
+        handoff: Finalize the estimator design so the remaining docs and verification stages describe the definitive budgeting implementation.
+        verification:
+          - go test ./internal/provider ./internal/prompt ./internal/agent
+
+  - id: stage-5
+    objective: Refresh documentation and perform full verification for the completed migration.
+    parallel: false
+    steps:
+      - id: stage-5-step-1
+        objective: Update docs and examples to the new model config shape and remove references to the old provider and turn-compaction model.
+        scope: Own README and any directly relevant documentation updates tied to the implemented behavior and configuration.
+        files:
+          - README.md
+          - AGENTS.md
+          - docs/**/*.md
+        constraints:
+          - Update only documentation directly affected by the change.
+          - Do not broadly edit unrelated docs.
+          - Show the new `scheduler`, `model`, and `models` config shape.
+        depends_on:
+          - stage-1-step-1
+          - stage-4-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - User-facing docs reflect the new config schema and compaction behavior.
+          - Old provider-block examples and turn-based compaction descriptions are removed.
+        acceptance:
+          - README example config matches the implemented schema.
+          - Directly relevant docs no longer describe the removed turn-based compaction behavior.
+        handoff: Finish user-facing documentation so execution ends with a coherent public surface.
+        verification:
+          - go test ./cmd/steiner ./internal/config
+
+      - id: stage-5-step-2
+        objective: Run final repo verification and fix any fallout from the migration.
+        scope: Own formatting, broad tests, vet, and build validation across the repository after all feature work lands.
+        files:
+          - internal/config/
+          - internal/agent/
+          - internal/prompt/
+          - internal/provider/
+          - internal/output/
+          - cmd/steiner/
+          - README.md
+        constraints:
+          - Run repo-wide checks only after implementation is complete.
+          - Keep any final cleanup tightly scoped to verification fallout from this feature.
+        depends_on:
+          - stage-5-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Repository is formatted and passes the planned broad verification surface.
+        acceptance:
+          - Changed Go files are formatted.
+          - `go test ./...`, `go vet ./...`, `go build ./...`, and `make build-binaries` pass or any remaining failures are clearly attributable and documented.
+        handoff: Close the implementation with full-project verification so the reviewer does not have to rediscover obvious fallout.
+        verification:
+          - gofmt -w <changed files>
+          - go test ./...
+          - go vet ./...
+          - go build ./...
+          - make build-binaries

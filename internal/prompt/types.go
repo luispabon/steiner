@@ -47,8 +47,46 @@ type CompactionPolicy struct {
 	SummaryBytes int
 }
 
+type ConversationGenerationKind string
+
+const (
+	ConversationGenerationRaw        ConversationGenerationKind = "raw"
+	ConversationGenerationSummarized ConversationGenerationKind = "summarized"
+)
+
+// ConversationGenerationState captures one prompt-side generation snapshot with
+// an optional summary prefix and the raw messages that follow it.
+type ConversationGenerationState struct {
+	ID            int                        `json:"id"`
+	Kind          ConversationGenerationKind `json:"kind"`
+	SummaryPrefix []provider.Message         `json:"summary_prefix,omitempty"`
+	Messages      []provider.Message         `json:"messages,omitempty"`
+}
+
+// ConversationLineageState holds the ordered generation snapshots that can be
+// used to rebuild the best-fidelity compaction input.
+type ConversationLineageState struct {
+	Generations []ConversationGenerationState `json:"generations,omitempty"`
+}
+
 type ToolSummaryPolicy struct {
 	MaxBytes int
+}
+
+type ModelTokenBudget struct {
+	ContextSize         int
+	MaxCompletionTokens int
+	SafetyMarginTokens  int
+	SummaryMaxTokens    int
+}
+
+type RequestTokenBudget struct {
+	EstimatedPromptTokens    int
+	ReservedCompletionTokens int
+	SafetyMarginTokens       int
+	TotalTokens              int
+	ContextSize              int
+	Fits                     bool
 }
 
 type AssemblyPolicy struct {
@@ -85,6 +123,8 @@ type AssemblyOptions struct {
 	ProjectAgentsPath         string
 	SkillsRoot                string
 	SkillNames                []string
+	Tools                     []provider.ToolSpec
+	ModelBudget               ModelTokenBudget
 	ProjectContextBudgetBytes int
 	ProjectContextExtraFiles  []string
 	ProjectContextIgnoreFiles []string

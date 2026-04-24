@@ -123,15 +123,15 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		event output.Event
 	}{
 		{
-			name: "delegation_started",
+			name:  "delegation_started",
 			event: output.NewDelegationStartedEvent("agent-1", "secret task content here"),
 		},
 		{
-			name: "delegation_complete",
+			name:  "delegation_complete",
 			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100),
 		},
 		{
-			name: "delegation_failed",
+			name:  "delegation_failed",
 			event: output.NewDelegationFailedEvent("agent-3", "secret task", "error details"),
 		},
 	}
@@ -200,6 +200,36 @@ func TestFormatDelegationEvent(t *testing.T) {
 	}
 }
 
+func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	buffer.AppendEvent(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "warning",
+		SessionState:    "fragile",
+		CompactionCount: 2,
+		RestartGuidance: "restart soon in a fresh session; repeated compaction is making retention fragile",
+	}))
+	buffer.AppendEvent(output.NewContextSessionHealthEvent("conversation", 2, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
+
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
+	}
+	for i, segment := range buffer.segments {
+		if segment.kind != segmentThinking {
+			t.Fatalf("segment[%d] kind = %v, want segmentThinking", i, segment.kind)
+		}
+	}
+	if got := buffer.segments[0].text; !strings.Contains(got, "warning: compaction #2") || !strings.Contains(got, "restart soon") {
+		t.Fatalf("compaction text = %q, want visible warning", got)
+	}
+	if got := buffer.segments[1].text; !strings.Contains(got, "session health #2") || !strings.Contains(got, "after 2 compactions") {
+		t.Fatalf("session health text = %q, want visible health state", got)
+	}
+}
+
 func TestPluralTurns(t *testing.T) {
 	tests := []struct {
 		count int
@@ -220,4 +250,3 @@ func TestPluralTurns(t *testing.T) {
 		})
 	}
 }
-

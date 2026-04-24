@@ -53,9 +53,20 @@ func TestConfigCommandPrintsResolvedConfig(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `provider:
-  model: global-model
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 2
+model: global
+models:
+  global:
+    type: openai_compat
+    base_url: http://global.example/v1
+    model: global-backend
+    temperature: 0.1
+    max_completion_tokens: 2048
+    context_size: 8192
+    compaction:
+      safety_margin_tokens: 256
+      summary_max_tokens: 128
 limits:
   max_turns: 25
 approval:
@@ -63,8 +74,28 @@ approval:
 paths:
   project_root_only: false
 `)
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `provider:
-  model: project-model
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: project
+models:
+  project:
+    type: openai_compat
+    base_url: http://project.example/v1
+    model: project-backend
+    temperature: 0.2
+    max_completion_tokens: 4096
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 1024
+      summary_max_tokens: 512
+  cli:
+    type: openai_compat
+    base_url: http://cli.example/v1
+    model: cli-backend
+    temperature: 0.4
+    max_completion_tokens: 8192
+    context_size: 65536
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
 limits:
   max_turns: 10
 logging:
@@ -87,7 +118,7 @@ logging:
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--model", "cli-model", "--verbose", "config"})
+	cmd.SetArgs([]string{"--model", "cli", "--verbose", "config"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -97,11 +128,11 @@ logging:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Provider.Model != "cli-model" {
-		t.Fatalf("provider.model = %q, want cli-model", got.Provider.Model)
+	if got.Model != "cli" {
+		t.Fatalf("model = %q, want cli", got.Model)
 	}
-	if got.Provider.Parallelism != 2 {
-		t.Fatalf("provider.parallelism = %d, want 2", got.Provider.Parallelism)
+	if got.Scheduler.Parallelism != 2 {
+		t.Fatalf("scheduler.parallelism = %d, want 2", got.Scheduler.Parallelism)
 	}
 	if got.Limits.MaxTurns != 10 {
 		t.Fatalf("limits.max_turns = %d, want 10", got.Limits.MaxTurns)
@@ -111,6 +142,9 @@ logging:
 	}
 	if got.Paths.ProjectRootOnly {
 		t.Fatalf("paths.project_root_only = %v, want false", got.Paths.ProjectRootOnly)
+	}
+	if got.Models["cli"].Model != "cli-backend" {
+		t.Fatalf("models[cli].model = %q, want cli-backend", got.Models["cli"].Model)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -135,12 +169,12 @@ func TestConfigCommandFailsForMissingExplicitConfigPath(t *testing.T) {
 
 func TestConfigCommandFailsForInvalidConfigContent(t *testing.T) {
 	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
 	configPath := filepath.Join(tempDir, "broken.yaml")
 	writeFile(t, configPath, `provider:
   type: unsupported
-limits:
-  max_turns: 0
 `)
+	t.Setenv("HOME", homeDir)
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -152,11 +186,108 @@ limits:
 	if err == nil {
 		t.Fatal("Execute() error = nil, want invalid config error")
 	}
-	if !strings.Contains(stderr.String(), "invalid config:") {
-		t.Fatalf("stderr = %q, want invalid config error", stderr.String())
+	if !strings.Contains(stderr.String(), "parse config") {
+		t.Fatalf("stderr = %q, want parse error", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "provider.type") {
-		t.Fatalf("stderr = %q, want provider.type validation failure", stderr.String())
+	if !strings.Contains(stderr.String(), "provider") {
+		t.Fatalf("stderr = %q, want old provider schema validation failure", stderr.String())
+	}
+}
+
+func TestDefaultBuildRuntimeResolvesSelectedModelAndScheduler(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `scheduler:
+  parallelism: 7
+model: slow
+models:
+  fast:
+    type: openai_compat
+    base_url: http://fast.example/v1
+    model: fast-backend
+    temperature: 0.1
+    max_completion_tokens: 256
+    context_size: 4096
+    compaction:
+      safety_margin_tokens: 128
+      summary_max_tokens: 64
+  slow:
+    type: openai_compat
+    base_url: http://slow.example/v1
+    model: slow-backend
+    temperature: 0.3
+    max_completion_tokens: 512
+    context_size: 8192
+    compaction:
+      safety_margin_tokens: 256
+      summary_max_tokens: 128
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeDir)
+	t.Setenv("STEINER_MODEL", "slow")
+
+	oldNewScheduler := newScheduler
+	oldNewOpenAICompat := newOpenAICompat
+	t.Cleanup(func() {
+		newScheduler = oldNewScheduler
+		newOpenAICompat = oldNewOpenAICompat
+	})
+
+	var gotParallelism int
+	var gotProviderConfig provider.OpenAICompatConfig
+	newScheduler = func(parallelism int) (*provider.Scheduler, error) {
+		gotParallelism = parallelism
+		return provider.NewScheduler(parallelism)
+	}
+	newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+		gotProviderConfig = cfg
+		return &fakeProvider{}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	rt, err := defaultBuildRuntime(context.Background(), cmd, &cliFlags{})
+	if err != nil {
+		t.Fatalf("defaultBuildRuntime() error = %v", err)
+	}
+	if gotParallelism != 7 {
+		t.Fatalf("scheduler parallelism = %d, want 7", gotParallelism)
+	}
+	builtProvider, err := rt.providerFactory(rt.cfg.Model)
+	if err != nil {
+		t.Fatalf("providerFactory() error = %v", err)
+	}
+	if builtProvider == nil {
+		t.Fatal("providerFactory() = nil, want provider")
+	}
+	if gotProviderConfig.BaseURL != "http://slow.example/v1" {
+		t.Fatalf("provider base_url = %q, want slow alias base_url", gotProviderConfig.BaseURL)
+	}
+	if gotProviderConfig.Model != "slow-backend" {
+		t.Fatalf("provider model = %q, want slow-backend", gotProviderConfig.Model)
+	}
+	if gotProviderConfig.Scheduler == nil {
+		t.Fatal("provider scheduler = nil, want scheduler")
+	}
+	if gotProviderConfig.HTTPClient == nil {
+		t.Fatal("provider HTTP client = nil, want client")
 	}
 }
 
@@ -215,19 +346,9 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
 		_ = flags
+		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 128,
-				},
-			},
+			cfg: cfg,
 			provider: &fakeProvider{
 				responses: []provider.ChatResponse{
 					{
@@ -275,21 +396,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
 	runner := cliRunner{
 		runtime: cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 128,
-				},
-				Approval: config.ApprovalConfig{
-					Default: config.ApprovalModeAuto,
-				},
-			},
+			cfg:      testRuntimeConfig("test-model"),
 			provider: &fakeProvider{},
 			registry: tool.NewRegistry(),
 			workDir:  t.TempDir(),
@@ -331,19 +438,9 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 			return cliRuntime{}, err
 		}
 		events := output.NewMultiSink(output.NewStream(cmd.ErrOrStderr()), fileSink)
+		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 128,
-				},
-			},
+			cfg: cfg,
 			provider: loggingProvider{
 				inner: &fakeProvider{
 					responses: []provider.ChatResponse{
@@ -414,25 +511,20 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 		_ = ctx
 		_ = cmd
 		_ = flags
-		return cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				Approval: config.ApprovalConfig{
-					Default: config.ApprovalModePrompt,
-					Overrides: map[string]config.ApprovalMode{
-						"bash": config.ApprovalModePrompt,
-					},
-				},
-				Paths: config.PathsConfig{
-					ProjectRootOnly: true,
-				},
+		cfg := testRuntimeConfig("test-model")
+		cfg.Limits.MaxTurns = 4
+		cfg.Limits.MaxTokens = 64
+		cfg.Approval = config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"bash": config.ApprovalModePrompt,
 			},
+		}
+		cfg.Paths = config.PathsConfig{
+			ProjectRootOnly: true,
+		}
+		return cliRuntime{
+			cfg: cfg,
 			provider: &fakeProvider{
 				responses: []provider.ChatResponse{
 					{
@@ -491,8 +583,8 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	if !strings.Contains(got, `approval: turn=0 accepted tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} message=approved`) {
 		t.Fatalf("stdout = %q, want approval acceptance with normalized args", got)
 	}
-	if !strings.Contains(got, "final answer") {
-		t.Fatalf("stdout = %q, want final answer", got)
+	if !strings.Contains(got, "status: stopped at turn 1: reached the max token limit") {
+		t.Fatalf("stdout = %q, want explicit max token stop after approval flow", got)
 	}
 }
 
@@ -509,25 +601,20 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 		_ = ctx
 		_ = cmd
 		_ = flags
-		return cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				Approval: config.ApprovalConfig{
-					Default: config.ApprovalModePrompt,
-					Overrides: map[string]config.ApprovalMode{
-						"bash": config.ApprovalModePrompt,
-					},
-				},
-				Paths: config.PathsConfig{
-					ProjectRootOnly: true,
-				},
+		cfg := testRuntimeConfig("test-model")
+		cfg.Limits.MaxTurns = 4
+		cfg.Limits.MaxTokens = 64
+		cfg.Approval = config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+			Overrides: map[string]config.ApprovalMode{
+				"bash": config.ApprovalModePrompt,
 			},
+		}
+		cfg.Paths = config.PathsConfig{
+			ProjectRootOnly: true,
+		}
+		return cliRuntime{
+			cfg: cfg,
 			provider: &fakeProvider{
 				responses: []provider.ChatResponse{
 					{
@@ -589,19 +676,7 @@ func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 
 	runner := cliRunner{
 		runtime: cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model:       "test-model",
-					Temperature: 0.2,
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 128,
-				},
-			},
+			cfg:      testRuntimeConfig("test-model"),
 			provider: providerStub,
 			registry: tool.NewRegistry(
 				tool.ToolDef{
@@ -658,18 +733,7 @@ func TestCLIRunnerUsesSelectedSkillSubset(t *testing.T) {
 
 	runner := cliRunner{
 		runtime: cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model: "test-model",
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  4,
-					MaxTokens: 64,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 128,
-				},
-			},
+			cfg:      testRuntimeConfig("test-model"),
 			provider: providerStub,
 			registry: tool.NewRegistry(),
 			workDir:  t.TempDir(),
@@ -724,6 +788,41 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func testRuntimeConfig(alias string) config.Config {
+	return config.Config{
+		Scheduler: config.SchedulerConfig{
+			Parallelism: 1,
+		},
+		Model: alias,
+		Models: map[string]config.ModelConfig{
+			alias: {
+				Type:                "openai_compat",
+				BaseURL:             "http://localhost:11434/v1",
+				APIKey:              "",
+				Model:               alias,
+				Temperature:         0.2,
+				MaxCompletionTokens: 64,
+				ContextSize:         4096,
+				Compaction: config.CompactionConfig{
+					SafetyMarginTokens: 16,
+					SummaryMaxTokens:   32,
+				},
+			},
+		},
+		Limits: config.LimitsConfig{
+			MaxTurns:           4,
+			MaxTokens:          64,
+			ToolTimeoutDefault: config.MustDuration("30s"),
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+		},
+		ProjectContext: config.ProjectContextConfig{
+			MaxTokens: 128,
+		},
+	}
+}
+
 func TestInteractiveSkillsSnapshotTracksEnabledSubset(t *testing.T) {
 	skills := newInteractiveSkills([]string{"review", "debug", "test"})
 	if got, want := skills.Snapshot(), []string{"review", "debug", "test"}; !reflect.DeepEqual(got, want) {
@@ -774,25 +873,16 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 
 	runner := cliRunner{
 		runtime: cliRuntime{
-			cfg: config.Config{
-				Provider: config.ProviderConfig{
-					Model:       "test-model",
-					Temperature: 0.2,
-				},
-				Limits: config.LimitsConfig{
-					MaxTurns:  6,
-					MaxTokens: 100,
-				},
-				ProjectContext: config.ProjectContextConfig{
-					MaxTokens: 64,
-				},
-				Approval: config.ApprovalConfig{
-					Default: config.ApprovalModeAuto,
-					Overrides: map[string]config.ApprovalMode{
-						"bash": config.ApprovalModeAuto,
-					},
-				},
-			},
+			cfg: func() config.Config {
+				cfg := testRuntimeConfig("test-model")
+				cfg.Limits.MaxTurns = 6
+				cfg.Limits.MaxTokens = 100
+				cfg.ProjectContext.MaxTokens = 64
+				cfg.Approval.Overrides = map[string]config.ApprovalMode{
+					"bash": config.ApprovalModeAuto,
+				}
+				return cfg
+			}(),
 			provider: providerStub,
 			registry: tool.NewRegistry(tool.ToolDef{
 				Name:       "bash",
@@ -838,11 +928,58 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
 	}
-	if !containsString(kinds, "compaction") {
-		t.Fatalf("diagnostic kinds = %v, want compaction event", kinds)
-	}
 	if !foundStopReason {
 		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
+	}
+}
+
+func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "should not be reached",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("test-model")
+	cfg.Models["test-model"] = config.ModelConfig{
+		Type:                "openai_compat",
+		BaseURL:             "http://localhost:11434/v1",
+		Model:               "test-model",
+		Temperature:         0.2,
+		MaxCompletionTokens: 64,
+		ContextSize:         1,
+		Compaction: config.CompactionConfig{
+			SafetyMarginTokens: 16,
+			SummaryMaxTokens:   8,
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
+	if err == nil {
+		t.Fatal("Run() error = nil, want context window failure")
+	}
+	if !strings.Contains(err.Error(), "request exceeds context window") {
+		t.Fatalf("Run() error = %v, want context window failure", err)
+	}
+	if got, want := len(providerStub.requests), 0; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 }
 
