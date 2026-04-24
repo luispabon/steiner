@@ -25,6 +25,8 @@ const (
 	segmentUser
 	segmentThinkingBlock
 	segmentToolCall
+	segmentApprovalPill
+	segmentCompactionBanner
 )
 
 type thinkingBlockData struct {
@@ -43,11 +45,28 @@ type toolCallSegment struct {
 	collapsed bool   // default true
 }
 
+type approvalPillData struct {
+	tool     string
+	mode     string
+	preview  string
+	resolved bool
+	accepted bool
+}
+
+type compactionBannerData struct {
+	label    string
+	subtitle string
+	finished bool
+	summary  string
+}
+
 type contentSegment struct {
-	kind      contentSegmentKind
-	text      string
-	thinkData *thinkingBlockData // non-nil only for segmentThinkingBlock
-	toolData  *toolCallSegment   // non-nil only for segmentToolCall
+	kind           contentSegmentKind
+	text           string
+	thinkData      *thinkingBlockData    // non-nil only for segmentThinkingBlock
+	toolData       *toolCallSegment      // non-nil only for segmentToolCall
+	approvalData   *approvalPillData     // non-nil only for segmentApprovalPill
+	compactionData *compactionBannerData // non-nil only for segmentCompactionBanner
 }
 
 type contentBuffer struct {
@@ -73,8 +92,36 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 			b.appendAssistantChunk(payload.Content)
 			return
 		}
-	case output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+	case output.EventTypeApprovalRequested:
 		b.finishStreaming()
+		if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+			seg := contentSegment{
+				kind: segmentApprovalPill,
+				approvalData: &approvalPillData{
+					tool:    payload.Tool,
+					mode:    payload.Mode,
+					preview: payload.Preview,
+				},
+			}
+			b.segments = append(b.segments, seg)
+		} else {
+			b.appendStyled(formatApprovalEvent(event), segmentApproval)
+		}
+		return
+	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+		b.finishStreaming()
+		// Find the last unresolved approval pill and mark it resolved
+		accepted := event.Type == output.EventTypeApprovalAccepted
+		for i := len(b.segments) - 1; i >= 0; i-- {
+			if b.segments[i].kind == segmentApprovalPill && b.segments[i].approvalData != nil {
+				if !b.segments[i].approvalData.resolved {
+					b.segments[i].approvalData.resolved = true
+					b.segments[i].approvalData.accepted = accepted
+					return
+				}
+			}
+		}
+		// Fallback
 		b.appendStyled(formatApprovalEvent(event), segmentApproval)
 		return
 	case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
@@ -141,7 +188,24 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.finishStreaming()
 		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
 			switch payload.Kind {
-			case "compaction", "session_health":
+			case "compaction":
+				// Replace with compaction banner
+				summary := ""
+				if payload.SummaryTitle != "" {
+					summary = payload.SummaryTitle
+				} else {
+					summary = fmt.Sprintf("compacted %d turns → %d retained", payload.CompactedTurns, payload.RetainedTurns)
+				}
+				b.segments = append(b.segments, contentSegment{
+					kind: segmentCompactionBanner,
+					compactionData: &compactionBannerData{
+						label:    "Context compacted",
+						subtitle: summary,
+						finished: true,
+						summary:  summary,
+					},
+				})
+			case "session_health":
 				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 			}
 		}
@@ -510,6 +574,16 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 			return ""
 		}
 		return b.renderToolCall(segment.toolData, width)
+	case segmentApprovalPill:
+		if segment.approvalData == nil {
+			return ""
+		}
+		return b.renderApprovalPill(segment.approvalData, width)
+	case segmentCompactionBanner:
+		if segment.compactionData == nil {
+			return ""
+		}
+		return b.renderCompactionBanner(segment.compactionData, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
@@ -705,6 +779,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		return b.renderBashBody(tc, indent, innerWidth)
 	case "read":
 		return b.renderReadBody(tc, indent, innerWidth)
+	case "diff":
+		return b.renderDiffBody(tc, indent, innerWidth)
 	default:
 		// plain
 		body := b.styles.FgDim.Width(innerWidth).Render(tc.body)
@@ -734,4 +810,95 @@ func (b *contentBuffer) renderReadBody(tc *toolCallSegment, indent string, width
 		sb.WriteString(indent + lineNum + b.styles.FgDim.Render(line) + "\n")
 	}
 	return sb.String()
+}
+
+func (b *contentBuffer) renderDiffBody(tc *toolCallSegment, indent string, width int) string {
+	var sb strings.Builder
+	lines := strings.Split(tc.body, "\n")
+
+	lineNum := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			// Hunk separator
+			sb.WriteString(indent + b.styles.FgMute.Render("  ─────") + "\n")
+			continue
+		}
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			// File header - show with FgMute
+			sb.WriteString(indent + b.styles.FgMute.Render(line) + "\n")
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			lineNum++
+			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d +", lineNum))
+			content := b.styles.Added.Render(line[1:])
+			sb.WriteString(indent + gutter + " " + content + "\n")
+		} else if strings.HasPrefix(line, "-") {
+			lineNum++
+			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d -", lineNum))
+			content := b.styles.Removed.Render(line[1:])
+			sb.WriteString(indent + gutter + " " + content + "\n")
+		} else if strings.HasPrefix(line, " ") {
+			lineNum++
+			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d  ", lineNum))
+			content := b.styles.FgDim.Render(line[1:])
+			sb.WriteString(indent + gutter + " " + content + "\n")
+		}
+	}
+	return sb.String()
+}
+
+func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
+	if ad.resolved {
+		// Dashed resolved state
+		status := "✗ denied"
+		if ad.accepted {
+			status = "✓ approved"
+		}
+		label := ad.tool
+		if ad.mode != "" {
+			label += " · " + ad.mode
+		}
+		line := b.styles.FgDim.Render(label + " — " + status)
+		// Approximate dashed border with · chars
+		dash := strings.Repeat("·", maxInt(0, width-4))
+		return b.styles.FgFaint.Render(dash) + "\n" + "  " + line + "\n"
+	}
+
+	// Unresolved: left accent bar + content
+	bar := b.styles.AccentLine.Render("│")
+
+	// Build question text
+	label := "approval required"
+	if ad.tool != "" {
+		label = ad.tool
+		if ad.mode != "" {
+			label += " · " + ad.mode
+		}
+	}
+
+	// Buttons right-aligned
+	buttons := b.styles.FgMute.Render("[y]") + " approve  " +
+		b.styles.FgMute.Render("[n]") + " deny  " +
+		b.styles.FgMute.Render("[a]") + " always"
+
+	contentWidth := width - 3 // account for bar + space
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	questionLine := lipgloss.NewStyle().Width(contentWidth-lipgloss.Width(buttons)).Render(label) + buttons
+
+	return bar + " " + questionLine + "\n"
+}
+
+func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
+	if cd.finished {
+		// Italic system note
+		note := "✦ " + cd.summary
+		return b.styles.FgDim.Italic(true).Render(note) + "\n"
+	}
+	// In-progress banner (not currently triggered, but render it anyway)
+	bar := strings.Repeat("─", maxInt(0, width-2))
+	header := b.styles.Warn.Render("Compacting") + " " + b.styles.FgDim.Render(cd.subtitle)
+	return b.styles.FgMute.Render(bar) + "\n" + header + "\n"
 }
