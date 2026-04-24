@@ -15,3 +15,5 @@
  * I would like it so that the /context command behaves like the ? keybind - it's opened in an overlaid modal immediately instead of waiting for the current turn to finish. The information within should display on a table instead of lists of lists
  * We need a /clear command that will initialise a new session
  * We need to think about session persistence and resuming sessions
+ * We need to be able to do CTRL+D to exit steiner
+ * The user prompt area should look like opencode's - a box, with a left coloured border (same orange as the headers on the sidebar), a padding of 1 character then the various status messages on the bottom line with their labels on the same orange as the left border
