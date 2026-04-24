@@ -11,10 +11,17 @@ import (
 )
 
 type gitSnapshot struct {
-	repoRoot string
-	branch   string
-	dirty    bool
-	ready    bool
+	repoRoot      string
+	branch        string
+	dirty         bool
+	modifiedFiles []gitModifiedFile
+	ready         bool
+}
+
+type gitModifiedFile struct {
+	Path    string
+	Added   int
+	Deleted int
 }
 
 type gitState struct {
@@ -80,12 +87,14 @@ func detectGitSnapshot(ctx context.Context, startDir string) gitSnapshot {
 
 	branch := readGitBranch(gitDir)
 	dirty := readGitDirty(ctx, repoRoot)
+	modifiedFiles := readGitModifiedFiles(ctx, repoRoot)
 
 	return gitSnapshot{
-		repoRoot: repoRoot,
-		branch:   branch,
-		dirty:    dirty,
-		ready:    true,
+		repoRoot:      repoRoot,
+		branch:        branch,
+		dirty:         dirty,
+		modifiedFiles: modifiedFiles,
+		ready:         true,
 	}
 }
 
@@ -186,4 +195,45 @@ func readGitDirty(ctx context.Context, repoRoot string) bool {
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
+}
+
+func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFile {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	files := make([]gitModifiedFile, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			continue
+		}
+		files = append(files, gitModifiedFile{
+			Added:   parseGitNumstatCount(fields[0]),
+			Deleted: parseGitNumstatCount(fields[1]),
+			Path:    filepath.Clean(strings.TrimSpace(fields[2])),
+		})
+	}
+	return files
+}
+
+func parseGitNumstatCount(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "-" {
+		return 0
+	}
+	count := 0
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return 0
+		}
+		count = count*10 + int(ch-'0')
+	}
+	return count
 }

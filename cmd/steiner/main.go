@@ -33,6 +33,7 @@ type cliFlags struct {
 	verbose    bool
 	exec       bool
 	logFile    string
+	maxTurns   int
 }
 
 type cliRuntime struct {
@@ -99,6 +100,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "enable verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "run a single request and exit")
 	rootCmd.PersistentFlags().StringVar(&flags.logFile, "log-file", "", "write full session logs to file")
+	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newConfigCommand(flags))
@@ -203,8 +205,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		ModelNames:      modelAliasNames(rt.cfg.Models),
 		ModelContexts:   modelContextSizes(rt.cfg.Models),
 		ProviderBaseURL: selected.BaseURL,
+		HomeDir:         rt.homeDir,
 		WorkingDir:      rt.workDir,
-		MaxTurns:        rt.cfg.Limits.MaxTurns,
+		MaxTurns:        0,
 		SkillNames:      rt.skillNames,
 		OnSubmit: func(text string) {
 			select {
@@ -337,12 +340,17 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	}
 	rt.events.Emit(output.NewUserInputEvent(promptText, "exec"))
 
+	execMaxTurns := flags.maxTurns
+	if execMaxTurns <= 0 {
+		execMaxTurns = rt.cfg.Limits.MaxTurns
+	}
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
 			stdinApprovalResponder{reader: approvalReader(rt)},
 		),
+		maxTurns: execMaxTurns,
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
 	if err != nil {
 		return err
@@ -455,6 +463,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 type cliRunner struct {
 	runtime  cliRuntime
 	approver tool.ApprovalResponder
+	maxTurns int
 }
 
 type runResult struct {
@@ -517,7 +526,6 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
-	temperature := selected.Temperature
 	maxTokens := selected.MaxCompletionTokens
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
@@ -526,10 +534,10 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
 		Model:       selected.Model,
-		Temperature: &temperature,
+		Temperature: selected.Temperature,
 		MaxTokens:   &maxTokens,
 		Limits: agent.Limits{
-			MaxTurns:  r.runtime.cfg.Limits.MaxTurns,
+			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
 		Events: events,

@@ -122,6 +122,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
 	m.sidebar.maxTurns = cfg.MaxTurns
+	m.sidebar.homeDir = strings.TrimSpace(cfg.HomeDir)
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
@@ -379,22 +380,12 @@ func (m *Model) syncSidebar() {
 	m.sidebar.model = strings.TrimSpace(m.status.model)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	m.sidebar.currentTurn = m.status.turn
-	m.sidebar.activeSkills = m.enabledSkillNames()
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
+		m.sidebar.modifiedFiles = append([]gitModifiedFile(nil), snap.modifiedFiles...)
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
-}
-
-func (m Model) enabledSkillNames() []string {
-	names := make([]string, 0, len(m.enabledSkills))
-	for _, name := range m.skillNames {
-		if m.enabledSkills[name] {
-			names = append(names, name)
-		}
-	}
-	return names
 }
 
 func appendStatusContext(base, fragment string) string {
@@ -539,7 +530,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.status.model = action.switchModel
 		m.sidebar.contextBudget = m.contextBudgetForModel(action.switchModel)
-		m.sidebar.contextUsed = 0
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
 		if m.sidebar.contextBudget > 0 {
 			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 		} else {
@@ -591,13 +583,22 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	if m == nil || payload.ContextTokens <= 0 {
 		return false
 	}
-	used := payload.TotalTokens
-	if used < 0 {
-		used = 0
+	promptUsed := payload.PromptTokens
+	if promptUsed < 0 {
+		promptUsed = 0
 	}
-	m.sidebar.contextUsed = used
+	budgetUsed := payload.TotalTokens
+	if budgetUsed < 0 {
+		budgetUsed = 0
+	}
+	m.sidebar.promptUsed = promptUsed
+	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = payload.ContextTokens
-	m.status.context = fmt.Sprintf("ctx %d/%d", used, payload.ContextTokens)
+	if payload.Turn > 0 {
+		m.status.turn = payload.Turn
+		m.sidebar.currentTurn = payload.Turn
+	}
+	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, payload.ContextTokens)
 	return true
 }
 

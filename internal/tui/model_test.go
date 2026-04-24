@@ -18,7 +18,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "hello")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, " world")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 32, 164, 4096, false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 32, 32, 164, 4096, false)})
 
 	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
@@ -26,11 +26,44 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if got := m.status.model; got != "gpt-test" {
 		t.Fatalf("status.model = %q, want gpt-test", got)
 	}
-	if got := m.status.context; got != "ctx 164/4096" {
-		t.Fatalf("status.context = %q, want ctx 164/4096", got)
+	if got := m.status.context; got != "ctx 100/4096" {
+		t.Fatalf("status.context = %q, want ctx 100/4096", got)
 	}
 	if got := m.sidebar.contextBudget; got != 4096 {
 		t.Fatalf("sidebar.contextBudget = %d, want 4096", got)
+	}
+	if got := m.sidebar.promptUsed; got != 100 {
+		t.Fatalf("sidebar.promptUsed = %d, want 100", got)
+	}
+	if got := m.sidebar.budgetUsed; got != 164 {
+		t.Fatalf("sidebar.budgetUsed = %d, want 164", got)
+	}
+	lines := m.sidebar.lines(38)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Compaction: idle",
+		"[",
+		"] 2%",
+		"100 / 4096",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("sidebar = %q, want %q", joined, want)
+		}
+	}
+	if strings.Contains(joined, "Budget") {
+		t.Fatalf("sidebar = %q, want no Budget row", joined)
+	}
+	if strings.Contains(joined, "* ") {
+		t.Fatalf("sidebar = %q, want no bullet prefixes", joined)
+	}
+	if strings.Contains(joined, "Prompt") {
+		t.Fatalf("sidebar = %q, want no Prompt header", joined)
+	}
+	if strings.Contains(joined, "Turn:") {
+		t.Fatalf("sidebar = %q, want no Turn row", joined)
+	}
+	if !strings.Contains(joined, "Compaction: idle\n\n") {
+		t.Fatalf("sidebar = %q, want blank line after compaction", joined)
 	}
 }
 
@@ -45,8 +78,11 @@ func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
 	if got := m.sidebar.contextBudget; got != 65536 {
 		t.Fatalf("sidebar.contextBudget = %d, want 65536", got)
 	}
-	if got := m.sidebar.contextUsed; got != 0 {
-		t.Fatalf("sidebar.contextUsed = %d, want 0", got)
+	if got := m.sidebar.promptUsed; got != 0 {
+		t.Fatalf("sidebar.promptUsed = %d, want 0", got)
+	}
+	if got := m.sidebar.budgetUsed; got != 0 {
+		t.Fatalf("sidebar.budgetUsed = %d, want 0", got)
 	}
 }
 
@@ -67,9 +103,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected configured skills to start enabled")
 	}
-	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
-		t.Fatalf("sidebar.activeSkills = %#v, want review enabled by default", got)
-	}
 
 	m.input.SetValue("fix the bug")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -82,9 +115,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
 	}
-	if len(m.sidebar.activeSkills) != 0 {
-		t.Fatalf("sidebar.activeSkills = %#v, want none enabled", m.sidebar.activeSkills)
-	}
 	if len(toggled) != 1 || toggled[0] != "review" {
 		t.Fatalf("toggled = %#v, want review", toggled)
 	}
@@ -93,9 +123,6 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be enabled")
-	}
-	if got := m.sidebar.activeSkills; len(got) != 1 || got[0] != "review" {
-		t.Fatalf("sidebar.activeSkills = %#v, want review enabled", got)
 	}
 }
 

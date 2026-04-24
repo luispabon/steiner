@@ -62,6 +62,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 
 	for _, want := range []string{
 		"Prompt tokens:",
+		"Prompt occupancy:",
 		"- system preamble:",
 		"- global AGENTS.md:",
 		"- project AGENTS.md:",
@@ -77,7 +78,8 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		"read",
 		"Completion reserve: `64`",
 		"Safety margin: `32`",
-		"Estimated total request tokens:",
+		"Reserve and safety margin are planning buffers, not prompt contents.",
+		"Budget occupancy:",
 	} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report missing %q\n%s", want, report)
@@ -94,7 +96,10 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FitRequest() error = %v", err)
 	}
-	if !strings.Contains(report, fmt.Sprintf("Estimated total request tokens: `%d / 4096`", fit.TotalTokens)) {
+	if !strings.Contains(report, fmt.Sprintf("Prompt occupancy: `%d / 4096`", fit.EstimatedPromptTokens)) {
+		t.Fatalf("report = %q, want prompt occupancy %d", report, fit.EstimatedPromptTokens)
+	}
+	if !strings.Contains(report, fmt.Sprintf("Budget occupancy: `%d / 4096`", fit.TotalTokens)) {
 		t.Fatalf("report = %q, want total %d", report, fit.TotalTokens)
 	}
 }

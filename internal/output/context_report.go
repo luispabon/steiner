@@ -73,6 +73,11 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 		lines = append(lines, fmt.Sprintf("Model: `%s`", model))
 	}
 	lines = append(lines, fmt.Sprintf("Prompt tokens: `%d`", promptTokens))
+	if budget.ContextSize > 0 {
+		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d / %d`", promptTokens, budget.ContextSize))
+	} else {
+		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d`", promptTokens))
+	}
 	lines = append(lines, "")
 	lines = append(lines, "## Categories")
 	for _, category := range categories {
@@ -85,9 +90,11 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	lines = append(lines, fmt.Sprintf("Completion reserve: `%d`", budget.ReservedCompletionTokens))
 	lines = append(lines, fmt.Sprintf("Safety margin: `%d`", budget.SafetyMarginTokens))
 	if budget.ContextSize > 0 {
-		lines = append(lines, fmt.Sprintf("Estimated total request tokens: `%d / %d`", budget.TotalTokens, budget.ContextSize))
+		lines = append(lines, "Reserve and safety margin are planning buffers, not prompt contents.")
+		lines = append(lines, fmt.Sprintf("Budget occupancy: `%d / %d`", budget.TotalTokens, budget.ContextSize))
 	} else {
-		lines = append(lines, fmt.Sprintf("Estimated total request tokens: `%d`", budget.TotalTokens))
+		lines = append(lines, "Reserve and safety margin are planning buffers, not prompt contents.")
+		lines = append(lines, fmt.Sprintf("Budget occupancy: `%d`", budget.TotalTokens))
 	}
 	return strings.Join(lines, "\n"), nil
 }

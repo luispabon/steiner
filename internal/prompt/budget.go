@@ -8,29 +8,23 @@ const (
 	defaultProjectAgentsBudgetBytes  = 2048
 	defaultSkillBudgetBytes          = 2048
 	defaultDurableContextBudgetBytes = 1024
-	defaultConversationBudgetBytes   = 32768
-	defaultConversationSummaryBytes  = 1024
 	defaultToolResultBudgetBytes     = 2048
 	defaultToolSummaryBudgetBytes    = 1024
-	defaultRecentTurns               = 4
 	defaultCompactionSummaryBytes    = 1024
 )
 
 func DefaultAssemblyPolicy() AssemblyPolicy {
 	return AssemblyPolicy{
 		Budgets: SourceBudgetModel{
-			PreambleBytes:            defaultPreambleBudgetBytes,
-			GlobalAgentsBytes:        defaultGlobalAgentsBudgetBytes,
-			ProjectAgentsBytes:       defaultProjectAgentsBudgetBytes,
-			ProjectContextBytes:      defaultProjectContextBudgetBytes,
-			SkillBytes:               defaultSkillBudgetBytes,
-			DurableContextBytes:      defaultDurableContextBudgetBytes,
-			ConversationBytes:        defaultConversationBudgetBytes,
-			ConversationSummaryBytes: defaultConversationSummaryBytes,
-			ToolResultBytes:          defaultToolResultBudgetBytes,
-			ToolSummaryBytes:         defaultToolSummaryBudgetBytes,
+			PreambleBytes:       defaultPreambleBudgetBytes,
+			GlobalAgentsBytes:   defaultGlobalAgentsBudgetBytes,
+			ProjectAgentsBytes:  defaultProjectAgentsBudgetBytes,
+			ProjectContextBytes: defaultProjectContextBudgetBytes,
+			SkillBytes:          defaultSkillBudgetBytes,
+			DurableContextBytes: defaultDurableContextBudgetBytes,
+			ToolResultBytes:     defaultToolResultBudgetBytes,
+			ToolSummaryBytes:    defaultToolSummaryBudgetBytes,
 		},
-		Retention:   RetentionPolicy{RecentTurns: defaultRecentTurns},
 		Compaction:  CompactionPolicy{SummaryBytes: defaultCompactionSummaryBytes},
 		ToolSummary: ToolSummaryPolicy{MaxBytes: defaultToolSummaryBudgetBytes},
 	}
@@ -45,14 +39,9 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		policy.Budgets.ProjectContextBytes < 0 ||
 		policy.Budgets.SkillBytes < 0 ||
 		policy.Budgets.DurableContextBytes < 0 ||
-		policy.Budgets.ConversationBytes < 0 ||
-		policy.Budgets.ConversationSummaryBytes < 0 ||
 		policy.Budgets.ToolResultBytes < 0 ||
 		policy.Budgets.ToolSummaryBytes < 0 {
 		return AssemblyPolicy{}, fmt.Errorf("assembly budgets must not be negative")
-	}
-	if policy.Retention.RecentTurns < 0 {
-		return AssemblyPolicy{}, fmt.Errorf("recent turns must not be negative")
 	}
 	if policy.Compaction.SummaryBytes < 0 {
 		return AssemblyPolicy{}, fmt.Errorf("summary bytes must not be negative")
@@ -79,12 +68,6 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 	if policy.Budgets.DurableContextBytes == 0 {
 		policy.Budgets.DurableContextBytes = defaults.Budgets.DurableContextBytes
 	}
-	if policy.Budgets.ConversationBytes == 0 {
-		policy.Budgets.ConversationBytes = defaults.Budgets.ConversationBytes
-	}
-	if policy.Budgets.ConversationSummaryBytes == 0 {
-		policy.Budgets.ConversationSummaryBytes = defaults.Budgets.ConversationSummaryBytes
-	}
 	if policy.Budgets.ToolResultBytes == 0 {
 		policy.Budgets.ToolResultBytes = defaults.Budgets.ToolResultBytes
 	}
@@ -92,9 +75,6 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		policy.Budgets.ToolSummaryBytes = defaults.Budgets.ToolSummaryBytes
 	}
 
-	if policy.Retention.RecentTurns == 0 {
-		policy.Retention.RecentTurns = defaults.Retention.RecentTurns
-	}
 	if policy.Compaction.SummaryBytes == 0 {
 		policy.Compaction.SummaryBytes = defaults.Compaction.SummaryBytes
 	}
@@ -125,16 +105,12 @@ func (m SourceBudgetModel) limitFor(source ContextSource) int {
 		return m.SkillBytes
 	case ContextSourceDurableContext:
 		return m.DurableContextBytes
-	case ContextSourceConversationSummary:
-		return m.ConversationSummaryBytes
 	case ContextSourceToolSummary, ContextSourceDelegationResult:
 		return m.ToolSummaryBytes
 	case ContextSourceToolResult:
 		return m.ToolResultBytes
-	case ContextSourceConversation:
-		return m.ConversationBytes
 	default:
-		return m.ConversationBytes
+		return 0
 	}
 }
 
@@ -152,17 +128,15 @@ type budgetTracker struct {
 func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 	return &budgetTracker{
 		remaining: map[ContextSource]int{
-			ContextSourcePreamble:            model.PreambleBytes,
-			ContextSourceGlobalAgentsMD:      model.GlobalAgentsBytes,
-			ContextSourceProjectAgentsMD:     model.ProjectAgentsBytes,
-			ContextSourceProjectContext:      model.ProjectContextBytes,
-			ContextSourceSkill:               model.SkillBytes,
-			ContextSourceDurableContext:      model.DurableContextBytes,
-			ContextSourceConversation:        model.ConversationBytes,
-			ContextSourceConversationSummary: model.ConversationSummaryBytes,
-			ContextSourceToolResult:          model.ToolResultBytes,
-			ContextSourceToolSummary:         model.ToolSummaryBytes,
-			ContextSourceDelegationResult:    model.ToolSummaryBytes,
+			ContextSourcePreamble:         model.PreambleBytes,
+			ContextSourceGlobalAgentsMD:   model.GlobalAgentsBytes,
+			ContextSourceProjectAgentsMD:  model.ProjectAgentsBytes,
+			ContextSourceProjectContext:   model.ProjectContextBytes,
+			ContextSourceSkill:            model.SkillBytes,
+			ContextSourceDurableContext:   model.DurableContextBytes,
+			ContextSourceToolResult:       model.ToolResultBytes,
+			ContextSourceToolSummary:      model.ToolSummaryBytes,
+			ContextSourceDelegationResult: model.ToolSummaryBytes,
 		},
 	}
 }

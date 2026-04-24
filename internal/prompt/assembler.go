@@ -44,27 +44,6 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		messages = append(messages, blockMessage(block))
 	}
 
-	appendRawMessage := func(source ContextSource, message provider.Message) {
-		clipped, truncated, ok := applyBudget(budgets, source, message.Content)
-		if !ok && len(message.Content) > 0 {
-			return
-		}
-		message.Content = clipped
-		messages = append(messages, message)
-		if truncated {
-			path := string(message.Role)
-			if strings.TrimSpace(message.Name) != "" {
-				path = message.Name
-			}
-			diagnostics = append(diagnostics, AssemblyDiagnostic{
-				Source:    source,
-				Path:      path,
-				ByteSize:  len(clipped),
-				Truncated: true,
-			})
-		}
-	}
-
 	preamble := SystemPreamble()
 	appendBlock(preamble)
 
@@ -114,32 +93,8 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		appendBlock(block)
 	}
 
-	// Extract the latest user message so it is always sent, even if the
-	// conversation budget is exhausted by earlier turns.
-	convHistory := a.opts.Conversation
-	var latestUserMsg *provider.Message
-	if n := len(convHistory); n > 0 && convHistory[n-1].Role == provider.MessageRoleUser {
-		msg := convHistory[n-1]
-		latestUserMsg = &msg
-		convHistory = convHistory[:n-1]
-	}
-
-	dropped, retained := retainRecentTurns(convHistory, a.policy.Retention.RecentTurns)
-	if len(dropped) > 0 {
-		summary, ok := CompactConversationTurns(dropped, a.policy.Compaction)
-		if ok {
-			appendBlock(summary.Block())
-		}
-	}
-
-	for _, turn := range retained {
-		for _, message := range turn.Messages {
-			appendRawMessage(ContextSourceConversation, message)
-		}
-	}
-
-	if latestUserMsg != nil {
-		messages = append(messages, *latestUserMsg)
+	for _, message := range a.opts.Conversation {
+		messages = append(messages, message)
 	}
 
 	for _, toolResult := range a.opts.ToolResults {

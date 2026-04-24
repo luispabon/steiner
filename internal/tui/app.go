@@ -11,6 +11,7 @@ type Config struct {
 	ModelNames       []string
 	ModelContexts    map[string]int
 	ProviderBaseURL  string
+	HomeDir          string
 	WorkingDir       string
 	MaxTurns         int
 	SkillNames       []string
@@ -46,7 +47,10 @@ func (a *App) EventSink() output.EventSink {
 }
 
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
-	opts := []tea.ProgramOption{tea.WithMouseCellMotion()}
+	opts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	}
 	opts = append(opts, options...)
 	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), opts...)
 }

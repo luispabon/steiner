@@ -661,6 +661,71 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 	}
 }
 
+func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	var stdout, stderr bytes.Buffer
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		cfg := testRuntimeConfig("test-model")
+		cfg.Limits.MaxTurns = 4
+		cfg.Limits.MaxTokens = 256
+		return cliRuntime{
+			cfg: cfg,
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{ID: "call_1", Name: "noop", Arguments: map[string]any{}},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+					{
+						Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+						FinishReason: "stop",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:            "noop",
+				Description:     "No-op tool",
+				ParameterSchema: map[string]any{"type": "object"},
+				Handler: func(ctx context.Context, input map[string]any) (any, error) {
+					return map[string]any{"ok": true}, nil
+				},
+			}),
+			workDir:     t.TempDir(),
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(&stdout),
+			status:      output.NewStream(&stderr),
+			events:      output.NewStream(&stdout),
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "--max-turns", "1", "run noop"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "status: stopped after 1 turn: reached the max turn limit") {
+		t.Fatalf("stdout = %q, want max turn stop from flag override", got)
+	}
+}
+
 func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -788,6 +853,8 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func float64Ptr(v float64) *float64 { return &v }
+
 func testRuntimeConfig(alias string) config.Config {
 	return config.Config{
 		Scheduler: config.SchedulerConfig{
@@ -800,7 +867,7 @@ func testRuntimeConfig(alias string) config.Config {
 				BaseURL:             "http://localhost:11434/v1",
 				APIKey:              "",
 				Model:               alias,
-				Temperature:         0.2,
+				Temperature:         float64Ptr(0.2),
 				MaxCompletionTokens: 64,
 				ContextSize:         4096,
 				Compaction: config.CompactionConfig{
@@ -951,7 +1018,7 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
-		Temperature:         0.2,
+		Temperature:         float64Ptr(0.2),
 		MaxCompletionTokens: 64,
 		ContextSize:         1,
 		Compaction: config.CompactionConfig{
@@ -1026,7 +1093,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o-mini",
-			Temperature:         0.2,
+			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 32,
 			ContextSize:         1024,
 			Compaction: config.CompactionConfig{
@@ -1038,7 +1105,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o",
-			Temperature:         0.2,
+			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 96,
 			ContextSize:         8192,
 			Compaction: config.CompactionConfig{
@@ -1086,6 +1153,52 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	}
 	if got, want := second.ModelBudget.MaxCompletionTokens, 96; got != want {
 		t.Fatalf("second max completion tokens = %d, want %d", got, want)
+	}
+}
+
+func TestCLIRunnerOmitsTemperatureWhenModelConfigDoesNotSetIt(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("test-model")
+	cfg.Models["test-model"] = config.ModelConfig{
+		Type:                "openai_compat",
+		BaseURL:             "http://localhost:11434/v1",
+		Model:               "test-model",
+		MaxCompletionTokens: 64,
+		ContextSize:         4096,
+		Compaction: config.CompactionConfig{
+			SafetyMarginTokens: 16,
+			SummaryMaxTokens:   32,
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		maxTurns: 1,
+	}
+
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}, nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if providerStub.requests[0].Temperature != nil {
+		t.Fatalf("request temperature = %v, want nil", *providerStub.requests[0].Temperature)
 	}
 }
 

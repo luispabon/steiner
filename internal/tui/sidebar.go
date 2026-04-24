@@ -3,8 +3,9 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -13,7 +14,6 @@ const (
 	sidebarWidth      = 40
 	sidebarMinWidth   = 100
 	sidebarToggleHint = "ctrl+b toggle sidebar"
-	sidebarSkillLimit = 3
 	sidebarPadding    = 1
 )
 
@@ -21,15 +21,17 @@ type sidebarState struct {
 	expanded      bool
 	model         string
 	provider      string
-	contextUsed   int
+	homeDir       string
+	promptUsed    int
+	budgetUsed    int
 	contextBudget int
 	currentTurn   int
 	maxTurns      int
 	compaction    string
 	branch        string
 	dirty         bool
+	modifiedFiles []gitModifiedFile
 	workingDir    string
-	activeSkills  []string
 	styles        theme.Styles
 }
 
@@ -74,56 +76,35 @@ func (s sidebarState) lines(width int) []string {
 	lines = append(lines, "")
 
 	lines = append(lines, sidebarSection("Context", s.styles))
-	lines = append(lines, sidebarSubField("Fill", s.contextSummary(), width, s.styles))
 	lines = append(lines, sidebarSubField("Compaction", s.compactionSummary(), width, s.styles))
-	lines = append(lines, sidebarSubField("Turn", s.turnSummary(), width, s.styles))
+	lines = append(lines, "")
+	lines = append(lines, s.promptMeterLines(width)...)
 	lines = append(lines, "")
 
 	lines = append(lines, sidebarSection("Repository", s.styles))
 	lines = append(lines, sidebarSubField("Workdir", s.workdirSummary(width), width, s.styles))
 	lines = append(lines, sidebarSubField("Branch", s.gitSummary(), width, s.styles))
-	lines = append(lines, "")
-
-	lines = append(lines, sidebarSection("Skills", s.styles))
-	skills := s.skillsSummary(width)
-	if skills == "" || skills == "n/a" || skills == "none" {
-		lines = append(lines, "  "+s.styles.SidebarValue.Render("None"))
-	} else {
-		lines = append(lines, sidebarSubField("", skills, width, s.styles))
+	if len(s.modifiedFiles) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, s.styles.SidebarLabel.Render("Modified files:"))
+		for _, file := range s.modifiedFiles {
+			lines = append(lines, sidebarModifiedFileLine(file, width, s.styles))
+		}
 	}
 
 	return lines
 }
 
-func (s sidebarState) contextSummary() string {
-	if s.contextBudget <= 0 {
-		if s.contextUsed <= 0 {
-			return "n/a"
-		}
-		return fmt.Sprintf("%d used", s.contextUsed)
-	}
-
-	percent := 0
-	if s.contextBudget > 0 {
-		percent = (s.contextUsed * 100) / s.contextBudget
-	}
-	if percent < 0 {
-		percent = 0
-	}
-	return fmt.Sprintf("%d/%d %d%%", s.contextUsed, s.contextBudget, percent)
+func (s sidebarState) promptSummary() string {
+	return sidebarPromptCount(s.promptUsed, s.contextBudget)
 }
 
-func (s sidebarState) turnSummary() string {
-	if s.maxTurns <= 0 {
-		if s.currentTurn <= 0 {
-			return "n/a"
-		}
-		return fmt.Sprintf("%d", s.currentTurn)
+func (s sidebarState) promptMeterLines(width int) []string {
+	barWidth := maxInt(8, width-9)
+	return []string{
+		centerSidebarText(sidebarPromptMeter(s.promptUsed, s.contextBudget, barWidth), width, s.styles),
+		centerSidebarText(sidebarPromptCount(s.promptUsed, s.contextBudget), width, s.styles),
 	}
-	if s.currentTurn <= 0 {
-		return fmt.Sprintf("0/%d", s.maxTurns)
-	}
-	return fmt.Sprintf("%d/%d", s.currentTurn, s.maxTurns)
 }
 
 func (s sidebarState) compactionSummary() string {
@@ -150,19 +131,7 @@ func (s sidebarState) workdirSummary(width int) string {
 	if value == "" {
 		return "n/a"
 	}
-	return filepath.Clean(value)
-}
-
-func (s sidebarState) skillsSummary(width int) string {
-	if len(s.activeSkills) == 0 {
-		return "none"
-	}
-	skills := append([]string(nil), s.activeSkills...)
-	sort.Strings(skills)
-	if len(skills) > sidebarSkillLimit {
-		skills = append(skills[:sidebarSkillLimit], fmt.Sprintf("+%d", len(s.activeSkills)-sidebarSkillLimit))
-	}
-	return strings.Join(skills, ", ")
+	return homeRelativePath(filepath.Clean(value), strings.TrimSpace(s.homeDir))
 }
 
 func sidebarSection(title string, styles theme.Styles) string {
@@ -170,7 +139,7 @@ func sidebarSection(title string, styles theme.Styles) string {
 }
 
 func sidebarSubField(label, value string, width int, styles theme.Styles) string {
-	const prefix = "  * "
+	const prefix = ""
 	value = strings.TrimSpace(value)
 	if value == "" {
 		value = "n/a"
@@ -197,6 +166,88 @@ func sidebarSubField(label, value string, width int, styles theme.Styles) string
 		sb.WriteString("\n" + styles.SidebarValue.Render(cont+c))
 	}
 	return sb.String()
+}
+
+func sidebarPromptMeter(used, budget, width int) string {
+	percent := occupancyPercent(used, budget)
+	if width < 8 {
+		width = 8
+	}
+	label := fmt.Sprintf("%d%%", percent)
+	barWidth := maxInt(1, width-len(label)-2)
+	filled := 0
+	if budget > 0 {
+		filled = (used * barWidth) / budget
+		if filled > barWidth {
+			filled = barWidth
+		}
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	bar := "[" + strings.Repeat("=", filled) + strings.Repeat(".", barWidth-filled) + "]"
+	return bar + " " + label
+}
+
+func sidebarPromptCount(used, budget int) string {
+	if budget <= 0 {
+		if used <= 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%d used", used)
+	}
+	return fmt.Sprintf("%d / %d", used, budget)
+}
+
+func occupancyPercent(used, budget int) int {
+	if budget <= 0 {
+		return 0
+	}
+	percent := (used * 100) / budget
+	if percent < 0 {
+		return 0
+	}
+	return percent
+}
+
+func centerSidebarText(text string, width int, styles theme.Styles) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	padding := 0
+	if width > len(text) {
+		padding = (width - len(text)) / 2
+	}
+	return styles.SidebarValue.Render(strings.Repeat(" ", padding) + text)
+}
+
+func sidebarModifiedFileLine(file gitModifiedFile, width int, styles theme.Styles) string {
+	path := fitText(strings.TrimSpace(file.Path), width)
+	statsText, statsView := sidebarModifiedFileStats(file, styles)
+	if statsText == "" {
+		return styles.SidebarValue.Render(path)
+	}
+	leftWidth := maxInt(1, width-len(statsText)-1)
+	path = fitText(path, leftWidth)
+	spaces := maxInt(1, width-lipgloss.Width(path)-len(statsText))
+	return styles.SidebarValue.Render(path) + styles.SidebarValue.Render(strings.Repeat(" ", spaces)) + statsView
+}
+
+func sidebarModifiedFileStats(file gitModifiedFile, styles theme.Styles) (string, string) {
+	partsText := make([]string, 0, 2)
+	partsView := make([]string, 0, 2)
+	if file.Added > 0 {
+		value := fmt.Sprintf("+%d", file.Added)
+		partsText = append(partsText, value)
+		partsView = append(partsView, styles.SuccessStyle.Render(value))
+	}
+	if file.Deleted > 0 {
+		value := fmt.Sprintf("-%d", file.Deleted)
+		partsText = append(partsText, value)
+		partsView = append(partsView, styles.ErrorStyle.Render(value))
+	}
+	return strings.Join(partsText, " "), strings.Join(partsView, styles.SidebarValue.Render(" "))
 }
 
 func wrapChunks(text string, width int) []string {
@@ -231,4 +282,29 @@ func safeText(text string) string {
 		return "n/a"
 	}
 	return text
+}
+
+func homeRelativePath(pathValue, homeDir string) string {
+	pathValue = filepath.Clean(strings.TrimSpace(pathValue))
+	homeDir = filepath.Clean(strings.TrimSpace(homeDir))
+	if pathValue == "" {
+		return ""
+	}
+	if homeDir == "" || homeDir == "." || !filepath.IsAbs(pathValue) || !filepath.IsAbs(homeDir) {
+		return pathValue
+	}
+	if pathValue == homeDir {
+		return "~"
+	}
+	rel, err := filepath.Rel(homeDir, pathValue)
+	if err != nil {
+		return pathValue
+	}
+	if rel == "." {
+		return "~"
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return pathValue
+	}
+	return filepath.Join("~", rel)
 }

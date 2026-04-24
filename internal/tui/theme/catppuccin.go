@@ -123,10 +123,12 @@ func (m mochaTheme) LipGlossStyles() Styles {
 		Border: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(surface1Hex)),
 		ErrorStyle: lipgloss.NewStyle().
+			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(redHex)),
 		WarningStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(yellowHex)),
 		SuccessStyle: lipgloss.NewStyle().
+			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(greenHex)),
 	}
 }
