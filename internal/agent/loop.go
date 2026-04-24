@@ -451,7 +451,6 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 		conversation = state.Conversation
 	}
 	base.Conversation = toProviderMessages(conversation)
-	base.Policy.Retention.RecentTurns = countTurns(conversation) + 1
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
 	return base
