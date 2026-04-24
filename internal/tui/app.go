@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/prefs"
 )
 
 type Config struct {
@@ -16,6 +19,8 @@ type Config struct {
 	MaxTurns         int
 	SkillNames       []string
 	Theme            string
+	AccentPreset     string
+	ShowThinking     bool
 	OnSubmit         func(string)
 	OnContextInspect func()
 	OnApproval       func(bool)
@@ -30,6 +35,18 @@ type App struct {
 }
 
 func NewApp(cfg Config) *App {
+	// Load prefs; non-fatal on error
+	p, err := prefs.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "steiner: failed to load prefs: %v\n", err)
+	}
+	if cfg.AccentPreset == "" {
+		cfg.AccentPreset = p.Accent
+	}
+	// ShowThinking defaults to true; only override if prefs explicitly sets false
+	if !cfg.ShowThinking {
+		cfg.ShowThinking = p.ShowThinking
+	}
 	return &App{
 		cfg:    cfg,
 		bridge: newEventBridge(256),
