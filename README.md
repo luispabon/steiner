@@ -6,7 +6,7 @@
 
 * Single-agent loop with interactive terminal mode and `--exec`
 * Config, tools, skills, and version commands are available now
-* Default model config targets a local OpenAI-compatible endpoint
+* Default provider targets a local OpenAI-compatible endpoint
 * Mutating tools are approval-gated by default; reads are auto-approved
 
 ## Quickstart
@@ -14,7 +14,7 @@
 Requirements: Go `1.24+`.
 
 1. Start from source in this repo.
-2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the selected model settings in config.
+2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the provider settings in config.
 3. Run a first request from source:
 
 ```bash
@@ -59,25 +59,26 @@ Key environment variables:
 * `STEINER_SCHEDULER_PARALLELISM`
 * `STEINER_MAX_TURNS`
 * `STEINER_MAX_TOKENS`
-* `STEINER_TOOL_OUTPUT_MAX_BYTES`
 * `STEINER_LOG_LEVEL`
 * `STEINER_LOG_FILE`
+* `STEINER_TOOL_OUTPUT_MAX_BYTES`
 
-### Full config format
+### Config format
+
+`model` selects the active alias from `models`. Each model entry holds the OpenAI-compatible provider settings for that alias, including compaction budgets.
 
 ```yaml
 scheduler:
-  parallelism: 1              # max concurrent requests across model calls
+  parallelism: 2
 
-model: default                # active model alias
+model: default
 
 models:
   default:
     type: openai_compat
     base_url: http://localhost:11434/v1
-    api_key: ""               # empty for local providers
-    model: qwen3-35b-a3b      # default backend model
-    temperature: 0.2
+    api_key: ""
+    model: <required-backend-model>
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -87,41 +88,37 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     api_key: ""
-    model: qwen3-8b
-    temperature: 0.1
+    model: yi-coder:9b
     max_completion_tokens: 4096
     context_size: 16384
     compaction:
       safety_margin_tokens: 1024
       summary_max_tokens: 512
 
-# Execution limits
 limits:
-  max_turns: 50               # max conversation turns
-  max_tokens: 500000           # max total tokens in context
-  tool_timeout_default: 30s   # default timeout for tools
-  tool_timeouts:             # per-tool timeouts
+  max_turns: 50
+  max_tokens: 500000
+  tool_timeout_default: 30s
+  tool_timeouts:
     bash: 2m0s
     read: 5s
     write: 5s
   tool_output_max_bytes: 65536
 
-# Tool approval mode
 approval:
-  default: prompt             # default: prompt, auto, or deny
-  overrides:                # tool-specific overrides
+  default: prompt
+  overrides:
     read: auto
     glob: auto
     search: auto
     write: prompt
     bash: prompt
 
-# Sub-agent configuration
 sub_agent:
   enabled: false
   max_turns: 15
   max_tokens: 100000
-  allowed_tools:            # tools sub-agents may use
+  allowed_tools:
     - read
     - glob
     - search
@@ -130,51 +127,46 @@ sub_agent:
   allow_nesting: false
   max_concurrent: 1
 
-# Custom tool definitions
 tools:
-  my_tool:
-    exec: /path/to/binary     # executable path
-    subcommand: my_tool       # subcommand name
-    description: "Does X"    # tool description for the model
-    parameters:              # JSON schema for tool parameters
+  repo-lint:
+    exec: /usr/local/bin/repo-lint
+    subcommand: repo-lint
+    description: Runs the repo linter and reports actionable failures.
+    parameters:
       type: object
       properties:
-        arg:
+        path:
           type: string
-      required: [arg]
+      required:
+        - path
     timeout: 30s
-    approval: auto            # override default approval
-    constraints:             # execution constraints
+    approval: auto
+    constraints:
       allowed_dirs:
-        - /home/user
+        - /home/luis/Projects/AI/steiner
 
-# Project context gathering
 project_context:
   max_tokens: 2000
-  extra_files:              # additional files to include
+  extra_files:
     - README.md
     - AGENTS.md
-  ignore_files:              # files to exclude
+  ignore_files:
     - "*.lock"
     - node_modules/
 
-# Path restrictions
 paths:
-  project_root_only: true   # restrict to project root
-  writable_paths:          # additional writable directories
+  project_root_only: true
+  writable_paths:
     - /tmp/steiner
-  blocked_paths:           # blocked directories
+  blocked_paths:
     - ~/.ssh
 
-# Logging
 logging:
-  level: info               # debug, info, warn, error
+  level: info
   file: ~/.local/share/steiner/steiner.log
 ```
 
-`model` selects the active alias from `models`. Compaction is budget-driven: before a request is sent, steiner summarizes older history when the selected model's `context_size` minus the configured safety margin would otherwise be exceeded.
-
-Approval defaults are user-facing and conservative: reads like `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first.
+Approval defaults are conservative: `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, or `logging`.
 
 ## Build and test
 
