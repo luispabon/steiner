@@ -50,7 +50,7 @@
 - `stage-2-step-1`: `implemented`
 - `stage-2-step-2`: `implemented`
 - `stage-3-step-1`: `implemented`
-- `stage-3-step-2`: `pending`
+- `stage-3-step-2`: `implemented`
 - `stage-4-step-1`: `pending`
 - `stage-4-step-2`: `pending`
 
@@ -82,6 +82,11 @@
 - `2026-04-25`: Reran `GOCACHE=/tmp/steiner-gocache go test ./internal/agent ./internal/prompt` after the integration fix; the step passed.
 - `2026-04-25`: Merged temporary branch `tmp/stage-3-step-1-token-budget-compaction` into `cl/2026-04-23_token-budget-compaction`.
 - `2026-04-25`: Closed sub-agent `019dbcb9-4450-71f1-ae2c-0b7433abf787`, removed worktree `/tmp/steiner-stage-3-step-1`, and deleted merged branch `tmp/stage-3-step-1-token-budget-compaction`.
+- `2026-04-25`: Dispatched `stage-3-step-2` to isolated sub-agent worktree `/tmp/steiner-stage-3-step-2` on branch `tmp/stage-3-step-2-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution.
+- `2026-04-25`: Resumed review of the preserved `stage-3-step-2` branch after interruption. Verified the worker’s scoped step commit `b6977e9` (`Add compaction escalation diagnostics`) was present and that later branch commits were user-authored edits to `README.md` and `internal/config/defaults.go`, outside the stage scope.
+- `2026-04-25`: Cherry-picked only scoped step commit `b6977e9` onto `cl/2026-04-23_token-budget-compaction` instead of merging branch HEAD, preserving the user-authored out-of-scope branch-only changes without widening stage scope.
+- `2026-04-25`: Ran `go test ./internal/output ./internal/agent` on the feature branch after cherry-picking `stage-3-step-2`; the step passed.
+- `2026-04-25`: Closed sub-agent `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`. Left `/tmp/steiner-stage-3-step-2` and branch `tmp/stage-3-step-2-token-budget-compaction` intact because they contain additional user-authored out-of-scope commits (`57b4fc9`, `db55968`, `18ff9cc`) that were intentionally not merged as part of executor step scope.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -116,6 +121,15 @@
   - worktree: `/tmp/steiner-stage-3-step-1`
   - commit: `2560fdb`
   - status: `closed after merge and cleanup`
+- `stage-3-step-2`
+  - agent id: `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-3-step-2-token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-3-step-2`
+  - scoped step commit merged: `b6977e9`
+  - out-of-scope user-authored commits preserved on branch only: `57b4fc9`, `db55968`, `18ff9cc`
+  - status: `closed; scoped step merged, branch/worktree intentionally preserved`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -142,6 +156,11 @@
 - Closed sub-agent `019dbcb9-4450-71f1-ae2c-0b7433abf787`.
 - Removed worktree `/tmp/steiner-stage-3-step-1`.
 - Deleted merged branch `tmp/stage-3-step-1-token-budget-compaction`.
+- Created branch `tmp/stage-3-step-2-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-3-step-2`.
+- Cherry-picked scoped commit `b6977e9` from `tmp/stage-3-step-2-token-budget-compaction` onto the feature branch.
+- Closed sub-agent `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`.
+- Preserved branch `tmp/stage-3-step-2-token-budget-compaction` and worktree `/tmp/steiner-stage-3-step-2` because they contain additional user-authored out-of-scope changes that were intentionally not merged during executor step completion.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
@@ -161,6 +180,9 @@
   - result: `passed`
 - `stage-3-step-1` resumed branch verification:
   - command: `GOCACHE=/tmp/steiner-gocache go test ./internal/agent ./internal/prompt`
+  - result: `passed`
+- `stage-3-step-2` feature-branch verification:
+  - command: `go test ./internal/output ./internal/agent`
   - result: `passed`
 
 ## Blockers
