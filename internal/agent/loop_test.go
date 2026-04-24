@@ -245,6 +245,50 @@ func TestRunnerFallsBackToEstimatorWhenUsageIsMissing(t *testing.T) {
 	}
 }
 
+func TestRunnerPrefersReportedUsageOverFallbackEstimate(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 1},
+			},
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "prefer usage when it is reported"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		Model:     "test-model",
+		MaxTokens: intPtr(32),
+		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:    output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	estimated, err := provider.EstimateChatRequestTokens(context.Background(), providerStub.requests[0])
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if got, want := state.TokenCount, 1; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+	if got := state.TokenCount; got == estimated {
+		t.Fatalf("TokenCount = %d, want usage to override fallback estimate %d", got, estimated)
+	}
+}
+
 func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
