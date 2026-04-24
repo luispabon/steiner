@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -23,6 +24,8 @@ type approvalState struct {
 	mode    string
 	preview string
 }
+
+type tickMsg struct{}
 
 type Model struct {
 	width                int
@@ -143,6 +146,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	// Set styles on content and sidebar
 	m.content.styles = m.styles
 	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
+	m.content.collapseState = make(map[int]bool)
+	m.content.showThinking = m.showThinking
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 
@@ -153,8 +158,14 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	return m
 }
 
+func tickCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg{}
+	})
+}
+
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus()}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}
@@ -163,6 +174,10 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tickMsg:
+		m.content.tickCount++
+		m.syncViewport()
+		return m, tickCmd()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
