@@ -51,6 +51,9 @@ func Validate(cfg Config) error {
 		if model.Compaction.SummaryMaxTokens < 1 {
 			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be at least 1", name))
 		}
+		if model.Compaction.SummaryMaxTokens > model.MaxCompletionTokens {
+			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be less than or equal to models[%q].max_completion_tokens", name, name))
+		}
 	}
 	if ok {
 		if selected.Type == "" {

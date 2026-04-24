@@ -312,6 +312,49 @@ models:
 	}
 }
 
+func TestLoadRejectsSummaryMaxTokensAboveMaxCompletionTokens(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    model: qwen3-35b-a3b
+    temperature: 0.2
+    max_completion_tokens: 256
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 512
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want summary max validation error")
+	}
+	if !strings.Contains(err.Error(), `models["default"].compaction.summary_max_tokens must be less than or equal to models["default"].max_completion_tokens`) {
+		t.Fatalf("error = %q, want summary/max completion validation", err)
+	}
+}
+
 func mustMkdirAll(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

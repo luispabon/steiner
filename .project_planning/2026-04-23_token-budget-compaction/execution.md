@@ -90,6 +90,7 @@
 - `2026-04-25`: Closed sub-agent `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`. Left `/tmp/steiner-stage-3-step-2` and branch `tmp/stage-3-step-2-token-budget-compaction` intact because they contain additional user-authored out-of-scope commits (`57b4fc9`, `db55968`, `18ff9cc`) that were intentionally not merged as part of executor step scope.
 - `2026-04-25`: User requested that the tokenizer fallback stop counting marshaled JSON transport syntax and become the definitive semantic estimator for this feature class. Treated this as a planner-input correction rather than a late bug fix.
 - `2026-04-25`: Updated `overview.md` and `plan.yaml` to insert a new `stage-4-step-1` for semantic estimator replacement, and shifted docs/final verification to `stage-5`.
+- `2026-04-25`: User requested a config safety check that `models.<alias>.compaction.summary_max_tokens` must not exceed `models.<alias>.max_completion_tokens`. Added the cross-field validation in `internal/config/validate.go`, added a loader test in `internal/config/config_test.go`, and verified with `go test ./internal/config`.
 
 ## Sub-Agents
 - `stage-1-step-1`
