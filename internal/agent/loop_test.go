@@ -1053,7 +1053,9 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	}
 
 	var compactionCount int
+	var sessionHealthCount int
 	var budgetCount int
+	var compactionCounts []int
 	for _, event := range events {
 		if event.Type != output.EventTypeContextDiagnostics {
 			continue
@@ -1065,6 +1067,24 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		switch payload.Kind {
 		case "compaction":
 			compactionCount++
+			compactionCounts = append(compactionCounts, payload.CompactionCount)
+			if payload.Severity == "" {
+				t.Fatalf("compaction payload = %#v, want severity", payload)
+			}
+			if payload.SessionState == "" {
+				t.Fatalf("compaction payload = %#v, want session state", payload)
+			}
+			if payload.RestartGuidance == "" {
+				t.Fatalf("compaction payload = %#v, want restart guidance", payload)
+			}
+		case "session_health":
+			sessionHealthCount++
+			if payload.CompactionCount == 0 {
+				t.Fatalf("session health payload = %#v, want compaction count", payload)
+			}
+			if payload.Severity == "" {
+				t.Fatalf("session health payload = %#v, want severity", payload)
+			}
 		case "budget":
 			if payload.PromptTokens > 0 || payload.TotalTokens > 0 {
 				budgetCount++
@@ -1074,8 +1094,84 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := compactionCount, 2; got != want {
 		t.Fatalf("compaction events = %d, want %d", got, want)
 	}
+	if got, want := sessionHealthCount, 2; got != want {
+		t.Fatalf("session health events = %d, want %d", got, want)
+	}
+	if got, want := len(compactionCounts), 2; got != want {
+		t.Fatalf("compaction counts = %v, want %d entries", compactionCounts, want)
+	}
+	if got, want := compactionCounts[0], 1; got != want {
+		t.Fatalf("first compaction count = %d, want %d", got, want)
+	}
+	if got, want := compactionCounts[1], 2; got != want {
+		t.Fatalf("second compaction count = %d, want %d", got, want)
+	}
 	if got, want := budgetCount, 2; got != want {
 		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
+	}
+}
+
+func TestCompactionEscalationPolicy(t *testing.T) {
+	stableFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 460}
+	fragileFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 560}
+
+	tests := []struct {
+		name         string
+		count        int
+		fit          prompt.RequestTokenBudget
+		wantSeverity string
+		wantState    string
+	}{
+		{
+			name:         "first compaction stays informational when healthy",
+			count:        1,
+			fit:          stableFit,
+			wantSeverity: "info",
+			wantState:    "stable",
+		},
+		{
+			name:         "second compaction warns when healthy",
+			count:        2,
+			fit:          stableFit,
+			wantSeverity: "warning",
+			wantState:    "fragile",
+		},
+		{
+			name:         "third compaction is critical when healthy",
+			count:        3,
+			fit:          stableFit,
+			wantSeverity: "critical",
+			wantState:    "likely_lossy",
+		},
+		{
+			name:         "first compaction escalates early when fragile",
+			count:        1,
+			fit:          fragileFit,
+			wantSeverity: "warning",
+			wantState:    "fragile",
+		},
+		{
+			name:         "second compaction becomes critical when fragile",
+			count:        2,
+			fit:          fragileFit,
+			wantSeverity: "critical",
+			wantState:    "likely_lossy",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			escalation := compactionEscalationForFit(tt.count, tt.fit)
+			if got, want := escalation.Severity, tt.wantSeverity; got != want {
+				t.Fatalf("severity = %q, want %q", got, want)
+			}
+			if got, want := escalation.SessionState, tt.wantState; got != want {
+				t.Fatalf("session state = %q, want %q", got, want)
+			}
+			if strings.TrimSpace(escalation.RestartGuidance) == "" {
+				t.Fatal("restart guidance = empty, want non-empty")
+			}
+		})
 	}
 }
 
