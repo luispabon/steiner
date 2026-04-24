@@ -79,7 +79,6 @@ models:
     base_url: http://localhost:11434/v1
     api_key: ""
     model: <required-backend-model>
-    temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -90,7 +89,6 @@ models:
     base_url: http://localhost:11434/v1
     api_key: ""
     model: yi-coder:9b
-    temperature: 0.1
     max_completion_tokens: 4096
     context_size: 16384
     compaction:
