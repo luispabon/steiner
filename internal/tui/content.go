@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -23,6 +24,7 @@ const (
 	segmentThinking
 	segmentUser
 	segmentThinkingBlock
+	segmentToolCall
 )
 
 type thinkingBlockData struct {
@@ -31,10 +33,21 @@ type thinkingBlockData struct {
 	body      string // full content
 }
 
+type toolCallSegment struct {
+	tool      string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
+	args      string // summarized args, ~60 chars max
+	meta      string // "exit 0", "184 lines", etc.
+	bodyKind  string // "bash", "read", "diff", "plain"
+	body      string // raw result text
+	callID    string // for matching started→finished
+	collapsed bool   // default true
+}
+
 type contentSegment struct {
 	kind      contentSegmentKind
 	text      string
 	thinkData *thinkingBlockData // non-nil only for segmentThinkingBlock
+	toolData  *toolCallSegment   // non-nil only for segmentToolCall
 }
 
 type contentBuffer struct {
@@ -68,10 +81,43 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.finishStreaming()
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
-	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
+	case output.EventTypeToolCallStarted:
 		b.finishStreaming()
 		b.streamingPhase = "tool"
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+			tc := &toolCallSegment{
+				tool:      strings.ToLower(payload.Tool),
+				args:      summarizeArgs(payload.Tool, payload.Arguments),
+				callID:    payload.CallID,
+				collapsed: true,
+			}
+			b.segments = append(b.segments, contentSegment{
+				kind:     segmentToolCall,
+				toolData: tc,
+			})
+		} else {
+			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		}
+		return
+
+	case output.EventTypeToolCallFinished:
+		b.finishStreaming()
+		if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+			// Find the last segmentToolCall with matching callID (or just last tool call)
+			for i := len(b.segments) - 1; i >= 0; i-- {
+				if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
+					td := b.segments[i].toolData
+					if td.callID == "" || td.callID == payload.CallID {
+						td.body = payload.Result
+						td.meta = formatToolMeta(payload)
+						td.bodyKind = inferBodyKind(td.tool, payload.Result)
+						break
+					}
+				}
+			}
+		} else {
+			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		}
 		return
 	case output.EventTypeStopReason:
 		b.finishStreaming()
@@ -459,6 +505,11 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		bar := b.styles.ThinkingBar.Render("│")
 		body := b.styles.FgDim.Render(td.body)
 		return bar + " " + body + "\n"
+	case segmentToolCall:
+		if segment.toolData == nil {
+			return ""
+		}
+		return b.renderToolCall(segment.toolData, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
@@ -534,4 +585,153 @@ func isMarkdownLikeBlock(block string) bool {
 		return true
 	}
 	return false
+}
+
+// summarizeArgs extracts a human-readable summary from tool arguments
+func summarizeArgs(tool string, args map[string]any) string {
+	if args == nil {
+		return tool
+	}
+	// Try common arg keys in order
+	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
+		if v, ok := args[key]; ok {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 60 {
+				s = s[:57] + "..."
+			}
+			return s
+		}
+	}
+	// Fallback: first value
+	for _, v := range args {
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 60 {
+			s = s[:57] + "..."
+		}
+		return s
+	}
+	return tool
+}
+
+// formatToolMeta builds the right-aligned meta string for a finished tool call
+func formatToolMeta(payload output.ToolCallFinishedEvent) string {
+	if payload.Error != "" {
+		return "error"
+	}
+	lines := strings.Count(payload.Result, "\n") + 1
+	if strings.TrimSpace(payload.Result) == "" {
+		lines = 0
+	}
+	if lines > 0 {
+		return fmt.Sprintf("%d lines", lines)
+	}
+	return "done"
+}
+
+// inferBodyKind determines how to render the tool body
+func inferBodyKind(tool, body string) string {
+	switch tool {
+	case "bash":
+		return "bash"
+	case "read", "read_file":
+		return "read"
+	case "edit", "write", "write_file":
+		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
+			return "diff"
+		}
+		return "plain"
+	default:
+		return "plain"
+	}
+}
+
+func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
+	chevron := "▸"
+	if !tc.collapsed {
+		chevron = "▾"
+	}
+
+	// Tag pill style
+	tagStyle := b.toolTagStyle(tc.tool)
+	tag := tagStyle.Render(" " + tc.tool + " ")
+
+	// Header line: chevron + tag + args + right-aligned meta
+	header := chevron + " " + tag + " " + tc.args
+	if tc.meta != "" {
+		// Right-align meta
+		metaStr := b.styles.FgMute.Render(tc.meta)
+		headerWidth := width - lipgloss.Width(metaStr) - 2
+		if headerWidth < 1 {
+			headerWidth = 1
+		}
+		header = lipgloss.NewStyle().Width(headerWidth).Render(header) + " " + metaStr
+	}
+
+	result := header + "\n"
+
+	if !tc.collapsed && tc.body != "" {
+		result += b.renderToolBody(tc, width)
+	}
+
+	return result
+}
+
+func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
+	switch tool {
+	case "bash":
+		return b.styles.ToolTagBash
+	case "read", "read_file":
+		return b.styles.ToolTagRead
+	case "write", "write_file", "edit":
+		return b.styles.ToolTagWrite
+	case "glob", "grep":
+		return b.styles.ToolTagGlobGrep
+	case "todo", "todowrite", "todoread":
+		return b.styles.ToolTagTodo
+	default:
+		return b.styles.ToolTagDefault
+	}
+}
+
+func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
+	indent := "   "
+	innerWidth := width - len(indent)
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	switch tc.bodyKind {
+	case "bash":
+		return b.renderBashBody(tc, indent, innerWidth)
+	case "read":
+		return b.renderReadBody(tc, indent, innerWidth)
+	default:
+		// plain
+		body := b.styles.FgDim.Width(innerWidth).Render(tc.body)
+		return indent + body + "\n"
+	}
+}
+
+func (b *contentBuffer) renderBashBody(tc *toolCallSegment, indent string, width int) string {
+	var sb strings.Builder
+	lines := strings.Split(tc.body, "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		sb.WriteString(indent + b.styles.FgDim.Render(line) + "\n")
+	}
+	return sb.String()
+}
+
+func (b *contentBuffer) renderReadBody(tc *toolCallSegment, indent string, width int) string {
+	lines := strings.Split(tc.body, "\n")
+	caption := fmt.Sprintf("%d lines", len(lines))
+	var sb strings.Builder
+	sb.WriteString(indent + b.styles.FgMute.Render(caption) + "\n")
+	for i, line := range lines {
+		lineNum := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
+		sb.WriteString(indent + lineNum + b.styles.FgDim.Render(line) + "\n")
+	}
+	return sb.String()
 }
