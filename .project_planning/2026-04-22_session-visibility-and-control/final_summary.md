@@ -1,36 +1,25 @@
-# Stage 5 - Session Visibility and Control
+# Final Summary: Session Visibility and Control (Stage 5)
 
-## Final Summary
+## High-Level Objectives
 
-### High-Level Objectives
+The objective of Stage 5 was to improve console usability by making long-running agent sessions understandable and controllable through the terminal. This involved surfacing diagnostic information regarding context budgets, compaction activity, and session state without exposing raw, low-level internals. Key goals included:
+- **Enhanced Visibility**: Providing summary-first diagnostics for context usage and compaction within the REPL.
+- **Session Inspection**: Upgrading the `/history` command to allow users to inspect recent diagnostic events and stop reasons.
+- **Improved Control**: Implementing robust interruption and cancellation handling that preserves a coherent session state and provides actionable reasons for why a run stopped.
 
-Stage 5 was a console usability stage focused on making long-running sessions understandable and controllable from the terminal by:
+## Implementation Overview
 
-- Surfacing existing context diagnostics more clearly
-- Extending session inspection beyond the minimal `/history`
-- Improving interruption and cancellation behavior
-- Without changing prompt-assembly semantics
+The implementation was carried out in three main stages:
 
-### What Was Done
+1.  **Diagnostic Surface Establishment**: Created a reusable presentation layer in `internal/output` to handle concise, summary-first formatting for context budgets, compaction summaries, and stop reasons. This ensured consistent UX across both interactive REPL sessions and automated execution modes.
+2.  **REPL Command Expansion**: Extended the REPL command surface with new inspection controls. The `/history` command was upgraded to support multiple views (`summary`, `context`, and `recent [count]`), allowing users to drill into session diagnostics directly from the console.
+3.  **Interruption & Cancellation Integration**: Integrated cancellation handling into the existing CLI/REPL flow. Changes were made to ensure that when a user interrupts or cancels a prompt, the resulting stop reason is captured as an inspectable event rather than lost, and the session remains in a coherent state for further commands.
 
-| Stage | Objective | Status |
-|-------|-----------|--------|
-| Stage 1 | Define terminal-facing diagnostic summaries for context budgets, compaction visibility, and stop-reason summaries | ✓ Complete |
-| Stage 2 | Expand REPL control surface with inspection controls; upgrade `/history` to useful session-visibility tool | ✓ Complete |
-| Stage 3 | Add interruption and cancellation UX hooks that preserve coherent session state and explain why work stopped | ✓ Complete |
-| Review Fix | Fix diagnostic accumulation across turns and normalize `context.Canceled` for stop reasons | ✓ Complete |
+A critical review identified and resolved issues regarding diagnostic retention (ensuring diagnostics accumulate across turns rather than being overwritten) and prompt cancellation normalization (ensuring `context.Canceled` is treated as a formal interruption).
 
-### Final Results
+## Final Results
 
-- New REPL commands: `/history summary`, `/history context`, `/history recent [count]`
-- Summary-first context and stop-reason output in interactive and exec flows
-- Interrupted and cancelled runs remain inspectable after the stop
-- All verification passing: `gofmt`, `go vet`, `go test ./...`, `go build ./...`
-- Manual verification: accepted by user
-
-### Files Changed
-
-- `internal/output/debug.go`, `internal/output/log.go`, `internal/output/stream.go`, `internal/output/stream_test.go`
-- `internal/agent/loop.go`, `internal/agent/loop_test.go`, `internal/agent/state.go`
-- `internal/repl/commands.go`, `internal/repl/repl.go`, `internal/repl/repl_test.go`, `internal/repl/completer.go`, `internal/repl/prompt.go`, `internal/repl/prompt_test.go`
-- `cmd/steiner/main.go`, `cmd/steiner/main_test.go`
+- **New REPL Inspection Commands**: Users can now use `/history summary`, `/history context`, and `/history recent [n]` to inspect session state.
+- **Actionable Stop Reasons**: Interrupted or cancelled runs now leave behind clear, inspectable diagnostics explaining why the work stopped.
+- **Concise Context Diagnostics**: Integrated terminal output now provides human-readable summaries of context budgets and compaction activity.
+- **Robust Session State**: Improved reliability of the session state during interruptions, ensuring that conversation history and active skills remain intact.
