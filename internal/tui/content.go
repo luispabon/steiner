@@ -21,11 +21,20 @@ const (
 	segmentApproval
 	segmentTool
 	segmentThinking
+	segmentUser
+	segmentThinkingBlock
 )
 
+type thinkingBlockData struct {
+	preview   string // first 80 chars
+	collapsed bool   // default true
+	body      string // full content
+}
+
 type contentSegment struct {
-	kind contentSegmentKind
-	text string
+	kind      contentSegmentKind
+	text      string
+	thinkData *thinkingBlockData // non-nil only for segmentThinkingBlock
 }
 
 type contentBuffer struct {
@@ -37,6 +46,11 @@ type contentBuffer struct {
 	renderWidth       int
 	styles            theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
+	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
+	segmentHeights    []int        // rendered line count per segment (recomputed in String())
+	showThinking      bool         // from prefs; when false skip thinking segments
+	streamingPhase    string       // "thinking" | "tool" | "answer" | ""
+	tickCount         int          // incremented by 500ms tick, used for cursor blink
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -56,6 +70,7 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		return
 	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
 		b.finishStreaming()
+		b.streamingPhase = "tool"
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 		return
 	case output.EventTypeStopReason:
@@ -85,10 +100,17 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 			}
 		}
 		return
+	case output.EventTypeUserInput:
+		if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
+			b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
+			if len(b.segments)-1 >= 0 {
+				b.collapseState[len(b.segments)-1] = false // user segments never collapsed
+			}
+		}
+		return
 	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
-		output.EventTypeAPIRequest, output.EventTypeAPIResponse,
-		output.EventTypeUserInput:
+		output.EventTypeAPIRequest, output.EventTypeAPIResponse:
 		return
 	}
 
@@ -189,20 +211,31 @@ func (b *contentBuffer) AppendLine(line string) {
 
 func (b *contentBuffer) Clear() {
 	b.segments = nil
+	b.segmentHeights = nil
 	b.streamBuffer = ""
 	b.streaming = false
+	b.streamingPhase = ""
+	b.collapseState = make(map[int]bool)
 }
 
 func (b *contentBuffer) String(width int) string {
-	parts := make([]string, 0, len(b.segments)+1)
-	for _, segment := range b.segments {
-		if rendered := b.renderSegment(segment, width); rendered != "" {
+	b.segmentHeights = make([]int, len(b.segments))
+	parts := make([]string, 0, len(b.segments)+2)
+	for i, segment := range b.segments {
+		if segment.kind == segmentThinkingBlock && !b.showThinking {
+			b.segmentHeights[i] = 0
+			continue
+		}
+		rendered := b.renderSegment(segment, width)
+		b.segmentHeights[i] = strings.Count(rendered, "\n")
+		if rendered != "" {
 			parts = append(parts, rendered)
 		}
 	}
 	if preview := b.inProgressPreview(); preview != "" {
 		parts = append(parts, preview)
 	}
+	parts = append(parts, b.streamingIndicatorView())
 	return strings.Join(parts, "")
 }
 
@@ -213,6 +246,9 @@ func (b *contentBuffer) appendAssistantChunk(text string) {
 	b.streaming = true
 	b.hadChunks = true
 	b.streamBuffer += text
+	if b.streamingPhase == "" {
+		b.streamingPhase = "answer"
+	}
 
 	// Disabled for now because it mangles Glamour rendering
 	// @todo investigate and fix, don't delete the commented out code!
@@ -228,6 +264,7 @@ func (b *contentBuffer) finishStreaming() {
 	}
 	b.streamBuffer = ""
 	b.streaming = false
+	b.streamingPhase = ""
 }
 
 func (b *contentBuffer) inProgressPreview() string {
@@ -235,7 +272,27 @@ func (b *contentBuffer) inProgressPreview() string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return b.styles.AssistantProse.Render(preview) + "\n"
+	cursor := ""
+	if b.tickCount%2 == 0 {
+		cursor = "█"
+	}
+	return b.styles.AssistantProse.Render(preview+cursor) + "\n"
+}
+
+func (b *contentBuffer) streamingIndicatorView() string {
+	if b.streamingPhase == "" {
+		return ""
+	}
+	dots := []string{"•", "•", "•"}
+	active := b.tickCount % 3
+	label := "thinking…"
+	if b.streamingPhase == "tool" {
+		label = "running tool…"
+	}
+	// stagger dot brightness by making active dot FgDim colored (style as accent)
+	// For terminal, simplify: just show dots + label, varying count by tickCount
+	visibleDots := active + 1
+	return b.styles.FgMute.Render(strings.Join(dots[:visibleDots], " ")+" "+label) + "\n"
 }
 
 func (b *contentBuffer) flushCompletedBlocks() {
@@ -379,6 +436,29 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.styles.ToolBlock.Render(segment.text) + "\n"
 	case segmentThinking:
 		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
+	case segmentUser:
+		// left-bar chrome: 2-col left border in User color + UserBg background
+		bar := b.styles.UserBar.Render("│")
+		content := b.styles.UserBg.Render(" › " + segment.text)
+		return bar + content + "\n"
+	case segmentThinkingBlock:
+		if segment.thinkData == nil {
+			return ""
+		}
+		// Check collapse state by finding segment index
+		// Use a simple approach: render based on thinkData.collapsed field
+		td := segment.thinkData
+		collapsed := td.collapsed
+		if collapsed {
+			preview := td.preview
+			if len(preview) > 80 {
+				preview = preview[:80]
+			}
+			return b.styles.ThinkingBar.Render("▸ Thinking · "+preview+"…") + "\n"
+		}
+		bar := b.styles.ThinkingBar.Render("│")
+		body := b.styles.FgDim.Render(td.body)
+		return bar + " " + body + "\n"
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
