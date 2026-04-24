@@ -295,8 +295,8 @@ func (m *Model) layout() {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	m.viewport.Width = contentWidth
-	m.viewport.Height = contentHeight
+	m.viewport.Width = maxInt(1, contentWidth-2)
+	m.viewport.Height = maxInt(1, contentHeight-2)
 	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }

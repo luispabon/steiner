@@ -4,6 +4,7 @@ import (
 	catppuccingo "github.com/catppuccin/go"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
+	glamourstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -85,7 +86,8 @@ func (m mochaTheme) LipGlossStyles() Styles {
 
 	return Styles{
 		ContentPane: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textHex)),
+			Foreground(lipgloss.Color(textHex)).
+			Padding(1, 1),
 		Sidebar: lipgloss.NewStyle().
 			Background(lipgloss.Color(mantleHex)).
 			Foreground(lipgloss.Color(textHex)),
@@ -142,79 +144,37 @@ func (m mochaTheme) GlamourStyleSheet() glamour.TermRendererOption {
 	ptrBool := func(b bool) *bool { return &b }
 	ptrUint := func(u uint) *uint { return &u }
 
-	return glamour.WithStyles(ansi.StyleConfig{
-		Document: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(textHex),
-			},
-			Margin: ptrUint(0),
-		},
-		CodeBlock: ansi.StyleCodeBlock{
-			StyleBlock: ansi.StyleBlock{
-				StylePrimitive: ansi.StylePrimitive{
-					BackgroundColor: ptrStr(mantleHex),
-				},
-			},
-			Theme: "catppuccin-mocha",
-		},
-		Code: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				BackgroundColor: ptrStr(surface0Hex),
-				Color:           ptrStr(peachHex),
-			},
-		},
-		Heading: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H1: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H2: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H3: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H4: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H5: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		H6: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: ptrStr(lavenderHex),
-				Bold:  ptrBool(true),
-			},
-		},
-		Link: ansi.StylePrimitive{
-			Color: ptrStr(blueHex),
-		},
-		Emph: ansi.StylePrimitive{
-			Color:  ptrStr(mauveHex),
-			Italic: ptrBool(true),
-		},
-		Strong: ansi.StylePrimitive{
-			Color: ptrStr(lavenderHex),
-			Bold:  ptrBool(true),
-		},
-	})
+	// Start from glamour's built-in dark style so list bullets, numbering
+	// separators, paragraph spacing and other primitives keep working. Only
+	// recolor the fields that should pick up the catppuccin palette.
+	cfg := glamourstyles.DarkStyleConfig
+
+	cfg.Document.Color = ptrStr(textHex)
+	cfg.Document.Margin = ptrUint(0)
+
+	cfg.CodeBlock.StyleBlock.StylePrimitive.BackgroundColor = ptrStr(mantleHex)
+	cfg.CodeBlock.Theme = "catppuccin-mocha"
+
+	cfg.Code.BackgroundColor = ptrStr(surface0Hex)
+	cfg.Code.Color = ptrStr(peachHex)
+
+	headingColor := func(b *ansi.StyleBlock) {
+		b.Color = ptrStr(lavenderHex)
+		b.Bold = ptrBool(true)
+	}
+	headingColor(&cfg.Heading)
+	headingColor(&cfg.H1)
+	headingColor(&cfg.H2)
+	headingColor(&cfg.H3)
+	headingColor(&cfg.H4)
+	headingColor(&cfg.H5)
+	headingColor(&cfg.H6)
+
+	cfg.Link.Color = ptrStr(blueHex)
+	cfg.Emph.Color = ptrStr(mauveHex)
+	cfg.Emph.Italic = ptrBool(true)
+	cfg.Strong.Color = ptrStr(lavenderHex)
+	cfg.Strong.Bold = ptrBool(true)
+
+	return glamour.WithStyles(cfg)
 }
