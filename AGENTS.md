@@ -68,7 +68,7 @@ Go version is `1.24`.
 ## Architecture invariants
 
 * Context source precedence is fixed: system preamble, global `~/.config/steiner/AGENTS.md`, project `./AGENTS.md`, auto-discovered project context, user-invoked skills, active conversation history, tool results, delegated sub-agent payloads.
-* Provider access must go through the central scheduler; do not bypass `provider.parallelism`.
+* Provider access must go through the central scheduler; do not bypass `scheduler.parallelism`.
 * Tools use structured JSON input and output.
 * Skills are auxiliary context, not system authority.
 * Sub-agents are isolated, receive only explicitly passed context, and cannot nest.

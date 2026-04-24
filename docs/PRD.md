@@ -149,7 +149,7 @@ At minimum, steiner should support these policies conceptually from the beginnin
 * enforce per-tool output byte limits
 * replace oversized outputs with a summary envelope plus truncation notice
 * bound auto-discovered project context by a configurable budget
-* support rolling compaction of older conversation history
+* support pre-request compaction of older conversation history when the selected model budget is nearly exhausted
 * keep sub-agent internals isolated from parent context unless explicitly requested
 
 ### 4.5 Context Boundaries
@@ -243,9 +243,9 @@ The interactive TUI uses a persistent multi-pane layout:
 
 ### 5.6 Resource-Constrained Operation
 
-Users running local models on limited hardware must be able to reduce runtime pressure deliberately. steiner should expose provider/model parallelism controls so users can limit the number of concurrent in-flight LLM requests.
+Users running local models on limited hardware must be able to reduce runtime pressure deliberately. steiner should expose scheduler/model parallelism controls so users can limit the number of concurrent in-flight LLM requests.
 
-This is especially important once delegated execution exists, but the control belongs in the provider configuration from the start.
+This is especially important once delegated execution exists, but the control belongs in the top-level scheduler configuration from the start.
 
 ---
 
@@ -274,7 +274,7 @@ Required event types:
 * **ContextUpdate** - context budget changed, includes tokens used/budget, compaction state
 * **LimitHit** - a termination control fired, includes which limit and current values
 * **SkillActivated** - a skill was toggled on
-* **CompactionFired** - conversation history was compacted, includes turns affected
+* **CompactionFired** - conversation history was compacted before a request, includes budget and summary details
 * **RunComplete** - agent loop finished, includes stop reason
 * **Error** - error occurred, includes context
 
@@ -643,14 +643,23 @@ Later layers override earlier ones.
 ### 12.2 Full Config Schema
 
 ```yaml
-provider:
-  type: openai_compat
-  base_url: ${STEINER_BASE_URL:-http://localhost:11434/v1}
-  api_key: ${STEINER_API_KEY}
-  model: ${STEINER_MODEL:-qwen3-35b-a3b}
-  temperature: 0.2
-  max_completion_tokens: 8192
-  parallelism: 1
+scheduler:
+  parallelism: ${STEINER_SCHEDULER_PARALLELISM:-1}
+
+model: ${STEINER_MODEL:-default}
+
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    api_key: ""
+    model: qwen3-35b-a3b
+    temperature: 0.2
+    max_completion_tokens: 8192
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
 
 limits:
   max_turns: 50
@@ -704,13 +713,13 @@ logging:
 
 ### 12.3 Parallelism Configuration
 
-`provider.parallelism` sets the maximum number of simultaneous LLM requests steiner may have in flight for that configured provider/model.
+`scheduler.parallelism` sets the maximum number of simultaneous LLM requests steiner may have in flight across all active model work.
 
 Examples:
 
 * `1` - safest for constrained local setups
 * `2` - permits limited concurrency
-* `N` - upper concurrency bound for all active agent work using that provider
+* `N` - upper concurrency bound for all active agent work
 
 This is especially relevant for future delegation and should be respected by any request scheduler.
 
@@ -722,19 +731,20 @@ Examples:
 
 | Variable                       | Config path            |
 | ------------------------------ | ---------------------- |
-| `STEINER_API_KEY`              | `provider.api_key`     |
-| `STEINER_BASE_URL`             | `provider.base_url`    |
-| `STEINER_MODEL`                | `provider.model`       |
-| `STEINER_PROVIDER_PARALLELISM` | `provider.parallelism` |
+| `STEINER_MODEL`                 | `model`                       |
+| `STEINER_SCHEDULER_PARALLELISM` | `scheduler.parallelism`       |
 | `STEINER_MAX_TURNS`            | `limits.max_turns`     |
+| `STEINER_MAX_TOKENS`            | `limits.max_tokens`           |
+| `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes` |
 | `STEINER_LOG_LEVEL`            | `logging.level`        |
+| `STEINER_LOG_FILE`              | `logging.file`                |
 
 ### 12.5 Runtime-Important Config
 
 The most operationally significant config includes:
 
-* provider type, model, and base URL
-* provider parallelism
+* active model alias plus its type, backend model, and base URL
+* scheduler parallelism
 * max turns and token budgets
 * tool approvals
 * tool timeouts
@@ -872,7 +882,7 @@ Deliver:
 * REPL mode
 * single-shot `--exec`
 * OpenAI-compatible provider
-* provider/model configuration including `parallelism`
+* top-level `scheduler.parallelism`, `model`, and `models.<alias>` configuration
 * core prompt assembly
 * bounded project context injection
 * AGENTS.md loading
@@ -906,7 +916,7 @@ Exit condition:
 
 Deliver:
 
-* rolling conversation compaction
+* budget-driven pre-request conversation compaction
 * summarised retention of older turns
 * preservation of active constraints and recent work
 * compacted prompt assembly diagnostics
@@ -957,7 +967,7 @@ Deliver:
 * code blocks with syntax highlighting via Chroma
 * full markdown support: headers, bold, italic, inline code, code blocks, lists, tables, links
 * streaming markdown rendering strategy: completed blocks rendered with full styling, in-progress block shown as plain text until the next block boundary
-* status sidebar showing: model name, provider endpoint, context tokens used/budget with percentage, current turn/max turns, compaction state (whether fired, turns affected), git branch and dirty state, working directory, active skills
+* status sidebar showing: model name, provider endpoint, context tokens used/budget with percentage, current turn/max turns, compaction state (whether fired, budget pressure, summary result), git branch and dirty state, working directory, active skills
 * sidebar collapses automatically below the terminal width threshold configured in `tui.sidebar_min_width`
 * sidebar toggles via keybind
 * tool execution rendered as muted inline blocks in the content pane: tool name, key arguments, approval state, result summary, truncation status
@@ -1050,7 +1060,7 @@ steiner is successful when it demonstrates the following behaviours:
 5. risky operations are visible and controllable through approvals
 6. path and execution rules prevent obvious unsafe behaviour by default
 7. configuration precedence resolves deterministically
-8. local-model users can constrain concurrency through provider parallelism settings
+8. local-model users can constrain concurrency through scheduler parallelism settings
 9. long sessions remain usable through bounded context assembly and compaction
 10. the terminal interface renders streamed responses with styled markdown and syntax-highlighted code
 11. tool and thinking activity is visually subordinate to assistant prose

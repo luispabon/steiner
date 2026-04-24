@@ -6,7 +6,7 @@
 
 * Single-agent loop with interactive terminal mode and `--exec`
 * Config, tools, skills, and version commands are available now
-* Default provider targets a local OpenAI-compatible endpoint
+* Default model config targets a local OpenAI-compatible endpoint
 * Mutating tools are approval-gated by default; reads are auto-approved
 
 ## Quickstart
@@ -14,7 +14,7 @@
 Requirements: Go `1.24+`.
 
 1. Start from source in this repo.
-2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the provider settings in config.
+2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the selected model settings in config.
 3. Run a first request from source:
 
 ```bash
@@ -55,28 +55,45 @@ Configuration precedence is:
 
 Key environment variables:
 
-* `STEINER_API_KEY`
-* `STEINER_BASE_URL`
 * `STEINER_MODEL`
-* `STEINER_PROVIDER_PARALLELISM`
+* `STEINER_SCHEDULER_PARALLELISM`
 * `STEINER_MAX_TURNS`
+* `STEINER_MAX_TOKENS`
+* `STEINER_TOOL_OUTPUT_MAX_BYTES`
 * `STEINER_LOG_LEVEL`
+* `STEINER_LOG_FILE`
 
 ### Full config format
 
 ```yaml
-# Provider settings
-provider:
-  type: openai_compat          # provider type (openai_compat)
-  base_url: http://localhost:11434/v1
-  api_key: ""                 # empty for local providers
-  model: qwen3-35b-a3b         # default model
-  models:                     # model aliases for different task types
-    fast: qwen3-8b
-    cheap: qwen3-8b
-  temperature: 0.2
-  max_completion_tokens: 8192
-  parallelism: 1              # max concurrent requests
+scheduler:
+  parallelism: 1              # max concurrent requests across model calls
+
+model: default                # active model alias
+
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    api_key: ""               # empty for local providers
+    model: qwen3-35b-a3b      # default backend model
+    temperature: 0.2
+    max_completion_tokens: 8192
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
+  fast:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    api_key: ""
+    model: qwen3-8b
+    temperature: 0.1
+    max_completion_tokens: 4096
+    context_size: 16384
+    compaction:
+      safety_margin_tokens: 1024
+      summary_max_tokens: 512
 
 # Execution limits
 limits:
@@ -154,6 +171,8 @@ logging:
   level: info               # debug, info, warn, error
   file: ~/.local/share/steiner/steiner.log
 ```
+
+`model` selects the active alias from `models`. Compaction is budget-driven: before a request is sent, steiner summarizes older history when the selected model's `context_size` minus the configured safety margin would otherwise be exceeded.
 
 Approval defaults are user-facing and conservative: reads like `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first.
 
