@@ -526,7 +526,6 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	)
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
-	temperature := selected.Temperature
 	maxTokens := selected.MaxCompletionTokens
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
@@ -535,7 +534,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
 		Model:       selected.Model,
-		Temperature: &temperature,
+		Temperature: selected.Temperature,
 		MaxTokens:   &maxTokens,
 		Limits: agent.Limits{
 			MaxTurns:  r.maxTurns,

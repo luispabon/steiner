@@ -853,6 +853,8 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func float64Ptr(v float64) *float64 { return &v }
+
 func testRuntimeConfig(alias string) config.Config {
 	return config.Config{
 		Scheduler: config.SchedulerConfig{
@@ -865,7 +867,7 @@ func testRuntimeConfig(alias string) config.Config {
 				BaseURL:             "http://localhost:11434/v1",
 				APIKey:              "",
 				Model:               alias,
-				Temperature:         0.2,
+				Temperature:         float64Ptr(0.2),
 				MaxCompletionTokens: 64,
 				ContextSize:         4096,
 				Compaction: config.CompactionConfig{
@@ -1016,7 +1018,7 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
-		Temperature:         0.2,
+		Temperature:         float64Ptr(0.2),
 		MaxCompletionTokens: 64,
 		ContextSize:         1,
 		Compaction: config.CompactionConfig{
@@ -1091,7 +1093,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o-mini",
-			Temperature:         0.2,
+			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 32,
 			ContextSize:         1024,
 			Compaction: config.CompactionConfig{
@@ -1103,7 +1105,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o",
-			Temperature:         0.2,
+			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 96,
 			ContextSize:         8192,
 			Compaction: config.CompactionConfig{
@@ -1151,6 +1153,52 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	}
 	if got, want := second.ModelBudget.MaxCompletionTokens, 96; got != want {
 		t.Fatalf("second max completion tokens = %d, want %d", got, want)
+	}
+}
+
+func TestCLIRunnerOmitsTemperatureWhenModelConfigDoesNotSetIt(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("test-model")
+	cfg.Models["test-model"] = config.ModelConfig{
+		Type:                "openai_compat",
+		BaseURL:             "http://localhost:11434/v1",
+		Model:               "test-model",
+		MaxCompletionTokens: 64,
+		ContextSize:         4096,
+		Compaction: config.CompactionConfig{
+			SafetyMarginTokens: 16,
+			SummaryMaxTokens:   32,
+		},
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		maxTurns: 1,
+	}
+
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}, nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if providerStub.requests[0].Temperature != nil {
+		t.Fatalf("request temperature = %v, want nil", *providerStub.requests[0].Temperature)
 	}
 }
 

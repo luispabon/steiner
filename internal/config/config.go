@@ -32,7 +32,7 @@ type ModelConfig struct {
 	BaseURL             string           `yaml:"base_url"`
 	APIKey              string           `yaml:"api_key"`
 	Model               string           `yaml:"model"`
-	Temperature         float64          `yaml:"temperature"`
+	Temperature         *float64         `yaml:"temperature"`
 	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
 	ContextSize         int              `yaml:"context_size"`
 	Compaction          CompactionConfig `yaml:"compaction"`
@@ -424,7 +424,8 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 		dst.Model = *patch.Model
 	}
 	if patch.Temperature != nil {
-		dst.Temperature = *patch.Temperature
+		value := *patch.Temperature
+		dst.Temperature = &value
 	}
 	if patch.MaxCompletionTokens != nil {
 		dst.MaxCompletionTokens = *patch.MaxCompletionTokens
