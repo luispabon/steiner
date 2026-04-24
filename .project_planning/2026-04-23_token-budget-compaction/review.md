@@ -43,12 +43,14 @@
   - Verification: `go test ./internal/agent ./internal/prompt` passed
 
 ## Verification
-- Post-fix tests: `go test ./internal/agent ./internal/prompt ./internal/config ./cmd/steiner` passed (65 tests)
-- Full unit tests: will verify as final step
-- Build validation: will verify as final step
+- Post-fix targeted tests: `go test ./internal/agent ./internal/prompt ./internal/config ./cmd/steiner` passed (65 tests)
+- Full unit tests: `go test ./...` passed (203 tests)
+- Static analysis: `go vet ./...` passed
+- Build validation: `go build ./...` passed
 
 ## Final Status
 - Review status: `pass`
 - Branch: `cl/2026-04-23_token-budget-compaction`
 - Working tree: clean
-- Review-pass commit: will commit after final verification
+- Review-pass commit: `a831a7c` (fix) + `4a9a9b2` (review.md)
+- Sub-agents closed: none spawned by reviewer
