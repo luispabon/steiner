@@ -312,6 +312,51 @@ models:
 	}
 }
 
+func TestLoadAllowsZeroMaxTurns(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    model: qwen3-35b-a3b
+    temperature: 0.2
+    max_completion_tokens: 8192
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
+limits:
+  max_turns: 0
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.Limits.MaxTurns; got != 0 {
+		t.Fatalf("limits.max_turns = %d, want 0", got)
+	}
+}
+
 func TestLoadRejectsSummaryMaxTokensAboveMaxCompletionTokens(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")

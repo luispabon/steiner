@@ -661,6 +661,71 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 	}
 }
 
+func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	var stdout, stderr bytes.Buffer
+	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		_ = ctx
+		_ = cmd
+		_ = flags
+		cfg := testRuntimeConfig("test-model")
+		cfg.Limits.MaxTurns = 4
+		cfg.Limits.MaxTokens = 256
+		return cliRuntime{
+			cfg: cfg,
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role: provider.MessageRoleAssistant,
+							ToolCalls: []provider.ToolCall{
+								{ID: "call_1", Name: "noop", Arguments: map[string]any{}},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+					{
+						Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+						FinishReason: "stop",
+					},
+				},
+			},
+			registry: tool.NewRegistry(tool.ToolDef{
+				Name:            "noop",
+				Description:     "No-op tool",
+				ParameterSchema: map[string]any{"type": "object"},
+				Handler: func(ctx context.Context, input map[string]any) (any, error) {
+					return map[string]any{"ok": true}, nil
+				},
+			}),
+			workDir:     t.TempDir(),
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(&stdout),
+			status:      output.NewStream(&stderr),
+			events:      output.NewStream(&stdout),
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "--max-turns", "1", "run noop"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "status: stopped after 1 turn: reached the max turn limit") {
+		t.Fatalf("stdout = %q, want max turn stop from flag override", got)
+	}
+}
+
 func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
