@@ -11,3 +11,7 @@
  * Delegation deferrals (background mode, re-promptable sessions, `touched_files` result field, parallel-sub-agent capability): see `docs/DELEGATION_FUTURE.md`.
  * Look into sandboxing for commands (bubblewrap, socat?) like claude and codex https://code.claude.com/docs/en/sandboxing
  * I want to add a tool so that a model can request the agent to display a file to the user.
+ * User repositories can contain a steiner.yaml config file within the .steiner/ folder
+ * We keep an example config file at dist/config.yaml documenting every single option available
+ * The conversation pane needs a scrollbar
+ * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost
