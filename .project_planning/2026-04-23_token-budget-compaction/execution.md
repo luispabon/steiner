@@ -4,7 +4,7 @@
 - Planning folder: `.project_planning/2026-04-23_token-budget-compaction`
 - Active branch: `cl/2026-04-23_token-budget-compaction`
 - Executor start date: `2026-04-24`
-- Current stage: `stage-4 ready`
+- Current stage: `manual verification checkpoint`
 - Execution mode: isolated sub-agent worktrees when safe
 
 ## Verification Strategy
@@ -51,9 +51,9 @@
 - `stage-2-step-2`: `implemented`
 - `stage-3-step-1`: `implemented`
 - `stage-3-step-2`: `implemented`
-- `stage-4-step-1`: `ready`
-- `stage-5-step-1`: `pending`
-- `stage-5-step-2`: `pending`
+- `stage-4-step-1`: `implemented`
+- `stage-5-step-1`: `implemented`
+- `stage-5-step-2`: `implemented`
 
 ## Activity Log
 - `2026-04-24`: Validated planner handoff. Found required `overview.md` and `plan.yaml`, confirmed branch `cl/2026-04-23_token-budget-compaction` exists, checked out the branch, and observed a clean working tree before executor initialization.
@@ -91,6 +91,22 @@
 - `2026-04-25`: User requested that the tokenizer fallback stop counting marshaled JSON transport syntax and become the definitive semantic estimator for this feature class. Treated this as a planner-input correction rather than a late bug fix.
 - `2026-04-25`: Updated `overview.md` and `plan.yaml` to insert a new `stage-4-step-1` for semantic estimator replacement, and shifted docs/final verification to `stage-5`.
 - `2026-04-25`: User requested a config safety check that `models.<alias>.compaction.summary_max_tokens` must not exceed `models.<alias>.max_completion_tokens`. Added the cross-field validation in `internal/config/validate.go`, added a loader test in `internal/config/config_test.go`, and verified with `go test ./internal/config`.
+- `2026-04-25`: Reviewed completed sub-agent branch `tmp/stage-4-step-1-semantic-token-estimator` at commit `78d3af6` (`Use semantic token estimation for requests`). The step replaced wire-JSON token counting with semantic request estimation in `internal/provider/token_estimator.go`, added semantic estimator coverage in `internal/provider/token_estimator_test.go`, and pinned backend-usage preference in `internal/agent/loop_test.go`.
+- `2026-04-25`: Cherry-picked scoped step commit `78d3af6` onto `cl/2026-04-23_token-budget-compaction` as commit `5a989bb`.
+- `2026-04-25`: Ran `go test ./internal/provider ./internal/prompt ./internal/agent` after cherry-picking `stage-4-step-1`; the step passed on the feature branch.
+- `2026-04-25`: Closed sub-agent `019dbef0-8688-71f0-a13d-8ba4c79d9ef2`, removed worktree `/tmp/steiner-stage-4-step-1`, and deleted temporary branch `tmp/stage-4-step-1-semantic-token-estimator` after cherry-picking the scoped step commit.
+- `2026-04-25`: Dispatched `stage-5-step-1` to isolated sub-agent worktree `/tmp/steiner-stage-5-step-1` on branch `tmp/stage-5-step-1-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution. Explicitly instructed the worker to preserve the user-authored README direction from preserved commit `57b4fc9` where compatible while keeping later out-of-scope `internal/config/defaults.go` changes excluded.
+- `2026-04-25`: Reviewed completed docs sub-agent commit `6a881c6` (`docs: update model config and compaction docs`). The patch updated `README.md`, `docs/PRD.md`, and `AGENTS.md` to the top-level `scheduler` / `model` / `models` config shape and replaced old provider/turn-compaction wording with budget-driven compaction wording.
+- `2026-04-25`: Cherry-picked scoped docs commit `6a881c6` onto `cl/2026-04-23_token-budget-compaction` as commit `2efb505`.
+- `2026-04-25`: Rechecked `go test ./cmd/steiner` on the feature branch while preparing final verification. It fails at existing test `TestExecModePrintsApprovalPromptWithPreviewArgs` with an approval prompt mismatch that now reports an absolute `cwd` plus final error `approval input is unavailable`. Treating this as stage-5-step-2 fallout to fix or explicitly classify during final verification.
+- `2026-04-25`: Closed sub-agent `019dbefe-d6bc-74c0-aa30-5865f557a0b5`, removed worktree `/tmp/steiner-stage-5-step-1`, and deleted temporary branch `tmp/stage-5-step-1-token-budget-compaction` after cherry-picking the scoped docs commit.
+- `2026-04-25`: Ran final broad verification on the feature branch: `go test ./...`, `go vet ./...`, `go build ./...`, and `make build-binaries`. `go vet ./...`, `go build ./...`, and `make build-binaries` passed. `go test ./...` failed only in `cmd/steiner` (`TestExecModePrintsApprovalPromptWithPreviewArgs`) and `internal/tui` (`TestModelResizeAndMouseScroll`).
+- `2026-04-25`: Dispatched `stage-5-step-2` fallout fixes to isolated sub-agent worktree `/tmp/steiner-stage-5-step-2` on branch `tmp/stage-5-step-2-token-budget-compaction` using model `gpt-5.4-mini` (cheaper than current runtime model), serial execution. The worker owns only the narrow failing-test fallout unless a real product bug is discovered.
+- `2026-04-25`: Reviewed completed fallout-fix sub-agent commit `8dc7beb` (`Fix stage-5 step-2 verification fallout`). The patch only adjusted brittle test expectations in `cmd/steiner/main_test.go` and `internal/tui/model_test.go` to match current approved-budget and viewport layout behavior.
+- `2026-04-25`: Cherry-picked scoped verification-fix commit `8dc7beb` onto `cl/2026-04-23_token-budget-compaction` as commit `9f1a357`.
+- `2026-04-25`: Reran final verification on the feature branch after cherry-picking the fallout fix: `go test ./cmd/steiner ./internal/tui`, `go test ./...`, `go vet ./...`, `go build ./...`, and `make build-binaries` all passed.
+- `2026-04-25`: Closed sub-agent `019dbf04-5407-7a73-ab1b-65848661b40f`, removed worktree `/tmp/steiner-stage-5-step-2`, and deleted temporary branch `tmp/stage-5-step-2-token-budget-compaction` after cherry-picking the scoped verification-fix commit.
+- `2026-04-25`: Reached the mandatory manual verification checkpoint with all planned implementation steps complete and automated verification passing.
 
 ## Sub-Agents
 - `stage-1-step-1`
@@ -134,6 +150,30 @@
   - scoped step commit merged: `b6977e9`
   - out-of-scope user-authored commits preserved on branch only: `57b4fc9`, `db55968`, `18ff9cc`
   - status: `closed; scoped step merged, branch/worktree intentionally preserved`
+- `stage-4-step-1`
+  - agent id: `019dbef0-8688-71f0-a13d-8ba4c79d9ef2`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-4-step-1-semantic-token-estimator`
+  - worktree: `/tmp/steiner-stage-4-step-1`
+  - scoped step commit merged: `78d3af6`
+  - status: `closed after cherry-pick and cleanup`
+- `stage-5-step-1`
+  - agent id: `019dbefe-d6bc-74c0-aa30-5865f557a0b5`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-5-step-1-token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-5-step-1`
+  - scoped step commit merged: `6a881c6`
+  - status: `closed after cherry-pick and cleanup`
+- `stage-5-step-2`
+  - agent id: `019dbf04-5407-7a73-ab1b-65848661b40f`
+  - model: `gpt-5.4-mini`
+  - model tier relative to current runtime: `cheaper`
+  - branch: `tmp/stage-5-step-2-token-budget-compaction`
+  - worktree: `/tmp/steiner-stage-5-step-2`
+  - scoped step commit merged: `8dc7beb`
+  - status: `closed after cherry-pick and cleanup`
 
 ## Temporary Branches And Worktrees
 - Created branch `tmp/stage-1-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
@@ -165,6 +205,24 @@
 - Cherry-picked scoped commit `b6977e9` from `tmp/stage-3-step-2-token-budget-compaction` onto the feature branch.
 - Closed sub-agent `019dbecc-7f96-7f61-99d1-3f8cccd25a6e`.
 - Preserved branch `tmp/stage-3-step-2-token-budget-compaction` and worktree `/tmp/steiner-stage-3-step-2` because they contain additional user-authored out-of-scope changes that were intentionally not merged during executor step completion.
+- Created branch `tmp/stage-4-step-1-semantic-token-estimator` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-4-step-1`.
+- Cherry-picked scoped commit `78d3af6` from `tmp/stage-4-step-1-semantic-token-estimator` onto the feature branch.
+- Closed sub-agent `019dbef0-8688-71f0-a13d-8ba4c79d9ef2`.
+- Removed worktree `/tmp/steiner-stage-4-step-1`.
+- Deleted temporary branch `tmp/stage-4-step-1-semantic-token-estimator` after cherry-picking its scoped step commit.
+- Created branch `tmp/stage-5-step-1-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-5-step-1`.
+- Cherry-picked scoped commit `6a881c6` from `tmp/stage-5-step-1-token-budget-compaction` onto the feature branch.
+- Closed sub-agent `019dbefe-d6bc-74c0-aa30-5865f557a0b5`.
+- Removed worktree `/tmp/steiner-stage-5-step-1`.
+- Deleted temporary branch `tmp/stage-5-step-1-token-budget-compaction` after cherry-picking its scoped step commit.
+- Created branch `tmp/stage-5-step-2-token-budget-compaction` from `cl/2026-04-23_token-budget-compaction`.
+- Created worktree `/tmp/steiner-stage-5-step-2`.
+- Cherry-picked scoped commit `8dc7beb` from `tmp/stage-5-step-2-token-budget-compaction` onto the feature branch.
+- Closed sub-agent `019dbf04-5407-7a73-ab1b-65848661b40f`.
+- Removed worktree `/tmp/steiner-stage-5-step-2`.
+- Deleted temporary branch `tmp/stage-5-step-2-token-budget-compaction` after cherry-picking its scoped step commit.
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification:
@@ -188,9 +246,50 @@
 - `stage-3-step-2` feature-branch verification:
   - command: `go test ./internal/output ./internal/agent`
   - result: `passed`
+- `config safety check` feature-branch verification:
+  - command: `go test ./internal/config`
+  - result: `passed`
+- `stage-4-step-1` feature-branch verification:
+  - command: `go test ./internal/provider ./internal/prompt ./internal/agent`
+  - result: `passed`
+- `stage-5-step-1` sub-agent verification:
+  - command: `go test ./internal/config`
+  - result: `passed`
+- `stage-5-step-1` / pre-final-verification check:
+  - command: `go test ./cmd/steiner`
+  - result: `failed`
+  - note: `TestExecModePrintsApprovalPromptWithPreviewArgs` reports an approval prompt mismatch ending with `Error: approval input is unavailable`; docs-only changes did not touch `cmd/steiner`, so this is treated as final verification fallout rather than a docs-step regression.
+- `stage-5-step-2` final broad verification:
+  - command: `go test ./...`
+  - result: `failed`
+  - note: failures limited to `cmd/steiner` `TestExecModePrintsApprovalPromptWithPreviewArgs` and `internal/tui` `TestModelResizeAndMouseScroll`
+- `stage-5-step-2` final broad verification:
+  - command: `go vet ./...`
+  - result: `passed`
+- `stage-5-step-2` final broad verification:
+  - command: `go build ./...`
+  - result: `passed`
+- `stage-5-step-2` final broad verification:
+  - command: `make build-binaries`
+  - result: `passed`
+- `stage-5-step-2` post-fix verification:
+  - command: `go test ./cmd/steiner ./internal/tui`
+  - result: `passed`
+- `stage-5-step-2` post-fix verification:
+  - command: `go test ./...`
+  - result: `passed`
+- `stage-5-step-2` post-fix verification:
+  - command: `go vet ./...`
+  - result: `passed`
+- `stage-5-step-2` post-fix verification:
+  - command: `go build ./...`
+  - result: `passed`
+- `stage-5-step-2` post-fix verification:
+  - command: `make build-binaries`
+  - result: `passed`
 
 ## Blockers
 - None.
 
 ## Final Handoff State
-- Not ready.
+- Awaiting user manual verification or explicit approval to proceed to reviewer handoff.
