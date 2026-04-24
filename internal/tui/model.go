@@ -649,6 +649,48 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		m.scrollUp(m.viewport.MouseWheelDelta)
 	case tea.MouseButtonWheelDown:
 		m.scrollDown(m.viewport.MouseWheelDelta)
+	case tea.MouseButtonLeft:
+		m.handleLeftClick(msg.Y)
+	}
+}
+
+func (m *Model) handleLeftClick(termY int) {
+	// The viewport content area starts below the status bar and input area.
+	// We need the content-area row. The viewport itself is positioned at
+	// some Y within the terminal — approximate by using termY directly
+	// adjusted for scroll offset.
+	// content line = termY + m.viewport.YOffset
+	// (viewport renders from its YOffset in the scrollable content)
+	contentLine := termY + m.viewport.YOffset
+
+	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
+		return
+	}
+
+	// Walk segmentHeights to find which segment index this line falls in
+	cumulative := 0
+	for i, h := range m.content.segmentHeights {
+		if h == 0 {
+			continue
+		}
+		if contentLine < cumulative+h {
+			// Click landed in segment i — toggle if collapsible
+			seg := &m.content.segments[i]
+			switch seg.kind {
+			case segmentToolCall:
+				if seg.toolData != nil {
+					seg.toolData.collapsed = !seg.toolData.collapsed
+					m.syncViewport()
+				}
+			case segmentThinkingBlock:
+				if seg.thinkData != nil {
+					seg.thinkData.collapsed = !seg.thinkData.collapsed
+					m.syncViewport()
+				}
+			}
+			return
+		}
+		cumulative += h
 	}
 }
 
