@@ -25,7 +25,12 @@ func Get(name string) (Theme, error) {
 	defer mu.RUnlock()
 	theme, ok := themes[name]
 	if !ok {
-		return nil, fmt.Errorf("theme not found: %s", name)
+		// Fall back to steiner theme
+		theme = themes["steiner"]
+		if theme == nil {
+			return nil, fmt.Errorf("theme not found: %s", name)
+		}
+		return theme, nil
 	}
 	return theme, nil
 }
