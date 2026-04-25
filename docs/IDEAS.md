@@ -14,8 +14,5 @@
  * I would like it so that the /context command behaves like the ? keybind - it's opened in an overlaid modal immediately instead of waiting for the current turn to finish. The information within should display on a table instead of lists of lists
   * We need to think about session persistence and resuming sessions
   * The user prompt area should look like opencode's - a box, with a left coloured border (same orange as the headers on the sidebar), a padding of 1 character then the various status messages on the bottom line with their labels on the same orange as the left border
-
-
-* We need a /clear command that will initialise a new session
-* Automatically load .steiner/config.yaml if present
-* * We need to be able to do CTRL+D to exit steiner
+ * prompt history should be available from session to session. Two sessions in parallel should write to the same history file at ~/.config/steiner/history.log without clobbering each other
+ * Looks like AGENTS.md is truncated when sent via the API. Also, investigate how that should work - should we wrap the agents.md file into something like "These are the repo's instructions for coding agents at AGENTS.md: ...."?
