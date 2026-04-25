@@ -416,8 +416,12 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		events = output.EventSink(output.NewStream(cmd.OutOrStdout()))
 	}
 	var closeFn func() error
-	if strings.TrimSpace(flags.logFile) != "" {
-		fileSink, err := output.NewFileLogSink(flags.logFile)
+	logFile := flags.logFile
+	if logFile == "" && cfg.Logging.Enabled {
+		logFile = cfg.Logging.File
+	}
+	if strings.TrimSpace(logFile) != "" {
+		fileSink, err := output.NewFileLogSink(logFile)
 		if err != nil {
 			return cliRuntime{}, err
 		}

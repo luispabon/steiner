@@ -1,3 +1,8 @@
+logging:
+    enabled: true
+    level: info
+    file: .steiner/steiner.log
+
 scheduler:
     parallelism: 1
 
@@ -80,7 +85,3 @@ paths:
     project_root_only: true
     writable_paths: []
     blocked_paths: []
-
-logging:
-    level: info
-    file: /home/luis/.local/share/steiner/steiner.log
