@@ -65,11 +65,11 @@ Key environment variables:
 
 ### Config format
 
-`model` selects the active alias from `models`. Each model entry holds the OpenAI-compatible provider settings for that alias, including compaction budgets.
+`model` selects the active alias from `models`. Each model entry holds the OpenAI-compatible provider settings for that alias, including compaction budgets. The example below reflects the compiled defaults in `internal/config/defaults.go`, followed by optional examples for common customizations.
 
 ```yaml
 scheduler:
-  parallelism: 2
+  parallelism: 1
 
 model: default
 
@@ -78,22 +78,12 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     api_key: ""
-    model: <required-backend-model>
+    model: qwen3-35b-a3b
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
-  fast:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-    api_key: ""
-    model: yi-coder:9b
-    max_completion_tokens: 4096
-    context_size: 16384
-    compaction:
-      safety_margin_tokens: 1024
-      summary_max_tokens: 512
 
 limits:
   max_turns: 50
@@ -162,11 +152,12 @@ paths:
     - ~/.ssh
 
 logging:
+  enabled: true
   level: info
   file: ~/.local/share/steiner/steiner.log
 ```
 
-Approval defaults are conservative: `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, or `logging`.
+Approval defaults are conservative: `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
 
 ## Build and test
 
