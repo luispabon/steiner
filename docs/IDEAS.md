@@ -18,6 +18,7 @@
 * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
 
 * When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
+* The --exec mode should not do response streaming, it looks like shit. It should inform that we're waiting for a response, then display it once it's there
 
 
 ## Bugs
