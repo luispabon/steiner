@@ -27,57 +27,7 @@
 * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost - TODO: workaround in place (parse markdown after streaming is finished), not fully fixed
 * When tool calls fail, currently the app gets in a weird state where it doesn't tell the model about it and it just waits for a model response forever or until we cancel
 * When we send a message, and we're waiting for the API to start returning, we need some sort of spinner or indication that stuff is happening
-* Investigate this tool failure:
-  === 2026-04-25T19:05:24.024158268Z tool_call_started ===
-{
-  "turn": 2,
-  "tool": "read",
-  "call_id": "813881678",
-  "arguments": {
-    "path": "internal/prompt"
-  }
-}
 
-=== 2026-04-25T19:05:24.026705581Z tool_call_finished ===
-{
-  "turn": 2,
-  "tool": "read",
-  "call_id": "813881678",
-  "error": "tool execution failed: read: read_error: read /home/luis/Projects/AI/steiner/internal/prompt: is a directory: exit=1"
-}
-
-* Investigate this tool failure:
-  === 2026-04-25T19:56:49.195919168Z tool_call_started ===
-{
-  "turn": 1,
-  "tool": "glob",
-  "call_id": "543351577",
-  "arguments": {
-    "path": "internal/tool/**/read*.go"
-  }
-}
-
-=== 2026-04-25T19:56:49.198391328Z tool_call_finished ===
-{
-  "turn": 1,
-  "tool": "glob",
-  "call_id": "543351577",
-  "error": "tool execution failed: glob: invalid_input: pattern is required: exit=1"
-}
-
-=== 2026-04-25T19:56:49.198489652Z stop_reason ===
-{
-  "reason": "error",
-  "turn": 1,
-  "error": "tool execution failed: glob: invalid_input: pattern is required: exit=1",
-  "summary": "run failed",
-  "action": "inspect the reported error and retry"
-}
-
-=== 0001-01-01T00:00:00Z stop_reason ===
-{
-  "reason": "Error: tool execution failed: glob: invalid_input: pattern is required: exit=1"
-}
 
 * Investigate this tool failure:
   === 2026-04-25T20:36:36.318980453Z tool_call_started ===
