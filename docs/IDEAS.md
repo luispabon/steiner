@@ -21,6 +21,7 @@
 * The --exec mode should not do response streaming, it looks like shit. It should inform that we're waiting for a response, then display it once it's there
 * We need a "plan" and a "build" mode - investigate how to implement (system prompt maybe?). See how it ties up with sandboxing (do that first)
 * Consider re-implementing using https://github.com/deepnoodle-ai/dive
+* Apply glamour markdown rendering to user prompts
 
 
 ## Bugs
