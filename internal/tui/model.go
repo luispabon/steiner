@@ -177,6 +177,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.content.tickCount++
 		m.sidebar.tickCount = m.content.tickCount
+		m.status.streaming = m.content.streamingPhase != ""
+		m.status.promptUsed = m.sidebar.promptUsed
+		m.status.contextBudget = m.sidebar.contextBudget
 		m.syncViewport()
 		return m, tickCmd()
 	case tea.WindowSizeMsg:
