@@ -29,6 +29,7 @@
 * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost - TODO: workaround in place (parse markdown after streaming is finished), not fully fixed
 * When tool calls fail, currently the app gets in a weird state where it doesn't tell the model about it and it just waits for a model response forever or until we cancel
 * When we send a message, and we're waiting for the API to start returning, we need some sort of spinner or indication that stuff is happening
+* On the approval tool, the A for ALWAYS doesn't work, it denies the tool run
 
 
 * Investigate this tool failure:
