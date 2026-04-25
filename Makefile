@@ -1,4 +1,5 @@
 BIN_DIR := bin
+GO_FILES := $(shell git ls-files '*.go')
 
 .PHONY: build-binaries test check format
 
@@ -12,7 +13,7 @@ test:
 
 check:
 	go vet ./...
-	gofmt -d .
+	gofmt -d $(GO_FILES)
 
 format:
-	gofmt -w $(shell go list ./...)
+	gofmt -w $(GO_FILES)
