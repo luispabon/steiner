@@ -5,7 +5,7 @@ import "fmt"
 const (
 	defaultPreambleBudgetBytes       = 1024
 	defaultGlobalAgentsBudgetBytes   = 2048
-	defaultProjectAgentsBudgetBytes  = 2048
+	defaultProjectAgentsBudgetBytes  = 8192
 	defaultSkillBudgetBytes          = 2048
 	defaultDurableContextBudgetBytes = 1024
 	defaultToolResultBudgetBytes     = 2048
