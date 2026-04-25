@@ -15,6 +15,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -52,6 +53,7 @@ type cliRuntime struct {
 	sharedInput     *bufio.Reader
 	approvalIn      *bufio.Reader
 	close           func() error
+	historyWriter   *history.Writer
 }
 
 type interactiveSkills struct {
@@ -279,6 +281,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	var conversation []agent.Message
 	runner := cliRunner{runtime: rt, approver: approver}
+	if rt.historyWriter != nil {
+		prompts, _ := rt.historyWriter.Load()
+		rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -308,6 +314,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
 				})
 				continue
+			}
+			if rt.historyWriter != nil {
+				_ = rt.historyWriter.Record(text)
+				prompts, _ := rt.historyWriter.Load()
+				rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
 			}
 			conversation = result.Conversation
 		}
@@ -452,6 +463,12 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillNames = append(skillNames, loaded.Name)
 	}
 
+	historyPath := filepath.Join(homeDir, ".config", "steiner", "history.log")
+	historyWriter, err := history.NewWriter(historyPath)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+
 	sharedInput := bufio.NewReader(cmd.InOrStdin())
 	approvalInput, approvalClose := openApprovalInput(cmd.InOrStdin())
 	closeFn = joinClosers(closeFn, approvalClose)
@@ -471,6 +488,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		sharedInput:     sharedInput,
 		approvalIn:      approvalInput,
 		close:           closeFn,
+		historyWriter:   historyWriter,
 	}, nil
 }
 
@@ -600,6 +618,9 @@ func isRetainedDiagnosticEvent(event output.Event) bool {
 }
 
 func closeRuntime(rt cliRuntime) {
+	if rt.historyWriter != nil {
+		_ = rt.historyWriter.Close()
+	}
 	if rt.close != nil {
 		_ = rt.close()
 	}

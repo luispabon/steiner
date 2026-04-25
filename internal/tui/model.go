@@ -29,9 +29,14 @@ type approvalState struct {
 type tickMsg struct{}
 
 type paletteSetAccentMsg struct{ preset string }
+
 type paletteToggleThinkingMsg struct{}
+
 type paletteSwitchModelMsg struct{ name string }
+
 type paletteClearMsg struct{}
+
+type historyLoadedMsg struct{ prompts []string }
 
 type Model struct {
 	width                int
@@ -61,6 +66,8 @@ type Model struct {
 	inputHistory         []string
 	historyIdx           int
 	historyDraft         string
+	fileHistory          []string
+	fileHistoryIdx       int
 	completionCandidates []string
 	completionIdx        int
 	helpVisible          bool
@@ -137,6 +144,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		inputHistory:     []string{},
 		historyIdx:       0,
 		historyDraft:     "",
+		fileHistory:      []string{},
+		fileHistoryIdx:   -1,
 		showThinking:     cfg.ShowThinking,
 		accentPreset:     cfg.AccentPreset,
 	}
@@ -391,32 +400,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
 			return m, nil
 		case tea.KeyUp:
-			if m.input.Line() == 0 && len(m.inputHistory) > 0 {
-				// navigate history backward
-				if m.historyIdx == 0 {
-					m.historyDraft = m.input.Value()
-				}
-				if m.historyIdx < len(m.inputHistory) {
-					m.historyIdx++
-					m.input.SetValue(m.inputHistory[m.historyIdx-1])
-				}
+			if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
+				m.fileHistoryIdx++
+				m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
 				return m, nil
 			}
-			// cursor not on first line — pass to textarea
+			if len(m.fileHistory) > 0 && m.fileHistoryIdx < 0 {
+				m.historyDraft = m.input.Value()
+				m.fileHistoryIdx = 0
+				m.input.SetValue(m.fileHistory[0])
+				return m, nil
+			}
+			m.fileHistoryIdx = -1
+			m.historyIdx = -1
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
 		case tea.KeyDown:
-			if m.historyIdx > 0 {
-				m.historyIdx--
-				if m.historyIdx == 0 {
-					m.input.SetValue(m.historyDraft)
-				} else {
-					m.input.SetValue(m.inputHistory[m.historyIdx-1])
-				}
+			if m.fileHistoryIdx > 0 {
+				m.fileHistoryIdx--
+				m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
 				return m, nil
 			}
-			// pass to textarea
+			if m.fileHistoryIdx == 0 {
+				m.input.SetValue(m.historyDraft)
+				m.fileHistoryIdx = -1
+				return m, nil
+			}
+			m.fileHistoryIdx = -1
+			m.historyIdx = -1
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
@@ -523,9 +535,20 @@ func (m *Model) syncViewport() {
 }
 
 func (m *Model) applyEvent(event output.Event) {
-	m.content.AppendEvent(event)
+	if event.Type != output.EventTypeHistoryLoaded {
+		m.content.AppendEvent(event)
+	}
 
 	switch payload := event.Payload.(type) {
+	case output.HistoryLoadedEvent:
+		if len(payload.Prompts) > 0 {
+			for i, j := 0, len(payload.Prompts)-1; i < j; i, j = i+1, j-1 {
+				payload.Prompts[i], payload.Prompts[j] = payload.Prompts[j], payload.Prompts[i]
+			}
+		}
+		m.fileHistory = payload.Prompts
+		m.fileHistoryIdx = -1
+		return
 	case output.RunStartedEvent:
 		if payload.Model != "" {
 			m.status.model = payload.Model
