@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -250,6 +251,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case paletteToggleThinkingMsg:
 		m.showThinking = !m.showThinking
 		m.content.showThinking = m.showThinking
+		if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+			fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		}
 		m.syncViewport()
 		return m, nil
 	case paletteSwitchModelMsg:
@@ -282,6 +286,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.FocusedStyle.Base = m.styles.InputArea
 		m.input.BlurredStyle.Base = m.styles.InputArea
 		m.palette.styles = m.styles
+		if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+			fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		}
 		m.syncViewport()
 		return m, nil
 	case tickMsg:
@@ -717,6 +724,17 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
+	}
+	if action.toggleThinking {
+		m.input.Reset()
+		m.historyIdx = 0
+		return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
+	}
+	if action.setAccent != "" {
+		m.input.Reset()
+		m.historyIdx = 0
+		preset := action.setAccent
+		return m, func() tea.Msg { return paletteSetAccentMsg{preset: preset} }
 	}
 	if action.switchModel != "" {
 		if m.onModelSwitch != nil {
