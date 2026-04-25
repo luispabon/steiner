@@ -43,6 +43,7 @@ type toolCallSegment struct {
 	body      string // raw result text
 	callID    string // for matching started→finished
 	collapsed bool   // default true
+	hasError  bool   // set when ToolCallFinished carries an error
 }
 
 type approvalPillData struct {
@@ -158,6 +159,7 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 						td.body = payload.Result
 						td.meta = formatToolMeta(payload)
 						td.bodyKind = inferBodyKind(td.tool, payload.Result)
+						td.hasError = payload.Error != ""
 						break
 					}
 				}
@@ -747,19 +749,17 @@ func inferBodyKind(tool, body string) string {
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
-	chevron := "▸"
+	chevron := b.styles.FgMute.Render("▸")
 	if !tc.collapsed {
-		chevron = "▾"
+		chevron = b.styles.FgMute.Render("▾")
 	}
 
-	// Tag pill style
 	tagStyle := b.toolTagStyle(tc.tool)
 	tag := tagStyle.Render(" " + tc.tool + " ")
 
-	// Header line: chevron + tag + args + right-aligned meta
-	header := chevron + " " + tag + " " + tc.args
+	args := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(tc.args)
+	header := chevron + " " + tag + " " + args
 	if tc.meta != "" {
-		// Right-align meta
 		metaStr := b.styles.FgMute.Render(tc.meta)
 		headerWidth := width - lipgloss.Width(metaStr) - 2
 		if headerWidth < 1 {
@@ -769,11 +769,9 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	}
 
 	result := header + "\n"
-
 	if !tc.collapsed && tc.body != "" {
 		result += b.renderToolBody(tc, width)
 	}
-
 	return result
 }
 
@@ -795,84 +793,111 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 }
 
 func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
-	indent := "   "
-	innerWidth := width - len(indent)
-	if innerWidth < 10 {
-		innerWidth = 10
+	const (
+		indentStr = "   "
+		maxRows   = 20
+	)
+	rowWidth := width - len(indentStr)
+	if rowWidth < 10 {
+		rowWidth = 10
+	}
+	contentWidth := rowWidth - 2 // 1 cell padding each side
+	if contentWidth < 8 {
+		contentWidth = 8
 	}
 
+	lines := b.buildBodyLines(tc, contentWidth)
+	truncated := false
+	if len(lines) > maxRows {
+		lines = lines[:maxRows]
+		truncated = true
+	}
+
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(rowWidth)
+	padRow := indentStr + bg.Render("") + "\n"
+
+	var sb strings.Builder
+	sb.WriteString(padRow)
+	for _, l := range lines {
+		sb.WriteString(indentStr + bg.Render(" "+l) + "\n")
+	}
+	if truncated {
+		sb.WriteString(indentStr + bg.Render(" "+b.styles.FgMute.Render("↓ more")) + "\n")
+	}
+	sb.WriteString(padRow)
+	return sb.String()
+}
+
+func (b *contentBuffer) buildBodyLines(tc *toolCallSegment, width int) []string {
 	switch tc.bodyKind {
 	case "bash":
-		return b.renderBashBody(tc, indent, innerWidth)
+		return b.buildBashLines(tc)
 	case "read":
-		return b.renderReadBody(tc, indent, innerWidth)
+		return b.buildReadLines(tc)
 	case "diff":
-		return b.renderDiffBody(tc, indent, innerWidth)
+		return b.buildDiffLines(tc)
 	default:
-		// plain
-		body := b.styles.FgDim.Width(innerWidth).Render(tc.body)
-		return indent + body + "\n"
+		return b.buildPlainLines(tc)
 	}
 }
 
-func (b *contentBuffer) renderBashBody(tc *toolCallSegment, indent string, width int) string {
-	var sb strings.Builder
-	lines := strings.Split(tc.body, "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
+func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
+	var lines []string
+	dollar := b.styles.Accent.Render("$")
+	lines = append(lines, dollar+" "+tc.args)
+	if strings.TrimSpace(tc.body) != "" {
+		fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+		for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
+			lines = append(lines, fgStyle.Render(l))
 		}
-		sb.WriteString(indent + b.styles.FgDim.Render(line) + "\n")
 	}
-	return sb.String()
+	if tc.hasError {
+		lines = append(lines, b.styles.Removed.Render("exit 1"))
+	} else {
+		lines = append(lines, b.styles.Added.Render("exit 0"))
+	}
+	return lines
 }
 
-func (b *contentBuffer) renderReadBody(tc *toolCallSegment, indent string, width int) string {
-	lines := strings.Split(tc.body, "\n")
-	caption := fmt.Sprintf("%d lines", len(lines))
-	var sb strings.Builder
-	sb.WriteString(indent + b.styles.FgMute.Render(caption) + "\n")
-	for i, line := range lines {
-		lineNum := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
-		sb.WriteString(indent + lineNum + b.styles.FgDim.Render(line) + "\n")
+func (b *contentBuffer) buildReadLines(tc *toolCallSegment) []string {
+	var lines []string
+	bodyLines := strings.Split(strings.TrimRight(tc.body, "\n"), "\n")
+	caption := tc.args + " · " + fmt.Sprintf("%d lines", len(bodyLines))
+	lines = append(lines, b.styles.FgMute.Render(caption))
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	for i, l := range bodyLines {
+		gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
+		lines = append(lines, gutter+fgStyle.Render(l))
 	}
-	return sb.String()
+	return lines
 }
 
-func (b *contentBuffer) renderDiffBody(tc *toolCallSegment, indent string, width int) string {
-	var sb strings.Builder
-	lines := strings.Split(tc.body, "\n")
-
-	lineNum := 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, "@@") {
-			// Hunk separator
-			sb.WriteString(indent + b.styles.FgMute.Render("  ─────") + "\n")
-			continue
-		}
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
-			// File header - show with FgMute
-			sb.WriteString(indent + b.styles.FgMute.Render(line) + "\n")
-			continue
-		}
-		if strings.HasPrefix(line, "+") {
-			lineNum++
-			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d +", lineNum))
-			content := b.styles.Added.Render(line[1:])
-			sb.WriteString(indent + gutter + " " + content + "\n")
-		} else if strings.HasPrefix(line, "-") {
-			lineNum++
-			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d -", lineNum))
-			content := b.styles.Removed.Render(line[1:])
-			sb.WriteString(indent + gutter + " " + content + "\n")
-		} else if strings.HasPrefix(line, " ") {
-			lineNum++
-			gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d  ", lineNum))
-			content := b.styles.FgDim.Render(line[1:])
-			sb.WriteString(indent + gutter + " " + content + "\n")
+func (b *contentBuffer) buildDiffLines(tc *toolCallSegment) []string {
+	var lines []string
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	for _, line := range strings.Split(tc.body, "\n") {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			lines = append(lines, b.styles.FgMute.Render("  ─────"))
+		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			lines = append(lines, b.styles.FgMute.Render(line))
+		case strings.HasPrefix(line, "+"):
+			lines = append(lines, b.styles.Added.Render("+")+" "+fgStyle.Render(line[1:]))
+		case strings.HasPrefix(line, "-"):
+			lines = append(lines, b.styles.Removed.Render("-")+" "+fgStyle.Render(line[1:]))
+		case strings.HasPrefix(line, " "):
+			lines = append(lines, b.styles.FgDim.Render(line[1:]))
 		}
 	}
-	return sb.String()
+	return lines
+}
+
+func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
+	var lines []string
+	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
+		lines = append(lines, b.styles.FgDim.Render(l))
+	}
+	return lines
 }
 
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {

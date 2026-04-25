@@ -79,6 +79,9 @@ type Styles struct {
 	// Status bar key chip
 	KeyChip lipgloss.Style
 
+	// Accent text (fg only, no background)
+	Accent lipgloss.Style
+
 	// Command palette
 	PaletteOverlay    lipgloss.Style
 	PaletteInput      lipgloss.Style
@@ -145,6 +148,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		AccentSoft: lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
 		AccentLine: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+
+		Accent: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)).Foreground(lipgloss.Color(FgFaint)).Padding(0, 1),
 
