@@ -16,8 +16,7 @@
 * We need to think about session persistence and resuming sessions
 * The user prompt area should look like opencode's - a box, with a left coloured border (same orange as the headers on the sidebar), a padding of 1 character then the various status messages on the bottom line with their labels on the same orange as the left border
 * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
-* When modifying a file, steiner should show a colourised diff of the change, this should not involve the model but be entirely agent-side. Code should have syntax-highlighting appropriate to the file type
-* When writing a whole new file, steiner should display the file, syntax-highlighted appropriate to the file type
+
 * When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
 
 
@@ -65,3 +64,7 @@
 
 
 ## Implementing
+
+* When modifying a file, steiner should show a colourised diff of the change, this should not involve the model but be entirely agent-side. Code should have syntax-highlighting appropriate to the file type
+* When writing a whole new file, steiner should display the file, syntax-highlighted appropriate to the file type
+* Is it possible that "glamour", the markdown renderer, or any of the other tui libraries we have already supports this? Or do we need to introduce a new dependency for this? If so, investigate what's the best possible go library we can use for this
