@@ -176,6 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		m.content.tickCount++
+		m.sidebar.tickCount = m.content.tickCount
 		m.syncViewport()
 		return m, tickCmd()
 	case tea.WindowSizeMsg:
