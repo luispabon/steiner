@@ -111,13 +111,15 @@ const (
 	FgMute     = "#55525D" // OklchToHex(0.35,  0.008, 280)
 
 	// Semantic colors
-	AccentAmber = "#E8814B" // OklchToHex(0.74,  0.16,  35)
-	User        = "#6DB3E8" // OklchToHex(0.78,  0.13,  230)
-	Thinking    = "#D4C84F" // OklchToHex(0.70,  0.09,  75)
-	Tool        = "#5BA8D9" // OklchToHex(0.72,  0.07,  195)
-	Added       = "#87D969" // OklchToHex(0.74,  0.14,  150)
-	Removed     = "#E8523D" // OklchToHex(0.68,  0.17,  25)
-	Warn        = "#DDB84C" // OklchToHex(0.78,  0.14,  80)
+	AccentAmber   = "#E8814B" // OklchToHex(0.74,  0.16,  35)
+	User          = "#6DB3E8" // OklchToHex(0.78,  0.13,  230)
+	Thinking      = "#D4C84F" // OklchToHex(0.70,  0.09,  75)
+	Tool          = "#5BA8D9" // OklchToHex(0.72,  0.07,  195)
+	Added         = "#87D969" // OklchToHex(0.74,  0.14,  150)
+	Removed       = "#E8523D" // OklchToHex(0.68,  0.17,  25)
+	Warn          = "#DDB84C" // OklchToHex(0.78,  0.14,  80)
+	DiffAddedBg   = "#1F2A24" // dim green tint for + diff rows
+	DiffRemovedBg = "#2A2122" // dim red tint for - diff rows
 )
 
 // Soft fill colors (blended with Bg)

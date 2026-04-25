@@ -598,20 +598,21 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		if segment.thinkData == nil {
 			return ""
 		}
-		// Check collapse state by finding segment index
-		// Use a simple approach: render based on thinkData.collapsed field
 		td := segment.thinkData
-		collapsed := td.collapsed
-		if collapsed {
-			preview := td.preview
-			if len(preview) > 80 {
-				preview = preview[:80]
+		if td.collapsed {
+			runes := []rune(td.preview)
+			if len(runes) > 60 {
+				runes = runes[:60]
 			}
-			return b.styles.ThinkingBar.Render("▸ Thinking · "+preview+"…") + "\n"
+			return b.styles.ThinkingBar.Render("▸ Thinking · "+string(runes)+"…") + "\n"
 		}
-		bar := b.styles.ThinkingBar.Render("│")
-		body := b.styles.FgDim.Render(td.body)
-		return bar + " " + body + "\n"
+		var sb strings.Builder
+		sb.WriteString(b.styles.ThinkingBar.Render("▾ Thinking") + "\n")
+		bar := b.styles.ThinkingBar.Render("▎")
+		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+			sb.WriteString(bar + " " + b.styles.ThinkingBar.Render(line) + "\n")
+		}
+		return sb.String()
 	case segmentToolCall:
 		if segment.toolData == nil {
 			return ""
@@ -987,7 +988,7 @@ func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) 
 func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {
 	lines := make([]string, 0, len(doc.Lines))
 	oldLine, newLine := 1, 1
-	rule := b.styles.FgMute.Render(strings.Repeat("─", maxInt(1, width)))
+	rule := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", maxInt(1, width)))
 	for _, line := range doc.Lines {
 		switch line.Kind {
 		case output.PreviewLineKindHeader:
@@ -995,14 +996,14 @@ func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, wi
 				lines = append(lines, rule)
 			}
 		case output.PreviewLineKindContext:
-			lines = append(lines, b.renderDiffRow(line, oldLine, " ", theme.BgElev))
+			lines = append(lines, b.renderDiffRow(line, oldLine, " ", theme.Bg))
 			oldLine++
 			newLine++
 		case output.PreviewLineKindRemoved:
-			lines = append(lines, b.renderDiffRow(line, oldLine, "-", theme.RemovedSoft))
+			lines = append(lines, b.renderDiffRow(line, oldLine, "-", theme.DiffRemovedBg))
 			oldLine++
 		case output.PreviewLineKindAdded:
-			lines = append(lines, b.renderDiffRow(line, newLine, "+", theme.AddedSoft))
+			lines = append(lines, b.renderDiffRow(line, newLine, "+", theme.DiffAddedBg))
 			newLine++
 		case output.PreviewLineKindTruncated:
 			lines = append(lines, b.styles.FgMute.Render("… output truncated"))
@@ -1014,10 +1015,29 @@ func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, wi
 }
 
 func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign string, bgColor string) string {
-	gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d %s", lineNo, sign))
-	body := b.renderPreviewLine(line)
+	lineNoStr := b.styles.FgMute.Render(fmt.Sprintf("%4d", lineNo))
+	var signStr string
+	switch sign {
+	case "+":
+		signStr = b.styles.Added.Render("+")
+	case "-":
+		signStr = b.styles.Removed.Render("-")
+	default:
+		signStr = b.styles.FgMute.Render(" ")
+	}
+	var raw strings.Builder
+	for _, span := range line.Spans {
+		raw.WriteString(span.Text)
+	}
+	rawText := raw.String()
+	var body string
+	if sign == " " {
+		body = b.styles.FgDim.Render(rawText)
+	} else {
+		body = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(rawText)
+	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
-	return bg.Render(gutter + " " + body)
+	return bg.Render(lineNoStr + " " + signStr + " " + body)
 }
 
 func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
