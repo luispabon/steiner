@@ -1,7 +1,12 @@
+logging:
+    enabled: true
+    level: info
+    file: .steiner/steiner.log
+
 scheduler:
     parallelism: 1
 
-model: gemma4
+model: qwen36
 
 models:
     qwopus:
@@ -18,20 +23,20 @@ models:
         type: openai_compat
         base_url: http://localhost:1234/v1
         model: qwen3.6-35b-a3b
-        context_size: 65536
+        context_size: 32768
         max_completion_tokens: 4096
         compaction:
-            safety_margin_tokens: 16384
+            safety_margin_tokens: 4096
             summary_max_tokens: 4096
 
     gemma4:
         type: openai_compat
         base_url: http://localhost:1234/v1
         model: gemma-4-26b-a4b-it@iq4_nl
-        context_size: 65536
+        context_size: 32768
         max_completion_tokens: 4096
         compaction:
-            safety_margin_tokens: 16384
+            safety_margin_tokens: 4096
             summary_max_tokens: 4096
 
 limits:
@@ -80,7 +85,3 @@ paths:
     project_root_only: true
     writable_paths: []
     blocked_paths: []
-
-logging:
-    level: info
-    file: /home/luis/.local/share/steiner/steiner.log

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -21,11 +22,52 @@ const (
 	segmentApproval
 	segmentTool
 	segmentThinking
+	segmentUser
+	segmentThinkingBlock
+	segmentToolCall
+	segmentApprovalPill
+	segmentCompactionBanner
 )
 
+type thinkingBlockData struct {
+	preview   string // first 80 chars
+	collapsed bool   // default true
+	body      string // full content
+}
+
+type toolCallSegment struct {
+	tool      string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
+	args      string // summarized args, ~60 chars max
+	meta      string // "exit 0", "184 lines", etc.
+	bodyKind  string // "bash", "read", "diff", "plain"
+	body      string // raw result text
+	callID    string // for matching started→finished
+	collapsed bool   // default true
+	hasError  bool   // set when ToolCallFinished carries an error
+}
+
+type approvalPillData struct {
+	tool     string
+	mode     string
+	preview  string
+	resolved bool
+	accepted bool
+}
+
+type compactionBannerData struct {
+	label    string
+	subtitle string
+	finished bool
+	summary  string
+}
+
 type contentSegment struct {
-	kind contentSegmentKind
-	text string
+	kind           contentSegmentKind
+	text           string
+	thinkData      *thinkingBlockData    // non-nil only for segmentThinkingBlock
+	toolData       *toolCallSegment      // non-nil only for segmentToolCall
+	approvalData   *approvalPillData     // non-nil only for segmentApprovalPill
+	compactionData *compactionBannerData // non-nil only for segmentCompactionBanner
 }
 
 type contentBuffer struct {
@@ -37,6 +79,11 @@ type contentBuffer struct {
 	renderWidth       int
 	styles            theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
+	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
+	segmentHeights    []int        // rendered line count per segment (recomputed in String())
+	showThinking      bool         // from prefs; when false skip thinking segments
+	streamingPhase    string       // "thinking" | "tool" | "answer" | ""
+	tickCount         int          // incremented by 500ms tick, used for cursor blink
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -46,17 +93,80 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 			b.appendAssistantChunk(payload.Content)
 			return
 		}
-	case output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+	case output.EventTypeApprovalRequested:
 		b.finishStreaming()
+		if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+			seg := contentSegment{
+				kind: segmentApprovalPill,
+				approvalData: &approvalPillData{
+					tool:    payload.Tool,
+					mode:    payload.Mode,
+					preview: payload.Preview,
+				},
+			}
+			b.segments = append(b.segments, seg)
+		} else {
+			b.appendStyled(formatApprovalEvent(event), segmentApproval)
+		}
+		return
+	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+		b.finishStreaming()
+		// Find the last unresolved approval pill and mark it resolved
+		accepted := event.Type == output.EventTypeApprovalAccepted
+		for i := len(b.segments) - 1; i >= 0; i-- {
+			if b.segments[i].kind == segmentApprovalPill && b.segments[i].approvalData != nil {
+				if !b.segments[i].approvalData.resolved {
+					b.segments[i].approvalData.resolved = true
+					b.segments[i].approvalData.accepted = accepted
+					return
+				}
+			}
+		}
+		// Fallback
 		b.appendStyled(formatApprovalEvent(event), segmentApproval)
 		return
 	case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
 		b.finishStreaming()
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
-	case output.EventTypeToolCallStarted, output.EventTypeToolCallFinished:
+	case output.EventTypeToolCallStarted:
 		b.finishStreaming()
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		b.streamingPhase = "tool"
+		if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+			tc := &toolCallSegment{
+				tool:      strings.ToLower(payload.Tool),
+				args:      summarizeArgs(payload.Tool, payload.Arguments),
+				callID:    payload.CallID,
+				collapsed: true,
+			}
+			b.segments = append(b.segments, contentSegment{
+				kind:     segmentToolCall,
+				toolData: tc,
+			})
+		} else {
+			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		}
+		return
+
+	case output.EventTypeToolCallFinished:
+		b.finishStreaming()
+		if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+			// Find the last segmentToolCall with matching callID (or just last tool call)
+			for i := len(b.segments) - 1; i >= 0; i-- {
+				if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
+					td := b.segments[i].toolData
+					if td.callID == "" || td.callID == payload.CallID {
+						td.body = payload.Result
+						td.meta = formatToolMeta(payload)
+						td.bodyKind = inferBodyKind(td.tool, payload.Result)
+						td.hasError = payload.Error != ""
+						break
+					}
+				}
+			}
+		} else {
+			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+		}
 		return
 	case output.EventTypeStopReason:
 		b.finishStreaming()
@@ -80,15 +190,39 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.finishStreaming()
 		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
 			switch payload.Kind {
-			case "compaction", "session_health":
+			case "compaction":
+				// Replace with compaction banner
+				summary := ""
+				if payload.SummaryTitle != "" {
+					summary = payload.SummaryTitle
+				} else {
+					summary = fmt.Sprintf("compacted %d turns → %d retained", payload.CompactedTurns, payload.RetainedTurns)
+				}
+				b.segments = append(b.segments, contentSegment{
+					kind: segmentCompactionBanner,
+					compactionData: &compactionBannerData{
+						label:    "Context compacted",
+						subtitle: summary,
+						finished: true,
+						summary:  summary,
+					},
+				})
+			case "session_health":
 				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
+			}
+		}
+		return
+	case output.EventTypeUserInput:
+		if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
+			b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
+			if len(b.segments)-1 >= 0 {
+				b.collapseState[len(b.segments)-1] = false // user segments never collapsed
 			}
 		}
 		return
 	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
-		output.EventTypeAPIRequest, output.EventTypeAPIResponse,
-		output.EventTypeUserInput:
+		output.EventTypeAPIRequest, output.EventTypeAPIResponse:
 		return
 	}
 
@@ -187,22 +321,40 @@ func (b *contentBuffer) AppendLine(line string) {
 	b.appendLine(line)
 }
 
+func (b *contentBuffer) AppendUser(text string) {
+	b.finishStreaming()
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{kind: segmentUser, text: text})
+	b.collapseState[idx] = false
+}
+
 func (b *contentBuffer) Clear() {
 	b.segments = nil
+	b.segmentHeights = nil
 	b.streamBuffer = ""
 	b.streaming = false
+	b.streamingPhase = ""
+	b.collapseState = make(map[int]bool)
 }
 
 func (b *contentBuffer) String(width int) string {
-	parts := make([]string, 0, len(b.segments)+1)
-	for _, segment := range b.segments {
-		if rendered := b.renderSegment(segment, width); rendered != "" {
+	b.segmentHeights = make([]int, len(b.segments))
+	parts := make([]string, 0, len(b.segments)+2)
+	for i, segment := range b.segments {
+		if segment.kind == segmentThinkingBlock && !b.showThinking {
+			b.segmentHeights[i] = 0
+			continue
+		}
+		rendered := b.renderSegment(segment, width)
+		b.segmentHeights[i] = strings.Count(rendered, "\n")
+		if rendered != "" {
 			parts = append(parts, rendered)
 		}
 	}
 	if preview := b.inProgressPreview(); preview != "" {
 		parts = append(parts, preview)
 	}
+	parts = append(parts, b.streamingIndicatorView())
 	return strings.Join(parts, "")
 }
 
@@ -213,6 +365,9 @@ func (b *contentBuffer) appendAssistantChunk(text string) {
 	b.streaming = true
 	b.hadChunks = true
 	b.streamBuffer += text
+	if b.streamingPhase == "" {
+		b.streamingPhase = "answer"
+	}
 
 	// Disabled for now because it mangles Glamour rendering
 	// @todo investigate and fix, don't delete the commented out code!
@@ -228,6 +383,7 @@ func (b *contentBuffer) finishStreaming() {
 	}
 	b.streamBuffer = ""
 	b.streaming = false
+	b.streamingPhase = ""
 }
 
 func (b *contentBuffer) inProgressPreview() string {
@@ -235,7 +391,27 @@ func (b *contentBuffer) inProgressPreview() string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return b.styles.AssistantProse.Render(preview) + "\n"
+	cursor := ""
+	if b.tickCount%2 == 0 {
+		cursor = "█"
+	}
+	return b.styles.AssistantProse.Render(preview+cursor) + "\n"
+}
+
+func (b *contentBuffer) streamingIndicatorView() string {
+	if b.streamingPhase == "" {
+		return ""
+	}
+	dots := []string{"•", "•", "•"}
+	active := b.tickCount % 3
+	label := "thinking…"
+	if b.streamingPhase == "tool" {
+		label = "running tool…"
+	}
+	// stagger dot brightness by making active dot FgDim colored (style as accent)
+	// For terminal, simplify: just show dots + label, varying count by tickCount
+	visibleDots := active + 1
+	return b.styles.FgMute.Render(strings.Join(dots[:visibleDots], " ")+" "+label) + "\n"
 }
 
 func (b *contentBuffer) flushCompletedBlocks() {
@@ -367,18 +543,76 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	case segmentAssistantMarkdown:
 		rendered := b.renderMarkdown(segment.text, width)
 		if strings.TrimSpace(rendered) != "" {
-			// keep glamour's natural trailing newlines — they carry the background color
-			return strings.TrimRight(rendered, "\n") + "\n"
+			return strings.TrimRight(rendered, "\n") + "\n\n"
 		}
-		return b.styles.AssistantProse.Render(segment.text) + "\n"
+		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
 	case segmentAssistantProse:
-		return b.styles.AssistantProse.Render(segment.text) + "\n"
+		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
 	case segmentApproval:
 		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
 	case segmentTool:
 		return b.styles.ToolBlock.Render(segment.text) + "\n"
 	case segmentThinking:
 		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
+	case segmentUser:
+		lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+		contentWidth := width - 1
+		if contentWidth < 2 {
+			contentWidth = 2
+		}
+		bar := b.styles.UserBar.Render("│")
+		pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+		var sb strings.Builder
+		sb.WriteString(pad + "\n")
+		textWidth := contentWidth - 3 // 2 left + 1 right padding
+		if textWidth < 1 {
+			textWidth = 1
+		}
+		for _, line := range lines {
+			// Wrap text at textWidth without bg to get visual lines, then render each with bg+indent
+			wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
+			for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
+				vl = strings.TrimRight(vl, " ")
+				content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
+				sb.WriteString(bar + content + "\n")
+			}
+		}
+		sb.WriteString(pad + "\n")
+		sb.WriteString("\n")
+		return sb.String()
+	case segmentThinkingBlock:
+		if segment.thinkData == nil {
+			return ""
+		}
+		// Check collapse state by finding segment index
+		// Use a simple approach: render based on thinkData.collapsed field
+		td := segment.thinkData
+		collapsed := td.collapsed
+		if collapsed {
+			preview := td.preview
+			if len(preview) > 80 {
+				preview = preview[:80]
+			}
+			return b.styles.ThinkingBar.Render("▸ Thinking · "+preview+"…") + "\n"
+		}
+		bar := b.styles.ThinkingBar.Render("│")
+		body := b.styles.FgDim.Render(td.body)
+		return bar + " " + body + "\n"
+	case segmentToolCall:
+		if segment.toolData == nil {
+			return ""
+		}
+		return b.renderToolCall(segment.toolData, width)
+	case segmentApprovalPill:
+		if segment.approvalData == nil {
+			return ""
+		}
+		return b.renderApprovalPill(segment.approvalData, width)
+	case segmentCompactionBanner:
+		if segment.compactionData == nil {
+			return ""
+		}
+		return b.renderCompactionBanner(segment.compactionData, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
@@ -454,4 +688,269 @@ func isMarkdownLikeBlock(block string) bool {
 		return true
 	}
 	return false
+}
+
+// summarizeArgs extracts a human-readable summary from tool arguments
+func summarizeArgs(tool string, args map[string]any) string {
+	if args == nil {
+		return tool
+	}
+	// Try common arg keys in order
+	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
+		if v, ok := args[key]; ok {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 60 {
+				s = s[:57] + "..."
+			}
+			return s
+		}
+	}
+	// Fallback: first value
+	for _, v := range args {
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 60 {
+			s = s[:57] + "..."
+		}
+		return s
+	}
+	return tool
+}
+
+// formatToolMeta builds the right-aligned meta string for a finished tool call
+func formatToolMeta(payload output.ToolCallFinishedEvent) string {
+	if payload.Error != "" {
+		return "error"
+	}
+	lines := strings.Count(payload.Result, "\n") + 1
+	if strings.TrimSpace(payload.Result) == "" {
+		lines = 0
+	}
+	if lines > 0 {
+		return fmt.Sprintf("%d lines", lines)
+	}
+	return "done"
+}
+
+// inferBodyKind determines how to render the tool body
+func inferBodyKind(tool, body string) string {
+	switch tool {
+	case "bash":
+		return "bash"
+	case "read", "read_file":
+		return "read"
+	case "edit", "write", "write_file":
+		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
+			return "diff"
+		}
+		return "plain"
+	default:
+		return "plain"
+	}
+}
+
+func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
+	chevron := b.styles.FgMute.Render("▸")
+	if !tc.collapsed {
+		chevron = b.styles.FgMute.Render("▾")
+	}
+
+	tagStyle := b.toolTagStyle(tc.tool)
+	tag := tagStyle.Render(" " + tc.tool + " ")
+
+	args := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(tc.args)
+	header := chevron + " " + tag + " " + args
+	if tc.meta != "" {
+		metaStr := b.styles.FgMute.Render(tc.meta)
+		headerWidth := width - lipgloss.Width(metaStr) - 2
+		if headerWidth < 1 {
+			headerWidth = 1
+		}
+		header = lipgloss.NewStyle().Width(headerWidth).Render(header) + " " + metaStr
+	}
+
+	result := header + "\n"
+	if !tc.collapsed && tc.body != "" {
+		result += b.renderToolBody(tc, width)
+	}
+	return result
+}
+
+func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
+	switch tool {
+	case "bash":
+		return b.styles.ToolTagBash
+	case "read", "read_file":
+		return b.styles.ToolTagRead
+	case "write", "write_file", "edit":
+		return b.styles.ToolTagWrite
+	case "glob", "grep":
+		return b.styles.ToolTagGlobGrep
+	case "todo", "todowrite", "todoread":
+		return b.styles.ToolTagTodo
+	default:
+		return b.styles.ToolTagDefault
+	}
+}
+
+func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
+	const (
+		indentStr = "   "
+		maxRows   = 20
+	)
+	rowWidth := width - len(indentStr)
+	if rowWidth < 10 {
+		rowWidth = 10
+	}
+	contentWidth := rowWidth - 2 // 1 cell padding each side
+	if contentWidth < 8 {
+		contentWidth = 8
+	}
+
+	lines := b.buildBodyLines(tc, contentWidth)
+	truncated := false
+	if len(lines) > maxRows {
+		lines = lines[:maxRows]
+		truncated = true
+	}
+
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(rowWidth)
+	padRow := indentStr + bg.Render("") + "\n"
+
+	var sb strings.Builder
+	sb.WriteString(padRow)
+	for _, l := range lines {
+		sb.WriteString(indentStr + bg.Render(" "+l) + "\n")
+	}
+	if truncated {
+		sb.WriteString(indentStr + bg.Render(" "+b.styles.FgMute.Render("↓ more")) + "\n")
+	}
+	sb.WriteString(padRow)
+	return sb.String()
+}
+
+func (b *contentBuffer) buildBodyLines(tc *toolCallSegment, width int) []string {
+	switch tc.bodyKind {
+	case "bash":
+		return b.buildBashLines(tc)
+	case "read":
+		return b.buildReadLines(tc)
+	case "diff":
+		return b.buildDiffLines(tc)
+	default:
+		return b.buildPlainLines(tc)
+	}
+}
+
+func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
+	var lines []string
+	dollar := b.styles.Accent.Render("$")
+	lines = append(lines, dollar+" "+tc.args)
+	if strings.TrimSpace(tc.body) != "" {
+		fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+		for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
+			lines = append(lines, fgStyle.Render(l))
+		}
+	}
+	if tc.hasError {
+		lines = append(lines, b.styles.Removed.Render("exit 1"))
+	} else {
+		lines = append(lines, b.styles.Added.Render("exit 0"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildReadLines(tc *toolCallSegment) []string {
+	var lines []string
+	bodyLines := strings.Split(strings.TrimRight(tc.body, "\n"), "\n")
+	caption := tc.args + " · " + fmt.Sprintf("%d lines", len(bodyLines))
+	lines = append(lines, b.styles.FgMute.Render(caption))
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	for i, l := range bodyLines {
+		gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
+		lines = append(lines, gutter+fgStyle.Render(l))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildDiffLines(tc *toolCallSegment) []string {
+	var lines []string
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	for _, line := range strings.Split(tc.body, "\n") {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			lines = append(lines, b.styles.FgMute.Render("  ─────"))
+		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			lines = append(lines, b.styles.FgMute.Render(line))
+		case strings.HasPrefix(line, "+"):
+			lines = append(lines, b.styles.Added.Render("+")+" "+fgStyle.Render(line[1:]))
+		case strings.HasPrefix(line, "-"):
+			lines = append(lines, b.styles.Removed.Render("-")+" "+fgStyle.Render(line[1:]))
+		case strings.HasPrefix(line, " "):
+			lines = append(lines, b.styles.FgDim.Render(line[1:]))
+		}
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
+	var lines []string
+	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
+		lines = append(lines, b.styles.FgDim.Render(l))
+	}
+	return lines
+}
+
+func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
+	if ad.resolved {
+		// Dashed resolved state
+		status := "✗ denied"
+		if ad.accepted {
+			status = "✓ approved"
+		}
+		label := ad.tool
+		if ad.mode != "" {
+			label += " · " + ad.mode
+		}
+		line := b.styles.FgDim.Render(label + " — " + status)
+		// Approximate dashed border with · chars
+		dash := strings.Repeat("·", maxInt(0, width-4))
+		return b.styles.FgFaint.Render(dash) + "\n" + "  " + line + "\n"
+	}
+
+	// Unresolved: left accent bar + content
+	bar := b.styles.AccentLine.Render("│")
+
+	// Build question text
+	label := "approval required"
+	if ad.tool != "" {
+		label = ad.tool
+		if ad.mode != "" {
+			label += " · " + ad.mode
+		}
+	}
+
+	// Buttons right-aligned
+	buttons := b.styles.FgMute.Render("[y]") + " approve  " +
+		b.styles.FgMute.Render("[n]") + " deny  " +
+		b.styles.FgMute.Render("[a]") + " always"
+
+	contentWidth := width - 3 // account for bar + space
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	questionLine := lipgloss.NewStyle().Width(contentWidth-lipgloss.Width(buttons)).Render(label) + buttons
+
+	return bar + " " + questionLine + "\n"
+}
+
+func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
+	if cd.finished {
+		// Italic system note
+		note := "✦ " + cd.summary
+		return b.styles.FgDim.Italic(true).Render(note) + "\n"
+	}
+	// In-progress banner (not currently triggered, but render it anyway)
+	bar := strings.Repeat("─", maxInt(0, width-2))
+	header := b.styles.Warn.Render("Compacting") + " " + b.styles.FgDim.Render(cd.subtitle)
+	return b.styles.FgMute.Render(bar) + "\n" + header + "\n"
 }

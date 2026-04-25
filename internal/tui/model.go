@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -23,6 +25,18 @@ type approvalState struct {
 	mode    string
 	preview string
 }
+
+type tickMsg struct{}
+
+type paletteSetAccentMsg struct{ preset string }
+
+type paletteToggleThinkingMsg struct{}
+
+type paletteSwitchModelMsg struct{ name string }
+
+type paletteClearMsg struct{}
+
+type historyLoadedMsg struct{ prompts []string }
 
 type Model struct {
 	width                int
@@ -52,18 +66,24 @@ type Model struct {
 	inputHistory         []string
 	historyIdx           int
 	historyDraft         string
+	fileHistory          []string
+	fileHistoryIdx       int
 	completionCandidates []string
 	completionIdx        int
 	helpVisible          bool
+	showThinking         bool
+	accentPreset         string
+	palette              paletteModel
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := textarea.New()
-	input.Prompt = "> "
-	input.Placeholder = "Ask steiner something"
+	input.Prompt = "› "
+	input.Placeholder = "ask steiner — / for commands, @ for files"
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
-	input.SetHeight(3)
+	input.SetHeight(1)
+	input.MaxHeight = 10
 	// Remove ctrl+b from CharacterBackward to avoid conflict with sidebar toggle
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
 	// Add Shift+Enter and Alt+Enter for inserting newlines
@@ -93,6 +113,12 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		t = theme.Default()
 	}
 
+	// Resolve accent hex from preset name
+	accentHex := theme.AccentPresets[cfg.AccentPreset]
+	if accentHex == "" {
+		accentHex = theme.AccentPresets["amber"] // fallback
+	}
+
 	m := Model{
 		width:            80,
 		height:           24,
@@ -114,10 +140,14 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onModelSwitch:    cfg.OnModelSwitch,
 		onClear:          cfg.OnClear,
 		activeTheme:      t,
-		styles:           t.LipGlossStyles(),
+		styles:           theme.BuildStyles(accentHex),
 		inputHistory:     []string{},
 		historyIdx:       0,
 		historyDraft:     "",
+		fileHistory:      []string{},
+		fileHistoryIdx:   -1,
+		showThinking:     cfg.ShowThinking,
+		accentPreset:     cfg.AccentPreset,
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -133,6 +163,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	// Set styles on content and sidebar
 	m.content.styles = m.styles
 	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
+	m.content.collapseState = make(map[int]bool)
+	m.content.showThinking = m.showThinking
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 
@@ -140,11 +172,66 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.input.FocusedStyle.Base = m.styles.InputArea
 	m.input.BlurredStyle.Base = m.styles.InputArea
 
+	// Initialize palette
+	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
+	m.palette.width = m.width
+	m.palette.height = m.height
+
 	return m
 }
 
+func buildDefaultPaletteItems() []paletteItem {
+	items := []paletteItem{
+		{
+			command: "/clear",
+			name:    "Clear conversation",
+			desc:    "reset the current session",
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteClearMsg{} }
+			},
+		},
+		{
+			command: "/thinking",
+			name:    "Toggle thinking",
+			desc:    "show or hide thinking blocks",
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteToggleThinkingMsg{} }
+			},
+		},
+	}
+	for _, model := range []string{"claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"} {
+		m := model
+		items = append(items, paletteItem{
+			command: "/model " + m,
+			name:    "Switch model",
+			desc:    m,
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteSwitchModelMsg{name: m} }
+			},
+		})
+	}
+	for _, preset := range []string{"amber", "rose", "magenta", "violet", "cyan", "mint", "lime"} {
+		p := preset
+		items = append(items, paletteItem{
+			command: "/accent " + p,
+			name:    "Set accent",
+			desc:    p,
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteSetAccentMsg{preset: p} }
+			},
+		})
+	}
+	return items
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg{}
+	})
+}
+
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus()}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}
@@ -153,9 +240,86 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case paletteClearMsg:
+		m.content.Clear()
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
+		m.syncSidebar()
+		if m.onClear != nil {
+			m.onClear()
+		}
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	case paletteToggleThinkingMsg:
+		m.showThinking = !m.showThinking
+		m.content.showThinking = m.showThinking
+		if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+			fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		}
+		m.syncViewport()
+		return m, nil
+	case paletteSwitchModelMsg:
+		if m.onModelSwitch != nil {
+			m.onModelSwitch(msg.name)
+		}
+		m.status.model = msg.name
+		m.sidebar.contextBudget = m.contextBudgetForModel(msg.name)
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
+		m.syncSidebar()
+		m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
+		m.syncViewport()
+		return m, nil
+	case paletteSetAccentMsg:
+		accentHex := theme.AccentPresets[msg.preset]
+		if accentHex == "" {
+			accentHex = theme.AccentPresets["amber"]
+		}
+		m.accentPreset = msg.preset
+		m.styles = theme.BuildStyles(accentHex)
+		m.content.styles = m.styles
+		m.sidebar.styles = m.styles
+		m.status.styles = m.styles
+		m.input.FocusedStyle.Base = m.styles.InputArea
+		m.input.BlurredStyle.Base = m.styles.InputArea
+		m.palette.styles = m.styles
+		if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+			fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		}
+		m.syncViewport()
+		return m, nil
+	case tickMsg:
+		m.content.tickCount++
+		m.sidebar.tickCount = m.content.tickCount
+		m.status.streaming = m.content.streamingPhase != ""
+		m.status.promptUsed = m.sidebar.promptUsed
+		m.status.contextBudget = m.sidebar.contextBudget
+		if !m.approval.active {
+			if m.content.streamingPhase != "" {
+				m.input.Placeholder = "streaming… esc to interrupt"
+			} else {
+				m.input.Placeholder = "ask steiner — / for commands, @ for files"
+			}
+		}
+		m.syncViewport()
+		return m, tickCmd()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.palette.width = msg.Width
+		m.palette.height = msg.Height
 		m.layout()
 		return m, nil
 	case runtimeEventMsg:
@@ -170,6 +334,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouse(msg)
 		return m, nil
 	case tea.KeyMsg:
+		// If palette is open, route all keys to it first
+		if m.palette.open {
+			var cmd tea.Cmd
+			m.palette, cmd = m.palette.Update(msg)
+			return m, cmd
+		}
+
 		// Reset completion state on any non-Tab key
 		if msg.Type != tea.KeyTab {
 			m.completionCandidates = nil
@@ -182,6 +353,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle Escape: interrupt streaming first (takes priority over help panel)
+		if msg.Type == tea.KeyEsc && m.content.streamingPhase != "" {
+			m.content.AppendLine("[interrupted]")
+			m.content.streamingPhase = ""
+			m.status.streaming = false
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+			m.syncViewport()
+			return m, nil
+		}
+
 		// Handle Escape to close help
 		if msg.Type == tea.KeyEsc && m.helpVisible {
 			m.helpVisible = false
@@ -191,6 +372,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyCtrlD:
 			return m, tea.Quit
+		case tea.KeyCtrlP:
+			m.palette = m.palette.Open()
+			m.palette.width = m.width
+			m.palette.height = m.height
+			return m, nil
 		case tea.KeyCtrlB:
 			m.sidebar.Toggle()
 			m.layout()
@@ -214,32 +400,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
 			return m, nil
 		case tea.KeyUp:
-			if m.input.Line() == 0 && len(m.inputHistory) > 0 {
-				// navigate history backward
-				if m.historyIdx == 0 {
-					m.historyDraft = m.input.Value()
-				}
-				if m.historyIdx < len(m.inputHistory) {
-					m.historyIdx++
-					m.input.SetValue(m.inputHistory[m.historyIdx-1])
-				}
+			if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
+				m.fileHistoryIdx++
+				m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
 				return m, nil
 			}
-			// cursor not on first line — pass to textarea
+			if len(m.fileHistory) > 0 && m.fileHistoryIdx < 0 {
+				m.historyDraft = m.input.Value()
+				m.fileHistoryIdx = 0
+				m.input.SetValue(m.fileHistory[0])
+				return m, nil
+			}
+			m.fileHistoryIdx = -1
+			m.historyIdx = -1
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
 		case tea.KeyDown:
-			if m.historyIdx > 0 {
-				m.historyIdx--
-				if m.historyIdx == 0 {
-					m.input.SetValue(m.historyDraft)
-				} else {
-					m.input.SetValue(m.inputHistory[m.historyIdx-1])
-				}
+			if m.fileHistoryIdx > 0 {
+				m.fileHistoryIdx--
+				m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
 				return m, nil
 			}
-			// pass to textarea
+			if m.fileHistoryIdx == 0 {
+				m.input.SetValue(m.historyDraft)
+				m.fileHistoryIdx = -1
+				return m, nil
+			}
+			m.fileHistoryIdx = -1
+			m.historyIdx = -1
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
@@ -263,48 +452,77 @@ func (m Model) View() string {
 	contentWidth := maxInt(1, m.width)
 	sidebarVisible := m.sidebar.Visible(m.width)
 	if sidebarVisible {
-		contentWidth = maxInt(1, m.width-sidebarWidth)
-	}
-	contentView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
-	if sidebarVisible {
-		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width, m.viewport.Height))
+		contentWidth = maxInt(1, m.width-sidebarWidth-1) // 1-cell vertical divider
 	}
 
-	// Overlay help panel if visible
+	viewportView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
+
 	if m.helpVisible {
 		help := renderHelp(m.styles, maxInt(20, contentWidth-4))
-		contentView = lipgloss.Place(contentWidth, m.viewport.Height,
+		viewportView = lipgloss.Place(contentWidth, lipgloss.Height(viewportView),
 			lipgloss.Center, lipgloss.Center,
 			help,
 			lipgloss.WithWhitespaceChars(" "),
 		)
 	}
 
-	inputView := m.input.View()
-	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
+	// Horizontal divider: 1-row line of border-soft between transcript and bottom area.
+	// Lives inside the main column only — sidebar's vertical divider crosses uninterrupted.
+	hDivider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BorderSoft)).
+		Render(strings.Repeat("─", contentWidth))
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		contentView,
+	inputView := m.input.View()
+	statusView := m.status.view(contentWidth, m.keys.hints(m.approval.active))
+
+	mainColumn := lipgloss.JoinVertical(lipgloss.Left,
+		viewportView,
+		hDivider,
 		inputView,
 		statusView,
 	)
+
+	var base string
+	if sidebarVisible {
+		// 1-cell vertical divider, full window height, floor-to-ceiling.
+		vDivider := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BorderSoft)).
+			Width(1).
+			Height(m.height).
+			Render("")
+		base = lipgloss.JoinHorizontal(lipgloss.Top,
+			mainColumn,
+			vDivider,
+			m.sidebar.View(m.width, m.height),
+		)
+	} else {
+		base = mainColumn
+	}
+
+	if m.palette.open {
+		overlay := m.palette.View()
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			overlay,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	return base
 }
 
 func (m *Model) layout() {
-	contentHeight := m.height - 5
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
 	contentWidth := m.width
 	if m.sidebar.Visible(m.width) {
-		contentWidth = m.width - sidebarWidth
+		contentWidth = m.width - sidebarWidth - 1 // 1-cell vertical divider
 	}
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	m.viewport.Width = maxInt(1, contentWidth-2)
-	m.viewport.Height = maxInt(1, contentHeight-2)
+	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input(1) + status(1) = viewport + 4.
+	m.viewport.Width = maxInt(1, contentWidth-6)
+	m.viewport.Height = maxInt(1, m.height-4)
 	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }
@@ -317,9 +535,20 @@ func (m *Model) syncViewport() {
 }
 
 func (m *Model) applyEvent(event output.Event) {
-	m.content.AppendEvent(event)
+	if event.Type != output.EventTypeHistoryLoaded {
+		m.content.AppendEvent(event)
+	}
 
 	switch payload := event.Payload.(type) {
+	case output.HistoryLoadedEvent:
+		if len(payload.Prompts) > 0 {
+			for i, j := 0, len(payload.Prompts)-1; i < j; i, j = i+1, j-1 {
+				payload.Prompts[i], payload.Prompts[j] = payload.Prompts[j], payload.Prompts[i]
+			}
+		}
+		m.fileHistory = payload.Prompts
+		m.fileHistoryIdx = -1
+		return
 	case output.RunStartedEvent:
 		if payload.Model != "" {
 			m.status.model = payload.Model
@@ -362,12 +591,12 @@ func (m *Model) applyEvent(event output.Event) {
 			m.status.mode = "approval"
 			m.input.Reset()
 			m.input.Prompt = "approve> "
-			m.input.Placeholder = "yes or no"
+			m.input.Placeholder = "approve? y/n/d"
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
 			m.status.mode = "running"
-			m.input.Prompt = "> "
-			m.input.Placeholder = "Ask steiner something"
+			m.input.Prompt = "› "
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
 		}
 	}
 
@@ -385,6 +614,7 @@ func (m *Model) syncSidebar() {
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
+		m.sidebar.ahead = snap.ahead
 		m.sidebar.modifiedFiles = append([]gitModifiedFile(nil), snap.modifiedFiles...)
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
@@ -459,8 +689,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.approval = approvalState{}
 		m.status.mode = "running"
 		m.input.Reset()
-		m.input.Prompt = "> "
-		m.input.Placeholder = "Ask steiner something"
+		m.input.Prompt = "› "
+		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
@@ -537,6 +767,17 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	}
+	if action.toggleThinking {
+		m.input.Reset()
+		m.historyIdx = 0
+		return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
+	}
+	if action.setAccent != "" {
+		m.input.Reset()
+		m.historyIdx = 0
+		preset := action.setAccent
+		return m, func() tea.Msg { return paletteSetAccentMsg{preset: preset} }
+	}
 	if action.switchModel != "" {
 		if m.onModelSwitch != nil {
 			m.onModelSwitch(action.switchModel)
@@ -566,7 +807,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		if m.onSubmit != nil {
 			m.onSubmit(action.submit)
 		}
-		m.content.AppendLine("you> " + action.submit)
+		m.content.AppendUser(action.submit)
 		m.input.Reset()
 		m.historyIdx = 0
 		m.syncViewport()
@@ -624,6 +865,48 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 		m.scrollUp(m.viewport.MouseWheelDelta)
 	case tea.MouseButtonWheelDown:
 		m.scrollDown(m.viewport.MouseWheelDelta)
+	case tea.MouseButtonLeft:
+		m.handleLeftClick(msg.Y)
+	}
+}
+
+func (m *Model) handleLeftClick(termY int) {
+	// The viewport content area starts below the status bar and input area.
+	// We need the content-area row. The viewport itself is positioned at
+	// some Y within the terminal — approximate by using termY directly
+	// adjusted for scroll offset.
+	// content line = termY + m.viewport.YOffset
+	// (viewport renders from its YOffset in the scrollable content)
+	contentLine := termY + m.viewport.YOffset
+
+	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
+		return
+	}
+
+	// Walk segmentHeights to find which segment index this line falls in
+	cumulative := 0
+	for i, h := range m.content.segmentHeights {
+		if h == 0 {
+			continue
+		}
+		if contentLine < cumulative+h {
+			// Click landed in segment i — toggle if collapsible
+			seg := &m.content.segments[i]
+			switch seg.kind {
+			case segmentToolCall:
+				if seg.toolData != nil {
+					seg.toolData.collapsed = !seg.toolData.collapsed
+					m.syncViewport()
+				}
+			case segmentThinkingBlock:
+				if seg.thinkData != nil {
+					seg.thinkData.collapsed = !seg.thinkData.collapsed
+					m.syncViewport()
+				}
+			}
+			return
+		}
+		cumulative += h
 	}
 }
 

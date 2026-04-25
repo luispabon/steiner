@@ -1,0 +1,656 @@
+stages:
+  - id: stage-1
+    objective: Replace catppuccin with the new "steiner" OKLCH-based theme; extend Styles with all new design tokens; wire accent preset switching
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: |
+          Create `internal/tui/theme/oklch.go` with a pure-Go OKLCH→sRGB→hex conversion
+          function: `func OklchToHex(l, c, h float64) string`. No new deps — implement
+          the three-step math (OKLab intermediate, linear sRGB, gamma encode) directly.
+          Add a table of all design token hex values as package-level consts derived from
+          the conversion (or inline pre-computed strings — either is fine).
+          Delete `internal/tui/theme/catppuccin.go` and `internal/tui/theme/catppuccin_test.go`.
+          Delete the catppuccin dep from go.mod/go.sum (`github.com/catppuccin/go`).
+        scope: internal/tui/theme/oklch.go; delete catppuccin files; go.mod/go.sum
+        files:
+          - internal/tui/theme/oklch.go
+          - internal/tui/theme/catppuccin.go
+          - internal/tui/theme/catppuccin_test.go
+          - go.mod
+          - go.sum
+        constraints:
+          - No new dependencies
+          - All OKLCH token values from README design tokens table
+          - Function must round-trip correctly for the 20+ tokens used
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/tui/theme/oklch.go with OklchToHex and all token consts
+          - catppuccin files removed
+          - go.mod updated (catppuccin/go removed)
+        acceptance:
+          - go build ./... passes
+          - OklchToHex("#E8814B" equivalent) for accent amber is correct
+        handoff: |
+          OKLCH utility and token consts exist. Catppuccin gone. Build passes.
+          Next step creates the steiner theme and extends the Styles struct.
+        verification:
+          - go build ./...
+
+      - id: stage-1-step-2
+        objective: |
+          Create `internal/tui/theme/steiner.go` implementing the full `Theme` interface
+          and returning a fully-populated `Styles` struct. Use token consts from oklch.go.
+          Extend `theme.Styles` with all new fields required by later stages:
+            BgElev, BgElev2, BgInput
+            UserBar, UserBg
+            ThinkingBar
+            ToolTagBash, ToolTagRead, ToolTagWrite, ToolTagGlobGrep, ToolTagTodo, ToolTagDefault
+            Added, Removed, Warn
+            FgDim, FgFaint, FgMute
+            AccentSoft, AccentLine
+            KeyChip
+            PaletteOverlay, PaletteInput, PaletteItem, PaletteItemActive
+          Register as "steiner". Update `theme.Default()` to return the steiner theme.
+          Update `theme.Get()` so unknown theme names fall back to steiner.
+          Remove any remaining catppuccin references from registry.go.
+          Add 7 accent preset hex values as a package-level map:
+            AmberAccent, RoseAccent, MagentaAccent, VioletAccent, CyanAccent, MintAccent, LimeAccent
+          Export `func BuildStyles(accentHex string) Styles` so callers can rebuild styles
+          when accent changes at runtime.
+        scope: internal/tui/theme/steiner.go; internal/tui/theme/theme.go; internal/tui/theme/registry.go
+        files:
+          - internal/tui/theme/steiner.go
+          - internal/tui/theme/theme.go
+          - internal/tui/theme/registry.go
+        constraints:
+          - Color values must match design tokens exactly (see overview and README)
+          - Styles struct changes must not break existing field references in model.go, sidebar.go, content.go, statusbar.go, input.go — add fields, don't rename existing ones yet
+          - Soft fills are flat tinted hex colors, not alpha-blended
+        depends_on: [stage-1-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - steiner.go with full Theme + Styles
+          - theme.go with extended Styles struct + BuildStyles
+          - registry.go pointing to steiner as default
+        acceptance:
+          - go build ./... passes
+          - theme.Default() returns steinerTheme
+          - All Styles fields populated (non-zero)
+        handoff: |
+          Steiner theme registered and is the sole default. Styles struct extended.
+          BuildStyles(accentHex) works. Build passes.
+        verification:
+          - go build ./...
+
+  - id: stage-2
+    objective: Redesign transcript rendering — user messages, assistant prose, thinking blocks; add streaming cursor + indicator; add prefs package for show_thinking toggle
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: |
+          Create `internal/tui/prefs/prefs.go` with Load/Save for
+          `~/.config/steiner/prefs.yaml`. Fields: `Accent string` (default "amber"),
+          `ShowThinking bool` (default true). Use gopkg.in/yaml.v3 (already in go.mod).
+          Create `~/.config/steiner/` dir if absent. Export `DefaultPrefs()`.
+          Wire into `internal/tui/app.go` and `Config` struct: load prefs at startup,
+          pass `Accent` and `ShowThinking` into the TUI model.
+          Add `ShowThinking bool` and `AccentPreset string` to `tui.Config`.
+          In `newModel`, call `theme.BuildStyles(accentHex)` using the loaded accent,
+          store result as `m.styles`.
+        scope: internal/tui/prefs/prefs.go; internal/tui/app.go; internal/tui/model.go (Config struct + newModel)
+        files:
+          - internal/tui/prefs/prefs.go
+          - internal/tui/app.go
+          - internal/tui/model.go
+        constraints:
+          - Use yaml.v3 (already in go.mod)
+          - Create config dir with MkdirAll, 0700
+          - Prefs load failure is non-fatal (use defaults + log warning)
+          - No new dependencies
+        depends_on: [stage-1-step-2]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/tui/prefs/prefs.go
+          - prefs loaded at startup, accent + showThinking on Model
+        acceptance:
+          - go build ./... passes
+          - prefs.Load() returns DefaultPrefs() when file absent
+        handoff: Prefs package exists and is wired into TUI startup. Build passes.
+        verification:
+          - go build ./...
+
+      - id: stage-2-step-2
+        objective: |
+          Rework content.go transcript rendering for user messages, assistant prose,
+          and thinking blocks. Also add streaming cursor + mid-stream indicator.
+
+          New / changed segment types:
+          - `segmentUser`: render with 2-col left bar in `--user` color, `--user-soft` bg,
+            `›` prefix in user color, body in fg. Use lipgloss border left trick or
+            manual `│` char + background padding.
+          - `segmentThinkingBlock`: store `collapsed bool` and `preview string` (first 80 chars).
+            Collapsed: `▸ Thinking · <preview>…` in ThinkingBar color, italic.
+            Open: 2-col left bar in ThinkingBar color, italic body, FgDim text.
+          - Keep existing segment types (tool, approval, plain, markdown) unchanged for now.
+
+          contentBuffer changes:
+          - Add `collapseState map[int]bool` (segment index → collapsed; thinking starts collapsed)
+          - Add `segmentHeights []int` (rendered line count per segment, computed in String())
+          - Add `showThinking bool` field (from prefs); when false, skip thinking segments in String()
+          - Add `streamingPhase string` field ("thinking" | "tool" | "answer" | "")
+
+          Streaming:
+          - Add `tickCount int` to contentBuffer (incremented by a 500ms tick msg in model)
+          - `inProgressPreview()`: append blinking `█` cursor (shown when tickCount%2==0)
+          - Add `streamingIndicatorView()`: three `•` dots + label ("thinking…" or "running tool…")
+            based on streamingPhase; stagger dot brightness by tickCount%3
+          - In model.go: add a `tickMsg` type and start a 500ms tick cmd in Init(); on tick,
+            increment content.tickCount, call syncViewport, return next tick.
+
+          Handle `EventTypeThinkingContent` (or equivalent) in AppendEvent to feed thinking segments.
+          Check output package for the correct event type name for thinking content.
+
+          Wire showThinking from Model into contentBuffer at startup and on toggle.
+        scope: internal/tui/content.go; internal/tui/model.go (tick, showThinking wiring)
+        files:
+          - internal/tui/content.go
+          - internal/tui/model.go
+        constraints:
+          - segmentHeights must be recomputed each time String() is called (width may change)
+          - Thinking block default state is collapsed
+          - Tick command must stop when program quits (return nil cmd on bridgeClosedMsg or quit)
+          - Check output/stream.go for actual thinking event type before assuming name
+        depends_on: [stage-2-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - User message rendered with left-bar chrome
+          - Thinking block rendered collapsed/open with correct styles
+          - Streaming cursor blinks in inProgressPreview
+          - segmentHeights populated for mouse mapping in Stage 3
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: |
+          User + thinking segment rendering done. segmentHeights tracked.
+          Streaming cursor ticks. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+  - id: stage-3
+    objective: Tool call collapsible rendering (with tag pills + body renderers), diff block, approval pill, compaction banner, mouse click to toggle collapse
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: |
+          Add tool call segment rendering. Replace the current flat `segmentTool` text
+          with a richer `segmentToolCall` that stores structured data and renders
+          collapsible cards.
+
+          New type:
+          ```go
+          type toolCallSegment struct {
+              tool    string   // "bash", "read", "write", etc.
+              args    string   // first line of args, truncated to ~60 chars
+              meta    string   // "184 lines · 6.2 KB", "exit 0", etc.
+              bodyKind string  // "bash", "read", "diff", "plain"
+              body    string   // raw output text
+              collapsed bool
+          }
+          ```
+
+          Store as `segmentToolCall` kind; payload embedded in contentSegment as
+          a new `toolData *toolCallSegment` field (or use a union approach via interface{}).
+
+          Rendering when collapsed:
+            `▸ [tag] args                          meta`
+          where [tag] is a styled pill: tool name lowercased, background + border color
+          per tool kind (bash→accent, read→soft-blue, write/edit→added-green,
+          glob/grep→soft-magenta, todo→warn, default→tool-cyan).
+
+          Rendering when open (add body below header, indented 3 cols):
+          - plain/list: BgElev panel, FgDim text, wrapped
+          - bash: darker bg (oklch 0.14 → hex), `$ ` + command in accent, stdout in fg,
+            stderr lines in Removed color, footer `exit N` (green if 0, red otherwise) + cwd in FgMute
+          - read: `path · N lines` caption in FgMute, then code block with 4-char
+            line-number gutter in FgMute, body text (syntax highlight deferred — plain fg for now)
+          - diff: see next step
+
+          Parse tool call events from AppendEvent:
+          - `EventTypeToolCallStarted`: create toolCallSegment with tool name + args extracted
+            from event payload; append as segmentToolCall, collapsed by default
+          - `EventTypeToolCallFinished`: find the last toolCallSegment, populate body + meta
+
+          Keep `segmentTool` for legacy/unknown events that don't parse into the new structure.
+        scope: internal/tui/content.go (new toolCallSegment type + rendering)
+        files:
+          - internal/tui/content.go
+        constraints:
+          - Check output package event payload types for ToolCallStartedEvent and ToolCallFinishedEvent fields before implementing arg extraction
+          - Tag pill must not break on unknown tool names (use default color)
+          - Body rendering must respect the width passed to String()
+          - Tool calls start collapsed
+        depends_on: [stage-2-step-2]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Tool call segments rendered as collapsible cards with tag pills
+          - bash/read/plain body renderers working
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: |
+          Tool call cards render collapsed and open with tag pills and body.
+          Build and tui tests pass. Diff body kind left for next step.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+      - id: stage-3-step-2
+        objective: |
+          Add diff block rendering, approval pill, and compaction banner.
+
+          **Diff block** (bodyKind "diff" on toolCallSegment):
+          Parse unified diff text from tool call body. Render:
+          - Header row (BgElev2 bg): `[edit]` tag + path in fg + `+N` in Added + `−N` in Removed, right-aligned
+          - Each hunk row: 6-char gutter (line number right-aligned + ` `/`+`/`-` sign) in FgMute;
+            row bg: `+` rows → Added-soft flat color, `-` rows → Removed-soft flat color, context → BgElev
+          - Hunk separator: single `─` rule line in border-soft color
+
+          **Approval pill** (replace current segmentApproval flat text):
+          New `segmentApprovalPill` kind. Stores: tool string, mode string, resolved bool, accepted bool.
+          Unresolved render: AccentLine border, 2-col left accent bar, BgElev bg.
+            Question text in fg + three right-aligned buttons: `[y] approve` `[n] deny` `[a] always`
+            key chars in FgMute, label in fg.
+          Resolved render: dashed border style (use `·` chars), FgDim.
+            Shows `✓ approved` or `✗ denied` in dim text.
+          Wire ApprovalEvent payloads to populate segmentApprovalPill instead of old segmentApproval.
+
+          **Compaction banner** (new segmentCompactionBanner kind):
+          Stores: label string, subtitle string, progress int (0-100), finished bool.
+          Render: full-width, 1-border warn-tinted, warn-soft bg fill, "Compacting" in Warn bold,
+          dim subtitle, progress bar (2-row height, dark track, Warn fill = progress%).
+          Finished state: replaced by italic system note "Context compacted. X → Y tokens."
+          Wire to compaction events in AppendEvent.
+        scope: internal/tui/content.go
+        files:
+          - internal/tui/content.go
+        constraints:
+          - Diff parser should handle standard unified diff format; graceful fallback to plain text if parse fails
+          - Approval pill must not conflict with existing approval keyboard handling in model.go
+          - Compaction banner progress update must find and mutate the existing banner segment (not append a new one each tick)
+        depends_on: [stage-3-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Diff blocks render with gutter + colored rows
+          - Approval pill with y/n/a buttons + resolved state
+          - Compaction banner with progress bar
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: All transcript component types render. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+      - id: stage-3-step-3
+        objective: |
+          Wire mouse click to collapse/expand tool call and thinking segments.
+
+          In model.go's `handleMouse`:
+          - Verify mouse events are enabled in `app.go` (`tea.WithMouseCellMotion()` or
+            `tea.WithMouseAllMotion()`); add if missing.
+          - On `tea.MouseActionPress` + `tea.MouseButtonLeft`:
+            - Compute the click Y relative to the viewport top (subtract viewport offset)
+            - Walk `content.segmentHeights` to find which segment index the click falls on
+            - If that segment is a `segmentToolCall` or `segmentThinkingBlock`, toggle its
+              collapsed state in `content.collapseState[idx]`
+            - Call syncViewport()
+          - No action for other segment kinds.
+
+          Ensure `segmentHeights` is always up-to-date: recompute it as part of `String()`
+          (count newlines in each rendered segment output).
+        scope: internal/tui/model.go; internal/tui/content.go (segmentHeights computation); internal/tui/app.go (mouse opt)
+        files:
+          - internal/tui/model.go
+          - internal/tui/content.go
+          - internal/tui/app.go
+        constraints:
+          - Y offset must account for viewport scroll position (viewport.YOffset)
+          - segmentHeights slice must be same length as segments slice
+          - Only left-click on the header row should toggle (not body rows) — best-effort: toggling anywhere in the segment is acceptable if header-only detection is complex
+        depends_on: [stage-3-step-2]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Mouse click on tool call or thinking header toggles collapse
+          - Mouse events enabled in program
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: Mouse collapse toggle works. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+  - id: stage-4
+    objective: Sidebar full redesign — brand row, redesigned cards, token bar with 3-state fill, compact dot, repo card, modified files with status glyphs
+    parallel: false
+    steps:
+      - id: stage-4-step-1
+        objective: |
+          Rewrite sidebar.go to implement the design-spec card layout.
+
+          Width: 34 cols. Collapse threshold: 100 cols total terminal width.
+
+          **Brand row** (top of sidebar, above all cards):
+          `▪` filled square in accent color + bold "steiner" in fg + dim "v0.0.1"
+          Separator line (border-soft color `─` repeated) below brand row.
+
+          **Card pattern** — for each card:
+          - Label row: uppercase spaced text (e.g. `M O D E L`) in FgMute
+          - Content rows: `key:` in FgFaint (fixed ~8 chars wide) + value in fg
+          Cards separated by empty line gap.
+
+          **Model card:** name row + optional quant row (FgDim) + host/provider row (FgDim).
+
+          **Context card:**
+          - Token bar: full inner-width bar, height 1 row, filled by percent:
+            ≤70%: accent hex fill chars `█`, >70%: warn, >90%: removed/red.
+            Unfilled portion: FgMute `░`.
+          - Below bar: `used / total  N%` in fg (N colored same as bar).
+          - Compact row: `● auto @ 90%` in FgMute (idle) or pulsing `●` in Warn + "compacting…" (active).
+            Pulse: alternate `●`/`○` based on model's tickCount%2.
+
+          **Repository card:** workdir (ellipsed to inner width, FgDim) + branch row:
+          branch name in fg + `●` dirty marker in Warn (if dirty) + `↑N` ahead (FgDim, if >0).
+
+          **Modified files card:** header `MODIFIED  N` (N = count). Each file row:
+          status glyph `M`/`A`/`D`/`U` in Warn/Added/Removed/FgMute respectively,
+          then path (FgDim, ellipsed), then `+N` in Added and `−N` in Removed right-aligned.
+
+          Pass tickCount into sidebar View() for compact pulse animation.
+          Sidebar needs access to tickCount — add it as a field on sidebarState, updated from model on each tick.
+        scope: internal/tui/sidebar.go; internal/tui/model.go (tickCount→sidebar wiring)
+        files:
+          - internal/tui/sidebar.go
+          - internal/tui/model.go
+        constraints:
+          - sidebarWidth const: change from 40 to 34
+          - sidebarMinWidth const: keep at 100
+          - Must not break model.go's sidebar.Visible() call or View() signature (adjust signature if needed, update all callers)
+          - All existing sidebar data fields (model, provider, branch, dirty, etc.) remain; only rendering changes
+        depends_on: [stage-3-step-3]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Sidebar renders brand row + redesigned cards
+          - Token bar with 3-state color
+          - Modified files with status glyphs
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: Sidebar fully redesigned. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+  - id: stage-5
+    objective: Status bar key chips + input chevron + state-aware placeholder + accent focus ring + Esc interrupt
+    parallel: false
+    steps:
+      - id: stage-5-step-1
+        objective: |
+          Rewrite statusbar.go to render key-chip segments.
+
+          Each segment: muted label + styled value (or key chip), separated by `│` in border-soft.
+          Key chips: `bg-elev-2` bg, border-soft border (use lipgloss border), `fg-faint` text,
+          slight padding (0 1).
+
+          Segments (left to right):
+          1. `model` label + accent-colored model name value
+          2. `turn` label + dim turn number
+          3. `ctx` label + `used/total · N%` — color: accent ≤70%, Warn >70%, Removed >90%
+          4. State-dependent: chip `⏎` + "send" (idle) OR chip `esc` + "interrupt" (streaming)
+          5. Chip `⇧⏎` + "newline"
+          6. Chip `^P` + "commands"
+          7. Chip `^B` + "sidebar"
+          8. Chip `/model` + "switch"
+          9. Chip `?` + "help"
+
+          If total rendered width > terminal width, wrap at a natural break point
+          (segments 1-3 on row 1; 4-9 on row 2) with 4px row gap.
+
+          Add `streaming bool` to statusState so segment 4 can switch between send/interrupt.
+          Wire `streaming` from model: set true when streamingPhase != "", false otherwise.
+        scope: internal/tui/statusbar.go; internal/tui/model.go (streaming→statusState wiring)
+        files:
+          - internal/tui/statusbar.go
+          - internal/tui/model.go
+        constraints:
+          - Must not break model.go's status.view() call signature (adjust if needed)
+          - ctx color logic must use same thresholds as context card (70/90%)
+          - hints string in keyMap is superseded by statusbar — remove or ignore in View()
+        depends_on: [stage-4-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Status bar renders key chips with correct colors
+          - Segment 4 switches on streaming state
+        acceptance:
+          - go build ./... passes
+        handoff: Status bar renders key chips. Build passes.
+        verification:
+          - go build ./...
+
+      - id: stage-5-step-2
+        objective: |
+          Redesign input area and wire Esc interrupt.
+
+          Input changes:
+          - Change prompt from `"> "` to `"› "` (accent-colored via textarea FocusedStyle)
+          - Placeholder: `"ask steiner — / for commands, @ for files"` when idle;
+            `"streaming… esc to interrupt"` when streaming phase is active
+          - Focus ring: when focused, textarea border color → AccentLine (already handled via
+            FocusedStyle.Base in newModel — update the border color there)
+          - Approval mode placeholder: keep `"yes or no"` as-is
+
+          Esc interrupt:
+          - In model.go Update KeyMsg handler: when `tea.KeyEsc` and `content.streamingPhase != ""`
+            (i.e. streaming is active), call the interrupt callback if wired, append a
+            `segmentPlain` italic "interrupted" system note, clear streamingPhase,
+            update statusState.streaming = false, update input placeholder.
+          - Check app.go / existing code for whether an interrupt/cancel callback exists;
+            if not, add `onInterrupt func()` to Config and wire through.
+
+          Also update input height: min 1 row (not fixed 3) — use textarea's auto-grow
+          capability (SetHeight(1) with CharLimit 0 already set; ensure MaxHeight is set to ~10).
+        scope: internal/tui/input.go; internal/tui/model.go; internal/tui/app.go
+        files:
+          - internal/tui/model.go
+          - internal/tui/app.go
+        constraints:
+          - › character must render correctly in the terminal (it's U+203A, widely supported)
+          - Do not break existing approval prompt flow
+          - Esc must not quit the program when streaming (currently Esc closes help panel — guard order matters)
+        depends_on: [stage-5-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Input shows › chevron in accent
+          - Placeholder switches on streaming
+          - Esc while streaming appends "interrupted" note and clears streaming state
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: Input and Esc interrupt wired. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+  - id: stage-6
+    objective: Command palette — Ctrl+P modal overlay with search, scrollable item list, keyboard navigation, command dispatch
+    parallel: false
+    steps:
+      - id: stage-6-step-1
+        objective: |
+          Create `internal/tui/palette.go` with a self-contained palette component.
+
+          Types:
+          ```go
+          type paletteAction func() tea.Cmd
+
+          type paletteItem struct {
+              command     string       // "/model", "/clear", etc.
+              name        string       // human label
+              description string       // dim right-aligned
+              action      paletteAction
+          }
+
+          type paletteModel struct {
+              open     bool
+              query    string
+              items    []paletteItem
+              filtered []paletteItem
+              cursor   int
+              styles   theme.Styles
+          }
+          ```
+
+          Methods:
+          - `Open() paletteModel` — sets open=true, resets query/cursor, refilters
+          - `Close() paletteModel`
+          - `SetQuery(q string) paletteModel` — refilters items (case-insensitive substring on command+name)
+          - `View(width, height int) string` — renders the full overlay string:
+            - Backdrop: `lipgloss.Place` fills terminal with dimmed bg (FgMute background)
+            - Panel: centered, width=min(72, width*92/100), top offset=4 rows
+            - Search row: `⌘` in FgMute + query text + cursor + soft bottom border
+            - Item list: max 12 visible rows, scrolls with cursor; active item gets PaletteItemActive bg
+              Each row: command in accent (min-width 12) + name in fg + description in FgMute right-aligned
+            - Footer: top-bordered, `[↵] run  [↑↓] navigate  [esc] close` in FgMute key chips
+
+          Key handling (called from model.go Update before other key routing when open):
+          - `↑`/`↓`: move cursor, clamp
+          - `↵`: run filtered[cursor].action(), close palette
+          - `Esc`: close
+          - Any printable char: append to query, refilter, reset cursor
+          - `Backspace`: trim query
+
+          Initial item list — wire these commands:
+          - `/model` → open model picker sub-list (list available model names from Model.modelNames)
+          - `/clear` → call existing clear action
+          - `/compact` → call existing compact/context-inspect action
+          - `/skill` → call existing skill list action
+          - `/exit` → tea.Quit
+          - `/help` → toggle helpVisible
+          - Any other existing slash commands already handled in parseInput
+
+          Add `palette paletteModel` field to Model struct.
+          In Update: handle `tea.KeyCtrlP` → `m.palette = m.palette.Open()`.
+          When `m.palette.open`, route KeyMsg to palette first.
+          In View(): if palette open, overlay palette.View() on top of the normal view using
+          `lipgloss.Place` at full terminal dimensions.
+        scope: internal/tui/palette.go (new file); internal/tui/model.go
+        files:
+          - internal/tui/palette.go
+          - internal/tui/model.go
+        constraints:
+          - Palette overlay must not cause flicker — render as a single lipgloss string placed over the full view
+          - Model picker sub-list: simplest approach is to filter palette items by "/model " prefix and list models as items; do not add a nested modal
+          - Palette must be closed by any action dispatch (not just Esc)
+          - Do not break existing Ctrl+P if it was used for anything else (check model.go first)
+        depends_on: [stage-5-step-2]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/tui/palette.go
+          - Ctrl+P opens palette overlay
+          - Search filters items; ↑↓ navigates; ↵ dispatches; Esc closes
+        acceptance:
+          - go build ./... passes
+          - go test ./internal/tui/... passes
+        handoff: Command palette fully functional. Build and tui tests pass.
+        verification:
+          - go build ./...
+          - go test ./internal/tui/...
+
+  - id: stage-7
+    objective: Accent preset switching wired end-to-end; show_thinking toggle; final formatting + build + full test suite
+    parallel: false
+    steps:
+      - id: stage-7-step-1
+        objective: |
+          Wire accent preset switching and show_thinking toggle end-to-end.
+
+          **Accent switching:**
+          - Add `/accent <preset>` command to palette and parseInput.
+            Presets: amber, rose, magenta, violet, cyan, mint, lime.
+          - On switch: call `theme.BuildStyles(accentHex)` with the preset's hex,
+            update `m.styles`, propagate to `m.content.styles`, `m.sidebar.styles`,
+            `m.status.styles`.
+          - Save new accent to prefs file via `prefs.Save()`.
+          - Re-render viewport.
+
+          **Show thinking toggle:**
+          - Add `/thinking` toggle command to palette.
+          - On toggle: flip `m.content.showThinking`, save to prefs, call syncViewport().
+
+          **Cleanup:**
+          - Remove now-unused catppuccin theme references anywhere remaining in codebase.
+          - Remove `help.go` catppuccin color references if any; update help text to reference
+            new keybindings (Ctrl+P for palette).
+          - Run gofmt on all changed files.
+          - Ensure `go vet ./...` passes clean.
+          - Run `go test ./...` and fix any failures.
+          - Run `make build-binaries` and confirm success.
+        scope: internal/tui/model.go; internal/tui/prefs/prefs.go; internal/tui/palette.go; internal/tui/help.go; all changed .go files (gofmt)
+        files:
+          - internal/tui/model.go
+          - internal/tui/prefs/prefs.go
+          - internal/tui/palette.go
+          - internal/tui/help.go
+        constraints:
+          - Accent switch must update all style references atomically before next render
+          - prefs.Save() failure is non-fatal (log warning, continue)
+          - All gofmt, go vet, go test, make build-binaries must pass before handoff
+        depends_on: [stage-6-step-1]
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Accent switching live and persisted
+          - Show-thinking toggle live and persisted
+          - Full test suite green
+          - Binaries build clean
+        acceptance:
+          - go build ./... passes
+          - go vet ./... passes
+          - go test ./... passes
+          - make build-binaries passes
+        handoff: |
+          All features implemented. Full verification suite passes.
+          Ready for coding-loop-finaliser.
+        verification:
+          - gofmt -w <all changed files>
+          - go build ./...
+          - go vet ./...
+          - go test ./...
+          - make build-binaries

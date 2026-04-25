@@ -15,6 +15,8 @@ type inputAction struct {
 	toggleSkill    string
 	toggleEnable   bool
 	switchModel    string
+	setAccent      string
+	toggleThinking bool
 }
 
 func parseInput(value string, enabledSkills map[string]bool) inputAction {
@@ -37,6 +39,14 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 		return inputAction{handled: true, listSkills: true}
 	case trimmed == "/models":
 		return inputAction{handled: true, listModels: true}
+	case trimmed == "/thinking":
+		return inputAction{handled: true, toggleThinking: true}
+	case strings.HasPrefix(trimmed, "/accent "):
+		preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "/accent "))
+		if preset == "" {
+			return inputAction{}
+		}
+		return inputAction{handled: true, setAccent: preset}
 	case strings.HasPrefix(trimmed, "/model "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
 		if name == "" {
@@ -71,7 +81,8 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
-	base := []string{"/exit", "/clear", "/context", "/skills", "/skill", "/models", "/model"}
+	base := []string{"/exit", "/clear", "/context", "/skills", "/skill", "/models", "/model", "/thinking",
+		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
 	}

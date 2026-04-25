@@ -217,15 +217,21 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 	if len(buffer.segments) != 2 {
 		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
 	}
-	for i, segment := range buffer.segments {
-		if segment.kind != segmentThinking {
-			t.Fatalf("segment[%d] kind = %v, want segmentThinking", i, segment.kind)
-		}
+	// First segment should be compaction banner
+	if buffer.segments[0].kind != segmentCompactionBanner {
+		t.Fatalf("segment[0] kind = %v, want segmentCompactionBanner", buffer.segments[0].kind)
 	}
-	if got := buffer.segments[0].text; !strings.Contains(got, "warning: compaction #2") || !strings.Contains(got, "restart soon") {
-		t.Fatalf("compaction text = %q, want visible warning", got)
+	if buffer.segments[0].compactionData == nil {
+		t.Fatalf("segment[0] compactionData is nil")
 	}
-	if got := buffer.segments[1].text; !strings.Contains(got, "session health #2") || !strings.Contains(got, "after 2 compactions") {
+	if !strings.Contains(buffer.segments[0].compactionData.summary, "compacted") {
+		t.Fatalf("compaction summary = %q, want visible compaction data", buffer.segments[0].compactionData.summary)
+	}
+	// Second segment should be session health (still thinking)
+	if buffer.segments[1].kind != segmentThinking {
+		t.Fatalf("segment[1] kind = %v, want segmentThinking", buffer.segments[1].kind)
+	}
+	if got := buffer.segments[1].text; !strings.Contains(got, "session health") {
 		t.Fatalf("session health text = %q, want visible health state", got)
 	}
 }

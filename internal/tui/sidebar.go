@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -11,15 +13,16 @@ import (
 )
 
 const (
-	sidebarWidth      = 40
-	sidebarMinWidth   = 100
-	sidebarToggleHint = "ctrl+b toggle sidebar"
-	sidebarPadding    = 1
+	sidebarWidth    = 36
+	sidebarMinWidth = 100
+	sidebarPadH     = 2 // horizontal padding (2 cols each side)
+	sidebarPadV     = 1 // vertical padding (1 row top/bottom)
 )
 
 type sidebarState struct {
 	expanded      bool
 	model         string
+	quant         string
 	provider      string
 	homeDir       string
 	promptUsed    int
@@ -30,9 +33,11 @@ type sidebarState struct {
 	compaction    string
 	branch        string
 	dirty         bool
+	ahead         int
 	modifiedFiles []gitModifiedFile
 	workingDir    string
 	styles        theme.Styles
+	tickCount     int
 }
 
 func newSidebarState() sidebarState {
@@ -61,69 +66,89 @@ func (s sidebarState) View(width, height int) string {
 	if !s.Visible(width) {
 		return ""
 	}
-	innerWidth := sidebarWidth - sidebarPadding*2
-	lines := s.lines(innerWidth)
+	innerWidth := sidebarWidth - sidebarPadH*2
+	innerHeight := height - sidebarPadV*2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	lines := s.lines(innerWidth, innerHeight)
 	body := strings.Join(lines, "\n")
-	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadding, sidebarPadding).Render(body)
+	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
 }
 
-func (s sidebarState) lines(width int) []string {
-	lines := make([]string, 0, 20)
+func (s sidebarState) lines(width, innerHeight int) []string {
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
-	lines = append(lines, sidebarSection("Model", s.styles))
-	lines = append(lines, sidebarSubField("Endpoint", safeText(s.provider), width, s.styles))
-	lines = append(lines, sidebarSubField("Name", safeText(s.model), width, s.styles))
-	lines = append(lines, "")
+	// Build all static lines first so we can compute overflow budget.
+	var static []string
 
-	lines = append(lines, sidebarSection("Context", s.styles))
-	lines = append(lines, sidebarSubField("Compaction", s.compactionSummary(), width, s.styles))
-	lines = append(lines, "")
-	lines = append(lines, s.promptMeterLines(width)...)
-	lines = append(lines, "")
+	// Brand row: mark · name · version right-aligned; gap then divider
+	static = append(static, s.brandRow(width))
+	static = append(static, "")
+	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
 
-	lines = append(lines, sidebarSection("Repository", s.styles))
-	lines = append(lines, sidebarSubField("Workdir", s.workdirSummary(width), width, s.styles))
-	lines = append(lines, sidebarSubField("Branch", s.gitSummary(), width, s.styles))
-	if len(s.modifiedFiles) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, s.styles.SidebarLabel.Render("Modified files:"))
-		for _, file := range s.modifiedFiles {
-			lines = append(lines, sidebarModifiedFileLine(file, width, s.styles))
+	// Model card
+	static = append(static, "")
+	static = append(static, cardLabel("model", s.styles))
+	static = append(static, cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles))
+	if q := strings.TrimSpace(s.quant); q != "" {
+		static = append(static, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
+	}
+	host := fitText(stripProviderURL(s.provider), width-7)
+	if host == "" {
+		host = "n/a"
+	}
+	static = append(static, cardField("host", s.styles.FgDim, host, s.styles))
+
+	// Context card
+	static = append(static, "")
+	static = append(static, cardLabel("context", s.styles))
+	static = append(static, s.tokenBarLine(width))
+	static = append(static, s.tokenUsageLine(width))
+	static = append(static, s.compactDotLine())
+
+	// Repository card
+	static = append(static, "")
+	static = append(static, cardLabel("repository", s.styles))
+	maxWD := min(25, maxInt(1, width-7))
+	static = append(static, cardField("workdir", s.styles.FgDim, fitTextMiddle(s.workdirSummary(width), maxWD), s.styles))
+	static = append(static, s.branchLine(width))
+	if s.ahead > 0 {
+		static = append(static, cardField("ahead", s.styles.FgDim, fmt.Sprintf("%d commits", s.ahead), s.styles))
+	}
+
+	// Modified files heading
+	static = append(static, "")
+	static = append(static, cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
+
+	// Sort files: status priority (M→A→D→U) then alphabetically
+	sorted := sortedModifiedFiles(s.modifiedFiles)
+
+	// Compute rows available for the file list
+	availForFiles := innerHeight - len(static)
+	if availForFiles < 0 {
+		availForFiles = 0
+	}
+
+	overflow := innerHeight > 0 && len(sorted) > availForFiles
+	displayCount := len(sorted)
+	if overflow {
+		displayCount = availForFiles - 1 // reserve 1 row for ↓ indicator
+		if displayCount < 0 {
+			displayCount = 0
 		}
 	}
 
+	lines := static
+	for i := 0; i < displayCount && i < len(sorted); i++ {
+		lines = append(lines, s.modifiedFileLine(sorted[i], width))
+	}
+	if overflow {
+		remaining := len(sorted) - displayCount
+		lines = append(lines, s.styles.FgMute.Render(fmt.Sprintf("↓ %d more", remaining)))
+	}
+
 	return lines
-}
-
-func (s sidebarState) promptSummary() string {
-	return sidebarPromptCount(s.promptUsed, s.contextBudget)
-}
-
-func (s sidebarState) promptMeterLines(width int) []string {
-	barWidth := maxInt(8, width-9)
-	return []string{
-		centerSidebarText(sidebarPromptMeter(s.promptUsed, s.contextBudget, barWidth), width, s.styles),
-		centerSidebarText(sidebarPromptCount(s.promptUsed, s.contextBudget), width, s.styles),
-	}
-}
-
-func (s sidebarState) compactionSummary() string {
-	value := strings.TrimSpace(s.compaction)
-	if value == "" {
-		return "idle"
-	}
-	return value
-}
-
-func (s sidebarState) gitSummary() string {
-	branch := strings.TrimSpace(s.branch)
-	if branch == "" {
-		branch = "n/a"
-	}
-	if s.dirty {
-		return branch + "*"
-	}
-	return branch
 }
 
 func (s sidebarState) workdirSummary(width int) string {
@@ -134,59 +159,157 @@ func (s sidebarState) workdirSummary(width int) string {
 	return homeRelativePath(filepath.Clean(value), strings.TrimSpace(s.homeDir))
 }
 
-func sidebarSection(title string, styles theme.Styles) string {
-	return styles.SidebarSection.Render(title)
+func (s sidebarState) brandRow(width int) string {
+	mark := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.AccentAmber)).
+		Foreground(lipgloss.Color(theme.Bg)).
+		Render("s")
+	name := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
+	ver := s.styles.FgMute.Render("0.1.4")
+	leftVisible := 1 + 1 + len("steiner") // mark + space + name
+	verVisible := lipgloss.Width(ver)
+	pad := width - leftVisible - verVisible
+	if pad < 1 {
+		pad = 1
+	}
+	return mark + " " + name + strings.Repeat(" ", pad) + ver
 }
 
-func sidebarSubField(label, value string, width int, styles theme.Styles) string {
-	const prefix = ""
-	value = strings.TrimSpace(value)
-	if value == "" {
-		value = "n/a"
-	}
-	if label == "" {
-		maxVal := maxInt(1, width-len(prefix))
-		chunks := wrapChunks(value, maxVal)
-		cont := strings.Repeat(" ", len(prefix))
-		var sb strings.Builder
-		sb.WriteString(prefix + styles.SidebarValue.Render(chunks[0]))
-		for _, c := range chunks[1:] {
-			sb.WriteString("\n" + styles.SidebarValue.Render(cont+c))
-		}
-		return sb.String()
-	}
-	labelColon := label + ":"
-	// +1 for the leading space before value
-	maxVal := maxInt(1, width-len(prefix)-len(labelColon)-1)
-	chunks := wrapChunks(value, maxVal)
-	cont := strings.Repeat(" ", len(prefix)+len(labelColon)+1)
-	var sb strings.Builder
-	sb.WriteString(prefix + styles.SidebarLabel.Render(labelColon) + styles.SidebarValue.Render(" "+chunks[0]))
-	for _, c := range chunks[1:] {
-		sb.WriteString("\n" + styles.SidebarValue.Render(cont+c))
-	}
-	return sb.String()
+func cardLabel(label string, styles theme.Styles) string {
+	return styles.FgMute.Render(strings.ToUpper(label))
 }
 
-func sidebarPromptMeter(used, budget, width int) string {
-	percent := occupancyPercent(used, budget)
-	if width < 8 {
-		width = 8
+func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
+	return keyStr + valStyle.Render(value)
+}
+
+func stripProviderURL(url string) string {
+	url = strings.TrimSpace(url)
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/v1")
+	url = strings.TrimSuffix(url, "/")
+	return url
+}
+
+func (s sidebarState) tokenBarLine(width int) string {
+	pct := occupancyPercent(s.promptUsed, s.contextBudget)
+	barWidth := maxInt(4, width-2)
+
+	var barColor lipgloss.Color
+	switch {
+	case pct > 90:
+		barColor = lipgloss.Color(theme.Removed)
+	case pct > 70:
+		barColor = lipgloss.Color(theme.Warn)
+	default:
+		barColor = lipgloss.Color(theme.AccentAmber)
 	}
-	label := fmt.Sprintf("%d%%", percent)
-	barWidth := maxInt(1, width-len(label)-2)
+
 	filled := 0
-	if budget > 0 {
-		filled = (used * barWidth) / budget
+	if s.contextBudget > 0 && barWidth > 0 {
+		filled = (s.promptUsed * barWidth) / s.contextBudget
 		if filled > barWidth {
 			filled = barWidth
 		}
 	}
-	if filled < 0 {
-		filled = 0
+
+	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
+		lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", barWidth-filled))
+	return bar
+}
+
+func (s sidebarState) tokenUsageLine(width int) string {
+	pct := occupancyPercent(s.promptUsed, s.contextBudget)
+	usageStr := sidebarPromptCount(s.promptUsed, s.contextBudget)
+	pctStr := fmt.Sprintf("%d%%", pct)
+	pad := width - len(usageStr) - len(pctStr)
+	if pad < 1 {
+		pad = 1
 	}
-	bar := "[" + strings.Repeat("=", filled) + strings.Repeat(".", barWidth-filled) + "]"
-	return bar + " " + label
+	return s.styles.FgDim.Render(usageStr + strings.Repeat(" ", pad) + pctStr)
+}
+
+func (s sidebarState) compactDotLine() string {
+	active := strings.TrimSpace(s.compaction) != "" && s.compaction != "idle"
+	if active {
+		// Pulsing dot
+		dot := "●"
+		if s.tickCount%2 == 0 {
+			dot = "○"
+		}
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render(dot) +
+			s.styles.FgDim.Render(" compacting…")
+	}
+	return s.styles.FgFaint.Render("●") + s.styles.FgDim.Render(" auto @ 90%")
+}
+
+func (s sidebarState) branchLine(width int) string {
+	branch := strings.TrimSpace(s.branch)
+	if branch == "" {
+		branch = "n/a"
+	}
+	maxBranch := maxInt(1, width-7)
+	if s.dirty {
+		maxBranch = maxInt(1, maxBranch-2) // reserve " ●"
+	}
+	branchText := fitText(branch, maxBranch)
+	line := cardField("branch", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)), branchText, s.styles)
+	if s.dirty {
+		line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render("●")
+	}
+	return line
+}
+
+func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
+	glyph := file.Status
+	if glyph == "" {
+		glyph = "M"
+	}
+	var glyphStyle lipgloss.Style
+	switch glyph {
+	case "A":
+		glyphStyle = s.styles.Added
+	case "D":
+		glyphStyle = s.styles.Removed
+	case "U":
+		glyphStyle = s.styles.FgMute
+	default:
+		glyphStyle = s.styles.Warn
+	}
+
+	statsText := ""
+	if file.Added > 0 {
+		statsText += s.styles.Added.Render(fmt.Sprintf("+%d", file.Added))
+	}
+	if file.Deleted > 0 {
+		if statsText != "" {
+			statsText += " "
+		}
+		statsText += s.styles.Removed.Render(fmt.Sprintf("-%d", file.Deleted))
+	}
+
+	statsLen := 0
+	if file.Added > 0 {
+		statsLen += len(fmt.Sprintf("+%d", file.Added))
+	}
+	if file.Deleted > 0 {
+		if file.Added > 0 {
+			statsLen++
+		}
+		statsLen += len(fmt.Sprintf("-%d", file.Deleted))
+	}
+
+	pathWidth := maxInt(1, width-3-statsLen-1) // glyph(1) + space(1) + ... + space(1) + stats
+	path := fitTextMiddle(file.Path, pathWidth)
+
+	line := glyphStyle.Render(glyph) + " " + s.styles.FgDim.Render(path)
+	if statsText != "" {
+		padding := maxInt(1, width-2-lipgloss.Width(path)-statsLen)
+		line += strings.Repeat(" ", padding) + statsText
+	}
+	return line
 }
 
 func sidebarPromptCount(used, budget int) string {
@@ -210,59 +333,45 @@ func occupancyPercent(used, budget int) int {
 	return percent
 }
 
-func centerSidebarText(text string, width int, styles theme.Styles) string {
+func fitTextMiddle(text string, width int) string {
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return ""
+	runes := []rune(text)
+	if width <= 0 || len(runes) <= width {
+		return text
 	}
-	padding := 0
-	if width > len(text) {
-		padding = (width - len(text)) / 2
+	if width <= 3 {
+		return string(runes[:width])
 	}
-	return styles.SidebarValue.Render(strings.Repeat(" ", padding) + text)
+	keep := width - 1 // 1 cell for the ellipsis character
+	left := keep / 2
+	right := keep - left
+	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
 }
 
-func sidebarModifiedFileLine(file gitModifiedFile, width int, styles theme.Styles) string {
-	path := fitText(strings.TrimSpace(file.Path), width)
-	statsText, statsView := sidebarModifiedFileStats(file, styles)
-	if statsText == "" {
-		return styles.SidebarValue.Render(path)
+func statusPriority(s string) int {
+	switch s {
+	case "M":
+		return 0
+	case "A":
+		return 1
+	case "D":
+		return 2
+	case "U":
+		return 3
+	default:
+		return 4
 	}
-	leftWidth := maxInt(1, width-len(statsText)-1)
-	path = fitText(path, leftWidth)
-	spaces := maxInt(1, width-lipgloss.Width(path)-len(statsText))
-	return styles.SidebarValue.Render(path) + styles.SidebarValue.Render(strings.Repeat(" ", spaces)) + statsView
 }
 
-func sidebarModifiedFileStats(file gitModifiedFile, styles theme.Styles) (string, string) {
-	partsText := make([]string, 0, 2)
-	partsView := make([]string, 0, 2)
-	if file.Added > 0 {
-		value := fmt.Sprintf("+%d", file.Added)
-		partsText = append(partsText, value)
-		partsView = append(partsView, styles.SuccessStyle.Render(value))
-	}
-	if file.Deleted > 0 {
-		value := fmt.Sprintf("-%d", file.Deleted)
-		partsText = append(partsText, value)
-		partsView = append(partsView, styles.ErrorStyle.Render(value))
-	}
-	return strings.Join(partsText, " "), strings.Join(partsView, styles.SidebarValue.Render(" "))
-}
-
-func wrapChunks(text string, width int) []string {
-	if width <= 0 {
-		return []string{text}
-	}
-	var chunks []string
-	for len(text) > width {
-		chunks = append(chunks, text[:width])
-		text = text[width:]
-	}
-	if len(text) > 0 || len(chunks) == 0 {
-		chunks = append(chunks, text)
-	}
-	return chunks
+func sortedModifiedFiles(files []gitModifiedFile) []gitModifiedFile {
+	out := append([]gitModifiedFile(nil), files...)
+	slices.SortStableFunc(out, func(a, b gitModifiedFile) int {
+		if pa, pb := statusPriority(a.Status), statusPriority(b.Status); pa != pb {
+			return cmp.Compare(pa, pb)
+		}
+		return cmp.Compare(a.Path, b.Path)
+	})
+	return out
 }
 
 func fitText(text string, width int) string {

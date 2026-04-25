@@ -38,12 +38,11 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if got := m.sidebar.budgetUsed; got != 164 {
 		t.Fatalf("sidebar.budgetUsed = %d, want 164", got)
 	}
-	lines := m.sidebar.lines(38)
+	lines := m.sidebar.lines(38, 50)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
-		"Compaction: idle",
-		"[",
-		"] 2%",
+		"● auto @ 90%",
+		"CONTEXT",
 		"100 / 4096",
 	} {
 		if !strings.Contains(joined, want) {
@@ -53,17 +52,11 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if strings.Contains(joined, "Budget") {
 		t.Fatalf("sidebar = %q, want no Budget row", joined)
 	}
-	if strings.Contains(joined, "* ") {
-		t.Fatalf("sidebar = %q, want no bullet prefixes", joined)
-	}
 	if strings.Contains(joined, "Prompt") {
 		t.Fatalf("sidebar = %q, want no Prompt header", joined)
 	}
 	if strings.Contains(joined, "Turn:") {
 		t.Fatalf("sidebar = %q, want no Turn row", joined)
-	}
-	if !strings.Contains(joined, "Compaction: idle\n\n") {
-		t.Fatalf("sidebar = %q, want blank line after compaction", joined)
 	}
 }
 
@@ -196,11 +189,13 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
-	if m.viewport.Width != 58 {
-		t.Fatalf("viewport width = %d, want 58 after pane chrome", m.viewport.Width)
+	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
+	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(1) + status(1) → viewport.Height = 12-4 = 8
+	if m.viewport.Width != 54 {
+		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
 	}
-	if m.viewport.Height != 5 {
-		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
+	if m.viewport.Height != 8 {
+		t.Fatalf("viewport height = %d, want 8 after pane chrome", m.viewport.Height)
 	}
 }
 

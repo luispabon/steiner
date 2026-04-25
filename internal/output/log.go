@@ -31,6 +31,7 @@ const (
 	EventTypeAssistantMessage   = "assistant_message"
 	EventTypeAssistantChunk     = "assistant_chunk"
 	EventTypeContextReport      = "context_report"
+	EventTypeHistoryLoaded   = "history_loaded"
 	EventTypeContextDiagnostics = "context_diagnostics"
 	EventTypeDelegationStarted  = "delegation_started"
 	EventTypeDelegationComplete = "delegation_complete"
@@ -184,6 +185,20 @@ type DelegationFailedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
 	Error       string `json:"error"`
+}
+
+type HistoryLoadedEvent struct {
+	Prompts []string `json:"prompts"`
+}
+
+func NewHistoryLoadedEvent(prompts []string) Event {
+	return Event{
+		Type:      EventTypeHistoryLoaded,
+		Timestamp: time.Now().UTC(),
+		Payload: HistoryLoadedEvent{
+			Prompts: prompts,
+		},
+	}
 }
 
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {

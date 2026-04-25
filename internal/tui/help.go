@@ -52,8 +52,11 @@ func renderHelp(styles theme.Styles, width int) string {
 			title: "SESSION",
 			bindings: []binding{
 				{"ctrl+b", "toggle sidebar"},
+				{"ctrl+p", "command palette"},
 				{"/clear", "clear screen"},
 				{"/context", "inspect last request"},
+				{"/accent <preset>", "switch accent color"},
+				{"/thinking", "toggle thinking blocks"},
 				{"/exit", "quit"},
 				{"?", "toggle help"},
 			},

@@ -15,6 +15,8 @@ type searchRequest struct {
 	Query string `json:"query"`
 }
 
+const maxSearchResults = 20
+
 type searchMatch struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`
@@ -41,7 +43,7 @@ func runSearch(ctx context.Context, payload []byte) (any, error) {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if entry.Name() == ".git" || entry.Name() == "node_modules" || entry.Name() == ".opencode" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -55,7 +57,10 @@ func runSearch(ctx context.Context, payload []byte) (any, error) {
 			return nil
 		}
 
+		const maxCapacity = 10 * 1024 * 1024
+		buf := make([]byte, maxCapacity)
 		scanner := bufio.NewScanner(bytes.NewReader(data))
+		scanner.Buffer(buf, maxCapacity)
 		line := 1
 		for scanner.Scan() {
 			text := scanner.Text()
@@ -65,6 +70,9 @@ func runSearch(ctx context.Context, payload []byte) (any, error) {
 					Line: line,
 					Text: text,
 				})
+				if len(matches) >= maxSearchResults {
+					return filepath.SkipAll
+				}
 			}
 			line++
 		}

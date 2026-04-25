@@ -96,8 +96,9 @@ type PathsConfig struct {
 }
 
 type LoggingConfig struct {
-	Level string `yaml:"level"`
-	File  string `yaml:"file"`
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
+	File    string `yaml:"file"`
 }
 
 type CLIOverrides struct {
@@ -326,8 +327,9 @@ type pathsPatch struct {
 }
 
 type loggingPatch struct {
-	Level *string `yaml:"level"`
-	File  *string `yaml:"file"`
+	Enabled *bool   `yaml:"enabled"`
+	Level   *string `yaml:"level"`
+	File    *string `yaml:"file"`
 }
 
 func readConfigPatch(path string, env map[string]string, allowMissing bool) (configPatch, error) {
@@ -554,6 +556,9 @@ func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
 }
 
 func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
+	if patch.Enabled != nil {
+		dst.Enabled = *patch.Enabled
+	}
 	if patch.Level != nil {
 		dst.Level = *patch.Level
 	}
