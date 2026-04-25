@@ -31,7 +31,7 @@ const (
 	EventTypeAssistantMessage   = "assistant_message"
 	EventTypeAssistantChunk     = "assistant_chunk"
 	EventTypeContextReport      = "context_report"
-	EventTypeHistoryLoaded   = "history_loaded"
+	EventTypeHistoryLoaded      = "history_loaded"
 	EventTypeContextDiagnostics = "context_diagnostics"
 	EventTypeDelegationStarted  = "delegation_started"
 	EventTypeDelegationComplete = "delegation_complete"
@@ -76,18 +76,20 @@ type ModelCallFinishedEvent struct {
 }
 
 type ToolCallStartedEvent struct {
-	Turn      int            `json:"turn"`
-	Tool      string         `json:"tool,omitempty"`
-	CallID    string         `json:"call_id,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
+	Turn                     int            `json:"turn"`
+	Tool                     string         `json:"tool,omitempty"`
+	CallID                   string         `json:"call_id,omitempty"`
+	Arguments                map[string]any `json:"arguments,omitempty"`
+	WriteTargetExistedBefore *bool          `json:"-"`
 }
 
 type ToolCallFinishedEvent struct {
-	Turn   int    `json:"turn"`
-	Tool   string `json:"tool,omitempty"`
-	CallID string `json:"call_id,omitempty"`
-	Result string `json:"result,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Turn    int         `json:"turn"`
+	Tool    string      `json:"tool,omitempty"`
+	CallID  string      `json:"call_id,omitempty"`
+	Result  string      `json:"result,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Preview ToolPreview `json:"-"`
 }
 
 type ApprovalEvent struct {
@@ -232,24 +234,34 @@ func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, 
 }
 
 func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
+	return NewToolCallStartedEventWithPreviewState(turn, toolName, callID, arguments, nil)
+}
+
+func NewToolCallStartedEventWithPreviewState(turn int, toolName, callID string, arguments map[string]any, writeTargetExistedBefore *bool) Event {
 	return Event{
 		Type:      EventTypeToolCallStarted,
 		Timestamp: time.Now().UTC(),
 		Payload: ToolCallStartedEvent{
-			Turn:      turn,
-			Tool:      toolName,
-			CallID:    callID,
-			Arguments: arguments,
+			Turn:                     turn,
+			Tool:                     toolName,
+			CallID:                   callID,
+			Arguments:                arguments,
+			WriteTargetExistedBefore: writeTargetExistedBefore,
 		},
 	}
 }
 
 func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, err error) Event {
+	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})
+}
+
+func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{
-		Turn:   turn,
-		Tool:   toolName,
-		CallID: callID,
-		Result: result,
+		Turn:    turn,
+		Tool:    toolName,
+		CallID:  callID,
+		Result:  result,
+		Preview: preview,
 	}
 	if err != nil {
 		payload.Error = err.Error()

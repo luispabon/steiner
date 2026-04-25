@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
@@ -36,14 +37,17 @@ type thinkingBlockData struct {
 }
 
 type toolCallSegment struct {
-	tool      string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
-	args      string // summarized args, ~60 chars max
-	meta      string // "exit 0", "184 lines", etc.
-	bodyKind  string // "bash", "read", "diff", "plain"
-	body      string // raw result text
-	callID    string // for matching started→finished
-	collapsed bool   // default true
-	hasError  bool   // set when ToolCallFinished carries an error
+	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
+	args                     string // summarized args, ~60 chars max
+	meta                     string // "exit 0", "184 lines", etc.
+	bodyKind                 string // "bash", "diff", "file", "plain"
+	body                     string // raw result text
+	callID                   string // for matching started→finished
+	collapsed                bool   // default true
+	hasError                 bool   // set when ToolCallFinished carries an error
+	rawArgs                  map[string]any
+	writeTargetExistedBefore *bool
+	preview                  output.ToolPreview
 }
 
 type approvalPillData struct {
@@ -134,10 +138,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.streamingPhase = "tool"
 		if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
 			tc := &toolCallSegment{
-				tool:      strings.ToLower(payload.Tool),
-				args:      summarizeArgs(payload.Tool, payload.Arguments),
-				callID:    payload.CallID,
-				collapsed: true,
+				tool:                     strings.ToLower(payload.Tool),
+				args:                     summarizeArgs(payload.Tool, payload.Arguments),
+				callID:                   payload.CallID,
+				collapsed:                true,
+				rawArgs:                  cloneToolArguments(payload.Arguments),
+				writeTargetExistedBefore: payload.WriteTargetExistedBefore,
 			}
 			b.segments = append(b.segments, contentSegment{
 				kind:     segmentToolCall,
@@ -158,8 +164,16 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 					if td.callID == "" || td.callID == payload.CallID {
 						td.body = payload.Result
 						td.meta = formatToolMeta(payload)
-						td.bodyKind = inferBodyKind(td.tool, payload.Result)
 						td.hasError = payload.Error != ""
+						td.preview = payload.Preview
+						if td.preview.Kind == "" {
+							td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+						}
+						if td.preview.Kind != output.ToolPreviewKindPlain {
+							td.bodyKind = previewBodyKind(td.tool, td.preview)
+						} else {
+							td.bodyKind = inferBodyKind(td.tool, payload.Result)
+						}
 						break
 					}
 				}
@@ -731,13 +745,33 @@ func formatToolMeta(payload output.ToolCallFinishedEvent) string {
 	return "done"
 }
 
-// inferBodyKind determines how to render the tool body
+// previewBodyKind determines how to render the tool body using structured preview data first.
+func previewBodyKind(tool string, preview output.ToolPreview) string {
+	switch preview.Kind {
+	case output.ToolPreviewKindEditDiff:
+		return "diff"
+	case output.ToolPreviewKindFileWrite, output.ToolPreviewKindReadFile:
+		return "file"
+	case output.ToolPreviewKindPlain:
+		if strings.EqualFold(strings.TrimSpace(tool), "bash") {
+			return "bash"
+		}
+		return "plain"
+	default:
+		if strings.EqualFold(strings.TrimSpace(tool), "bash") {
+			return "bash"
+		}
+		return "plain"
+	}
+}
+
+// inferBodyKind determines how to render the tool body when only the raw result is available.
 func inferBodyKind(tool, body string) string {
 	switch tool {
 	case "bash":
 		return "bash"
 	case "read", "read_file":
-		return "read"
+		return "file"
 	case "edit", "write", "write_file":
 		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
 			return "diff"
@@ -769,7 +803,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	}
 
 	result := header + "\n"
-	if !tc.collapsed && tc.body != "" {
+	if !tc.collapsed {
 		result += b.renderToolBody(tc, width)
 	}
 	return result
@@ -801,12 +835,19 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 	if rowWidth < 10 {
 		rowWidth = 10
 	}
-	contentWidth := rowWidth - 2 // 1 cell padding each side
-	if contentWidth < 8 {
-		contentWidth = 8
+
+	var lines []string
+	switch tc.bodyKind {
+	case "bash":
+		lines = b.buildBashLines(tc)
+	case "diff":
+		lines = b.buildDiffPreviewLines(tc, rowWidth-lipgloss.Width(indentStr))
+	case "file":
+		lines = b.buildFilePreviewLines(tc, rowWidth-lipgloss.Width(indentStr))
+	default:
+		lines = b.buildPlainLines(tc)
 	}
 
-	lines := b.buildBodyLines(tc, contentWidth)
 	truncated := false
 	if len(lines) > maxRows {
 		lines = lines[:maxRows]
@@ -828,19 +869,6 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 	return sb.String()
 }
 
-func (b *contentBuffer) buildBodyLines(tc *toolCallSegment, width int) []string {
-	switch tc.bodyKind {
-	case "bash":
-		return b.buildBashLines(tc)
-	case "read":
-		return b.buildReadLines(tc)
-	case "diff":
-		return b.buildDiffLines(tc)
-	default:
-		return b.buildPlainLines(tc)
-	}
-}
-
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 	var lines []string
 	dollar := b.styles.Accent.Render("$")
@@ -859,45 +887,237 @@ func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 	return lines
 }
 
-func (b *contentBuffer) buildReadLines(tc *toolCallSegment) []string {
-	var lines []string
-	bodyLines := strings.Split(strings.TrimRight(tc.body, "\n"), "\n")
-	caption := tc.args + " · " + fmt.Sprintf("%d lines", len(bodyLines))
-	lines = append(lines, b.styles.FgMute.Render(caption))
-	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	for i, l := range bodyLines {
-		gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
-		lines = append(lines, gutter+fgStyle.Render(l))
-	}
-	return lines
-}
-
-func (b *contentBuffer) buildDiffLines(tc *toolCallSegment) []string {
-	var lines []string
-	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	for _, line := range strings.Split(tc.body, "\n") {
-		switch {
-		case strings.HasPrefix(line, "@@"):
-			lines = append(lines, b.styles.FgMute.Render("  ─────"))
-		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
-			lines = append(lines, b.styles.FgMute.Render(line))
-		case strings.HasPrefix(line, "+"):
-			lines = append(lines, b.styles.Added.Render("+")+" "+fgStyle.Render(line[1:]))
-		case strings.HasPrefix(line, "-"):
-			lines = append(lines, b.styles.Removed.Render("-")+" "+fgStyle.Render(line[1:]))
-		case strings.HasPrefix(line, " "):
-			lines = append(lines, b.styles.FgDim.Render(line[1:]))
-		}
-	}
-	return lines
-}
-
 func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	var lines []string
 	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
 		lines = append(lines, b.styles.FgDim.Render(l))
 	}
 	return lines
+}
+
+func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []string {
+	doc := b.previewDocument(tc)
+	if doc.Kind == "" {
+		return b.buildPlainLines(tc)
+	}
+
+	lines := make([]string, 0, len(doc.Lines)+1)
+	lines = append(lines, b.renderFileCaption(tc, doc))
+	lines = append(lines, b.renderFilePreviewDocument(doc)...)
+	if doc.Truncated {
+		lines = append(lines, b.styles.FgMute.Render("… output truncated"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildDiffPreviewLines(tc *toolCallSegment, width int) []string {
+	doc := b.previewDocument(tc)
+	if doc.Kind != output.PreviewFormatKindEditDiff {
+		return b.buildPlainLines(tc)
+	}
+
+	lines := make([]string, 0, len(doc.Lines)+2)
+	lines = append(lines, b.renderDiffHeader(doc, width))
+	lines = append(lines, b.renderDiffPreviewDocument(doc, width)...)
+	if doc.Truncated {
+		lines = append(lines, b.styles.FgMute.Render("… output truncated"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
+	switch tc.preview.Kind {
+	case output.ToolPreviewKindEditDiff:
+		return output.FormatEditDiffPreview(tc.preview.Path, tc.preview.Before, tc.preview.After)
+	case output.ToolPreviewKindFileWrite:
+		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
+	case output.ToolPreviewKindReadFile:
+		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
+	default:
+		return output.PreviewDocument{}
+	}
+}
+
+func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.PreviewDocument) string {
+	label := "file preview"
+	switch tc.preview.Kind {
+	case output.ToolPreviewKindFileWrite:
+		if tc.preview.Created {
+			label = "new file preview"
+		} else {
+			label = "updated file contents preview"
+		}
+	case output.ToolPreviewKindReadFile:
+		label = "read file preview"
+	}
+	lineCount := previewContentLineCount(doc)
+	if doc.Path != "" {
+		return b.styles.FgMute.Render(fmt.Sprintf("%s · %s · %d lines", doc.Path, label, lineCount))
+	}
+	return b.styles.FgMute.Render(fmt.Sprintf("%s · %d lines", label, lineCount))
+}
+
+func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []string {
+	lines := make([]string, 0, len(doc.Lines))
+	for i, line := range doc.Lines {
+		if line.Kind == output.PreviewLineKindTruncated {
+			lines = append(lines, b.renderPreviewLine(line))
+			continue
+		}
+		gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
+		lines = append(lines, gutter+b.renderPreviewLine(line))
+	}
+	return lines
+}
+
+func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) string {
+	added, removed := countPreviewChanges(doc)
+	tag := b.styles.ToolTagWrite.Render(" [edit] ")
+	path := b.baseTextStyle().Render(doc.Path)
+	metrics := b.styles.Added.Render(fmt.Sprintf("+%d", added)) + " " + b.styles.Removed.Render(fmt.Sprintf("-%d", removed))
+	header := tag + " " + path
+	available := width - lipgloss.Width(metrics) - 1
+	if available < 1 {
+		available = 1
+	}
+	header = lipgloss.NewStyle().Width(available).Render(header)
+	return b.styles.BgElev2.Render(header + " " + metrics)
+}
+
+func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {
+	lines := make([]string, 0, len(doc.Lines))
+	oldLine, newLine := 1, 1
+	rule := b.styles.FgMute.Render(strings.Repeat("─", maxInt(1, width)))
+	for _, line := range doc.Lines {
+		switch line.Kind {
+		case output.PreviewLineKindHeader:
+			if strings.TrimSpace(line.Prefix) == "@@" {
+				lines = append(lines, rule)
+			}
+		case output.PreviewLineKindContext:
+			lines = append(lines, b.renderDiffRow(line, oldLine, " ", theme.BgElev))
+			oldLine++
+			newLine++
+		case output.PreviewLineKindRemoved:
+			lines = append(lines, b.renderDiffRow(line, oldLine, "-", theme.RemovedSoft))
+			oldLine++
+		case output.PreviewLineKindAdded:
+			lines = append(lines, b.renderDiffRow(line, newLine, "+", theme.AddedSoft))
+			newLine++
+		case output.PreviewLineKindTruncated:
+			lines = append(lines, b.styles.FgMute.Render("… output truncated"))
+		default:
+			lines = append(lines, b.renderPreviewLine(line))
+		}
+	}
+	return lines
+}
+
+func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign string, bgColor string) string {
+	gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d %s", lineNo, sign))
+	body := b.renderPreviewLine(line)
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
+	return bg.Render(gutter + " " + body)
+}
+
+func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
+	var sb strings.Builder
+	for _, span := range line.Spans {
+		sb.WriteString(b.renderPreviewSpan(span))
+	}
+	text := sb.String()
+	if text == "" {
+		return b.styles.FgDim.Render("")
+	}
+	switch line.Kind {
+	case output.PreviewLineKindHeader:
+		return b.styles.FgMute.Render(text)
+	case output.PreviewLineKindContext:
+		return b.baseTextStyle().Render(text)
+	case output.PreviewLineKindAdded:
+		return b.styles.Added.Render(text)
+	case output.PreviewLineKindRemoved:
+		return b.styles.Removed.Render(text)
+	case output.PreviewLineKindTruncated:
+		return b.styles.Warn.Render(text)
+	default:
+		return text
+	}
+}
+
+func (b *contentBuffer) renderPreviewSpan(span output.PreviewSpan) string {
+	style := b.previewTokenStyle(span.Type)
+	return style.Render(span.Text)
+}
+
+func (b *contentBuffer) previewTokenStyle(token chroma.TokenType) lipgloss.Style {
+	switch {
+	case token.InCategory(chroma.Comment):
+		return b.styles.FgMute
+	case token.InCategory(chroma.Keyword):
+		return b.styles.Accent
+	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameFunction):
+		return b.styles.UserBar
+	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameClass):
+		return b.styles.Accent
+	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameAttribute):
+		return b.styles.Accent
+	case token.InCategory(chroma.LiteralString):
+		return b.styles.Added
+	case token.InCategory(chroma.LiteralNumber):
+		return b.styles.Warn
+	case token.InCategory(chroma.Operator):
+		return b.styles.FgFaint
+	case token.InCategory(chroma.Punctuation):
+		return b.styles.FgMute
+	case token.InCategory(chroma.GenericDeleted):
+		return b.styles.Removed
+	case token.InCategory(chroma.GenericInserted):
+		return b.styles.Added
+	default:
+		return b.baseTextStyle()
+	}
+}
+
+func countPreviewChanges(doc output.PreviewDocument) (int, int) {
+	added := 0
+	removed := 0
+	for _, line := range doc.Lines {
+		switch line.Kind {
+		case output.PreviewLineKindAdded:
+			added++
+		case output.PreviewLineKindRemoved:
+			removed++
+		}
+	}
+	return added, removed
+}
+
+func cloneToolArguments(arguments map[string]any) map[string]any {
+	if arguments == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(arguments))
+	for key, value := range arguments {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func previewContentLineCount(doc output.PreviewDocument) int {
+	count := len(doc.Lines)
+	if count == 0 {
+		return 0
+	}
+	last := doc.Lines[count-1]
+	if last.Kind == output.PreviewLineKindTruncated {
+		count--
+	}
+	return count
+}
+
+func (b *contentBuffer) baseTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 }
 
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
