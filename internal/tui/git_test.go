@@ -62,7 +62,7 @@ func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 		styles: styles,
 	}
 
-	joined := strings.Join(sidebar.lines(38), "\n")
+	joined := strings.Join(sidebar.lines(38, 50), "\n")
 	for _, want := range []string{
 		"MODIFIED FILES ·",
 		"internal/tui/model_test.go",

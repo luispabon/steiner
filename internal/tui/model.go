@@ -591,6 +591,7 @@ func (m *Model) syncSidebar() {
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
+		m.sidebar.ahead = snap.ahead
 		m.sidebar.modifiedFiles = append([]gitModifiedFile(nil), snap.modifiedFiles...)
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)

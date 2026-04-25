@@ -38,7 +38,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if got := m.sidebar.budgetUsed; got != 164 {
 		t.Fatalf("sidebar.budgetUsed = %d, want 164", got)
 	}
-	lines := m.sidebar.lines(38)
+	lines := m.sidebar.lines(38, 50)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"● auto @ 90%",

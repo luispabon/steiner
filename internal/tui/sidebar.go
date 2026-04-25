@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +33,7 @@ type sidebarState struct {
 	compaction    string
 	branch        string
 	dirty         bool
+	ahead         int
 	modifiedFiles []gitModifiedFile
 	workingDir    string
 	styles        theme.Styles
@@ -64,51 +67,85 @@ func (s sidebarState) View(width, height int) string {
 		return ""
 	}
 	innerWidth := sidebarWidth - sidebarPadH*2
-	lines := s.lines(innerWidth)
+	innerHeight := height - sidebarPadV*2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	lines := s.lines(innerWidth, innerHeight)
 	body := strings.Join(lines, "\n")
 	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
 }
 
-func (s sidebarState) lines(width int) []string {
-	var lines []string
+func (s sidebarState) lines(width, innerHeight int) []string {
 	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
+	// Build all static lines first so we can compute overflow budget.
+	var static []string
+
 	// Brand row: mark · name · version right-aligned; gap then divider
-	lines = append(lines, s.brandRow(width))
-	lines = append(lines, "")
-	lines = append(lines, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
+	static = append(static, s.brandRow(width))
+	static = append(static, "")
+	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
 
 	// Model card
-	lines = append(lines, "")
-	lines = append(lines, cardLabel("model", s.styles))
-	lines = append(lines, cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles))
+	static = append(static, "")
+	static = append(static, cardLabel("model", s.styles))
+	static = append(static, cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles))
 	if q := strings.TrimSpace(s.quant); q != "" {
-		lines = append(lines, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
+		static = append(static, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
 	}
 	host := fitText(stripProviderURL(s.provider), width-7)
 	if host == "" {
 		host = "n/a"
 	}
-	lines = append(lines, cardField("host", s.styles.FgDim, host, s.styles))
+	static = append(static, cardField("host", s.styles.FgDim, host, s.styles))
 
 	// Context card
-	lines = append(lines, "")
-	lines = append(lines, cardLabel("context", s.styles))
-	lines = append(lines, s.tokenBarLine(width))
-	lines = append(lines, s.tokenUsageLine(width))
-	lines = append(lines, s.compactDotLine())
+	static = append(static, "")
+	static = append(static, cardLabel("context", s.styles))
+	static = append(static, s.tokenBarLine(width))
+	static = append(static, s.tokenUsageLine(width))
+	static = append(static, s.compactDotLine())
 
 	// Repository card
-	lines = append(lines, "")
-	lines = append(lines, cardLabel("repository", s.styles))
-	lines = append(lines, cardField("workdir", s.styles.FgDim, fitText(s.workdirSummary(width), width-7), s.styles))
-	lines = append(lines, s.branchLine())
+	static = append(static, "")
+	static = append(static, cardLabel("repository", s.styles))
+	maxWD := min(25, maxInt(1, width-7))
+	static = append(static, cardField("workdir", s.styles.FgDim, fitTextMiddle(s.workdirSummary(width), maxWD), s.styles))
+	static = append(static, s.branchLine(width))
+	if s.ahead > 0 {
+		static = append(static, cardField("ahead", s.styles.FgDim, fmt.Sprintf("%d commits", s.ahead), s.styles))
+	}
 
-	// Modified files card — always shown
-	lines = append(lines, "")
-	lines = append(lines, cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
-	for _, file := range s.modifiedFiles {
-		lines = append(lines, s.modifiedFileLine(file, width))
+	// Modified files heading
+	static = append(static, "")
+	static = append(static, cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
+
+	// Sort files: status priority (M→A→D→U) then alphabetically
+	sorted := sortedModifiedFiles(s.modifiedFiles)
+
+	// Compute rows available for the file list
+	availForFiles := innerHeight - len(static)
+	if availForFiles < 0 {
+		availForFiles = 0
+	}
+
+	overflow := innerHeight > 0 && len(sorted) > availForFiles
+	displayCount := len(sorted)
+	if overflow {
+		displayCount = availForFiles - 1 // reserve 1 row for ↓ indicator
+		if displayCount < 0 {
+			displayCount = 0
+		}
+	}
+
+	lines := static
+	for i := 0; i < displayCount && i < len(sorted); i++ {
+		lines = append(lines, s.modifiedFileLine(sorted[i], width))
+	}
+	if overflow {
+		remaining := len(sorted) - displayCount
+		lines = append(lines, s.styles.FgMute.Render(fmt.Sprintf("↓ %d more", remaining)))
 	}
 
 	return lines
@@ -208,34 +245,38 @@ func (s sidebarState) compactDotLine() string {
 	return s.styles.FgFaint.Render("●") + s.styles.FgDim.Render(" auto @ 90%")
 }
 
-func (s sidebarState) branchLine() string {
+func (s sidebarState) branchLine(width int) string {
 	branch := strings.TrimSpace(s.branch)
 	if branch == "" {
 		branch = "n/a"
 	}
-	result := s.styles.FgFaint.Render("branch:") + " " + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(branch)
+	maxBranch := maxInt(1, width-7)
 	if s.dirty {
-		result += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render("●")
+		maxBranch = maxInt(1, maxBranch-2) // reserve " ●"
 	}
-	return result
+	branchText := fitText(branch, maxBranch)
+	line := cardField("branch", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)), branchText, s.styles)
+	if s.dirty {
+		line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render("●")
+	}
+	return line
 }
 
 func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
+	glyph := file.Status
+	if glyph == "" {
+		glyph = "M"
+	}
 	var glyphStyle lipgloss.Style
-	var glyph string
-	switch {
-	case file.Added > 0 && file.Deleted == 0:
-		glyph = "A"
+	switch glyph {
+	case "A":
 		glyphStyle = s.styles.Added
-	case file.Added == 0 && file.Deleted > 0:
-		glyph = "D"
+	case "D":
 		glyphStyle = s.styles.Removed
-	case file.Added > 0 && file.Deleted > 0:
-		glyph = "M"
-		glyphStyle = s.styles.Warn
-	default:
-		glyph = "M"
+	case "U":
 		glyphStyle = s.styles.FgMute
+	default:
+		glyphStyle = s.styles.Warn
 	}
 
 	statsText := ""
@@ -261,7 +302,7 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 	}
 
 	pathWidth := maxInt(1, width-3-statsLen-1) // glyph(1) + space(1) + ... + space(1) + stats
-	path := fitText(file.Path, pathWidth)
+	path := fitTextMiddle(file.Path, pathWidth)
 
 	line := glyphStyle.Render(glyph) + " " + s.styles.FgDim.Render(path)
 	if statsText != "" {
@@ -290,6 +331,47 @@ func occupancyPercent(used, budget int) int {
 		return 0
 	}
 	return percent
+}
+
+func fitTextMiddle(text string, width int) string {
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if width <= 0 || len(runes) <= width {
+		return text
+	}
+	if width <= 3 {
+		return string(runes[:width])
+	}
+	keep := width - 1 // 1 cell for the ellipsis character
+	left := keep / 2
+	right := keep - left
+	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+}
+
+func statusPriority(s string) int {
+	switch s {
+	case "M":
+		return 0
+	case "A":
+		return 1
+	case "D":
+		return 2
+	case "U":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func sortedModifiedFiles(files []gitModifiedFile) []gitModifiedFile {
+	out := append([]gitModifiedFile(nil), files...)
+	slices.SortStableFunc(out, func(a, b gitModifiedFile) int {
+		if pa, pb := statusPriority(a.Status), statusPriority(b.Status); pa != pb {
+			return cmp.Compare(pa, pb)
+		}
+		return cmp.Compare(a.Path, b.Path)
+	})
+	return out
 }
 
 func fitText(text string, width int) string {
