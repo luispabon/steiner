@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestAppendEventDelegationStarted(t *testing.T) {
@@ -299,7 +300,7 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 	if seg == nil {
 		t.Fatalf("tool segment is nil")
 	}
-	if got, want := seg.bodyKind, "plain"; got != want {
+	if got, want := seg.bodyKind, "file"; got != want {
 		t.Fatalf("bodyKind = %q, want %q", got, want)
 	}
 	if got, want := seg.preview.Kind, output.ToolPreviewKindFileWrite; got != want {
@@ -339,7 +340,7 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	if got, want := seg.preview.Kind, output.ToolPreviewKindEditDiff; got != want {
 		t.Fatalf("preview kind = %q, want %q", got, want)
 	}
-	if got, want := seg.bodyKind, "plain"; got != want {
+	if got, want := seg.bodyKind, "diff"; got != want {
 		t.Fatalf("bodyKind = %q, want %q", got, want)
 	}
 	if got, want := seg.preview.Before, "oldLine()"; got != want {
@@ -347,5 +348,100 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	}
 	if got, want := seg.preview.After, "newLine()"; got != want {
 		t.Fatalf("preview after = %q, want %q", got, want)
+	}
+}
+
+func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:      "write",
+				args:      "notes.md",
+				bodyKind:  "file",
+				collapsed: false,
+				preview: output.ToolPreview{
+					Kind:     output.ToolPreviewKindFileWrite,
+					Path:     "notes.md",
+					Contents: "hello\nworld\n",
+					Created:  true,
+				},
+			},
+		},
+	}
+
+	got := buffer.String(80)
+	for _, want := range []string{"new file preview", "notes.md", "hello", "world"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered preview %q missing %q", got, want)
+		}
+	}
+}
+
+func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:      "edit",
+				args:      "internal/tui/content.go",
+				bodyKind:  "diff",
+				collapsed: false,
+				preview: output.ToolPreview{
+					Kind:   output.ToolPreviewKindEditDiff,
+					Path:   "internal/tui/content.go",
+					Before: "fmt.Println(\"old\")\n",
+					After:  "fmt.Println(\"new\")\n",
+				},
+			},
+		},
+	}
+
+	got := buffer.String(100)
+	for _, want := range []string{"edit", "internal/tui/content.go", "+1", "-1", "old", "new"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered diff %q missing %q", got, want)
+		}
+	}
+}
+
+func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
+	var body strings.Builder
+	for i := 0; i < 30; i++ {
+		body.WriteString("line\n")
+	}
+
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:      "read",
+				args:      "notes.txt",
+				bodyKind:  "file",
+				collapsed: false,
+				preview: output.ToolPreview{
+					Kind:     output.ToolPreviewKindReadFile,
+					Path:     "notes.txt",
+					Contents: body.String(),
+				},
+			},
+		},
+	}
+
+	got := buffer.String(80)
+	if !strings.Contains(got, "… output truncated") && !strings.Contains(got, "↓ more") {
+		t.Fatalf("rendered preview %q missing truncation marker", got)
 	}
 }
