@@ -76,12 +76,12 @@ func (t steinerTheme) GlamourStyleSheet() glamour.TermRendererOption {
 	// Start from dark style and customize
 	cfg := glamourstyles.DarkStyleConfig
 	cfg.Document.Color = ptrStr(Fg)
-	cfg.CodeBlock.BackgroundColor = ptrStr(Bg)
-	cfg.Code.BackgroundColor = ptrStr(BgElev)
-	cfg.Code.Color = ptrStr(AccentAmber)
-	cfg.Heading.Color = ptrStr(AccentAmber)
+	cfg.CodeBlock.BackgroundColor = ptrStr(BgElev) // code fences: bg-elev background
+	cfg.Code.BackgroundColor = ptrStr(BgElev2)     // inline code: dim bg
+	cfg.Code.Color = ptrStr(AccentAmber)           // inline code: accent text
+	cfg.Heading.Color = ptrStr(Fg)
 	cfg.Heading.Bold = ptrBool(true)
-	cfg.Link.Color = ptrStr(User)
+	cfg.Link.Color = ptrStr(AccentAmber)
 	cfg.Emph.Color = ptrStr(FgDim)
 	cfg.Emph.Italic = ptrBool(true)
 	cfg.Strong.Color = ptrStr(Fg)

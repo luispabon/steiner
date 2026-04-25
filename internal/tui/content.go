@@ -541,12 +541,11 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	case segmentAssistantMarkdown:
 		rendered := b.renderMarkdown(segment.text, width)
 		if strings.TrimSpace(rendered) != "" {
-			// keep glamour's natural trailing newlines — they carry the background color
-			return strings.TrimRight(rendered, "\n") + "\n"
+			return strings.TrimRight(rendered, "\n") + "\n\n"
 		}
-		return b.styles.AssistantProse.Render(segment.text) + "\n"
+		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
 	case segmentAssistantProse:
-		return b.styles.AssistantProse.Render(segment.text) + "\n"
+		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
 	case segmentApproval:
 		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
 	case segmentTool:
@@ -554,10 +553,31 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	case segmentThinking:
 		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
 	case segmentUser:
-		// left-bar chrome: 2-col left border in User color + UserBg background
+		lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+		contentWidth := width - 1
+		if contentWidth < 2 {
+			contentWidth = 2
+		}
 		bar := b.styles.UserBar.Render("│")
-		content := b.styles.UserBg.Render(" › " + segment.text)
-		return bar + content + "\n"
+		pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+		var sb strings.Builder
+		sb.WriteString(pad + "\n")
+		textWidth := contentWidth - 3 // 2 left + 1 right padding
+		if textWidth < 1 {
+			textWidth = 1
+		}
+		for _, line := range lines {
+			// Wrap text at textWidth without bg to get visual lines, then render each with bg+indent
+			wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
+			for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
+				vl = strings.TrimRight(vl, " ")
+				content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
+				sb.WriteString(bar + content + "\n")
+			}
+		}
+		sb.WriteString(pad + "\n")
+		sb.WriteString("\n")
+		return sb.String()
 	case segmentThinkingBlock:
 		if segment.thinkData == nil {
 			return ""
