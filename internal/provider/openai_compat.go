@@ -212,11 +212,12 @@ type openAIStreamOptions struct {
 }
 
 type openAIMessage struct {
-	Role       string           `json:"role,omitempty"`
-	Content    any              `json:"content,omitempty"`
-	Name       string           `json:"name,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role,omitempty"`
+	Content          any              `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 type openAITool struct {
@@ -262,11 +263,13 @@ type openAIToolCallAccumulator struct {
 
 type openAIStreamState struct {
 	content       strings.Builder
+	thinking      strings.Builder
 	toolCalls     map[int]*openAIToolCallAccumulator
 	finishReason  string
 	usage         *UsageStats
 	sawContent    bool
 	sawToolCall   bool
+	sawThinking   bool
 	assistantRole bool
 }
 
@@ -328,11 +331,28 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 		if choice.Delta.Role == "assistant" {
 			state.assistantRole = true
 		}
-		if content := stringOrEmpty(choice.Delta.Content); content != "" {
+		if thinking := extractThinkingDelta(choice.Delta.Content); thinking != "" {
+			state.thinking.WriteString(thinking)
+			state.sawThinking = true
+			select {
+			case out <- ChatChunk{Thinking: thinking}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		} else if content := stringOrEmpty(choice.Delta.Content); content != "" {
 			state.content.WriteString(content)
 			state.sawContent = true
 			select {
 			case out <- ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: content}}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if rc := choice.Delta.ReasoningContent; rc != "" {
+			state.thinking.WriteString(rc)
+			state.sawThinking = true
+			select {
+			case out <- ChatChunk{Thinking: rc}:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -366,7 +386,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 }
 
 func flushStreamState(ctx context.Context, out chan<- ChatChunk, state openAIStreamState) error {
-	if !state.sawContent && !state.sawToolCall && state.finishReason == "" && state.usage == nil {
+	if !state.sawContent && !state.sawToolCall && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
 
@@ -500,6 +520,31 @@ func toOpenAIMessage(message Message) (openAIMessage, error) {
 		}
 	}
 	return wire, nil
+}
+
+// extractThinkingDelta returns thinking text if the content value is a structured
+// content array containing a thinking or thinking_delta block (Anthropic-style).
+// Returns "" for plain string content so the caller falls through to stringOrEmpty.
+func extractThinkingDelta(value any) string {
+	items, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t != "thinking" && t != "thinking_delta" {
+			continue
+		}
+		if text, ok := m["thinking"].(string); ok {
+			sb.WriteString(text)
+		}
+	}
+	return sb.String()
 }
 
 func stringOrEmpty(value any) string {

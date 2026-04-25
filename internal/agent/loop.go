@@ -300,6 +300,9 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 			message.Role = role
 		}
 		if !chunk.Done {
+			if thinking := chunk.Thinking; thinking != "" {
+				emitEvent(sink, output.NewThinkingChunkEvent(turn, thinking))
+			}
 			if content := chunk.Delta.Content; content != "" {
 				message.Content += content
 				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))

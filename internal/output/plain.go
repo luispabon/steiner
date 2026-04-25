@@ -465,6 +465,15 @@ func renderEvent(event Event) Segment {
 			parts = append(parts, fmt.Sprintf("chunk=%s", payload.Content))
 		}
 		return Segment{Channel: ChannelAssistant, Label: "assistant", Text: strings.Join(parts, " ")}
+	case ThinkingChunkEvent:
+		parts := []string{}
+		if payload.Turn > 0 {
+			parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
+		}
+		if payload.Content != "" {
+			parts = append(parts, fmt.Sprintf("thinking=%s", payload.Content))
+		}
+		return Segment{Channel: ChannelStatus, Label: "thinking", Text: strings.Join(parts, " ")}
 	case ContextReportEvent:
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	case ModelCallStartedEvent:

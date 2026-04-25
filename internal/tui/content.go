@@ -34,6 +34,7 @@ type thinkingBlockData struct {
 	preview   string // first 80 chars
 	collapsed bool   // default true
 	body      string // full content
+	streaming bool   // true while chunks are still arriving
 }
 
 type toolCallSegment struct {
@@ -92,8 +93,14 @@ type contentBuffer struct {
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
 	switch event.Type {
+	case output.EventTypeThinkingChunk:
+		if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
+			b.appendThinkingChunk(payload.Content)
+			return
+		}
 	case output.EventTypeAssistantChunk:
 		if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
+			b.finalizeThinkingBlock()
 			b.appendAssistantChunk(payload.Content)
 			return
 		}
@@ -372,6 +379,61 @@ func (b *contentBuffer) String(width int) string {
 	return strings.Join(parts, "")
 }
 
+// liveThinkingSegment returns the thinkingBlockData of the last segment if it is
+// a thinking block that is still receiving streamed chunks, or nil otherwise.
+func (b *contentBuffer) liveThinkingSegment() *thinkingBlockData {
+	if len(b.segments) == 0 {
+		return nil
+	}
+	last := &b.segments[len(b.segments)-1]
+	if last.kind == segmentThinkingBlock && last.thinkData != nil && last.thinkData.streaming {
+		return last.thinkData
+	}
+	return nil
+}
+
+func (b *contentBuffer) appendThinkingChunk(text string) {
+	if text == "" {
+		return
+	}
+	b.streaming = true
+	b.hadChunks = true
+	b.streamingPhase = "thinking"
+
+	if td := b.liveThinkingSegment(); td != nil {
+		td.body += text
+		runes := []rune(td.body)
+		if len(runes) > 80 {
+			td.preview = string(runes[:80])
+		} else {
+			td.preview = td.body
+		}
+	} else {
+		runes := []rune(text)
+		preview := string(runes)
+		if len(runes) > 80 {
+			preview = string(runes[:80])
+		}
+		idx := len(b.segments)
+		b.segments = append(b.segments, contentSegment{
+			kind: segmentThinkingBlock,
+			thinkData: &thinkingBlockData{
+				preview:   preview,
+				collapsed: true,
+				streaming: true,
+				body:      text,
+			},
+		})
+		b.collapseState[idx] = true
+	}
+}
+
+func (b *contentBuffer) finalizeThinkingBlock() {
+	if td := b.liveThinkingSegment(); td != nil {
+		td.streaming = false
+	}
+}
+
 func (b *contentBuffer) appendAssistantChunk(text string) {
 	if text == "" {
 		return
@@ -379,7 +441,7 @@ func (b *contentBuffer) appendAssistantChunk(text string) {
 	b.streaming = true
 	b.hadChunks = true
 	b.streamBuffer += text
-	if b.streamingPhase == "" {
+	if b.streamingPhase == "" || b.streamingPhase == "thinking" {
 		b.streamingPhase = "answer"
 	}
 
@@ -392,6 +454,7 @@ func (b *contentBuffer) finishStreaming() {
 	if !b.streaming {
 		return
 	}
+	b.finalizeThinkingBlock()
 	if strings.TrimSpace(b.streamBuffer) != "" {
 		b.appendMarkdownBlock(b.streamBuffer)
 	}

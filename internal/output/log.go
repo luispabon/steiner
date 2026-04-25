@@ -30,6 +30,7 @@ const (
 	EventTypeTurnFinished       = "turn_finished"
 	EventTypeAssistantMessage   = "assistant_message"
 	EventTypeAssistantChunk     = "assistant_chunk"
+	EventTypeThinkingChunk      = "thinking_chunk"
 	EventTypeContextReport      = "context_report"
 	EventTypeHistoryLoaded      = "history_loaded"
 	EventTypeContextDiagnostics = "context_diagnostics"
@@ -167,6 +168,11 @@ type AssistantMessageEvent struct {
 }
 
 type AssistantChunkEvent struct {
+	Turn    int    `json:"turn,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+type ThinkingChunkEvent struct {
 	Turn    int    `json:"turn,omitempty"`
 	Content string `json:"content,omitempty"`
 }
@@ -485,6 +491,17 @@ func NewAssistantMessageEvent(turn int, role, content string) Event {
 		Payload: AssistantMessageEvent{
 			Turn:    turn,
 			Role:    role,
+			Content: content,
+		},
+	}
+}
+
+func NewThinkingChunkEvent(turn int, content string) Event {
+	return Event{
+		Type:      EventTypeThinkingChunk,
+		Timestamp: time.Now().UTC(),
+		Payload: ThinkingChunkEvent{
+			Turn:    turn,
 			Content: content,
 		},
 	}
