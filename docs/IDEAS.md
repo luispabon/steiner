@@ -16,3 +16,25 @@
   * The user prompt area should look like opencode's - a box, with a left coloured border (same orange as the headers on the sidebar), a padding of 1 character then the various status messages on the bottom line with their labels on the same orange as the left border
  * prompt history should be available from session to session. Two sessions in parallel should write to the same history file at ~/.config/steiner/history.log without clobbering each other
  * Looks like AGENTS.md is truncated when sent via the API. Also, investigate how that should work - should we wrap the agents.md file into something like "These are the repo's instructions for coding agents at AGENTS.md: ...."?
+
+ * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
+
+ * When tool calls fail, currently the app gets in a weird state where it doesn't tell the model about it and it just waits for a model response forever or until we cancel
+ * Investigate this tool failure:
+* === 2026-04-25T19:05:24.024158268Z tool_call_started ===
+{
+  "turn": 2,
+  "tool": "read",
+  "call_id": "813881678",
+  "arguments": {
+    "path": "internal/prompt"
+  }
+}
+
+=== 2026-04-25T19:05:24.026705581Z tool_call_finished ===
+{
+  "turn": 2,
+  "tool": "read",
+  "call_id": "813881678",
+  "error": "tool execution failed: read: read_error: read /home/luis/Projects/AI/steiner/internal/prompt: is a directory: exit=1"
+}
