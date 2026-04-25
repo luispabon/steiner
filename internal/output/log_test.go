@@ -86,11 +86,11 @@ func TestDelegationStartedEvent(t *testing.T) {
 
 func TestDelegationCompleteEvent(t *testing.T) {
 	tests := []struct {
-		name      string
-		agentID   string
-		status    string
-		turns     int
-		tokens    int
+		name    string
+		agentID string
+		status  string
+		turns   int
+		tokens  int
 	}{
 		{"success", "child-1", "complete", 3, 1500},
 		{"failed", "child-2", "failed", 0, 0},

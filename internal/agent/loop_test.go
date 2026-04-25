@@ -115,6 +115,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -124,6 +125,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -326,6 +328,7 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 		t.Fatalf("assistant content = %q, want %q", got, want)
 	}
 	wantTypes := []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -559,6 +562,7 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
 	if got, want := eventTypes(events), []string{
+		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -887,6 +891,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -898,6 +903,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
+		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -1201,7 +1207,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         320,
+			ContextSize:         360,
 			MaxCompletionTokens: 32,
 			SummaryMaxTokens:    32,
 		},

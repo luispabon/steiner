@@ -18,6 +18,9 @@
 * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
 
 * When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
+* The --exec mode should not do response streaming, it looks like shit. It should inform that we're waiting for a response, then display it once it's there
+* We need a "plan" and a "build" mode - investigate how to implement (system prompt maybe?). See how it ties up with sandboxing (do that first)
+* Consider re-implementing using https://github.com/deepnoodle-ai/dive
 
 
 ## Bugs
@@ -26,6 +29,7 @@
 * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost - TODO: workaround in place (parse markdown after streaming is finished), not fully fixed
 * When tool calls fail, currently the app gets in a weird state where it doesn't tell the model about it and it just waits for a model response forever or until we cancel
 * When we send a message, and we're waiting for the API to start returning, we need some sort of spinner or indication that stuff is happening
+* On the approval tool, the A for ALWAYS doesn't work, it denies the tool run
 
 
 * Investigate this tool failure:
