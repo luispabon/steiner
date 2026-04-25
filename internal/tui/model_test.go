@@ -41,9 +41,8 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	lines := m.sidebar.lines(38)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
-		"Compaction: idle",
-		"[",
-		"] 2%",
+		"● auto @ 90%",
+		"░",
 		"100 / 4096",
 	} {
 		if !strings.Contains(joined, want) {
@@ -53,17 +52,11 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if strings.Contains(joined, "Budget") {
 		t.Fatalf("sidebar = %q, want no Budget row", joined)
 	}
-	if strings.Contains(joined, "* ") {
-		t.Fatalf("sidebar = %q, want no bullet prefixes", joined)
-	}
 	if strings.Contains(joined, "Prompt") {
 		t.Fatalf("sidebar = %q, want no Prompt header", joined)
 	}
 	if strings.Contains(joined, "Turn:") {
 		t.Fatalf("sidebar = %q, want no Turn row", joined)
-	}
-	if !strings.Contains(joined, "Compaction: idle\n\n") {
-		t.Fatalf("sidebar = %q, want blank line after compaction", joined)
 	}
 }
 
