@@ -1,7 +1,7 @@
 scheduler:
     parallelism: 1
 
-model: gemma4
+model: qwen36
 
 models:
     qwopus:
