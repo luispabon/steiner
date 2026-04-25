@@ -319,6 +319,13 @@ func (b *contentBuffer) AppendLine(line string) {
 	b.appendLine(line)
 }
 
+func (b *contentBuffer) AppendUser(text string) {
+	b.finishStreaming()
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{kind: segmentUser, text: text})
+	b.collapseState[idx] = false
+}
+
 func (b *contentBuffer) Clear() {
 	b.segments = nil
 	b.segmentHeights = nil

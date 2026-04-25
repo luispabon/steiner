@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	sidebarWidth    = 34
+	sidebarWidth    = 36
 	sidebarMinWidth = 100
-	sidebarPadding  = 1
+	sidebarPadH     = 2 // horizontal padding (2 cols each side)
+	sidebarPadV     = 1 // vertical padding (1 row top/bottom)
 )
 
 type sidebarState struct {
@@ -61,10 +62,10 @@ func (s sidebarState) View(width, height int) string {
 	if !s.Visible(width) {
 		return ""
 	}
-	innerWidth := sidebarWidth - sidebarPadding*2
+	innerWidth := sidebarWidth - sidebarPadH*2
 	lines := s.lines(innerWidth)
 	body := strings.Join(lines, "\n")
-	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadding, sidebarPadding).Render(body)
+	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
 }
 
 func (s sidebarState) lines(width int) []string {

@@ -103,7 +103,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 	globGrepColor := blendHex("#D080C8", Bg, 0.10)
 
 	return Styles{
-		ContentPane:       lipgloss.NewStyle().Background(lipgloss.Color(Bg)),
+		ContentPane:       lipgloss.NewStyle().Background(lipgloss.Color(Bg)).PaddingTop(1).PaddingLeft(3).PaddingRight(3),
 		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(Bg)),
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),

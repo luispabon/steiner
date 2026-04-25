@@ -440,32 +440,52 @@ func (m Model) View() string {
 	contentWidth := maxInt(1, m.width)
 	sidebarVisible := m.sidebar.Visible(m.width)
 	if sidebarVisible {
-		contentWidth = maxInt(1, m.width-sidebarWidth)
-	}
-	contentView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
-	if sidebarVisible {
-		contentView = lipgloss.JoinHorizontal(lipgloss.Top, contentView, m.sidebar.View(m.width, m.viewport.Height))
+		contentWidth = maxInt(1, m.width-sidebarWidth-1) // 1-cell vertical divider
 	}
 
-	// Overlay help panel if visible
+	viewportView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
+
 	if m.helpVisible {
 		help := renderHelp(m.styles, maxInt(20, contentWidth-4))
-		contentView = lipgloss.Place(contentWidth, m.viewport.Height,
+		viewportView = lipgloss.Place(contentWidth, lipgloss.Height(viewportView),
 			lipgloss.Center, lipgloss.Center,
 			help,
 			lipgloss.WithWhitespaceChars(" "),
 		)
 	}
 
-	inputView := m.input.View()
-	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
+	// Horizontal divider: 1-row line of border-soft between transcript and bottom area.
+	// Lives inside the main column only — sidebar's vertical divider crosses uninterrupted.
+	hDivider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BorderSoft)).
+		Render(strings.Repeat("─", contentWidth))
 
-	base := lipgloss.JoinVertical(
-		lipgloss.Left,
-		contentView,
+	inputView := m.input.View()
+	statusView := m.status.view(contentWidth, m.keys.hints(m.approval.active))
+
+	mainColumn := lipgloss.JoinVertical(lipgloss.Left,
+		viewportView,
+		hDivider,
 		inputView,
 		statusView,
 	)
+
+	var base string
+	if sidebarVisible {
+		// 1-cell vertical divider, full window height, floor-to-ceiling.
+		vDivider := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BorderSoft)).
+			Width(1).
+			Height(m.height).
+			Render("")
+		base = lipgloss.JoinHorizontal(lipgloss.Top,
+			mainColumn,
+			vDivider,
+			m.sidebar.View(m.width, m.height),
+		)
+	} else {
+		base = mainColumn
+	}
 
 	if m.palette.open {
 		overlay := m.palette.View()
@@ -480,19 +500,17 @@ func (m Model) View() string {
 }
 
 func (m *Model) layout() {
-	contentHeight := m.height - 5
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
 	contentWidth := m.width
 	if m.sidebar.Visible(m.width) {
-		contentWidth = m.width - sidebarWidth
+		contentWidth = m.width - sidebarWidth - 1 // 1-cell vertical divider
 	}
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	m.viewport.Width = maxInt(1, contentWidth-2)
-	m.viewport.Height = maxInt(1, contentHeight-2)
+	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input(1) + status(1) = viewport + 4.
+	m.viewport.Width = maxInt(1, contentWidth-6)
+	m.viewport.Height = maxInt(1, m.height-4)
 	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }
@@ -765,7 +783,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		if m.onSubmit != nil {
 			m.onSubmit(action.submit)
 		}
-		m.content.AppendLine("you> " + action.submit)
+		m.content.AppendUser(action.submit)
 		m.input.Reset()
 		m.historyIdx = 0
 		m.syncViewport()
