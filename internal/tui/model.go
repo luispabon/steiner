@@ -27,6 +27,11 @@ type approvalState struct {
 
 type tickMsg struct{}
 
+type paletteSetAccentMsg struct{ preset string }
+type paletteToggleThinkingMsg struct{}
+type paletteSwitchModelMsg struct{ name string }
+type paletteClearMsg struct{}
+
 type Model struct {
 	width                int
 	height               int
@@ -60,6 +65,7 @@ type Model struct {
 	helpVisible          bool
 	showThinking         bool
 	accentPreset         string
+	palette              paletteModel
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -156,7 +162,56 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.input.FocusedStyle.Base = m.styles.InputArea
 	m.input.BlurredStyle.Base = m.styles.InputArea
 
+	// Initialize palette
+	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
+	m.palette.width = m.width
+	m.palette.height = m.height
+
 	return m
+}
+
+func buildDefaultPaletteItems() []paletteItem {
+	items := []paletteItem{
+		{
+			command: "/clear",
+			name:    "Clear conversation",
+			desc:    "reset the current session",
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteClearMsg{} }
+			},
+		},
+		{
+			command: "/thinking",
+			name:    "Toggle thinking",
+			desc:    "show or hide thinking blocks",
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteToggleThinkingMsg{} }
+			},
+		},
+	}
+	for _, model := range []string{"claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"} {
+		m := model
+		items = append(items, paletteItem{
+			command: "/model " + m,
+			name:    "Switch model",
+			desc:    m,
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteSwitchModelMsg{name: m} }
+			},
+		})
+	}
+	for _, preset := range []string{"amber", "rose", "magenta", "violet", "cyan", "mint", "lime"} {
+		p := preset
+		items = append(items, paletteItem{
+			command: "/accent " + p,
+			name:    "Set accent",
+			desc:    p,
+			action: func() tea.Cmd {
+				return func() tea.Msg { return paletteSetAccentMsg{preset: p} }
+			},
+		})
+	}
+	return items
 }
 
 func tickCmd() tea.Cmd {
@@ -175,6 +230,60 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case paletteClearMsg:
+		m.content.Clear()
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
+		m.syncSidebar()
+		if m.onClear != nil {
+			m.onClear()
+		}
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	case paletteToggleThinkingMsg:
+		m.showThinking = !m.showThinking
+		m.content.showThinking = m.showThinking
+		m.syncViewport()
+		return m, nil
+	case paletteSwitchModelMsg:
+		if m.onModelSwitch != nil {
+			m.onModelSwitch(msg.name)
+		}
+		m.status.model = msg.name
+		m.sidebar.contextBudget = m.contextBudgetForModel(msg.name)
+		m.sidebar.promptUsed = 0
+		m.sidebar.budgetUsed = 0
+		if m.sidebar.contextBudget > 0 {
+			m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+		} else {
+			m.status.context = ""
+		}
+		m.syncSidebar()
+		m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
+		m.syncViewport()
+		return m, nil
+	case paletteSetAccentMsg:
+		accentHex := theme.AccentPresets[msg.preset]
+		if accentHex == "" {
+			accentHex = theme.AccentPresets["amber"]
+		}
+		m.accentPreset = msg.preset
+		m.styles = theme.BuildStyles(accentHex)
+		m.content.styles = m.styles
+		m.sidebar.styles = m.styles
+		m.status.styles = m.styles
+		m.input.FocusedStyle.Base = m.styles.InputArea
+		m.input.BlurredStyle.Base = m.styles.InputArea
+		m.palette.styles = m.styles
+		m.syncViewport()
+		return m, nil
 	case tickMsg:
 		m.content.tickCount++
 		m.sidebar.tickCount = m.content.tickCount
@@ -193,6 +302,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.palette.width = msg.Width
+		m.palette.height = msg.Height
 		m.layout()
 		return m, nil
 	case runtimeEventMsg:
@@ -207,6 +318,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleMouse(msg)
 		return m, nil
 	case tea.KeyMsg:
+		// If palette is open, route all keys to it first
+		if m.palette.open {
+			var cmd tea.Cmd
+			m.palette, cmd = m.palette.Update(msg)
+			return m, cmd
+		}
+
 		// Reset completion state on any non-Tab key
 		if msg.Type != tea.KeyTab {
 			m.completionCandidates = nil
@@ -238,6 +356,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyCtrlD:
 			return m, tea.Quit
+		case tea.KeyCtrlP:
+			m.palette = m.palette.Open()
+			m.palette.width = m.width
+			m.palette.height = m.height
+			return m, nil
 		case tea.KeyCtrlB:
 			m.sidebar.Toggle()
 			m.layout()
@@ -330,12 +453,23 @@ func (m Model) View() string {
 	inputView := m.input.View()
 	statusView := m.status.view(m.width, m.keys.hints(m.approval.active))
 
-	return lipgloss.JoinVertical(
+	base := lipgloss.JoinVertical(
 		lipgloss.Left,
 		contentView,
 		inputView,
 		statusView,
 	)
+
+	if m.palette.open {
+		overlay := m.palette.View()
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			overlay,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	return base
 }
 
 func (m *Model) layout() {
