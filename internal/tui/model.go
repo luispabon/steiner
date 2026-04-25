@@ -64,11 +64,12 @@ type Model struct {
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := textarea.New()
-	input.Prompt = "> "
-	input.Placeholder = "Ask steiner something"
+	input.Prompt = "› "
+	input.Placeholder = "ask steiner — / for commands, @ for files"
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
-	input.SetHeight(3)
+	input.SetHeight(1)
+	input.MaxHeight = 10
 	// Remove ctrl+b from CharacterBackward to avoid conflict with sidebar toggle
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
 	// Add Shift+Enter and Alt+Enter for inserting newlines
@@ -180,6 +181,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status.streaming = m.content.streamingPhase != ""
 		m.status.promptUsed = m.sidebar.promptUsed
 		m.status.contextBudget = m.sidebar.contextBudget
+		if !m.approval.active {
+			if m.content.streamingPhase != "" {
+				m.input.Placeholder = "streaming… esc to interrupt"
+			} else {
+				m.input.Placeholder = "ask steiner — / for commands, @ for files"
+			}
+		}
 		m.syncViewport()
 		return m, tickCmd()
 	case tea.WindowSizeMsg:
@@ -208,6 +216,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle ? for help toggle (only when textarea is empty)
 		if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 			m.helpVisible = !m.helpVisible
+			return m, nil
+		}
+
+		// Handle Escape: interrupt streaming first (takes priority over help panel)
+		if msg.Type == tea.KeyEsc && m.content.streamingPhase != "" {
+			m.content.AppendLine("[interrupted]")
+			m.content.streamingPhase = ""
+			m.status.streaming = false
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+			m.syncViewport()
 			return m, nil
 		}
 
@@ -391,12 +409,12 @@ func (m *Model) applyEvent(event output.Event) {
 			m.status.mode = "approval"
 			m.input.Reset()
 			m.input.Prompt = "approve> "
-			m.input.Placeholder = "yes or no"
+			m.input.Placeholder = "approve? y/n/d"
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
 			m.status.mode = "running"
-			m.input.Prompt = "> "
-			m.input.Placeholder = "Ask steiner something"
+			m.input.Prompt = "› "
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
 		}
 	}
 
@@ -488,8 +506,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.approval = approvalState{}
 		m.status.mode = "running"
 		m.input.Reset()
-		m.input.Prompt = "> "
-		m.input.Placeholder = "Ask steiner something"
+		m.input.Prompt = "› "
+		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
