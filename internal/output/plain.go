@@ -44,6 +44,14 @@ type PlainRenderer struct {
 	w         io.Writer
 	theme     Theme
 	streaming Channel
+	toolCalls map[string]retainedToolCall
+}
+
+type retainedToolCall struct {
+	tool                        string
+	arguments                   map[string]any
+	writeTargetExistedBefore    bool
+	hasWriteTargetExistedBefore bool
 }
 
 type StreamOption func(*PlainRenderer)
@@ -98,7 +106,12 @@ func (r *PlainRenderer) Render(segment Segment) {
 }
 
 func (r *PlainRenderer) OnEvent(event Event) {
-	r.Render(renderEvent(event))
+	if r == nil || r.w == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onEventLocked(event)
 }
 
 func (r *PlainRenderer) WriteAssistant(text string) {
@@ -134,6 +147,204 @@ func (r *PlainRenderer) renderLocked(segment Segment) {
 		return
 	}
 	fmt.Fprintln(r.w, r.decorate(segment.Channel, line))
+}
+
+func (r *PlainRenderer) onEventLocked(event Event) {
+	switch payload := event.Payload.(type) {
+	case ToolCallStartedEvent:
+		r.rememberToolCallLocked(payload)
+	case ToolCallFinishedEvent:
+		defer r.forgetToolCallLocked(payload.CallID)
+	}
+
+	segment := renderEvent(event)
+	if segment.Channel != "" || segment.Label != "" || strings.TrimSpace(segment.Text) != "" {
+		r.renderLocked(segment)
+	}
+
+	if payload, ok := event.Payload.(ToolCallFinishedEvent); ok && payload.Error == "" {
+		if preview, doc, ok := r.previewRenderDataLocked(payload); ok {
+			r.renderPreviewDocumentLocked(preview, doc)
+		}
+	}
+}
+
+func (r *PlainRenderer) rememberToolCallLocked(payload ToolCallStartedEvent) {
+	if r == nil || payload.CallID == "" {
+		return
+	}
+	if r.toolCalls == nil {
+		r.toolCalls = make(map[string]retainedToolCall)
+	}
+	state := retainedToolCall{
+		tool:      payload.Tool,
+		arguments: cloneMap(payload.Arguments),
+	}
+	if payload.WriteTargetExistedBefore != nil {
+		state.writeTargetExistedBefore = *payload.WriteTargetExistedBefore
+		state.hasWriteTargetExistedBefore = true
+	}
+	r.toolCalls[payload.CallID] = state
+}
+
+func (r *PlainRenderer) forgetToolCallLocked(callID string) {
+	if r == nil || callID == "" || len(r.toolCalls) == 0 {
+		return
+	}
+	delete(r.toolCalls, callID)
+}
+
+func (r *PlainRenderer) previewRenderDataLocked(payload ToolCallFinishedEvent) (ToolPreview, PreviewDocument, bool) {
+	if payload.Error != "" {
+		return ToolPreview{}, PreviewDocument{}, false
+	}
+	if payload.Preview.Kind != ToolPreviewKindPlain {
+		if doc, ok := previewDocumentForToolPayload(payload.Preview); ok {
+			return payload.Preview, doc, true
+		}
+	}
+
+	state, ok := r.toolCalls[payload.CallID]
+	if !ok {
+		return ToolPreview{}, PreviewDocument{}, false
+	}
+
+	var existedBefore *bool
+	if state.hasWriteTargetExistedBefore {
+		existed := state.writeTargetExistedBefore
+		existedBefore = &existed
+	}
+	preview := BuildToolPreview(state.tool, state.arguments, payload.Result, existedBefore)
+	doc, ok := previewDocumentForToolPayload(preview)
+	if !ok {
+		return ToolPreview{}, PreviewDocument{}, false
+	}
+	return preview, doc, true
+}
+
+func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) {
+	switch preview.Kind {
+	case ToolPreviewKindEditDiff:
+		return FormatEditDiffPreview(preview.Path, preview.Before, preview.After), true
+	case ToolPreviewKindFileWrite:
+		return FormatFilePreview(preview.Path, preview.Contents), true
+	case ToolPreviewKindReadFile:
+		return FormatFilePreview(preview.Path, preview.Contents), true
+	default:
+		return PreviewDocument{}, false
+	}
+}
+
+func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc PreviewDocument) {
+	if doc.Kind == "" {
+		return
+	}
+	if caption := renderPreviewCaption(preview, doc); caption != "" {
+		fmt.Fprintln(r.w, r.decorate(ChannelStatus, "  "+caption))
+	}
+	for _, line := range doc.Lines {
+		if doc.Kind == PreviewFormatKindEditDiff && line.Kind == PreviewLineKindHeader {
+			switch strings.TrimSpace(line.Prefix) {
+			case "---", "+++":
+				continue
+			}
+		}
+		if text := renderPreviewLineText(line); text != "" {
+			fmt.Fprintln(r.w, r.decorate(renderPreviewChannel(line), "  "+text))
+		}
+	}
+}
+
+func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
+	switch doc.Kind {
+	case PreviewFormatKindFile:
+		label := "file preview"
+		switch preview.Kind {
+		case ToolPreviewKindFileWrite:
+			if preview.Created {
+				label = "new file preview"
+			} else {
+				label = "updated file contents preview"
+			}
+		case ToolPreviewKindReadFile:
+			label = "read file preview"
+		}
+		if doc.Path != "" {
+			return fmt.Sprintf("%s · %s · %d lines", doc.Path, label, previewDocumentLineCount(doc))
+		}
+		return fmt.Sprintf("%s · %d lines", label, previewDocumentLineCount(doc))
+	case PreviewFormatKindEditDiff:
+		added, removed := countPreviewChanges(doc)
+		label := "edit diff"
+		if doc.Path != "" {
+			return fmt.Sprintf("%s · %s · +%d/-%d", doc.Path, label, added, removed)
+		}
+		return fmt.Sprintf("%s · +%d/-%d", label, added, removed)
+	default:
+		return ""
+	}
+}
+
+func previewDocumentLineCount(doc PreviewDocument) int {
+	count := 0
+	for _, line := range doc.Lines {
+		switch line.Kind {
+		case PreviewLineKindText, PreviewLineKindContext, PreviewLineKindAdded, PreviewLineKindRemoved:
+			count++
+		}
+	}
+	return count
+}
+
+func countPreviewChanges(doc PreviewDocument) (added, removed int) {
+	for _, line := range doc.Lines {
+		switch line.Kind {
+		case PreviewLineKindAdded:
+			added++
+		case PreviewLineKindRemoved:
+			removed++
+		}
+	}
+	return added, removed
+}
+
+func renderPreviewLineText(line PreviewLine) string {
+	prefix := strings.TrimSpace(line.Prefix)
+	text := previewContentText(line)
+	if line.Kind == PreviewLineKindHeader {
+		text = strings.TrimSpace(text)
+	}
+	switch {
+	case prefix == "":
+		return text
+	case text == "":
+		return prefix
+	default:
+		return prefix + " " + text
+	}
+}
+
+func previewContentText(line PreviewLine) string {
+	var b strings.Builder
+	for _, span := range line.Spans {
+		b.WriteString(span.Text)
+	}
+	return b.String()
+}
+
+func renderPreviewChannel(line PreviewLine) Channel {
+	switch line.Kind {
+	case PreviewLineKindAdded:
+		return ChannelApproval
+	case PreviewLineKindRemoved:
+		return ChannelError
+	case PreviewLineKindHeader, PreviewLineKindTruncated:
+		return ChannelStatus
+	case PreviewLineKindContext, PreviewLineKindText:
+		return ChannelTool
+	default:
+		return ChannelStatus
+	}
 }
 
 func (r *PlainRenderer) renderStreamingLocked(segment Segment) {

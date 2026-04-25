@@ -13,28 +13,124 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 	renderer := NewPlainRenderer(&buf)
 
 	renderer.OnEvent(NewModelCallStartedEvent(1, "test-model", 5))
-	renderer.OnEvent(NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "note.txt"}))
+	renderer.OnEvent(NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
 	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`))
 	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "prompt", `{"path":"note.txt"}`, "ok"))
 	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "prompt", `{"command":"pwd"}`, "blocked"))
-	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"contents":"hello"}`, nil))
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "bash", "call_1", `{"exit_code":0}`, nil))
 	renderer.OnEvent(NewStopReasonEvent(2, "complete", nil))
 	renderer.OnEvent(NewStopReasonEvent(3, "max_turns", nil))
 
 	got := buf.String()
 	for _, want := range []string{
 		"status: model turn=1 started",
-		"tool: turn=1 start tool=read",
+		"tool: turn=1 start tool=bash",
 		"approval: turn=1 requested tool=write mode=prompt args={\"path\":\"note.txt\"}",
 		"approval: turn=1 accepted tool=write mode=prompt args={\"path\":\"note.txt\"} message=ok",
 		"approval: turn=1 denied tool=bash mode=prompt args={\"command\":\"pwd\"} message=blocked",
-		"tool: turn=1 end tool=read",
+		"tool: turn=1 end tool=bash",
 		"status: run complete after 2 turns",
 		"status: stopped after 3 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)
 		}
+	}
+}
+
+func TestPlainRendererRendersFileWritePreviewInPlainOutput(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := NewPlainRenderer(&buf)
+
+	before := false
+	renderer.OnEvent(NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
+		"path":     "notes.md",
+		"contents": "hello\nworld\n",
+	}, &before))
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil))
+
+	got := buf.String()
+	for _, want := range []string{
+		"tool: turn=1 start tool=write id=call_1",
+		"tool: turn=1 end tool=write id=call_1 result={\"path\":\"notes.md\",\"bytes_written\":12}",
+		"  notes.md · new file preview · 2 lines",
+		"  hello",
+		"  world",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("plain preview output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPlainRendererRendersReadFilePreviewInPlainOutput(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.OnEvent(NewToolCallStartedEvent(1, "read", "call_1", map[string]any{
+		"path": "README.md",
+	}))
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"path":"README.md","contents":"hello\nworld\n"}`, nil))
+
+	got := buf.String()
+	for _, want := range []string{
+		"tool: turn=1 start tool=read id=call_1",
+		"tool: turn=1 end tool=read id=call_1 result={\"path\":\"README.md\",\"contents\":\"hello\\nworld\\n\"}",
+		"  README.md · read file preview · 2 lines",
+		"  hello",
+		"  world",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("read preview output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPlainRendererRendersEditDiffPreviewWithTheme(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := NewPlainRenderer(&buf, WithTheme(Theme{
+		Enabled:   true,
+		Assistant: ThemeStyle{LabelPrefix: "<assistant>", LabelSuffix: "</assistant>"},
+		Status:    ThemeStyle{LabelPrefix: "<status>", LabelSuffix: "</status>"},
+		Tool:      ThemeStyle{LabelPrefix: "<tool>", LabelSuffix: "</tool>"},
+		Approval:  ThemeStyle{LabelPrefix: "<approval>", LabelSuffix: "</approval>"},
+		Error:     ThemeStyle{LabelPrefix: "<error>", LabelSuffix: "</error>"},
+	}))
+
+	renderer.OnEvent(NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
+		"path": "main.go",
+		"old":  "oldLine()",
+		"new":  "newLine()",
+	}))
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
+
+	got := buf.String()
+	for _, want := range []string{
+		"<tool>tool: turn=1 start tool=edit id=call_1",
+		"<tool>tool: turn=1 end tool=edit id=call_1 result={\"path\":\"main.go\",\"replacements\":1}</tool>",
+		"<status>  main.go · edit diff · +1/-1</status>",
+		"<status>  @@ -1,1 +1,1</status>",
+		"<error>  - oldLine()</error>",
+		"<approval>  + newLine()</approval>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("themed diff output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPlainRendererFallsBackWithoutStructuredPreviewBody(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"status":"ok"}`, nil))
+
+	got := buf.String()
+	if strings.Contains(got, "preview") || strings.Contains(got, "file preview") {
+		t.Fatalf("fallback output %q unexpectedly rendered preview body", got)
+	}
+	if want := "tool: turn=1 end tool=read id=call_1 result={\"status\":\"ok\"}"; !strings.Contains(got, want) {
+		t.Fatalf("fallback output %q missing %q", got, want)
 	}
 }
 
