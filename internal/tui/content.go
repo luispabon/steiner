@@ -36,14 +36,17 @@ type thinkingBlockData struct {
 }
 
 type toolCallSegment struct {
-	tool      string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
-	args      string // summarized args, ~60 chars max
-	meta      string // "exit 0", "184 lines", etc.
-	bodyKind  string // "bash", "read", "diff", "plain"
-	body      string // raw result text
-	callID    string // for matching started→finished
-	collapsed bool   // default true
-	hasError  bool   // set when ToolCallFinished carries an error
+	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
+	args                     string // summarized args, ~60 chars max
+	meta                     string // "exit 0", "184 lines", etc.
+	bodyKind                 string // "bash", "read", "plain"
+	body                     string // raw result text
+	callID                   string // for matching started→finished
+	collapsed                bool   // default true
+	hasError                 bool   // set when ToolCallFinished carries an error
+	rawArgs                  map[string]any
+	writeTargetExistedBefore *bool
+	preview                  output.ToolPreview
 }
 
 type approvalPillData struct {
@@ -134,10 +137,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.streamingPhase = "tool"
 		if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
 			tc := &toolCallSegment{
-				tool:      strings.ToLower(payload.Tool),
-				args:      summarizeArgs(payload.Tool, payload.Arguments),
-				callID:    payload.CallID,
-				collapsed: true,
+				tool:                     strings.ToLower(payload.Tool),
+				args:                     summarizeArgs(payload.Tool, payload.Arguments),
+				callID:                   payload.CallID,
+				collapsed:                true,
+				rawArgs:                  cloneToolArguments(payload.Arguments),
+				writeTargetExistedBefore: payload.WriteTargetExistedBefore,
 			}
 			b.segments = append(b.segments, contentSegment{
 				kind:     segmentToolCall,
@@ -158,8 +163,12 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 					if td.callID == "" || td.callID == payload.CallID {
 						td.body = payload.Result
 						td.meta = formatToolMeta(payload)
-						td.bodyKind = inferBodyKind(td.tool, payload.Result)
 						td.hasError = payload.Error != ""
+						td.preview = payload.Preview
+						if td.preview.Kind == "" {
+							td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+						}
+						td.bodyKind = previewBodyKind(td.tool, td.preview)
 						break
 					}
 				}
@@ -731,18 +740,15 @@ func formatToolMeta(payload output.ToolCallFinishedEvent) string {
 	return "done"
 }
 
-// inferBodyKind determines how to render the tool body
-func inferBodyKind(tool, body string) string {
+// previewBodyKind determines how to render the tool body without inferring edit/write previews from result text.
+func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch tool {
 	case "bash":
 		return "bash"
-	case "read", "read_file":
+	}
+	switch preview.Kind {
+	case output.ToolPreviewKindReadFile:
 		return "read"
-	case "edit", "write", "write_file":
-		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
-			return "diff"
-		}
-		return "plain"
 	default:
 		return "plain"
 	}
@@ -834,8 +840,6 @@ func (b *contentBuffer) buildBodyLines(tc *toolCallSegment, width int) []string 
 		return b.buildBashLines(tc)
 	case "read":
 		return b.buildReadLines(tc)
-	case "diff":
-		return b.buildDiffLines(tc)
 	default:
 		return b.buildPlainLines(tc)
 	}
@@ -872,32 +876,23 @@ func (b *contentBuffer) buildReadLines(tc *toolCallSegment) []string {
 	return lines
 }
 
-func (b *contentBuffer) buildDiffLines(tc *toolCallSegment) []string {
-	var lines []string
-	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	for _, line := range strings.Split(tc.body, "\n") {
-		switch {
-		case strings.HasPrefix(line, "@@"):
-			lines = append(lines, b.styles.FgMute.Render("  ─────"))
-		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
-			lines = append(lines, b.styles.FgMute.Render(line))
-		case strings.HasPrefix(line, "+"):
-			lines = append(lines, b.styles.Added.Render("+")+" "+fgStyle.Render(line[1:]))
-		case strings.HasPrefix(line, "-"):
-			lines = append(lines, b.styles.Removed.Render("-")+" "+fgStyle.Render(line[1:]))
-		case strings.HasPrefix(line, " "):
-			lines = append(lines, b.styles.FgDim.Render(line[1:]))
-		}
-	}
-	return lines
-}
-
 func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	var lines []string
 	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
 		lines = append(lines, b.styles.FgDim.Render(l))
 	}
 	return lines
+}
+
+func cloneToolArguments(arguments map[string]any) map[string]any {
+	if arguments == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(arguments))
+	for key, value := range arguments {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {

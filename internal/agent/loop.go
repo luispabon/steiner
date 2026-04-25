@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -185,7 +188,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 		for _, call := range response.Message.ToolCalls {
-			emitEvent(req.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+			writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
+			emitEvent(req.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
 
 			result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 			if err != nil {
@@ -201,7 +205,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			}
 
 			normalizedResult := normalizeToolResult(result)
-			emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, normalizedResult.Content, nil))
+			preview := output.BuildToolPreview(call.Name, cloneInput(call.Arguments), normalizedResult.Content, writeTargetExistedBefore)
+			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, normalizedResult.Content, nil, preview))
 			state.Conversation = append(state.Conversation, Message{
 				Role:       MessageRoleTool,
 				Content:    normalizedResult.Content,
@@ -219,6 +224,36 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 		state.Conversation = state.Lineage.FullMessages()
 	}
+}
+
+func writeTargetExistedBefore(toolName string, input map[string]any) *bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "write", "write_file":
+	default:
+		return nil
+	}
+	path, ok := input["path"].(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if !filepath.IsAbs(path) {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil
+		}
+		path = absPath
+	}
+	path = filepath.Clean(path)
+	_, err := os.Stat(path)
+	if err == nil {
+		existed := true
+		return &existed
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		existed := false
+		return &existed
+	}
+	return nil
 }
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {

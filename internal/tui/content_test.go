@@ -271,3 +271,81 @@ func TestPluralTurns(t *testing.T) {
 		})
 	}
 }
+
+func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	before := false
+	buffer.AppendEvent(output.NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
+		"path":     "notes.md",
+		"contents": "hello\nworld\n",
+	}, &before))
+	buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil, output.ToolPreview{
+		Kind:     output.ToolPreviewKindFileWrite,
+		Path:     "notes.md",
+		Language: "markdown",
+		Contents: "hello\nworld\n",
+		Created:  true,
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+
+	seg := buffer.segments[0].toolData
+	if seg == nil {
+		t.Fatalf("tool segment is nil")
+	}
+	if got, want := seg.bodyKind, "plain"; got != want {
+		t.Fatalf("bodyKind = %q, want %q", got, want)
+	}
+	if got, want := seg.preview.Kind, output.ToolPreviewKindFileWrite; got != want {
+		t.Fatalf("preview kind = %q, want %q", got, want)
+	}
+	if seg.writeTargetExistedBefore == nil || *seg.writeTargetExistedBefore {
+		t.Fatalf("writeTargetExistedBefore = %v, want false", seg.writeTargetExistedBefore)
+	}
+	if got, want := seg.preview.Path, "notes.md"; got != want {
+		t.Fatalf("preview path = %q, want %q", got, want)
+	}
+	if got, want := seg.preview.Contents, "hello\nworld\n"; got != want {
+		t.Fatalf("preview contents = %q, want %q", got, want)
+	}
+	if !seg.preview.Created {
+		t.Fatalf("preview created = false, want true")
+	}
+}
+
+func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
+		"path": "main.go",
+		"old":  "oldLine()",
+		"new":  "newLine()",
+	}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].toolData == nil {
+		t.Fatalf("tool segments = %#v, want one populated tool segment", buffer.segments)
+	}
+	seg := buffer.segments[0].toolData
+	if got, want := seg.preview.Kind, output.ToolPreviewKindEditDiff; got != want {
+		t.Fatalf("preview kind = %q, want %q", got, want)
+	}
+	if got, want := seg.bodyKind, "plain"; got != want {
+		t.Fatalf("bodyKind = %q, want %q", got, want)
+	}
+	if got, want := seg.preview.Before, "oldLine()"; got != want {
+		t.Fatalf("preview before = %q, want %q", got, want)
+	}
+	if got, want := seg.preview.After, "newLine()"; got != want {
+		t.Fatalf("preview after = %q, want %q", got, want)
+	}
+}
