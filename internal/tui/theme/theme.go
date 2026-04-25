@@ -113,7 +113,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		AssistantProse:    lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
 		ApprovalHighlight: lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)).Foreground(lipgloss.Color(accentHex)),
 		InputArea:         lipgloss.NewStyle().Background(lipgloss.Color(BgInput)).Foreground(lipgloss.Color(Fg)),
-		StatusBar:         lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).Foreground(lipgloss.Color(FgDim)),
+		StatusBar:         lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).Foreground(lipgloss.Color(FgDim)).Padding(0, 1),
 		Border:            lipgloss.NewStyle().Foreground(lipgloss.Color(Border)),
 		ErrorStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
 		WarningStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color(Warn)),
@@ -146,7 +146,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		AccentSoft: lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
 		AccentLine: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
 
-		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)).BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(BorderSoft)).Foreground(lipgloss.Color(FgFaint)),
+		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)).Foreground(lipgloss.Color(FgFaint)).Padding(0, 1),
 
 		PaletteOverlay:    lipgloss.NewStyle().Background(lipgloss.Color(FgMute)),
 		PaletteInput:      lipgloss.NewStyle().BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(BorderSoft)),
