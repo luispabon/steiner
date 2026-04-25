@@ -20,6 +20,7 @@ const (
 type sidebarState struct {
 	expanded      bool
 	model         string
+	quant         string
 	provider      string
 	homeDir       string
 	promptUsed    int
@@ -70,37 +71,44 @@ func (s sidebarState) View(width, height int) string {
 
 func (s sidebarState) lines(width int) []string {
 	var lines []string
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
-	// Brand row
-	lines = append(lines, s.brandRow())
-	lines = append(lines, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
+	// Brand row: mark · name · version right-aligned; gap then divider
+	lines = append(lines, s.brandRow(width))
 	lines = append(lines, "")
+	lines = append(lines, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
 
 	// Model card
-	lines = append(lines, cardLabel("model", s.styles))
-	lines = append(lines, cardField("name", fitText(safeText(s.model), width-7), s.styles))
-	lines = append(lines, cardField("host", fitText(safeText(s.provider), width-7), s.styles))
 	lines = append(lines, "")
+	lines = append(lines, cardLabel("model", s.styles))
+	lines = append(lines, cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles))
+	if q := strings.TrimSpace(s.quant); q != "" {
+		lines = append(lines, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
+	}
+	host := fitText(stripProviderURL(s.provider), width-7)
+	if host == "" {
+		host = "n/a"
+	}
+	lines = append(lines, cardField("host", s.styles.FgDim, host, s.styles))
 
 	// Context card
+	lines = append(lines, "")
 	lines = append(lines, cardLabel("context", s.styles))
 	lines = append(lines, s.tokenBarLine(width))
 	lines = append(lines, s.tokenUsageLine(width))
 	lines = append(lines, s.compactDotLine())
-	lines = append(lines, "")
 
 	// Repository card
+	lines = append(lines, "")
 	lines = append(lines, cardLabel("repository", s.styles))
-	lines = append(lines, cardField("dir", fitText(s.workdirSummary(width), width-6), s.styles))
+	lines = append(lines, cardField("workdir", s.styles.FgDim, fitText(s.workdirSummary(width), width-7), s.styles))
 	lines = append(lines, s.branchLine())
 
-	// Modified files card
-	if len(s.modifiedFiles) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, cardLabel(fmt.Sprintf("modified  %d", len(s.modifiedFiles)), s.styles))
-		for _, file := range s.modifiedFiles {
-			lines = append(lines, s.modifiedFileLine(file, width))
-		}
+	// Modified files card — always shown
+	lines = append(lines, "")
+	lines = append(lines, cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
+	for _, file := range s.modifiedFiles {
+		lines = append(lines, s.modifiedFileLine(file, width))
 	}
 
 	return lines
@@ -114,22 +122,38 @@ func (s sidebarState) workdirSummary(width int) string {
 	return homeRelativePath(filepath.Clean(value), strings.TrimSpace(s.homeDir))
 }
 
-func (s sidebarState) brandRow() string {
-	square := s.styles.AccentSoft.Foreground(lipgloss.Color(theme.AccentAmber)).Render("▪")
-	name := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
-	ver := s.styles.FgMute.Render("v0.0.1")
-	return square + " " + name + " " + ver
+func (s sidebarState) brandRow(width int) string {
+	mark := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.AccentAmber)).
+		Foreground(lipgloss.Color(theme.Bg)).
+		Render("s")
+	name := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
+	ver := s.styles.FgMute.Render("0.1.4")
+	leftVisible := 1 + 1 + len("steiner") // mark + space + name
+	verVisible := lipgloss.Width(ver)
+	pad := width - leftVisible - verVisible
+	if pad < 1 {
+		pad = 1
+	}
+	return mark + " " + name + strings.Repeat(" ", pad) + ver
 }
 
 func cardLabel(label string, styles theme.Styles) string {
-	spaced := strings.Join(strings.Split(strings.ToUpper(label), ""), " ")
-	return styles.FgMute.Render(spaced)
+	return styles.FgMute.Render(strings.ToUpper(label))
 }
 
-func cardField(key, value string, styles theme.Styles) string {
-	keyStr := styles.FgFaint.Render(key + ":")
-	valStr := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(" " + value)
-	return keyStr + valStr
+func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
+	return keyStr + valStyle.Render(value)
+}
+
+func stripProviderURL(url string) string {
+	url = strings.TrimSpace(url)
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/v1")
+	url = strings.TrimSuffix(url, "/")
+	return url
 }
 
 func (s sidebarState) tokenBarLine(width int) string {
@@ -155,26 +179,19 @@ func (s sidebarState) tokenBarLine(width int) string {
 	}
 
 	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
-		s.styles.FgMute.Render(strings.Repeat("░", barWidth-filled))
+		lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", barWidth-filled))
 	return bar
 }
 
 func (s sidebarState) tokenUsageLine(width int) string {
 	pct := occupancyPercent(s.promptUsed, s.contextBudget)
-
-	var pctColor lipgloss.Color
-	switch {
-	case pct > 90:
-		pctColor = lipgloss.Color(theme.Removed)
-	case pct > 70:
-		pctColor = lipgloss.Color(theme.Warn)
-	default:
-		pctColor = lipgloss.Color(theme.AccentAmber)
-	}
-
 	usageStr := sidebarPromptCount(s.promptUsed, s.contextBudget)
-	pctStr := lipgloss.NewStyle().Foreground(pctColor).Render(fmt.Sprintf("%d%%", pct))
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(usageStr) + " " + pctStr
+	pctStr := fmt.Sprintf("%d%%", pct)
+	pad := width - len(usageStr) - len(pctStr)
+	if pad < 1 {
+		pad = 1
+	}
+	return s.styles.FgDim.Render(usageStr + strings.Repeat(" ", pad) + pctStr)
 }
 
 func (s sidebarState) compactDotLine() string {
@@ -188,7 +205,7 @@ func (s sidebarState) compactDotLine() string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render(dot) +
 			s.styles.FgDim.Render(" compacting…")
 	}
-	return s.styles.FgMute.Render("● auto @ 90%")
+	return s.styles.FgFaint.Render("●") + s.styles.FgDim.Render(" auto @ 90%")
 }
 
 func (s sidebarState) branchLine() string {
@@ -274,7 +291,6 @@ func occupancyPercent(used, budget int) int {
 	}
 	return percent
 }
-
 
 func fitText(text string, width int) string {
 	text = strings.TrimSpace(text)

@@ -42,7 +42,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"● auto @ 90%",
-		"░",
+		"CONTEXT",
 		"100 / 4096",
 	} {
 		if !strings.Contains(joined, want) {
