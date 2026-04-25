@@ -18,6 +18,8 @@
 * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
 * When modifying a file, the agent should show a colourised diff of the change, this should not involve the model but be entirely agent-side. Code should have syntax-highlighting appropriate to the file type
 * When writing a whole new file, the agent should display the file, syntax-highlighted appropriate to the file type
+* When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
+
 
 ## Bugs
 
