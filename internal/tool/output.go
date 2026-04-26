@@ -98,10 +98,7 @@ func (c *boundedCapture) Bytes() []byte {
 func (c StreamCapture) Summary() string {
 	switch {
 	case c.Binary:
-		if c.Preview == "" {
-			return fmt.Sprintf("<binary output bytes=%d>", c.Bytes)
-		}
-		return fmt.Sprintf("<binary output bytes=%d preview=%s>", c.Bytes, c.Preview)
+		return fmt.Sprintf("<binary output bytes=%d>", c.Bytes)
 	case c.Truncated:
 		if c.Preview == "" {
 			return fmt.Sprintf("<truncated output bytes=%d>", c.Bytes)

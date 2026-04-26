@@ -82,5 +82,15 @@ func (e *ToolExecutionError) Error() string {
 	if e.ExitCode != 0 {
 		parts = append(parts, fmt.Sprintf("exit=%d", e.ExitCode))
 	}
+	if e.Output.Stdout.Summary() != "" || e.Output.Stderr.Summary() != "" {
+		details := []string{}
+		if e.Output.Stdout.Summary() != "" {
+			details = append(details, "stdout: "+e.Output.Stdout.Summary())
+		}
+		if e.Output.Stderr.Summary() != "" {
+			details = append(details, "stderr: "+e.Output.Stderr.Summary())
+		}
+		parts = append(parts, strings.Join(details, ", "))
+	}
 	return strings.Join(parts, ": ")
 }
