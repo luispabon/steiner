@@ -14,34 +14,91 @@ const (
 	compactionHeadingUnresolvedDecisions = "Unresolved decisions"
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
-	compactionPromptInstructionBody      = `You have been working on the task described above but have not yet completed it. Write a continuation summary that will allow you (or another instance of yourself) to resume work efficiently in a future context window where the conversation history will be replaced with this summary. Your summary should be structured, concise, and actionable. Include:
+	compactionPromptInstructionBody      = `You are compacting the current working context for a coding agent.
 
-1. Task Overview
-The user's core request and success criteria
-Any clarifications or constraints they specified
+The conversation history will be replaced by your summary. Another agent instance must be able to resume the task from your summary alone, without repeating investigation, losing important decisions, or corrupting unfinished work.
 
-2. Current State
-What has been completed so far
-Files created, modified, or analyzed (with paths if relevant)
-Key outputs or artifacts produced
+Write a high-quality handoff summary. Prioritize completeness, accuracy, and usefulness over brevity. Keep it structured and readable, but do not omit important facts just to make it short.
 
-3. Important Discoveries
-Technical constraints or requirements uncovered
-Decisions made and their rationale
-Errors encountered and how they were resolved
-What approaches were tried that didn't work (and why)
+Include these sections:
 
-4. Next Steps
-Specific actions needed to complete the task
-Any blockers or open questions to resolve
-Priority order if multiple steps remain
+## 1. Task and Goal
 
-5. Context to Preserve
-User preferences or style requirements
-Domain-specific details that aren't obvious
-Any promises made to the user
+- The user's original request.
+- The intended end state.
+- Success criteria.
+- Any explicit constraints, non-goals, or preferences from the user.
+- Any assumptions currently being used.
 
-Be concise but complete—err on the side of including information that would prevent duplicate work or repeated mistakes. Write in a way that enables immediate resumption of the task.`
+## 2. Current Repository / Project State
+
+- Relevant repo, branch, working directory, and environment details.
+- Files inspected, created, modified, or deleted, with exact paths.
+- Important existing code structure discovered.
+- Any uncommitted changes, partially applied edits, generated artifacts, or dirty working tree state.
+- Any external services, APIs, configs, or credentials assumed or referenced, without exposing secrets.
+
+## 3. Work Completed
+
+- What has already been implemented or changed.
+- Commands run, with relevant outputs.
+- Tests, linters, builds, or checks already executed.
+- Results of those checks.
+- Any commits, branches, PRs, or tickets created.
+
+## 4. Key Findings and Decisions
+
+- Important technical discoveries.
+- Design decisions made and why.
+- Tradeoffs considered.
+- Constraints uncovered in the codebase or tooling.
+- Dependencies, versions, config details, or integration behaviour that matter.
+- User decisions or clarifications that must not be re-asked.
+
+## 5. Problems Encountered
+
+- Errors, failures, or confusing behaviour observed.
+- Root causes if known.
+- Fixes already applied.
+- Workarounds used.
+- Approaches tried and rejected, with reasons.
+- Anything that looked promising but turned out to be wrong.
+
+## 6. Remaining Work
+
+- Specific next actions in priority order.
+- Files or functions likely needing changes.
+- Tests/checks still needed.
+- Known blockers.
+- Open questions that genuinely require user input.
+- Risks or areas needing extra care.
+
+## 7. Verification and Acceptance
+
+- Exact commands/checks needed to prove completion.
+- Expected successful outcomes.
+- Manual checks, if automated verification is insufficient.
+- Any known limitations in the verification already performed.
+
+## 8. User Preferences and Interaction Context
+
+- Relevant style, tone, formatting, or workflow preferences.
+- Any project-specific conventions the user expects.
+- Any promises made to the user.
+- Anything the next agent should avoid repeating.
+
+Rules:
+
+- Be factual and specific.
+- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, and decisions.
+- Prefer concrete detail over vague summaries.
+- Do not include irrelevant chat, pleasantries, or speculation.
+- Do not expose secrets. If a secret appeared, refer to it only by purpose.
+- Do not include hidden reasoning or private chain-of-thought. Summarize conclusions and rationale only.
+- Do not claim something is complete unless it was implemented and verified.
+- If work is partially complete, describe the exact safest continuation point.
+- If something is uncertain, say exactly what is uncertain and why.
+- Write for immediate continuation by a coding agent.`
 )
 
 func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState) []provider.Message {
