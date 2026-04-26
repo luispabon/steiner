@@ -96,39 +96,68 @@ func (p paletteModel) Update(msg tea.Msg) (paletteModel, tea.Cmd) {
 }
 
 func (p paletteModel) View() string {
-	overlayWidth := p.width * 2 / 3
-	if overlayWidth < 40 {
-		overlayWidth = 40
-	}
+	// Total visual width of the modal (including border)
+	overlayWidth := 60
 	if overlayWidth > p.width-4 {
 		overlayWidth = p.width - 4
 	}
+	if overlayWidth < 40 {
+		overlayWidth = 40
+	}
+	// Inner content area: subtract 1-cell border + 1-cell padding each side
+	innerWidth := overlayWidth - 4
 
-	inputLine := p.styles.PaletteInput.Width(overlayWidth - 2).Render("> " + p.query)
+	// Input row: ⌘ prefix + query or placeholder
+	prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("⌘ ")
+	queryDisplay := p.query
+	if queryDisplay == "" {
+		queryDisplay = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("run a command…")
+	} else {
+		queryDisplay = p.styles.PaletteInput.Render(queryDisplay)
+	}
+	inputLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + queryDisplay)
+	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
 
 	maxItems := 10
-	lines := make([]string, 0, len(p.filtered))
+	lines := []string{inputLine, divider}
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber))
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute))
 	for i, item := range p.filtered {
 		if i >= maxItems {
 			break
 		}
-		label := item.command
+		left := accentStyle.Render(item.command)
 		if item.name != "" {
-			label += "  " + item.name
+			left += "  " + fgStyle.Render(item.name)
 		}
-		if item.desc != "" {
-			label += "  — " + item.desc
+		right := descStyle.Render(item.desc)
+		leftW := lipgloss.Width(left)
+		rightW := lipgloss.Width(right)
+		gap := innerWidth - leftW - rightW
+		if gap < 1 {
+			gap = 1
 		}
+		row := left + strings.Repeat(" ", gap) + right
 		if i == p.cursor {
-			lines = append(lines, p.styles.PaletteItemActive.Width(overlayWidth-2).Render(label))
+			lines = append(lines, p.styles.PaletteItemActive.Width(innerWidth).Render(row))
 		} else {
-			lines = append(lines, p.styles.PaletteItem.Width(overlayWidth-2).Render(label))
+			lines = append(lines, lipgloss.NewStyle().Width(innerWidth).Render(row))
 		}
 	}
 
-	body := lipgloss.JoinVertical(lipgloss.Left, append([]string{inputLine}, lines...)...)
+	// Footer
+	footerDivider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
+	chip := func(k string) string {
+		return lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev2)).Foreground(lipgloss.Color(theme.FgFaint)).Padding(0, 1).Render(k)
+	}
+	footerText := chip("↵") + " run   " + chip("↑↓") + " navigate   " + chip("esc") + " close"
+	footerLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(innerWidth).Render(footerText)
+	lines = append(lines, footerDivider, footerLine)
+
+	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	box := p.styles.PaletteOverlay.
-		Width(overlayWidth).
+		Width(innerWidth).
 		Padding(1, 1).
 		Render(body)
 

@@ -357,10 +357,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Block all non-Esc input while streaming
+		if m.content.streamingPhase != "" && msg.Type != tea.KeyEsc {
+			return m, nil
+		}
+
 		// Handle Escape: interrupt streaming first (takes priority over help panel)
 		if msg.Type == tea.KeyEsc && m.content.streamingPhase != "" {
-			m.content.AppendLine("[interrupted]")
-			m.content.streamingPhase = ""
+			m.content.AppendInterrupted()
 			m.status.streaming = false
 			m.input.Placeholder = "ask steiner — / for commands, @ for files"
 			m.syncViewport()
@@ -477,6 +481,9 @@ func (m Model) View() string {
 		Render(strings.Repeat("─", contentWidth))
 
 	inputView := m.input.View()
+	if m.input.Focused() && m.content.streamingPhase == "" {
+		inputView = m.styles.InputFocusBorder.Width(contentWidth - 2).Render(inputView)
+	}
 	statusView := m.status.view(contentWidth, m.keys.hints(m.approval.active))
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left,

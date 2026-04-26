@@ -28,6 +28,7 @@ const (
 	segmentToolCall
 	segmentApprovalPill
 	segmentCompactionBanner
+	segmentInterrupted
 )
 
 type thinkingBlockData struct {
@@ -512,16 +513,25 @@ func (b *contentBuffer) streamingIndicatorView() string {
 	if b.streamingPhase == "" {
 		return ""
 	}
-	dots := []string{"•", "•", "•"}
-	active := b.tickCount % 3
 	label := "thinking…"
 	if b.streamingPhase == "tool" {
 		label = "running tool…"
 	}
-	// stagger dot brightness by making active dot FgDim colored (style as accent)
-	// For terminal, simplify: just show dots + label, varying count by tickCount
-	visibleDots := active + 1
-	return b.styles.FgMute.Render(strings.Join(dots[:visibleDots], " ")+" "+label) + "\n"
+	activeDot := b.tickCount % 3
+	dots := make([]string, 3)
+	for i := range dots {
+		if i == activeDot {
+			dots[i] = b.styles.Accent.Render("·")
+		} else {
+			dots[i] = b.styles.FgMute.Render("·")
+		}
+	}
+	return strings.Join(dots, "  ") + "  " + b.styles.FgMute.Render(label) + "\n"
+}
+
+func (b *contentBuffer) AppendInterrupted() {
+	b.finishStreaming()
+	b.segments = append(b.segments, contentSegment{kind: segmentInterrupted})
 }
 
 func (b *contentBuffer) flushCompletedBlocks() {
@@ -724,6 +734,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 			return ""
 		}
 		return b.renderCompactionBanner(segment.compactionData, width)
+	case segmentInterrupted:
+		return b.styles.FgMute.Render("interrupted") + "\n\n"
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}

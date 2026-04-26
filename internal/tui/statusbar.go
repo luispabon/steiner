@@ -21,7 +21,7 @@ type statusState struct {
 }
 
 func (s statusState) view(width int, hints string) string {
-	sep := s.styles.FgMute.Render(" │ ")
+	sep := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(" │ ")
 
 	var parts []string
 
@@ -63,7 +63,8 @@ func (s statusState) view(width int, hints string) string {
 	// Segment 4: send/interrupt (state-dependent)
 	if s.streaming {
 		chip := s.styles.KeyChip.Render("esc")
-		parts = append(parts, chip+" interrupt")
+		label := s.styles.Accent.Render("interrupt")
+		parts = append(parts, chip+" "+label)
 	} else {
 		chip := s.styles.KeyChip.Render("⏎")
 		parts = append(parts, chip+" send")
@@ -85,6 +86,15 @@ func (s statusState) view(width int, hints string) string {
 	parts = append(parts, s.styles.KeyChip.Render("?")+" help")
 
 	text := strings.Join(parts, sep)
+	if width > 0 && lipgloss.Width(text) > width {
+		for len(parts) > 1 {
+			parts = parts[:len(parts)-1]
+			text = strings.Join(parts, sep)
+			if lipgloss.Width(text) <= width {
+				break
+			}
+		}
+	}
 	if width > 0 {
 		return s.styles.StatusBar.Width(width).Render(text)
 	}
