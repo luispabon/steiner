@@ -62,3 +62,4 @@ approval:
         search: auto
         # write: prompt
         write: auto
+        edit: auto
