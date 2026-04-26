@@ -22,10 +22,18 @@
 * We need a "plan" and a "build" mode - investigate how to implement (system prompt maybe?). See how it ties up with sandboxing (do that first)
 * Consider re-implementing using https://github.com/deepnoodle-ai/dive
 * Apply glamour markdown rendering to user prompts
+* ASCII logo:
+▄▖▗   ▘
+▚ ▜▘█▌▌▛▌█▌▛▘
+▄▌▐▖▙▖▌▌▌▙▖▌
+▄█████ ▄▄▄▄▄▄ ▄▄▄▄▄ ▄▄ ▄▄  ▄▄ ▄▄▄▄▄ ▄▄▄▄
+▀▀▀▄▄▄   ██   ██▄▄  ██ ███▄██ ██▄▄  ██▄█▄
+█████▀   ██   ██▄▄▄ ██ ██ ▀██ ██▄▄▄ ██ ██
 
 
 ## Bugs
 
+* Steiner uses substantial CPU during streaming, and in particular if responses stream for a long time (like on video transcripts with thinking blocks), the speed at which tokens appear on screen is lower than the speed we're getting them from the API, to the point that the API finishes while steiner continues adding token by token in the screen for quite a while, sometimes even a minute.
 * The modified files seems to never update after the application loads. It should load during startup, and after every tool call and turn end
 * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost - TODO: workaround in place (parse markdown after streaming is finished), not fully fixed
 * When tool calls fail, currently the app gets in a weird state where it doesn't tell the model about it and it just waits for a model response forever or until we cancel
