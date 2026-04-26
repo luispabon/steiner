@@ -106,7 +106,7 @@ func BuildStyles(accentHex string) Styles {
 func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 	return Styles{
 		ContentPane:       lipgloss.NewStyle().PaddingTop(1).PaddingLeft(3).PaddingRight(3),
-		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)),
+		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(Bg)),
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
