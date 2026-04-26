@@ -83,7 +83,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	var static []string
 
 	// Brand row: mark · name · version right-aligned; gap then divider
-	static = append(static, s.brandRow(width))
+	static = append(static, s.brandRow(width-3))
 	static = append(static, "")
 	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
 
@@ -172,7 +172,13 @@ func (s sidebarState) brandRow(width int) string {
 	if pad < 1 {
 		pad = 1
 	}
-	return mark + " " + name + strings.Repeat(" ", pad) + ver
+
+	content := mark + " " + name + strings.Repeat(" ", pad) + ver
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(theme.AccentAmber)).
+		Padding(0, 1, 0, 0).
+		Render(content)
 }
 
 func cardLabel(label string, styles theme.Styles) string {

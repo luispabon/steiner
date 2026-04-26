@@ -39,44 +39,44 @@ type paletteClearMsg struct{}
 type historyLoadedMsg struct{ prompts []string }
 
 type Model struct {
-	width                int
-	height               int
-	viewport             viewport.Model
-	input                textarea.Model
-	content              contentBuffer
-	status               statusState
-	sidebar              sidebarState
-	git                  *gitState
-	keys                 keyMap
-	approval             approvalState
-	external             <-chan tea.Msg
-	autoScroll           bool
-	contentTopPad        int
-	skillNames           []string
-	enabledSkills        map[string]bool
-	modelNames           []string
-	modelContexts        map[string]int
-	onSubmit             func(string)
-	onContextInspect     func()
-	onApproval           func(bool)
-	onSkillToggle        func(string, bool)
-	onModelSwitch        func(string)
-	onClear              func()
-	onCompact            func()
-	activeTheme          theme.Theme
-	styles               theme.Styles
-	inputHistory         []string
-	historyIdx           int
-	historyDraft         string
-	fileHistory          []string
-	fileHistoryIdx       int
-	completionCandidates []string
-	completionIdx        int
-	helpVisible          bool
-	showThinking         bool
-	compacting           bool
-	accentPreset         string
-	palette              paletteModel
+	width                        int
+	height                       int
+	viewport                     viewport.Model
+	input                        textarea.Model
+	content                      contentBuffer
+	status                       statusState
+	sidebar                      sidebarState
+	git                          *gitState
+	keys                         keyMap
+	approval                     approvalState
+	external                     <-chan tea.Msg
+	autoScroll                   bool
+	contentTopPad                int
+	skillNames                   []string
+	enabledSkills                map[string]bool
+	modelNames                   []string
+	modelContexts                map[string]int
+	onSubmit                     func(string)
+	onContextInspect             func()
+	onApproval                   func(bool)
+	onSkillToggle                func(string, bool)
+	onModelSwitch                func(string)
+	onClear                      func()
+	onCompact                    func()
+	activeTheme                  theme.Theme
+	styles                       theme.Styles
+	inputHistory                 []string
+	historyIdx                   int
+	historyDraft                 string
+	fileHistory                  []string
+	fileHistoryIdx               int
+	completionCandidates         []string
+	completionIdx                int
+	helpVisible                  bool
+	showThinking                 bool
+	compacting                   bool
+	accentPreset                 string
+	palette                      paletteModel
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -625,10 +625,10 @@ func (m *Model) applyEvent(event output.Event) {
 				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 			}
 			m.sessionHealthCompactionCount = payload.CompactionCount
-			m.sessionHealthTurn            = payload.Turn
-			m.sessionHealthState           = payload.SessionState
-			m.sessionHealthGuidance        = payload.RestartGuidance
-			m.sessionHealthNotes           = append([]string(nil), payload.Notes...)
+			m.sessionHealthTurn = payload.Turn
+			m.sessionHealthState = payload.SessionState
+			m.sessionHealthGuidance = payload.RestartGuidance
+			m.sessionHealthNotes = append([]string(nil), payload.Notes...)
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
@@ -911,9 +911,9 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	m.sidebar.promptUsed = promptUsed
 	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = payload.ContextTokens
-	m.ctxInfoPromptTokens   = payload.PromptTokens
+	m.ctxInfoPromptTokens = payload.PromptTokens
 	m.ctxInfoReservedTokens = payload.ReservedTokens
-	m.ctxInfoSafetyTokens   = payload.SafetyMarginTokens
+	m.ctxInfoSafetyTokens = payload.SafetyMarginTokens
 	if payload.Turn > 0 {
 		m.status.turn = payload.Turn
 		m.sidebar.currentTurn = payload.Turn
