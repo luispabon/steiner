@@ -3,7 +3,7 @@ logging:
     level: info
     file: .steiner/steiner.log
 
-model: gemma4
+model: qwen36
 
 models:
     qwopus:
