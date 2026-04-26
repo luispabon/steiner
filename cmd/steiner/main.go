@@ -401,11 +401,12 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 	httpClient := &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: 0, // no deadline on body reads — streams can run indefinitely
 		Transport: &http.Transport{
-			MaxIdleConns:    1,
-			IdleConnTimeout: 90 * time.Second,
-			MaxConnsPerHost: 1,
+			MaxIdleConns:          1,
+			IdleConnTimeout:       90 * time.Second,
+			MaxConnsPerHost:       1,
+			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
 	providerFactory := func(alias string) (provider.Provider, error) {
