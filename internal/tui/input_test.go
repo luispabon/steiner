@@ -17,7 +17,10 @@ func TestParseInputHandlesContextCommand(t *testing.T) {
 
 func TestBuildCompletionCandidatesIncludesContext(t *testing.T) {
 	got := buildCompletionCandidates("/co", nil, nil)
-	if len(got) != 1 || got[0] != "/context" {
-		t.Fatalf("candidates = %#v, want /context", got)
+	if len(got) != 2 {
+		t.Fatalf("candidates = %#v, want 2 candidates", got)
+	}
+	if got[0] != "/compact" || got[1] != "/context" {
+		t.Fatalf("candidates = %#v, want [/compact, /context]", got)
 	}
 }

@@ -285,11 +285,12 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		t.Fatalf("system role = %q, want %q", got, want)
 	}
 	for _, heading := range []string{
-		"# Request intent",
-		"# Solution design",
-		"# Recent actions",
-		"# Unresolved decisions",
-		"# Pending work",
+		"## 1. Task and Goal",
+		"## 2. Current Repository / Project State",
+		"## 3. Work Completed",
+		"## 4. Key Findings and Decisions",
+		"## 5. Problems Encountered",
+		"## 6. Remaining Work",
 	} {
 		if got := strings.Contains(promptMessages[0].Content, heading); !got {
 			t.Fatalf("system prompt = %q, want heading %q", promptMessages[0].Content, heading)

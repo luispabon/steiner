@@ -196,6 +196,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	approvalResponse := make(chan bool, 1)
 	modelSwitch := make(chan string, 1)
 	clearSession := make(chan struct{}, 1)
+	triggerCompact := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	selected, err := selectedModelConfig(rt.cfg)
@@ -242,6 +243,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		OnClear: func() {
 			select {
 			case clearSession <- struct{}{}:
+			default:
+			}
+		},
+		OnCompact: func() {
+			select {
+			case triggerCompact <- struct{}{}:
 			default:
 			}
 		},
@@ -303,6 +310,61 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			continue
 		case <-clearSession:
 			conversation = nil
+		case <-triggerCompact:
+			if len(conversation) == 0 {
+				rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
+				continue
+			}
+			selected, err := resolveSelectedModel(runner.runtime.cfg)
+			if err != nil {
+				rt.events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+				})
+				continue
+			}
+			prov := runner.runtime.provider
+			if runner.runtime.providerFactory != nil {
+				prov, err = runner.runtime.providerFactory(runner.runtime.cfg.Model)
+				if err != nil {
+					rt.events.Emit(output.Event{
+						Type:    output.EventTypeStopReason,
+						Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+					})
+					continue
+				}
+			}
+			modelBudget := prompt.ModelTokenBudget{
+				ContextSize:         selected.ContextSize,
+				MaxCompletionTokens: selected.MaxCompletionTokens,
+				SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
+				SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+			}
+			assembly := prompt.AssemblyOptions{
+				HomeDir:                   runner.runtime.homeDir,
+				ProjectRoot:               runner.runtime.workDir,
+				SkillsRoot:                prompt.DefaultSkillsRoot(runner.runtime.homeDir),
+				ModelBudget:               modelBudget,
+			}
+
+			compactReq := agent.RunRequest{
+				Provider:    prov,
+				Prompt:     assembly,
+				ModelBudget: modelBudget,
+				Model:     selected.Model,
+				Events:    rt.events,
+			}
+			agentRunner := agent.NewRunner()
+			newConv, err := agentRunner.Compact(ctx, compactReq, conversation)
+			if err != nil {
+				rt.events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+				})
+				continue
+			}
+			conversation = newConv
+			rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
 		case name := <-modelSwitch:
 			runner.runtime.cfg.Model = name
 		case text := <-submissions:

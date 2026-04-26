@@ -133,6 +133,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 		emitRequestTokenDiagnostic(req.Events, turn, fit, !fit.Fits)
 		if !fit.Fits {
+			emitCompactionStartedEvent(req.Events, turn)
 			compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, &compactionCount)
 			if err != nil {
 				if cancelled, ok := contextCancellationState(ctx, state); ok {
@@ -631,6 +632,20 @@ func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int,
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
 }
 
+func emitCompactionStartedEvent(sink output.EventSink, turn int) {
+	if sink == nil {
+		return
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:        "compaction",
+		Scope:      "conversation",
+		Turn:       turn,
+		Severity:    "compacting",
+		Notes:      []string{"starting compaction"},
+	}))
+	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, 0, "compacting", "compacting", "compacting in progress", "starting compaction"))
+}
+
 func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, skipped map[string]bool, compactionCount *int) (bool, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
@@ -674,6 +689,27 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
+}
+
+func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message) ([]Message, error) {
+	state := RunState{
+		Conversation: currentConv,
+		Lineage:      newConversationLineage(currentConv),
+		Context:      fromPromptContext(req.Prompt.ContextState),
+	}
+
+	skipped := map[string]bool{}
+	compactionCount := 0
+
+	compacted, err := r.compactConversationForBudget(ctx, req, &state, 0, skipped, &compactionCount)
+	if err != nil {
+		return nil, err
+	}
+	if !compacted {
+		return currentConv, nil
+	}
+
+	return state.Conversation, nil
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {

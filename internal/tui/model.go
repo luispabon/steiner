@@ -62,6 +62,7 @@ type Model struct {
 	onSkillToggle        func(string, bool)
 	onModelSwitch        func(string)
 	onClear              func()
+	onCompact           func()
 	activeTheme          theme.Theme
 	styles               theme.Styles
 	inputHistory         []string
@@ -140,6 +141,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onSkillToggle:    cfg.OnSkillToggle,
 		onModelSwitch:    cfg.OnModelSwitch,
 		onClear:          cfg.OnClear,
+		onCompact:        cfg.OnCompact,
 		activeTheme:      t,
 		styles:           theme.BuildStyles(accentHex),
 		inputHistory:     []string{},
@@ -646,6 +648,9 @@ func appendStatusContext(base, fragment string) string {
 func compactionSidebarSummary(payload output.ContextDiagnosticsEvent) string {
 	parts := make([]string, 0, 4)
 	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		if severity == "compacting" {
+			return "compacting…"
+		}
 		parts = append(parts, severity)
 	}
 	if payload.CompactionCount > 0 {
@@ -723,6 +728,15 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.syncSidebar()
 		if m.onClear != nil {
 			m.onClear()
+		}
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+	if action.compaction {
+		if m.onCompact != nil {
+			m.onCompact()
 		}
 		m.input.Reset()
 		m.historyIdx = 0

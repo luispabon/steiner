@@ -3,7 +3,7 @@ logging:
     level: info
     file: .steiner/steiner.log
 
-model: qwen36
+model: gemma4
 
 models:
     qwopus:
@@ -30,12 +30,27 @@ models:
         type: openai_compat
         base_url: http://localhost:1234/v1
         model: gemma-4-26b-a4b-it@iq4_nl
-        context_size: 32768
+        context_size: 16400
         max_completion_tokens: 4096
         compaction:
             safety_margin_tokens: 4096
             summary_max_tokens: 4096
+        # context_size: 32768
+        # max_completion_tokens: 4096
+        # compaction:
+        #     safety_margin_tokens: 4096
+        #     summary_max_tokens: 4096
 
+    openrouter_free:
+        type: openai_compat
+        base_url: https://openrouter.ai/api/v1/
+        model: openrouter/free
+        api_key: ${OPENROUTER_API_KEY}
+        context_size: 16400
+        max_completion_tokens: 4096
+        compaction:
+            safety_margin_tokens: 4096
+            summary_max_tokens: 4096
 approval:
     # default: prompt
     default: prompt

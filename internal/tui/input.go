@@ -5,9 +5,10 @@ import (
 )
 
 type inputAction struct {
-	handled        bool
+	handled         bool
 	quit           bool
 	clear          bool
+	compaction     bool
 	inspectContext bool
 	listSkills     bool
 	listModels     bool
@@ -33,6 +34,8 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 		return inputAction{handled: true, quit: true}
 	case trimmed == "/clear":
 		return inputAction{handled: true, clear: true}
+	case trimmed == "/compact":
+		return inputAction{handled: true, compaction: true}
 	case trimmed == "/context":
 		return inputAction{handled: true, inspectContext: true}
 	case trimmed == "/skills":
@@ -81,7 +84,7 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
-	base := []string{"/exit", "/clear", "/context", "/skills", "/skill", "/models", "/model", "/thinking",
+	base := []string{"/exit", "/clear", "/compact", "/context", "/skills", "/skill", "/models", "/model", "/thinking",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

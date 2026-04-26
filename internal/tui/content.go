@@ -214,22 +214,34 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
 			switch payload.Kind {
 			case "compaction":
-				// Replace with compaction banner
 				summary := ""
-				if payload.SummaryTitle != "" {
-					summary = payload.SummaryTitle
+				if payload.Severity == "compacting" {
+					summary = "Compacting context..."
+					b.segments = append(b.segments, contentSegment{
+						kind: segmentCompactionBanner,
+						compactionData: &compactionBannerData{
+							label:    "Context compacting",
+							subtitle: summary,
+							finished: false,
+							summary:  summary,
+						},
+					})
 				} else {
-					summary = fmt.Sprintf("compacted %d turns → %d retained", payload.CompactedTurns, payload.RetainedTurns)
+					if payload.SummaryTitle != "" {
+						summary = payload.SummaryTitle
+					} else {
+						summary = fmt.Sprintf("compacted %d turns → %d retained", payload.CompactedTurns, payload.RetainedTurns)
+					}
+					b.segments = append(b.segments, contentSegment{
+						kind: segmentCompactionBanner,
+						compactionData: &compactionBannerData{
+							label:    "Context compacted",
+							subtitle: summary,
+							finished: true,
+							summary:  summary,
+						},
+					})
 				}
-				b.segments = append(b.segments, contentSegment{
-					kind: segmentCompactionBanner,
-					compactionData: &compactionBannerData{
-						label:    "Context compacted",
-						subtitle: summary,
-						finished: true,
-						summary:  summary,
-					},
-				})
 			case "session_health":
 				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 			}

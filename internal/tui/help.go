@@ -54,6 +54,7 @@ func renderHelp(styles theme.Styles, width int) string {
 				{"ctrl+b", "toggle sidebar"},
 				{"ctrl+p", "command palette"},
 				{"/clear", "clear screen"},
+				{"/compact", "trigger compaction"},
 				{"/context", "inspect last request"},
 				{"/accent <preset>", "switch accent color"},
 				{"/thinking", "toggle thinking blocks"},
