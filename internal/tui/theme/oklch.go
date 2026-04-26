@@ -121,11 +121,12 @@ const (
 	DiffAddedBg   = "#1F2A24" // dim green tint for + diff rows
 	DiffRemovedBg = "#2A2122" // dim red tint for - diff rows
 
-	ToolBlue = "#5fafff" // search, glob
-	ToolCyan = "#5fd7d7" // read
-	ToolGrn  = "#87d75f" // write, bash ok
-	ToolMag  = "#d75fd7" // grep
-	Black    = "#000000" // tag chip foreground
+	ToolBlue   = "#5fafff" // search, glob
+	ToolCyan   = "#5fd7d7" // read
+	ToolGrn    = "#87d75f" // write, bash ok
+	ToolMag    = "#d75fd7" // grep
+	Black      = "#000000" // tag chip foreground
+	SyntaxBlue = "#5f8fff" // keyword blue (file preview)
 )
 
 // Soft fill colors (blended with Bg)

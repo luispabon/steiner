@@ -61,6 +61,9 @@ type Styles struct {
 	ToolTagGlobGrep lipgloss.Style
 	ToolTagTodo     lipgloss.Style
 	ToolTagDefault  lipgloss.Style
+	ToolTagSearch   lipgloss.Style // search (blue)
+	ToolTagGlob     lipgloss.Style // glob (blue)
+	ToolTagGrep     lipgloss.Style // grep (magenta)
 
 	// Diff colors
 	Added   lipgloss.Style // added lines (green)
@@ -136,6 +139,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		ToolTagGlobGrep: lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagTodo:     lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagDefault:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagSearch:   lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagGlob:     lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagGrep:     lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
