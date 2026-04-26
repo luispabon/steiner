@@ -51,6 +51,7 @@ type Model struct {
 	approval             approvalState
 	external             <-chan tea.Msg
 	autoScroll           bool
+	contentTopPad        int
 	skillNames           []string
 	enabledSkills        map[string]bool
 	modelNames           []string
@@ -528,7 +529,17 @@ func (m *Model) layout() {
 }
 
 func (m *Model) syncViewport() {
-	m.viewport.SetContent(m.content.String(m.viewport.Width))
+	rendered := m.content.String(m.viewport.Width)
+	contentLines := strings.Count(rendered, "\n")
+	pad := m.viewport.Height - contentLines
+	if pad < 0 {
+		pad = 0
+	}
+	m.contentTopPad = pad
+	if pad > 0 {
+		rendered = strings.Repeat("\n", pad) + rendered
+	}
+	m.viewport.SetContent(rendered)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}
@@ -877,7 +888,7 @@ func (m *Model) handleLeftClick(termY int) {
 	// adjusted for scroll offset.
 	// content line = termY + m.viewport.YOffset
 	// (viewport renders from its YOffset in the scrollable content)
-	contentLine := termY + m.viewport.YOffset
+	contentLine := termY + m.viewport.YOffset - m.contentTopPad
 
 	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
 		return

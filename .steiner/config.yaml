@@ -38,7 +38,7 @@ models:
 
 approval:
     # default: prompt
-    default: auto
+    default: prompt
     overrides:
         # bash: prompt
         bash: auto

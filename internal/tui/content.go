@@ -64,6 +64,8 @@ type compactionBannerData struct {
 	subtitle string
 	finished bool
 	summary  string
+	progress float64 // 0.0-1.0 fill ratio for in-progress bar
+	pct      int     // percentage label for in-progress
 }
 
 type contentSegment struct {
@@ -1204,26 +1206,12 @@ func (b *contentBuffer) baseTextStyle() lipgloss.Style {
 }
 
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
-	if ad.resolved {
-		// Dashed resolved state
-		status := "✗ denied"
-		if ad.accepted {
-			status = "✓ approved"
-		}
-		label := ad.tool
-		if ad.mode != "" {
-			label += " · " + ad.mode
-		}
-		line := b.styles.FgDim.Render(label + " — " + status)
-		// Approximate dashed border with · chars
-		dash := strings.Repeat("·", maxInt(0, width-4))
-		return b.styles.FgFaint.Render(dash) + "\n" + "  " + line + "\n"
+	const indent = "   "
+	innerWidth := width - len(indent)
+	if innerWidth < 10 {
+		innerWidth = 10
 	}
 
-	// Unresolved: left accent bar + content
-	bar := b.styles.AccentLine.Render("│")
-
-	// Build question text
 	label := "approval required"
 	if ad.tool != "" {
 		label = ad.tool
@@ -1232,28 +1220,97 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 		}
 	}
 
-	// Buttons right-aligned
-	buttons := b.styles.FgMute.Render("[y]") + " approve  " +
-		b.styles.FgMute.Render("[n]") + " deny  " +
-		b.styles.FgMute.Render("[a]") + " always"
-
-	contentWidth := width - 3 // account for bar + space
-	if contentWidth < 10 {
-		contentWidth = 10
+	if ad.resolved {
+		bar := b.styles.FgMute.Render("│")
+		var statusStr string
+		if ad.accepted {
+			statusStr = b.styles.Added.Render("✓ approved")
+		} else {
+			statusStr = b.styles.Removed.Render("✗ denied")
+		}
+		statusW := lipgloss.Width(statusStr)
+		// bar(1) + space(1) + question + space(1) + status = innerWidth
+		qW := innerWidth - 3 - statusW
+		if qW < 0 {
+			qW = 0
+		}
+		question := lipgloss.NewStyle().Width(qW).Render(b.styles.FgDim.Render(label))
+		return indent + bar + " " + question + " " + statusStr + "\n"
 	}
-	questionLine := lipgloss.NewStyle().Width(contentWidth-lipgloss.Width(buttons)).Render(label) + buttons
 
-	return bar + " " + questionLine + "\n"
+	// Unresolved: accent bar + bg-elev background + question in fg + styled buttons
+	bar := b.styles.Accent.Render("│")
+
+	accentSoft := lipgloss.Color(theme.AccentSoft)
+	bgElev2C := lipgloss.Color(theme.BgElev2)
+	fgMuteC := lipgloss.Color(theme.FgMute)
+	fgDimC := lipgloss.Color(theme.FgDim)
+	accentC := lipgloss.Color(theme.AccentAmber)
+
+	btnApprove := lipgloss.NewStyle().Background(accentSoft).Foreground(fgMuteC).Render("[y]") +
+		lipgloss.NewStyle().Background(accentSoft).Foreground(accentC).Render(" approve")
+	btnDeny := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[n]") +
+		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" deny")
+	btnAlways := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[a]") +
+		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" always")
+	buttons := btnApprove + " " + btnDeny + " " + btnAlways
+	buttonsW := lipgloss.Width(buttons)
+
+	// bg-elev region: innerWidth - 1 (bar)
+	bgW := innerWidth - 1
+	// space(1) + question + space(1) + buttons fills bgW
+	qW := bgW - 2 - buttonsW
+	if qW < 0 {
+		qW = 0
+	}
+
+	question := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
+		Foreground(lipgloss.Color(theme.Fg)).
+		Width(qW).Render(label)
+
+	bgContent := " " + question + " " + buttons
+	bgRow := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(bgW).Render(bgContent)
+
+	return indent + bar + bgRow + "\n"
 }
 
 func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
 	if cd.finished {
-		// Italic system note
-		note := "✦ " + cd.summary
-		return b.styles.FgDim.Italic(true).Render(note) + "\n"
+		note := "Context compacted."
+		if cd.summary != "" {
+			note += " " + cd.summary + "."
+		}
+		return b.styles.FgMute.Render(note) + "\n"
 	}
-	// In-progress banner (not currently triggered, but render it anyway)
-	bar := strings.Repeat("─", maxInt(0, width-2))
-	header := b.styles.Warn.Render("Compacting") + " " + b.styles.FgDim.Render(cd.subtitle)
-	return b.styles.FgMute.Render(bar) + "\n" + header + "\n"
+
+	// In-progress banner: warn left bar + bg-elev row, full transcript width
+	if width < 10 {
+		width = 10
+	}
+	bar := b.styles.Warn.Render("│")
+	bgW := width - 1
+
+	compacting := b.styles.Warn.Render(" Compacting")
+	subtitle := b.styles.FgDim.Render(" " + cd.subtitle + " ")
+	pctLabel := b.styles.FgDim.Render(fmt.Sprintf("%d%% ", cd.pct))
+
+	fixedW := lipgloss.Width(compacting) + lipgloss.Width(subtitle) + lipgloss.Width(pctLabel)
+	barW := bgW - fixedW
+	if barW < 0 {
+		barW = 0
+	}
+
+	filled := int(float64(barW) * cd.progress)
+	if filled > barW {
+		filled = barW
+	}
+	filledBar := b.styles.Warn.Render(strings.Repeat("█", filled))
+	emptyBar := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev2)).Render(strings.Repeat(" ", barW-filled))
+	progressBar := filledBar + emptyBar
+
+	rowContent := compacting + subtitle + progressBar + pctLabel
+	row := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(bgW).Render(rowContent)
+
+	return bar + row + "\n"
 }
