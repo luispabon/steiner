@@ -92,7 +92,7 @@ func renderHelp(styles theme.Styles, width int) string {
 	}
 
 	panel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(lipgloss.NormalBorder()).
 		BorderForeground(styles.Border.GetForeground()).
 		Foreground(styles.ContentPane.GetForeground()).
 		Width(panelWidth).

@@ -99,27 +99,34 @@ func hexToRGB(hex string) (uint8, uint8, uint8) {
 // Design token colors pre-computed from OKLCH values
 const (
 	// Neutral palette
-	Bg         = "#27262B" // OklchToHex(0.16,  0.005, 280)
-	BgElev     = "#2D2C32" // OklchToHex(0.185, 0.005, 280)
+	Bg         = "#000000" // OklchToHex(0.16,  0.005, 280)
+	BgElev     = "#0a0a0a" // OklchToHex(0.185, 0.005, 280)
 	BgElev2    = "#333238" // OklchToHex(0.21,  0.006, 280)
 	BgInput    = "#2B2A30" // OklchToHex(0.20,  0.005, 280)
 	Border     = "#46444D" // OklchToHex(0.27,  0.006, 280)
 	BorderSoft = "#3A393F" // OklchToHex(0.23,  0.005, 280)
-	Fg         = "#EEEBF5" // OklchToHex(0.93,  0.005, 280)
-	FgDim      = "#9D9AA6" // OklchToHex(0.62,  0.008, 280)
-	FgFaint    = "#72707A" // OklchToHex(0.45,  0.008, 280)
-	FgMute     = "#55525D" // OklchToHex(0.35,  0.008, 280)
+	Fg         = "#d8d8d8" // OklchToHex(0.93,  0.005, 280)
+	FgDim      = "#9a9a9a" // OklchToHex(0.62,  0.008, 280)
+	FgFaint    = "#6a6a6a" // OklchToHex(0.45,  0.008, 280)
+	FgMute     = "#4a4a4a" // OklchToHex(0.35,  0.008, 280)
 
 	// Semantic colors
 	AccentAmber   = "#E8814B" // OklchToHex(0.74,  0.16,  35)
 	User          = "#6DB3E8" // OklchToHex(0.78,  0.13,  230)
-	Thinking      = "#D4C84F" // OklchToHex(0.70,  0.09,  75)
+	Thinking      = "#e6c250" // OklchToHex(0.70,  0.09,  75)
 	Tool          = "#5BA8D9" // OklchToHex(0.72,  0.07,  195)
-	Added         = "#87D969" // OklchToHex(0.74,  0.14,  150)
-	Removed       = "#E8523D" // OklchToHex(0.68,  0.17,  25)
-	Warn          = "#DDB84C" // OklchToHex(0.78,  0.14,  80)
+	Added         = "#87d75f" // OklchToHex(0.74,  0.14,  150)
+	Removed       = "#e85a3a" // OklchToHex(0.68,  0.17,  25)
+	Warn          = "#e6a93a" // OklchToHex(0.78,  0.14,  80)
 	DiffAddedBg   = "#1F2A24" // dim green tint for + diff rows
 	DiffRemovedBg = "#2A2122" // dim red tint for - diff rows
+
+	ToolBlue   = "#5fafff" // search, glob
+	ToolCyan   = "#5fd7d7" // read
+	ToolGrn    = "#87d75f" // write, bash ok
+	ToolMag    = "#d75fd7" // grep
+	Black      = "#000000" // tag chip foreground
+	SyntaxBlue = "#5f8fff" // keyword blue (file preview)
 )
 
 // Soft fill colors (blended with Bg)

@@ -20,10 +20,10 @@ models:
         type: openai_compat
         base_url: http://localhost:1234/v1
         model: qwen3.6-35b-a3b
-        context_size: 65536
+        context_size: 98304
         max_completion_tokens: 4096
         compaction:
-            safety_margin_tokens: 4096
+            safety_margin_tokens: 16384
             summary_max_tokens: 4096
 
     gemma4:

@@ -77,6 +77,14 @@ type Model struct {
 	compacting           bool
 	accentPreset         string
 	palette              paletteModel
+	sessionHealthCompactionCount int
+	sessionHealthTurn            int
+	sessionHealthState           string
+	sessionHealthGuidance        string
+	sessionHealthNotes           []string
+	ctxInfoPromptTokens          int
+	ctxInfoReservedTokens        int
+	ctxInfoSafetyTokens          int
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
@@ -531,15 +539,23 @@ func (m *Model) layout() {
 		contentWidth = 1
 	}
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
-	// Total rows: top_pad(1) + viewport + hDivider(1) + input(1) + status(1) = viewport + 4.
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input + status(1).
+	// Input focus border (NormalBorder, all sides) adds top+bottom = 2 extra rows when shown.
+	inputRows := 1
+	if m.input.Focused() && m.content.streamingPhase == "" {
+		inputRows = 3
+	}
 	m.viewport.Width = maxInt(1, contentWidth-6)
-	m.viewport.Height = maxInt(1, m.height-4)
+	m.viewport.Height = maxInt(1, m.height-3-inputRows)
 	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }
 
 func (m *Model) syncViewport() {
 	rendered := m.content.String(m.viewport.Width)
+	if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
+		rendered = header + rendered
+	}
 	contentLines := strings.Count(rendered, "\n")
 	pad := m.viewport.Height - contentLines
 	if pad < 0 {
@@ -608,6 +624,11 @@ func (m *Model) applyEvent(event output.Event) {
 			if !m.compacting {
 				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 			}
+			m.sessionHealthCompactionCount = payload.CompactionCount
+			m.sessionHealthTurn            = payload.Turn
+			m.sessionHealthState           = payload.SessionState
+			m.sessionHealthGuidance        = payload.RestartGuidance
+			m.sessionHealthNotes           = append([]string(nil), payload.Notes...)
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
@@ -890,12 +911,49 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	m.sidebar.promptUsed = promptUsed
 	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = payload.ContextTokens
+	m.ctxInfoPromptTokens   = payload.PromptTokens
+	m.ctxInfoReservedTokens = payload.ReservedTokens
+	m.ctxInfoSafetyTokens   = payload.SafetyMarginTokens
 	if payload.Turn > 0 {
 		m.status.turn = payload.Turn
 		m.sidebar.currentTurn = payload.Turn
 	}
 	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, payload.ContextTokens)
 	return true
+}
+
+func (m Model) renderContextInfoLine(width int) string {
+	if m.sessionHealthState == "" && m.sessionHealthCompactionCount == 0 {
+		return ""
+	}
+	line1Parts := []string{
+		fmt.Sprintf("context info: session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn),
+	}
+	if m.sessionHealthState != "" {
+		line1Parts = append(line1Parts, "state "+m.sessionHealthState)
+	}
+	if m.sessionHealthGuidance != "" {
+		entry := m.sessionHealthGuidance
+		if m.sessionHealthCompactionCount > 0 {
+			suffix := "compaction"
+			if m.sessionHealthCompactionCount != 1 {
+				suffix = "compactions"
+			}
+			entry += fmt.Sprintf(" after %d %s", m.sessionHealthCompactionCount, suffix)
+		}
+		line1Parts = append(line1Parts, entry)
+	}
+	if len(m.sessionHealthNotes) > 0 {
+		line1Parts = append(line1Parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
+	}
+	line1 := strings.Join(line1Parts, "; ")
+	line2 := fmt.Sprintf("view full, prompt %d, reserve %d, safety %d",
+		m.ctxInfoPromptTokens, m.ctxInfoReservedTokens, m.ctxInfoSafetyTokens)
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.FgFaint)).
+		Italic(true).
+		Width(width)
+	return style.Render(line1) + "\n" + style.Render(line2) + "\n"
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) {

@@ -892,43 +892,64 @@ func inferBodyKind(tool, body string) string {
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
-	chevron := b.styles.FgMute.Render("▸")
-	if !tc.collapsed {
-		chevron = b.styles.FgMute.Render("▾")
-	}
-
 	tagStyle := b.toolTagStyle(tc.tool)
-	tag := tagStyle.Render(" " + tc.tool + " ")
+	tag := tagStyle.Render(tc.tool)
+	tagWidth := lipgloss.Width(tag)
 
-	args := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(tc.args)
-	header := chevron + " " + tag + " " + args
+	// col 3: meta, right-aligned
+	metaStr := ""
 	if tc.meta != "" {
-		metaStr := b.styles.FgMute.Render(tc.meta)
-		headerWidth := width - lipgloss.Width(metaStr) - 2
-		if headerWidth < 1 {
-			headerWidth = 1
+		if tc.hasError {
+			metaStr = b.styles.Removed.Render("error")
+		} else {
+			metaStr = b.styles.FgDim.Render(tc.meta)
 		}
-		header = lipgloss.NewStyle().Width(headerWidth).Render(header) + " " + metaStr
 	}
+	metaWidth := lipgloss.Width(metaStr)
 
-	result := header + "\n"
-	if !tc.collapsed {
-		result += b.renderToolBody(tc, width)
+	// col 2: args, truncated to fill remaining space
+	const gap = 2 // spaces between tag and args
+	argsAvail := width - tagWidth - gap - metaWidth - 1
+	if argsAvail < 1 {
+		argsAvail = 1
 	}
+	argsRunes := []rune(tc.args)
+	argsText := tc.args
+	if len(argsRunes) > argsAvail {
+		argsText = string(argsRunes[:argsAvail-1]) + "…"
+	}
+	argsStr := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).
+		Width(argsAvail).Render(argsText)
+
+	header := tag + strings.Repeat(" ", gap) + argsStr
+	if metaStr != "" {
+		header = header + " " + metaStr
+	}
+	header = header + "\n"
+
+	if tc.collapsed {
+		return header
+	}
+	// keep existing expanded body rendering below here unchanged
+	result := header + b.renderToolBody(tc, width)
 	return result
 }
 
 func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
-	switch tool {
+	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "bash":
 		return b.styles.ToolTagBash
 	case "read", "read_file":
 		return b.styles.ToolTagRead
 	case "write", "write_file", "edit":
 		return b.styles.ToolTagWrite
-	case "glob", "grep":
-		return b.styles.ToolTagGlobGrep
-	case "todo", "todowrite", "todoread":
+	case "grep":
+		return b.styles.ToolTagGrep
+	case "glob":
+		return b.styles.ToolTagGlob
+	case "search":
+		return b.styles.ToolTagSearch
+	case "todo":
 		return b.styles.ToolTagTodo
 	default:
 		return b.styles.ToolTagDefault
@@ -1010,12 +1031,18 @@ func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []
 		return b.buildPlainLines(tc)
 	}
 
-	lines := make([]string, 0, len(doc.Lines)+1)
-	lines = append(lines, b.renderFileCaption(tc, doc))
+	rule := b.styles.FgMute.Render(strings.Repeat("─", maxInt(1, width-2)))
+	caption := b.renderFileCaption(tc, doc)
+
+	lines := make([]string, 0, len(doc.Lines)+4)
+	lines = append(lines, rule)
+	lines = append(lines, caption)
+	lines = append(lines, rule)
 	lines = append(lines, b.renderFilePreviewDocument(doc)...)
 	if doc.Truncated {
-		lines = append(lines, b.styles.FgMute.Render("… output truncated"))
+		lines = append(lines, b.styles.FgFaint.Render("   …  1 more"))
 	}
+	lines = append(lines, rule)
 	return lines
 }
 
@@ -1061,9 +1088,9 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 	}
 	lineCount := previewContentLineCount(doc)
 	if doc.Path != "" {
-		return b.styles.FgMute.Render(fmt.Sprintf("%s · %s · %d lines", doc.Path, label, lineCount))
+		return b.styles.FgDim.Render(fmt.Sprintf("%s · %s · %d lines", doc.Path, label, lineCount))
 	}
-	return b.styles.FgMute.Render(fmt.Sprintf("%s · %d lines", label, lineCount))
+	return b.styles.FgDim.Render(fmt.Sprintf("%s · %d lines", label, lineCount))
 }
 
 func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []string {
@@ -1073,7 +1100,7 @@ func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []
 			lines = append(lines, b.renderPreviewLine(line))
 			continue
 		}
-		gutter := b.styles.FgMute.Render(fmt.Sprintf("%4d ", i+1))
+		gutter := b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", i+1))
 		lines = append(lines, gutter+b.renderPreviewLine(line))
 	}
 	return lines
@@ -1181,23 +1208,22 @@ func (b *contentBuffer) renderPreviewSpan(span output.PreviewSpan) string {
 func (b *contentBuffer) previewTokenStyle(token chroma.TokenType) lipgloss.Style {
 	switch {
 	case token.InCategory(chroma.Comment):
-		return b.styles.FgMute
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgFaint)).Italic(true)
 	case token.InCategory(chroma.Keyword):
-		return b.styles.Accent
-	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameFunction):
-		return b.styles.UserBar
-	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameClass):
-		return b.styles.Accent
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SyntaxBlue))
+	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameBuiltin),
+		token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameClass):
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolCyan))
 	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameAttribute):
-		return b.styles.Accent
+		return b.styles.Added // struct tags — green like strings
 	case token.InCategory(chroma.LiteralString):
-		return b.styles.Added
+		return b.styles.Added // green
 	case token.InCategory(chroma.LiteralNumber):
-		return b.styles.Warn
+		return b.styles.Warn // amber
 	case token.InCategory(chroma.Operator):
 		return b.styles.FgFaint
 	case token.InCategory(chroma.Punctuation):
-		return b.styles.FgMute
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 	case token.InCategory(chroma.GenericDeleted):
 		return b.styles.Removed
 	case token.InCategory(chroma.GenericInserted):
@@ -1320,16 +1346,16 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 
 func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
 	if cd.finished {
-		var note string
+		var body string
 		switch {
 		case cd.msgCount > 0:
-			note = fmt.Sprintf("Context compacted. %d messages summarized into 1.", cd.msgCount)
+			body = fmt.Sprintf("context compacted · %d messages summarized into 1", cd.msgCount)
 		case cd.summary != "":
-			note = "Context compacted. " + cd.summary + "."
+			body = "context compacted · " + cd.summary
 		default:
-			note = "Context compacted."
+			body = "context compacted"
 		}
-		return b.styles.FgMute.Render(note) + "\n"
+		return b.styles.ThinkingBar.Render("▼ "+body) + "\n"
 	}
 
 	// In-progress banner: warn left bar + bg-elev row, full transcript width
