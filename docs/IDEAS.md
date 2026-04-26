@@ -19,7 +19,7 @@
 * Implement approvals using https://github.com/charmbracelet/huh and  look into using it for prompt command auto suggestions
 * Look at tools provided by https://github.com/deepnoodle-ai/dive and consider using those over ours
 * When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
-* The --exec mode should not do response streaming, it looks like shit. It should inform that we're waiting for a response, then display it once it's there
+* The --exec mode should not do response streaming by default, it looks like shit. Add a cli flag, --enable-streaming, which is disabled by default and when it is disabled, it should inform that we're waiting for a response, then display it once it's there
 * Apply glamour markdown rendering to user prompts
 *
 ### Long-term
