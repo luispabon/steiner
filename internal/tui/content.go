@@ -259,6 +259,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 					})
 				}
 			case "session_health":
+				if b.inCompaction {
+					return
+				}
 				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 			}
 		}
