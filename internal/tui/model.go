@@ -539,9 +539,14 @@ func (m *Model) layout() {
 		contentWidth = 1
 	}
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
-	// Total rows: top_pad(1) + viewport + hDivider(1) + input(1) + status(1) = viewport + 4.
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input + status(1).
+	// Input focus border (NormalBorder, all sides) adds top+bottom = 2 extra rows when shown.
+	inputRows := 1
+	if m.input.Focused() && m.content.streamingPhase == "" {
+		inputRows = 3
+	}
 	m.viewport.Width = maxInt(1, contentWidth-6)
-	m.viewport.Height = maxInt(1, m.height-4)
+	m.viewport.Height = maxInt(1, m.height-3-inputRows)
 	m.input.SetWidth(maxInt(1, contentWidth))
 	m.syncViewport()
 }
