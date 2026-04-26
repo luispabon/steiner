@@ -14,7 +14,34 @@ const (
 	compactionHeadingUnresolvedDecisions = "Unresolved decisions"
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
-	compactionPromptInstructionBody      = "Output only markdown with these exact headings, in this order:\n# Request intent\n# Solution design\n# Recent actions\n# Unresolved decisions\n# Pending work\nKeep bullets terse. Preserve the user request, the working design, recent actions, unresolved decisions, and pending work. Do not invent new instructions."
+	compactionPromptInstructionBody      = `You have been working on the task described above but have not yet completed it. Write a continuation summary that will allow you (or another instance of yourself) to resume work efficiently in a future context window where the conversation history will be replaced with this summary. Your summary should be structured, concise, and actionable. Include:
+
+1. Task Overview
+The user's core request and success criteria
+Any clarifications or constraints they specified
+
+2. Current State
+What has been completed so far
+Files created, modified, or analyzed (with paths if relevant)
+Key outputs or artifacts produced
+
+3. Important Discoveries
+Technical constraints or requirements uncovered
+Decisions made and their rationale
+Errors encountered and how they were resolved
+What approaches were tried that didn't work (and why)
+
+4. Next Steps
+Specific actions needed to complete the task
+Any blockers or open questions to resolve
+Priority order if multiple steps remain
+
+5. Context to Preserve
+User preferences or style requirements
+Domain-specific details that aren't obvious
+Any promises made to the user
+
+Be concise but complete—err on the side of including information that would prevent duplicate work or repeated mistakes. Write in a way that enables immediate resumption of the task.`
 )
 
 func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState) []provider.Message {
