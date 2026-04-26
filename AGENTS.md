@@ -13,10 +13,11 @@ internal/provider/      Model transport and scheduler
 internal/tool/          Registry, schema, policy, executor, output shaping
 internal/prompt/        Context gathering, budgeting, assembly, compaction
 internal/skill/         Skill discovery and loading
-internal/repl/          Interactive UX
+internal/tui/          Interactive TUI
 internal/delegation/    Delegation contracts and scaffolding
 internal/output/        Terminal and machine-readable event output
-testdata/repos/         Fixture repos for integration and e2e tests
+internal/history/       Conversation history persistence
+testdata/stage3/         Test fixtures for integration tests
 docs/                   Product/design docs and implementation notes
 ```
 

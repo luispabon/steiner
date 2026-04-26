@@ -90,6 +90,7 @@ type contentBuffer struct {
 	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
 	segmentHeights    []int        // rendered line count per segment (recomputed in String())
 	showThinking      bool         // from prefs; when false skip thinking segments
+	inCompaction      bool         // when true skip thinking chunks from compaction
 	streamingPhase    string       // "thinking" | "tool" | "answer" | ""
 	tickCount         int          // incremented by 500ms tick, used for cursor blink
 }
@@ -97,11 +98,17 @@ type contentBuffer struct {
 func (b *contentBuffer) AppendEvent(event output.Event) {
 	switch event.Type {
 	case output.EventTypeThinkingChunk:
+		if b.inCompaction {
+			return
+		}
 		if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
 			b.appendThinkingChunk(payload.Content)
 			return
 		}
 	case output.EventTypeAssistantChunk:
+		if b.inCompaction {
+			return
+		}
 		if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
 			b.finalizeThinkingBlock()
 			b.appendAssistantChunk(payload.Content)
@@ -197,6 +204,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.appendLine(formatStopReasonEvent(event))
 		return
 	case output.EventTypeAssistantMessage:
+		if b.inCompaction {
+			return
+		}
 		if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
 			b.finishStreaming()
 			b.appendMarkdownBlock(payload.Content)
@@ -249,6 +259,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 					})
 				}
 			case "session_health":
+				if b.inCompaction {
+					return
+				}
 				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 			}
 		}

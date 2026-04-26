@@ -74,6 +74,7 @@ type Model struct {
 	completionIdx        int
 	helpVisible          bool
 	showThinking         bool
+	compacting           bool
 	accentPreset         string
 	palette              paletteModel
 }
@@ -563,6 +564,8 @@ func (m *Model) applyEvent(event output.Event) {
 		m.fileHistoryIdx = -1
 		return
 	case output.RunStartedEvent:
+		m.compacting = false
+		m.content.inCompaction = false
 		if payload.Model != "" {
 			m.status.model = payload.Model
 			m.sidebar.model = payload.Model
@@ -585,12 +588,19 @@ func (m *Model) applyEvent(event output.Event) {
 	case output.ContextDiagnosticsEvent:
 		m.applyContextBudget(payload)
 		if payload.Kind == "compaction" {
+			m.compacting = payload.Severity == "compacting"
+			m.content.inCompaction = m.compacting
 			m.sidebar.compaction = compactionSidebarSummary(payload)
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			if payload.Severity != "compacting" {
+				m.status.mode = "running"
+			}
 		}
 		if payload.Kind == "session_health" {
 			m.sidebar.compaction = compactionSidebarSummary(payload)
-			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			if !m.compacting {
+				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			}
 		}
 	case output.ApprovalEvent:
 		switch event.Type {

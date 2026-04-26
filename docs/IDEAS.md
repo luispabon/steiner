@@ -4,6 +4,7 @@
 
 * We need to natively integrate with context-mode
 * We need to integrate with rtk
+* Break down loop.go, it's massive
 * System prompt:
   - Right now, embedded on internal/prompt/system.go. Move this to a config file somewhere
   - Make it configurable on the user's config file, per-model. Default to above when not there
