@@ -587,7 +587,9 @@ func (m *Model) applyEvent(event output.Event) {
 		}
 		if payload.Kind == "session_health" {
 			m.sidebar.compaction = compactionSidebarSummary(payload)
-			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			if !m.compacting {
+				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			}
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
