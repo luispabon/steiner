@@ -341,18 +341,18 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
 			}
 			assembly := prompt.AssemblyOptions{
-				HomeDir:                   runner.runtime.homeDir,
-				ProjectRoot:               runner.runtime.workDir,
-				SkillsRoot:                prompt.DefaultSkillsRoot(runner.runtime.homeDir),
-				ModelBudget:               modelBudget,
+				HomeDir:     runner.runtime.homeDir,
+				ProjectRoot: runner.runtime.workDir,
+				SkillsRoot:  prompt.DefaultSkillsRoot(runner.runtime.homeDir),
+				ModelBudget: modelBudget,
 			}
 
 			compactReq := agent.RunRequest{
 				Provider:    prov,
-				Prompt:     assembly,
+				Prompt:      assembly,
 				ModelBudget: modelBudget,
-				Model:     selected.Model,
-				Events:    rt.events,
+				Model:       selected.Model,
+				Events:      rt.events,
 			}
 			agentRunner := agent.NewRunner()
 			newConv, err := agentRunner.Compact(ctx, compactReq, conversation)
