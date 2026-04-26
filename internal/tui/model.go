@@ -581,7 +581,7 @@ func (m *Model) applyEvent(event output.Event) {
 			m.content.inCompaction = m.compacting
 			m.sidebar.compaction = compactionSidebarSummary(payload)
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
-			if payload.Severity == "stable" || payload.Severity == "warning" || payload.Severity == "error" {
+			if payload.Severity != "compacting" {
 				m.status.mode = "running"
 			}
 		}
