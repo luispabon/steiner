@@ -106,6 +106,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 			return
 		}
 	case output.EventTypeAssistantChunk:
+		if b.inCompaction {
+			return
+		}
 		if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
 			b.finalizeThinkingBlock()
 			b.appendAssistantChunk(payload.Content)
@@ -201,6 +204,9 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.appendLine(formatStopReasonEvent(event))
 		return
 	case output.EventTypeAssistantMessage:
+		if b.inCompaction {
+			return
+		}
 		if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
 			b.finishStreaming()
 			b.appendMarkdownBlock(payload.Content)
