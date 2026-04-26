@@ -1,0 +1,285 @@
+package agent
+
+import (
+	"testing"
+)
+
+func TestConversationGenerationViewsArePrefixAware(t *testing.T) {
+	generation := newConversationGeneration(7,
+		[]Message{
+			{Role: MessageRoleSummary, Content: "summary prefix one"},
+			{Role: MessageRoleSummary, Content: "summary prefix two"},
+		},
+		[]Message{
+			{Role: MessageRoleUser, Content: "raw user"},
+			{Role: MessageRoleAssistant, Content: "raw assistant"},
+		},
+	)
+
+	full := generation.FullMessages()
+	if got, want := len(full), 4; got != want {
+		t.Fatalf("full len = %d, want %d", got, want)
+	}
+	if got, want := full[0].Content, "summary prefix one"; got != want {
+		t.Fatalf("full[0] = %q, want %q", got, want)
+	}
+	if got, want := full[3].Content, "raw assistant"; got != want {
+		t.Fatalf("full[3] = %q, want %q", got, want)
+	}
+
+	stripped := generation.SummaryPrefixStrippedMessages()
+	if got, want := len(stripped), 2; got != want {
+		t.Fatalf("stripped len = %d, want %d", got, want)
+	}
+	if got, want := stripped[0].Content, "raw user"; got != want {
+		t.Fatalf("stripped[0] = %q, want %q", got, want)
+	}
+	if got, want := stripped[1].Content, "raw assistant"; got != want {
+		t.Fatalf("stripped[1] = %q, want %q", got, want)
+	}
+
+	full[0].Content = "changed"
+	stripped[0].Content = "changed"
+	if got, want := generation.SummaryPrefix[0].Content, "summary prefix one"; got != want {
+		t.Fatalf("generation summary prefix mutated = %q, want %q", got, want)
+	}
+	if got, want := generation.Messages[0].Content, "raw user"; got != want {
+		t.Fatalf("generation raw messages mutated = %q, want %q", got, want)
+	}
+}
+
+func TestConversationLineageChoosesHighestFidelityCandidateDeterministically(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "gen1 user"},
+				{Role: MessageRoleAssistant, Content: "gen1 assistant"},
+			}),
+			newConversationGeneration(2,
+				[]Message{{Role: MessageRoleSummary, Content: "summary for gen2"}},
+				[]Message{
+					{Role: MessageRoleUser, Content: "gen2 user"},
+					{Role: MessageRoleAssistant, Content: "gen2 assistant"},
+				},
+			),
+			newConversationGeneration(3,
+				[]Message{
+					{Role: MessageRoleSummary, Content: "summary for gen2"},
+					{Role: MessageRoleSummary, Content: "summary for gen3"},
+				},
+				[]Message{
+					{Role: MessageRoleUser, Content: "gen3 user"},
+					{Role: MessageRoleAssistant, Content: "gen3 assistant"},
+				},
+			),
+		},
+		NextGenerationID: 4,
+	}
+
+	candidates := lineage.Candidates()
+	if got, want := len(candidates), 5; got != want {
+		t.Fatalf("candidate count = %d, want %d", got, want)
+	}
+	if got, want := candidates[0].GenerationID, 3; got != want {
+		t.Fatalf("candidate[0] generation = %d, want %d", got, want)
+	}
+	if got, want := candidates[0].View, ConversationViewFull; got != want {
+		t.Fatalf("candidate[0] view = %q, want %q", got, want)
+	}
+	if got, want := candidates[1].View, ConversationViewSummaryPrefixStripped; got != want {
+		t.Fatalf("candidate[1] view = %q, want %q", got, want)
+	}
+	if got, want := candidates[1].Messages[0].Content, "gen3 user"; got != want {
+		t.Fatalf("candidate[1] first message = %q, want %q", got, want)
+	}
+	if got, want := candidates[2].GenerationID, 2; got != want {
+		t.Fatalf("candidate[2] generation = %d, want %d", got, want)
+	}
+
+	candidate, ok := lineage.HighestFidelityCandidate(func(messages []Message) bool {
+		return len(messages) <= 2
+	})
+	if !ok {
+		t.Fatal("HighestFidelityCandidate() ok = false, want true")
+	}
+	if got, want := candidate.GenerationID, 3; got != want {
+		t.Fatalf("candidate generation = %d, want %d", got, want)
+	}
+	if got, want := candidate.View, ConversationViewSummaryPrefixStripped; got != want {
+		t.Fatalf("candidate view = %q, want %q", got, want)
+	}
+	if got, want := len(candidate.Messages), 2; got != want {
+		t.Fatalf("candidate messages len = %d, want %d", got, want)
+	}
+	if got, want := candidate.Messages[0].Content, "gen3 user"; got != want {
+		t.Fatalf("candidate first message = %q, want %q", got, want)
+	}
+
+	fallback, ok := lineage.HighestFidelityCandidate(func(messages []Message) bool {
+		return len(messages) == 0
+	})
+	if !ok {
+		t.Fatal("fallback candidate ok = false, want true")
+	}
+	if got, want := fallback.GenerationID, 3; got != want {
+		t.Fatalf("fallback generation = %d, want %d", got, want)
+	}
+	if got, want := fallback.View, ConversationViewFull; got != want {
+		t.Fatalf("fallback view = %q, want %q", got, want)
+	}
+}
+
+func TestConversationLineagePruneObsoleteIsConservative(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
+			newConversationGeneration(2, []Message{{Role: MessageRoleSummary, Content: "summary"}}, []Message{{Role: MessageRoleUser, Content: "new user"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	kept := lineage.PruneObsolete()
+	if got, want := len(kept.Generations), 2; got != want {
+		t.Fatalf("kept generation count = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[0].ID, 1; got != want {
+		t.Fatalf("kept generation[0] id = %d, want %d", got, want)
+	}
+	if got, want := kept.Generations[1].ID, 2; got != want {
+		t.Fatalf("kept generation[1] id = %d, want %d", got, want)
+	}
+}
+
+func TestConversationLineagePruneGenerationsBeforeDropsOnlyProvenObsoleteHistory(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old user"}}),
+			newConversationGeneration(2, []Message{{Role: MessageRoleSummary, Content: "summary"}}, []Message{{Role: MessageRoleUser, Content: "new user"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	pruned := lineage.PruneGenerationsBefore(2)
+	if got, want := len(pruned.Generations), 1; got != want {
+		t.Fatalf("pruned generation count = %d, want %d", got, want)
+	}
+	if got, want := pruned.Generations[0].ID, 2; got != want {
+		t.Fatalf("pruned generation id = %d, want %d", got, want)
+	}
+	if got, want := len(pruned.FullMessages()), 2; got != want {
+		t.Fatalf("pruned full message count = %d, want %d", got, want)
+	}
+	if got, want := pruned.FullMessages()[0].Content, "summary"; got != want {
+		t.Fatalf("pruned full[0] = %q, want %q", got, want)
+	}
+	if got, want := pruned.FullMessages()[1].Content, "new user"; got != want {
+		t.Fatalf("pruned full[1] = %q, want %q", got, want)
+	}
+}
+
+func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
+	original := RunState{
+		TurnCount:  3,
+		TokenCount: 27,
+		StopReason: StopReasonMaxTokens,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "keep working"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "keep working"},
+		}),
+		Context: ContextState{
+			ActiveConstraints: []ActiveConstraint{
+				{Text: "do not change public APIs", Source: "user", Turn: 1},
+			},
+			UnresolvedWork: []UnresolvedWorkItem{
+				{Text: "tighten retry handling", Source: "assistant", Turn: 2},
+			},
+			ActiveFocus: &ActiveFocus{
+				Text:   "finish the agent loop",
+				Source: "assistant",
+				Turn:   3,
+			},
+			RetainedSummaries: []RetainedSummary{
+				{Title: "earlier progress", Text: "implemented the scheduler", Source: "compaction", Turn: 2},
+			},
+		},
+	}
+
+	withConversation := original.WithConversation([]Message{
+		{Role: MessageRoleAssistant, Content: "new turn"},
+	})
+
+	if got, want := withConversation.TurnCount, original.TurnCount; got != want {
+		t.Fatalf("TurnCount = %d, want %d", got, want)
+	}
+	if got, want := withConversation.TokenCount, original.TokenCount; got != want {
+		t.Fatalf("TokenCount = %d, want %d", got, want)
+	}
+	if got, want := withConversation.StopReason, original.StopReason; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(withConversation.Conversation), 1; got != want {
+		t.Fatalf("Conversation len = %d, want %d", got, want)
+	}
+	if got, want := len(withConversation.Lineage.Generations), 1; got != want {
+		t.Fatalf("Lineage generations = %d, want %d", got, want)
+	}
+	if got, want := withConversation.Lineage.FullMessages()[0].Content, "new turn"; got != want {
+		t.Fatalf("Lineage full content = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
+		t.Fatalf("ActiveConstraint text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
+		t.Fatalf("UnresolvedWork text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
+		t.Fatalf("ActiveFocus text = %q, want %q", got, want)
+	}
+	if got, want := withConversation.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
+		t.Fatalf("RetainedSummary text = %q, want %q", got, want)
+	}
+
+	withConversation.Context.ActiveConstraints[0].Text = "changed"
+	withConversation.Context.UnresolvedWork[0].Text = "changed"
+	withConversation.Context.ActiveFocus.Text = "changed"
+	withConversation.Context.RetainedSummaries[0].Text = "changed"
+
+	if got, want := original.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
+		t.Fatalf("original constraint text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
+		t.Fatalf("original unresolved work text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
+		t.Fatalf("original active focus text = %q, want %q", got, want)
+	}
+	if got, want := original.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
+		t.Fatalf("original retained summary text = %q, want %q", got, want)
+	}
+	if got, want := original.Lineage.FullMessages()[0].Content, "keep working"; got != want {
+		t.Fatalf("original lineage content = %q, want %q", got, want)
+	}
+
+	withContext := original.WithContext(ContextState{
+		ActiveFocus: &ActiveFocus{
+			Text:   "render compacted context blocks",
+			Source: "planner",
+			Turn:   4,
+		},
+	})
+
+	if got, want := len(withContext.Conversation), len(original.Conversation); got != want {
+		t.Fatalf("Conversation len = %d, want %d", got, want)
+	}
+	if got, want := withContext.Conversation[0].Content, "keep working"; got != want {
+		t.Fatalf("Conversation content = %q, want %q", got, want)
+	}
+	if got, want := withContext.Context.ActiveFocus.Text, "render compacted context blocks"; got != want {
+		t.Fatalf("replacement ActiveFocus text = %q, want %q", got, want)
+	}
+	if got, want := withContext.Lineage.FullMessages()[0].Content, "keep working"; got != want {
+		t.Fatalf("WithContext lineage content = %q, want %q", got, want)
+	}
+}
