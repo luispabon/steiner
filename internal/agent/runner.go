@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 type ToolExecutor interface {
@@ -170,30 +173,33 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			emitEvent(req.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
 
 			result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
-			if err != nil {
-				if cancelled, ok := contextCancellationState(ctx, state); ok {
-					emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-					emitStop(req.Events, cancelled, nil)
-					return cancelled, nil
-				}
-				emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", err))
-				state.StopReason = StopReasonError
-				emitStop(req.Events, state, err)
-				return state, err
+			if cancelled, ok := contextCancellationState(ctx, state); ok {
+				emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+				emitStop(req.Events, cancelled, nil)
+				return cancelled, nil
 			}
 
-			normalizedResult := normalizeToolResult(result)
-			preview := output.BuildToolPreview(call.Name, cloneInput(call.Arguments), normalizedResult.Content, writeTargetExistedBefore)
-			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, normalizedResult.Content, nil, preview))
+			var toolContent string
+			var preview output.ToolPreview
+			if err != nil {
+				toolContent = formatToolError(err)
+				preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+				emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+			} else {
+				normalizedResult := normalizeToolResult(result)
+				toolContent = normalizedResult.Content
+				preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+				emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+			}
 			state.Conversation = append(state.Conversation, Message{
 				Role:       MessageRoleTool,
-				Content:    normalizedResult.Content,
+				Content:    toolContent,
 				ToolCallID: call.ID,
 				Name:       call.Name,
 			})
 			state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
 				Role:       MessageRoleTool,
-				Content:    normalizedResult.Content,
+				Content:    toolContent,
 				ToolCallID: call.ID,
 				Name:       call.Name,
 			}})
@@ -202,4 +208,38 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 		state.Conversation = state.Lineage.FullMessages()
 	}
+}
+
+func formatToolError(err error) string {
+	var tee *tool.ToolExecutionError
+	if ok := errors.As(err, &tee); ok {
+		details := map[string]any{
+			"exit_code": tee.ExitCode,
+			"stdout":    tee.Output.Stdout.Preview,
+			"stderr":    tee.Output.Stderr.Preview,
+		}
+		if tee.Output.Stdout.Summary() != "" || tee.Output.Stderr.Summary() != "" {
+			details["stdout"] = tee.Output.Stdout.Summary()
+			details["stderr"] = tee.Output.Stderr.Summary()
+		}
+		envelope := tool.JSONEnvelope{
+			OK: false,
+			Error: &tool.JSONEnvelopeError{
+				Kind:    tee.Kind,
+				Message: tee.Message,
+				Details: details,
+			},
+		}
+		data, _ := json.Marshal(envelope)
+		return string(data)
+	}
+	envelope := tool.JSONEnvelope{
+		OK: false,
+		Error: &tool.JSONEnvelopeError{
+			Kind:    "tool_error",
+			Message: err.Error(),
+		},
+	}
+	data, _ := json.Marshal(envelope)
+	return string(data)
 }

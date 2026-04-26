@@ -588,7 +588,7 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	}
 }
 
-func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T) {
+func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
 	helper := mustBuildCLIHelperBinary(t)
 	tempRepo := t.TempDir()
 
@@ -597,13 +597,14 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 		buildRuntime = oldBuildRuntime
 	})
 
+	var prov *fakeProvider
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
 		_ = cmd
 		_ = flags
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
-		cfg.Limits.MaxTokens = 64
+		cfg.Limits.MaxTokens = 0
 		cfg.Approval = config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
 			Overrides: map[string]config.ApprovalMode{
@@ -613,27 +614,35 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 		cfg.Paths = config.PathsConfig{
 			ProjectRootOnly: true,
 		}
-		return cliRuntime{
-			cfg: cfg,
-			provider: &fakeProvider{
-				responses: []provider.ChatResponse{
-					{
-						Message: provider.Message{
-							Role: provider.MessageRoleAssistant,
-							ToolCalls: []provider.ToolCall{
-								{
-									ID:   "call_1",
-									Name: "bash",
-									Arguments: map[string]any{
-										"command": "pwd",
-									},
+		prov = &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role: provider.MessageRoleAssistant,
+						ToolCalls: []provider.ToolCall{
+							{
+								ID:   "call_1",
+								Name: "bash",
+								Arguments: map[string]any{
+									"command": "pwd",
 								},
 							},
 						},
-						FinishReason: "tool_calls",
 					},
+					FinishReason: "tool_calls",
+				},
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "I cannot execute bash because approval is unavailable.",
+					},
+					FinishReason: "stop",
 				},
 			},
+		}
+		return cliRuntime{
+			cfg:      cfg,
+			provider: prov,
 			registry: tool.NewRegistry(tool.ToolDef{
 				Name:       "bash",
 				ExecPath:   helper,
@@ -653,11 +662,22 @@ func TestExecModeReturnsExplicitErrorWhenApprovalInputIsUnavailable(t *testing.T
 	cmd.SetArgs([]string{"--exec", "run bash"})
 
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil, want approval input error")
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil (approval error communicated to model, not fatal)", err)
 	}
-	if !strings.Contains(err.Error(), "approval input is unavailable") {
-		t.Fatalf("Execute() error = %v, want approval input error", err)
+
+	if len(prov.requests) < 2 {
+		t.Fatalf("expected at least 2 model calls, got %d — tool error must be sent back to model", len(prov.requests))
+	}
+	var toolResultContent string
+	for _, msg := range prov.requests[1].Messages {
+		if msg.Role == provider.MessageRoleTool {
+			toolResultContent = msg.Content
+			break
+		}
+	}
+	if !strings.Contains(toolResultContent, "approval input is unavailable") {
+		t.Fatalf("second request tool message = %q, want content containing approval error", toolResultContent)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 )
 
 type inputAction struct {
-	handled         bool
+	handled        bool
 	quit           bool
 	clear          bool
 	compaction     bool

@@ -4,7 +4,7 @@
 
 * We need to natively integrate with context-mode
 * We need to integrate with rtk
-* Break down loop.go, it's massive
+* Implement approvals using https://github.com/charmbracelet/huh and  look into using it for prompt command auto suggestions
 * System prompt:
   - Right now, embedded on internal/prompt/system.go. Move this to a config file somewhere
   - Make it configurable on the user's config file, per-model. Default to above when not there
@@ -83,7 +83,3 @@
 
 
 ## Implementing
-
-* When modifying a file, steiner should show a colourised diff of the change, this should not involve the model but be entirely agent-side. Code should have syntax-highlighting appropriate to the file type
-* When writing a whole new file, steiner should display the file, syntax-highlighted appropriate to the file type
-* Is it possible that "glamour", the markdown renderer, or any of the other tui libraries we have already supports this? Or do we need to introduce a new dependency for this? If so, investigate what's the best possible go library we can use for this
