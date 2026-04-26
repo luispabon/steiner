@@ -64,8 +64,9 @@ type compactionBannerData struct {
 	subtitle string
 	finished bool
 	summary  string
-	progress float64 // 0.0-1.0 fill ratio for in-progress bar
-	pct      int     // percentage label for in-progress
+	progress float64 // 0.0-1.0 fill ratio for in-progress bar (if known)
+	pct      int     // percentage label for in-progress (if known)
+	msgCount int     // number of messages compacted (for finished summary)
 }
 
 type contentSegment struct {
@@ -214,23 +215,27 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
 			switch payload.Kind {
 			case "compaction":
-				summary := ""
 				if payload.Severity == "compacting" {
-					summary = "Compacting context..."
 					b.segments = append(b.segments, contentSegment{
 						kind: segmentCompactionBanner,
 						compactionData: &compactionBannerData{
-							label:    "Context compacting",
-							subtitle: summary,
+							label:    "Compacting",
+							subtitle: "summarizing context",
 							finished: false,
-							summary:  summary,
 						},
 					})
 				} else {
-					if payload.SummaryTitle != "" {
+					msgCount := payload.CompactedMessages
+					var summary string
+					switch {
+					case payload.SummaryTitle != "":
 						summary = payload.SummaryTitle
-					} else {
-						summary = fmt.Sprintf("compacted %d turns → %d retained", payload.CompactedTurns, payload.RetainedTurns)
+					case msgCount > 0:
+						summary = fmt.Sprintf("%d messages summarized into 1", msgCount)
+					case payload.CompactedTurns > 0:
+						summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
+					default:
+						summary = "context compacted"
 					}
 					b.segments = append(b.segments, contentSegment{
 						kind: segmentCompactionBanner,
@@ -239,6 +244,7 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 							subtitle: summary,
 							finished: true,
 							summary:  summary,
+							msgCount: msgCount,
 						},
 					})
 				}
@@ -1289,9 +1295,14 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 
 func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
 	if cd.finished {
-		note := "Context compacted."
-		if cd.summary != "" {
-			note += " " + cd.summary + "."
+		var note string
+		switch {
+		case cd.msgCount > 0:
+			note = fmt.Sprintf("Context compacted. %d messages summarized into 1.", cd.msgCount)
+		case cd.summary != "":
+			note = "Context compacted. " + cd.summary + "."
+		default:
+			note = "Context compacted."
 		}
 		return b.styles.FgMute.Render(note) + "\n"
 	}
@@ -1305,7 +1316,13 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 	compacting := b.styles.Warn.Render(" Compacting")
 	subtitle := b.styles.FgDim.Render(" " + cd.subtitle + " ")
-	pctLabel := b.styles.FgDim.Render(fmt.Sprintf("%d%% ", cd.pct))
+
+	// Show pct% only when real progress data is known
+	pctStr := ""
+	if cd.pct > 0 {
+		pctStr = fmt.Sprintf("%d%% ", cd.pct)
+	}
+	pctLabel := b.styles.FgDim.Render(pctStr)
 
 	fixedW := lipgloss.Width(compacting) + lipgloss.Width(subtitle) + lipgloss.Width(pctLabel)
 	barW := bgW - fixedW
@@ -1313,7 +1330,14 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 		barW = 0
 	}
 
-	filled := int(float64(barW) * cd.progress)
+	// Use real progress if known; otherwise animate a sweep using tickCount
+	var filled int
+	if cd.progress > 0 {
+		filled = int(float64(barW) * cd.progress)
+	} else if barW > 0 {
+		// Sweep 0→barW and repeat; each tick = 500ms
+		filled = b.tickCount % (barW + 1)
+	}
 	if filled > barW {
 		filled = barW
 	}

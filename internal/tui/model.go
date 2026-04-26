@@ -62,7 +62,7 @@ type Model struct {
 	onSkillToggle        func(string, bool)
 	onModelSwitch        func(string)
 	onClear              func()
-	onCompact           func()
+	onCompact            func()
 	activeTheme          theme.Theme
 	styles               theme.Styles
 	inputHistory         []string
@@ -968,7 +968,7 @@ func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {
 
 func isApprovalAccepted(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "y", "yes":
+	case "y", "yes", "a", "always":
 		return true
 	default:
 		return false

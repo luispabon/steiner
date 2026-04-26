@@ -1180,7 +1180,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: strings.Repeat("first compaction summary ", 40),
+					Content: strings.Repeat("first compaction summary ", 155),
 				},
 				FinishReason: "stop",
 			},
@@ -1207,16 +1207,16 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         360,
+			ContextSize:         840,
 			MaxCompletionTokens: 32,
 			SummaryMaxTokens:    32,
 		},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{
-				{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 18)},
-				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 16)},
-				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 14)},
-				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 12)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 72)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 64)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 56)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 48)},
 			},
 			ToolResults: []provider.Message{
 				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 60)},
@@ -1225,7 +1225,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				Compaction: prompt.CompactionPolicy{SummaryBytes: 128},
 			},
 		},
-		Limits: Limits{MaxTurns: 3, MaxTokens: 400},
+		Limits: Limits{MaxTurns: 3},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
@@ -1258,6 +1258,9 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		}
 		switch payload.Kind {
 		case "compaction":
+			if payload.Severity == "compacting" {
+				continue
+			}
 			compactionCount++
 			compactionCounts = append(compactionCounts, payload.CompactionCount)
 			if payload.Severity == "" {
@@ -1270,6 +1273,9 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				t.Fatalf("compaction payload = %#v, want restart guidance", payload)
 			}
 		case "session_health":
+			if payload.Severity == "compacting" {
+				continue
+			}
 			sessionHealthCount++
 			if payload.CompactionCount == 0 {
 				t.Fatalf("session health payload = %#v, want compaction count", payload)
