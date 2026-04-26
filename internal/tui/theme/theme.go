@@ -104,18 +104,14 @@ func BuildStyles(accentHex string) Styles {
 // buildStylesInternal builds all Styles fields from an accent hex and pre-computed soft variants.
 // Used by both steiner theme and BuildStyles.
 func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
-	// Compute additional tool tag colors
-	readColor := blendHex("#80A8E8", Bg, 0.10)
-	globGrepColor := blendHex("#D080C8", Bg, 0.10)
-
 	return Styles{
-		ContentPane:       lipgloss.NewStyle().Background(lipgloss.Color(Bg)).PaddingTop(1).PaddingLeft(3).PaddingRight(3),
+		ContentPane:       lipgloss.NewStyle().PaddingTop(1).PaddingLeft(3).PaddingRight(3),
 		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(Bg)),
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
-		ToolBlock:         lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(Tool)),
-		ThinkingBlock:     lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(Thinking)),
+		ToolBlock:         lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)),
+		ThinkingBlock:     lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)),
 		AssistantProse:    lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
 		ApprovalHighlight: lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)).Foreground(lipgloss.Color(accentHex)),
 		InputArea:         lipgloss.NewStyle().Background(lipgloss.Color(BgInput)).Foreground(lipgloss.Color(Fg)),
@@ -134,12 +130,12 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		ThinkingBar: lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)),
 
-		ToolTagBash:     lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)).Foreground(lipgloss.Color(accentHex)),
-		ToolTagRead:     lipgloss.NewStyle().Background(lipgloss.Color(readColor)).Foreground(lipgloss.Color("#80A8E8")),
-		ToolTagWrite:    lipgloss.NewStyle().Background(lipgloss.Color(AddedSoft)).Foreground(lipgloss.Color(Added)),
-		ToolTagGlobGrep: lipgloss.NewStyle().Background(lipgloss.Color(globGrepColor)).Foreground(lipgloss.Color("#D080C8")),
-		ToolTagTodo:     lipgloss.NewStyle().Background(lipgloss.Color(WarnSoft)).Foreground(lipgloss.Color(Warn)),
-		ToolTagDefault:  lipgloss.NewStyle().Background(lipgloss.Color(ToolSoft)).Foreground(lipgloss.Color(Tool)),
+		ToolTagBash:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagRead:     lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagWrite:    lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagGlobGrep: lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagTodo:     lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagDefault:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
@@ -154,7 +150,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		Accent: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 
-		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)).Foreground(lipgloss.Color(FgFaint)).Padding(0, 1),
+		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 
 		InputFocusBorder: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).

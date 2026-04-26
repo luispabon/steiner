@@ -1320,16 +1320,16 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 
 func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width int) string {
 	if cd.finished {
-		var note string
+		var body string
 		switch {
 		case cd.msgCount > 0:
-			note = fmt.Sprintf("Context compacted. %d messages summarized into 1.", cd.msgCount)
+			body = fmt.Sprintf("context compacted · %d messages summarized into 1", cd.msgCount)
 		case cd.summary != "":
-			note = "Context compacted. " + cd.summary + "."
+			body = "context compacted · " + cd.summary
 		default:
-			note = "Context compacted."
+			body = "context compacted"
 		}
-		return b.styles.FgMute.Render(note) + "\n"
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Thinking)).Render("▼ "+body) + "\n"
 	}
 
 	// In-progress banner: warn left bar + bg-elev row, full transcript width
