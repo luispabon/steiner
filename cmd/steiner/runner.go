@@ -84,7 +84,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
 		Executor:    executor,
-		Tools:       registryToolSpecs(r.runtime.registry),
+		Tools:       r.runtime.registry.ToProviderSpecs(),
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
 		Model:       selected.Model,
