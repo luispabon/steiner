@@ -53,6 +53,18 @@ models:
         compaction:
             safety_margin_tokens: 4096
             summary_max_tokens: 4096
+
+    openrouter_minmax:
+        type: openai_compat
+        base_url: https://openrouter.ai/api/v1/
+        model: minimax/minimax-m2.5:free
+        api_key: ${OPENROUTER_API_KEY}
+        context_size: 196608
+        max_completion_tokens: 8192
+        compaction:
+            safety_margin_tokens: 32768
+            summary_max_tokens: 8192
+
 approval:
     # default: prompt
     default: prompt
