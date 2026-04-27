@@ -41,10 +41,6 @@ func summarizeTextPreview(text string, limit int) string {
 	return text[:limit-3] + "..."
 }
 
-func countMessages(messages []Message) int {
-	return len(messages)
-}
-
 func countTurns(messages []Message) int {
 	if len(messages) == 0 {
 		return 0

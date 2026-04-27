@@ -56,15 +56,15 @@ type Styles struct {
 	ThinkingBar lipgloss.Style // left-bar color for thinking blocks
 
 	// Tool tag pills (per kind)
-	ToolTagBash     lipgloss.Style
-	ToolTagRead     lipgloss.Style
-	ToolTagWrite    lipgloss.Style
-	ToolTagGlobGrep lipgloss.Style
-	ToolTagTodo     lipgloss.Style
-	ToolTagDefault  lipgloss.Style
-	ToolTagSearch   lipgloss.Style // search (blue)
-	ToolTagGlob     lipgloss.Style // glob (blue)
-	ToolTagGrep     lipgloss.Style // grep (magenta)
+	ToolTagBash  lipgloss.Style
+	ToolTagRead  lipgloss.Style
+	ToolTagWrite lipgloss.Style
+
+	ToolTagTodo    lipgloss.Style
+	ToolTagDefault lipgloss.Style
+	ToolTagSearch  lipgloss.Style // search (blue)
+	ToolTagGlob    lipgloss.Style // glob (blue)
+	ToolTagGrep    lipgloss.Style // grep (magenta)
 
 	// Diff colors
 	Added   lipgloss.Style // added lines (green)
@@ -138,15 +138,15 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		ThinkingBar: lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)),
 
-		ToolTagBash:     lipgloss.NewStyle().Background(lipgloss.Color(AccentAmber)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagRead:     lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagWrite:    lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagGlobGrep: lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagTodo:     lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagDefault:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagSearch:   lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagGlob:     lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagGrep:     lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagBash:  lipgloss.NewStyle().Background(lipgloss.Color(AccentAmber)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagRead:  lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagWrite: lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+
+		ToolTagTodo:    lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagDefault: lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagSearch:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagGlob:    lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagGrep:    lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
@@ -156,12 +156,12 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		FgFaint: lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		FgMute:  lipgloss.NewStyle().Foreground(lipgloss.Color(FgMute)),
 
-		AccentSoft:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
-		AccentLine:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
-		AccentColor:    lipgloss.Color(accentHex),
+		AccentSoft:  lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
+		AccentLine:  lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+		AccentColor: lipgloss.Color(accentHex),
 
-		Accent:       lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
-		AccentBg:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
+		Accent:   lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
+		AccentBg: lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 

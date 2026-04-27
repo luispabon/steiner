@@ -98,7 +98,3 @@ func ptrStr(s string) *string {
 func ptrBool(b bool) *bool {
 	return &b
 }
-
-func ptrUint(u uint) *uint {
-	return &u
-}

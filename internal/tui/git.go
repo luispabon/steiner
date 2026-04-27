@@ -48,26 +48,6 @@ func (s *gitState) Snapshot() gitSnapshot {
 	return s.snapshot
 }
 
-func (s *gitState) Branch() string {
-	return s.Snapshot().branch
-}
-
-func (s *gitState) Dirty() bool {
-	return s.Snapshot().dirty
-}
-
-func (s *gitState) RepoRoot() string {
-	return s.Snapshot().repoRoot
-}
-
-func (s *gitState) Ready() bool {
-	return s.Snapshot().ready
-}
-
-func (s *gitState) Ahead() int {
-	return s.Snapshot().ahead
-}
-
 func (s *gitState) Refresh(ctx context.Context) gitSnapshot {
 	if s == nil {
 		return gitSnapshot{}

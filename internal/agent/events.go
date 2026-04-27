@@ -80,9 +80,9 @@ func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int,
 		CompactionCount:    compactionCount,
 		RestartGuidance:    escalation.RestartGuidance,
 		CompactedTurns:     len(candidate.Messages),
-		CompactedMessages:  countMessages(candidate.Messages),
+		CompactedMessages:  len(candidate.Messages),
 		RetainedTurns:      countTurns(retainedMessages),
-		RetainedMessages:   countMessages(retainedMessages),
+		RetainedMessages:   len(retainedMessages),
 		SummaryTitle:       "compacted conversation history",
 		SummaryPreview:     summarizeTextPreview(summaryText, 120),
 		SummaryBytes:       len(summaryText),
@@ -121,25 +121,6 @@ func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions,
 			turn,
 			block.ByteSize,
 			budgetForSource(budgets, block.Source),
-			true,
-			notes...,
-		))
-	}
-	for _, diagnostic := range assembly.Diagnostics {
-		if !diagnostic.Truncated {
-			continue
-		}
-
-		notes := make([]string, 0, 1)
-		if diagnostic.Path != "" {
-			notes = append(notes, "path="+diagnostic.Path)
-		}
-
-		emitEvent(sink, output.NewContextBudgetEvent(
-			string(diagnostic.Source),
-			turn,
-			diagnostic.ByteSize,
-			budgetForSource(budgets, diagnostic.Source),
 			true,
 			notes...,
 		))

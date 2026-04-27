@@ -41,28 +41,6 @@ type CompactionPolicy struct {
 	SummaryBytes int
 }
 
-type ConversationGenerationKind string
-
-const (
-	ConversationGenerationRaw        ConversationGenerationKind = "raw"
-	ConversationGenerationSummarized ConversationGenerationKind = "summarized"
-)
-
-// ConversationGenerationState captures one prompt-side generation snapshot with
-// an optional summary prefix and the raw messages that follow it.
-type ConversationGenerationState struct {
-	ID            int                        `json:"id"`
-	Kind          ConversationGenerationKind `json:"kind"`
-	SummaryPrefix []provider.Message         `json:"summary_prefix,omitempty"`
-	Messages      []provider.Message         `json:"messages,omitempty"`
-}
-
-// ConversationLineageState holds the ordered generation snapshots that can be
-// used to rebuild the best-fidelity compaction input.
-type ConversationLineageState struct {
-	Generations []ConversationGenerationState `json:"generations,omitempty"`
-}
-
 type ToolSummaryPolicy struct {
 	MaxBytes int
 }
@@ -128,14 +106,6 @@ type AssemblyOptions struct {
 }
 
 type Assembly struct {
-	Messages    []provider.Message
-	Blocks      []ContextBlock
-	Diagnostics []AssemblyDiagnostic
-}
-
-type AssemblyDiagnostic struct {
-	Source    ContextSource `json:"source"`
-	Path      string        `json:"path,omitempty"`
-	ByteSize  int           `json:"byte_size"`
-	Truncated bool          `json:"truncated,omitempty"`
+	Messages []provider.Message
+	Blocks   []ContextBlock
 }
