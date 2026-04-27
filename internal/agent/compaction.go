@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
