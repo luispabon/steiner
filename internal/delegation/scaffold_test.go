@@ -46,9 +46,9 @@ func TestScaffoldChildContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got, err := ScaffoldChildContext(ctx, tt.spec)
+			got, err := scaffoldChildContext(ctx, tt.spec)
 			if err != nil {
-				t.Fatalf("ScaffoldChildContext() error = %v", err)
+				t.Fatalf("scaffoldChildContext() error = %v", err)
 			}
 			if got.SystemPrompt != tt.wantSystemPrompt {
 				t.Errorf("SystemPrompt=%q, want %q", got.SystemPrompt, tt.wantSystemPrompt)

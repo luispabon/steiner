@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func Validate(cfg Config) error {
+func validate(cfg Config) error {
 	var problems []string
 
 	if strings.TrimSpace(cfg.Model) == "" {

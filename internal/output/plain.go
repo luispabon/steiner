@@ -627,7 +627,7 @@ func FormatEvent(event Event) string {
 	return formatSegment(renderEvent(event))
 }
 
-type InspectionSnapshot struct {
+type inspectionSnapshot struct {
 	TotalDiagnostics   int
 	ContextDiagnostics int
 	LastStopReason     string
@@ -637,12 +637,12 @@ type InspectionSnapshot struct {
 	RecentContext      []string
 }
 
-func SummarizeInspection(events []Event, recentLimit int) InspectionSnapshot {
+func summarizeInspection(events []Event, recentLimit int) inspectionSnapshot {
 	if recentLimit < 0 {
 		recentLimit = 0
 	}
 
-	summary := InspectionSnapshot{
+	summary := inspectionSnapshot{
 		TotalDiagnostics: len(events),
 	}
 	if len(events) == 0 {
