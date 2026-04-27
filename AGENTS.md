@@ -28,6 +28,12 @@ Keep package boundaries strict:
 * `internal/config` owns config loading and merging.
 * Core tools speak JSON input/output; do not mix in ad hoc contracts.
 
+## File organisation
+
+- Keep production `.go` files under 300 lines; split at 500 lines.
+- Name files with snake_case (`foo_bar.go`), not camelCase.
+- Place tests alongside source (`foo_test.go` next to `foo.go`).
+
 ## Build, test, verify
 
 Use these exact commands when they apply:
@@ -51,6 +57,15 @@ Go version is `1.24`.
 4. Run `gofmt -w <files>` before finishing any Go edit.
 5. Prefer the `edit` tool over `write` for in-place mutations in steiner.
 
+### Change workflow
+
+Each change must leave `go build ./...` and `go test ./...` passing.
+Run `gofmt -w` before finishing any edit.
+Prefer `edit` for in-place mutations.
+
+#### Anti-patterns
+Do not create `util`, `helper`, or `common` packages. Place shared helpers in the package that owns the domain (e.g. JSON cloning lives in `internal/tool`).
+
 ## Coding and testing conventions
 
 * Favor table-driven tests.
@@ -58,6 +73,15 @@ Go version is `1.24`.
 * Return errors instead of panicking, except at process boundaries for unrecoverable failures.
 * Keep tool output bounded and summarized; do not let context grow linearly with tool chatter.
 * Use `testdata/` for fixtures and keep large test data out of inline literals.
+* **Error handling**: Wrap every error with `fmt.Errorf("<action>: %w", err)` using a lowercase verb phrase. Never swallow errors with `_ = someFunc()` in production paths. Use sentinel errors sparingly; prefer wrapped errors.
+* **Imports**: Group imports: stdlib, blank-line, third-party, blank-line, internal (`github.com/luispabon/steiner/...`).
+* **Interfaces**: Interfaces are defined by the consumer, not the implementor. Keep interfaces small (1–3 methods). Avoid header interfaces.
+* Every package under `internal/` must have tests. Currently `history`, `tui/theme`, and `tui/prefs` are gaps to close.
+* Favour table-driven tests. Thread `context.Context` through testable helpers.
+* **File modes**: Use `0o` prefix for octal literals (`0o755`, not `0755`).
+* **Builtins**: Do not shadow builtin identifiers like `close`, `max`, `min`.
+* **Unexported-by-default**: If a symbol has no cross-package consumers, unexport it. Move tests to the internal package if needed.
+* **Godoc**: Every exported symbol must have a comment starting with its name.
 
 ## Security and operational hazards
 
