@@ -165,7 +165,7 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 		summary += preview
 	}
 	if summary != "" {
-		parts = append(parts, fmt.Sprintf("kept summary %q", truncateDiagnosticText(summary, 160)))
+		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
 	if payload.SummaryBytes > 0 {
 		parts = append(parts, fmt.Sprintf("summary %d bytes", payload.SummaryBytes))
@@ -183,7 +183,7 @@ func formatContextSessionHealthSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{formatDiagnosticHeadline(payload, "session health")}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("after %d compaction%s", payload.CompactionCount, pluralSuffix(payload.CompactionCount)))
+		parts = append(parts, fmt.Sprintf("after %d compaction%s", payload.CompactionCount, PluralSuffix(payload.CompactionCount, "", "s")))
 	}
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
@@ -248,13 +248,13 @@ func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) s
 		parts = append(parts, fmt.Sprintf(
 			"compacted %d %s/%d %s; retained %d %s/%d %s",
 			payload.CompactedTurns,
-			pluralizeDiagnosticWord(payload.CompactedTurns, "turn"),
+			PluralSuffix(payload.CompactedTurns, "turn", "turns"),
 			payload.CompactedMessages,
-			pluralizeDiagnosticWord(payload.CompactedMessages, "message"),
+			PluralSuffix(payload.CompactedMessages, "message", "messages"),
 			payload.RetainedTurns,
-			pluralizeDiagnosticWord(payload.RetainedTurns, "turn"),
+			PluralSuffix(payload.RetainedTurns, "turn", "turns"),
 			payload.RetainedMessages,
-			pluralizeDiagnosticWord(payload.RetainedMessages, "message"),
+			PluralSuffix(payload.RetainedMessages, "message", "messages"),
 		))
 	}
 	return strings.Join(parts, " ")
@@ -272,22 +272,4 @@ func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {
 		parts = append(parts, fmt.Sprintf("compactions %d", payload.CompactionCount))
 	}
 	return parts
-}
-
-func truncateDiagnosticText(text string, limit int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if limit <= 0 || len(text) <= limit {
-		return text
-	}
-	if limit <= 3 {
-		return text[:limit]
-	}
-	return text[:limit-3] + "..."
-}
-
-func pluralizeDiagnosticWord(value int, singular string) string {
-	if value == 1 {
-		return singular
-	}
-	return singular + "s"
 }
