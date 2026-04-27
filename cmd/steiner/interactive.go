@@ -1,0 +1,219 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/tui"
+	"github.com/spf13/cobra"
+)
+
+func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
+	rt, err := buildRuntime(cmd.Context(), cmd, flags)
+	if err != nil {
+		return err
+	}
+	defer closeRuntime(rt)
+
+	submissions := make(chan string, 1)
+	contextInspect := make(chan struct{}, 1)
+	approvalResponse := make(chan bool, 1)
+	modelSwitch := make(chan string, 1)
+	clearSession := make(chan struct{}, 1)
+	triggerCompact := make(chan struct{}, 1)
+	enabledSkills := newInteractiveSkills(rt.skillNames)
+	requestSnapshots := &requestSnapshotStore{}
+	selected, err := selectedModelConfig(rt.cfg)
+	if err != nil {
+		return err
+	}
+
+	tuiApp := tui.NewApp(tui.Config{
+		Model:           rt.cfg.Model,
+		ModelNames:      modelAliasNames(rt.cfg.Models),
+		ModelContexts:   modelContextSizes(rt.cfg.Models),
+		ProviderBaseURL: selected.BaseURL,
+		HomeDir:         rt.homeDir,
+		WorkingDir:      rt.workDir,
+		MaxTurns:        0,
+		SkillNames:      rt.skillNames,
+		OnSubmit: func(text string) {
+			select {
+			case submissions <- text:
+			default:
+			}
+		},
+		OnContextInspect: func() {
+			select {
+			case contextInspect <- struct{}{}:
+			default:
+			}
+		},
+		OnApproval: func(allowed bool) {
+			select {
+			case approvalResponse <- allowed:
+			default:
+			}
+		},
+		OnSkillToggle: func(name string, enabled bool) {
+			enabledSkills.Set(name, enabled)
+		},
+		OnModelSwitch: func(name string) {
+			select {
+			case modelSwitch <- name:
+			default:
+			}
+		},
+		OnClear: func() {
+			select {
+			case clearSession <- struct{}{}:
+			default:
+			}
+		},
+		OnCompact: func() {
+			select {
+			case triggerCompact <- struct{}{}:
+			default:
+			}
+		},
+	})
+	rt.events = output.NewMultiSink(
+		rt.events,
+		tuiApp.EventSink(),
+		output.SinkFunc(func(event output.Event) {
+			if payload, ok := event.Payload.(output.APIRequestEvent); ok {
+				requestSnapshots.Store(output.RequestContextSnapshot{
+					Model:       payload.Model,
+					Messages:    payload.Messages,
+					Tools:       payload.Tools,
+					MaxTokens:   payload.MaxTokens,
+					Blocks:      payload.Blocks,
+					ModelBudget: payload.ModelBudget,
+				})
+			}
+		}),
+	)
+
+	approver := agent.NewEventingApprover(
+		rt.events,
+		channelApprovalResponder{ch: approvalResponse},
+	)
+
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tuiApp.Run()
+		stop()
+	}()
+
+	var conversation []agent.Message
+	runner := cliRunner{runtime: rt, approver: approver}
+	if rt.historyWriter != nil {
+		prompts, _ := rt.historyWriter.Load()
+		rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-contextInspect:
+			if snapshot, ok := requestSnapshots.Snapshot(); ok {
+				report, err := output.BuildContextReport(ctx, snapshot)
+				if err != nil {
+					rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
+					continue
+				}
+				rt.events.Emit(output.NewContextReportEvent(report))
+				continue
+			}
+			rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
+			continue
+		case <-clearSession:
+			conversation = nil
+		case <-triggerCompact:
+			if len(conversation) == 0 {
+				rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
+				continue
+			}
+			selected, err := selectedModelConfig(runner.runtime.cfg)
+			if err != nil {
+				rt.events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+				})
+				continue
+			}
+			prov := runner.runtime.provider
+			if runner.runtime.providerFactory != nil {
+				prov, err = runner.runtime.providerFactory(runner.runtime.cfg.Model)
+				if err != nil {
+					rt.events.Emit(output.Event{
+						Type:    output.EventTypeStopReason,
+						Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+					})
+					continue
+				}
+			}
+			modelBudget := prompt.ModelTokenBudget{
+				ContextSize:         selected.ContextSize,
+				MaxCompletionTokens: selected.MaxCompletionTokens,
+				SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
+				SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+			}
+			assembly := prompt.AssemblyOptions{
+				HomeDir:     runner.runtime.homeDir,
+				ProjectRoot: runner.runtime.workDir,
+				SkillsRoot:  prompt.DefaultSkillsRoot(runner.runtime.homeDir),
+				ModelBudget: modelBudget,
+			}
+
+			compactReq := agent.RunRequest{
+				Provider:    prov,
+				Prompt:      assembly,
+				ModelBudget: modelBudget,
+				Model:       selected.Model,
+				Events:      rt.events,
+			}
+			agentRunner := agent.NewRunner()
+			newConv, err := agentRunner.Compact(ctx, compactReq, conversation)
+			if err != nil {
+				rt.events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+				})
+				continue
+			}
+			conversation = newConv
+			rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
+		case name := <-modelSwitch:
+			runner.runtime.cfg.Model = name
+		case text := <-submissions:
+			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
+			if err != nil {
+				rt.events.Emit(output.Event{
+					Type:    output.EventTypeStopReason,
+					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
+				})
+				continue
+			}
+			if rt.historyWriter != nil {
+				_ = rt.historyWriter.Record(text)
+				prompts, _ := rt.historyWriter.Load()
+				rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
+			}
+			conversation = result.Conversation
+		}
+	}
+}
