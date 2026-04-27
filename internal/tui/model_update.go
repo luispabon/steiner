@@ -121,6 +121,11 @@ func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 			m.input.Placeholder = "ask steiner — / for commands, @ for files"
 		}
 	}
+	// Emit any render or git errors captured during the last cycle
+	if m.content.lastRenderErr != nil {
+		emitRenderError(m.content.lastRenderErr)
+		m.content.lastRenderErr = nil
+	}
 	m.syncViewport()
 	return m, tickCmd()
 }

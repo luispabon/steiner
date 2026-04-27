@@ -9,10 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-type runtimeRegistry struct {
-	cfg      config.Config
-	execPath string
-}
+
 
 func coreToolDefinitions(cfg config.Config, execPath string) []tool.ToolDef {
 	coreBin := filepath.Join(filepath.Dir(execPath), "steiner-core-tools")

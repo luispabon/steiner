@@ -149,7 +149,15 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 
 func (r *Runner) handleModelResponse(ctx context.Context, req RunRequest, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, error) {
 	state.TurnCount = turn
-	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
+	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
+	if err != nil {
+		emitEvent(req.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{err.Error()},
+		}))
+		// Continue with 0 tokens for this turn; the error is logged but not fatal
+	}
 	state.TokenCount += turnTokens
 	emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
@@ -243,7 +251,10 @@ func formatToolError(err error) string {
 				Details: details,
 			},
 		}
-		data, _ := json.Marshal(envelope)
+		data, err := json.Marshal(envelope)
+		if err != nil {
+			return fmt.Sprintf(`{"ok":false,"error":{"kind":"%s","message":"%s"}}`, tee.Kind, tee.Message)
+		}
 		return string(data)
 	}
 	envelope := tool.JSONEnvelope{
@@ -253,6 +264,9 @@ func formatToolError(err error) string {
 			Message: err.Error(),
 		},
 	}
-	data, _ := json.Marshal(envelope)
+	data, marshalErr := json.Marshal(envelope)
+	if marshalErr != nil {
+		return fmt.Sprintf(`{"ok":false,"error":{"kind":"tool_error","message":"%s"}}`, err.Error())
+	}
 	return string(data)
 }

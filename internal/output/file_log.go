@@ -39,22 +39,36 @@ func (s *FileLogSink) Emit(event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, _ = fmt.Fprintf(s.file, "=== %s %s ===\n", event.Timestamp.UTC().Format(time.RFC3339Nano), event.Type)
+	if _, err := fmt.Fprintf(s.file, "=== %s %s ===\n", event.Timestamp.UTC().Format(time.RFC3339Nano), event.Type); err != nil {
+		return
+	}
 	switch payload := event.Payload.(type) {
 	case UserInputEvent:
 		if payload.Mode != "" {
-			_, _ = fmt.Fprintf(s.file, "mode: %s\n", payload.Mode)
+			if _, err := fmt.Fprintf(s.file, "mode: %s\n", payload.Mode); err != nil {
+				return
+			}
 		}
-		_, _ = io.WriteString(s.file, payload.Content)
-		_, _ = io.WriteString(s.file, "\n\n")
+		if _, err := io.WriteString(s.file, payload.Content); err != nil {
+			return
+		}
+		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
+			return
+		}
 	default:
 		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
-			_, _ = fmt.Fprintf(s.file, "%v\n\n", payload)
+			if _, writeErr := fmt.Fprintf(s.file, "%v\n\n", payload); writeErr != nil {
+				return
+			}
 			return
 		}
-		_, _ = s.file.Write(data)
-		_, _ = io.WriteString(s.file, "\n\n")
+		if _, err := s.file.Write(data); err != nil {
+			return
+		}
+		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
+			return
+		}
 	}
 }
 

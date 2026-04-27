@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -80,7 +82,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		},
 	}
 	providerFactory := func(alias string) (provider.Provider, error) {
-		model, err := selectedModelConfigByAlias(alias, cfg)
+		model, err := selectedModelConfigByAlias(cfg, alias)
 		if err != nil {
 			return nil, err
 		}
@@ -165,10 +167,22 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 func closeRuntime(rt *cliRuntime) {
 	if rt.historyWriter != nil {
-		_ = rt.historyWriter.Close()
+		if err := rt.historyWriter.Close(); err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("failed to close history writer: %v", err)},
+			}))
+		}
 	}
 	if rt.close != nil {
-		_ = rt.close()
+		if err := rt.close(); err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("failed to close runtime: %v", err)},
+			}))
+		}
 	}
 }
 

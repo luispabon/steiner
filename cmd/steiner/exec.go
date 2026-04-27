@@ -8,7 +8,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +16,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer closeRuntime(rt)
+	defer closeRuntime(&rt)
 
 	promptText := strings.TrimSpace(strings.Join(args, " "))
 	if promptText == "" {

@@ -3,12 +3,23 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 )
+
+// gitErrorLogger is a package-level hook for logging git errors.
+// The TUI model sets this to emit error events.
+var gitErrorLogger func(error)
+
+func logGitError(err error) {
+	if gitErrorLogger != nil {
+		gitErrorLogger(err)
+	}
+}
 
 type gitSnapshot struct {
 	repoRoot      string
@@ -180,14 +191,23 @@ func readGitDirty(ctx context.Context, repoRoot string) bool {
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
+		logGitError(fmt.Errorf("git status --porcelain: %w", err))
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
 }
 
 func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFile {
-	numstatOut, _ := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD").Output()
-	namestatOut, _ := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--name-status", "HEAD").Output()
+	numstatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD")
+	numstatOut, err := numstatCmd.Output()
+	if err != nil {
+		logGitError(fmt.Errorf("git diff --numstat: %w", err))
+	}
+	namestatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--name-status", "HEAD")
+	namestatOut, err := namestatCmd.Output()
+	if err != nil {
+		logGitError(fmt.Errorf("git diff --name-status: %w", err))
+	}
 
 	type counts struct{ added, deleted int }
 	countMap := make(map[string]counts)
@@ -254,6 +274,7 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFil
 func readGitAhead(ctx context.Context, repoRoot string) int {
 	out, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-list", "--count", "@{u}..HEAD").Output()
 	if err != nil {
+		logGitError(fmt.Errorf("git rev-list --count: %w", err))
 		return 0
 	}
 	return parseGitNumstatCount(strings.TrimSpace(string(out)))

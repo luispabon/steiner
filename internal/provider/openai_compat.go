@@ -91,7 +91,7 @@ func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatReq
 
 		if err := p.streamChatCompletion(ctx, request, out); err != nil {
 			select {
-			case out <- ChatChunk{Done: true, Error: err.Error()}:
+			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
 			case <-ctx.Done():
 			}
 		}
@@ -188,7 +188,10 @@ func (p *OpenAICompat) marshalRequest(request ChatRequest, stream bool) ([]byte,
 }
 
 func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if err != nil {
+		return fmt.Errorf("read error response body: %w", err)
+	}
 	if len(body) == 0 {
 		return fmt.Errorf("chat completions request failed: %s", resp.Status)
 	}

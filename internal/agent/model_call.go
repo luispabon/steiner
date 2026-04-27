@@ -118,13 +118,13 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	return response, nil
 }
 
-func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) int {
+func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) (int, error) {
 	if count := provider.UsageTokenCount(usage); count > 0 {
-		return count
+		return count, nil
 	}
 	estimate, err := provider.EstimateChatRequestTokens(ctx, request)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("estimate chat request tokens: %w", err)
 	}
-	return estimate
+	return estimate, nil
 }
