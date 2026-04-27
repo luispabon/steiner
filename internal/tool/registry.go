@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 type Registry struct {
@@ -90,4 +91,29 @@ func (r *Registry) OpenAISchemas() []map[string]any {
 func cloneToolDef(def ToolDef) ToolDef {
 	def.ParameterSchema = CloneJSONMap(def.ParameterSchema)
 	return def
+}
+
+// ToProviderSpecs converts the registry definitions to provider tool specs.
+// The schema maps are cloned to prevent external mutation.
+func (r *Registry) ToProviderSpecs() []provider.ToolSpec {
+	if r == nil {
+		return nil
+	}
+	defs := r.Definitions()
+	if len(defs) == 0 {
+		return nil
+	}
+
+	specs := make([]provider.ToolSpec, 0, len(defs))
+	for _, def := range defs {
+		specs = append(specs, provider.ToolSpec{
+			Type: "function",
+			Function: provider.ToolFunctionSpec{
+				Name:        def.Name,
+				Description: def.Description,
+				Parameters:  CloneJSONMap(def.ParameterSchema),
+			},
+		})
+	}
+	return specs
 }

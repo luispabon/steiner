@@ -67,26 +67,6 @@ func buildChildExecutionRegistry(parent *tool.Registry) *tool.Registry {
 	return tool.NewRegistry(defs...)
 }
 
-func childProviderTools(reg *tool.Registry) []provider.ToolSpec {
-	if reg == nil {
-		return nil
-	}
-
-	defs := reg.Definitions()
-	tools := make([]provider.ToolSpec, 0, len(defs))
-	for _, def := range defs {
-		tools = append(tools, provider.ToolSpec{
-			Type: "function",
-			Function: provider.ToolFunctionSpec{
-				Name:        def.Name,
-				Description: def.Description,
-				Parameters:  def.ParameterSchema,
-			},
-		})
-	}
-	return tools
-}
-
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink) agent.RunRequest {
 	childCtx, _ := scaffoldChildContext(context.Background(), spec)
@@ -120,7 +100,7 @@ func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg 
 	req := agent.RunRequest{
 		Provider: prov,
 		Executor: tool.NewExecutor(executionReg, childCfg, nil, workDir),
-		Tools:    childProviderTools(visibleReg),
+		Tools:    visibleReg.ToProviderSpecs(),
 		Model:    spec.Model,
 		Limits:   baseLimits,
 		Events:   events,

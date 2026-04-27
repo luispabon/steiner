@@ -6,12 +6,11 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 type runtimeRegistry struct {
-	cfg     config.Config
+	cfg      config.Config
 	execPath string
 }
 
@@ -138,29 +137,6 @@ func optionalStringProperty(name, description string) map[string]any {
 		"type":        "string",
 		"description": description,
 	}
-}
-
-func registryToolSpecs(registry *tool.Registry) []provider.ToolSpec {
-	if registry == nil {
-		return nil
-	}
-	defs := registry.Definitions()
-	if len(defs) == 0 {
-		return nil
-	}
-
-	specs := make([]provider.ToolSpec, 0, len(defs))
-	for _, def := range defs {
-		specs = append(specs, provider.ToolSpec{
-			Type: "function",
-			Function: provider.ToolFunctionSpec{
-				Name:        def.Name,
-				Description: def.Description,
-				Parameters:  tool.CloneJSONMap(def.ParameterSchema),
-			},
-		})
-	}
-	return specs
 }
 
 func runtimeRegistry(cfg config.Config) (*tool.Registry, error) {
