@@ -61,14 +61,8 @@ func readPromptFromInput(reader *bufio.Reader) (string, error) {
 }
 
 func lastAssistantReply(messages []agent.Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		message := messages[i]
-		if message.Role != agent.MessageRoleAssistant {
-			continue
-		}
-		if reply := strings.TrimSpace(message.Content); reply != "" {
-			return reply
-		}
+	if msg, ok := agent.LastAssistantMessage(messages); ok {
+		return strings.TrimSpace(msg.Content)
 	}
 	return ""
 }

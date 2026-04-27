@@ -65,7 +65,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		summaryReq.Limits.MaxTurns = 1
 		summaryConversation := make([]provider.Message, 0, len(req.Prompt.Conversation)+2)
 		summaryConversation = append(summaryConversation, req.Prompt.Conversation...)
-		if assistantMsg, ok := lastAssistantMessage(state.Conversation); ok {
+		if assistantMsg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 			summaryConversation = append(summaryConversation, provider.Message{
 				Role:    provider.MessageRoleAssistant,
 				Content: assistantMsg.Content,
@@ -82,14 +82,10 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 		summaryState, summaryErr := runner.Run(childCtx, summaryReq)
 		if summaryErr == nil {
-			summaryOutput := ""
-			for i := len(summaryState.Conversation) - 1; i >= 0; i-- {
-				msg := summaryState.Conversation[i]
-				if msg.Role == agent.MessageRoleAssistant {
-					summaryOutput = msg.Content
-					break
-				}
-			}
+		summaryOutput := ""
+		if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
+			summaryOutput = msg.Content
+		}
 			if summaryOutput != "" {
 				boundedOutput = summaryOutput
 				result.Summary = summaryOutput
@@ -111,15 +107,6 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return result, nil
-}
-
-func lastAssistantMessage(conversation []agent.Message) (agent.Message, bool) {
-	for i := len(conversation) - 1; i >= 0; i-- {
-		if conversation[i].Role == agent.MessageRoleAssistant {
-			return conversation[i], true
-		}
-	}
-	return agent.Message{}, false
 }
 
 func truncateOutputToLimit(s string, maxTokens int) string {

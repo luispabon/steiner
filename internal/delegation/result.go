@@ -9,12 +9,8 @@ import (
 func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) DelegationResult {
 	// Extract last assistant message from conversation
 	output := ""
-	for i := len(state.Conversation) - 1; i >= 0; i-- {
-		msg := state.Conversation[i]
-		if msg.Role == agent.MessageRoleAssistant {
-			output = msg.Content
-			break
-		}
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
+		output = msg.Content
 	}
 
 	result := DelegationResult{
