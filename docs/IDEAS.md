@@ -74,7 +74,3 @@
 * Markdown view's format seems garbled, things like code blocks with YAML look fine during rendering then just collapse to the left once finished. Also a lot of newlines seem lost - TODO: workaround in place (parse markdown after streaming is finished), not fully fixed
 
 ## Implementing
-
-* When modifying a file, steiner should show a colourised diff of the change, this should not involve the model but be entirely agent-side. Code should have syntax-highlighting appropriate to the file type
-* When writing a whole new file, steiner should display the file, syntax-highlighted appropriate to the file type
-* Is it possible that "glamour", the markdown renderer, or any of the other tui libraries we have already supports this? Or do we need to introduce a new dependency for this? If so, investigate what's the best possible go library we can use for this
