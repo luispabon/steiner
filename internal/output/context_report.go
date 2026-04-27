@@ -266,14 +266,7 @@ func messageMatchKey(message provider.Message) string {
 }
 
 func previewText(text string) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if text == "" {
-		return ""
-	}
-	if len(text) <= 48 {
-		return text
-	}
-	return strings.TrimSpace(text[:48]) + "..."
+	return TruncateWithEllipsis(text, 48)
 }
 
 func blockPathLabel(path, fallback string) string {

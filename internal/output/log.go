@@ -342,13 +342,13 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 	switch strings.TrimSpace(reason) {
 	case "complete":
 		if turn > 0 {
-			return fmt.Sprintf("run complete after %d turn%s", turn, pluralSuffix(turn)), ""
+			return fmt.Sprintf("run complete after %d turn%s", turn, PluralSuffix(turn, "", "s")), ""
 		}
 		return "run complete", ""
 	case "max_turns":
 		summary := "stopped after reaching the max turn limit"
 		if turn > 0 {
-			summary = fmt.Sprintf("stopped after %d turn%s: reached the max turn limit", turn, pluralSuffix(turn))
+			summary = fmt.Sprintf("stopped after %d turn%s: reached the max turn limit", turn, PluralSuffix(turn, "", "s"))
 		}
 		return summary, "increase limits.max_turns or continue in a new prompt"
 	case "max_tokens":
@@ -373,13 +373,6 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 		}
 		return "stopped: " + reason, ""
 	}
-}
-
-func pluralSuffix(value int) string {
-	if value == 1 {
-		return ""
-	}
-	return "s"
 }
 
 func NewUserInputEvent(content, mode string) Event {
@@ -518,24 +511,13 @@ func NewAssistantChunkEvent(turn int, content string) Event {
 	}
 }
 
-func truncatePreview(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	// Ensure we leave room for the ellipsis
-	if max < 3 {
-		return s[:max]
-	}
-	return s[:max-3] + "..."
-}
-
 func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 	return Event{
 		Type:      EventTypeDelegationStarted,
 		Timestamp: time.Now().UTC(),
 		Payload: DelegationStartedEvent{
 			AgentID:     agentID,
-			TaskPreview: truncatePreview(taskPreview, 120),
+			TaskPreview: TruncateWithEllipsis(taskPreview, 120),
 		},
 	}
 }
@@ -559,7 +541,7 @@ func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 		Timestamp: time.Now().UTC(),
 		Payload: DelegationFailedEvent{
 			AgentID:     agentID,
-			TaskPreview: truncatePreview(taskPreview, 120),
+			TaskPreview: TruncateWithEllipsis(taskPreview, 120),
 			Error:       errMsg,
 		},
 	}
