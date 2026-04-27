@@ -895,6 +895,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	tagStyle := b.toolTagStyle(tc.tool)
 	tag := tagStyle.Render(tc.tool)
 	tagWidth := lipgloss.Width(tag)
+	tagBgColor := b.toolTagBgHex(tc.tool)
 
 	// col 3: meta, right-aligned
 	metaStr := ""
@@ -931,7 +932,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		return header
 	}
 	// keep existing expanded body rendering below here unchanged
-	result := header + b.renderToolBody(tc, width)
+	result := header + b.renderToolBody(tc, width, tagBgColor)
 	return result
 }
 
@@ -956,7 +957,29 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 	}
 }
 
-func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
+// toolTagBgHex returns the hex background color of a tool tag pill.
+func (b *contentBuffer) toolTagBgHex(tool string) string {
+	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "bash":
+		return theme.AccentAmber
+	case "read", "read_file":
+		return theme.ToolCyan
+	case "write", "write_file", "edit":
+		return theme.ToolGrn
+	case "grep":
+		return theme.ToolMag
+	case "glob":
+		return theme.ToolBlue
+	case "search":
+		return theme.ToolBlue
+	case "todo":
+		return theme.Warn
+	default:
+		return theme.ToolBlue
+	}
+}
+
+func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColor string) string {
 	const (
 		indentStr = "   "
 		maxRows   = 20
@@ -984,19 +1007,25 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		truncated = true
 	}
 
-	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(rowWidth)
-	padRow := indentStr + bg.Render("") + "\n"
+	// lipgloss box: border adds 2 to width (left + right)
+	boxWidth := rowWidth - 2
+	if boxWidth < 1 {
+		boxWidth = 1
+	}
+	bodyStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
+		Padding(1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(tagBgColor)).
+		Width(boxWidth)
 
-	var sb strings.Builder
-	sb.WriteString(padRow)
-	for _, l := range lines {
-		sb.WriteString(indentStr + bg.Render(" "+l) + "\n")
-	}
+	bodyContent := strings.Join(lines, "\n")
 	if truncated {
-		sb.WriteString(indentStr + bg.Render(" "+b.styles.FgMute.Render("↓ more")) + "\n")
+		bodyContent += "\n" + b.styles.FgMute.Render("↓ more")
 	}
-	sb.WriteString(padRow)
-	return sb.String()
+	body := bodyStyle.Render(bodyContent)
+
+	return indentStr + body + "\n"
 }
 
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
