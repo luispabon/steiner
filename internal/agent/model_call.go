@@ -12,7 +12,7 @@ import (
 
 func executeChatRequest(
 	ctx context.Context,
-	provider provider.Provider,
+	prov provider.Provider,
 	turn int,
 	req provider.ChatRequest,
 	budget prompt.ModelTokenBudget,
@@ -40,7 +40,7 @@ func executeChatRequest(
 	}
 	emitEvent(events, output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget))
 
-	stream, err := provider.StreamChatCompletion(ctx, req)
+	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
 		response, streamErr := consumeModelStream(ctx, events, turn, stream)
 		if streamErr != nil {
@@ -51,7 +51,7 @@ func executeChatRequest(
 		return response, nil
 	}
 
-	response, chatErr := provider.ChatCompletion(ctx, req)
+	response, chatErr := prov.ChatCompletion(ctx, req)
 	emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr))
 	if chatErr != nil {
 		return provider.ChatResponse{}, chatErr

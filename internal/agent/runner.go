@@ -80,134 +80,147 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 
-		turn := state.TurnCount + 1
-		assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
+		var err error
+		state, err = r.runTurn(ctx, req, state, basePrompt, compactionHistory, &compactionCount)
 		if err != nil {
-			if cancelled, ok := contextCancellationState(ctx, state); ok {
-				emitStop(req.Events, cancelled, nil)
-				return cancelled, nil
-			}
-			state.StopReason = StopReasonError
-			emitStop(req.Events, state, err)
 			return state, err
 		}
-		emitAssemblyDiagnostics(req.Events, req.Prompt, turn, assembly)
-
-		chatRequest := provider.ChatRequest{
-			Model:       req.Model,
-			Messages:    assembly.Messages,
-			Tools:       cloneProviderTools(req.Tools),
-			Temperature: req.Temperature,
-			MaxTokens:   req.MaxTokens,
-		}
-
-		fit, err := req.ModelBudget.FitRequest(ctx, chatRequest)
-		if err != nil {
-			if cancelled, ok := contextCancellationState(ctx, state); ok {
-				emitStop(req.Events, cancelled, nil)
-				return cancelled, nil
-			}
-			state.StopReason = StopReasonError
-			emitStop(req.Events, state, err)
-			return state, err
-		}
-		emitRequestTokenDiagnostic(req.Events, turn, fit, !fit.Fits)
-		if !fit.Fits {
-			emitCompactionStartedEvent(req.Events, turn)
-			compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, &compactionCount)
-			if err != nil {
-				if cancelled, ok := contextCancellationState(ctx, state); ok {
-					emitStop(req.Events, cancelled, nil)
-					return cancelled, nil
-				}
-				state.StopReason = StopReasonError
-				emitStop(req.Events, state, err)
-				return state, err
-			}
-			if compacted {
-				continue
-			}
-			state.StopReason = StopReasonError
-			err = fmt.Errorf("request exceeds context window: %s", fit.String())
-			emitStop(req.Events, state, err)
-			return state, err
-		}
-
-		emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
-		emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
-		response, err := completeModelCall(ctx, req, turn, chatRequest, assembly.Blocks, req.ModelBudget)
-		if err != nil {
-			if cancelled, ok := contextCancellationState(ctx, state); ok {
-				emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
-				emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
-				emitStop(req.Events, cancelled, nil)
-				return cancelled, nil
-			}
-			state.StopReason = StopReasonError
-			emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, err))
-			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
-			emitStop(req.Events, state, err)
-			return state, err
-		}
-
-		state.TurnCount = turn
-		turnTokens := tokenCount(ctx, chatRequest, response.Usage)
-		state.TokenCount += turnTokens
-		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
-		if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
-			emitEvent(req.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
-		}
-
-		assistant := fromProviderMessage(response.Message)
-		state.Conversation = append(state.Conversation, assistant)
-		state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
-
-		if len(response.Message.ToolCalls) == 0 {
-			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
-			state.StopReason = StopReasonComplete
-			emitStop(req.Events, state, nil)
+		if state.StopReason != "" {
 			return state, nil
 		}
-		for _, call := range response.Message.ToolCalls {
-			writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
-			emitEvent(req.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
+	}
+}
 
-			result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
-			if cancelled, ok := contextCancellationState(ctx, state); ok {
-				emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-				emitStop(req.Events, cancelled, nil)
-				return cancelled, nil
-			}
+func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, basePrompt prompt.AssemblyOptions, compactionHistory map[string]bool, compactionCount *int) (RunState, error) {
+	turn := state.TurnCount + 1
+	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
+	if err != nil {
+		return handleRunError(ctx, req.Events, state, err)
+	}
+	emitAssemblyDiagnostics(req.Events, req.Prompt, turn, assembly)
 
-			var toolContent string
-			var preview output.ToolPreview
-			if err != nil {
-				toolContent = formatToolError(err)
-				preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-				emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
-			} else {
-				normalizedResult := normalizeToolResult(result)
-				toolContent = normalizedResult.Content
-				preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-				emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
-			}
-			state.Conversation = append(state.Conversation, Message{
-				Role:       MessageRoleTool,
-				Content:    toolContent,
-				ToolCallID: call.ID,
-				Name:       call.Name,
-			})
-			state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
-				Role:       MessageRoleTool,
-				Content:    toolContent,
-				ToolCallID: call.ID,
-				Name:       call.Name,
-			}})
+	chatRequest := provider.ChatRequest{
+		Model:       req.Model,
+		Messages:    assembly.Messages,
+		Tools:       cloneProviderTools(req.Tools),
+		Temperature: req.Temperature,
+		MaxTokens:   req.MaxTokens,
+	}
+
+	fit, err := req.ModelBudget.FitRequest(ctx, chatRequest)
+	if err != nil {
+		return handleRunError(ctx, req.Events, state, err)
+	}
+	emitRequestTokenDiagnostic(req.Events, turn, fit, !fit.Fits)
+	if !fit.Fits {
+		emitCompactionStartedEvent(req.Events, turn)
+		compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, compactionCount)
+		if err != nil {
+			return handleRunError(ctx, req.Events, state, err)
+		}
+		if compacted {
+			return state, nil
+		}
+		state.StopReason = StopReasonError
+		err = fmt.Errorf("request exceeds context window: %s", fit.String())
+		emitStop(req.Events, state, err)
+		return state, err
+	}
+
+	emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
+	emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
+	response, err := completeModelCall(ctx, req, turn, chatRequest, assembly.Blocks, req.ModelBudget)
+	if err != nil {
+		if cancelled, ok := contextCancellationState(ctx, state); ok {
+			emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
+			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
+			emitStop(req.Events, cancelled, nil)
+			return cancelled, nil
+		}
+		state.StopReason = StopReasonError
+		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, err))
+		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
+		emitStop(req.Events, state, err)
+		return state, err
+	}
+
+	return r.handleModelResponse(ctx, req, state, turn, chatRequest, response)
+}
+
+func (r *Runner) handleModelResponse(ctx context.Context, req RunRequest, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, error) {
+	state.TurnCount = turn
+	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
+	state.TokenCount += turnTokens
+	emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
+		emitEvent(req.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
+	}
+
+	assistant := fromProviderMessage(response.Message)
+	state.Conversation = append(state.Conversation, assistant)
+	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
+
+	if len(response.Message.ToolCalls) == 0 {
+		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
+		state.StopReason = StopReasonComplete
+		emitStop(req.Events, state, nil)
+		return state, nil
+	}
+
+	return r.executeToolCalls(ctx, req, state, turn, response)
+}
+
+func (r *Runner) executeToolCalls(ctx context.Context, req RunRequest, state RunState, turn int, response provider.ChatResponse) (RunState, error) {
+	for _, call := range response.Message.ToolCalls {
+		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
+		emitEvent(req.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
+
+		result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+		if cancelled, ok := contextCancellationState(ctx, state); ok {
+			emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+			emitStop(req.Events, cancelled, nil)
+			return cancelled, nil
 		}
 
-		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
-		state.Conversation = state.Lineage.FullMessages()
+		var toolContent string
+		var preview output.ToolPreview
+		if err != nil {
+			toolContent = formatToolError(err)
+			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+		} else {
+			normalizedResult := normalizeToolResult(result)
+			toolContent = normalizedResult.Content
+			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+		}
+		state.Conversation = append(state.Conversation, Message{
+			Role:       MessageRoleTool,
+			Content:    toolContent,
+			ToolCallID: call.ID,
+			Name:       call.Name,
+		})
+		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
+			Role:       MessageRoleTool,
+			Content:    toolContent,
+			ToolCallID: call.ID,
+			Name:       call.Name,
+		}})
 	}
+
+	emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
+	state.Conversation = state.Lineage.FullMessages()
+	return state, nil
+}
+
+func handleRunError(ctx context.Context, events output.EventSink, state RunState, err error) (RunState, error) {
+	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		emitStop(events, cancelled, nil)
+		return cancelled, nil
+	}
+	state.StopReason = StopReasonError
+	emitStop(events, state, err)
+	return state, err
 }
 
 func formatToolError(err error) string {
