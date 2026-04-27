@@ -3,17 +3,16 @@
 ## Improvements
 
 ### Immediate
-* Conversation entries for
 * Remove "thinking_chunk" by default from app logs. Instead, set a config flag to enable or disable, and disable by default. Eg `logging.thinking_chunk: BOOL`
 * System prompt:
   - Right now, embedded on internal/prompt/system.go. Move this to a config file somewhere
   - Make it configurable on the user's config file, per-model. Default to above when not there
   - Look for other hardcoded model prompts (like compaction's) and move into config as well and allow overridding through model config
-* Be able to list files on the folder or subfolders bypassing the agent
+* Be able to list files on the folder or subfolders bypassing the agent, helps with prompting.
 * Be able to reference a file via @, where @ will trigger auto completion of files on the filesystem relative to the project root
 * The conversation pane needs a scrollbar
 * Currently, we can't select text at all. Investigate how to enable text selection with the mouse
-* The user prompt area should look like opencode's - a box, with a left coloured border (same orange as the headers on the sidebar), a padding of 1 character then the various status messages on the bottom line with their labels on the same orange as the left border
+* Tools, especially traversal tools like SEARCH or GLOB, should have a blacklist of paths to avoid
 
 ### Mid-term
 * Implement approvals using https://github.com/charmbracelet/huh and  look into using it for prompt command auto suggestions
@@ -21,7 +20,7 @@
 * When pressing ctlr+d or ctrl+c again to exit, a status message or modal dialog should appear asking the user if they're sure
 * The --exec mode should not do response streaming by default, it looks like shit. Add a cli flag, --enable-streaming, which is disabled by default and when it is disabled, it should inform that we're waiting for a response, then display it once it's there
 * Apply glamour markdown rendering to user prompts
-*
+
 ### Long-term
 
 * We need to natively integrate with context-mode
@@ -33,7 +32,7 @@
 * I want to add a tool so that a model can request the agent to display a file to the user without the model having to read it first and spit it out
 * I would like it so that the /context command behaves like the ? keybind - it's opened in an overlaid modal immediately instead of waiting for the current turn to finish. The information within should display on a table instead of lists of lists
 * We need to think about session persistence and resuming sessions
-* We need a "plan" and a "build" mode - investigate how to implement (system prompt maybe?). See how it ties up with sandboxing (do that first)
+* We need a "chat", "plan" and a "build" mode - investigate how to implement (system prompt maybe?). See how it ties up with sandboxing (do that first)
 * Consider if we can re-implement core functionality using https://github.com/deepnoodle-ai/dive
 
 * ASCII logo:
