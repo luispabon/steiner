@@ -96,34 +96,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	if budget.ContextSize > 0 {
-		fit, err := budget.FitCompactionRequest(ctx, chatRequest)
-		if err != nil {
-			return provider.ChatResponse{}, err
-		}
-		if !fit.Fits {
-			return provider.ChatResponse{}, fmt.Errorf("compaction request exceeds context window: %s", fit.String())
-		}
-	}
-	emitEvent(req.Events, output.NewAPIRequestEvent(chatRequest.Model, chatRequest.Messages, chatRequest.Tools, chatRequest.MaxTokens, nil, budget))
-
-	stream, err := req.Provider.StreamChatCompletion(ctx, chatRequest)
-	if err == nil {
-		response, streamErr := consumeModelStream(ctx, req.Events, turn, stream)
-		if streamErr != nil {
-			emitEvent(req.Events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
-			return provider.ChatResponse{}, streamErr
-		}
-		emitEvent(req.Events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
-		return response, nil
-	}
-
-	response, chatErr := req.Provider.ChatCompletion(ctx, chatRequest)
-	emitEvent(req.Events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr))
-	if chatErr != nil {
-		return provider.ChatResponse{}, chatErr
-	}
-	return response, nil
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true)
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
