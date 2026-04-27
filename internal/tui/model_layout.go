@@ -1,0 +1,158 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
+)
+
+func (m *Model) layout() {
+	contentWidth := m.width
+	if m.sidebar.Visible(m.width) {
+		contentWidth = m.width - sidebarWidth - 1 // 1-cell vertical divider
+	}
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input + status(1).
+	// Input focus border (NormalBorder, all sides) adds top+bottom = 2 extra rows when shown.
+	inputRows := 1
+	if m.input.Focused() && m.content.streamingPhase == "" {
+		inputRows = 3
+	}
+	m.viewport.Width = maxInt(1, contentWidth-6)
+	m.viewport.Height = maxInt(1, m.height-3-inputRows)
+	m.input.SetWidth(maxInt(1, contentWidth))
+	m.syncViewport()
+}
+
+func (m *Model) syncViewport() {
+	rendered := m.content.String(m.viewport.Width)
+	if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
+		rendered = header + rendered
+	}
+	contentLines := strings.Count(rendered, "\n")
+	pad := m.viewport.Height - contentLines
+	if pad < 0 {
+		pad = 0
+	}
+	m.contentTopPad = pad
+	if pad > 0 {
+		rendered = strings.Repeat("\n", pad) + rendered
+	}
+	m.viewport.SetContent(rendered)
+	if m.autoScroll {
+		m.viewport.GotoBottom()
+	}
+}
+
+func (m *Model) scrollUp(lines int) {
+	if lines < 1 {
+		lines = 1
+	}
+	m.autoScroll = false
+	m.viewport.ScrollUp(lines)
+}
+
+func (m *Model) scrollDown(lines int) {
+	if lines < 1 {
+		lines = 1
+	}
+	m.viewport.ScrollDown(lines)
+	if m.viewport.AtBottom() {
+		m.autoScroll = true
+	}
+}
+
+func (m *Model) handleMouse(msg tea.MouseMsg) {
+	if msg.Action != tea.MouseActionPress {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.scrollUp(m.viewport.MouseWheelDelta)
+	case tea.MouseButtonWheelDown:
+		m.scrollDown(m.viewport.MouseWheelDelta)
+	case tea.MouseButtonLeft:
+		m.handleLeftClick(msg.Y)
+	}
+}
+
+func (m *Model) handleLeftClick(termY int) {
+	// The viewport content area starts below the status bar and input area.
+	// We need the content-area row. The viewport itself is positioned at
+	// some Y within the terminal — approximate by using termY directly
+	// adjusted for scroll offset.
+	// content line = termY + m.viewport.YOffset
+	// (viewport renders from its YOffset in the scrollable content)
+	contentLine := termY + m.viewport.YOffset - m.contentTopPad
+
+	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
+		return
+	}
+
+	// Walk segmentHeights to find which segment index this line falls in
+	cumulative := 0
+	for i, h := range m.content.segmentHeights {
+		if h == 0 {
+			continue
+		}
+		if contentLine < cumulative+h {
+			// Click landed in segment i — toggle if collapsible
+			seg := &m.content.segments[i]
+			switch seg.kind {
+			case segmentToolCall:
+				if seg.toolData != nil {
+					seg.toolData.collapsed = !seg.toolData.collapsed
+					m.syncViewport()
+				}
+			case segmentThinkingBlock:
+				if seg.thinkData != nil {
+					seg.thinkData.collapsed = !seg.thinkData.collapsed
+					m.syncViewport()
+				}
+			}
+			return
+		}
+		cumulative += h
+	}
+}
+
+func (m *Model) renderContextInfoLine(width int) string {
+	if m.sessionHealthState == "" && m.sessionHealthCompactionCount == 0 {
+		return ""
+	}
+	line1Parts := []string{
+		fmt.Sprintf("context info: session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn),
+	}
+	if m.sessionHealthState != "" {
+		line1Parts = append(line1Parts, "state "+m.sessionHealthState)
+	}
+	if m.sessionHealthGuidance != "" {
+		entry := m.sessionHealthGuidance
+		if m.sessionHealthCompactionCount > 0 {
+			suffix := "compaction"
+			if m.sessionHealthCompactionCount != 1 {
+				suffix = "compactions"
+			}
+			entry += fmt.Sprintf(" after %d %s", m.sessionHealthCompactionCount, suffix)
+		}
+		line1Parts = append(line1Parts, entry)
+	}
+	if len(m.sessionHealthNotes) > 0 {
+		line1Parts = append(line1Parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
+	}
+	line1 := strings.Join(line1Parts, "; ")
+	line2 := fmt.Sprintf("view full, prompt %d, reserve %d, safety %d",
+		m.ctxInfoPromptTokens, m.ctxInfoReservedTokens, m.ctxInfoSafetyTokens)
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.FgFaint)).
+		Italic(true).
+		Width(width)
+	return style.Render(line1) + "\n" + style.Render(line2) + "\n"
+}
