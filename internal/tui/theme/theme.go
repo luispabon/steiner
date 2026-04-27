@@ -84,6 +84,8 @@ type Styles struct {
 
 	// Accent text (fg only, no background)
 	Accent lipgloss.Style
+	// Accent background (accent bg + black fg)
+	AccentBg lipgloss.Style
 
 	// Input focus border ring
 	InputFocusBorder lipgloss.Style
@@ -154,7 +156,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		AccentSoft: lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
 		AccentLine: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
 
-		Accent: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
+		Accent:       lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
+		AccentBg:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 

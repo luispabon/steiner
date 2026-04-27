@@ -132,7 +132,7 @@ const (
 // Soft fill colors (blended with Bg)
 var (
 	AccentSoft  = blendHex(AccentAmber, Bg, 0.09) // 9% accent + 91% bg
-	UserSoft    = blendHex(User, Bg, 0.07)        // 7% user + 93% bg
+	UserSoft    = blendHex(User, Bg, 0.12)        // 12% user + 88% bg
 	ToolSoft    = blendHex(Tool, Bg, 0.08)        // 8% tool + 92% bg
 	AddedSoft   = blendHex(Added, Bg, 0.09)       // 9% added + 91% bg
 	RemovedSoft = blendHex(Removed, Bg, 0.09)     // 9% removed + 91% bg

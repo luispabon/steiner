@@ -160,10 +160,7 @@ func (s sidebarState) workdirSummary(width int) string {
 }
 
 func (s sidebarState) brandRow(width int) string {
-	mark := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.AccentAmber)).
-		Foreground(lipgloss.Color(theme.Bg)).
-		Render("s")
+	mark := s.styles.AccentBg.Render("s")
 	name := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
 	ver := s.styles.FgMute.Render("0.1.4")
 	leftVisible := 1 + 1 + len("steiner") // mark + space + name
@@ -203,14 +200,14 @@ func (s sidebarState) tokenBarLine(width int) string {
 	pct := occupancyPercent(s.promptUsed, s.contextBudget)
 	barWidth := maxInt(4, width-2)
 
-	var barColor lipgloss.Color
+	var barStyle lipgloss.Style
 	switch {
 	case pct > 90:
-		barColor = lipgloss.Color(theme.Removed)
+		barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
 	case pct > 70:
-		barColor = lipgloss.Color(theme.Warn)
+		barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
 	default:
-		barColor = lipgloss.Color(theme.AccentAmber)
+		barStyle = s.styles.Accent
 	}
 
 	filled := 0
@@ -221,7 +218,7 @@ func (s sidebarState) tokenBarLine(width int) string {
 		}
 	}
 
-	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
+	bar := barStyle.Render(strings.Repeat("█", filled)) +
 		lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", barWidth-filled))
 	return bar
 }
