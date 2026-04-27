@@ -41,7 +41,7 @@ type thinkingBlockData struct {
 type toolCallSegment struct {
 	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
 	args                     string // summarized args, ~60 chars max
-	meta                     string // "exit 0", "184 lines", etc.
+	meta                     string // "✅" or "❌" for finished calls
 	bodyKind                 string // "bash", "diff", "file", "plain"
 	body                     string // raw result text
 	callID                   string // for matching started→finished
@@ -181,12 +181,14 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 					td := b.segments[i].toolData
 					if td.callID == "" || td.callID == payload.CallID {
 						td.body = payload.Result
-						td.meta = formatToolMeta(payload)
 						td.hasError = payload.Error != ""
-						td.preview = payload.Preview
-						if td.preview.Kind == "" {
-							td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+
+						td.meta = "✅"
+						if td.hasError {
+							td.meta = "❌"
 						}
+
+						td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
 						if td.preview.Kind != output.ToolPreviewKindPlain {
 							td.bodyKind = previewBodyKind(td.tool, td.preview)
 						} else {
@@ -660,6 +662,8 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
+	case segmentToolCall:
+		return b.renderToolCall(segment.toolData, width)
 	case segmentAssistantMarkdown:
 		rendered := b.renderMarkdown(segment.text, width)
 		if strings.TrimSpace(rendered) != "" {
@@ -719,11 +723,6 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 			sb.WriteString(bar + " " + b.styles.ThinkingBar.Render(line) + "\n")
 		}
 		return sb.String()
-	case segmentToolCall:
-		if segment.toolData == nil {
-			return ""
-		}
-		return b.renderToolCall(segment.toolData, width)
 	case segmentApprovalPill:
 		if segment.approvalData == nil {
 			return ""
@@ -839,21 +838,6 @@ func summarizeArgs(tool string, args map[string]any) string {
 	return tool
 }
 
-// formatToolMeta builds the right-aligned meta string for a finished tool call
-func formatToolMeta(payload output.ToolCallFinishedEvent) string {
-	if payload.Error != "" {
-		return "error"
-	}
-	lines := strings.Count(payload.Result, "\n") + 1
-	if strings.TrimSpace(payload.Result) == "" {
-		lines = 0
-	}
-	if lines > 0 {
-		return fmt.Sprintf("%d lines", lines)
-	}
-	return "done"
-}
-
 // previewBodyKind determines how to render the tool body using structured preview data first.
 func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch preview.Kind {
@@ -895,44 +879,66 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	tagStyle := b.toolTagStyle(tc.tool)
 	tag := tagStyle.Render(tc.tool)
 	tagWidth := lipgloss.Width(tag)
+	tagBgColor := b.toolTagBgHex(tc.tool)
 
-	// col 3: meta, right-aligned
+	// Build header: tag [gap] args [gap] meta
+	// Args column width accounts for meta on the right
+	const gap = 2
 	metaStr := ""
+	metaWidth := 0
 	if tc.meta != "" {
+		metaWidth = lipgloss.Width(tc.meta)
+		metaStr = tc.meta
 		if tc.hasError {
-			metaStr = b.styles.Removed.Render("error")
+			metaStr = b.styles.Removed.Render(tc.meta)
 		} else {
-			metaStr = b.styles.FgDim.Render(tc.meta)
+			metaStr = b.styles.Added.Render(tc.meta)
 		}
 	}
-	metaWidth := lipgloss.Width(metaStr)
 
-	// col 2: args, truncated to fill remaining space
-	const gap = 2 // spaces between tag and args
-	argsAvail := width - tagWidth - gap - metaWidth - 1
+	argsAvail := width - tagWidth - gap - metaWidth - gap - 1
 	if argsAvail < 1 {
 		argsAvail = 1
 	}
-	argsRunes := []rune(tc.args)
-	argsText := tc.args
-	if len(argsRunes) > argsAvail {
-		argsText = string(argsRunes[:argsAvail-1]) + "…"
-	}
-	argsStr := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).
-		Width(argsAvail).Render(argsText)
 
-	header := tag + strings.Repeat(" ", gap) + argsStr
-	if metaStr != "" {
-		header = header + " " + metaStr
+	// Build header as plain text
+	argsText := tc.args
+	if len([]rune(argsText)) > argsAvail {
+		argsText = string([]rune(argsText)[:argsAvail-1]) + "…"
 	}
-	header = header + "\n"
+
+	header := tag + strings.Repeat(" ", gap) + argsText
+	if metaStr != "" {
+		header = header + strings.Repeat(" ", gap) + metaStr
+	}
+
+	boxStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
+		Padding(0, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(tagBgColor))
 
 	if tc.collapsed {
-		return header
+		boxWidth := width - 2
+		if boxWidth < 1 {
+			boxWidth = 1
+		}
+
+		return boxStyle.Width(boxWidth).Render(header) + "\n"
 	}
-	// keep existing expanded body rendering below here unchanged
-	result := header + b.renderToolBody(tc, width)
-	return result
+	// Expanded: wrap both header + body in single box
+	bodyContent := b.renderToolBody(tc, width, tagBgColor)
+
+	// Combine for box rendering
+	fullContent := header + "\n" + bodyContent
+
+	// Box dimensions - lipgloss border adds 2 columns
+	boxWidth := width - 2
+	if boxWidth < 1 {
+		boxWidth = 1
+	}
+
+	return boxStyle.Width(boxWidth).Render(fullContent) + "\n"
 }
 
 func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
@@ -956,12 +962,32 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 	}
 }
 
-func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
-	const (
-		indentStr = "   "
-		maxRows   = 20
-	)
-	rowWidth := width - len(indentStr)
+// toolTagBgHex returns the hex background color of a tool tag pill.
+func (b *contentBuffer) toolTagBgHex(tool string) string {
+	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "bash":
+		return theme.AccentAmber
+	case "read", "read_file":
+		return theme.ToolCyan
+	case "write", "write_file", "edit":
+		return theme.ToolGrn
+	case "grep":
+		return theme.ToolMag
+	case "glob":
+		return theme.ToolBlue
+	case "search":
+		return theme.ToolBlue
+	case "todo":
+		return theme.Warn
+	default:
+		return theme.ToolBlue
+	}
+}
+
+func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColor string) string {
+	const maxRows = 20
+
+	rowWidth := width // caller accounts for outer box border+padding
 	if rowWidth < 10 {
 		rowWidth = 10
 	}
@@ -971,9 +997,9 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 	case "bash":
 		lines = b.buildBashLines(tc)
 	case "diff":
-		lines = b.buildDiffPreviewLines(tc, rowWidth-lipgloss.Width(indentStr))
+		lines = b.buildDiffPreviewLines(tc, rowWidth-2)
 	case "file":
-		lines = b.buildFilePreviewLines(tc, rowWidth-lipgloss.Width(indentStr))
+		lines = b.buildFilePreviewLines(tc, rowWidth-2)
 	default:
 		lines = b.buildPlainLines(tc)
 	}
@@ -984,19 +1010,12 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		truncated = true
 	}
 
-	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(rowWidth)
-	padRow := indentStr + bg.Render("") + "\n"
-
-	var sb strings.Builder
-	sb.WriteString(padRow)
-	for _, l := range lines {
-		sb.WriteString(indentStr + bg.Render(" "+l) + "\n")
-	}
+	bodyContent := strings.Join(lines, "\n")
 	if truncated {
-		sb.WriteString(indentStr + bg.Render(" "+b.styles.FgMute.Render("↓ more")) + "\n")
+		bodyContent += "\n" + b.styles.FgMute.Render("↓ more")
 	}
-	sb.WriteString(padRow)
-	return sb.String()
+
+	return bodyContent
 }
 
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
@@ -1108,16 +1127,20 @@ func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []
 
 func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) string {
 	added, removed := countPreviewChanges(doc)
-	tag := b.styles.ToolTagWrite.Render(" [edit] ")
-	path := b.baseTextStyle().Render(doc.Path)
-	metrics := b.styles.Added.Render(fmt.Sprintf("+%d", added)) + " " + b.styles.Removed.Render(fmt.Sprintf("-%d", removed))
-	header := tag + " " + path
-	available := width - lipgloss.Width(metrics) - 1
+	addedStr := fmt.Sprintf("+%d", added)
+	removedStr := fmt.Sprintf("-%d", removed)
+	plainTagStyled := b.styles.ToolTagWrite.Render(" [edit] ")
+	plainPathStyled := b.baseTextStyle().Render(doc.Path)
+	plainMetrics := addedStr + " " + removedStr
+	headerPlainWidth := lipgloss.Width(plainTagStyled) + 1 + lipgloss.Width(plainPathStyled)
+	available := width - headerPlainWidth - lipgloss.Width(plainMetrics) - 1
 	if available < 1 {
 		available = 1
 	}
+	header := plainTagStyled + " " + plainPathStyled
 	header = lipgloss.NewStyle().Width(available).Render(header)
-	return b.styles.BgElev2.Render(header + " " + metrics)
+	styledMetrics := b.styles.Added.Render(addedStr) + " " + b.styles.Removed.Render(removedStr)
+	return b.styles.BgElev2.Render(header + " " + styledMetrics)
 }
 
 func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {

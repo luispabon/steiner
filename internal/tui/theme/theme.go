@@ -31,6 +31,7 @@ type Styles struct {
 	SidebarSection    lipgloss.Style
 	SidebarLabel      lipgloss.Style
 	SidebarValue      lipgloss.Style
+	CardLabel         lipgloss.Style
 	ToolBlock         lipgloss.Style
 	ThinkingBlock     lipgloss.Style
 	AssistantProse    lipgloss.Style
@@ -76,14 +77,17 @@ type Styles struct {
 	FgMute  lipgloss.Style
 
 	// Computed from accent
-	AccentSoft lipgloss.Style // soft accent fill
-	AccentLine lipgloss.Style // accent border color
+	AccentSoft  lipgloss.Style // soft accent fill
+	AccentLine  lipgloss.Style // accent border color
+	AccentColor lipgloss.Color // accent color as raw color value
 
 	// Status bar key chip
 	KeyChip lipgloss.Style
 
 	// Accent text (fg only, no background)
 	Accent lipgloss.Style
+	// Accent background (accent bg + black fg)
+	AccentBg lipgloss.Style
 
 	// Input focus border ring
 	InputFocusBorder lipgloss.Style
@@ -113,7 +117,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
-		ToolBlock:         lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)),
+		CardLabel:         lipgloss.NewStyle().Foreground(lipgloss.Color(FgLabel)).Bold(true),
+		ToolBlock:         lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)).Padding(1),
 		ThinkingBlock:     lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)),
 		AssistantProse:    lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
 		ApprovalHighlight: lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)).Foreground(lipgloss.Color(accentHex)),
@@ -128,12 +133,12 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		BgElev2: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)),
 		BgInput: lipgloss.NewStyle().Background(lipgloss.Color(BgInput)),
 
-		UserBar: lipgloss.NewStyle().Foreground(lipgloss.Color(User)),
+		UserBar: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 		UserBg:  lipgloss.NewStyle().Background(lipgloss.Color(UserSoft)).Foreground(lipgloss.Color(Fg)),
 
 		ThinkingBar: lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)),
 
-		ToolTagBash:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagBash:     lipgloss.NewStyle().Background(lipgloss.Color(AccentAmber)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagRead:     lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagWrite:    lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagGlobGrep: lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
@@ -151,10 +156,12 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		FgFaint: lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		FgMute:  lipgloss.NewStyle().Foreground(lipgloss.Color(FgMute)),
 
-		AccentSoft: lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
-		AccentLine: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+		AccentSoft:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
+		AccentLine:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+		AccentColor:    lipgloss.Color(accentHex),
 
-		Accent: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
+		Accent:       lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
+		AccentBg:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 

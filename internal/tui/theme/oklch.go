@@ -109,6 +109,7 @@ const (
 	FgDim      = "#9a9a9a" // OklchToHex(0.62,  0.008, 280)
 	FgFaint    = "#6a6a6a" // OklchToHex(0.45,  0.008, 280)
 	FgMute     = "#4a4a4a" // OklchToHex(0.35,  0.008, 280)
+	FgLabel    = "#b4b4b4" // OklchToHex(0.75,  0.005, 280)
 
 	// Semantic colors
 	AccentAmber   = "#E8814B" // OklchToHex(0.74,  0.16,  35)
@@ -132,7 +133,7 @@ const (
 // Soft fill colors (blended with Bg)
 var (
 	AccentSoft  = blendHex(AccentAmber, Bg, 0.09) // 9% accent + 91% bg
-	UserSoft    = blendHex(User, Bg, 0.07)        // 7% user + 93% bg
+	UserSoft    = blendHex(User, Bg, 0.12)        // 12% user + 88% bg
 	ToolSoft    = blendHex(Tool, Bg, 0.08)        // 8% tool + 92% bg
 	AddedSoft   = blendHex(Added, Bg, 0.09)       // 9% added + 91% bg
 	RemovedSoft = blendHex(Removed, Bg, 0.09)     // 9% removed + 91% bg
