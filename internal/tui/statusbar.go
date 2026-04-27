@@ -28,7 +28,7 @@ func (s statusState) view(width int, hints string) string {
 	// Segment 1: model
 	if s.model != "" {
 		label := s.styles.FgMute.Render("model ")
-		val := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber)).Render(s.model)
+		val := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(s.model)
 		parts = append(parts, label+val)
 	}
 
@@ -52,7 +52,7 @@ func (s statusState) view(width int, hints string) string {
 		case pct > 70:
 			ctxColor = lipgloss.Color(theme.Warn)
 		default:
-			ctxColor = lipgloss.Color(theme.AccentAmber)
+			ctxColor = s.styles.AccentColor
 		}
 		ctxStr := fmt.Sprintf("%d/%d · %d%%", s.promptUsed, s.contextBudget, pct)
 		label := s.styles.FgMute.Render("ctx ")
