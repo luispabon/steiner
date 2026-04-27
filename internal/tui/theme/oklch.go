@@ -109,6 +109,7 @@ const (
 	FgDim      = "#9a9a9a" // OklchToHex(0.62,  0.008, 280)
 	FgFaint    = "#6a6a6a" // OklchToHex(0.45,  0.008, 280)
 	FgMute     = "#4a4a4a" // OklchToHex(0.35,  0.008, 280)
+	FgLabel    = "#b4b4b4" // OklchToHex(0.75,  0.005, 280)
 
 	// Semantic colors
 	AccentAmber   = "#E8814B" // OklchToHex(0.74,  0.16,  35)

@@ -31,6 +31,7 @@ type Styles struct {
 	SidebarSection    lipgloss.Style
 	SidebarLabel      lipgloss.Style
 	SidebarValue      lipgloss.Style
+	CardLabel         lipgloss.Style
 	ToolBlock         lipgloss.Style
 	ThinkingBlock     lipgloss.Style
 	AssistantProse    lipgloss.Style
@@ -116,6 +117,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
+		CardLabel:         lipgloss.NewStyle().Foreground(lipgloss.Color(FgLabel)).Bold(true),
 		ToolBlock:         lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)).Padding(1),
 		ThinkingBlock:     lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)),
 		AssistantProse:    lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),

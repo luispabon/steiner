@@ -179,7 +179,7 @@ func (s sidebarState) brandRow(width int) string {
 }
 
 func cardLabel(label string, styles theme.Styles) string {
-	return styles.FgMute.Render(strings.ToUpper(label))
+	return styles.CardLabel.Render(strings.ToUpper(label))
 }
 
 func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
