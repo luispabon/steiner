@@ -121,7 +121,7 @@ type Duration struct {
 	set   bool
 }
 
-func NewDuration(d string) (Duration, error) {
+func newDuration(d string) (Duration, error) {
 	parsed, err := parseDurationString(d)
 	if err != nil {
 		return Duration{}, err
@@ -130,7 +130,7 @@ func NewDuration(d string) (Duration, error) {
 }
 
 func MustDuration(d string) Duration {
-	parsed, err := NewDuration(d)
+	parsed, err := newDuration(d)
 	if err != nil {
 		panic(err)
 	}
@@ -242,7 +242,7 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 	applyCLIOverrides(&cfg, opts.CLI)
 	normalizePaths(&cfg, homeDir)
-	if err := Validate(cfg); err != nil {
+	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
 

@@ -272,7 +272,7 @@ func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 		NewContextTokenBudgetEvent("conversation", 2, 1682, 4096, 16384, 22162, 65536, false),
 	}
 
-	got := SummarizeInspection(events, 2)
+	got := summarizeInspection(events, 2)
 
 	if got.TotalDiagnostics != 4 {
 		t.Fatalf("TotalDiagnostics = %d, want 4", got.TotalDiagnostics)

@@ -12,12 +12,12 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-const DelegateToolName = "delegate"
+const delegateToolName = "delegate"
 
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
 func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
-		Name:        DelegateToolName,
+		Name:        delegateToolName,
 		Description: "Spawn an isolated sub-agent to complete a task. Returns structured result. The sub-agent cannot itself delegate further.",
 		ParameterSchema: map[string]any{
 			"type": "object",
@@ -75,9 +75,9 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			Model: model, Limits: limits, AgentID: agentID,
 		}
 
-		childReg := BuildChildToolRegistry(deps.ParentReg, DelegateToolName)
+		childReg := BuildChildToolRegistry(deps.ParentReg, delegateToolName)
 		agentLimits := agent.Limits{MaxTurns: limits.MaxTurns, MaxTokens: limits.OutputLimitTokens}
-		req := BuildChildRunRequest(spec, deps.Provider, childReg, agentLimits, deps.Events)
+		req := buildChildRunRequest(spec, deps.Provider, childReg, agentLimits, deps.Events)
 
 		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
 		if err != nil {

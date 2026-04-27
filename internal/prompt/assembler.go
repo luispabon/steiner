@@ -97,7 +97,7 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	}
 
 	for _, toolResult := range a.opts.ToolResults {
-		block := SummarizeToolMessage(toolResult, a.policy.ToolSummary)
+		block := summarizeToolMessage(toolResult, a.policy.ToolSummary)
 		appendBlock(block)
 	}
 

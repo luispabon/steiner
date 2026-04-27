@@ -60,7 +60,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	boundedOutput := result.Output
 
 	// Check if output is oversized — if so, request a summary turn
-	if CheckOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
+	if checkOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
 		summaryReq := req
 		summaryReq.Limits.MaxTurns = 1
 		summaryConversation := make([]provider.Message, 0, len(req.Prompt.Conversation)+2)
@@ -97,7 +97,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		}
 	}
 
-	if CheckOutputSize(boundedOutput, spec.Limits.OutputLimitTokens) {
+	if checkOutputSize(boundedOutput, spec.Limits.OutputLimitTokens) {
 		boundedOutput = truncateOutputToLimit(boundedOutput, spec.Limits.OutputLimitTokens)
 		if result.Summary != "" {
 			result.Summary = boundedOutput

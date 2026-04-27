@@ -41,9 +41,9 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 	return result
 }
 
-// CheckOutputSize returns true if the output is oversized relative to the token limit.
+// checkOutputSize returns true if the output is oversized relative to the token limit.
 // Uses len(output)/4 as a rough token approximation.
-func CheckOutputSize(output string, limitTokens int) bool {
+func checkOutputSize(output string, limitTokens int) bool {
 	if limitTokens <= 0 {
 		return false
 	}

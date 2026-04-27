@@ -13,8 +13,8 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ChildContext contains the system prompt and project context for a child agent.
-type ChildContext struct {
+// childContext contains the system prompt and project context for a child agent.
+type childContext struct {
 	// SystemPrompt is the system message for the child agent.
 	SystemPrompt string
 
@@ -22,15 +22,15 @@ type ChildContext struct {
 	ProjectContext string
 }
 
-// ScaffoldChildContext builds the system and project context for a delegated child agent.
+// scaffoldChildContext builds the system and project context for a delegated child agent.
 // No parent transcript is included. System prompt comes from spec.SystemPrompt or a default.
-func ScaffoldChildContext(ctx context.Context, spec DelegationSpec) (ChildContext, error) {
+func scaffoldChildContext(ctx context.Context, spec DelegationSpec) (childContext, error) {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a sub-agent. Complete the task given to you."
 	}
 
-	return ChildContext{
+	return childContext{
 		SystemPrompt:   systemPrompt,
 		ProjectContext: spec.Context,
 	}, nil
@@ -87,10 +87,10 @@ func childProviderTools(reg *tool.Registry) []provider.ToolSpec {
 	return tools
 }
 
-// BuildChildRunRequest assembles the agent.RunRequest for a child delegation.
-func BuildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink) agent.RunRequest {
-	childCtx, _ := ScaffoldChildContext(context.Background(), spec)
-	visibleReg := BuildChildToolRegistry(childReg, DelegateToolName)
+// buildChildRunRequest assembles the agent.RunRequest for a child delegation.
+func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink) agent.RunRequest {
+	childCtx, _ := scaffoldChildContext(context.Background(), spec)
+	visibleReg := BuildChildToolRegistry(childReg, delegateToolName)
 	executionReg := buildChildExecutionRegistry(visibleReg)
 
 	taskContent := spec.Task
