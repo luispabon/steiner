@@ -2,6 +2,7 @@ package history
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,9 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	if max <= 0 {
 		return nil
 	}
-	w.file.Seek(0, os.SEEK_SET)
+	if _, err := w.file.Seek(0, os.SEEK_SET); err != nil {
+		return fmt.Errorf("seek to beginning of file: %w", err)
+	}
 	var lines []string
 	scanner := bufio.NewScanner(w.file)
 	for scanner.Scan() {
@@ -60,7 +63,9 @@ func (w *Writer) TrimAfterAppend(max int) error {
 		return err
 	}
 	if len(lines) <= max {
-		w.file.Seek(0, os.SEEK_SET)
+		if _, err := w.file.Seek(0, os.SEEK_SET); err != nil {
+			return fmt.Errorf("seek to beginning of file: %w", err)
+		}
 		return nil
 	}
 	lines = lines[len(lines)-max:]

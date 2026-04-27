@@ -167,6 +167,7 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 	}
 	rendered, err := renderer.Render(block)
 	if err != nil {
+		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.AssistantProse.Render("assistant> " + block)
 	}
 	return rendered

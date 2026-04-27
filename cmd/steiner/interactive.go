@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -20,7 +18,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	if err != nil {
 		return err
 	}
-	defer closeRuntime(rt)
+	defer closeRuntime(&rt)
 
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
@@ -37,8 +35,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	tuiApp := tui.NewApp(tui.Config{
 		Model:           rt.cfg.Model,
-		ModelNames:      modelAliasNames(rt.cfg.Models),
-		ModelContexts:   modelContextSizes(rt.cfg.Models),
+		ModelNames:      modelAliasNames(rt.cfg),
+		ModelContexts:   modelContextSizes(rt.cfg),
 		ProviderBaseURL: selected.BaseURL,
 		HomeDir:         rt.homeDir,
 		WorkingDir:      rt.workDir,
@@ -120,7 +118,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	var conversation []agent.Message
 	runner := cliRunner{runtime: rt, approver: approver}
 	if rt.historyWriter != nil {
-		prompts, _ := rt.historyWriter.Load()
+		prompts, err := rt.historyWriter.Load()
+		if err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("failed to load history: %v", err)},
+			}))
+		}
 		rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
 	}
 	for {
