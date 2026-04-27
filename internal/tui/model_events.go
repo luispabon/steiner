@@ -1,0 +1,95 @@
+package tui
+
+import (
+	"context"
+	"strings"
+
+	"github.com/luispabon/steiner/internal/output"
+)
+
+func (m *Model) applyEvent(event output.Event) {
+	if event.Type != output.EventTypeHistoryLoaded {
+		m.content.AppendEvent(event)
+	}
+
+	switch payload := event.Payload.(type) {
+	case output.HistoryLoadedEvent:
+		if len(payload.Prompts) > 0 {
+			for i, j := 0, len(payload.Prompts)-1; i < j; i, j = i+1, j-1 {
+				payload.Prompts[i], payload.Prompts[j] = payload.Prompts[j], payload.Prompts[i]
+			}
+		}
+		m.fileHistory = payload.Prompts
+		m.fileHistoryIdx = -1
+		return
+	case output.RunStartedEvent:
+		m.compacting = false
+		m.content.inCompaction = false
+		if payload.Model != "" {
+			m.status.model = payload.Model
+			m.sidebar.model = payload.Model
+		}
+		if payload.MaxTurns > 0 {
+			m.sidebar.maxTurns = payload.MaxTurns
+		}
+		m.status.mode = "running"
+	case output.RunFinishedEvent:
+		m.status.mode = strings.TrimSpace(payload.Reason)
+	case output.StopReasonEvent:
+		m.status.mode = strings.TrimSpace(payload.Reason)
+	case output.TurnStartedEvent:
+		m.status.turn = payload.Turn
+		m.sidebar.currentTurn = payload.Turn
+		if payload.Model != "" {
+			m.status.model = payload.Model
+			m.sidebar.model = payload.Model
+		}
+	case output.ContextDiagnosticsEvent:
+		m.applyContextBudget(payload)
+		if payload.Kind == "compaction" {
+			m.compacting = payload.Severity == "compacting"
+			m.content.inCompaction = m.compacting
+			m.sidebar.compaction = compactionSidebarSummary(payload)
+			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			if payload.Severity != "compacting" {
+				m.status.mode = "running"
+			}
+		}
+		if payload.Kind == "session_health" {
+			m.sidebar.compaction = compactionSidebarSummary(payload)
+			if !m.compacting {
+				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			}
+			m.sessionHealthCompactionCount = payload.CompactionCount
+			m.sessionHealthTurn = payload.Turn
+			m.sessionHealthState = payload.SessionState
+			m.sessionHealthGuidance = payload.RestartGuidance
+			m.sessionHealthNotes = append([]string(nil), payload.Notes...)
+		}
+	case output.ApprovalEvent:
+		switch event.Type {
+		case output.EventTypeApprovalRequested:
+			m.approval = approvalState{
+				active:  true,
+				tool:    payload.Tool,
+				mode:    payload.Mode,
+				preview: payload.Preview,
+			}
+			m.status.mode = "approval"
+			m.input.Reset()
+			m.input.Prompt = "approve> "
+			m.input.Placeholder = "approve? y/n/d"
+		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+			m.approval = approvalState{}
+			m.status.mode = "running"
+			m.input.Prompt = "› "
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+		}
+	}
+
+	if event.Type == output.EventTypeToolCallFinished {
+		m.git.Refresh(context.Background())
+	}
+	m.syncSidebar()
+	m.syncViewport()
+}
