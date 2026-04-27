@@ -128,7 +128,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		BgElev2: lipgloss.NewStyle().Background(lipgloss.Color(BgElev2)),
 		BgInput: lipgloss.NewStyle().Background(lipgloss.Color(BgInput)),
 
-		UserBar: lipgloss.NewStyle().Foreground(lipgloss.Color(User)),
+		UserBar: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 		UserBg:  lipgloss.NewStyle().Background(lipgloss.Color(UserSoft)).Foreground(lipgloss.Color(Fg)),
 
 		ThinkingBar: lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)),
