@@ -95,196 +95,226 @@ type contentBuffer struct {
 func (b *contentBuffer) AppendEvent(event output.Event) {
 	switch event.Type {
 	case output.EventTypeThinkingChunk:
-		if b.inCompaction {
-			return
-		}
-		if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
-			b.appendThinkingChunk(payload.Content)
-			return
-		}
+		b.appendThinkingChunkEvent(event)
 	case output.EventTypeAssistantChunk:
-		if b.inCompaction {
-			return
-		}
-		if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
-			b.finalizeThinkingBlock()
-			b.appendAssistantChunk(payload.Content)
-			return
-		}
+		b.appendAssistantChunkEvent(event)
 	case output.EventTypeApprovalRequested:
-		b.finishStreaming()
-		if payload, ok := event.Payload.(output.ApprovalEvent); ok {
-			seg := contentSegment{
-				kind: segmentApprovalPill,
-				approvalData: &approvalPillData{
-					tool:    payload.Tool,
-					mode:    payload.Mode,
-					preview: payload.Preview,
-				},
-			}
-			b.segments = append(b.segments, seg)
-		} else {
-			b.appendStyled(formatApprovalEvent(event), segmentApproval)
-		}
-		return
+		b.appendApprovalRequestedEvent(event)
 	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
-		b.finishStreaming()
-		// Find the last unresolved approval pill and mark it resolved
-		accepted := event.Type == output.EventTypeApprovalAccepted
-		for i := len(b.segments) - 1; i >= 0; i-- {
-			if b.segments[i].kind == segmentApprovalPill && b.segments[i].approvalData != nil {
-				if !b.segments[i].approvalData.resolved {
-					b.segments[i].approvalData.resolved = true
-					b.segments[i].approvalData.accepted = accepted
-					return
-				}
-			}
-		}
-		// Fallback
-		b.appendStyled(formatApprovalEvent(event), segmentApproval)
-		return
+		b.appendApprovalDecisionEvent(event)
 	case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
-		b.finishStreaming()
-		b.appendStyled(formatDelegationEvent(event), segmentPlain)
-		return
+		b.appendDelegationEvent(event)
 	case output.EventTypeToolCallStarted:
-		b.finishStreaming()
-		b.streamingPhase = "tool"
-		if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
-			tc := &toolCallSegment{
-				tool:                     strings.ToLower(payload.Tool),
-				args:                     summarizeArgs(payload.Tool, payload.Arguments),
-				callID:                   payload.CallID,
-				collapsed:                true,
-				rawArgs:                  cloneToolArguments(payload.Arguments),
-				writeTargetExistedBefore: payload.WriteTargetExistedBefore,
-			}
-			b.segments = append(b.segments, contentSegment{
-				kind:     segmentToolCall,
-				toolData: tc,
-			})
-		} else {
-			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
-		}
-		return
-
+		b.appendToolCallStartedEvent(event)
 	case output.EventTypeToolCallFinished:
-		b.finishStreaming()
-		if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
-			// Find the last segmentToolCall with matching callID (or just last tool call)
-			for i := len(b.segments) - 1; i >= 0; i-- {
-				if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
-					td := b.segments[i].toolData
-					if td.callID == "" || td.callID == payload.CallID {
-						td.body = payload.Result
-						td.hasError = payload.Error != ""
-
-						td.meta = "✅"
-						if td.hasError {
-							td.meta = "❌"
-						}
-
-						td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
-						if td.preview.Kind != output.ToolPreviewKindPlain {
-							td.bodyKind = previewBodyKind(td.tool, td.preview)
-						} else {
-							td.bodyKind = inferBodyKind(td.tool, payload.Result)
-						}
-						break
-					}
-				}
-			}
-		} else {
-			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
-		}
-		return
+		b.appendToolCallFinishedEvent(event)
 	case output.EventTypeStopReason:
-		b.finishStreaming()
-		b.appendLine(formatStopReasonEvent(event))
-		return
+		b.appendStopReasonEvent(event)
 	case output.EventTypeAssistantMessage:
-		if b.inCompaction {
-			return
-		}
-		if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
-			b.finishStreaming()
-			b.appendMarkdownBlock(payload.Content)
-		}
-		b.hadChunks = false
-		return
+		b.appendAssistantMessageEvent(event)
 	case output.EventTypeContextReport:
-		if payload, ok := event.Payload.(output.ContextReportEvent); ok && strings.TrimSpace(payload.Content) != "" {
-			b.finishStreaming()
-			b.appendMarkdownBlock(payload.Content)
-		}
-		return
+		b.appendContextReportEvent(event)
 	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
 		output.EventTypeContextDiagnostics:
-		b.finishStreaming()
-		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
-			switch payload.Kind {
-			case "compaction":
-				if payload.Severity == "compacting" {
-					b.segments = append(b.segments, contentSegment{
-						kind: segmentCompactionBanner,
-						compactionData: &compactionBannerData{
-							label:    "Compacting",
-							subtitle: "summarizing context",
-							finished: false,
-						},
-					})
-				} else {
-					msgCount := payload.CompactedMessages
-					var summary string
-					switch {
-					case payload.SummaryTitle != "":
-						summary = payload.SummaryTitle
-					case msgCount > 0:
-						summary = fmt.Sprintf("%d messages summarized into 1", msgCount)
-					case payload.CompactedTurns > 0:
-						summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
-					default:
-						summary = "context compacted"
-					}
-					b.segments = append(b.segments, contentSegment{
-						kind: segmentCompactionBanner,
-						compactionData: &compactionBannerData{
-							label:    "Context compacted",
-							subtitle: summary,
-							finished: true,
-							summary:  summary,
-							msgCount: msgCount,
-						},
-					})
-				}
-			case "session_health":
-				if b.inCompaction {
-					return
-				}
-				b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
-			}
-		}
-		return
+		b.appendModelCallDiagnosticsEvent(event)
 	case output.EventTypeUserInput:
-		if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
-			b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
-			if len(b.segments)-1 >= 0 {
-				b.collapseState[len(b.segments)-1] = false // user segments never collapsed
-			}
-		}
-		return
+		b.appendUserInputEvent(event)
 	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
 		output.EventTypeAPIRequest, output.EventTypeAPIResponse:
 		return
+	default:
+		b.finishStreaming()
+		line := strings.TrimSpace(output.FormatEvent(event))
+		if shouldSuppressLine(line) {
+			return
+		}
+		b.appendLine(line)
 	}
+}
 
-	b.finishStreaming()
-	line := strings.TrimSpace(output.FormatEvent(event))
-	if shouldSuppressLine(line) {
+func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
+	if b.inCompaction {
 		return
 	}
-	b.appendLine(line)
+	if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
+		b.appendThinkingChunk(payload.Content)
+	}
+}
+
+func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
+	if b.inCompaction {
+		return
+	}
+	if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
+		b.finalizeThinkingBlock()
+		b.appendAssistantChunk(payload.Content)
+	}
+}
+
+func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
+	b.finishStreaming()
+	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+		seg := contentSegment{
+			kind: segmentApprovalPill,
+			approvalData: &approvalPillData{
+				tool:    payload.Tool,
+				mode:    payload.Mode,
+				preview: payload.Preview,
+			},
+		}
+		b.segments = append(b.segments, seg)
+	} else {
+		b.appendStyled(formatApprovalEvent(event), segmentApproval)
+	}
+}
+
+func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
+	b.finishStreaming()
+	accepted := event.Type == output.EventTypeApprovalAccepted
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		if b.segments[i].kind == segmentApprovalPill && b.segments[i].approvalData != nil {
+			if !b.segments[i].approvalData.resolved {
+				b.segments[i].approvalData.resolved = true
+				b.segments[i].approvalData.accepted = accepted
+				return
+			}
+		}
+	}
+	b.appendStyled(formatApprovalEvent(event), segmentApproval)
+}
+
+func (b *contentBuffer) appendDelegationEvent(event output.Event) {
+	b.finishStreaming()
+	b.appendStyled(formatDelegationEvent(event), segmentPlain)
+}
+
+func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
+	b.finishStreaming()
+	b.streamingPhase = "tool"
+	if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+		tc := &toolCallSegment{
+			tool:                     strings.ToLower(payload.Tool),
+			args:                     summarizeArgs(payload.Tool, payload.Arguments),
+			callID:                   payload.CallID,
+			collapsed:                true,
+			rawArgs:                  cloneToolArguments(payload.Arguments),
+			writeTargetExistedBefore: payload.WriteTargetExistedBefore,
+		}
+		b.segments = append(b.segments, contentSegment{
+			kind:     segmentToolCall,
+			toolData: tc,
+		})
+	} else {
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+	}
+}
+
+func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
+	b.finishStreaming()
+	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+		for i := len(b.segments) - 1; i >= 0; i-- {
+			if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
+				td := b.segments[i].toolData
+				if td.callID == "" || td.callID == payload.CallID {
+					td.body = payload.Result
+					td.hasError = payload.Error != ""
+					td.meta = "✅"
+					if td.hasError {
+						td.meta = "❌"
+					}
+					td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+					if td.preview.Kind != output.ToolPreviewKindPlain {
+						td.bodyKind = previewBodyKind(td.tool, td.preview)
+					} else {
+						td.bodyKind = inferBodyKind(td.tool, payload.Result)
+					}
+					break
+				}
+			}
+		}
+	} else {
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+	}
+}
+
+func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
+	b.finishStreaming()
+	b.appendLine(formatStopReasonEvent(event))
+}
+
+func (b *contentBuffer) appendAssistantMessageEvent(event output.Event) {
+	if b.inCompaction {
+		return
+	}
+	if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
+		b.finishStreaming()
+		b.appendMarkdownBlock(payload.Content)
+	}
+	b.hadChunks = false
+}
+
+func (b *contentBuffer) appendContextReportEvent(event output.Event) {
+	if payload, ok := event.Payload.(output.ContextReportEvent); ok && strings.TrimSpace(payload.Content) != "" {
+		b.finishStreaming()
+		b.appendMarkdownBlock(payload.Content)
+	}
+}
+
+func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
+	b.finishStreaming()
+	if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
+		switch payload.Kind {
+		case "compaction":
+			if payload.Severity == "compacting" {
+				b.segments = append(b.segments, contentSegment{
+					kind: segmentCompactionBanner,
+					compactionData: &compactionBannerData{
+						label:    "Compacting",
+						subtitle: "summarizing context",
+						finished: false,
+					},
+				})
+			} else {
+				msgCount := payload.CompactedMessages
+				var summary string
+				switch {
+				case payload.SummaryTitle != "":
+					summary = payload.SummaryTitle
+				case msgCount > 0:
+					summary = fmt.Sprintf("%d messages summarized into 1", msgCount)
+				case payload.CompactedTurns > 0:
+					summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
+				default:
+					summary = "context compacted"
+				}
+				b.segments = append(b.segments, contentSegment{
+					kind: segmentCompactionBanner,
+					compactionData: &compactionBannerData{
+						label:    "Context compacted",
+						subtitle: summary,
+						finished: true,
+						summary:  summary,
+						msgCount: msgCount,
+					},
+				})
+			}
+		case "session_health":
+			if b.inCompaction {
+				return
+			}
+			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
+		}
+	}
+}
+
+func (b *contentBuffer) appendUserInputEvent(event output.Event) {
+	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
+		b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
+		if len(b.segments)-1 >= 0 {
+			b.collapseState[len(b.segments)-1] = false
+		}
+	}
 }
 
 func (b *contentBuffer) AppendLine(line string) {
