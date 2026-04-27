@@ -36,81 +36,128 @@ func (b *contentBuffer) String(width int) string {
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentToolCall:
-		return b.renderToolCall(segment.toolData, width)
+		return b.renderToolCallSegment(segment, width)
 	case segmentAssistantMarkdown:
-		rendered := b.renderMarkdown(segment.text, width)
-		if strings.TrimSpace(rendered) != "" {
-			return strings.TrimRight(rendered, "\n") + "\n\n"
-		}
-		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
+		return b.renderAssistantMarkdownSegment(segment, width)
 	case segmentAssistantProse:
-		return b.styles.AssistantProse.Render(segment.text) + "\n\n"
+		return b.renderAssistantProseSegment(segment)
 	case segmentApproval:
-		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
+		return b.renderApprovalSegment(segment)
 	case segmentTool:
-		return b.styles.ToolBlock.Render(segment.text) + "\n"
+		return b.renderToolSegment(segment)
 	case segmentThinking:
-		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
+		return b.renderThinkingSegment(segment)
 	case segmentUser:
-		lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
-		contentWidth := width - 1
-		if contentWidth < 2 {
-			contentWidth = 2
-		}
-		bar := b.styles.UserBar.Render("│")
-		pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
-		var sb strings.Builder
-		sb.WriteString(pad + "\n")
-		textWidth := contentWidth - 3 // 2 left + 1 right padding
-		if textWidth < 1 {
-			textWidth = 1
-		}
-		for _, line := range lines {
-			// Wrap text at textWidth without bg to get visual lines, then render each with bg+indent
-			wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
-			for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
-				vl = strings.TrimRight(vl, " ")
-				content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
-				sb.WriteString(bar + content + "\n")
-			}
-		}
-		sb.WriteString(pad + "\n")
-		sb.WriteString("\n")
-		return sb.String()
+		return b.renderUserSegment(segment, width)
 	case segmentThinkingBlock:
-		if segment.thinkData == nil {
-			return ""
-		}
-		td := segment.thinkData
-		if td.collapsed {
-			runes := []rune(td.preview)
-			if len(runes) > 60 {
-				runes = runes[:60]
-			}
-			return b.styles.ThinkingBar.Render("▸ Thinking · "+string(runes)+"…") + "\n"
-		}
-		var sb strings.Builder
-		sb.WriteString(b.styles.ThinkingBar.Render("▾ Thinking") + "\n")
-		bar := b.styles.ThinkingBar.Render("▎")
-		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
-			sb.WriteString(bar + " " + b.styles.ThinkingBar.Render(line) + "\n")
-		}
-		return sb.String()
+		return b.renderThinkingBlockSegment(segment)
 	case segmentApprovalPill:
-		if segment.approvalData == nil {
-			return ""
-		}
-		return b.renderApprovalPill(segment.approvalData, width)
+		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		if segment.compactionData == nil {
-			return ""
-		}
-		return b.renderCompactionBanner(segment.compactionData, width)
+		return b.renderCompactionBannerSegment(segment, width)
 	case segmentInterrupted:
-		return b.styles.FgMute.Render("interrupted") + "\n\n"
+		return b.renderInterruptedSegment()
 	default:
-		return b.styles.AssistantProse.Render(segment.text) + "\n"
+		return b.renderDefaultSegment(segment)
 	}
+}
+
+func (b *contentBuffer) renderToolCallSegment(segment contentSegment, width int) string {
+	return b.renderToolCall(segment.toolData, width)
+}
+
+func (b *contentBuffer) renderAssistantMarkdownSegment(segment contentSegment, width int) string {
+	rendered := b.renderMarkdown(segment.text, width)
+	if strings.TrimSpace(rendered) != "" {
+		return strings.TrimRight(rendered, "\n") + "\n\n"
+	}
+	return b.styles.AssistantProse.Render(segment.text) + "\n\n"
+}
+
+func (b *contentBuffer) renderAssistantProseSegment(segment contentSegment) string {
+	return b.styles.AssistantProse.Render(segment.text) + "\n\n"
+}
+
+func (b *contentBuffer) renderApprovalSegment(segment contentSegment) string {
+	return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
+}
+
+func (b *contentBuffer) renderToolSegment(segment contentSegment) string {
+	return b.styles.ToolBlock.Render(segment.text) + "\n"
+}
+
+func (b *contentBuffer) renderThinkingSegment(segment contentSegment) string {
+	return b.styles.ThinkingBlock.Render(segment.text) + "\n"
+}
+
+func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) string {
+	lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+	contentWidth := width - 1
+	if contentWidth < 2 {
+		contentWidth = 2
+	}
+	bar := b.styles.UserBar.Render("│")
+	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+	var sb strings.Builder
+	sb.WriteString(pad + "\n")
+	textWidth := contentWidth - 3
+	if textWidth < 1 {
+		textWidth = 1
+	}
+	for _, line := range lines {
+		wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
+		for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
+			vl = strings.TrimRight(vl, " ")
+			content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
+			sb.WriteString(bar + content + "\n")
+		}
+	}
+	sb.WriteString(pad + "\n")
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) string {
+	if segment.thinkData == nil {
+		return ""
+	}
+	td := segment.thinkData
+	if td.collapsed {
+		runes := []rune(td.preview)
+		if len(runes) > 60 {
+			runes = runes[:60]
+		}
+		return b.styles.ThinkingBar.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+	}
+	var sb strings.Builder
+	sb.WriteString(b.styles.ThinkingBar.Render("▾ Thinking") + "\n")
+	bar := b.styles.ThinkingBar.Render("▎")
+	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+		sb.WriteString(bar + " " + b.styles.ThinkingBar.Render(line) + "\n")
+	}
+	return sb.String()
+}
+
+func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width int) string {
+	if segment.approvalData == nil {
+		return ""
+	}
+	return b.renderApprovalPill(segment.approvalData, width)
+}
+
+func (b *contentBuffer) renderCompactionBannerSegment(segment contentSegment, width int) string {
+	if segment.compactionData == nil {
+		return ""
+	}
+	return b.renderCompactionBanner(segment.compactionData, width)
+}
+
+func (b *contentBuffer) renderInterruptedSegment() string {
+	return b.styles.FgMute.Render("interrupted") + "\n\n"
+}
+
+func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
+	return b.styles.AssistantProse.Render(segment.text) + "\n"
 }
 
 func (b *contentBuffer) renderMarkdown(block string, width int) string {
