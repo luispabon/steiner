@@ -100,7 +100,7 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
 			Tool:     def,
 			Mode:     mode,
-			Input:    cloneInputMap(normalizedInput),
+			Input:    CloneJSONMap(normalizedInput),
 			WorkDir:  e.pathPolicy.Root(),
 			Preview:  preview,
 			Response: responseCh,
@@ -126,7 +126,7 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 		}
 	}
 
-	payload, err := json.Marshal(cloneInputMap(normalizedInput))
+	payload, err := json.Marshal(CloneJSONMap(normalizedInput))
 	if err != nil {
 		return nil, fmt.Errorf("marshal tool input for %q: %w", def.Name, err)
 	}
@@ -255,6 +255,11 @@ func outputDetails(metadata ExecutionMetadata) map[string]any {
 	return details
 }
 
+func isExitStatusError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
+}
+
 func normalizeExecutionRoot(workDir string) string {
 	if strings.TrimSpace(workDir) == "" {
 		return ""
@@ -264,37 +269,4 @@ func normalizeExecutionRoot(workDir string) string {
 		return filepath.Clean(workDir)
 	}
 	return filepath.Clean(root)
-}
-
-func cloneJSONValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneInputMap(v)
-	case []any:
-		cloned := make([]any, len(v))
-		for i, child := range v {
-			cloned[i] = cloneJSONValue(child)
-		}
-		return cloned
-	case json.RawMessage:
-		return append(json.RawMessage(nil), v...)
-	default:
-		return value
-	}
-}
-
-func isExitStatusError(err error) bool {
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr)
-}
-
-func cloneInputMap(input map[string]any) map[string]any {
-	if input == nil {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(input))
-	for key, value := range input {
-		cloned[key] = cloneJSONValue(value)
-	}
-	return cloned
 }

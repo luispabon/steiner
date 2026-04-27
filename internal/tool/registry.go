@@ -28,7 +28,7 @@ func NewRegistryFromConfig(cfg config.Config) *Registry {
 			ExecPath:        toolCfg.Exec,
 			Subcommand:      toolCfg.Subcommand,
 			Description:     toolCfg.Description,
-			ParameterSchema: cloneSchemaMap(toolCfg.Parameters),
+			ParameterSchema: CloneJSONMap(toolCfg.Parameters),
 			Timeout:         time.Duration(toolCfg.Timeout.Duration()),
 			Approval:        toolCfg.Approval,
 		})
@@ -88,6 +88,6 @@ func (r *Registry) OpenAISchemas() []map[string]any {
 }
 
 func cloneToolDef(def ToolDef) ToolDef {
-	def.ParameterSchema = cloneSchemaMap(def.ParameterSchema)
+	def.ParameterSchema = CloneJSONMap(def.ParameterSchema)
 	return def
 }
