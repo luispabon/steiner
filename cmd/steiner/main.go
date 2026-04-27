@@ -932,39 +932,13 @@ func toProviderConversation(messages []agent.Message) []provider.Message {
 				wire.ToolCalls = append(wire.ToolCalls, provider.ToolCall{
 					ID:        call.ID,
 					Name:      call.Name,
-					Arguments: cloneInput(call.Arguments),
+					Arguments: tool.CloneJSONMap(call.Arguments),
 				})
 			}
 		}
 		out = append(out, wire)
 	}
 	return out
-}
-
-func cloneInput(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(input))
-	for key, value := range input {
-		cloned[key] = cloneValue(value)
-	}
-	return cloned
-}
-
-func cloneValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneInput(v)
-	case []any:
-		out := make([]any, len(v))
-		for i := range v {
-			out[i] = cloneValue(v[i])
-		}
-		return out
-	default:
-		return value
-	}
 }
 
 func cloneOptionalInt(value *int) *int {
@@ -1076,7 +1050,7 @@ func schemaObject(properties ...map[string]any) map[string]any {
 		if name == "" {
 			continue
 		}
-		schema := cloneInput(property)
+		schema := tool.CloneJSONMap(property)
 		delete(schema, "_name")
 		delete(schema, "_required")
 		props[name] = schema
@@ -1129,7 +1103,7 @@ func registryToolSpecs(registry *tool.Registry) []provider.ToolSpec {
 			Function: provider.ToolFunctionSpec{
 				Name:        def.Name,
 				Description: def.Description,
-				Parameters:  cloneInput(def.ParameterSchema),
+				Parameters:  tool.CloneJSONMap(def.ParameterSchema),
 			},
 		})
 	}
