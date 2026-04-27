@@ -315,7 +315,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
 				continue
 			}
-			selected, err := resolveSelectedModel(runner.runtime.cfg)
+			selected, err := selectedModelConfig(runner.runtime.cfg)
 			if err != nil {
 				rt.events.Emit(output.Event{
 					Type:    output.EventTypeStopReason,
@@ -459,7 +459,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 
-	if _, err := resolveSelectedModel(cfg); err != nil {
+	if _, err := selectedModelConfig(cfg); err != nil {
 		return cliRuntime{}, err
 	}
 	httpClient := &http.Client{
@@ -571,7 +571,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	selected, err := resolveSelectedModel(r.runtime.cfg)
+	selected, err := selectedModelConfig(r.runtime.cfg)
 	if err != nil {
 		return runResult{}, err
 	}
@@ -696,13 +696,6 @@ func approvalReader(rt cliRuntime) *bufio.Reader {
 	return rt.sharedInput
 }
 
-func interactiveInput(rt cliRuntime) io.Reader {
-	if rt.stdin != nil {
-		return rt.stdin
-	}
-	return rt.sharedInput
-}
-
 func openApprovalInput(stdin io.Reader) (*bufio.Reader, func() error) {
 	file, ok := stdin.(*os.File)
 	if !ok || file != os.Stdin {
@@ -734,14 +727,6 @@ func joinClosers(closers ...func() error) func() error {
 		}
 		return firstErr
 	}
-}
-
-func resolveSelectedModel(cfg config.Config) (config.ModelConfig, error) {
-	model, err := selectedModelConfig(cfg)
-	if err != nil {
-		return config.ModelConfig{}, err
-	}
-	return model, nil
 }
 
 func selectedModelConfig(cfg config.Config) (config.ModelConfig, error) {

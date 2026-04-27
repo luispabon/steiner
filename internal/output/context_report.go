@@ -38,7 +38,7 @@ type contextReportItem struct {
 func NewContextReportEvent(content string) Event {
 	return Event{
 		Type:      EventTypeContextReport,
-		Timestamp: timeNowUTC(),
+		Timestamp: time.Now().UTC(),
 		Payload: ContextReportEvent{
 			Content: strings.TrimSpace(content),
 		},
@@ -368,8 +368,4 @@ func cloneOptionalInt(value *int) *int {
 	}
 	cloned := *value
 	return &cloned
-}
-
-func timeNowUTC() time.Time {
-	return time.Now().UTC()
 }

@@ -4,9 +4,6 @@ import "testing"
 
 func TestParseInputHandlesContextCommand(t *testing.T) {
 	action := parseInput("/context", nil)
-	if !action.handled {
-		t.Fatal("handled = false, want true")
-	}
 	if !action.inspectContext {
 		t.Fatal("inspectContext = false, want true")
 	}

@@ -5,7 +5,6 @@ import (
 )
 
 type inputAction struct {
-	handled        bool
 	quit           bool
 	clear          bool
 	compaction     bool
@@ -31,31 +30,31 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 
 	switch {
 	case trimmed == "/exit":
-		return inputAction{handled: true, quit: true}
+		return inputAction{quit: true}
 	case trimmed == "/clear":
-		return inputAction{handled: true, clear: true}
+		return inputAction{clear: true}
 	case trimmed == "/compact":
-		return inputAction{handled: true, compaction: true}
+		return inputAction{compaction: true}
 	case trimmed == "/context":
-		return inputAction{handled: true, inspectContext: true}
+		return inputAction{inspectContext: true}
 	case trimmed == "/skills":
-		return inputAction{handled: true, listSkills: true}
+		return inputAction{listSkills: true}
 	case trimmed == "/models":
-		return inputAction{handled: true, listModels: true}
+		return inputAction{listModels: true}
 	case trimmed == "/thinking":
-		return inputAction{handled: true, toggleThinking: true}
+		return inputAction{toggleThinking: true}
 	case strings.HasPrefix(trimmed, "/accent "):
 		preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "/accent "))
 		if preset == "" {
 			return inputAction{}
 		}
-		return inputAction{handled: true, setAccent: preset}
+		return inputAction{setAccent: preset}
 	case strings.HasPrefix(trimmed, "/model "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
 		if name == "" {
 			return inputAction{}
 		}
-		return inputAction{handled: true, switchModel: name}
+		return inputAction{switchModel: name}
 	case strings.HasPrefix(trimmed, "/skill "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill "))
 		enable := true
@@ -72,7 +71,6 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 			return inputAction{}
 		}
 		return inputAction{
-			handled:      true,
 			toggleSkill:  name,
 			toggleEnable: enable,
 		}

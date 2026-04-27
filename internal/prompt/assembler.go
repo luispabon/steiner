@@ -27,7 +27,6 @@ func newAssembler(opts AssemblyOptions) (Assembler, error) {
 func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	blocks := make([]ContextBlock, 0, 8)
 	messages := make([]provider.Message, 0, 8+len(a.opts.Conversation)+len(a.opts.ToolResults))
-	diagnostics := make([]AssemblyDiagnostic, 0, 4)
 	budgets := newBudgetTracker(a.policy.Budgets)
 
 	appendBlock := func(block ContextBlock) {
@@ -103,9 +102,8 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	}
 
 	return Assembly{
-		Messages:    messages,
-		Blocks:      blocks,
-		Diagnostics: diagnostics,
+		Messages: messages,
+		Blocks:   blocks,
 	}, nil
 }
 

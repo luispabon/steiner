@@ -39,15 +39,15 @@ type paletteClearMsg struct{}
 type historyLoadedMsg struct{ prompts []string }
 
 type Model struct {
-	width                        int
-	height                       int
-	viewport                     viewport.Model
-	input                        textarea.Model
-	content                      contentBuffer
-	status                       statusState
-	sidebar                      sidebarState
-	git                          *gitState
-	keys                         keyMap
+	width    int
+	height   int
+	viewport viewport.Model
+	input    textarea.Model
+	content  contentBuffer
+	status   statusState
+	sidebar  sidebarState
+	git      *gitState
+
 	approval                     approvalState
 	external                     <-chan tea.Msg
 	autoScroll                   bool
@@ -131,13 +131,13 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	}
 
 	m := Model{
-		width:            80,
-		height:           24,
-		viewport:         viewport.New(80, 22),
-		input:            input,
-		sidebar:          newSidebarState(),
-		git:              newGitState(cfg.WorkingDir),
-		keys:             defaultKeyMap(),
+		width:    80,
+		height:   24,
+		viewport: viewport.New(80, 22),
+		input:    input,
+		sidebar:  newSidebarState(),
+		git:      newGitState(cfg.WorkingDir),
+
 		external:         external,
 		autoScroll:       true,
 		skillNames:       append([]string(nil), cfg.SkillNames...),
@@ -492,7 +492,7 @@ func (m Model) View() string {
 	if m.input.Focused() && m.content.streamingPhase == "" {
 		inputView = m.styles.InputFocusBorder.Width(contentWidth - 2).Render(inputView)
 	}
-	statusView := m.status.view(contentWidth, m.keys.hints(m.approval.active))
+	statusView := m.status.view(contentWidth)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left,
 		viewportView,

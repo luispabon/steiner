@@ -20,7 +20,7 @@ type statusState struct {
 	contextBudget int
 }
 
-func (s statusState) view(width int, hints string) string {
+func (s statusState) view(width int) string {
 	sep := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(" │ ")
 
 	var parts []string
