@@ -1126,7 +1126,7 @@ func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []
 }
 
 func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) string {
-	added, removed := countPreviewChanges(doc)
+	added, removed := output.CountPreviewChanges(doc)
 	addedStr := fmt.Sprintf("+%d", added)
 	removedStr := fmt.Sprintf("-%d", removed)
 	plainTagStyled := b.styles.ToolTagWrite.Render(" [edit] ")
@@ -1254,20 +1254,6 @@ func (b *contentBuffer) previewTokenStyle(token chroma.TokenType) lipgloss.Style
 	default:
 		return b.baseTextStyle()
 	}
-}
-
-func countPreviewChanges(doc output.PreviewDocument) (int, int) {
-	added := 0
-	removed := 0
-	for _, line := range doc.Lines {
-		switch line.Kind {
-		case output.PreviewLineKindAdded:
-			added++
-		case output.PreviewLineKindRemoved:
-			removed++
-		}
-	}
-	return added, removed
 }
 
 func cloneToolArguments(arguments map[string]any) map[string]any {

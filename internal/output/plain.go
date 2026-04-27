@@ -274,7 +274,7 @@ func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
 		}
 		return fmt.Sprintf("%s · %d lines", label, previewDocumentLineCount(doc))
 	case PreviewFormatKindEditDiff:
-		added, removed := countPreviewChanges(doc)
+		added, removed := CountPreviewChanges(doc)
 		label := "edit diff"
 		if doc.Path != "" {
 			return fmt.Sprintf("%s · %s · +%d/-%d", doc.Path, label, added, removed)
@@ -294,18 +294,6 @@ func previewDocumentLineCount(doc PreviewDocument) int {
 		}
 	}
 	return count
-}
-
-func countPreviewChanges(doc PreviewDocument) (added, removed int) {
-	for _, line := range doc.Lines {
-		switch line.Kind {
-		case PreviewLineKindAdded:
-			added++
-		case PreviewLineKindRemoved:
-			removed++
-		}
-	}
-	return added, removed
 }
 
 func renderPreviewLineText(line PreviewLine) string {

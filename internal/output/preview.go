@@ -123,3 +123,15 @@ func previewLanguage(path string) string {
 		return ext
 	}
 }
+
+func CountPreviewChanges(doc PreviewDocument) (adds, removes int) {
+	for _, line := range doc.Lines {
+		switch line.Kind {
+		case PreviewLineKindAdded:
+			adds++
+		case PreviewLineKindRemoved:
+			removes++
+		}
+	}
+	return adds, removes
+}
