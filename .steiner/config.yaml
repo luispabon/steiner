@@ -23,10 +23,10 @@ models:
         context_size: 98304
 
         # Qwen's thinking is really verbose, but needed on this particular model for coding
-        max_completion_tokens: 6144
+        max_completion_tokens: 8192
         compaction:
             safety_margin_tokens: 16384
-            summary_max_tokens: 4096
+            summary_max_tokens: 8192
 
     gemma4:
         type: openai_compat
