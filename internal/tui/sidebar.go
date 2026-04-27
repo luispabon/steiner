@@ -173,7 +173,7 @@ func (s sidebarState) brandRow(width int) string {
 	content := mark + " " + name + strings.Repeat(" ", pad) + ver
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(theme.AccentAmber)).
+		BorderForeground(s.styles.AccentColor).
 		Padding(0, 1, 0, 0).
 		Render(content)
 }

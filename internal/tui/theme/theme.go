@@ -76,8 +76,9 @@ type Styles struct {
 	FgMute  lipgloss.Style
 
 	// Computed from accent
-	AccentSoft lipgloss.Style // soft accent fill
-	AccentLine lipgloss.Style // accent border color
+	AccentSoft  lipgloss.Style // soft accent fill
+	AccentLine  lipgloss.Style // accent border color
+	AccentColor lipgloss.Color // accent color as raw color value
 
 	// Status bar key chip
 	KeyChip lipgloss.Style
@@ -153,8 +154,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		FgFaint: lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		FgMute:  lipgloss.NewStyle().Foreground(lipgloss.Color(FgMute)),
 
-		AccentSoft: lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
-		AccentLine: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+		AccentSoft:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentSoft)),
+		AccentLine:     lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
+		AccentColor:    lipgloss.Color(accentHex),
 
 		Accent:       lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 		AccentBg:     lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
