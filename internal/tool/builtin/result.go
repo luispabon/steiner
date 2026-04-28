@@ -1,5 +1,11 @@
 package builtin
 
+import (
+	"strings"
+
+	"github.com/deepnoodle-ai/dive"
+)
+
 // Result is a generic tool result.
 type Result struct {
 	Output     string `json:"output"`
@@ -30,4 +36,22 @@ type GrepResult struct {
 type MutationResult struct {
 	Path   string `json:"path"`
 	Output string `json:"output"`
+}
+
+// diveText flattens a Dive ToolResult into a single text string by combining
+// the Display field and all Content[].Text fields.
+func diveText(res *dive.ToolResult) string {
+	var b strings.Builder
+	if res.Display != "" {
+		b.WriteString(res.Display)
+	}
+	for _, c := range res.Content {
+		if c.Text != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(c.Text)
+		}
+	}
+	return b.String()
 }
