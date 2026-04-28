@@ -487,3 +487,30 @@ func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 		t.Fatal("expected file picker to stay closed on non-@")
 	}
 }
+
+func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
+	m := newModel(Config{WorkingDir: ".", Model: "test-model"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.sidebar.expanded = true
+
+	if !m.sidebar.Visible(m.width) {
+		t.Fatal("sidebar should be visible at width 120")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	if !m.filePicker.open {
+		t.Fatal("expected file picker to open after @")
+	}
+
+	view := m.View()
+
+	if !strings.Contains(view, "CONTEXT") {
+		t.Fatal("expected sidebar CONTEXT label to survive file picker overlay")
+	}
+	if !strings.Contains(view, "steiner") {
+		t.Fatal("expected sidebar brand name to survive file picker overlay")
+	}
+	if !strings.Contains(view, "test-model") {
+		t.Fatal("expected sidebar model name to survive file picker overlay")
+	}
+}

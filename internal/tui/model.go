@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -376,7 +377,10 @@ func (m Model) View() string {
 		}
 
 		for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
-			baseLines[startY+i] = olLines[i]
+			idx := startY + i
+			olWidth := lipgloss.Width(olLines[i])
+			baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
+			baseLines[idx] = olLines[i] + baseRight
 		}
 		base = strings.Join(baseLines, "\n")
 	}
