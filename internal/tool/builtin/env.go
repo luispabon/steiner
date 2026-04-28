@@ -6,4 +6,5 @@ import "github.com/luispabon/steiner/internal/tool"
 type Env struct {
 	WorkDir    string
 	PathPolicy *tool.PathPolicy
+	Excluder   *tool.PathExcluder
 }

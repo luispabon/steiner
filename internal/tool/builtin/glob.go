@@ -3,17 +3,18 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewGlobTool creates a ToolDef for the glob tool backed by Dive's GlobTool.
+// NewGlobTool creates a ToolDef for the glob tool backed by a custom
+// filepath.WalkDir-based walker that respects path exclusions.
 func NewGlobTool(env Env) tool.ToolDef {
-	globTool := toolkit.NewGlobTool()
 	return tool.ToolDef{
 		Name:            "glob",
 		Description:     "Find files by glob pattern. Use limit and offset to page through large result sets.",
@@ -41,30 +42,15 @@ func NewGlobTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			diveInput := &toolkit.GlobInput{
-				Pattern: in.Pattern,
-				Path:    absPath,
+			excluder := tool.PathExcluder{}
+			if env.Excluder != nil {
+				excluder = *env.Excluder
 			}
 
-			diveResult, err := globTool.Call(ctx, diveInput)
+			allFiles, err := globWalk(absPath, in.Pattern, excluder, env.PathPolicy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
-
-			if diveResult.IsError {
-				return &Result{
-					Output: diveText(diveResult),
-				}, nil
-			}
-
-			outputText := strings.TrimSpace(diveText(diveResult))
-
-			var allFiles []string
-			if outputText != "" {
-				allFiles = strings.Split(outputText, "\n")
-			}
-
-			sort.Strings(allFiles)
 
 			total := len(allFiles)
 			start := in.Offset
@@ -89,4 +75,55 @@ func NewGlobTool(env Env) tool.ToolDef {
 			return result, nil
 		},
 	}
+}
+
+// globWalk walks the directory tree rooted at root and returns all files
+// whose base name matches pattern. Excluded directories are not traversed.
+// Each matched path is validated through PathPolicy before being included.
+// The returned paths are relative to root and sorted alphabetically.
+func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.PathPolicy) ([]string, error) {
+	var matches []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return filepath.SkipDir
+		}
+
+		if excluder.ShouldExclude(path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		matched, err := filepath.Match(pattern, d.Name())
+		if err != nil {
+			return err
+		}
+		if !matched {
+			return nil
+		}
+
+		_, err = policy.ResolvePath(path, false)
+		if err != nil {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		matches = append(matches, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(matches)
+	return matches, nil
 }

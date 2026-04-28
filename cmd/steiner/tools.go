@@ -11,9 +11,11 @@ import (
 
 func coreToolDefinitions(cfg config.Config, execPath string) []tool.ToolDef {
 	pp := tool.NewPathPolicy(filepath.Dir(execPath), cfg.Paths)
+	excluder := tool.NewPathExcluder(cfg.Paths.ExcludePaths, cfg.Paths.ExcludePatterns)
 	env := builtin.Env{
 		WorkDir:    filepath.Dir(execPath),
 		PathPolicy: &pp,
+		Excluder:   &excluder,
 	}
 	return builtin.Builtins(env)
 }
