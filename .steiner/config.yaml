@@ -26,25 +26,30 @@ models:
         # Qwen's thinking is really verbose, but needed on this particular model for coding
         max_completion_tokens: 8192
         compaction:
-            safety_margin_tokens: 16384
+            safety_margin_tokens: 24000
             summary_max_tokens: 8192
 
     gemma4:
         type: openai_compat
         base_url: http://localhost:1234/v1
         model: gemma-4-26b-a4b-it@iq4_nl
-        # context_size: 16400
-        # max_completion_tokens: 4096
-        # compaction:
-        #     safety_margin_tokens: 4096
-        #     summary_max_tokens: 4096
         context_size: 32768
         max_completion_tokens: 4096
         compaction:
             safety_margin_tokens: 4096
             summary_max_tokens: 4096
 
-    openrouter_free:
+    gemma-4-e4b-it:
+        type: openai_compat
+        base_url: http://localhost:1234/v1
+        model: gemma-4-e4b-it
+        context_size: 131072
+        max_completion_tokens: 8192
+        compaction:
+            safety_margin_tokens: 32768
+            summary_max_tokens: 8192
+
+    openroute/free:
         type: openai_compat
         base_url: https://openrouter.ai/api/v1/
         model: openrouter/free
