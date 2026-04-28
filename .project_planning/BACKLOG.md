@@ -22,116 +22,11 @@ Tickets derived from `docs/IDEAS.md`. Each ticket has a unique ID, title, descri
 
 ## Immediate
 
-### T001 — Remove "thinking_chunk" from app logs by default
-
-**Area:** Logging  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-"thinking_chunk" appears in app logs by default. Add a config flag to control it, disabled by default.
-
-#### Acceptance Criteria
-- [ ] Add `logging.thinking_chunk` config flag (BOOL)
-- [ ] Default value is `false`
-- [ ] When `false`, "thinking_chunk" is not emitted to logs
-- [ ] When `true`, "thinking_chunk" is logged as before
-
----
-
-### T002 — Move system prompt out of code into config
-
-**Area:** Configuration / Prompting  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-The system prompt is currently embedded in `internal/prompt/system.go`. Move it to a config file so users can customise it per-model.
-
-#### Acceptance Criteria
-- [ ] System prompt is no longer embedded in `internal/prompt/system.go`
-- [ ] Prompt text is loaded from a config file
-- [ ] Config supports per-model override
-- [ ] Falls back to the current default when no config is provided
-
----
-
-### T003 — Move other hardcoded model prompts into config
-
-**Area:** Configuration / Prompting  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-Search for other hardcoded model prompts (e.g. compaction prompts) and move them into the config system so they can be overridden per-model.
-
-#### Acceptance Criteria
-- [ ] All hardcoded model prompts are identified
-- [ ] Each is moved into the config system
-- [ ] Per-model override is supported for each
-- [ ] Fallback to current defaults when no override is provided
-
----
-
-### T004 — List files in folder/subfolders bypassing the agent
-
-**Area:** UX / Navigation  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-Allow the user to list files in the current folder or subfolders without invoking the agent.
-
-#### Acceptance Criteria
-- [ ] New keybind or command lists files in the current folder
-- [ ] Supports recursive listing into subfolders
-- [ ] Does not invoke the agent / model
-
----
-
-### T005 — File auto-completion via @
-
-**Area:** UX / Input  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-Allow the user to type `@` in the prompt to trigger auto-completion of files on the filesystem relative to the project root.
-
-#### Acceptance Criteria
-- [ ] Typing `@` in the input triggers a file picker / auto-complete menu
-- [ ] Menu lists files relative to the project root
-- [ ] Supports filtering as the user types
-- [ ] Selecting a file inserts the file path into the prompt
-
----
-
-### T006 — Conversation pane scrollbar
-
-**Area:** UI  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-The conversation pane needs a scrollbar so the user can scroll through long conversations.
-
-#### Acceptance Criteria
-- [ ] Conversation pane scrolls when content exceeds visible area
-- [ ] Scrollbar is visible or behaviour is obvious to the user
-
----
-
 ### T007 — Enable text selection in the TUI
 
-**Area:** UI  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UI
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -141,22 +36,6 @@ Currently the user cannot select text with the mouse. Investigate and fix so tha
 - [ ] User can click-and-drag to select text in the TUI
 - [ ] Selected text can be copied (e.g. via Ctrl+C or clipboard binding)
 
----
-
-### T008 — Tool path blacklist
-
-**Area:** Tools / Safety  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** High
-
-#### Description
-Traversal tools (SEARCH, GLOB) should support a blacklist of paths to avoid.
-
-#### Acceptance Criteria
-- [ ] Config option defines paths to exclude from SEARCH and GLOB
-- [ ] Excluded paths are not returned by SEARCH or GLOB
-- [ ] Blacklist supports glob patterns or exact paths
 
 ---
 
@@ -164,9 +43,9 @@ Traversal tools (SEARCH, GLOB) should support a blacklist of paths to avoid.
 
 ### T009 — Implement approvals using huh
 
-**Area:** UX / Tool Safety  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UX / Tool Safety
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -179,28 +58,12 @@ Use https://github.com/charmbracelet/huh to implement tool approval prompts. Als
 
 ---
 
-### T010 — Evaluate dive tools
-
-**Area:** Tools  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** Medium
-
-#### Description
-Look at tools provided by https://github.com/deepnoodle-ai/dive and consider replacing steiner's tools with those.
-
-#### Acceptance Criteria
-- [ ] dive tools are evaluated
-- [ ] Decision documented: replace, augment, or defer
-- [ ] If replacing, steiner's tools are swapped and tests pass
-
----
 
 ### T011 — Exit confirmation on Ctrl+D / Ctrl+C
 
-**Area:** UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UX
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -215,9 +78,9 @@ When pressing Ctrl+D or Ctrl+C a second time, show a status message or modal ask
 
 ### T012 — --exec mode no streaming by default
 
-**Area:** CLI / UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** CLI / UX
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -233,9 +96,9 @@ The `--exec` mode should not stream responses by default. Add a `--enable-stream
 
 ### T013 — Apply glamour to user prompts
 
-**Area:** UI / Markdown  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UI / Markdown
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -251,9 +114,9 @@ Apply glamour markdown rendering to user prompts for better readability.
 
 ### T014 — Native context-mode integration
 
-**Area:** Integration  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Integration
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -266,9 +129,9 @@ Natively integrate steiner with context-mode.
 
 ### T015 — Integrate with rtk
 
-**Area:** Integration  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Integration
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -281,9 +144,9 @@ Integrate steiner with rtk.
 
 ### T016 — Configurable skills folder(s) location
 
-**Area:** Configuration  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Configuration
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -298,9 +161,9 @@ Allow the user to configure the location(s) of skills folders.
 
 ### T017 — Built-in commands for coding loop
 
-**Area:** UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UX
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -313,9 +176,9 @@ Provide built-in commands that support the coding loop workflow.
 
 ### T018 — Delegation deferrals
 
-**Area:** Delegation  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Delegation
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -331,9 +194,9 @@ Implement delegation deferrals: background mode, re-promptable sessions, `touche
 
 ### T019 — Command sandboxing
 
-**Area:** Safety  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Safety
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -348,9 +211,9 @@ Add sandboxing for commands (e.g. bubblewrap, socat) similar to Claude and Codex
 
 ### T020 — Tool to display file to user without model reading it
 
-**Area:** Tools / UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Tools / UX
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -365,9 +228,9 @@ Add a tool that lets the model request the agent to display a file to the user w
 
 ### T021 — /context as overlay modal
 
-**Area:** UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UX
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -382,9 +245,9 @@ Make the `/context` command behave like the `?` keybind — open an overlay moda
 
 ### T022 — Session persistence and resuming
 
-**Area:** Persistence  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Persistence
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -399,9 +262,9 @@ Implement session persistence and the ability to resume sessions.
 
 ### T023 — Chat, plan, and build modes
 
-**Area:** UX / Modes  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** UX / Modes
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -416,9 +279,9 @@ Add "chat", "plan", and "build" modes. Investigate implementation via system pro
 
 ### T024 — Re-implement core using dive
 
-**Area:** Architecture  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Architecture
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Low
 
 #### Description
@@ -434,9 +297,9 @@ Consider re-implementing core functionality using https://github.com/deepnoodle-
 
 ### T025 — ESC does not stop streaming or cancel conversation
 
-**Area:** Bug / Prompt  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Prompt
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -450,9 +313,9 @@ Pressing ESC does not stop the current streaming response or cancel the conversa
 
 ### T026 — Tool approvals broken during streaming
 
-**Area:** Bug / Tool Safety  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Tool Safety
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -467,9 +330,9 @@ Tool approvals don't work, presumably because input is inhibited during streamin
 
 ### T027 — Ctrl+C does not work during active conversation
 
-**Area:** Bug / Prompt  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Prompt
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -483,9 +346,9 @@ Ctrl+C doesn't work during an active conversation, possibly the same root cause 
 
 ### T028 — Shift+Enter does not work
 
-**Area:** Bug / Input  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Input
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -498,9 +361,9 @@ Shift+Enter does not insert a newline in the prompt.
 
 ### T029 — Minus symbol causes visual line break in prompt
 
-**Area:** Bug / Input  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Input
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -515,9 +378,9 @@ Typing a minus `-` symbol makes the prompt wrap to the next line visually, thoug
 
 ### T030 — High CPU usage during streaming
 
-**Area:** Bug / Performance  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Performance
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -531,9 +394,9 @@ Steiner uses substantial CPU during streaming. When responses stream for a long 
 
 ### T031 — Compaction progress bar never finishes
 
-**Area:** Bug / UI  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / UI
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -550,9 +413,9 @@ The "Compacting summarizing context" progress bar never stops even after compact
 
 ### T032 — Model host does not change when switching models
 
-**Area:** Bug / Sidebar  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Sidebar
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -566,9 +429,9 @@ When switching models via `/model blah`, the host for the new active model doesn
 
 ### T033 — Modified files never update after application loads
 
-**Area:** Bug / Sidebar  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Sidebar
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -585,9 +448,9 @@ The modified files list in the sidebar never updates after the application loads
 
 ### T034 — Full compaction result lost on second API request
 
-**Area:** Bug / Compaction  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Compaction
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -606,9 +469,9 @@ Questions:
 
 ### T035 — Compaction can break with large tool call responses
 
-**Area:** Bug / Compaction / Safety  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Compaction / Safety
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** High
 
 #### Description
@@ -625,9 +488,9 @@ Compaction can break if a tool call results in a lot of data being dumped into t
 
 ### T036 — Tool path exclusion not enforced
 
-**Area:** Bug / Tools  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Tools
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -644,9 +507,9 @@ Ensure that certain directories and files can be excluded from tools, particular
 
 ### T037 — Markdown view rendering is garbled
 
-**Area:** Bug / Markdown  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
+**Area:** Bug / Markdown
+**Source:** docs/IDEAS.md
+**Status:** Not started
 **Priority:** Medium
 
 #### Description
@@ -660,51 +523,3 @@ Markdown rendering looks garbled — code blocks with YAML look fine during stre
 ---
 
 ## Implementing
-
-### T038 — Colourised diff on file modification
-
-**Area:** Feature / UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** Low
-
-#### Description
-When modifying a file, steiner should show a colourised diff of the change. This should be entirely agent-side (not involving the model) with syntax highlighting appropriate to the file type.
-
-#### Acceptance Criteria
-- [ ] File modifications show a colourised diff in the TUI
-- [ ] Diff is generated agent-side without model involvement
-- [ ] Syntax highlighting is applied based on file type
-
----
-
-### T039 — Syntax-highlighted display of new files
-
-**Area:** Feature / UX  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** Low
-
-#### Description
-When writing a whole new file, steiner should display the file with syntax highlighting appropriate to the file type.
-
-#### Acceptance Criteria
-- [ ] New files are displayed in the TUI with syntax highlighting
-- [ ] Highlighting is appropriate to the file's language / format
-
----
-
-### T040 — Evaluate existing TUI libraries for diff/highlight support
-
-**Area:** Investigation  
-**Source:** docs/IDEAS.md  
-**Status:** Not started  
-**Priority:** Low
-
-#### Description
-Investigate whether glamour or any of the other TUI libraries already support colourised diffs and syntax highlighting, or if a new dependency is needed.
-
-#### Acceptance Criteria
-- [ ] Survey of existing dependencies is documented
-- [ ] Decision: use existing library, add new dependency, or build custom
-- [ ] Chosen approach is feasible within the project's constraints
