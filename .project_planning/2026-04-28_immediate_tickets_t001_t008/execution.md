@@ -22,7 +22,7 @@ Loaded from `overview.md`.
 
 | Step | Status | Notes |
 |------|--------|-------|
-| stage-1-step-1 | running | Config types update |
+| stage-1-step-1 | implemented | Config types update — 167 tests pass, go vet clean |
 | stage-1-step-2 | pending | Consumer updates |
 | stage-2-step-1 | pending | ThinkingChunk toggle |
 | stage-3-step-1 | pending | Path exclusion config + PathExcluder |
@@ -40,7 +40,7 @@ Step scheduling complete. Ready to begin implementation.
 
 | Step | Model | Worktree | Branch | Merged | Closed |
 |------|-------|----------|--------|--------|--------|
-| — | — | — | — | — | — |
+| stage-1-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-1-step-1 | tmp/stage-1-step-1 | Yes | Yes |
 
 ## Verification Runs
 
