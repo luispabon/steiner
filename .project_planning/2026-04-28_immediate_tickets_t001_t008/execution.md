@@ -27,8 +27,8 @@ Loaded from `overview.md`.
 | stage-2-step-1 | implemented | ThinkingChunk toggle — config + output tests pass, no deviations |
 | stage-3-step-1 | implemented | Path exclusion config + PathExcluder — config + tool tests pass, no deviations |
 | stage-3-step-2 | implemented | Custom glob walker — 212 builtin tests pass, build + vet clean |
-| fix-glob-pattern-001 | running | Fix glob pattern matching regression — switch to gobwas/glob for full-path matching |
-| stage-3-step-3 | running | Custom grep walker — approach revised after exploration (copy Dive core + integrate PathExcluder) |
+| fix-glob-pattern-001 | implemented | Fix glob pattern matching regression — switched to gobwas/glob for full-path matching, added early-termination cap, updated schema descriptions |
+| stage-3-step-3 | implemented | Custom grep walker — copied Dive core (Apache 2.0), stripped boilerplate, integrated PathExcluder — 834 tests pass |
 | stage-4-step-1 | pending | Conversation scrollbar |
 | stage-5-step-1 | pending | /ls overlay |
 | stage-6-step-1 | pending | @ file picker |
@@ -46,18 +46,23 @@ Step scheduling complete. Ready to begin implementation.
 | stage-2-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-2-step-1 | tmp/stage-2-step-1 | Yes | Yes |
 | stage-3-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-3-step-1 | tmp/stage-3-step-1 | Yes | Yes |
 | stage-3-step-2 | kimi-k2.6 (same tier) | .worktrees/stage-3-step-2 | tmp/stage-3-step-2 | Yes | Yes |
+| fix-glob-pattern-001 | kimi-k2.6 (same tier) | .worktrees/fix-glob-pattern-001 | tmp/fix-glob-pattern-001 | Yes | Yes |
+| stage-3-step-3 (grep-exclusions) | kimi-k2.6 (same tier) | .worktrees/grep-exclusions | tmp/grep-exclusions | Yes | Yes |
 
 ## Verification Runs
 
 | Run | Trigger | Commands | Result | Notes |
 |-----|---------|----------|--------|-------|
-| — | — | — | — | — |
+| 001 | post-stage-3 | go test ./... | 838 passed in 15 packages | All tool tests pass including new glob + grep exclusion tests |
+| 002 | post-stage-3 | go vet ./... | clean | No issues |
+| 003 | post-stage-3 | go build ./... | success | All packages compile |
+| 004 | post-stage-3 | make build-binaries | success | Binary built |
 
 ## Fix Plans
 
 | Pass | File | Result |
 |------|------|--------|
-| — | — | — |
+| fix-glob-pattern-001 | fix_plan_glob_pattern_001.md | Fixed — gobwas/glob full-path matching + early-termination cap + schema description updates |
 
 ## Manual Verification
 
