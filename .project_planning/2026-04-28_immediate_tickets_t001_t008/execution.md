@@ -23,7 +23,7 @@ Loaded from `overview.md`.
 | Step | Status | Notes |
 |------|--------|-------|
 | stage-1-step-1 | implemented | Config types update — 167 tests pass, go vet clean |
-| stage-1-step-2 | running | Consumer updates |
+| stage-1-step-2 | implemented | Consumer updates — 785 tests pass, build + vet clean |
 | stage-2-step-1 | pending | ThinkingChunk toggle |
 | stage-3-step-1 | pending | Path exclusion config + PathExcluder |
 | stage-3-step-2 | pending | Custom glob walker |
@@ -41,6 +41,7 @@ Step scheduling complete. Ready to begin implementation.
 | Step | Model | Worktree | Branch | Merged | Closed |
 |------|-------|----------|--------|--------|--------|
 | stage-1-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-1-step-1 | tmp/stage-1-step-1 | Yes | Yes |
+| stage-1-step-2 | kimi-k2.6 (same tier) | .worktrees/stage-1-step-2 | tmp/stage-1-step-2 | Yes | Yes |
 
 ## Verification Runs
 
@@ -62,7 +63,7 @@ Step scheduling complete. Ready to begin implementation.
 
 ## Blockers / Deviations
 
-None yet.
+- **stage-1-step-2 deviation**: Sub-agent discovered that `stage-1-step-1` left `configPatch.Model` as `*modelPatch`, which cannot decode YAML scalar strings like `model: alias`. Fixed by adding `ModelAlias string` to `configPatch` and handling alias resolution in `readConfigPatch` before decoding with `KnownFields`. This is a necessary backward-compatibility fix within the planned scope.
 
 ## Final Handoff State
 
