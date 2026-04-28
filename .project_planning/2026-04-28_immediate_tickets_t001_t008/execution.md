@@ -25,7 +25,7 @@ Loaded from `overview.md`.
 | stage-1-step-1 | implemented | Config types update — 167 tests pass, go vet clean |
 | stage-1-step-2 | implemented | Consumer updates — 785 tests pass, build + vet clean |
 | stage-2-step-1 | implemented | ThinkingChunk toggle — config + output tests pass, no deviations |
-| stage-3-step-1 | pending | Path exclusion config + PathExcluder |
+| stage-3-step-1 | running | Path exclusion config + PathExcluder |
 | stage-3-step-2 | pending | Custom glob walker |
 | stage-3-step-3 | pending | Custom grep walker |
 | stage-4-step-1 | pending | Conversation scrollbar |
