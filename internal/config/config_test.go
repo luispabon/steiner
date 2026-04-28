@@ -780,6 +780,11 @@ func TestNormalizePaths(t *testing.T) {
 			want: Config{Paths: PathsConfig{BlockedPaths: []string{"/home/user/blocked"}}},
 		},
 		{
+			name: "expands tilde in exclude paths",
+			cfg:  Config{Paths: PathsConfig{ExcludePaths: []string{"~/secret"}}},
+			want: Config{Paths: PathsConfig{ExcludePaths: []string{"/home/user/secret"}}},
+		},
+		{
 			name: "expands tilde in tool exec",
 			cfg:  Config{Tools: map[string]ToolConfig{"test": {Exec: "~/bin/tool"}}},
 			want: Config{Tools: map[string]ToolConfig{"test": {Exec: "/home/user/bin/tool"}}},

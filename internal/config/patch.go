@@ -83,6 +83,8 @@ type pathsPatch struct {
 	ProjectRootOnly *bool     `yaml:"project_root_only"`
 	WritablePaths   *[]string `yaml:"writable_paths"`
 	BlockedPaths    *[]string `yaml:"blocked_paths"`
+	ExcludePaths    *[]string `yaml:"exclude_paths"`
+	ExcludePatterns *[]string `yaml:"exclude_patterns"`
 }
 
 type loggingPatch struct {
@@ -302,6 +304,12 @@ func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
 	}
 	if patch.BlockedPaths != nil {
 		dst.BlockedPaths = append([]string(nil), (*patch.BlockedPaths)...)
+	}
+	if patch.ExcludePaths != nil {
+		dst.ExcludePaths = append([]string(nil), (*patch.ExcludePaths)...)
+	}
+	if patch.ExcludePatterns != nil {
+		dst.ExcludePatterns = append([]string(nil), (*patch.ExcludePatterns)...)
 	}
 }
 
