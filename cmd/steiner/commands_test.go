@@ -64,8 +64,8 @@ models:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Model != "test" {
-		t.Fatalf("model = %q, want test", got.Model)
+	if got.Model.Model != "test-model" {
+		t.Fatalf("model.Model = %q, want test-model", got.Model.Model)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())

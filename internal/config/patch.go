@@ -4,6 +4,7 @@ package config
 type configPatch struct {
 	Scheduler      *schedulerPatch        `yaml:"scheduler"`
 	Model          *modelPatch            `yaml:"model"`
+	ModelAlias     string                 `yaml:"-"` // populated when model is a scalar alias string
 	Models         *map[string]modelPatch `yaml:"models"`
 	Limits         *limitsPatch           `yaml:"limits"`
 	Approval       *approvalPatch         `yaml:"approval"`
@@ -95,9 +96,6 @@ func applyPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
 	}
-	if patch.Model != nil {
-		applyModelPatch(&cfg.Model, patch.Model)
-	}
 	if patch.Models != nil {
 		if cfg.Models == nil {
 			cfg.Models = make(map[string]ModelConfig)
@@ -107,6 +105,14 @@ func applyPatch(cfg *Config, patch configPatch) {
 			applyModelPatch(&current, &model)
 			cfg.Models[name] = current
 		}
+	}
+	if patch.ModelAlias != "" {
+		if m, ok := cfg.Models[patch.ModelAlias]; ok {
+			cfg.Model = m
+		}
+	}
+	if patch.Model != nil {
+		applyModelPatch(&cfg.Model, patch.Model)
 	}
 	if patch.Limits != nil {
 		applyLimitsPatch(&cfg.Limits, patch.Limits)

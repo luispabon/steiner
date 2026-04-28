@@ -45,10 +45,14 @@ Tool guidance:
 - Use bash only when a command is more reliable than file tools.
 - Paginate large read/grep/glob/ls outputs with offset.`
 
-func SystemPreamble() ContextBlock {
+func SystemPreamble(override string) ContextBlock {
+	content := strings.TrimSpace(defaultSystemPreamble)
+	if override != "" {
+		content = override
+	}
 	return ContextBlock{
 		Source:   ContextSourcePreamble,
-		Content:  strings.TrimSpace(defaultSystemPreamble),
-		ByteSize: len(strings.TrimSpace(defaultSystemPreamble)),
+		Content:  content,
+		ByteSize: len(content),
 	}
 }

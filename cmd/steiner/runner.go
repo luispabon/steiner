@@ -62,6 +62,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		SkillsRoot:                prompt.DefaultSkillsRoot(r.runtime.homeDir),
 		SkillNames:                append([]string(nil), skillNames...),
 		ModelBudget:               modelBudget,
+		PromptOverrides:           selected.Prompts,
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),

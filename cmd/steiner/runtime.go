@@ -33,7 +33,7 @@ type cliFlags struct {
 type cliRuntime struct {
 	cfg             config.Config
 	provider        provider.Provider
-	providerFactory func(string) (provider.Provider, error)
+	providerFactory func(config.ModelConfig) (provider.Provider, error)
 	registry        *tool.Registry
 	toolNames       []string
 	skillNames      []string
@@ -81,15 +81,11 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
-	providerFactory := func(alias string) (provider.Provider, error) {
-		model, err := selectedModelConfigByAlias(cfg, alias)
-		if err != nil {
-			return nil, err
-		}
+	providerFactory := func(modelCfg config.ModelConfig) (provider.Provider, error) {
 		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL:    model.BaseURL,
-			APIKey:     model.APIKey,
-			Model:      model.Model,
+			BaseURL:    modelCfg.BaseURL,
+			APIKey:     modelCfg.APIKey,
+			Model:      modelCfg.Model,
 			Scheduler:  scheduler,
 			HTTPClient: httpClient,
 		})
