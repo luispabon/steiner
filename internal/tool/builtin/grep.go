@@ -6,14 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewGrepTool creates a ToolDef for the grep tool backed by Dive's GrepTool.
+// NewGrepTool creates a ToolDef for the grep tool.
 func NewGrepTool(env Env) tool.ToolDef {
-	grepTool := toolkit.NewGrepTool()
 	return tool.ToolDef{
 		Name:            "grep",
 		Description:     `Search file contents. Use output_mode="files_with_matches" to locate relevant files. Use output_mode="content" with context to inspect matches. Use offset to paginate large results.`,
@@ -67,42 +65,21 @@ func NewGrepTool(env Env) tool.ToolDef {
 				showLines = *in.LineNumbers
 			}
 
-			diveInput := &toolkit.GrepInput{
-				Pattern:    in.Pattern,
-				Path:       absPath,
-				Glob:       in.Glob,
-				Type:       in.Type,
-				OutputMode: toolkit.GrepOutputMode(in.OutputMode),
-				CaseInsens: in.CaseInsensitive,
-				ShowLines:  showLines,
-				Before:     in.BeforeContext,
-				After:      in.AfterContext,
-				Multiline:  in.Multiline,
-				HeadLimit:  in.HeadLimit,
-				Offset:     in.Offset,
-			}
-
-			diveResult, err := grepTool.Call(ctx, diveInput)
+			matches, err := grepSearch(ctx, absPath, in.Pattern, in.CaseInsensitive, in.Multiline, in.Glob, in.Type, env.Excluder, in.HeadLimit)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}
 
-			if diveResult.IsError {
-				return &GrepResult{
-					Output: diveText(diveResult),
-				}, nil
-			}
-
-			outputText := diveText(diveResult)
-			matches := countGrepMatches(outputText, in.OutputMode)
+			outputText := formatGrepOutput(matches, in.OutputMode, showLines)
+			matchCount := countGrepMatches(outputText, in.OutputMode)
 
 			result := GrepResult{
-				Matches:  matches,
-				Returned: matches,
+				Matches:  matchCount,
+				Returned: matchCount,
 				Output:   outputText,
 			}
 
-			if matches > 0 && matches >= in.HeadLimit {
+			if matchCount > 0 && matchCount >= in.HeadLimit {
 				result.NextOffset = in.Offset + in.HeadLimit
 			}
 
