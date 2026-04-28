@@ -135,6 +135,8 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.height = msg.Height
 	m.palette.width = msg.Width
 	m.palette.height = msg.Height
+	m.fileList.width = msg.Width
+	m.fileList.height = msg.Height
 	m.layout()
 	return m, nil
 }
@@ -161,6 +163,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.palette.open {
 		var cmd tea.Cmd
 		m.palette, cmd = m.palette.Update(msg)
+		return m, cmd
+	}
+
+	// If file list is open, route all keys to it
+	if m.fileList.open {
+		var cmd tea.Cmd
+		m.fileList, cmd = m.fileList.Update(msg)
 		return m, cmd
 	}
 

@@ -75,6 +75,7 @@ type Model struct {
 	compacting                   bool
 	accentPreset                 string
 	palette                      paletteModel
+	fileList                     fileListOverlay
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -195,6 +196,11 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
 	m.palette.width = m.width
 	m.palette.height = m.height
+
+	// Initialize file list overlay
+	m.fileList = newFileListOverlay(m.styles)
+	m.fileList.width = m.width
+	m.fileList.height = m.height
 
 	return m
 }
@@ -339,6 +345,14 @@ func (m Model) View() string {
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			overlay,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	if m.fileList.open {
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			m.fileList.View(),
 			lipgloss.WithWhitespaceChars(" "),
 		)
 	}

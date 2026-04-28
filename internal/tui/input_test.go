@@ -21,3 +21,49 @@ func TestBuildCompletionCandidatesIncludesContext(t *testing.T) {
 		t.Fatalf("candidates = %#v, want [/compact, /context]", got)
 	}
 }
+
+func TestParseInputHandlesListFiles(t *testing.T) {
+	t.Run("no path defaults to working directory", func(t *testing.T) {
+		action := parseInput("/ls", nil)
+		if !action.listFiles {
+			t.Fatal("listFiles = false, want true")
+		}
+		if action.listFilesPath != "" {
+			t.Fatalf("listFilesPath = %q, want empty", action.listFilesPath)
+		}
+	})
+
+	t.Run("with path argument", func(t *testing.T) {
+		action := parseInput("/ls internal/", nil)
+		if !action.listFiles {
+			t.Fatal("listFiles = false, want true")
+		}
+		if action.listFilesPath != "internal/" {
+			t.Fatalf("listFilesPath = %q, want internal/", action.listFilesPath)
+		}
+	})
+
+	t.Run("submits as text without slash", func(t *testing.T) {
+		action := parseInput("ls", nil)
+		if action.listFiles {
+			t.Fatal("listFiles = true, want false for text without slash")
+		}
+		if action.submit != "ls" {
+			t.Fatalf("submit = %q, want ls", action.submit)
+		}
+	})
+
+	t.Run("buildCompletionCandidates includes ls", func(t *testing.T) {
+		got := buildCompletionCandidates("/l", nil, nil)
+		found := false
+		for _, c := range got {
+			if c == "/ls" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("candidates = %#v, want /ls included", got)
+		}
+	})
+}

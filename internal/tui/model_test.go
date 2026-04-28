@@ -199,6 +199,47 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 }
 
+func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/ls")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.fileList.open {
+		t.Fatal("expected file list overlay to open after /ls")
+	}
+	if m.fileList.root != "." {
+		t.Fatalf("file list root = %q, want .", m.fileList.root)
+	}
+	if len(m.fileList.entries) == 0 {
+		t.Fatal("expected non-empty file list")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.fileList.open {
+		t.Fatal("expected file list overlay to close after Esc")
+	}
+}
+
+func TestModelListFilesOpensWithPath(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/ls .")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.fileList.open {
+		t.Fatal("expected file list overlay to open after /ls .")
+	}
+	if len(m.fileList.entries) == 0 {
+		t.Fatal("expected non-empty file list for .")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.fileList.open {
+		t.Fatal("expected file list overlay to close after Enter")
+	}
+}
+
 func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 	var content contentBuffer
 	content.appendMarkdownBlock("## Title\n\nThis is a long markdown paragraph that should wrap differently when the content pane width changes.")
