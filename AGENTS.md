@@ -6,7 +6,6 @@
 
 ```text
 cmd/steiner/             CLI entry and subcommands
-cmd/steiner-core-tools/  Core tools binary
 internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
 internal/provider/       Model transport and scheduler
@@ -62,7 +61,7 @@ go vet ./...
 make build-binaries
 ```
 
-Go version: `1.24`.
+Go version: `1.25`.
 
 ## Go conventions
 
@@ -84,6 +83,20 @@ Go version: `1.24`.
 * Never hardcode or commit provider credentials.
 * Treat `--log-file` and `STEINER_LOG_FILE` as sensitive; they may capture prompts/tool output.
 * Default local provider URL: `http://localhost:11434/v1`.
+
+## Built-in tools
+
+Steiner exposes these built-in tools, all backed by Dive:
+
+- `read` — read files with offset/limit pagination
+- `write` — overwrite whole files
+- `edit` — exact string replacement
+- `glob` — find files by pattern
+- `grep` — search file contents with context
+- `ls` — list directories
+- `bash` — run shell commands
+
+Steiner owns the schemas and result formats. Dive implements the behavior.
 
 ## Docs
 

@@ -85,8 +85,6 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagGrep
 	case "glob":
 		return b.styles.ToolTagGlob
-	case "search":
-		return b.styles.ToolTagSearch
 	case "todo":
 		return b.styles.ToolTagTodo
 	default:
@@ -106,8 +104,6 @@ func (b *contentBuffer) toolTagBgHex(tool string) string {
 	case "grep":
 		return theme.ToolMag
 	case "glob":
-		return theme.ToolBlue
-	case "search":
 		return theme.ToolBlue
 	case "todo":
 		return theme.Warn
