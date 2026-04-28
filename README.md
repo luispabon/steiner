@@ -11,7 +11,7 @@
 
 ## Quickstart
 
-Requirements: Go `1.24+`.
+Requirements: Go `1.25+`.
 
 1. Start from source in this repo.
 2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the provider settings in config.
@@ -65,7 +65,12 @@ Key environment variables:
 
 ### Config format
 
-`model` selects the active alias from `models`. Each model entry holds the OpenAI-compatible provider settings for that alias, including compaction budgets. The example below reflects the compiled defaults in `internal/config/defaults.go`, followed by optional examples for common customizations.
+The top-level `model` property accepts **two shapes**:
+
+1. **Alias string** — references a preset from the `models` map below. The matching `models.<alias>` entry **replaces** the compiled defaults entirely.
+2. **Inline mapping** — directly configures the active model with the same keys as a `models` entry. This **patches** the compiled defaults field-by-field.
+
+The example below reflects the compiled defaults in `internal/config/defaults.go`.
 
 ```yaml
 # How many provider requests the scheduler may run at once.
@@ -73,7 +78,22 @@ scheduler:
   # Minimum is 1.
   parallelism: 1
 
-# Active model alias from the models map below.
+# @TODO: re-evaluate this, it's dirty and unclear
+# --- Option 1: model alias from models property ---
+# model: default
+#
+# --- Shape 2: inline mapping ---
+# model:
+#   type: openai_compat
+#   base_url: http://localhost:11434/v1
+#   model: qwen3-35b-a3b
+#   max_completion_tokens: 8192
+#   context_size: 32768
+#   compaction:
+#     safety_margin_tokens: 2048
+#     summary_max_tokens: 1024
+
+# Using the alias form for this example:
 model: default
 
 # Available model/provider presets.
@@ -97,6 +117,18 @@ models:
 
     # Estimated total context window for prompt budgeting.
     context_size: 32768
+
+    # Extra parameters sent to the provider with each request.
+    extra_params:
+      temperature: 0.2
+
+    # Prompt overrides for this model. These replace the embedded defaults.
+    prompts:
+      # Replaces the default agent system preamble.
+      system: ""
+
+      # Replaces the default compaction system prompt.
+      compaction: ""
 
     # Compaction settings used when prompt context gets tight.
     compaction:
@@ -132,7 +164,7 @@ limits:
     edit: 5s
 
     # Text search timeout.
-    grep: 10s
+    grep: 30s
 
     # Directory listing timeout.
     ls: 5s
@@ -256,6 +288,14 @@ paths:
   blocked_paths:
     - ~/.ssh
 
+  # Additional paths excluded from project context gathering.
+  exclude_paths:
+    - /tmp
+
+  # Glob patterns excluded from project context gathering.
+  exclude_patterns:
+    - "*.tmp"
+
 # Session logging settings.
 logging:
   # Turns session log writing on or off.
@@ -266,6 +306,9 @@ logging:
 
   # Log file destination; `~` expands to the user's home directory.
   file: ~/.local/share/steiner/steiner.log
+
+  # Include thinking chunks in the session log.
+  thinking_chunk: false
 ```
 
 Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
