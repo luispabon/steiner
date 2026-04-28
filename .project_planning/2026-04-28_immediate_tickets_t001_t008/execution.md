@@ -34,6 +34,7 @@ Loaded from `overview.md`.
 | stage-6-step-1 | implemented | @ file picker — 870 tests pass, substring-filtered file picker above input |
 | manual-fix-001 | implemented | @ picker visual fixes: float overlay, accent bg selection, accent folder color, maxWidth fix |
 | manual-fix-002 | implemented | @ picker overlay fix (inline not full-screen), viewport scrolling for long candidate lists |
+| manual-fix-003 | implemented | @ picker true floating overlay via string-level line replacement, header mirrors selected entry |
 
 ### Current Phase
 
@@ -55,6 +56,7 @@ Step scheduling complete. Ready to begin implementation.
 | stage-6-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-6-step-1 | tmp/stage-6-step-1 | Yes | Yes |
 | manual-fix-001 | kimi-k2.6 (same tier) | .worktrees/manual-fix-001 | tmp/manual-fix-001 | Yes | Yes |
 | manual-fix-002 | kimi-k2.6 (same tier) | .worktrees/manual-fix-002 | tmp/manual-fix-002 | Yes | Yes |
+| manual-fix-003 | kimi-k2.6 (same tier) | .worktrees/manual-fix-003 | tmp/manual-fix-003 | Yes | Yes |
 
 ## Verification Runs
 
@@ -68,6 +70,10 @@ Step scheduling complete. Ready to begin implementation.
 | 006 | end-of-implementation | go vet ./... | clean | No issues |
 | 007 | end-of-implementation | go build ./... | success | All packages compile |
 | 008 | end-of-implementation | make build-binaries | success | Binary built |
+| 009 | post-manual-fix-003 | go test ./internal/tui/... | 102 passed in 3 packages | TUI tests pass after overlay + preview fixes |
+| 010 | post-manual-fix-003 | go vet ./... | clean | No issues |
+| 011 | post-manual-fix-003 | go build ./... | success | All packages compile |
+| 012 | post-manual-fix-003 | make build-binaries | success | Binary built |
 
 ## Fix Plans
 
@@ -76,6 +82,7 @@ Step scheduling complete. Ready to begin implementation.
 | fix-glob-pattern-001 | fix_plan_glob_pattern_001.md | Fixed — gobwas/glob full-path matching + early-termination cap + schema description updates |
 | manual-fix-001 | manual_fix_plan_round_001.md | Fixed — picker floated as overlay, accent bg for selection, accent color for folders, MaxWidth prevents overflow |
 | manual-fix-002 | manual_fix_plan_round_002.md | Fixed — picker rendered inline (not full-screen Place), scrollOffset field for viewport scrolling |
+| manual-fix-003 | manual_fix_plan_round_003.md | Fixed — true floating overlay via string-level line replacement, header mirrors selected candidate path |
 
 ## Manual Verification
 
@@ -83,7 +90,8 @@ Step scheduling complete. Ready to begin implementation.
 |-------|---------------|-------|
 | 001 | Issues reported: picker inline (not overlay), selected row bg overflow hides next line, folders amber (not accent), selected item too subtle | Fix dispatched: lipgloss.Place overlay, MaxWidth fix, Accent/AccentBg styles |
 | 002 | Issues reported: picker full-screen black background hides content, no scrolling past 8 items | Fix dispatched: removed lipgloss.Place full-screen, inline render; added scrollOffset viewport |
-| 003 | — | Pending re-verification |
+| 003 | Issues reported: picker pushes sidebar/content up (not true overlay), search box should mirror selected entry | Fix dispatched: string-level line replacement overlay (research confirmed as standard Bubble Tea pattern), header shows selected candidate path in accent style |
+| 004 | — | Pending re-verification |
 
 ## Blockers / Deviations
 
