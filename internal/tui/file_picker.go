@@ -13,16 +13,19 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+const maxDisplay = 8
+
 type filePickerOverlay struct {
-	open       bool
-	root       string
-	query      string
-	allEntries []string
-	candidates []string
-	selection  int
-	styles     theme.Styles
-	width      int
-	height     int
+	open         bool
+	root         string
+	query        string
+	allEntries   []string
+	candidates   []string
+	selection    int
+	scrollOffset int
+	styles       theme.Styles
+	width        int
+	height       int
 }
 
 func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
@@ -34,6 +37,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 	f.root = root
 	f.query = ""
 	f.selection = 0
+	f.scrollOffset = 0
 	f.allEntries = nil
 	f.candidates = nil
 
@@ -92,11 +96,13 @@ func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 		if f.selection > 0 {
 			f.selection--
 		}
+		f.scrollIntoView()
 		return f, nil
 	case tea.KeyDown:
 		if f.selection < len(f.candidates)-1 {
 			f.selection++
 		}
+		f.scrollIntoView()
 		return f, nil
 	case tea.KeyBackspace:
 		if len(f.query) > 0 {
@@ -114,6 +120,8 @@ func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 }
 
 func (f *filePickerOverlay) filter() {
+	f.scrollOffset = 0
+	f.selection = 0
 	q := strings.ToLower(f.query)
 	if q == "" {
 		f.candidates = append([]string(nil), f.allEntries...)
@@ -147,16 +155,13 @@ func (f filePickerOverlay) View() string {
 	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
 
-	maxDisplay := 8
 	lines := []string{headerLine, divider}
 
 	dirStyle := f.styles.Accent
 	fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
-	for i, entry := range f.candidates {
-		if i >= maxDisplay {
-			break
-		}
+	for i := f.scrollOffset; i < min(f.scrollOffset+maxDisplay, len(f.candidates)); i++ {
+		entry := f.candidates[i]
 		row := entry
 		if strings.HasSuffix(entry, "/") {
 			row = dirStyle.Render(entry)
@@ -170,8 +175,8 @@ func (f filePickerOverlay) View() string {
 		}
 	}
 
-	if len(f.candidates) > maxDisplay {
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("... and %d more", len(f.candidates)-maxDisplay)))
+	if len(f.candidates) > f.scrollOffset+maxDisplay {
+		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("... and %d more", len(f.candidates)-(f.scrollOffset+maxDisplay))))
 	}
 
 	footerDivider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
@@ -189,4 +194,13 @@ func (f filePickerOverlay) View() string {
 		Render(body)
 
 	return box
+}
+
+func (f *filePickerOverlay) scrollIntoView() {
+	if f.selection >= f.scrollOffset+maxDisplay {
+		f.scrollOffset = f.selection - maxDisplay + 1
+	}
+	if f.selection < f.scrollOffset {
+		f.scrollOffset = f.selection
+	}
 }

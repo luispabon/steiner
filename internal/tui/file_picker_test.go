@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -267,6 +268,157 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	val := m.input.Value()
 	if !strings.HasPrefix(val, selected+" ") && val != selected {
 		t.Fatalf("expected input to start with %q, got %q", selected+" ", val)
+	}
+}
+
+func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.candidates = make([]string, 20)
+	for i := range 20 {
+		f.candidates[i] = string(rune('a' + i))
+	}
+
+	if f.scrollOffset != 0 {
+		t.Fatalf("expected scrollOffset 0 initially, got %d", f.scrollOffset)
+	}
+
+	// Down 7 times: selection 7, last item in the first visible window — no scroll yet
+	for range 7 {
+		f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if f.scrollOffset != 0 {
+		t.Fatalf("expected scrollOffset 0 after 7 downs (selection 7 still fits), got %d", f.scrollOffset)
+	}
+	if f.selection != 7 {
+		t.Fatalf("expected selection 7 after 7 downs, got %d", f.selection)
+	}
+
+	// One more down: selection 8, which exceeds scrollOffset+maxDisplay-1 → scrollOffset=1
+	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if f.scrollOffset != 1 {
+		t.Fatalf("expected scrollOffset 1 when selection (8) leaves the first window, got %d", f.scrollOffset)
+	}
+	if f.selection != 8 {
+		t.Fatalf("expected selection 8, got %d", f.selection)
+	}
+
+	// Scroll down one more to verify offset keeps advancing
+	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if f.scrollOffset != 2 {
+		t.Fatalf("expected scrollOffset 2 after another Down, got %d", f.scrollOffset)
+	}
+	if f.selection != 9 {
+		t.Fatalf("expected selection 9, got %d", f.selection)
+	}
+}
+
+func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.candidates = make([]string, 20)
+	for i := range 20 {
+		f.candidates[i] = string(rune('a' + i))
+	}
+	f.selection = 10
+	f.scrollOffset = 3
+
+	// Press Up until selection moves below scrollOffset
+	for i := 0; i < 8; i++ {
+		f, _ = f.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	if f.selection != 2 {
+		t.Fatalf("expected selection 2, got %d", f.selection)
+	}
+	if f.scrollOffset != 2 {
+		t.Fatalf("expected scrollOffset 2 (matching selection), got %d", f.scrollOffset)
+	}
+}
+
+func TestFilePickerOverlay_FilterResetsScrollOffset(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.allEntries = make([]string, 20)
+	for i := range 20 {
+		f.allEntries[i] = string(rune('a' + i))
+	}
+	f.selection = 10
+	f.scrollOffset = 5
+	f.query = "a"
+	f.filter()
+
+	if f.selection != 0 {
+		t.Fatalf("expected selection 0 after filter, got %d", f.selection)
+	}
+	if f.scrollOffset != 0 {
+		t.Fatalf("expected scrollOffset 0 after filter, got %d", f.scrollOffset)
+	}
+}
+
+func TestFilePickerOverlay_OpenResetsScrollOffset(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f = f.Open(".")
+	f.selection = 5
+	f.scrollOffset = 3
+	f = f.Close()
+	f = f.Open(".")
+	if f.scrollOffset != 0 {
+		t.Fatalf("expected scrollOffset 0 after reopen, got %d", f.scrollOffset)
+	}
+}
+
+func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	// Use distinctive candidates that won't appear in UI chrome text.
+	f.candidates = make([]string, 20)
+	for i := range 20 {
+		f.candidates[i] = fmt.Sprintf("zzz_file_%02d", i)
+	}
+	f.selection = 10
+	f.scrollOffset = 3
+
+	view := f.View()
+	// The visible window includes items at indices 3 through 3+maxDisplay-1 (3..10)
+	if !strings.Contains(view, "zzz_file_03") {
+		t.Fatal("expected item at scrollOffset to be visible")
+	}
+	if strings.Contains(view, "zzz_file_00") {
+		t.Fatal("expected item before scrollOffset to NOT be visible")
+	}
+	if strings.Contains(view, "zzz_file_01") {
+		t.Fatal("expected second item before scrollOffset to NOT be visible")
+	}
+	// Check that the "more" indicator appears since 20 > 3+8=11
+	if !strings.Contains(view, "more") {
+		t.Fatal("expected 'more' indicator since there are items beyond visible window")
+	}
+}
+
+func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = make([]string, 10)
+	for i := range 10 {
+		f.candidates[i] = fmt.Sprintf("zzz_file_%02d", i)
+	}
+	f.selection = 9
+	f.scrollOffset = 2
+
+	view := f.View()
+	// scrollOffset+maxDisplay = 10, len(candidates) = 10, so no "more" needed
+	if strings.Contains(view, "more") {
+		t.Fatal("expected no 'more' indicator when at end of list")
 	}
 }
 
