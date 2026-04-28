@@ -201,6 +201,9 @@ func normalizePaths(cfg *Config, homeDir string) {
 	for i := range cfg.Paths.BlockedPaths {
 		cfg.Paths.BlockedPaths[i] = expand(cfg.Paths.BlockedPaths[i])
 	}
+	for i := range cfg.Paths.ExcludePaths {
+		cfg.Paths.ExcludePaths[i] = expand(cfg.Paths.ExcludePaths[i])
+	}
 	for name, tool := range cfg.Tools {
 		tool.Exec = expand(tool.Exec)
 		cfg.Tools[name] = tool

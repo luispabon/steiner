@@ -93,6 +93,8 @@ type PathsConfig struct {
 	ProjectRootOnly bool     `yaml:"project_root_only"`
 	WritablePaths   []string `yaml:"writable_paths"`
 	BlockedPaths    []string `yaml:"blocked_paths"`
+	ExcludePaths    []string `yaml:"exclude_paths"`
+	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
 type LoggingConfig struct {
