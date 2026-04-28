@@ -33,6 +33,7 @@ Loaded from `overview.md`.
 | stage-5-step-1 | implemented | /ls overlay — 854 tests pass, file listing modal with exclusions |
 | stage-6-step-1 | implemented | @ file picker — 870 tests pass, substring-filtered file picker above input |
 | manual-fix-001 | implemented | @ picker visual fixes: float overlay, accent bg selection, accent folder color, maxWidth fix |
+| manual-fix-002 | implemented | @ picker overlay fix (inline not full-screen), viewport scrolling for long candidate lists |
 
 ### Current Phase
 
@@ -53,6 +54,7 @@ Step scheduling complete. Ready to begin implementation.
 | stage-5-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-5-step-1 | tmp/stage-5-step-1 | Yes | Yes |
 | stage-6-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-6-step-1 | tmp/stage-6-step-1 | Yes | Yes |
 | manual-fix-001 | kimi-k2.6 (same tier) | .worktrees/manual-fix-001 | tmp/manual-fix-001 | Yes | Yes |
+| manual-fix-002 | kimi-k2.6 (same tier) | .worktrees/manual-fix-002 | tmp/manual-fix-002 | Yes | Yes |
 
 ## Verification Runs
 
@@ -73,13 +75,15 @@ Step scheduling complete. Ready to begin implementation.
 |------|------|--------|
 | fix-glob-pattern-001 | fix_plan_glob_pattern_001.md | Fixed — gobwas/glob full-path matching + early-termination cap + schema description updates |
 | manual-fix-001 | manual_fix_plan_round_001.md | Fixed — picker floated as overlay, accent bg for selection, accent color for folders, MaxWidth prevents overflow |
+| manual-fix-002 | manual_fix_plan_round_002.md | Fixed — picker rendered inline (not full-screen Place), scrollOffset field for viewport scrolling |
 
 ## Manual Verification
 
 | Round | User Response | Notes |
 |-------|---------------|-------|
 | 001 | Issues reported: picker inline (not overlay), selected row bg overflow hides next line, folders amber (not accent), selected item too subtle | Fix dispatched: lipgloss.Place overlay, MaxWidth fix, Accent/AccentBg styles |
-| 002 | — | Pending re-verification |
+| 002 | Issues reported: picker full-screen black background hides content, no scrolling past 8 items | Fix dispatched: removed lipgloss.Place full-screen, inline render; added scrollOffset viewport |
+| 003 | — | Pending re-verification |
 
 ## Blockers / Deviations
 
