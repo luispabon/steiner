@@ -23,7 +23,7 @@ Loaded from `overview.md`.
 | Step | Status | Notes |
 |------|--------|-------|
 | stage-1-step-1 | implemented | Config types update — 167 tests pass, go vet clean |
-| stage-1-step-2 | pending | Consumer updates |
+| stage-1-step-2 | running | Consumer updates |
 | stage-2-step-1 | pending | ThinkingChunk toggle |
 | stage-3-step-1 | pending | Path exclusion config + PathExcluder |
 | stage-3-step-2 | pending | Custom glob walker |
