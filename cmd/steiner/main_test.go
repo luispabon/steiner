@@ -304,7 +304,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 			},
 		},
 		Tools: map[string]config.ToolConfig{},
-	})
+	}, t.TempDir())
 	if err != nil {
 		t.Fatalf("runtimeRegistry() error = %v", err)
 	}

@@ -108,12 +108,12 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		events = output.NewMultiSink(events, fileSink)
 		closeFn = fileSink.Close
 	}
-	registry, err := runtimeRegistry(cfg)
+	currentDir, err := os.Getwd()
 	if err != nil {
 		return cliRuntime{}, err
 	}
 
-	currentDir, err := os.Getwd()
+	registry, err := runtimeRegistry(cfg, currentDir)
 	if err != nil {
 		return cliRuntime{}, err
 	}
