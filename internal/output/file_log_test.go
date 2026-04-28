@@ -12,7 +12,7 @@ func TestFileLogSinkWritesUpdatedEventModel(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "session.log")
 
-	sink, err := NewFileLogSink(path)
+	sink, err := NewFileLogSink(path, true)
 	if err != nil {
 		t.Fatalf("NewFileLogSink() error = %v", err)
 	}
@@ -47,11 +47,11 @@ func TestFileLogSinkWritesUpdatedEventModel(t *testing.T) {
 }
 
 func TestNewFileLogSinkEmptyPath(t *testing.T) {
-	_, err := NewFileLogSink("")
+	_, err := NewFileLogSink("", false)
 	if err == nil {
 		t.Fatal("NewFileLogSink(\"\") expected error")
 	}
-	_, err = NewFileLogSink("  ")
+	_, err = NewFileLogSink("  ", false)
 	if err == nil {
 		t.Fatal("NewFileLogSink(\"  \") expected error")
 	}
@@ -60,7 +60,7 @@ func TestNewFileLogSinkEmptyPath(t *testing.T) {
 func TestNewFileLogSinkCreatesDirectories(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "subdir", "nested", "session.log")
-	sink, err := NewFileLogSink(path)
+	sink, err := NewFileLogSink(path, true)
 	if err != nil {
 		t.Fatalf("NewFileLogSink() error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestFileLogSinkEmitUserInputEvent(t *testing.T) {
 	t.Run("with mode", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "session.log")
-		sink, err := NewFileLogSink(path)
+		sink, err := NewFileLogSink(path, true)
 		if err != nil {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
@@ -133,7 +133,7 @@ func TestFileLogSinkEmitUserInputEvent(t *testing.T) {
 	t.Run("without mode", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "session.log")
-		sink, err := NewFileLogSink(path)
+		sink, err := NewFileLogSink(path, true)
 		if err != nil {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
@@ -154,7 +154,7 @@ func TestFileLogSinkEmitDefaultPayload(t *testing.T) {
 	t.Run("JSON serializable payload", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "session.log")
-		sink, err := NewFileLogSink(path)
+		sink, err := NewFileLogSink(path, true)
 		if err != nil {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
@@ -169,7 +169,7 @@ func TestFileLogSinkEmitDefaultPayload(t *testing.T) {
 	t.Run("non-JSON-serializable payload uses fallback", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "session.log")
-		sink, err := NewFileLogSink(path)
+		sink, err := NewFileLogSink(path, true)
 		if err != nil {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
@@ -183,6 +183,61 @@ func TestFileLogSinkEmitDefaultPayload(t *testing.T) {
 		got := string(data)
 		if !strings.Contains(got, "===") || !strings.Contains(got, "test") {
 			t.Fatalf("fallback output didn't write expected content\n%s", got)
+		}
+	})
+}
+
+func TestFileLogSinkThinkingChunkSuppression(t *testing.T) {
+	t.Run("suppressed when flag is false", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "session.log")
+		sink, err := NewFileLogSink(path, false)
+		if err != nil {
+			t.Fatalf("NewFileLogSink() error = %v", err)
+		}
+		t.Cleanup(func() { _ = sink.Close() })
+
+		sink.Emit(NewThinkingChunkEvent(1, "some reasoning"))
+		data, _ := os.ReadFile(path)
+		if len(data) != 0 {
+			t.Fatalf("expected empty file when thinking_chunk=false, got:\n%s", data)
+		}
+	})
+
+	t.Run("emitted when flag is true", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "session.log")
+		sink, err := NewFileLogSink(path, true)
+		if err != nil {
+			t.Fatalf("NewFileLogSink() error = %v", err)
+		}
+		t.Cleanup(func() { _ = sink.Close() })
+
+		sink.Emit(NewThinkingChunkEvent(1, "some reasoning"))
+		data, _ := os.ReadFile(path)
+		got := string(data)
+		if !strings.Contains(got, "thinking_chunk") {
+			t.Fatalf("expected thinking_chunk in log, got:\n%s", got)
+		}
+		if !strings.Contains(got, "some reasoning") {
+			t.Fatalf("expected thinking content in log, got:\n%s", got)
+		}
+	})
+
+	t.Run("non-thinking events pass through regardless", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "session.log")
+		sink, err := NewFileLogSink(path, false)
+		if err != nil {
+			t.Fatalf("NewFileLogSink() error = %v", err)
+		}
+		t.Cleanup(func() { _ = sink.Close() })
+
+		sink.Emit(NewRunStartedEvent("exec", "test-model", "test prompt", 5, 64))
+		data, _ := os.ReadFile(path)
+		got := string(data)
+		if !strings.Contains(got, "run_started") {
+			t.Fatalf("expected non-thinking event to pass through, got:\n%s", got)
 		}
 	})
 }

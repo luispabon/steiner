@@ -86,9 +86,10 @@ type pathsPatch struct {
 }
 
 type loggingPatch struct {
-	Enabled *bool   `yaml:"enabled"`
-	Level   *string `yaml:"level"`
-	File    *string `yaml:"file"`
+	Enabled       *bool   `yaml:"enabled"`
+	Level         *string `yaml:"level"`
+	File          *string `yaml:"file"`
+	ThinkingChunk *bool   `yaml:"thinking_chunk"`
 }
 
 // applyPatch applies a config patch to the config.
@@ -313,5 +314,8 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 	if patch.File != nil {
 		dst.File = *patch.File
+	}
+	if patch.ThinkingChunk != nil {
+		dst.ThinkingChunk = *patch.ThinkingChunk
 	}
 }

@@ -21,6 +21,13 @@ func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Logging.ThinkingChunk {
+		t.Fatal("default logging.thinking_chunk = true, want false")
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 

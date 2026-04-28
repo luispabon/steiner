@@ -101,7 +101,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		logFile = cfg.Logging.File
 	}
 	if strings.TrimSpace(logFile) != "" {
-		fileSink, err := output.NewFileLogSink(logFile)
+		fileSink, err := output.NewFileLogSink(logFile, cfg.Logging.ThinkingChunk)
 		if err != nil {
 			return cliRuntime{}, err
 		}

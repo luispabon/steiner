@@ -429,7 +429,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "session.log")
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
-		fileSink, err := output.NewFileLogSink(flags.logFile)
+		fileSink, err := output.NewFileLogSink(flags.logFile, true)
 		if err != nil {
 			return cliRuntime{}, err
 		}

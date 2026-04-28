@@ -12,12 +12,14 @@ import (
 )
 
 type FileLogSink struct {
-	mu   sync.Mutex
-	file *os.File
+	mu            sync.Mutex
+	file          *os.File
+	thinkingChunk bool
 }
 
 // NewFileLogSink creates a new file-based event sink at the given path.
-func NewFileLogSink(path string) (*FileLogSink, error) {
+// If thinkingChunk is false, ThinkingChunkEvent events are silently dropped.
+func NewFileLogSink(path string, thinkingChunk bool) (*FileLogSink, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("log file path is required")
@@ -29,11 +31,14 @@ func NewFileLogSink(path string) (*FileLogSink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create log file: %w", err)
 	}
-	return &FileLogSink{file: file}, nil
+	return &FileLogSink{file: file, thinkingChunk: thinkingChunk}, nil
 }
 
 func (s *FileLogSink) Emit(event Event) {
 	if s == nil || s.file == nil {
+		return
+	}
+	if event.Type == EventTypeThinkingChunk && !s.thinkingChunk {
 		return
 	}
 

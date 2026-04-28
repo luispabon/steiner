@@ -812,23 +812,29 @@ func TestApplyLoggingPatch(t *testing.T) {
 	}{
 		{
 			name:    "sets all fields",
-			initial: LoggingConfig{Enabled: false, Level: "info", File: "/dev/null"},
+			initial: LoggingConfig{Enabled: false, Level: "info", File: "/dev/null", ThinkingChunk: false},
 			patch: loggingPatch{
-				Enabled: boolPtr(true), Level: stringPtr("debug"), File: stringPtr("steiner.log"),
+				Enabled: boolPtr(true), Level: stringPtr("debug"), File: stringPtr("steiner.log"), ThinkingChunk: boolPtr(true),
 			},
-			want: LoggingConfig{Enabled: true, Level: "debug", File: "steiner.log"},
+			want: LoggingConfig{Enabled: true, Level: "debug", File: "steiner.log", ThinkingChunk: true},
 		},
 		{
 			name:    "nil fields leave existing values untouched",
-			initial: LoggingConfig{Enabled: true, Level: "warn", File: "old.log"},
+			initial: LoggingConfig{Enabled: true, Level: "warn", File: "old.log", ThinkingChunk: true},
 			patch:   loggingPatch{Level: stringPtr("error")},
-			want:    LoggingConfig{Enabled: true, Level: "error", File: "old.log"},
+			want:    LoggingConfig{Enabled: true, Level: "error", File: "old.log", ThinkingChunk: true},
 		},
 		{
 			name:    "empty patch leaves everything untouched",
-			initial: LoggingConfig{Enabled: true, Level: "info"},
+			initial: LoggingConfig{Enabled: true, Level: "info", ThinkingChunk: true},
 			patch:   loggingPatch{},
-			want:    LoggingConfig{Enabled: true, Level: "info"},
+			want:    LoggingConfig{Enabled: true, Level: "info", ThinkingChunk: true},
+		},
+		{
+			name:    "sets thinking_chunk",
+			initial: LoggingConfig{ThinkingChunk: false},
+			patch:   loggingPatch{ThinkingChunk: boolPtr(true)},
+			want:    LoggingConfig{ThinkingChunk: true},
 		},
 	}
 	for _, tt := range tests {
