@@ -322,9 +322,6 @@ func (m Model) View() string {
 	statusView := m.status.view(contentWidth)
 
 	mainComponents := []string{viewportView, hDivider}
-	if m.filePicker.open {
-		mainComponents = append(mainComponents, m.filePicker.View())
-	}
 	mainComponents = append(mainComponents, inputView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
@@ -361,6 +358,27 @@ func (m Model) View() string {
 			m.fileList.View(),
 			lipgloss.WithWhitespaceChars(" "),
 		)
+	}
+
+	if m.filePicker.open {
+		overlay := m.filePicker.View()
+		baseLines := strings.Split(base, "\n")
+		olLines := strings.Split(overlay, "\n")
+
+		inputHeight := 1
+		if m.input.Focused() && m.content.streamingPhase == "" {
+			inputHeight = 3
+		}
+
+		startY := len(baseLines) - len(olLines) - inputHeight - 1
+		if startY < 0 {
+			startY = 0
+		}
+
+		for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
+			baseLines[startY+i] = olLines[i]
+		}
+		base = strings.Join(baseLines, "\n")
 	}
 
 	return base

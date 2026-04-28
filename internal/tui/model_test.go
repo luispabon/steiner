@@ -240,6 +240,29 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 	}
 }
 
+func TestModelFilePickerOverlayInView(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	if !m.filePicker.open {
+		t.Fatal("expected file picker to open after @")
+	}
+
+	view := m.View()
+	// The file picker should appear in the view (not be hidden)
+	if !strings.Contains(view, "@") {
+		t.Fatal("expected file picker content in View()")
+	}
+	// The divider, input, and status should still be visible
+	if !strings.Contains(view, "─") {
+		t.Fatal("expected divider in View()")
+	}
+	if !strings.Contains(view, "›") {
+		t.Fatal("expected input prompt in View()")
+	}
+}
+
 func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 	var content contentBuffer
 	content.appendMarkdownBlock("## Title\n\nThis is a long markdown paragraph that should wrap differently when the content pane width changes.")

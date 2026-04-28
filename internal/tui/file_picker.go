@@ -150,7 +150,11 @@ func (f filePickerOverlay) View() string {
 	prefix := f.styles.Accent.Render("@")
 	queryDisplay := f.query
 	if queryDisplay == "" {
-		queryDisplay = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("search files…")
+		if len(f.candidates) > 0 {
+			queryDisplay = f.styles.Accent.Render(f.candidates[f.selection])
+		} else {
+			queryDisplay = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("search files…")
+		}
 	}
 	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))

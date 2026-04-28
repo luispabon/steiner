@@ -422,6 +422,62 @@ func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 	}
 }
 
+func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
+	f.selection = 1
+
+	view := f.View()
+	// Should show "beta.go" (the selected candidate) in the header
+	if !strings.Contains(view, "beta.go") {
+		t.Fatal("expected selected candidate to appear in header when query is empty")
+	}
+	// Should NOT show placeholder text
+	if strings.Contains(view, "search files") {
+		t.Fatal("expected no placeholder text when candidates exist")
+	}
+}
+
+func TestFilePickerOverlay_EmptyQueryShowsPlaceholderWhenNoCandidates(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = nil
+
+	view := f.View()
+	if !strings.Contains(view, "search files") {
+		t.Fatal("expected placeholder text when no candidates")
+	}
+}
+
+func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
+
+	// At selection 0, the header should mirror "alpha.txt"
+	view1 := f.View()
+	if !strings.Contains(view1, "alpha.txt") {
+		t.Fatal("expected first candidate in header at selection 0")
+	}
+
+	// After moving selection to 2, the header should mirror "gamma.md"
+	f.selection = 2
+	view2 := f.View()
+	if !strings.Contains(view2, "gamma.md") {
+		t.Fatal("expected third candidate in header after selection changes")
+	}
+}
+
 func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
