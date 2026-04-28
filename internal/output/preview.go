@@ -27,8 +27,8 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "edit":
 		path := trimmedStringArg(arguments, "path")
-		before := rawStringArg(arguments, "old")
-		after := rawStringArg(arguments, "new")
+		before := rawStringArg(arguments, "old_string")
+		after := rawStringArg(arguments, "new_string")
 		if path == "" || before == "" || after == "" {
 			return plainToolPreview()
 		}
@@ -41,7 +41,7 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 		}
 	case "write", "write_file":
 		path := trimmedStringArg(arguments, "path")
-		contents := rawStringArg(arguments, "contents")
+		contents := rawStringArg(arguments, "content")
 		if path == "" || contents == "" {
 			return plainToolPreview()
 		}
@@ -101,15 +101,15 @@ func trimmedStringArg(arguments map[string]any, key string) string {
 
 func readContentsFromResult(result string) (string, bool) {
 	var payload struct {
-		Contents string `json:"contents"`
+		Output string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(result), &payload); err != nil {
 		return "", false
 	}
-	if payload.Contents == "" {
+	if payload.Output == "" {
 		return "", false
 	}
-	return payload.Contents, true
+	return payload.Output, true
 }
 
 func previewLanguage(path string) string {

@@ -76,7 +76,9 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	}
 
 	if value, ok := lookup("STEINER_MODEL"); ok {
-		cfg.Model = value
+		if m, ok := cfg.Models[value]; ok {
+			cfg.Model = m
+		}
 	}
 	if value, ok := lookup("STEINER_SCHEDULER_PARALLELISM"); ok {
 		parsed, err := strconv.Atoi(value)

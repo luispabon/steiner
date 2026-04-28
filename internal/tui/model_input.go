@@ -45,6 +45,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.switchModel != "" {
 		return m.executeModelAction(action.switchModel)
 	}
+	if action.listFiles {
+		return m.executeListFilesAction(action.listFilesPath)
+	}
 	if action.submit != "" {
 		return m.executeSubmitAction(value, action.submit)
 	}
@@ -146,6 +149,19 @@ func (m Model) executeListModelsAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
+	root := path
+	if root == "" {
+		root = m.sidebar.workingDir
+	}
+	m.fileList = m.fileList.Open(root)
+	m.fileList.width = m.width
+	m.fileList.height = m.height
+	m.input.Reset()
+	m.historyIdx = 0
 	return m, nil
 }
 

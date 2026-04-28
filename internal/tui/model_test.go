@@ -199,6 +199,70 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 }
 
+func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/ls")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.fileList.open {
+		t.Fatal("expected file list overlay to open after /ls")
+	}
+	if m.fileList.root != "." {
+		t.Fatalf("file list root = %q, want .", m.fileList.root)
+	}
+	if len(m.fileList.entries) == 0 {
+		t.Fatal("expected non-empty file list")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.fileList.open {
+		t.Fatal("expected file list overlay to close after Esc")
+	}
+}
+
+func TestModelListFilesOpensWithPath(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/ls .")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.fileList.open {
+		t.Fatal("expected file list overlay to open after /ls .")
+	}
+	if len(m.fileList.entries) == 0 {
+		t.Fatal("expected non-empty file list for .")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.fileList.open {
+		t.Fatal("expected file list overlay to close after Enter")
+	}
+}
+
+func TestModelFilePickerOverlayInView(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	if !m.filePicker.open {
+		t.Fatal("expected file picker to open after @")
+	}
+
+	view := m.View()
+	// The file picker should appear in the view (not be hidden)
+	if !strings.Contains(view, "@") {
+		t.Fatal("expected file picker content in View()")
+	}
+	// The divider, input, and status should still be visible
+	if !strings.Contains(view, "─") {
+		t.Fatal("expected divider in View()")
+	}
+	if !strings.Contains(view, "›") {
+		t.Fatal("expected input prompt in View()")
+	}
+}
+
 func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 	var content contentBuffer
 	content.appendMarkdownBlock("## Title\n\nThis is a long markdown paragraph that should wrap differently when the content pane width changes.")

@@ -277,7 +277,7 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 	}, DurableContextState{
 		ActiveConstraints: []DurableContextEntry{{Text: "do not drop constraints", Source: "user", Turn: 1}},
 		UnresolvedWork:    []DurableContextEntry{{Text: "finish the compaction loop", Source: "assistant", Turn: 2}},
-	})
+	}, "")
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}

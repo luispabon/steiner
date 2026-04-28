@@ -1,0 +1,317 @@
+stages:
+  - id: stage-1
+    objective: Transform Config.Model from string to full ModelConfig and move hardcoded prompts into per-model config overrides
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: Update config types to support ModelConfig as top-level model and add per-model prompt overrides
+        scope: Modify Config struct, ModelConfig struct, and defaults to support the new shape
+        files:
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/patch.go
+          - internal/config/load.go
+          - internal/config/validate.go
+        constraints:
+          - Break backwards compat intentionally
+          - Embedded prompt defaults stay in .go files
+          - Per-model override via config file only
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Updated Config.Model type (ModelConfig instead of string)
+          - New ModelPrompts struct with System and Compaction string fields
+          - Updated patch structs and apply functions
+          - Updated validation for new fields
+        acceptance:
+          - Config compiles
+          - Default config still loads successfully
+          - All existing config tests pass (after updating for new shape)
+        handoff: Config types updated; top-level Model is now a ModelConfig with Prompts fields. Next step updates all consumers.
+        verification:
+          - go test ./internal/config/...
+          - go vet ./internal/config/...
+
+      - id: stage-1-step-2
+        objective: Update all Config.Model consumers to use the new ModelConfig shape
+        scope: Find and update all references to cfg.Model as a string across the codebase
+        files:
+          - cmd/steiner/runtime.go
+          - cmd/steiner/main.go
+          - internal/agent/*.go
+          - internal/tui/model.go
+          - internal/tui/app.go
+          - internal/prompt/assembler.go
+          - internal/prompt/system.go
+          - internal/prompt/compaction.go
+        constraints:
+          - TUI still needs model name for display; use cfg.Model.Name
+          - Agent still needs model config; use cfg.Model directly
+          - Prompt assembly needs to pass model prompts to SystemPreamble and BuildConversationCompactionPrompt
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - All string references to cfg.Model updated to cfg.Model.Name where needed
+          - SystemPreamble() signature updated to accept prompt override
+          - BuildConversationCompactionPrompt() updated to accept prompt override
+          - Assembler passes model prompt overrides
+        acceptance:
+          - go build ./... succeeds
+          - No references to cfg.Model as string remain (except .Name access)
+          - Prompt assembly uses embedded defaults when no override provided
+        handoff: All consumers updated. The system prompt and compaction prompt are now loaded from config overrides with embedded defaults as fallback.
+        verification:
+          - go build ./...
+          - go vet ./...
+          - go test ./internal/prompt/...
+          - go test ./internal/agent/...
+
+  - id: stage-2
+    objective: Add logging.thinking_chunk config flag and gate ThinkingChunkEvent in FileLogSink
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: Add ThinkingChunk bool to LoggingConfig and gate file log emission
+        scope: Config types, FileLogSink constructor, and emission logic
+        files:
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/patch.go
+          - internal/output/file_log.go
+          - cmd/steiner/runtime.go
+        constraints:
+          - Default is false (thinking chunks NOT logged)
+          - When true, behavior identical to before
+          - TUI and other sinks still receive thinking chunks regardless
+        depends_on:
+          - stage-1-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - LoggingConfig.ThinkingChunk bool field
+          - FileLogSink configured with thinking chunk flag
+          - Emit() skips ThinkingChunkEvent when flag is false
+        acceptance:
+          - go test ./internal/config/...
+          - go test ./internal/output/...
+          - Config test for default ThinkingChunk=false
+          - FileLogSink test verifying suppression when false, emission when true
+        handoff: Thinking chunk logging is now gated by config. Default is off.
+        verification:
+          - go test ./internal/config/...
+          - go test ./internal/output/...
+
+  - id: stage-3
+    objective: Implement tool path blacklist with pre-filtering for glob and grep tools
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: Add exclusion config fields and PathExcluder type with built-in heuristics
+        scope: Config types, validation, and new excluder package/type
+        files:
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/patch.go
+          - internal/config/validate.go
+          - internal/tool/policy.go
+        constraints:
+          - ExcludePaths: exact path prefixes
+          - ExcludePatterns: glob patterns
+          - Built-in heuristics always active: .git, node_modules, .steiner, vendor, .cache, dist, build, out, target, .next, .nuxt
+          - User config appends to built-ins, not replaces
+        depends_on:
+          - stage-1-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - PathsConfig.ExcludePaths and ExcludePatterns fields
+          - PathExcluder type with ShouldExclude(path) bool method
+          - Built-in heuristic exclusions
+        acceptance:
+          - go test ./internal/config/...
+          - go test ./internal/tool/...
+          - PathExcluder tests for built-ins, exact paths, and glob patterns
+        handoff: Exclusion config and PathExcluder are ready. Next step replaces the tool implementations.
+        verification:
+          - go test ./internal/config/...
+          - go test ./internal/tool/...
+
+      - id: stage-3-step-2
+        objective: Replace Dive GlobTool with custom filepath.WalkDir-based walker that respects exclusions
+        scope: internal/tool/builtin/glob.go
+        files:
+          - internal/tool/builtin/glob.go
+        constraints:
+          - Must match existing GlobTool output format (sorted list of paths, newline-separated)
+          - Must support pagination (limit/offset)
+          - Must prune excluded directories before descending (do not traverse them)
+          - Must still validate paths through PathPolicy before returning
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Custom glob walker using filepath.WalkDir
+          - Exclusion filtering applied to results
+          - Preserved pagination support
+        acceptance:
+          - go test ./internal/tool/builtin/... -run TestGlob
+          - All existing glob tests pass
+          - New tests verify excluded paths are not returned
+          - New tests verify excluded directories are not traversed
+        handoff: Glob tool now uses custom walker with exclusion support.
+        verification:
+          - go test ./internal/tool/builtin/...
+
+      - id: stage-3-step-3
+        objective: Replace Dive GrepTool with custom walker or rg wrapper that respects exclusions
+        scope: internal/tool/builtin/grep.go
+        files:
+          - internal/tool/builtin/grep.go
+        constraints:
+          - Must match existing GrepTool output format (depends on output_mode)
+          - Must skip excluded directories during traversal
+          - Must support all existing features: pattern, path, glob, type, output_mode, case-insensitive, line numbers, context, multiline, head_limit, offset
+          - If rg is available, prefer it for performance; fall back to custom walker
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Custom grep implementation with exclusion support
+          - rg wrapper with --glob !EXCLUDE flags if available
+          - Fallback to filepath.WalkDir + regexp matching
+        acceptance:
+          - go test ./internal/tool/builtin/... -run TestGrep
+          - All existing grep tests pass
+          - New tests verify excluded paths are not searched
+          - New tests verify excluded directories are not traversed
+        handoff: Grep tool now uses custom implementation with exclusion support.
+        verification:
+          - go test ./internal/tool/builtin/...
+
+  - id: stage-4
+    objective: Add a custom visual scrollbar to the conversation viewport
+    parallel: true
+    steps:
+      - id: stage-4-step-1
+        objective: Render a visual scrollbar indicator on the right edge of the content pane
+        scope: internal/tui/model_layout.go and internal/tui/model.go View()
+        files:
+          - internal/tui/model_layout.go
+          - internal/tui/model.go
+          - internal/tui/theme/styles.go
+        constraints:
+          - Scrollbar must reflect current scroll position relative to total content
+          - Must not interfere with existing mouse click handling
+          - Must be subtle (use theme border-soft color)
+          - Only render when content exceeds viewport height
+        depends_on: []
+        parallel_group: tui-independent
+        can_run_in_parallel: true
+        suggested_model: cheap-good
+        outputs:
+          - Scrollbar rendering in syncViewport() or View()
+          - Scrollbar style in theme
+        acceptance:
+          - go test ./internal/tui/...
+          - go build ./...
+          - Visual verification: scrollbar appears when content overflows
+        handoff: Conversation pane now has a visible scrollbar.
+        verification:
+          - go test ./internal/tui/...
+          - go build ./...
+
+  - id: stage-5
+    objective: Add /ls command with scrollable modal overlay listing files recursively
+    parallel: false
+    steps:
+      - id: stage-5-step-1
+        objective: Create file listing overlay model and integrate into TUI
+        scope: New file in internal/tui/, updates to model.go, model_update.go, input.go, View()
+        files:
+          - internal/tui/file_list.go (new)
+          - internal/tui/model.go
+          - internal/tui/model_update.go
+          - internal/tui/input.go
+          - internal/tui/app.go
+        constraints:
+          - Reuse palette overlay pattern (centered modal, dim background)
+          - Accept optional path argument; default to working directory
+          - Recursive listing using filepath.WalkDir
+          - Respect T008 exclusions (requires stage-3 completion)
+          - Close with Esc or Enter
+          - Do not invoke agent
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - New fileListOverlay type with Open(), Close(), View(), Update() methods
+          - /ls command parsing in input.go
+          - Overlay rendered in Model.View()
+          - Key handlers in model_update.go
+        acceptance:
+          - go test ./internal/tui/...
+          - go build ./...
+          - /ls opens overlay
+          - /ls internal/ opens overlay with that path
+          - Esc closes overlay
+          - No agent invocation occurs
+        handoff: File listing overlay is functional. Users can browse files without invoking the agent.
+        verification:
+          - go test ./internal/tui/...
+          - go build ./...
+
+  - id: stage-6
+    objective: Add @ file auto-completion with fuzzy file picker overlay
+    parallel: false
+    steps:
+      - id: stage-6-step-1
+        objective: Detect @ trigger in textarea and open file picker overlay
+        scope: model_update.go handleKeyMsg, new file picker overlay type
+        files:
+          - internal/tui/file_picker.go (new)
+          - internal/tui/model.go
+          - internal/tui/model_update.go
+          - internal/tui/input.go
+        constraints:
+          - Trigger when @ is typed (detect in Update/KeyMsg)
+          - Show files and directories relative to project root
+          - Filter candidates as user types after @
+          - Up/Down to navigate, Enter to insert path + trailing space
+          - Esc to close without inserting
+          - Respect T008 exclusions
+          - Overlay appears above input area, not centered
+        depends_on:
+          - stage-5-step-1
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - filePickerOverlay type with candidate list, query, selection index
+          - @ detection logic in textarea input handling
+          - Fuzzy filtering of candidates
+          - Path insertion into textarea at cursor position
+        acceptance:
+          - go test ./internal/tui/...
+          - go build ./...
+          - Typing @ opens picker
+          - Typing after @ filters candidates
+          - Enter inserts selected path with trailing space
+          - Esc closes picker
+        handoff: @ auto-completion is functional. Users can quickly reference files in prompts.
+        verification:
+          - go test ./internal/tui/...
+          - go build ./...

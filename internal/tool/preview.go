@@ -52,13 +52,27 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 				preview.Fields = append(preview.Fields, previewTextField("contents", contents, 128))
 			}
 		}
+	case "edit":
+		if path := stringInput(input["path"]); path != "" {
+			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+		}
+		if old := stringInput(input["old_string"]); old != "" {
+			preview.Fields = append(preview.Fields, previewTextField("old_string", old, 128))
+		}
 	case "glob":
 		if pattern := stringInput(input["pattern"]); pattern != "" {
 			preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
 		}
-	case "search":
-		if query := stringInput(input["query"]); query != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "query", Value: query})
+	case "grep":
+		if pattern := stringInput(input["pattern"]); pattern != "" {
+			preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
+		}
+		if path := stringInput(input["path"]); path != "" {
+			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+		}
+	case "ls":
+		if path := stringInput(input["path"]); path != "" {
+			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
 		}
 	default:
 		keys := make([]string, 0, len(input))

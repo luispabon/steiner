@@ -39,13 +39,13 @@ func TestResolveApprovalMode(t *testing.T) {
 		{
 			cfg:  cfg,
 			name: "config default used",
-			def:  ToolDef{Name: "search"},
+			def:  ToolDef{Name: "grep"},
 			want: config.ApprovalModePrompt,
 		},
 		{
 			cfg:  config.Config{},
 			name: "empty config falls back to prompt",
-			def:  ToolDef{Name: "search"},
+			def:  ToolDef{Name: "grep"},
 			want: config.ApprovalModePrompt,
 		},
 	}

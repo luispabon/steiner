@@ -8,18 +8,38 @@ import (
 func validate(cfg Config) error {
 	var problems []string
 
-	if strings.TrimSpace(cfg.Model) == "" {
-		problems = append(problems, "model is required")
+	if cfg.Model.Type == "" {
+		problems = append(problems, "model.type is required")
+	} else if cfg.Model.Type != "openai_compat" {
+		problems = append(problems, fmt.Sprintf("model.type %q is not supported", cfg.Model.Type))
 	}
+	if strings.TrimSpace(cfg.Model.BaseURL) == "" {
+		problems = append(problems, "model.base_url is required")
+	}
+	if strings.TrimSpace(cfg.Model.Model) == "" {
+		problems = append(problems, "model.model is required")
+	}
+	if cfg.Model.MaxCompletionTokens < 1 {
+		problems = append(problems, "model.max_completion_tokens must be at least 1")
+	}
+	if cfg.Model.ContextSize < 1 {
+		problems = append(problems, "model.context_size must be at least 1")
+	}
+	if cfg.Model.Compaction.SafetyMarginTokens < 0 {
+		problems = append(problems, "model.compaction.safety_margin_tokens must be at least 0")
+	}
+	if cfg.Model.Compaction.SummaryMaxTokens < 1 {
+		problems = append(problems, "model.compaction.summary_max_tokens must be at least 1")
+	}
+	if cfg.Model.Compaction.SummaryMaxTokens > cfg.Model.MaxCompletionTokens {
+		problems = append(problems, "model.compaction.summary_max_tokens must be less than or equal to model.max_completion_tokens")
+	}
+
 	if cfg.Scheduler.Parallelism < 1 {
 		problems = append(problems, "scheduler.parallelism must be at least 1")
 	}
 	if len(cfg.Models) == 0 {
 		problems = append(problems, "models is required")
-	}
-	selected, ok := cfg.Models[strings.TrimSpace(cfg.Model)]
-	if !ok {
-		problems = append(problems, fmt.Sprintf("model %q is not defined", cfg.Model))
 	}
 	for name, model := range cfg.Models {
 		if strings.TrimSpace(name) == "" {
@@ -50,11 +70,6 @@ func validate(cfg Config) error {
 		}
 		if model.Compaction.SummaryMaxTokens > model.MaxCompletionTokens {
 			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be less than or equal to models[%q].max_completion_tokens", name, name))
-		}
-	}
-	if ok {
-		if selected.Type == "" {
-			problems = append(problems, fmt.Sprintf("model %q has an empty type", cfg.Model))
 		}
 	}
 	if cfg.Limits.MaxTurns < 0 {

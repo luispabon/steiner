@@ -3,7 +3,7 @@ package config
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler      SchedulerConfig        `yaml:"scheduler"`
-	Model          string                 `yaml:"model"`
+	Model          ModelConfig            `yaml:"model"`
 	Models         map[string]ModelConfig `yaml:"models"`
 	Limits         LimitsConfig           `yaml:"limits"`
 	Approval       ApprovalConfig         `yaml:"approval"`
@@ -18,6 +18,7 @@ type SchedulerConfig struct {
 	Parallelism int `yaml:"parallelism"`
 }
 
+// ModelConfig configures a model provider instance.
 type ModelConfig struct {
 	Type                string           `yaml:"type"`
 	BaseURL             string           `yaml:"base_url"`
@@ -27,6 +28,14 @@ type ModelConfig struct {
 	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
 	ContextSize         int              `yaml:"context_size"`
 	Compaction          CompactionConfig `yaml:"compaction"`
+	Prompts             ModelPrompts     `yaml:"prompts"`
+}
+
+// ModelPrompts contains per-model prompt overrides. These override the
+// embedded default prompts and are only settable via config file.
+type ModelPrompts struct {
+	System     string `yaml:"system"`
+	Compaction string `yaml:"compaction"`
 }
 
 type CompactionConfig struct {
@@ -84,12 +93,15 @@ type PathsConfig struct {
 	ProjectRootOnly bool     `yaml:"project_root_only"`
 	WritablePaths   []string `yaml:"writable_paths"`
 	BlockedPaths    []string `yaml:"blocked_paths"`
+	ExcludePaths    []string `yaml:"exclude_paths"`
+	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
 type LoggingConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Level   string `yaml:"level"`
-	File    string `yaml:"file"`
+	Enabled       bool   `yaml:"enabled"`
+	Level         string `yaml:"level"`
+	File          string `yaml:"file"`
+	ThinkingChunk bool   `yaml:"thinking_chunk"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

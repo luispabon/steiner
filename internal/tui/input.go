@@ -11,6 +11,8 @@ type inputAction struct {
 	inspectContext bool
 	listSkills     bool
 	listModels     bool
+	listFiles      bool
+	listFilesPath  string
 	submit         string
 	toggleSkill    string
 	toggleEnable   bool
@@ -49,6 +51,14 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 			return inputAction{}
 		}
 		return inputAction{setAccent: preset}
+	case trimmed == "/ls":
+		return inputAction{listFiles: true}
+	case strings.HasPrefix(trimmed, "/ls "):
+		path := strings.TrimSpace(strings.TrimPrefix(trimmed, "/ls "))
+		if path == "" {
+			return inputAction{}
+		}
+		return inputAction{listFiles: true, listFilesPath: path}
 	case strings.HasPrefix(trimmed, "/model "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
 		if name == "" {
@@ -82,7 +92,7 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
-	base := []string{"/exit", "/clear", "/compact", "/context", "/skills", "/skill", "/models", "/model", "/thinking",
+	base := []string{"/exit", "/clear", "/compact", "/context", "/skills", "/skill", "/ls", "/models", "/model", "/thinking",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

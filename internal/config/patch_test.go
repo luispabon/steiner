@@ -32,6 +32,10 @@ func modelPatchMapPtr(v map[string]modelPatch) *map[string]modelPatch {
 	return &v
 }
 
+func modelPromptsPatchPtr(v modelPromptsPatch) *modelPromptsPatch {
+	return &v
+}
+
 func toolPatchMapPtr(v map[string]toolPatch) *map[string]toolPatch {
 	return &v
 }
@@ -211,6 +215,55 @@ func TestApplyCompactionPatch(t *testing.T) {
 			applyCompactionPatch(&dst, &tt.patch)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applyCompactionPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyModelPromptsPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial ModelPrompts
+		patch   modelPromptsPatch
+		want    ModelPrompts
+	}{
+		{
+			name:    "sets both fields",
+			initial: ModelPrompts{},
+			patch: modelPromptsPatch{
+				System:     stringPtr("You are a helpful assistant"),
+				Compaction: stringPtr("Summarize the above"),
+			},
+			want: ModelPrompts{
+				System:     "You are a helpful assistant",
+				Compaction: "Summarize the above",
+			},
+		},
+		{
+			name:    "sets only system",
+			initial: ModelPrompts{Compaction: "default compact"},
+			patch:   modelPromptsPatch{System: stringPtr("Custom system")},
+			want:    ModelPrompts{System: "Custom system", Compaction: "default compact"},
+		},
+		{
+			name:    "sets only compaction",
+			initial: ModelPrompts{System: "default system"},
+			patch:   modelPromptsPatch{Compaction: stringPtr("Custom compact")},
+			want:    ModelPrompts{System: "default system", Compaction: "Custom compact"},
+		},
+		{
+			name:    "empty patch leaves values untouched",
+			initial: ModelPrompts{System: "sys", Compaction: "comp"},
+			patch:   modelPromptsPatch{},
+			want:    ModelPrompts{System: "sys", Compaction: "comp"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyModelPromptsPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyModelPromptsPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
 	}
@@ -759,23 +812,29 @@ func TestApplyLoggingPatch(t *testing.T) {
 	}{
 		{
 			name:    "sets all fields",
-			initial: LoggingConfig{Enabled: false, Level: "info", File: "/dev/null"},
+			initial: LoggingConfig{Enabled: false, Level: "info", File: "/dev/null", ThinkingChunk: false},
 			patch: loggingPatch{
-				Enabled: boolPtr(true), Level: stringPtr("debug"), File: stringPtr("steiner.log"),
+				Enabled: boolPtr(true), Level: stringPtr("debug"), File: stringPtr("steiner.log"), ThinkingChunk: boolPtr(true),
 			},
-			want: LoggingConfig{Enabled: true, Level: "debug", File: "steiner.log"},
+			want: LoggingConfig{Enabled: true, Level: "debug", File: "steiner.log", ThinkingChunk: true},
 		},
 		{
 			name:    "nil fields leave existing values untouched",
-			initial: LoggingConfig{Enabled: true, Level: "warn", File: "old.log"},
+			initial: LoggingConfig{Enabled: true, Level: "warn", File: "old.log", ThinkingChunk: true},
 			patch:   loggingPatch{Level: stringPtr("error")},
-			want:    LoggingConfig{Enabled: true, Level: "error", File: "old.log"},
+			want:    LoggingConfig{Enabled: true, Level: "error", File: "old.log", ThinkingChunk: true},
 		},
 		{
 			name:    "empty patch leaves everything untouched",
-			initial: LoggingConfig{Enabled: true, Level: "info"},
+			initial: LoggingConfig{Enabled: true, Level: "info", ThinkingChunk: true},
 			patch:   loggingPatch{},
-			want:    LoggingConfig{Enabled: true, Level: "info"},
+			want:    LoggingConfig{Enabled: true, Level: "info", ThinkingChunk: true},
+		},
+		{
+			name:    "sets thinking_chunk",
+			initial: LoggingConfig{ThinkingChunk: false},
+			patch:   loggingPatch{ThinkingChunk: boolPtr(true)},
+			want:    LoggingConfig{ThinkingChunk: true},
 		},
 	}
 	for _, tt := range tests {
@@ -800,26 +859,30 @@ func TestApplyPatch(t *testing.T) {
 		want  Config
 	}{
 		{
-			name:  "nil sections do nothing",
-			cfg:   Config{Model: "default"},
+			name: "nil sections do nothing",
+			cfg: Config{
+				Model: ModelConfig{Type: "openai_compat", Model: "default", BaseURL: "http://localhost:11434/v1", MaxCompletionTokens: 4096, ContextSize: 16384},
+			},
 			patch: configPatch{},
-			want:  Config{Model: "default"},
+			want: Config{
+				Model: ModelConfig{Type: "openai_compat", Model: "default", BaseURL: "http://localhost:11434/v1", MaxCompletionTokens: 4096, ContextSize: 16384},
+			},
 		},
 		{
 			name: "applies scheduler, model, and limits in one call",
 			cfg: Config{
 				Scheduler: SchedulerConfig{Parallelism: 1},
-				Model:     "old",
+				Model:     ModelConfig{Type: "ollama", Model: "old", BaseURL: "http://old:11434/v1", MaxCompletionTokens: 4096, ContextSize: 16384},
 				Limits:    LimitsConfig{MaxTurns: 10},
 			},
 			patch: configPatch{
 				Scheduler: &schedulerPatch{Parallelism: intPtr(4)},
-				Model:     stringPtr("new"),
+				Model:     &modelPatch{Model: stringPtr("new"), BaseURL: stringPtr("http://new:11434/v1")},
 				Limits:    &limitsPatch{MaxTurns: intPtr(50)},
 			},
 			want: Config{
 				Scheduler: SchedulerConfig{Parallelism: 4},
-				Model:     "new",
+				Model:     ModelConfig{Type: "ollama", Model: "new", BaseURL: "http://new:11434/v1", MaxCompletionTokens: 4096, ContextSize: 16384},
 				Limits:    LimitsConfig{MaxTurns: 50},
 			},
 		},
@@ -964,7 +1027,7 @@ func TestApplyPatch(t *testing.T) {
 			cfg:  Config{},
 			patch: configPatch{
 				Scheduler:      &schedulerPatch{Parallelism: intPtr(2)},
-				Model:          stringPtr("default"),
+				Model:          &modelPatch{Model: stringPtr("default"), Type: stringPtr("openai_compat"), BaseURL: stringPtr("http://localhost:11434/v1"), MaxCompletionTokens: intPtr(4096), ContextSize: intPtr(16384)},
 				Limits:         &limitsPatch{MaxTurns: intPtr(50), MaxTokens: intPtr(500000)},
 				Approval:       &approvalPatch{Default: approvalModePtr(ApprovalModeAuto)},
 				SubAgent:       &subAgentPatch{Enabled: boolPtr(false)},
@@ -974,7 +1037,7 @@ func TestApplyPatch(t *testing.T) {
 			},
 			want: Config{
 				Scheduler: SchedulerConfig{Parallelism: 2},
-				Model:     "default",
+				Model:     ModelConfig{Type: "openai_compat", BaseURL: "http://localhost:11434/v1", Model: "default", MaxCompletionTokens: 4096, ContextSize: 16384},
 				Limits:    LimitsConfig{MaxTurns: 50, MaxTokens: 500000},
 				Approval:  ApprovalConfig{Default: ApprovalModeAuto},
 				SubAgent:  SubAgentConfig{Enabled: false},

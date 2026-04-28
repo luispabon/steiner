@@ -125,8 +125,8 @@ logging:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Model != "cli" {
-		t.Fatalf("model = %q, want cli", got.Model)
+	if got.Model.Model != "cli-backend" {
+		t.Fatalf("model.Model = %q, want cli-backend", got.Model.Model)
 	}
 	if got.Scheduler.Parallelism != 2 {
 		t.Fatalf("scheduler.parallelism = %d, want 2", got.Scheduler.Parallelism)
@@ -294,22 +294,23 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 		Approval: config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
 			Overrides: map[string]config.ApprovalMode{
-				"read":   config.ApprovalModeAuto,
-				"glob":   config.ApprovalModeAuto,
-				"search": config.ApprovalModeAuto,
-				"write":  config.ApprovalModePrompt,
-				"edit":   config.ApprovalModePrompt,
-				"bash":   config.ApprovalModePrompt,
+				"read":  config.ApprovalModeAuto,
+				"glob":  config.ApprovalModeAuto,
+				"grep":  config.ApprovalModeAuto,
+				"ls":    config.ApprovalModeAuto,
+				"write": config.ApprovalModePrompt,
+				"edit":  config.ApprovalModePrompt,
+				"bash":  config.ApprovalModePrompt,
 			},
 		},
 		Tools: map[string]config.ToolConfig{},
-	})
+	}, t.TempDir())
 	if err != nil {
 		t.Fatalf("runtimeRegistry() error = %v", err)
 	}
 
 	got := registry.Names()
-	want := []string{"bash", "edit", "glob", "read", "search", "write"}
+	want := []string{"bash", "edit", "glob", "grep", "ls", "read", "write"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registry names = %v, want %v", got, want)
 	}
@@ -428,7 +429,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "session.log")
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
-		fileSink, err := output.NewFileLogSink(flags.logFile)
+		fileSink, err := output.NewFileLogSink(flags.logFile, true)
 		if err != nil {
 			return cliRuntime{}, err
 		}
@@ -857,25 +858,24 @@ func containsString(values []string, want string) bool {
 }
 
 func testRuntimeConfig(alias string) config.Config {
+	modelCfg := config.ModelConfig{
+		Type:                "openai_compat",
+		BaseURL:             "http://localhost:11434/v1",
+		APIKey:              "",
+		Model:               alias,
+		MaxCompletionTokens: 64,
+		ContextSize:         4096,
+		Compaction: config.CompactionConfig{
+			SafetyMarginTokens: 16,
+			SummaryMaxTokens:   32,
+		},
+	}
 	return config.Config{
 		Scheduler: config.SchedulerConfig{
 			Parallelism: 1,
 		},
-		Model: alias,
-		Models: map[string]config.ModelConfig{
-			alias: {
-				Type:                "openai_compat",
-				BaseURL:             "http://localhost:11434/v1",
-				APIKey:              "",
-				Model:               alias,
-				MaxCompletionTokens: 64,
-				ContextSize:         4096,
-				Compaction: config.CompactionConfig{
-					SafetyMarginTokens: 16,
-					SummaryMaxTokens:   32,
-				},
-			},
-		},
+		Model:  modelCfg,
+		Models: map[string]config.ModelConfig{alias: modelCfg},
 		Limits: config.LimitsConfig{
 			MaxTurns:           4,
 			MaxTokens:          64,
@@ -1013,8 +1013,7 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		},
 	}
 
-	cfg := testRuntimeConfig("test-model")
-	cfg.Models["test-model"] = config.ModelConfig{
+	modelCfg := config.ModelConfig{
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
@@ -1025,6 +1024,9 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 			SummaryMaxTokens:   8,
 		},
 	}
+	cfg := testRuntimeConfig("test-model")
+	cfg.Model = modelCfg
+	cfg.Models["test-model"] = modelCfg
 
 	runner := cliRunner{
 		runtime: cliRuntime{
@@ -1086,8 +1088,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		},
 	}
 
-	cfg := testRuntimeConfig("small")
-	cfg.Models = map[string]config.ModelConfig{
+	models := map[string]config.ModelConfig{
 		"small": {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
@@ -1111,6 +1112,9 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			},
 		},
 	}
+	cfg := testRuntimeConfig("small")
+	cfg.Model = models["small"]
+	cfg.Models = models
 
 	runner := cliRunner{
 		runtime: cliRuntime{
@@ -1137,7 +1141,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		t.Fatalf("first max completion tokens = %d, want %d", got, want)
 	}
 
-	runner.runtime.cfg.Model = "large"
+	runner.runtime.cfg.Model = models["large"]
 	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1163,8 +1167,7 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 		},
 	}
 
-	cfg := testRuntimeConfig("test-model")
-	cfg.Models["test-model"] = config.ModelConfig{
+	modelCfg := config.ModelConfig{
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
@@ -1176,6 +1179,9 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 			SummaryMaxTokens:   32,
 		},
 	}
+	cfg := testRuntimeConfig("test-model")
+	cfg.Model = modelCfg
+	cfg.Models["test-model"] = modelCfg
 
 	runner := cliRunner{
 		runtime: cliRuntime{

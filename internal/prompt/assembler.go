@@ -43,7 +43,7 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 		messages = append(messages, blockMessage(block))
 	}
 
-	preamble := SystemPreamble()
+	preamble := SystemPreamble(a.opts.PromptOverrides.System)
 	appendBlock(preamble)
 
 	globalAgentsPath := a.opts.GlobalAgentsPath

@@ -281,8 +281,8 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 
 	before := false
 	buffer.AppendEvent(output.NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
-		"path":     "notes.md",
-		"contents": "hello\nworld\n",
+		"path":    "notes.md",
+		"content": "hello\nworld\n",
 	}, &before))
 	buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil, output.ToolPreview{
 		Kind:     output.ToolPreviewKindFileWrite,
@@ -327,9 +327,9 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
-		"path": "main.go",
-		"old":  "oldLine()",
-		"new":  "newLine()",
+		"path":       "main.go",
+		"old_string": "oldLine()",
+		"new_string": "newLine()",
 	}))
 	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
 

@@ -101,15 +101,19 @@ Rules:
 - Write for immediate continuation by a coding agent.`
 )
 
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState) []provider.Message {
+func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
 		return nil
 	}
 
+	systemContent := compactionPromptSystem()
+	if override != "" {
+		systemContent = override
+	}
 	userPrompt := renderConversationCompactionSource(turns, state)
 	return []provider.Message{
-		{Role: provider.MessageRoleSystem, Content: compactionPromptSystem()},
+		{Role: provider.MessageRoleSystem, Content: systemContent},
 		{Role: provider.MessageRoleUser, Content: userPrompt},
 	}
 }

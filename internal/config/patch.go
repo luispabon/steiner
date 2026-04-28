@@ -3,7 +3,8 @@ package config
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
 	Scheduler      *schedulerPatch        `yaml:"scheduler"`
-	Model          *string                `yaml:"model"`
+	Model          *modelPatch            `yaml:"model"`
+	ModelAlias     string                 `yaml:"-"` // populated when model is a scalar alias string
 	Models         *map[string]modelPatch `yaml:"models"`
 	Limits         *limitsPatch           `yaml:"limits"`
 	Approval       *approvalPatch         `yaml:"approval"`
@@ -19,14 +20,20 @@ type schedulerPatch struct {
 }
 
 type modelPatch struct {
-	Type                *string          `yaml:"type"`
-	BaseURL             *string          `yaml:"base_url"`
-	APIKey              *string          `yaml:"api_key"`
-	Model               *string          `yaml:"model"`
-	ExtraParams         *map[string]any  `yaml:"extra_params"`
-	MaxCompletionTokens *int             `yaml:"max_completion_tokens"`
-	ContextSize         *int             `yaml:"context_size"`
-	Compaction          *compactionPatch `yaml:"compaction"`
+	Type                *string            `yaml:"type"`
+	BaseURL             *string            `yaml:"base_url"`
+	APIKey              *string            `yaml:"api_key"`
+	Model               *string            `yaml:"model"`
+	ExtraParams         *map[string]any    `yaml:"extra_params"`
+	MaxCompletionTokens *int               `yaml:"max_completion_tokens"`
+	ContextSize         *int               `yaml:"context_size"`
+	Compaction          *compactionPatch   `yaml:"compaction"`
+	Prompts             *modelPromptsPatch `yaml:"prompts"`
+}
+
+type modelPromptsPatch struct {
+	System     *string `yaml:"system"`
+	Compaction *string `yaml:"compaction"`
 }
 
 type compactionPatch struct {
@@ -76,21 +83,21 @@ type pathsPatch struct {
 	ProjectRootOnly *bool     `yaml:"project_root_only"`
 	WritablePaths   *[]string `yaml:"writable_paths"`
 	BlockedPaths    *[]string `yaml:"blocked_paths"`
+	ExcludePaths    *[]string `yaml:"exclude_paths"`
+	ExcludePatterns *[]string `yaml:"exclude_patterns"`
 }
 
 type loggingPatch struct {
-	Enabled *bool   `yaml:"enabled"`
-	Level   *string `yaml:"level"`
-	File    *string `yaml:"file"`
+	Enabled       *bool   `yaml:"enabled"`
+	Level         *string `yaml:"level"`
+	File          *string `yaml:"file"`
+	ThinkingChunk *bool   `yaml:"thinking_chunk"`
 }
 
 // applyPatch applies a config patch to the config.
 func applyPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
-	}
-	if patch.Model != nil {
-		cfg.Model = *patch.Model
 	}
 	if patch.Models != nil {
 		if cfg.Models == nil {
@@ -101,6 +108,14 @@ func applyPatch(cfg *Config, patch configPatch) {
 			applyModelPatch(&current, &model)
 			cfg.Models[name] = current
 		}
+	}
+	if patch.ModelAlias != "" {
+		if m, ok := cfg.Models[patch.ModelAlias]; ok {
+			cfg.Model = m
+		}
+	}
+	if patch.Model != nil {
+		applyModelPatch(&cfg.Model, patch.Model)
 	}
 	if patch.Limits != nil {
 		applyLimitsPatch(&cfg.Limits, patch.Limits)
@@ -162,6 +177,18 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	}
 	if patch.Compaction != nil {
 		applyCompactionPatch(&dst.Compaction, patch.Compaction)
+	}
+	if patch.Prompts != nil {
+		applyModelPromptsPatch(&dst.Prompts, patch.Prompts)
+	}
+}
+
+func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
+	if patch.System != nil {
+		dst.System = *patch.System
+	}
+	if patch.Compaction != nil {
+		dst.Compaction = *patch.Compaction
 	}
 }
 
@@ -278,6 +305,12 @@ func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
 	if patch.BlockedPaths != nil {
 		dst.BlockedPaths = append([]string(nil), (*patch.BlockedPaths)...)
 	}
+	if patch.ExcludePaths != nil {
+		dst.ExcludePaths = append([]string(nil), (*patch.ExcludePaths)...)
+	}
+	if patch.ExcludePatterns != nil {
+		dst.ExcludePatterns = append([]string(nil), (*patch.ExcludePatterns)...)
+	}
 }
 
 func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
@@ -289,5 +322,8 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 	if patch.File != nil {
 		dst.File = *patch.File
+	}
+	if patch.ThinkingChunk != nil {
+		dst.ThinkingChunk = *patch.ThinkingChunk
 	}
 }

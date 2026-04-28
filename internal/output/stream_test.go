@@ -44,8 +44,8 @@ func TestPlainRendererRendersFileWritePreviewInPlainOutput(t *testing.T) {
 
 	before := false
 	renderer.OnEvent(NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
-		"path":     "notes.md",
-		"contents": "hello\nworld\n",
+		"path":    "notes.md",
+		"content": "hello\nworld\n",
 	}, &before))
 	renderer.OnEvent(NewToolCallFinishedEvent(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil))
 
@@ -70,12 +70,12 @@ func TestPlainRendererRendersReadFilePreviewInPlainOutput(t *testing.T) {
 	renderer.OnEvent(NewToolCallStartedEvent(1, "read", "call_1", map[string]any{
 		"path": "README.md",
 	}))
-	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"path":"README.md","contents":"hello\nworld\n"}`, nil))
+	renderer.OnEvent(NewToolCallFinishedEvent(1, "read", "call_1", `{"path":"README.md","output":"hello\nworld\n"}`, nil))
 
 	got := buf.String()
 	for _, want := range []string{
 		"tool: turn=1 start tool=read id=call_1",
-		"tool: turn=1 end tool=read id=call_1 result={\"path\":\"README.md\",\"contents\":\"hello\\nworld\\n\"}",
+		"tool: turn=1 end tool=read id=call_1 result={\"path\":\"README.md\",\"output\":\"hello\\nworld\\n\"}",
 		"  README.md · read file preview · 2 lines",
 		"  hello",
 		"  world",
@@ -98,9 +98,9 @@ func TestPlainRendererRendersEditDiffPreviewWithTheme(t *testing.T) {
 	}))
 
 	renderer.OnEvent(NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
-		"path": "main.go",
-		"old":  "oldLine()",
-		"new":  "newLine()",
+		"path":       "main.go",
+		"old_string": "oldLine()",
+		"new_string": "newLine()",
 	}))
 	renderer.OnEvent(NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
 

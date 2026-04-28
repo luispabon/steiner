@@ -18,9 +18,9 @@ func TestBuildToolPreview(t *testing.T) {
 			name: "edit diff",
 			tool: "edit",
 			args: map[string]any{
-				"path": "internal/tui/content.go",
-				"old":  "before()",
-				"new":  "after()",
+				"path":       "internal/tui/content.go",
+				"old_string": "before()",
+				"new_string": "after()",
 			},
 			want: ToolPreview{
 				Kind:     ToolPreviewKindEditDiff,
@@ -34,8 +34,8 @@ func TestBuildToolPreview(t *testing.T) {
 			name: "write created",
 			tool: "write",
 			args: map[string]any{
-				"path":     "notes.md",
-				"contents": "# hi\n",
+				"path":    "notes.md",
+				"content": "# hi\n",
 			},
 			existed: &writeMissing,
 			want: ToolPreview{
@@ -50,8 +50,8 @@ func TestBuildToolPreview(t *testing.T) {
 			name: "write updated",
 			tool: "write",
 			args: map[string]any{
-				"path":     "notes.md",
-				"contents": "# hi\n",
+				"path":    "notes.md",
+				"content": "# hi\n",
 			},
 			existed: &writeExisted,
 			want: ToolPreview{
@@ -67,7 +67,7 @@ func TestBuildToolPreview(t *testing.T) {
 			args: map[string]any{
 				"path": "README.md",
 			},
-			result: `{"path":"README.md","contents":"hello\nworld\n"}`,
+			result: `{"path":"README.md","output":"hello\nworld\n"}`,
 			want: ToolPreview{
 				Kind:     ToolPreviewKindReadFile,
 				Path:     "README.md",
@@ -79,8 +79,8 @@ func TestBuildToolPreview(t *testing.T) {
 			name: "missing critical data falls back to plain",
 			tool: "edit",
 			args: map[string]any{
-				"path": "x.go",
-				"old":  "before()",
+				"path":       "x.go",
+				"old_string": "before()",
 			},
 			want: ToolPreview{Kind: ToolPreviewKindPlain},
 		},

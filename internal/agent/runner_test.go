@@ -160,10 +160,10 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 						{
 							ID:   "call_1",
 							Name: "write",
-							Arguments: map[string]any{
-								"path":     target,
-								"contents": "hello\n",
-							},
+						Arguments: map[string]any{
+							"path":    target,
+							"content": "hello\n",
+						},
 						},
 					},
 				},
@@ -186,7 +186,7 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 			return tool.ExecutionResult{
 				Value: map[string]any{
 					"path":          input["path"],
-					"bytes_written": len(input["contents"].(string)),
+					"bytes_written": len(input["content"].(string)),
 				},
 			}, nil
 		},

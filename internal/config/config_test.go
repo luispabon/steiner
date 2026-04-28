@@ -21,6 +21,13 @@ func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Logging.ThinkingChunk {
+		t.Fatal("default logging.thinking_chunk = true, want false")
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -34,7 +41,15 @@ func TestLoadPrecedence(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 2
-model: global
+model:
+  type: openai_compat
+  base_url: http://global.example/v1
+  model: global-backend
+  max_completion_tokens: 2048
+  context_size: 8192
+  compaction:
+    safety_margin_tokens: 256
+    summary_max_tokens: 128
 models:
   global:
     type: openai_compat
@@ -62,7 +77,15 @@ paths:
   project_root_only: false
 `)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: project
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://project.example/v1
+  model: project-backend
+  max_completion_tokens: 4096
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 1024
+    summary_max_tokens: 512
 models:
   project:
     type: openai_compat
@@ -116,8 +139,20 @@ logging:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got := cfg.Model; got != "cli" {
-		t.Fatalf("model = %q, want %q", got, "cli")
+	if got := cfg.Model.Type; got != "openai_compat" {
+		t.Fatalf("model.type = %q, want %q", got, "openai_compat")
+	}
+	if got := cfg.Model.BaseURL; got != "http://cli.example/v1" {
+		t.Fatalf("model.base_url = %q, want %q", got, "http://cli.example/v1")
+	}
+	if got := cfg.Model.Model; got != "cli-backend" {
+		t.Fatalf("model.model = %q, want %q", got, "cli-backend")
+	}
+	if got := cfg.Model.MaxCompletionTokens; got != 8192 {
+		t.Fatalf("model.max_completion_tokens = %d, want %d", got, 8192)
+	}
+	if got := cfg.Model.ContextSize; got != 65536 {
+		t.Fatalf("model.context_size = %d, want %d", got, 65536)
 	}
 	if got := cfg.Scheduler.Parallelism; got != 4 {
 		t.Fatalf("scheduler.parallelism = %d, want %d", got, 4)
@@ -152,7 +187,15 @@ func TestLoadExpandsEnvInterpolation(t *testing.T) {
 	homeDir := filepath.Join(tempDir, "home")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: ${STEINER_BASE_URL:-http://localhost:11434/v1}
+  model: qwen3-35b-a3b
+  max_completion_tokens: 8192
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 1024
 models:
   default:
     type: openai_compat
@@ -203,7 +246,15 @@ func TestLoadExpandsUnbracedEnvInterpolation(t *testing.T) {
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `logging:
   file: "$HOME/steiner.log"
-model: default
+model:
+  type: openai_compat
+  base_url: http://localhost:11434/v1
+  model: qwen3-35b-a3b
+  max_completion_tokens: 8192
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 1024
 models:
   default:
     type: openai_compat
@@ -277,13 +328,16 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnknownModelAlias(t *testing.T) {
+func TestLoadRejectsInvalidModelBlock(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: missing
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: ""
+  base_url: ""
+  model: ""
 models:
   default:
     type: openai_compat
@@ -312,10 +366,10 @@ models:
 		Env:     map[string]string{},
 	})
 	if err == nil {
-		t.Fatal("Load() error = nil, want missing model alias error")
+		t.Fatal("Load() error = nil, want model validation error")
 	}
-	if !strings.Contains(err.Error(), "model \"missing\" is not defined") {
-		t.Fatalf("error = %q, want alias validation", err)
+	if !strings.Contains(err.Error(), "model.type is required") {
+		t.Fatalf("error = %q, want model validation error", err)
 	}
 }
 
@@ -325,7 +379,15 @@ func TestLoadAllowsZeroMaxTurns(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://localhost:11434/v1
+  model: qwen3-35b-a3b
+  max_completion_tokens: 8192
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 1024
 models:
   default:
     type: openai_compat
@@ -369,7 +431,15 @@ func TestLoadRejectsSummaryMaxTokensAboveMaxCompletionTokens(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://localhost:11434/v1
+  model: qwen3-35b-a3b
+  max_completion_tokens: 256
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 512
 models:
   default:
     type: openai_compat
@@ -418,7 +488,18 @@ func TestLoadMergesExtraParams(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://localhost:11434/v1
+  model: qwen3-35b-a3b
+  extra_params:
+    temperature: 0.7
+    top_p: 0.9
+  max_completion_tokens: 8192
+  context_size: 32768
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 1024
 models:
   default:
     type: openai_compat
@@ -697,6 +778,11 @@ func TestNormalizePaths(t *testing.T) {
 			name: "expands tilde in blocked paths",
 			cfg:  Config{Paths: PathsConfig{BlockedPaths: []string{"~/blocked"}}},
 			want: Config{Paths: PathsConfig{BlockedPaths: []string{"/home/user/blocked"}}},
+		},
+		{
+			name: "expands tilde in exclude paths",
+			cfg:  Config{Paths: PathsConfig{ExcludePaths: []string{"~/secret"}}},
+			want: Config{Paths: PathsConfig{ExcludePaths: []string{"/home/user/secret"}}},
 		},
 		{
 			name: "expands tilde in tool exec",

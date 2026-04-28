@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -75,6 +76,8 @@ type Model struct {
 	compacting                   bool
 	accentPreset                 string
 	palette                      paletteModel
+	fileList                     fileListOverlay
+	filePicker                   filePickerOverlay
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -196,6 +199,15 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.palette.width = m.width
 	m.palette.height = m.height
 
+	// Initialize file list overlay
+	m.fileList = newFileListOverlay(m.styles)
+	m.fileList.width = m.width
+	m.fileList.height = m.height
+
+	m.filePicker = newFilePickerOverlay(m.styles)
+	m.filePicker.width = m.width
+	m.filePicker.height = m.height
+
 	return m
 }
 
@@ -264,7 +276,30 @@ func (m Model) View() string {
 		contentWidth = max(1, m.width-sidebarWidth-1) // 1-cell vertical divider
 	}
 
-	viewportView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
+	viewportInner := m.viewport.View()
+	scrollbar := m.renderScrollbar()
+	var viewportContent string
+	if scrollbar != "" {
+		vpLines := strings.Split(viewportInner, "\n")
+		scLines := strings.Split(scrollbar, "\n")
+		merged := make([]string, 0, len(vpLines)+1)
+		merged = append(merged, "") // match ContentPane PaddingTop(1)
+		for i := 0; i < len(vpLines) && i < len(scLines); i++ {
+			merged = append(merged, vpLines[i]+scLines[i])
+		}
+		viewportContent = strings.Join(merged, "\n")
+	} else {
+		viewportContent = viewportInner
+	}
+
+	paneStyle := m.styles.ContentPane
+	if scrollbar != "" {
+		paneStyle = lipgloss.NewStyle().
+			PaddingTop(1).
+			PaddingLeft(3).
+			PaddingRight(2)
+	}
+	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
 
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
@@ -287,12 +322,10 @@ func (m Model) View() string {
 	}
 	statusView := m.status.view(contentWidth)
 
-	mainColumn := lipgloss.JoinVertical(lipgloss.Left,
-		viewportView,
-		hDivider,
-		inputView,
-		statusView,
-	)
+	mainComponents := []string{viewportView, hDivider}
+	mainComponents = append(mainComponents, inputView, statusView)
+
+	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 
 	var base string
 	if sidebarVisible {
@@ -318,6 +351,38 @@ func (m Model) View() string {
 			overlay,
 			lipgloss.WithWhitespaceChars(" "),
 		)
+	}
+
+	if m.fileList.open {
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			m.fileList.View(),
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	if m.filePicker.open {
+		overlay := m.filePicker.View()
+		baseLines := strings.Split(base, "\n")
+		olLines := strings.Split(overlay, "\n")
+
+		inputHeight := 1
+		if m.input.Focused() && m.content.streamingPhase == "" {
+			inputHeight = 3
+		}
+
+		startY := len(baseLines) - len(olLines) - inputHeight - 1
+		if startY < 0 {
+			startY = 0
+		}
+
+		for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
+			idx := startY + i
+			olWidth := lipgloss.Width(olLines[i])
+			baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
+			baseLines[idx] = olLines[i] + baseRight
+		}
+		base = strings.Join(baseLines, "\n")
 	}
 
 	return base

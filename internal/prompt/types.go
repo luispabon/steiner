@@ -1,6 +1,9 @@
 package prompt
 
-import "github.com/luispabon/steiner/internal/provider"
+import (
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
+)
 
 type ContextSource string
 
@@ -96,6 +99,7 @@ type AssemblyOptions struct {
 	SkillNames                []string
 	Tools                     []provider.ToolSpec
 	ModelBudget               ModelTokenBudget
+	PromptOverrides           config.ModelPrompts
 	ProjectContextBudgetBytes int
 	ProjectContextExtraFiles  []string
 	ProjectContextIgnoreFiles []string
