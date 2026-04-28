@@ -27,7 +27,7 @@ Loaded from `overview.md`.
 | stage-2-step-1 | implemented | ThinkingChunk toggle — config + output tests pass, no deviations |
 | stage-3-step-1 | implemented | Path exclusion config + PathExcluder — config + tool tests pass, no deviations |
 | stage-3-step-2 | implemented | Custom glob walker — 212 builtin tests pass, build + vet clean |
-| stage-3-step-3 | pending | Custom grep walker |
+| stage-3-step-3 | running | Custom grep walker |
 | stage-4-step-1 | pending | Conversation scrollbar |
 | stage-5-step-1 | pending | /ls overlay |
 | stage-6-step-1 | pending | @ file picker |
