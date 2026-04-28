@@ -27,7 +27,8 @@ Loaded from `overview.md`.
 | stage-2-step-1 | implemented | ThinkingChunk toggle — config + output tests pass, no deviations |
 | stage-3-step-1 | implemented | Path exclusion config + PathExcluder — config + tool tests pass, no deviations |
 | stage-3-step-2 | implemented | Custom glob walker — 212 builtin tests pass, build + vet clean |
-| stage-3-step-3 | running | Custom grep walker |
+| fix-glob-pattern-001 | running | Fix glob pattern matching regression — switch to gobwas/glob for full-path matching |
+| stage-3-step-3 | running | Custom grep walker — approach revised after exploration (copy Dive core + integrate PathExcluder) |
 | stage-4-step-1 | pending | Conversation scrollbar |
 | stage-5-step-1 | pending | /ls overlay |
 | stage-6-step-1 | pending | @ file picker |
@@ -67,6 +68,8 @@ Step scheduling complete. Ready to begin implementation.
 ## Blockers / Deviations
 
 - **stage-1-step-2 deviation**: Sub-agent discovered that `stage-1-step-1` left `configPatch.Model` as `*modelPatch`, which cannot decode YAML scalar strings like `model: alias`. Fixed by adding `ModelAlias string` to `configPatch` and handling alias resolution in `readConfigPatch` before decoding with `KnownFields`. This is a necessary backward-compatibility fix within the planned scope.
+- **stage-3-step-3 approach revised**: After exploration of Dive's `grep.go` source, the original plan (custom walker or rg wrapper) was revised. The new approach: copy Dive's `toolkit/grep.go` core (~150 lines of walk + regex + formatting), strip Dive boilerplate (ripgrep, PathValidator, schema), integrate `PathExcluder`, and adapt to our `GrepInput`/`GrepResult` types. Apache 2.0 license permits copying with attribution.
+- **stage-3-step-2 regression discovered**: Exploration of Dive's `glob.go` revealed our custom `globWalk` uses `filepath.Match` on base filenames only, which breaks patterns like `**/*.go`, `src/**/*.ts`, `*.{js,ts}`. Fix: replace with `gobwas/glob` (already in go.mod as indirect dependency) and match against full relative paths. Also add early-termination cap at `maxGlobLimit` (1000).
 
 ## Final Handoff State
 
