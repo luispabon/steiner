@@ -34,7 +34,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 
 	tuiApp := tui.NewApp(tui.Config{
-		Model:           rt.cfg.Model,
+		Model:           rt.cfg.Model.Model,
 		ModelNames:      modelAliasNames(rt.cfg),
 		ModelContexts:   modelContextSizes(rt.cfg),
 		ProviderBaseURL: selected.BaseURL,
@@ -161,7 +161,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 			prov := runner.runtime.provider
 			if runner.runtime.providerFactory != nil {
-				prov, err = runner.runtime.providerFactory(runner.runtime.cfg.Model)
+				prov, err = runner.runtime.providerFactory(selected)
 				if err != nil {
 					rt.events.Emit(output.Event{
 						Type:    output.EventTypeStopReason,
@@ -177,10 +177,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
 			}
 			assembly := prompt.AssemblyOptions{
-				HomeDir:     runner.runtime.homeDir,
-				ProjectRoot: runner.runtime.workDir,
-				SkillsRoot:  prompt.DefaultSkillsRoot(runner.runtime.homeDir),
-				ModelBudget: modelBudget,
+				HomeDir:         runner.runtime.homeDir,
+				ProjectRoot:     runner.runtime.workDir,
+				SkillsRoot:      prompt.DefaultSkillsRoot(runner.runtime.homeDir),
+				ModelBudget:     modelBudget,
+				PromptOverrides: selected.Prompts,
 			}
 
 			compactReq := agent.RunRequest{
@@ -202,7 +203,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			conversation = newConv
 			rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
 		case name := <-modelSwitch:
-			runner.runtime.cfg.Model = name
+			if m, ok := runner.runtime.cfg.Models[name]; ok {
+				runner.runtime.cfg.Model = m
+			}
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())

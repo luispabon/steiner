@@ -8,7 +8,7 @@ import (
 )
 
 func selectedModelConfig(cfg config.Config) (config.ModelConfig, error) {
-	return selectedModelConfigByAlias(cfg, cfg.Model)
+	return cfg.Model, nil
 }
 
 func selectedModelConfigByAlias(cfg config.Config, alias string) (config.ModelConfig, error) {

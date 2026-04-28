@@ -100,7 +100,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
 	source := toProviderMessages(candidate.Messages)
-	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context))
+	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction)
 	maxTokens := compactionMaxTokens(req.ModelBudget)
 	request := provider.ChatRequest{
 		Model:       req.Model,

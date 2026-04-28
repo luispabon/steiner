@@ -117,8 +117,41 @@ func readConfigPatch(path string, env map[string]string, allowMissing bool) (con
 		return v, ok
 	})
 
+	// First decode into a raw mapping to check if model is a scalar alias.
+	// We can't use KnownFields here since the node decode won't enforce it.
+	var rawMapping yaml.Node
+	if err := yaml.Unmarshal([]byte(expanded), &rawMapping); err != nil {
+		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
+	}
+
+	// The root node from Unmarshal is a DocumentNode; the actual mapping is
+	// in Content[0].
+	var root *yaml.Node
+	if rawMapping.Kind == yaml.DocumentNode && len(rawMapping.Content) > 0 {
+		root = rawMapping.Content[0]
+	} else {
+		root = &rawMapping
+	}
+
 	var patch configPatch
-	dec := yaml.NewDecoder(strings.NewReader(expanded))
+	if root.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			key := root.Content[i]
+			if key.Value == "model" && root.Content[i+1].Kind == yaml.ScalarNode {
+				patch.ModelAlias = root.Content[i+1].Value
+				root.Content[i+1].Kind = yaml.ScalarNode
+				root.Content[i+1].Tag = "!!null"
+				root.Content[i+1].Value = ""
+				break
+			}
+		}
+	}
+	// Re-marshal to bytes so we can decode with KnownFields.
+	cleaned, err := yaml.Marshal(&rawMapping)
+	if err != nil {
+		return configPatch{}, fmt.Errorf("marshal cleaned config %q: %w", path, err)
+	}
+	dec := yaml.NewDecoder(strings.NewReader(string(cleaned)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&patch); err != nil {
 		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
