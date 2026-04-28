@@ -38,7 +38,6 @@ models:
     type: openai_compat
     base_url: http://global.example/v1
     model: global-backend
-    temperature: 0.1
     max_completion_tokens: 2048
     context_size: 8192
     compaction:
@@ -48,7 +47,6 @@ models:
     type: openai_compat
     base_url: http://env.example/v1
     model: env-backend
-    temperature: 0.3
     max_completion_tokens: 1024
     context_size: 16384
     compaction:
@@ -68,7 +66,6 @@ models:
     type: openai_compat
     base_url: http://project.example/v1
     model: project-backend
-    temperature: 0.2
     max_completion_tokens: 4096
     context_size: 32768
     compaction:
@@ -78,7 +75,6 @@ models:
     type: openai_compat
     base_url: http://cli.example/v1
     model: cli-backend
-    temperature: 0.4
     max_completion_tokens: 8192
     context_size: 65536
     compaction:
@@ -160,7 +156,6 @@ models:
     type: openai_compat
     base_url: ${STEINER_BASE_URL:-http://localhost:11434/v1}
     model: qwen3-35b-a3b
-    temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -212,7 +207,6 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     model: qwen3-35b-a3b
-    temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -293,7 +287,6 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     model: qwen3-35b-a3b
-    temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -336,7 +329,6 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     model: qwen3-35b-a3b
-    temperature: 0.2
     max_completion_tokens: 8192
     context_size: 32768
     compaction:
@@ -381,7 +373,6 @@ models:
     type: openai_compat
     base_url: http://localhost:11434/v1
     model: qwen3-35b-a3b
-    temperature: 0.2
     max_completion_tokens: 256
     context_size: 32768
     compaction:
@@ -416,6 +407,59 @@ func mustMkdirAll(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadMergesExtraParams(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    model: qwen3-35b-a3b
+    extra_params:
+      temperature: 0.7
+      top_p: 0.9
+    max_completion_tokens: 8192
+    context_size: 32768
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	ep := cfg.Models["default"].ExtraParams
+	if ep == nil {
+		t.Fatal("ExtraParams = nil, want non-nil map")
+	}
+	if got, want := ep["temperature"], 0.7; got != want {
+		t.Fatalf("ExtraParams[temperature] = %v, want %v", got, want)
+	}
+	if got, want := ep["top_p"], 0.9; got != want {
+		t.Fatalf("ExtraParams[top_p] = %v, want %v", got, want)
 	}
 }
 

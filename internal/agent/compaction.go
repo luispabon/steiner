@@ -105,7 +105,7 @@ func buildCompactionRequest(req RunRequest, state RunState, candidate Conversati
 	request := provider.ChatRequest{
 		Model:       req.Model,
 		Messages:    messages,
-		Temperature: req.Temperature,
+		ExtraParams: req.ExtraParams,
 		MaxTokens:   maxTokens,
 	}
 	return request, summarizeCompactionPrompt(candidate)

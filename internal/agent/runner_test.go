@@ -64,15 +64,14 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	var events []output.Event
 	runner := NewRunner()
 	state, err := runner.Run(context.Background(), RunRequest{
-		Provider:    providerStub,
-		Executor:    executor,
-		Tools:       []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
-		Prompt:      prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
-		Model:       "test-model",
-		Temperature: float64Ptr(0.1),
-		MaxTokens:   intPtr(64),
-		Limits:      Limits{MaxTurns: 4, MaxTokens: 50},
-		Events:      output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		Provider:  providerStub,
+		Executor:  executor,
+		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
+		Prompt:    prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
+		Model:     "test-model",
+		MaxTokens: intPtr(64),
+		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
+		Events:    output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

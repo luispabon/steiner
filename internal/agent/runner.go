@@ -24,7 +24,7 @@ type RunRequest struct {
 	Prompt      prompt.AssemblyOptions
 	ModelBudget prompt.ModelTokenBudget
 	Model       string
-	Temperature *float64
+	ExtraParams map[string]any
 	MaxTokens   *int
 	Limits      Limits
 	Events      output.EventSink
@@ -104,7 +104,7 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 		Model:       req.Model,
 		Messages:    assembly.Messages,
 		Tools:       cloneProviderTools(req.Tools),
-		Temperature: req.Temperature,
+		ExtraParams: req.ExtraParams,
 		MaxTokens:   req.MaxTokens,
 	}
 

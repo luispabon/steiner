@@ -122,6 +122,4 @@ func containsSequence(values, sequence []string) bool {
 	return false
 }
 
-func float64Ptr(v float64) *float64 { return &v }
-
 func intPtr(v int) *int { return &v }

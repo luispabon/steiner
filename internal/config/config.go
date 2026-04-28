@@ -23,7 +23,7 @@ type ModelConfig struct {
 	BaseURL             string           `yaml:"base_url"`
 	APIKey              string           `yaml:"api_key"`
 	Model               string           `yaml:"model"`
-	Temperature         *float64         `yaml:"temperature"`
+	ExtraParams         map[string]any   `yaml:"extra_params"`
 	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
 	ContextSize         int              `yaml:"context_size"`
 	Compaction          CompactionConfig `yaml:"compaction"`

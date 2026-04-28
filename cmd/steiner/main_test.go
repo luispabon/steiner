@@ -61,7 +61,6 @@ models:
     type: openai_compat
     base_url: http://global.example/v1
     model: global-backend
-    temperature: 0.1
     max_completion_tokens: 2048
     context_size: 8192
     compaction:
@@ -80,7 +79,6 @@ models:
     type: openai_compat
     base_url: http://project.example/v1
     model: project-backend
-    temperature: 0.2
     max_completion_tokens: 4096
     context_size: 32768
     compaction:
@@ -90,7 +88,6 @@ models:
     type: openai_compat
     base_url: http://cli.example/v1
     model: cli-backend
-    temperature: 0.4
     max_completion_tokens: 8192
     context_size: 65536
     compaction:
@@ -209,7 +206,6 @@ models:
     type: openai_compat
     base_url: http://fast.example/v1
     model: fast-backend
-    temperature: 0.1
     max_completion_tokens: 256
     context_size: 4096
     compaction:
@@ -219,7 +215,6 @@ models:
     type: openai_compat
     base_url: http://slow.example/v1
     model: slow-backend
-    temperature: 0.3
     max_completion_tokens: 512
     context_size: 8192
     compaction:
@@ -861,8 +856,6 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func float64Ptr(v float64) *float64 { return &v }
-
 func testRuntimeConfig(alias string) config.Config {
 	return config.Config{
 		Scheduler: config.SchedulerConfig{
@@ -875,7 +868,6 @@ func testRuntimeConfig(alias string) config.Config {
 				BaseURL:             "http://localhost:11434/v1",
 				APIKey:              "",
 				Model:               alias,
-				Temperature:         float64Ptr(0.2),
 				MaxCompletionTokens: 64,
 				ContextSize:         4096,
 				Compaction: config.CompactionConfig{
@@ -1026,7 +1018,6 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
-		Temperature:         float64Ptr(0.2),
 		MaxCompletionTokens: 64,
 		ContextSize:         1,
 		Compaction: config.CompactionConfig{
@@ -1101,7 +1092,6 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o-mini",
-			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 32,
 			ContextSize:         1024,
 			Compaction: config.CompactionConfig{
@@ -1113,7 +1103,6 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Type:                "openai_compat",
 			BaseURL:             "http://localhost:11434/v1",
 			Model:               "gpt-4o",
-			Temperature:         float64Ptr(0.2),
 			MaxCompletionTokens: 96,
 			ContextSize:         8192,
 			Compaction: config.CompactionConfig{
@@ -1164,7 +1153,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	}
 }
 
-func TestCLIRunnerOmitsTemperatureWhenModelConfigDoesNotSetIt(t *testing.T) {
+func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
@@ -1179,6 +1168,7 @@ func TestCLIRunnerOmitsTemperatureWhenModelConfigDoesNotSetIt(t *testing.T) {
 		Type:                "openai_compat",
 		BaseURL:             "http://localhost:11434/v1",
 		Model:               "test-model",
+		ExtraParams:         map[string]any{"temperature": 0.7, "top_p": 0.9},
 		MaxCompletionTokens: 64,
 		ContextSize:         4096,
 		Compaction: config.CompactionConfig{
@@ -1205,8 +1195,15 @@ func TestCLIRunnerOmitsTemperatureWhenModelConfigDoesNotSetIt(t *testing.T) {
 	if got, want := len(providerStub.requests), 1; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
-	if providerStub.requests[0].Temperature != nil {
-		t.Fatalf("request temperature = %v, want nil", *providerStub.requests[0].Temperature)
+	ep := providerStub.requests[0].ExtraParams
+	if ep == nil {
+		t.Fatal("ExtraParams = nil, want non-nil map")
+	}
+	if got, want := ep["temperature"], 0.7; got != want {
+		t.Fatalf("ExtraParams[temperature] = %v, want %v", got, want)
+	}
+	if got, want := ep["top_p"], 0.9; got != want {
+		t.Fatalf("ExtraParams[top_p] = %v, want %v", got, want)
 	}
 }
 
