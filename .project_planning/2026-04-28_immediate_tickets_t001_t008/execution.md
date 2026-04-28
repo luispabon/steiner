@@ -32,6 +32,7 @@ Loaded from `overview.md`.
 | stage-4-step-1 | implemented | Conversation scrollbar — TUI tests pass, visual-only Lipgloss scrollbar |
 | stage-5-step-1 | implemented | /ls overlay — 854 tests pass, file listing modal with exclusions |
 | stage-6-step-1 | implemented | @ file picker — 870 tests pass, substring-filtered file picker above input |
+| manual-fix-001 | implemented | @ picker visual fixes: float overlay, accent bg selection, accent folder color, maxWidth fix |
 
 ### Current Phase
 
@@ -51,6 +52,7 @@ Step scheduling complete. Ready to begin implementation.
 | stage-4-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-4-step-1 | tmp/stage-4-step-1 | Yes | Yes |
 | stage-5-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-5-step-1 | tmp/stage-5-step-1 | Yes | Yes |
 | stage-6-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-6-step-1 | tmp/stage-6-step-1 | Yes | Yes |
+| manual-fix-001 | kimi-k2.6 (same tier) | .worktrees/manual-fix-001 | tmp/manual-fix-001 | Yes | Yes |
 
 ## Verification Runs
 
@@ -70,12 +72,14 @@ Step scheduling complete. Ready to begin implementation.
 | Pass | File | Result |
 |------|------|--------|
 | fix-glob-pattern-001 | fix_plan_glob_pattern_001.md | Fixed — gobwas/glob full-path matching + early-termination cap + schema description updates |
+| manual-fix-001 | manual_fix_plan_round_001.md | Fixed — picker floated as overlay, accent bg for selection, accent color for folders, MaxWidth prevents overflow |
 
 ## Manual Verification
 
 | Round | User Response | Notes |
 |-------|---------------|-------|
-| — | — | — |
+| 001 | Issues reported: picker inline (not overlay), selected row bg overflow hides next line, folders amber (not accent), selected item too subtle | Fix dispatched: lipgloss.Place overlay, MaxWidth fix, Accent/AccentBg styles |
+| 002 | — | Pending re-verification |
 
 ## Blockers / Deviations
 
