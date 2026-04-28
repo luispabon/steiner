@@ -97,6 +97,9 @@ type Styles struct {
 	PaletteInput      lipgloss.Style
 	PaletteItem       lipgloss.Style
 	PaletteItemActive lipgloss.Style
+
+	// Scrollbar
+	Scrollbar lipgloss.Style
 }
 
 // BuildStyles builds a full Styles from an accent hex color string.
@@ -164,6 +167,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		AccentBg: lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
+
+		Scrollbar: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(BorderSoft)),
 
 		InputFocusBorder: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).

@@ -264,7 +264,30 @@ func (m Model) View() string {
 		contentWidth = max(1, m.width-sidebarWidth-1) // 1-cell vertical divider
 	}
 
-	viewportView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
+	viewportInner := m.viewport.View()
+	scrollbar := m.renderScrollbar()
+	var viewportContent string
+	if scrollbar != "" {
+		vpLines := strings.Split(viewportInner, "\n")
+		scLines := strings.Split(scrollbar, "\n")
+		merged := make([]string, 0, len(vpLines)+1)
+		merged = append(merged, "") // match ContentPane PaddingTop(1)
+		for i := 0; i < len(vpLines) && i < len(scLines); i++ {
+			merged = append(merged, vpLines[i]+scLines[i])
+		}
+		viewportContent = strings.Join(merged, "\n")
+	} else {
+		viewportContent = viewportInner
+	}
+
+	paneStyle := m.styles.ContentPane
+	if scrollbar != "" {
+		paneStyle = lipgloss.NewStyle().
+			PaddingTop(1).
+			PaddingLeft(3).
+			PaddingRight(2)
+	}
+	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
 
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
