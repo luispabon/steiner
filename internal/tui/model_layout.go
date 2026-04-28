@@ -123,6 +123,45 @@ func (m *Model) handleLeftClick(termY int) {
 	}
 }
 
+func (m *Model) renderScrollbar() string {
+	totalContent := m.viewport.TotalLineCount()
+	if totalContent <= m.viewport.Height {
+		return ""
+	}
+
+	vh := m.viewport.Height
+	if vh <= 0 {
+		return ""
+	}
+
+	thumbH := max(1, vh*vh/totalContent)
+	trackH := vh - thumbH
+
+	scrollRange := totalContent - vh
+	var thumbPos int
+	if scrollRange > 0 && trackH > 0 {
+		thumbPos = int(float64(m.viewport.YOffset) / float64(scrollRange) * float64(trackH))
+	}
+	if thumbPos > trackH {
+		thumbPos = trackH
+	}
+
+	style := m.styles.Scrollbar
+	var sb strings.Builder
+	sb.Grow(vh * 2)
+	for i := 0; i < vh; i++ {
+		if i >= thumbPos && i < thumbPos+thumbH {
+			sb.WriteString(style.Render("▕"))
+		} else {
+			sb.WriteString(" ")
+		}
+		if i < vh-1 {
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
 func (m *Model) renderContextInfoLine(width int) string {
 	if m.sessionHealthState == "" && m.sessionHealthCompactionCount == 0 {
 		return ""
