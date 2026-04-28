@@ -131,6 +131,50 @@ func TestDecodeInput(t *testing.T) {
 		}
 	})
 
+	t.Run("float64 coerced to string", func(t *testing.T) {
+		result, err := decodeInput[EditInput](map[string]any{
+			"path":       "test.txt",
+			"old_string": "foo",
+			"new_string": float64(170),
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.NewString != "170" {
+			t.Errorf("NewString = %q, want %q", result.NewString, "170")
+		}
+	})
+
+	t.Run("float64 coerced to int", func(t *testing.T) {
+		result, err := decodeInput[ReadInput](map[string]any{
+			"path":   "test.txt",
+			"offset": float64(5),
+			"limit":  float64(100),
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Offset != 5 {
+			t.Errorf("Offset = %d, want %d", result.Offset, 5)
+		}
+		if result.Limit != 100 {
+			t.Errorf("Limit = %d, want %d", result.Limit, 100)
+		}
+	})
+
+	t.Run("string coerced to int", func(t *testing.T) {
+		result, err := decodeInput[ReadInput](map[string]any{
+			"path":   "test.txt",
+			"offset": "5",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Offset != 5 {
+			t.Errorf("Offset = %d, want %d", result.Offset, 5)
+		}
+	})
+
 	t.Run("valid LSInput decodes correctly", func(t *testing.T) {
 		result, err := decodeInput[LSInput](map[string]any{
 			"path":      ".",
