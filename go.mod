@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/deepnoodle-ai/dive v1.4.0
+	github.com/gobwas/glob v0.2.3
 	github.com/spf13/cobra v1.9.1
 	github.com/tiktoken-go/tokenizer v0.7.0
 	golang.org/x/sync v0.19.0
@@ -27,9 +28,8 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/deepnoodle-ai/wonton v0.0.29 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/gorilla/css v1.0.1 // indirect
+		github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
+		github.com/gorilla/css v1.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

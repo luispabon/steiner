@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gobwas/glob"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -78,13 +79,21 @@ func NewGlobTool(env Env) tool.ToolDef {
 }
 
 // globWalk walks the directory tree rooted at root and returns all files
-// whose base name matches pattern. Excluded directories are not traversed.
-// Each matched path is validated through PathPolicy before being included.
-// The returned paths are relative to root and sorted alphabetically.
+// whose relative path matches pattern (using gobwas/glob for full glob
+// semantics including ** and {a,b} alternation). Excluded directories are
+// not traversed. Each matched path is validated through PathPolicy before
+// being included. The returned paths are relative to root, use forward
+// slashes, and are sorted alphabetically. The walk stops early when
+// maxGlobLimit matches are collected.
 func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.PathPolicy) ([]string, error) {
+	g, err := glob.Compile(pattern, '/')
+	if err != nil {
+		return nil, fmt.Errorf("compile glob: %w", err)
+	}
+
 	var matches []string
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return filepath.SkipDir
 		}
@@ -100,11 +109,11 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return nil
 		}
 
-		matched, err := filepath.Match(pattern, d.Name())
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		if !matched {
+		if !g.Match(filepath.ToSlash(rel)) {
 			return nil
 		}
 
@@ -113,11 +122,10 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
 		matches = append(matches, rel)
+		if len(matches) >= maxGlobLimit {
+			return filepath.SkipAll
+		}
 		return nil
 	})
 	if err != nil {

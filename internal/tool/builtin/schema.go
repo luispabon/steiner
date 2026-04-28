@@ -49,8 +49,8 @@ func GlobSchema() map[string]any {
 		"properties": map[string]any{
 			"pattern": map[string]any{"type": "string", "description": "Glob pattern to match"},
 			"path":    map[string]any{"type": "string", "description": "Directory to search in"},
-			"limit":   map[string]any{"type": "integer", "description": "Max results", "default": defaultGlobLimit, "maximum": maxGlobLimit},
-			"offset":  map[string]any{"type": "integer", "description": "Result offset", "default": 0},
+			"limit":   map[string]any{"type": "integer", "description": "Max results (default: 200)", "default": defaultGlobLimit, "maximum": maxGlobLimit},
+			"offset":  map[string]any{"type": "integer", "description": "Result offset (default: 0)", "default": 0},
 		},
 		"required":             []string{"pattern"},
 		"additionalProperties": false,

@@ -254,6 +254,72 @@ func TestGlobTool_Exclusions(t *testing.T) {
 	})
 }
 
+func TestGlobWalk_DoublestarPatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	dirs := []string{"sub1", "sub2", "sub1/nested"}
+	for _, d := range dirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+
+	files := []string{
+		"root.go",
+		"sub1/a.go",
+		"sub1/b.txt",
+		"sub2/c.go",
+		"sub1/nested/d.go",
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(tmpDir, f), []byte(f), 0o644); err != nil {
+			t.Fatalf("write %s: %v", f, err)
+		}
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, nil)
+
+	t.Run("**/*.go matches Go files in all subdirectories", func(t *testing.T) {
+		matches, err := globWalk(tmpDir, "**/*.go", excluder, &policy)
+		if err != nil {
+			t.Fatalf("globWalk error: %v", err)
+		}
+		// root.go is at root, not under **/ — only subdir .go files match
+		if len(matches) != 3 {
+			t.Errorf("got %d matches, want 3: %v", len(matches), matches)
+		}
+	})
+
+	t.Run("*.{go,txt} matches go and txt files at root only", func(t *testing.T) {
+		matches, err := globWalk(tmpDir, "*.{go,txt}", excluder, &policy)
+		if err != nil {
+			t.Fatalf("globWalk error: %v", err)
+		}
+		// Only root.go matches — subdir files contain / in rel path
+		if len(matches) != 1 {
+			t.Errorf("got %d matches, want 1: %v", len(matches), matches)
+		}
+		if len(matches) > 0 && matches[0] != "root.go" {
+			t.Errorf("match = %q, want root.go", matches[0])
+		}
+	})
+
+	t.Run("early termination cap at maxGlobLimit", func(t *testing.T) {
+		// Use a very broad pattern that matches everything.
+		matches, err := globWalk(tmpDir, "**/*", excluder, &policy)
+		if err != nil {
+			t.Fatalf("globWalk error: %v", err)
+		}
+		if len(matches) > maxGlobLimit {
+			t.Errorf("got %d matches, want <= %d", len(matches), maxGlobLimit)
+		}
+		if len(matches) == 0 {
+			t.Error("expected at least some matches")
+		}
+	})
+}
+
 func TestGlobTool_CustomExcludePaths(t *testing.T) {
 	tmpDir := t.TempDir()
 
