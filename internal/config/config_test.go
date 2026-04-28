@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
@@ -467,5 +469,343 @@ func writeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExpandEnvText(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		env   map[string]string
+		want  string
+	}{
+		{
+			name:  "unbraced var",
+			input: "$HOME",
+			env:   map[string]string{"HOME": "/home/user"},
+			want:  "/home/user",
+		},
+		{
+			name:  "braced var",
+			input: "${HOME}",
+			env:   map[string]string{"HOME": "/home/user"},
+			want:  "/home/user",
+		},
+		{
+			name:  "braced default when var unset",
+			input: "${UNDEF:-default}",
+			env:   map[string]string{},
+			want:  "default",
+		},
+		{
+			name:  "braced default when var empty",
+			input: "${VAR:-default}",
+			env:   map[string]string{"VAR": ""},
+			want:  "default",
+		},
+		{
+			name:  "braced default empty string",
+			input: "${UNDEF:-}",
+			env:   map[string]string{},
+			want:  "",
+		},
+		{
+			name:  "dollar escape",
+			input: "$$HOME",
+			env:   map[string]string{"HOME": "/home/user"},
+			want:  "$HOME",
+		},
+		{
+			name:  "unclosed brace passes through",
+			input: "${HOME",
+			env:   map[string]string{"HOME": "/home/user"},
+			want:  "${HOME",
+		},
+		{
+			name:  "non-identifier name passes through",
+			input: "${123invalid}",
+			env:   map[string]string{"123invalid": "val"},
+			want:  "${123invalid}",
+		},
+		{
+			name:  "empty input",
+			input: "",
+			env:   map[string]string{},
+			want:  "",
+		},
+		{
+			name:  "unbraced var with empty value",
+			input: "$HOME",
+			env:   map[string]string{"HOME": ""},
+			want:  "",
+		},
+		{
+			name:  "dollar at end of string",
+			input: "path$",
+			env:   map[string]string{},
+			want:  "path$",
+		},
+		{
+			name:  "dollar followed by non-identifier",
+			input: "hello$ world",
+			env:   map[string]string{},
+			want:  "hello$ world",
+		},
+		{
+			name:  "mixed content with multiple vars",
+			input: "prefix/${VAR}/suffix",
+			env:   map[string]string{"VAR": "middle"},
+			want:  "prefix/middle/suffix",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lookup := func(name string) (string, bool) {
+				v, ok := tt.env[name]
+				return v, ok
+			}
+			got := expandEnvText(tt.input, lookup)
+			if got != tt.want {
+				t.Errorf("expandEnvText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyEnvOverridesRejectsInvalidIntegers(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{
+			name: "invalid STEINER_SCHEDULER_PARALLELISM",
+			env:  map[string]string{"STEINER_SCHEDULER_PARALLELISM": "not-a-number"},
+		},
+		{
+			name: "invalid STEINER_MAX_TURNS",
+			env:  map[string]string{"STEINER_MAX_TURNS": "abc"},
+		},
+		{
+			name: "invalid STEINER_MAX_TOKENS",
+			env:  map[string]string{"STEINER_MAX_TOKENS": "12.5"},
+		},
+		{
+			name: "invalid STEINER_TOOL_OUTPUT_MAX_BYTES",
+			env:  map[string]string{"STEINER_TOOL_OUTPUT_MAX_BYTES": ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			err := applyEnvOverrides(&cfg, tt.env)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+}
+
+func TestEnvironMap(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  map[string]string
+	}{
+		{
+			name:  "skips malformed entries without =",
+			input: []string{"KEY=value", "MALFORMED", "OTHER=val"},
+			want:  map[string]string{"KEY": "value", "OTHER": "val"},
+		},
+		{
+			name:  "handles empty value",
+			input: []string{"EMPTY="},
+			want:  map[string]string{"EMPTY": ""},
+		},
+		{
+			name:  "handles multiple equals signs",
+			input: []string{"KEY=a=b=c"},
+			want:  map[string]string{"KEY": "a=b=c"},
+		},
+		{
+			name:  "empty input returns empty map",
+			input: []string{},
+			want:  map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := environMap(tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("environMap(%v) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizePaths(t *testing.T) {
+	home := "/home/user"
+
+	tests := []struct {
+		name string
+		cfg  Config
+		want Config
+	}{
+		{
+			name: "expands tilde alone",
+			cfg:  Config{Logging: LoggingConfig{File: "~"}},
+			want: Config{Logging: LoggingConfig{File: home}},
+		},
+		{
+			name: "expands tilde prefix path",
+			cfg:  Config{Logging: LoggingConfig{File: "~/logs/steiner.log"}},
+			want: Config{Logging: LoggingConfig{File: "/home/user/logs/steiner.log"}},
+		},
+		{
+			name: "leaves absolute path unchanged",
+			cfg:  Config{Logging: LoggingConfig{File: "/var/log/steiner.log"}},
+			want: Config{Logging: LoggingConfig{File: "/var/log/steiner.log"}},
+		},
+		{
+			name: "leaves empty path unchanged",
+			cfg:  Config{Logging: LoggingConfig{File: ""}},
+			want: Config{Logging: LoggingConfig{File: ""}},
+		},
+		{
+			name: "leaves path without tilde unchanged",
+			cfg:  Config{Logging: LoggingConfig{File: "relative/path.log"}},
+			want: Config{Logging: LoggingConfig{File: "relative/path.log"}},
+		},
+		{
+			name: "expands tilde in extra files",
+			cfg:  Config{ProjectContext: ProjectContextConfig{ExtraFiles: []string{"~/file1", "/abs/file2"}}},
+			want: Config{ProjectContext: ProjectContextConfig{ExtraFiles: []string{"/home/user/file1", "/abs/file2"}}},
+		},
+		{
+			name: "expands tilde in ignore files",
+			cfg:  Config{ProjectContext: ProjectContextConfig{IgnoreFiles: []string{"~/ignore"}}},
+			want: Config{ProjectContext: ProjectContextConfig{IgnoreFiles: []string{"/home/user/ignore"}}},
+		},
+		{
+			name: "expands tilde in writable paths",
+			cfg:  Config{Paths: PathsConfig{WritablePaths: []string{"~/data"}}},
+			want: Config{Paths: PathsConfig{WritablePaths: []string{"/home/user/data"}}},
+		},
+		{
+			name: "expands tilde in blocked paths",
+			cfg:  Config{Paths: PathsConfig{BlockedPaths: []string{"~/blocked"}}},
+			want: Config{Paths: PathsConfig{BlockedPaths: []string{"/home/user/blocked"}}},
+		},
+		{
+			name: "expands tilde in tool exec",
+			cfg:  Config{Tools: map[string]ToolConfig{"test": {Exec: "~/bin/tool"}}},
+			want: Config{Tools: map[string]ToolConfig{"test": {Exec: "/home/user/bin/tool"}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalizePaths(&tt.cfg, home)
+			if !reflect.DeepEqual(tt.cfg, tt.want) {
+				t.Errorf("normalizePaths() = %+v, want %+v", tt.cfg, tt.want)
+			}
+		})
+	}
+}
+
+func TestDurationString(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "5s", want: "5s"},
+		{input: "30s", want: "30s"},
+		{input: "5m", want: "5m0s"},
+		{input: "1h", want: "1h0m0s"},
+		{input: "500ms", want: "500ms"},
+		{input: "0s", want: "0s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			d, err := newDuration(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := d.String()
+			if got != tt.want {
+				t.Errorf("Duration(%q).String() = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDurationIsZero(t *testing.T) {
+	t.Run("unset duration is zero", func(t *testing.T) {
+		var d Duration
+		if !d.IsZero() {
+			t.Error("expected IsZero() = true for zero value Duration")
+		}
+	})
+	t.Run("zero duration is zero", func(t *testing.T) {
+		d, err := newDuration("0s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !d.IsZero() {
+			t.Error("expected IsZero() = true for 0s duration")
+		}
+	})
+	t.Run("non-zero duration is not zero", func(t *testing.T) {
+		d, err := newDuration("5s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.IsZero() {
+			t.Error("expected IsZero() = false for 5s duration")
+		}
+	})
+}
+
+func TestDurationYAMLRoundTrip(t *testing.T) {
+	d, err := newDuration("30s")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	marshaled, err := yaml.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got Duration
+	if err := yaml.Unmarshal(marshaled, &got); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Duration() != d.Duration() {
+		t.Errorf("round-trip Duration() = %d, want %d", got.Duration(), d.Duration())
+	}
+}
+
+func TestDurationUnmarshalYAMLNull(t *testing.T) {
+	var d Duration
+	if err := yaml.Unmarshal([]byte("null"), &d); err != nil {
+		t.Fatal(err)
+	}
+	if !d.IsZero() {
+		t.Error("expected IsZero() = true after unmarshaling null")
+	}
+}
+
+func TestDurationUnmarshalYAMLEmpty(t *testing.T) {
+	var d Duration
+	if err := yaml.Unmarshal([]byte(`""`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if !d.IsZero() {
+		t.Error("expected IsZero() = true after unmarshaling empty string")
 	}
 }
