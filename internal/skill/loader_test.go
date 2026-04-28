@@ -60,3 +60,149 @@ func mustSkill(t *testing.T, root, name, content string) {
 		t.Fatalf("WriteFile(%s) error = %v", dir, err)
 	}
 }
+
+func TestLoaderDiscoverNonExistentRoot(t *testing.T) {
+	t.Parallel()
+
+	loader := Loader{RootDir: "/nonexistent/path"}
+	skills, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if skills != nil {
+		t.Fatalf("Discover() = %v, want nil", skills)
+	}
+}
+
+func TestLoaderDiscoverEmptyRoot(t *testing.T) {
+	t.Parallel()
+
+	loader := Loader{RootDir: ""}
+	skills, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if skills != nil {
+		t.Fatalf("Discover() = %v, want nil", skills)
+	}
+}
+
+func TestLoaderDiscoverSkipsFilesAndDirsWithoutSkill(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "valid", "instructions")
+
+	// directory without SKILL.md
+	dirNoSkill := filepath.Join(root, "noskill")
+	if err := os.MkdirAll(dirNoSkill, 0o755); err != nil {
+		t.Fatalf("MkdirAll error = %v", err)
+	}
+	// regular file at root level
+	filePath := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(filePath, []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	loader := Loader{RootDir: root}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if got, want := len(discovered), 1; got != want {
+		t.Fatalf("len(discovered) = %d, want %d", got, want)
+	}
+	if discovered[0].Name != "valid" {
+		t.Fatalf("discovered[0].Name = %s, want valid", discovered[0].Name)
+	}
+}
+
+func TestLoaderDiscoverContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "instructions")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	loader := Loader{RootDir: root}
+	if _, err := loader.Discover(ctx); err == nil {
+		t.Fatal("Discover() expected context cancellation error")
+	}
+}
+
+func TestLoaderLoadMissingSkill(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	loader := Loader{RootDir: root}
+
+	if _, err := loader.Load(context.Background(), "missing"); err == nil {
+		t.Fatal("Load() expected error for missing skill")
+	}
+}
+
+func TestLoaderLoadEmptyRoot(t *testing.T) {
+	t.Parallel()
+
+	loader := Loader{RootDir: ""}
+	if _, err := loader.Load(context.Background(), "alpha"); err == nil {
+		t.Fatal("Load() expected error for empty root")
+	}
+}
+
+func TestLoaderLoadContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "instructions")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	loader := Loader{RootDir: root}
+	if _, err := loader.Load(ctx, "alpha"); err == nil {
+		t.Fatal("Load() expected context cancellation error")
+	}
+}
+
+func TestLoaderLoadManyStopsOnError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "instructions")
+
+	loader := Loader{RootDir: root}
+	loaded, err := loader.LoadMany(context.Background(), []string{"alpha", "missing"})
+	if err == nil {
+		t.Fatal("LoadMany() expected error for missing skill")
+	}
+	if loaded != nil {
+		t.Fatalf("LoadMany() = %v, want nil on error", loaded)
+	}
+}
+
+func TestValidateSkillName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"alpha", false},
+		{"alpha-beta", false},
+		{"alpha_beta", false},
+		{"", true},
+		{"   ", true},
+		{"../alpha", true},
+		{"alpha/beta", true},
+		{"alpha\\beta", true},
+	}
+	for _, tt := range tests {
+		err := validateSkillName(tt.name)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateSkillName(%q) error = %v, wantErr = %v", tt.name, err, tt.wantErr)
+		}
+	}
+}
