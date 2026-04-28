@@ -307,3 +307,74 @@ type recordingSubscriber struct {
 func (s *recordingSubscriber) OnEvent(event Event) {
 	s.events = append(s.events, event)
 }
+
+func TestNewStream(t *testing.T) {
+	var buf bytes.Buffer
+	s := NewStream(&buf)
+	if s == nil {
+		t.Fatal("NewStream() returned nil")
+	}
+	if s.renderer == nil {
+		t.Fatal("NewStream() did not attach a renderer")
+	}
+}
+
+func TestEventStreamDelegateMethods(t *testing.T) {
+	t.Run("Println", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.Println("hello", "world")
+		if got := buf.String(); !strings.Contains(got, "hello world") {
+			t.Fatalf("Println output %q missing %q", got, "hello world")
+		}
+	})
+	t.Run("Printf", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.Printf("format %d", 42)
+		if got := buf.String(); !strings.Contains(got, "format 42") {
+			t.Fatalf("Printf output %q missing %q", got, "format 42")
+		}
+	})
+	t.Run("Render", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.Render(Segment{Channel: ChannelStatus, Text: "segment-text"})
+		if got := buf.String(); !strings.Contains(got, "segment-text") {
+			t.Fatalf("Render output %q missing %q", got, "segment-text")
+		}
+	})
+	t.Run("WriteAssistant", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.WriteAssistant("hello")
+		if got := buf.String(); got != "hello\n" {
+			t.Fatalf("WriteAssistant output = %q, want %q", got, "hello\n")
+		}
+	})
+	t.Run("WriteAssistantChunk", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.WriteAssistantChunk("hello")
+		if got := buf.String(); !strings.Contains(got, "assistant> hello") {
+			t.Fatalf("WriteAssistantChunk output %q missing %q", got, "assistant> hello")
+		}
+	})
+	t.Run("FinishAssistant", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		s.WriteAssistantChunk("hello")
+		s.FinishAssistant()
+		if got := buf.String(); !strings.Contains(got, "assistant> hello\n") {
+			t.Fatalf("FinishAssistant output %q missing %q", got, "assistant> hello\n")
+		}
+	})
+	t.Run("Themed", func(t *testing.T) {
+		var buf bytes.Buffer
+		s := NewStream(&buf)
+		got := s.Themed(ChannelStatus, "themed-text")
+		if got != "themed-text" {
+			t.Fatalf("Themed() = %q, want %q", got, "themed-text")
+		}
+	})
+}

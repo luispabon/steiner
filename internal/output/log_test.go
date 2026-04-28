@@ -1,7 +1,9 @@
 package output
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"testing"
 )
 
@@ -214,4 +216,53 @@ func TestDelegationFailedEvent(t *testing.T) {
 
 func containsEllipsis(s string) bool {
 	return len(s) >= 3 && s[len(s)-3:] == "..."
+}
+
+func TestParseLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  slog.Level
+	}{
+		{"trace", slog.Level(-8)},
+		{"debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"warning", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"unknown", slog.LevelInfo},
+		{"INFO", slog.LevelInfo},
+		{"  info  ", slog.LevelInfo},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := parseLevel(tt.input)
+			if got != tt.want {
+				t.Errorf("parseLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetupLogger(t *testing.T) {
+	tests := []struct {
+		level    string
+		enabled  slog.Level
+		disabled slog.Level
+	}{
+		{"trace", slog.Level(-8), slog.LevelError},
+		{"debug", slog.LevelDebug, slog.LevelError},
+		{"info", slog.LevelInfo, slog.LevelError},
+		{"warn", slog.LevelWarn, slog.LevelError},
+		{"error", slog.LevelError, slog.LevelError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			logger := SetupLogger(tt.level)
+			ctx := context.Background()
+			if !logger.Enabled(ctx, tt.enabled) {
+				t.Errorf("SetupLogger(%q).Enabled(%v) = false, want true", tt.level, tt.enabled)
+			}
+		})
+	}
 }
