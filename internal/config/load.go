@@ -130,7 +130,9 @@ func readConfigPatch(path string, env map[string]string, allowMissing bool) (con
 // applyCLIOverrides applies command-line overrides to the config.
 func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Model != "" {
-		cfg.Model = cli.Model
+		if m, ok := cfg.Models[cli.Model]; ok {
+			cfg.Model = m
+		}
 	}
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"
