@@ -3,7 +3,7 @@ package config
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
 	Scheduler      *schedulerPatch        `yaml:"scheduler"`
-	Model          *string                `yaml:"model"`
+	Model          *modelPatch            `yaml:"model"`
 	Models         *map[string]modelPatch `yaml:"models"`
 	Limits         *limitsPatch           `yaml:"limits"`
 	Approval       *approvalPatch         `yaml:"approval"`
@@ -19,14 +19,20 @@ type schedulerPatch struct {
 }
 
 type modelPatch struct {
-	Type                *string          `yaml:"type"`
-	BaseURL             *string          `yaml:"base_url"`
-	APIKey              *string          `yaml:"api_key"`
-	Model               *string          `yaml:"model"`
-	ExtraParams         *map[string]any  `yaml:"extra_params"`
-	MaxCompletionTokens *int             `yaml:"max_completion_tokens"`
-	ContextSize         *int             `yaml:"context_size"`
-	Compaction          *compactionPatch `yaml:"compaction"`
+	Type                *string            `yaml:"type"`
+	BaseURL             *string            `yaml:"base_url"`
+	APIKey              *string            `yaml:"api_key"`
+	Model               *string            `yaml:"model"`
+	ExtraParams         *map[string]any    `yaml:"extra_params"`
+	MaxCompletionTokens *int               `yaml:"max_completion_tokens"`
+	ContextSize         *int               `yaml:"context_size"`
+	Compaction          *compactionPatch   `yaml:"compaction"`
+	Prompts             *modelPromptsPatch `yaml:"prompts"`
+}
+
+type modelPromptsPatch struct {
+	System     *string `yaml:"system"`
+	Compaction *string `yaml:"compaction"`
 }
 
 type compactionPatch struct {
@@ -90,7 +96,7 @@ func applyPatch(cfg *Config, patch configPatch) {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
 	}
 	if patch.Model != nil {
-		cfg.Model = *patch.Model
+		applyModelPatch(&cfg.Model, patch.Model)
 	}
 	if patch.Models != nil {
 		if cfg.Models == nil {
@@ -162,6 +168,18 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	}
 	if patch.Compaction != nil {
 		applyCompactionPatch(&dst.Compaction, patch.Compaction)
+	}
+	if patch.Prompts != nil {
+		applyModelPromptsPatch(&dst.Prompts, patch.Prompts)
+	}
+}
+
+func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
+	if patch.System != nil {
+		dst.System = *patch.System
+	}
+	if patch.Compaction != nil {
+		dst.Compaction = *patch.Compaction
 	}
 }
 

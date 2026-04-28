@@ -8,7 +8,17 @@ import (
 func validBase() Config {
 	return Config{
 		Scheduler: SchedulerConfig{Parallelism: 1},
-		Model:     "default",
+		Model: ModelConfig{
+			Type:                "openai_compat",
+			BaseURL:             "http://localhost:11434/v1",
+			Model:               "qwen3-35b-a3b",
+			MaxCompletionTokens: 8192,
+			ContextSize:         32768,
+			Compaction: CompactionConfig{
+				SafetyMarginTokens: 2048,
+				SummaryMaxTokens:   1024,
+			},
+		},
 		Models: map[string]ModelConfig{
 			"default": {
 				Type:                "openai_compat",
@@ -55,15 +65,24 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "valid", cfg: validBase(), wantErr: ""},
 
-		// 2. Empty model, bad parallelism, missing models
+		// 2. Empty model fields, bad parallelism, missing models
 		{
-			name: "empty model",
+			name: "empty model type",
 			cfg: func() Config {
 				c := validBase()
-				c.Model = ""
+				c.Model.Type = ""
 				return c
 			}(),
-			wantErr: "model is required",
+			wantErr: "model.type is required",
+		},
+		{
+			name: "empty model base_url",
+			cfg: func() Config {
+				c := validBase()
+				c.Model.BaseURL = ""
+				return c
+			}(),
+			wantErr: "model.base_url is required",
 		},
 		{
 			name: "bad parallelism",
@@ -82,15 +101,6 @@ func TestValidate(t *testing.T) {
 				return c
 			}(),
 			wantErr: "models is required",
-		},
-		{
-			name: "model not defined",
-			cfg: func() Config {
-				c := validBase()
-				c.Model = "unknown"
-				return c
-			}(),
-			wantErr: `model "unknown" is not defined`,
 		},
 
 		// 3. Model unsupported type, empty base_url, empty model, bad token counts
@@ -390,19 +400,6 @@ func TestValidate(t *testing.T) {
 				return c
 			}(),
 			wantErr: `not supported`,
-		},
-
-		// Selected model empty type (post-loop check)
-		{
-			name: "selected model empty type",
-			cfg: func() Config {
-				c := validBase()
-				m := c.Models["default"]
-				m.Type = ""
-				c.Models["default"] = m
-				return c
-			}(),
-			wantErr: `has an empty type`,
 		},
 
 		// Empty model alias
