@@ -12,6 +12,7 @@ type Scheduler struct {
 	parallelism int64
 }
 
+// NewScheduler creates a new provider scheduler with the given parallelism limit.
 func NewScheduler(parallelism int) (*Scheduler, error) {
 	if parallelism < 1 {
 		return nil, fmt.Errorf("parallelism must be at least 1")

@@ -32,6 +32,7 @@ type ContextDiagnosticsEvent struct {
 	Notes              []string `json:"notes,omitempty"`
 }
 
+// NewContextDiagnosticsEvent creates a new context diagnostics event.
 func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	if payload.Kind == "" {
 		payload.Kind = "diagnostic"
@@ -43,6 +44,7 @@ func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	}
 }
 
+// NewContextCompactionEvent creates a new context compaction event.
 func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedTurns, compactedMessages, summaryBytes int, truncated bool, summaryTitle string, summaryPreview ...string) Event {
 	preview := ""
 	if len(summaryPreview) > 0 {
@@ -62,6 +64,7 @@ func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedT
 	})
 }
 
+// NewContextSessionHealthEvent creates a new context session health event.
 func NewContextSessionHealthEvent(scope string, turn, compactionCount int, severity, sessionState, restartGuidance string, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:            "session_health",
@@ -75,6 +78,7 @@ func NewContextSessionHealthEvent(scope string, turn, compactionCount int, sever
 	})
 }
 
+// NewContextBudgetEvent creates a new context budget event.
 func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:        "budget",
@@ -87,6 +91,7 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 	})
 }
 
+// NewContextTokenBudgetEvent creates a new context token budget event.
 func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, safetyMarginTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:               "budget",

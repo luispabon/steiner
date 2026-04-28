@@ -13,6 +13,7 @@ const (
 	defaultCompactionSummaryBytes    = 1024
 )
 
+// DefaultAssemblyPolicy returns the default prompt assembly policy.
 func DefaultAssemblyPolicy() AssemblyPolicy {
 	return AssemblyPolicy{
 		Budgets: SourceBudgetModel{

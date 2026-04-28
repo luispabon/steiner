@@ -32,6 +32,7 @@ type RunRequest struct {
 
 type Runner struct{}
 
+// NewRunner creates a new agent runner with default limits and state.
 func NewRunner() *Runner {
 	return &Runner{}
 }
@@ -121,10 +122,7 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 		if compacted {
 			return state, nil
 		}
-		state.StopReason = StopReasonError
-		err = fmt.Errorf("request exceeds context window: %s", fit.String())
-		emitStop(req.Events, state, err)
-		return state, err
+		return handleRunError(ctx, req.Events, state, fmt.Errorf("request exceeds context window: %s", fit.String()))
 	}
 
 	emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))

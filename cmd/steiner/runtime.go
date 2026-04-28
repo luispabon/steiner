@@ -45,7 +45,7 @@ type cliRuntime struct {
 	events          output.EventSink
 	sharedInput     *bufio.Reader
 	approvalIn      *bufio.Reader
-	close           func() error
+	closeFn         func() error
 	historyWriter   *history.Writer
 }
 
@@ -160,7 +160,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		events:          events,
 		sharedInput:     sharedInput,
 		approvalIn:      approvalInput,
-		close:           closeFn,
+		closeFn:         closeFn,
 		historyWriter:   historyWriter,
 	}, nil
 }
@@ -175,8 +175,8 @@ func closeRuntime(rt *cliRuntime) {
 			}))
 		}
 	}
-	if rt.close != nil {
-		if err := rt.close(); err != nil {
+	if rt.closeFn != nil {
+		if err := rt.closeFn(); err != nil {
 			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 				Kind:     "session_health",
 				Severity: "warning",

@@ -32,6 +32,7 @@ type Executor struct {
 	outputLimit int
 }
 
+// NewExecutor creates a new tool executor with the given registry, config, approver, and working directory.
 func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir string) *Executor {
 	root := normalizeExecutionRoot(workDir)
 	outputLimit := cfg.Limits.ToolOutputMaxBytes

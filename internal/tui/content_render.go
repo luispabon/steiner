@@ -174,7 +174,7 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 }
 
 func (b *contentBuffer) markdownRenderer(width int) *glamour.TermRenderer {
-	renderWidth := maxInt(1, width-markdownRenderPadding)
+	renderWidth := max(1, width-markdownRenderPadding)
 	if b.renderer != nil && b.renderWidth == renderWidth {
 		return b.renderer
 	}
@@ -260,7 +260,7 @@ func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []
 		return b.buildPlainLines(tc)
 	}
 
-	rule := b.styles.FgMute.Render(strings.Repeat("─", maxInt(1, width-2)))
+	rule := b.styles.FgMute.Render(strings.Repeat("─", max(1, width-2)))
 	caption := b.renderFileCaption(tc, doc)
 
 	lines := make([]string, 0, len(doc.Lines)+4)
@@ -356,7 +356,7 @@ func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) 
 func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {
 	lines := make([]string, 0, len(doc.Lines))
 	oldLine, newLine := 1, 1
-	rule := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", maxInt(1, width)))
+	rule := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", max(1, width)))
 	for _, line := range doc.Lines {
 		switch line.Kind {
 		case output.PreviewLineKindHeader:

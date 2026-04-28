@@ -258,16 +258,16 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) View() string {
-	contentWidth := maxInt(1, m.width)
+	contentWidth := max(1, m.width)
 	sidebarVisible := m.sidebar.Visible(m.width)
 	if sidebarVisible {
-		contentWidth = maxInt(1, m.width-sidebarWidth-1) // 1-cell vertical divider
+		contentWidth = max(1, m.width-sidebarWidth-1) // 1-cell vertical divider
 	}
 
 	viewportView := m.styles.ContentPane.Width(contentWidth).Render(m.viewport.View())
 
 	if m.helpVisible {
-		help := renderHelp(m.styles, maxInt(20, contentWidth-4))
+		help := renderHelp(m.styles, max(20, contentWidth-4))
 		viewportView = lipgloss.Place(contentWidth, lipgloss.Height(viewportView),
 			lipgloss.Center, lipgloss.Center,
 			help,
@@ -472,11 +472,4 @@ func approvalDecisionText(allowed bool, toolName string) string {
 		return state
 	}
 	return fmt.Sprintf("%s %s", toolName, state)
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

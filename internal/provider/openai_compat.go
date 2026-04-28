@@ -29,6 +29,7 @@ type OpenAICompat struct {
 	scheduler  *Scheduler
 }
 
+// NewOpenAICompat creates a new OpenAI-compatible provider client.
 func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, fmt.Errorf("base URL is required")

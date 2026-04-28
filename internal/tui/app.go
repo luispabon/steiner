@@ -35,6 +35,7 @@ type App struct {
 	bridge *eventBridge
 }
 
+// NewApp creates a new TUI application with the given configuration.
 func NewApp(cfg Config) *App {
 	// Load prefs; non-fatal on error
 	p, err := prefs.Load()

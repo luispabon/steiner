@@ -463,7 +463,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 			status:      output.NewStream(cmd.ErrOrStderr()),
 			events:      events,
 			sharedInput: bufio.NewReader(strings.NewReader("")),
-			close:       fileSink.Close,
+			closeFn:     fileSink.Close,
 		}, nil
 	}
 

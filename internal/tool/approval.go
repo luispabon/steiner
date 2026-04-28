@@ -8,6 +8,7 @@ type ApprovalResolver struct {
 	Config config.Config
 }
 
+// NewApprovalResolver creates an approval resolver from the application configuration.
 func NewApprovalResolver(cfg config.Config) ApprovalResolver {
 	return ApprovalResolver{Config: cfg}
 }

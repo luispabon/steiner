@@ -25,9 +25,9 @@ func (m *Model) layout() {
 	if m.input.Focused() && m.content.streamingPhase == "" {
 		inputRows = 3
 	}
-	m.viewport.Width = maxInt(1, contentWidth-6)
-	m.viewport.Height = maxInt(1, m.height-3-inputRows)
-	m.input.SetWidth(maxInt(1, contentWidth))
+	m.viewport.Width = max(1, contentWidth-6)
+	m.viewport.Height = max(1, m.height-3-inputRows)
+	m.input.SetWidth(max(1, contentWidth))
 	m.syncViewport()
 }
 

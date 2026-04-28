@@ -13,6 +13,7 @@ type Registry struct {
 	defs map[string]ToolDef
 }
 
+// NewRegistry creates a new tool registry from the provided definitions.
 func NewRegistry(defs ...ToolDef) *Registry {
 	reg := &Registry{defs: make(map[string]ToolDef, len(defs))}
 	for _, def := range defs {
@@ -21,6 +22,7 @@ func NewRegistry(defs ...ToolDef) *Registry {
 	return reg
 }
 
+// NewRegistryFromConfig creates a tool registry from the application configuration.
 func NewRegistryFromConfig(cfg config.Config) *Registry {
 	reg := &Registry{defs: make(map[string]ToolDef, len(cfg.Tools))}
 	for name, toolCfg := range cfg.Tools {

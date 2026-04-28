@@ -215,10 +215,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyDown:
 		return m.handleKeyDown(msg)
 	case tea.KeyPgUp:
-		m.scrollUp(maxInt(1, m.viewport.Height))
+		m.scrollUp(max(1, m.viewport.Height))
 		return m, nil
 	case tea.KeyPgDown:
-		m.scrollDown(maxInt(1, m.viewport.Height))
+		m.scrollDown(max(1, m.viewport.Height))
 		return m, nil
 	case tea.KeyEnter:
 		return m.handleEnter()

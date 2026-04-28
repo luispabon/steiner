@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// NewHistoryLoadedEvent creates a new history loaded event.
 func NewHistoryLoadedEvent(prompts []string) Event {
 	return Event{
 		Type:      EventTypeHistoryLoaded,
@@ -19,6 +20,7 @@ func NewHistoryLoadedEvent(prompts []string) Event {
 	}
 }
 
+// NewModelCallStartedEvent creates a new model call started event.
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
 	return Event{
 		Type:      EventTypeModelCallStarted,
@@ -31,6 +33,7 @@ func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
 	}
 }
 
+// NewModelCallFinishedEvent creates a new model call finished event.
 func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, totalTokens int, err error) Event {
 	payload := ModelCallFinishedEvent{
 		Turn:         turn,
@@ -49,10 +52,12 @@ func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, 
 	}
 }
 
+// NewToolCallStartedEvent creates a new tool call started event.
 func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
 	return NewToolCallStartedEventWithPreviewState(turn, toolName, callID, arguments, nil)
 }
 
+// NewToolCallStartedEventWithPreviewState creates a new tool call started event with preview state.
 func NewToolCallStartedEventWithPreviewState(turn int, toolName, callID string, arguments map[string]any, writeTargetExistedBefore *bool) Event {
 	return Event{
 		Type:      EventTypeToolCallStarted,
@@ -67,10 +72,12 @@ func NewToolCallStartedEventWithPreviewState(turn int, toolName, callID string, 
 	}
 }
 
+// NewToolCallFinishedEvent creates a new tool call finished event.
 func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, err error) Event {
 	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})
 }
 
+// NewToolCallFinishedEventWithPreview creates a new tool call finished event with preview.
 func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{
 		Turn:    turn,
@@ -89,6 +96,7 @@ func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, resu
 	}
 }
 
+// NewApprovalRequestedEvent creates a new approval requested event.
 func NewApprovalRequestedEvent(turn int, toolName, mode, preview string) Event {
 	return Event{
 		Type:      EventTypeApprovalRequested,
@@ -102,6 +110,7 @@ func NewApprovalRequestedEvent(turn int, toolName, mode, preview string) Event {
 	}
 }
 
+// NewApprovalAcceptedEvent creates a new approval accepted event.
 func NewApprovalAcceptedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalAccepted,
@@ -117,6 +126,7 @@ func NewApprovalAcceptedEvent(turn int, toolName, mode, preview, message string)
 	}
 }
 
+// NewApprovalDeniedEvent creates a new approval denied event.
 func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) Event {
 	return Event{
 		Type:      EventTypeApprovalDenied,
@@ -132,6 +142,7 @@ func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) E
 	}
 }
 
+// NewStopReasonEvent creates a new stop reason event.
 func NewStopReasonEvent(turn int, reason string, err error) Event {
 	payload := StopReasonEvent{
 		Reason: reason,
@@ -185,6 +196,7 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 	}
 }
 
+// NewUserInputEvent creates a new user input event.
 func NewUserInputEvent(content, mode string) Event {
 	return Event{
 		Type:      EventTypeUserInput,
@@ -196,6 +208,7 @@ func NewUserInputEvent(content, mode string) Event {
 	}
 }
 
+// NewAPIRequestEvent creates a new API request event.
 func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) Event {
 	return Event{
 		Type:      EventTypeAPIRequest,
@@ -211,6 +224,7 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 	}
 }
 
+// NewAPIResponseEvent creates a new API response event.
 func NewAPIResponseEvent(message, usage any, finishReason string, err error) Event {
 	payload := APIResponseEvent{
 		Message:      message,
@@ -227,6 +241,7 @@ func NewAPIResponseEvent(message, usage any, finishReason string, err error) Eve
 	}
 }
 
+// NewRunStartedEvent creates a new run started event.
 func NewRunStartedEvent(mode, model, prompt string, maxTurns, maxTokens int) Event {
 	return Event{
 		Type:      EventTypeRunStarted,
@@ -241,6 +256,7 @@ func NewRunStartedEvent(mode, model, prompt string, maxTurns, maxTokens int) Eve
 	}
 }
 
+// NewRunFinishedEvent creates a new run finished event.
 func NewRunFinishedEvent(turn int, reason, summary, nextAction string, err error) Event {
 	payload := RunFinishedEvent{
 		Turn:       turn,
@@ -258,6 +274,7 @@ func NewRunFinishedEvent(turn int, reason, summary, nextAction string, err error
 	}
 }
 
+// NewTurnStartedEvent creates a new turn started event.
 func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
 	return Event{
 		Type:      EventTypeTurnStarted,
@@ -270,6 +287,7 @@ func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
 	}
 }
 
+// NewTurnFinishedEvent creates a new turn finished event.
 func NewTurnFinishedEvent(turn, toolCalls int, finishReason, reply string, err error) Event {
 	payload := TurnFinishedEvent{
 		Turn:         turn,
@@ -287,6 +305,7 @@ func NewTurnFinishedEvent(turn, toolCalls int, finishReason, reply string, err e
 	}
 }
 
+// NewAssistantMessageEvent creates a new assistant message event.
 func NewAssistantMessageEvent(turn int, role, content string) Event {
 	return Event{
 		Type:      EventTypeAssistantMessage,
@@ -299,6 +318,7 @@ func NewAssistantMessageEvent(turn int, role, content string) Event {
 	}
 }
 
+// NewThinkingChunkEvent creates a new thinking chunk event.
 func NewThinkingChunkEvent(turn int, content string) Event {
 	return Event{
 		Type:      EventTypeThinkingChunk,
@@ -310,6 +330,7 @@ func NewThinkingChunkEvent(turn int, content string) Event {
 	}
 }
 
+// NewAssistantChunkEvent creates a new assistant chunk event.
 func NewAssistantChunkEvent(turn int, content string) Event {
 	return Event{
 		Type:      EventTypeAssistantChunk,
@@ -321,6 +342,7 @@ func NewAssistantChunkEvent(turn int, content string) Event {
 	}
 }
 
+// NewDelegationStartedEvent creates a new delegation started event.
 func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 	return Event{
 		Type:      EventTypeDelegationStarted,
@@ -332,6 +354,7 @@ func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 	}
 }
 
+// NewDelegationCompleteEvent creates a new delegation complete event.
 func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event {
 	return Event{
 		Type:      EventTypeDelegationComplete,
@@ -345,6 +368,7 @@ func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event
 	}
 }
 
+// NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 	return Event{
 		Type:      EventTypeDelegationFailed,

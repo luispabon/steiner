@@ -85,7 +85,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	// Brand row: mark · name · version right-aligned; gap then divider
 	static = append(static, s.brandRow(width-3))
 	static = append(static, "")
-	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", maxInt(0, width))))
+	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", max(0, width))))
 
 	// Model card
 	static = append(static, "")
@@ -110,7 +110,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	// Repository card
 	static = append(static, "")
 	static = append(static, cardLabel("repository", s.styles))
-	maxWD := min(25, maxInt(1, width-7))
+	maxWD := min(25, max(1, width-7))
 	static = append(static, cardField("workdir", s.styles.FgDim, fitTextMiddle(s.workdirSummary(width), maxWD), s.styles))
 	static = append(static, s.branchLine(width))
 	if s.ahead > 0 {
@@ -198,7 +198,7 @@ func stripProviderURL(url string) string {
 
 func (s sidebarState) tokenBarLine(width int) string {
 	pct := occupancyPercent(s.promptUsed, s.contextBudget)
-	barWidth := maxInt(4, width-2)
+	barWidth := max(4, width-2)
 
 	var barStyle lipgloss.Style
 	switch {
@@ -253,9 +253,9 @@ func (s sidebarState) branchLine(width int) string {
 	if branch == "" {
 		branch = "n/a"
 	}
-	maxBranch := maxInt(1, width-7)
+	maxBranch := max(1, width-7)
 	if s.dirty {
-		maxBranch = maxInt(1, maxBranch-2) // reserve " ●"
+		maxBranch = max(1, maxBranch-2) // reserve " ●"
 	}
 	branchText := fitText(branch, maxBranch)
 	line := cardField("branch", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)), branchText, s.styles)
@@ -304,12 +304,12 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 		statsLen += len(fmt.Sprintf("-%d", file.Deleted))
 	}
 
-	pathWidth := maxInt(1, width-3-statsLen-1) // glyph(1) + space(1) + ... + space(1) + stats
+	pathWidth := max(1, width-3-statsLen-1) // glyph(1) + space(1) + ... + space(1) + stats
 	path := fitTextMiddle(file.Path, pathWidth)
 
 	line := glyphStyle.Render(glyph) + " " + s.styles.FgDim.Render(path)
 	if statsText != "" {
-		padding := maxInt(1, width-2-lipgloss.Width(path)-statsLen)
+		padding := max(1, width-2-lipgloss.Width(path)-statsLen)
 		line += strings.Repeat(" ", padding) + statsText
 	}
 	return line

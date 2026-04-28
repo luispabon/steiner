@@ -16,6 +16,7 @@ type FileLogSink struct {
 	file *os.File
 }
 
+// NewFileLogSink creates a new file-based event sink at the given path.
 func NewFileLogSink(path string) (*FileLogSink, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {

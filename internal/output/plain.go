@@ -56,6 +56,7 @@ type retainedToolCall struct {
 
 type StreamOption func(*PlainRenderer)
 
+// NewPlainRenderer creates a new plain-text renderer that writes to w.
 func NewPlainRenderer(w io.Writer, options ...StreamOption) *PlainRenderer {
 	renderer := &PlainRenderer{
 		w:     w,

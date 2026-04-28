@@ -16,12 +16,13 @@ type Writer struct {
 	path string
 }
 
+// NewWriter opens or creates a history file at the given path.
 func NewWriter(path string) (*Writer, error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,7 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	if err := os.Rename(tmpPath, w.path); err != nil {
 		return err
 	}
-	w.file, err = os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0644)
+	w.file, err = os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o644)
 	return err
 }
 

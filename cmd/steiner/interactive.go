@@ -214,8 +214,22 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 				continue
 			}
 			if rt.historyWriter != nil {
-				_ = rt.historyWriter.Record(text)
-				prompts, _ := rt.historyWriter.Load()
+				if err := rt.historyWriter.Record(text); err != nil {
+					rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+						Kind:     "session_health",
+						Severity: "warning",
+						Notes:    []string{fmt.Sprintf("history record: %v", err)},
+					}))
+				}
+				prompts, err := rt.historyWriter.Load()
+				if err != nil {
+					rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+						Kind:     "session_health",
+						Severity: "warning",
+						Notes:    []string{fmt.Sprintf("history load: %v", err)},
+					}))
+					prompts = nil
+				}
 				rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
 			}
 			conversation = result.Conversation

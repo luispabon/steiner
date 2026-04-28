@@ -35,6 +35,7 @@ type contextReportItem struct {
 	Tokens int
 }
 
+// NewContextReportEvent creates a context report event from the given content.
 func NewContextReportEvent(content string) Event {
 	return Event{
 		Type:      EventTypeContextReport,

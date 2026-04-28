@@ -15,6 +15,7 @@ type PathPolicy struct {
 	writablePaths   []string
 }
 
+// NewPathPolicy creates a path policy from the working directory and paths configuration.
 func NewPathPolicy(root string, cfg config.PathsConfig) PathPolicy {
 	normalizedRoot := normalizePolicyPath(root, root)
 	policy := PathPolicy{

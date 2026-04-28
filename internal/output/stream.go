@@ -17,12 +17,14 @@ type EventStream struct {
 
 type Stream = EventStream
 
+// NewStream creates a new event stream that writes to w.
 func NewStream(w io.Writer, options ...StreamOption) *EventStream {
 	return &EventStream{
 		renderer: NewPlainRenderer(w, options...),
 	}
 }
 
+// NewEventStream creates a new event stream with the given subscribers.
 func NewEventStream(subscribers ...Subscriber) *EventStream {
 	stream := &EventStream{}
 	stream.Subscribe(subscribers...)

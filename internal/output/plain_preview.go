@@ -27,8 +27,8 @@ func summarizeInspection(events []Event, recentLimit int) inspectionSnapshot {
 		return summary
 	}
 
-	recent := make([]string, 0, minInt(len(events), recentLimit))
-	recentContext := make([]string, 0, minInt(len(events), recentLimit))
+	recent := make([]string, 0, min(len(events), recentLimit))
+	recentContext := make([]string, 0, min(len(events), recentLimit))
 
 	for _, event := range events {
 		if line := FormatEvent(event); strings.TrimSpace(line) != "" {
@@ -77,13 +77,6 @@ func appendRecentLine(lines []string, line string, limit int) []string {
 func isContextDiagnosticEvent(event Event) bool {
 	_, ok := event.Payload.(ContextDiagnosticsEvent)
 	return ok
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
