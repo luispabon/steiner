@@ -29,7 +29,7 @@ Loaded from `overview.md`.
 | stage-3-step-2 | implemented | Custom glob walker — 212 builtin tests pass, build + vet clean |
 | fix-glob-pattern-001 | implemented | Fix glob pattern matching regression — switched to gobwas/glob for full-path matching, added early-termination cap, updated schema descriptions |
 | stage-3-step-3 | implemented | Custom grep walker — copied Dive core (Apache 2.0), stripped boilerplate, integrated PathExcluder — 834 tests pass |
-| stage-4-step-1 | pending | Conversation scrollbar |
+| stage-4-step-1 | running | Conversation scrollbar |
 | stage-5-step-1 | pending | /ls overlay |
 | stage-6-step-1 | pending | @ file picker |
 
