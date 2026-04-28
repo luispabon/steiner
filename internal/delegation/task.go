@@ -82,10 +82,10 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 		summaryState, summaryErr := runner.Run(childCtx, summaryReq)
 		if summaryErr == nil {
-		summaryOutput := ""
-		if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
-			summaryOutput = msg.Content
-		}
+			summaryOutput := ""
+			if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
+				summaryOutput = msg.Content
+			}
 			if summaryOutput != "" {
 				boundedOutput = summaryOutput
 				result.Summary = summaryOutput

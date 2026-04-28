@@ -9,14 +9,14 @@ import (
 
 func TestToOpenAISchemaBuildsFunctionEnvelope(t *testing.T) {
 	def := ToolDef{
-		Name:        "search",
+		Name:        "grep",
 		Description: "Search files",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string"},
+				"pattern": map[string]any{"type": "string"},
 			},
-			"required": []any{"query"},
+			"required": []any{"pattern"},
 		},
 	}
 
@@ -29,8 +29,8 @@ func TestToOpenAISchemaBuildsFunctionEnvelope(t *testing.T) {
 	if !ok {
 		t.Fatalf("schema[function] type = %T, want map[string]any", schema["function"])
 	}
-	if got := function["name"]; got != "search" {
-		t.Fatalf("function[name] = %v, want search", got)
+	if got := function["name"]; got != "grep" {
+		t.Fatalf("function[name] = %v, want grep", got)
 	}
 	if got := function["description"]; got != "Search files" {
 		t.Fatalf("function[description] = %v, want Search files", got)
@@ -46,8 +46,8 @@ func TestToOpenAISchemaBuildsFunctionEnvelope(t *testing.T) {
 	if got := parameters["additionalProperties"]; got != false {
 		t.Fatalf("parameters[additionalProperties] = %v, want false", got)
 	}
-	if got := parameters["required"]; !reflect.DeepEqual(got, []any{"query"}) {
-		t.Fatalf("parameters[required] = %#v, want %#v", got, []any{"query"})
+	if got := parameters["required"]; !reflect.DeepEqual(got, []any{"pattern"}) {
+		t.Fatalf("parameters[required] = %#v, want %#v", got, []any{"pattern"})
 	}
 }
 

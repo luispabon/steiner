@@ -128,6 +128,15 @@ limits:
     # File write timeout.
     write: 5s
 
+    # File edit timeout.
+    edit: 5s
+
+    # Text search timeout.
+    grep: 10s
+
+    # Directory listing timeout.
+    ls: 5s
+
   # Maximum bytes captured from any single tool result.
   tool_output_max_bytes: 65536
 
@@ -145,10 +154,16 @@ approval:
     glob: auto
 
     # Allow text search without prompting.
-    search: auto
+    grep: auto
+
+    # Allow directory listing without prompting.
+    ls: auto
 
     # Prompt before file writes.
     write: prompt
+
+    # Prompt before file edits.
+    edit: prompt
 
     # Prompt before shell commands.
     bash: prompt
@@ -168,8 +183,10 @@ sub_agent:
   allowed_tools:
     - read
     - glob
-    - search
+    - grep
+    - ls
     - write
+    - edit
     - bash
   # Prevents sub-agents from spawning further sub-agents.
   allow_nesting: false
@@ -251,7 +268,7 @@ logging:
   file: ~/.local/share/steiner/steiner.log
 ```
 
-Approval defaults are conservative: `read`, `glob`, and `search` are auto-approved; mutating actions like `write` and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
+Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
 
 ## Build and test
 

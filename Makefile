@@ -6,7 +6,6 @@ GO_FILES := $(shell git ls-files '*.go')
 build-binaries:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/steiner ./cmd/steiner
-	go build -o $(BIN_DIR)/steiner-core-tools ./cmd/steiner-core-tools
 
 test:
 	go test ./...

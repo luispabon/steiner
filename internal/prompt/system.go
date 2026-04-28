@@ -33,7 +33,17 @@ Verification:
 Final response:
 - Summarize what changed.
 - List verification performed and results.
-- Mention any assumptions, skipped checks, or unrelated issues noticed.`
+- Mention any assumptions, skipped checks, or unrelated issues noticed.
+
+Tool guidance:
+- Use glob to find files by name.
+- Use grep to find code by content.
+- Use grep output_mode="files_with_matches" before reading many files.
+- Use read with offset and limit instead of loading whole large files.
+- Use edit for targeted modifications.
+- Use write only for new files or intentional full rewrites.
+- Use bash only when a command is more reliable than file tools.
+- Paginate large read/grep/glob/ls outputs with offset.`
 
 func SystemPreamble() ContextBlock {
 	return ContextBlock{
