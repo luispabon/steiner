@@ -37,7 +37,7 @@ func EditSchema() map[string]any {
 			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences", "default": false},
 		},
-		"required":             []string{"path", "oldString", "newString"},
+		"required":             []string{"path", "old_string", "new_string"},
 		"additionalProperties": false,
 	}
 }
