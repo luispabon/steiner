@@ -173,6 +173,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// If file picker is open, route keys to it
+	if m.filePicker.open {
+		return m.handleFilePickerKey(msg)
+	}
+
 	// Reset completion state on any non-Tab key
 	if msg.Type != tea.KeyTab {
 		m.completionCandidates = nil
@@ -233,9 +238,42 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnter()
 	}
 
+	// @ triggers the file picker
+	if msg.Type == tea.KeyRunes {
+		for _, r := range msg.Runes {
+			if r == '@' {
+				root := m.sidebar.workingDir
+				if root == "" {
+					root = "."
+				}
+				m.filePicker = m.filePicker.Open(root)
+				return m, nil
+			}
+		}
+	}
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.filePicker = m.filePicker.Close()
+		return m, nil
+	case tea.KeyEnter:
+		if m.filePicker.selection >= 0 && len(m.filePicker.candidates) > 0 {
+			selected := m.filePicker.candidates[m.filePicker.selection]
+			m.filePicker = m.filePicker.Close()
+			m.input.InsertString(selected + " ")
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.filePicker, cmd = m.filePicker.Update(msg)
+		return m, cmd
+	}
 }
 
 func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

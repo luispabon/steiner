@@ -76,6 +76,7 @@ type Model struct {
 	accentPreset                 string
 	palette                      paletteModel
 	fileList                     fileListOverlay
+	filePicker                   filePickerOverlay
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -202,6 +203,10 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.fileList.width = m.width
 	m.fileList.height = m.height
 
+	m.filePicker = newFilePickerOverlay(m.styles)
+	m.filePicker.width = m.width
+	m.filePicker.height = m.height
+
 	return m
 }
 
@@ -316,12 +321,13 @@ func (m Model) View() string {
 	}
 	statusView := m.status.view(contentWidth)
 
-	mainColumn := lipgloss.JoinVertical(lipgloss.Left,
-		viewportView,
-		hDivider,
-		inputView,
-		statusView,
-	)
+	mainComponents := []string{viewportView, hDivider}
+	if m.filePicker.open {
+		mainComponents = append(mainComponents, m.filePicker.View())
+	}
+	mainComponents = append(mainComponents, inputView, statusView)
+
+	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 
 	var base string
 	if sidebarVisible {
