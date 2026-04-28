@@ -3,7 +3,8 @@ logging:
     level: info
     file: .steiner/steiner.log
 
-model: opencode-go/deepseek-v4-flash
+# model: opencode-go/deepseek-v4-flash
+model: qwen36
 
 models:
     qwopus:
