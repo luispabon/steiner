@@ -11,12 +11,33 @@ import (
 type openAIRequest struct {
 	Model         string               `json:"model"`
 	Messages      []openAIMessage      `json:"messages"`
-	Temperature   *float64             `json:"temperature,omitempty"`
 	MaxTokens     *int                 `json:"max_tokens,omitempty"`
-	TopP          *float64             `json:"top_p,omitempty"`
 	Stream        bool                 `json:"stream,omitempty"`
 	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
 	Tools         []openAITool         `json:"tools,omitempty"`
+	ExtraParams   map[string]any       `json:"-"`
+}
+
+func (r openAIRequest) MarshalJSON() ([]byte, error) {
+	m := make(map[string]any, len(r.ExtraParams)+6)
+	for k, v := range r.ExtraParams {
+		m[k] = v
+	}
+	m["model"] = r.Model
+	m["messages"] = r.Messages
+	if r.Stream {
+		m["stream"] = true
+	}
+	if r.StreamOptions != nil {
+		m["stream_options"] = r.StreamOptions
+	}
+	if r.MaxTokens != nil {
+		m["max_tokens"] = *r.MaxTokens
+	}
+	if len(r.Tools) > 0 {
+		m["tools"] = r.Tools
+	}
+	return json.Marshal(m)
 }
 
 type openAIStreamOptions struct {

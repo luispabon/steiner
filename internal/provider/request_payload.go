@@ -8,10 +8,9 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 	wire := openAIRequest{
 		Model:       defaultModel,
 		Messages:    make([]openAIMessage, 0, len(request.Messages)),
-		Temperature: request.Temperature,
 		MaxTokens:   request.MaxTokens,
-		TopP:        request.TopP,
 		Stream:      stream,
+		ExtraParams: request.ExtraParams,
 	}
 	if strings.TrimSpace(request.Model) != "" {
 		wire.Model = request.Model

@@ -36,9 +36,6 @@ func validate(cfg Config) error {
 		if strings.TrimSpace(model.Model) == "" {
 			problems = append(problems, fmt.Sprintf("models[%q].model is required", name))
 		}
-		if model.Temperature != nil && (*model.Temperature < 0 || *model.Temperature > 2) {
-			problems = append(problems, fmt.Sprintf("models[%q].temperature must be between 0 and 2", name))
-		}
 		if model.MaxCompletionTokens < 1 {
 			problems = append(problems, fmt.Sprintf("models[%q].max_completion_tokens must be at least 1", name))
 		}

@@ -87,7 +87,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
 		Model:       selected.Model,
-		Temperature: selected.Temperature,
+		ExtraParams: selected.ExtraParams,
 		MaxTokens:   &maxTokens,
 		Limits: agent.Limits{
 			MaxTurns:  r.maxTurns,

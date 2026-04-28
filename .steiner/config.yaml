@@ -1,9 +1,9 @@
 logging:
-    enabled: true
+    enabled: false
     level: info
     file: .steiner/steiner.log
 
-model: qwen36
+model: opencode-go/deepseek-v4-flash
 
 models:
     qwopus:
@@ -59,6 +59,20 @@ models:
         base_url: https://openrouter.ai/api/v1/
         model: minimax/minimax-m2.5:free
         api_key: ${OPENROUTER_API_KEY}
+        context_size: 196608
+        max_completion_tokens: 8192
+        compaction:
+            safety_margin_tokens: 32768
+            summary_max_tokens: 8192
+
+    opencode-go/deepseek-v4-flash:
+        type: openai_compat
+        base_url: https://opencode.ai/zen/go/v1/
+        model: deepseek-v4-flash
+        api_key: ${OPENCODE_API_KEY}
+        extra_params:
+            thinking:
+                type: disabled
         context_size: 196608
         max_completion_tokens: 8192
         compaction:

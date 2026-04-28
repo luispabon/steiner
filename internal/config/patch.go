@@ -23,7 +23,7 @@ type modelPatch struct {
 	BaseURL             *string          `yaml:"base_url"`
 	APIKey              *string          `yaml:"api_key"`
 	Model               *string          `yaml:"model"`
-	Temperature         *float64         `yaml:"temperature"`
+	ExtraParams         *map[string]any  `yaml:"extra_params"`
 	MaxCompletionTokens *int             `yaml:"max_completion_tokens"`
 	ContextSize         *int             `yaml:"context_size"`
 	Compaction          *compactionPatch `yaml:"compaction"`
@@ -151,9 +151,8 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.Model != nil {
 		dst.Model = *patch.Model
 	}
-	if patch.Temperature != nil {
-		value := *patch.Temperature
-		dst.Temperature = &value
+	if patch.ExtraParams != nil {
+		dst.ExtraParams = copyStringAnyMap(*patch.ExtraParams)
 	}
 	if patch.MaxCompletionTokens != nil {
 		dst.MaxCompletionTokens = *patch.MaxCompletionTokens

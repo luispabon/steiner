@@ -41,13 +41,12 @@ type UsageStats struct {
 }
 
 type ChatRequest struct {
-	Model       string     `json:"model"`
-	Messages    []Message  `json:"messages"`
-	Temperature *float64   `json:"temperature,omitempty"`
-	MaxTokens   *int       `json:"max_tokens,omitempty"`
-	TopP        *float64   `json:"top_p,omitempty"`
-	Stream      bool       `json:"stream,omitempty"`
-	Tools       []ToolSpec `json:"tools,omitempty"`
+	Model       string         `json:"model"`
+	Messages    []Message      `json:"messages"`
+	MaxTokens   *int           `json:"max_tokens,omitempty"`
+	Stream      bool           `json:"stream,omitempty"`
+	Tools       []ToolSpec     `json:"tools,omitempty"`
+	ExtraParams map[string]any `json:"-"`
 }
 
 type ChatResponse struct {

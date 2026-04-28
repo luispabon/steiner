@@ -9,8 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-
-
 func coreToolDefinitions(cfg config.Config, execPath string) []tool.ToolDef {
 	coreBin := filepath.Join(filepath.Dir(execPath), "steiner-core-tools")
 	return []tool.ToolDef{
