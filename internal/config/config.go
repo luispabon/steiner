@@ -96,9 +96,10 @@ type PathsConfig struct {
 }
 
 type LoggingConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Level   string `yaml:"level"`
-	File    string `yaml:"file"`
+	Enabled       bool   `yaml:"enabled"`
+	Level         string `yaml:"level"`
+	File          string `yaml:"file"`
+	ThinkingChunk bool   `yaml:"thinking_chunk"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.
