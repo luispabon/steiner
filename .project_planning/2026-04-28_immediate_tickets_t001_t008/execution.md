@@ -30,8 +30,8 @@ Loaded from `overview.md`.
 | fix-glob-pattern-001 | implemented | Fix glob pattern matching regression — switched to gobwas/glob for full-path matching, added early-termination cap, updated schema descriptions |
 | stage-3-step-3 | implemented | Custom grep walker — copied Dive core (Apache 2.0), stripped boilerplate, integrated PathExcluder — 834 tests pass |
 | stage-4-step-1 | implemented | Conversation scrollbar — TUI tests pass, visual-only Lipgloss scrollbar |
-| stage-5-step-1 | running | /ls overlay |
-| stage-6-step-1 | pending | @ file picker |
+| stage-5-step-1 | implemented | /ls overlay — 854 tests pass, file listing modal with exclusions |
+| stage-6-step-1 | running | @ file picker |
 
 ### Current Phase
 
@@ -49,6 +49,7 @@ Step scheduling complete. Ready to begin implementation.
 | fix-glob-pattern-001 | kimi-k2.6 (same tier) | .worktrees/fix-glob-pattern-001 | tmp/fix-glob-pattern-001 | Yes | Yes |
 | stage-3-step-3 (grep-exclusions) | kimi-k2.6 (same tier) | .worktrees/grep-exclusions | tmp/grep-exclusions | Yes | Yes |
 | stage-4-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-4-step-1 | tmp/stage-4-step-1 | Yes | Yes |
+| stage-5-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-5-step-1 | tmp/stage-5-step-1 | Yes | Yes |
 
 ## Verification Runs
 
