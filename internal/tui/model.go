@@ -321,11 +321,7 @@ func (m Model) View() string {
 	}
 	statusView := m.status.view(contentWidth)
 
-	mainComponents := []string{viewportView, hDivider}
-	if m.filePicker.open {
-		mainComponents = append(mainComponents, m.filePicker.View())
-	}
-	mainComponents = append(mainComponents, inputView, statusView)
+	mainComponents := []string{viewportView, hDivider, inputView, statusView}
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 
@@ -359,6 +355,14 @@ func (m Model) View() string {
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			m.fileList.View(),
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	if m.filePicker.open {
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Bottom,
+			m.filePicker.View(),
 			lipgloss.WithWhitespaceChars(" "),
 		)
 	}

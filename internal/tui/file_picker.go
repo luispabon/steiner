@@ -139,7 +139,7 @@ func (f filePickerOverlay) View() string {
 	}
 	innerWidth := overlayWidth - 4
 
-	prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber)).Render("@")
+	prefix := f.styles.Accent.Render("@")
 	queryDisplay := f.query
 	if queryDisplay == "" {
 		queryDisplay = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("search files…")
@@ -150,7 +150,7 @@ func (f filePickerOverlay) View() string {
 	maxDisplay := 8
 	lines := []string{headerLine, divider}
 
-	dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber))
+	dirStyle := f.styles.Accent
 	fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
 	for i, entry := range f.candidates {
@@ -164,9 +164,9 @@ func (f filePickerOverlay) View() string {
 			row = fileStyle.Render(entry)
 		}
 		if i == f.selection {
-			lines = append(lines, f.styles.PaletteItemActive.Width(innerWidth).Render(row))
+			lines = append(lines, f.styles.AccentBg.MaxWidth(innerWidth).Render(row))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(innerWidth).Render(row))
+			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerWidth).Render(row))
 		}
 	}
 
