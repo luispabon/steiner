@@ -22,7 +22,7 @@ Loaded from `overview.md`.
 
 | Step | Status | Notes |
 |------|--------|-------|
-| stage-1-step-1 | pending | Config types update |
+| stage-1-step-1 | running | Config types update |
 | stage-1-step-2 | pending | Consumer updates |
 | stage-2-step-1 | pending | ThinkingChunk toggle |
 | stage-3-step-1 | pending | Path exclusion config + PathExcluder |
