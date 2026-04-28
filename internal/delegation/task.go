@@ -60,12 +60,12 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	boundedOutput := result.Output
 
 	// Check if output is oversized — if so, request a summary turn
-	if CheckOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
+	if checkOutputSize(result.Output, spec.Limits.OutputLimitTokens) {
 		summaryReq := req
 		summaryReq.Limits.MaxTurns = 1
 		summaryConversation := make([]provider.Message, 0, len(req.Prompt.Conversation)+2)
 		summaryConversation = append(summaryConversation, req.Prompt.Conversation...)
-		if assistantMsg, ok := lastAssistantMessage(state.Conversation); ok {
+		if assistantMsg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 			summaryConversation = append(summaryConversation, provider.Message{
 				Role:    provider.MessageRoleAssistant,
 				Content: assistantMsg.Content,
@@ -82,14 +82,10 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 		summaryState, summaryErr := runner.Run(childCtx, summaryReq)
 		if summaryErr == nil {
-			summaryOutput := ""
-			for i := len(summaryState.Conversation) - 1; i >= 0; i-- {
-				msg := summaryState.Conversation[i]
-				if msg.Role == agent.MessageRoleAssistant {
-					summaryOutput = msg.Content
-					break
-				}
-			}
+		summaryOutput := ""
+		if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
+			summaryOutput = msg.Content
+		}
 			if summaryOutput != "" {
 				boundedOutput = summaryOutput
 				result.Summary = summaryOutput
@@ -97,7 +93,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		}
 	}
 
-	if CheckOutputSize(boundedOutput, spec.Limits.OutputLimitTokens) {
+	if checkOutputSize(boundedOutput, spec.Limits.OutputLimitTokens) {
 		boundedOutput = truncateOutputToLimit(boundedOutput, spec.Limits.OutputLimitTokens)
 		if result.Summary != "" {
 			result.Summary = boundedOutput
@@ -111,15 +107,6 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return result, nil
-}
-
-func lastAssistantMessage(conversation []agent.Message) (agent.Message, bool) {
-	for i := len(conversation) - 1; i >= 0; i-- {
-		if conversation[i].Role == agent.MessageRoleAssistant {
-			return conversation[i], true
-		}
-	}
-	return agent.Message{}, false
 }
 
 func truncateOutputToLimit(s string, maxTokens int) string {

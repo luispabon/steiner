@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func summarizeConversationMessages(messages []Message, maxMessages int) string {
@@ -31,18 +33,7 @@ func firstMessageContentByRole(messages []Message, role MessageRole) string {
 }
 
 func summarizeTextPreview(text string, limit int) string {
-	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
-	if len(text) <= limit {
-		return text
-	}
-	if limit <= 3 {
-		return text[:limit]
-	}
-	return text[:limit-3] + "..."
-}
-
-func countMessages(messages []Message) int {
-	return len(messages)
+	return output.TruncateWithEllipsis(text, limit)
 }
 
 func countTurns(messages []Message) int {

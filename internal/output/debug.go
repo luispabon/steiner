@@ -32,6 +32,7 @@ type ContextDiagnosticsEvent struct {
 	Notes              []string `json:"notes,omitempty"`
 }
 
+// NewContextDiagnosticsEvent creates a new context diagnostics event.
 func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	if payload.Kind == "" {
 		payload.Kind = "diagnostic"
@@ -43,6 +44,7 @@ func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	}
 }
 
+// NewContextCompactionEvent creates a new context compaction event.
 func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedTurns, compactedMessages, summaryBytes int, truncated bool, summaryTitle string, summaryPreview ...string) Event {
 	preview := ""
 	if len(summaryPreview) > 0 {
@@ -62,6 +64,7 @@ func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedT
 	})
 }
 
+// NewContextSessionHealthEvent creates a new context session health event.
 func NewContextSessionHealthEvent(scope string, turn, compactionCount int, severity, sessionState, restartGuidance string, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:            "session_health",
@@ -75,6 +78,7 @@ func NewContextSessionHealthEvent(scope string, turn, compactionCount int, sever
 	})
 }
 
+// NewContextBudgetEvent creates a new context budget event.
 func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:        "budget",
@@ -87,6 +91,7 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 	})
 }
 
+// NewContextTokenBudgetEvent creates a new context token budget event.
 func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, safetyMarginTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:               "budget",
@@ -165,7 +170,7 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 		summary += preview
 	}
 	if summary != "" {
-		parts = append(parts, fmt.Sprintf("kept summary %q", truncateDiagnosticText(summary, 160)))
+		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
 	if payload.SummaryBytes > 0 {
 		parts = append(parts, fmt.Sprintf("summary %d bytes", payload.SummaryBytes))
@@ -183,7 +188,7 @@ func formatContextSessionHealthSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{formatDiagnosticHeadline(payload, "session health")}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("after %d compaction%s", payload.CompactionCount, pluralSuffix(payload.CompactionCount)))
+		parts = append(parts, fmt.Sprintf("after %d compaction%s", payload.CompactionCount, PluralSuffix(payload.CompactionCount, "", "s")))
 	}
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
@@ -248,13 +253,13 @@ func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) s
 		parts = append(parts, fmt.Sprintf(
 			"compacted %d %s/%d %s; retained %d %s/%d %s",
 			payload.CompactedTurns,
-			pluralizeDiagnosticWord(payload.CompactedTurns, "turn"),
+			PluralSuffix(payload.CompactedTurns, "turn", "turns"),
 			payload.CompactedMessages,
-			pluralizeDiagnosticWord(payload.CompactedMessages, "message"),
+			PluralSuffix(payload.CompactedMessages, "message", "messages"),
 			payload.RetainedTurns,
-			pluralizeDiagnosticWord(payload.RetainedTurns, "turn"),
+			PluralSuffix(payload.RetainedTurns, "turn", "turns"),
 			payload.RetainedMessages,
-			pluralizeDiagnosticWord(payload.RetainedMessages, "message"),
+			PluralSuffix(payload.RetainedMessages, "message", "messages"),
 		))
 	}
 	return strings.Join(parts, " ")
@@ -272,22 +277,4 @@ func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {
 		parts = append(parts, fmt.Sprintf("compactions %d", payload.CompactionCount))
 	}
 	return parts
-}
-
-func truncateDiagnosticText(text string, limit int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if limit <= 0 || len(text) <= limit {
-		return text
-	}
-	if limit <= 3 {
-		return text[:limit]
-	}
-	return text[:limit-3] + "..."
-}
-
-func pluralizeDiagnosticWord(value int, singular string) string {
-	if value == 1 {
-		return singular
-	}
-	return singular + "s"
 }

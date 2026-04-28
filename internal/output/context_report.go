@@ -35,10 +35,11 @@ type contextReportItem struct {
 	Tokens int
 }
 
+// NewContextReportEvent creates a context report event from the given content.
 func NewContextReportEvent(content string) Event {
 	return Event{
 		Type:      EventTypeContextReport,
-		Timestamp: timeNowUTC(),
+		Timestamp: time.Now().UTC(),
 		Payload: ContextReportEvent{
 			Content: strings.TrimSpace(content),
 		},
@@ -266,14 +267,7 @@ func messageMatchKey(message provider.Message) string {
 }
 
 func previewText(text string) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if text == "" {
-		return ""
-	}
-	if len(text) <= 48 {
-		return text
-	}
-	return strings.TrimSpace(text[:48]) + "..."
+	return TruncateWithEllipsis(text, 48)
 }
 
 func blockPathLabel(path, fallback string) string {
@@ -368,8 +362,4 @@ func cloneOptionalInt(value *int) *int {
 	}
 	cloned := *value
 	return &cloned
-}
-
-func timeNowUTC() time.Time {
-	return time.Now().UTC()
 }

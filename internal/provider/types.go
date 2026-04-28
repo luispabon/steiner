@@ -57,10 +57,11 @@ type ChatResponse struct {
 }
 
 type ChatChunk struct {
-	Delta        Message     `json:"delta"`
-	Thinking     string      `json:"thinking,omitempty"`
-	Usage        *UsageStats `json:"usage,omitempty"`
-	Done         bool        `json:"done,omitempty"`
-	FinishReason string      `json:"finish_reason,omitempty"`
-	Error        string      `json:"error,omitempty"`
+	Delta         Message     `json:"delta"`
+	Thinking      string      `json:"thinking,omitempty"`
+	Usage         *UsageStats `json:"usage,omitempty"`
+	Done          bool        `json:"done,omitempty"`
+	FinishReason  string      `json:"finish_reason,omitempty"`
+	Error         string      `json:"error,omitempty"`
+	OriginalError error       `json:"-"` // preserves the original error type (not serialized)
 }

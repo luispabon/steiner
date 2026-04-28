@@ -9,12 +9,8 @@ import (
 func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) DelegationResult {
 	// Extract last assistant message from conversation
 	output := ""
-	for i := len(state.Conversation) - 1; i >= 0; i-- {
-		msg := state.Conversation[i]
-		if msg.Role == agent.MessageRoleAssistant {
-			output = msg.Content
-			break
-		}
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
+		output = msg.Content
 	}
 
 	result := DelegationResult{
@@ -41,9 +37,9 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 	return result
 }
 
-// CheckOutputSize returns true if the output is oversized relative to the token limit.
+// checkOutputSize returns true if the output is oversized relative to the token limit.
 // Uses len(output)/4 as a rough token approximation.
-func CheckOutputSize(output string, limitTokens int) bool {
+func checkOutputSize(output string, limitTokens int) bool {
 	if limitTokens <= 0 {
 		return false
 	}

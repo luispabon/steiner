@@ -1,0 +1,289 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/luispabon/steiner/internal/tui/prefs"
+	"github.com/luispabon/steiner/internal/tui/theme"
+)
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case paletteClearMsg:
+		return m.handlePaletteClearMsg(msg)
+	case paletteToggleThinkingMsg:
+		return m.handlePaletteToggleThinkingMsg(msg)
+	case paletteSwitchModelMsg:
+		return m.handlePaletteSwitchModelMsg(msg)
+	case paletteSetAccentMsg:
+		return m.handlePaletteSetAccentMsg(msg)
+	case tickMsg:
+		return m.handleTickMsg(msg)
+	case tea.WindowSizeMsg:
+		return m.handleWindowSizeMsg(msg)
+	case runtimeEventMsg:
+		return m.handleRuntimeEventMsg(msg)
+	case bridgeClosedMsg:
+		return m.handleBridgeClosedMsg(msg)
+	case tea.MouseMsg:
+		return m.handleMouseMsg(msg)
+	case tea.KeyMsg:
+		return m.handleKeyMsg(msg)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
+	m.content.Clear()
+	m.sidebar.promptUsed = 0
+	m.sidebar.budgetUsed = 0
+	if m.sidebar.contextBudget > 0 {
+		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+	} else {
+		m.status.context = ""
+	}
+	m.syncSidebar()
+	if m.onClear != nil {
+		m.onClear()
+	}
+	m.input.Reset()
+	m.historyIdx = 0
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) handlePaletteToggleThinkingMsg(msg paletteToggleThinkingMsg) (tea.Model, tea.Cmd) {
+	m.showThinking = !m.showThinking
+	m.content.showThinking = m.showThinking
+	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+	}
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) handlePaletteSwitchModelMsg(msg paletteSwitchModelMsg) (tea.Model, tea.Cmd) {
+	if m.onModelSwitch != nil {
+		m.onModelSwitch(msg.name)
+	}
+	m.status.model = msg.name
+	m.sidebar.contextBudget = m.contextBudgetForModel(msg.name)
+	m.sidebar.promptUsed = 0
+	m.sidebar.budgetUsed = 0
+	if m.sidebar.contextBudget > 0 {
+		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+	} else {
+		m.status.context = ""
+	}
+	m.syncSidebar()
+	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, tea.Cmd) {
+	accentHex := theme.AccentPresets[msg.preset]
+	if accentHex == "" {
+		accentHex = theme.AccentPresets["amber"]
+	}
+	m.accentPreset = msg.preset
+	m.styles = theme.BuildStyles(accentHex)
+	m.content.styles = m.styles
+	m.sidebar.styles = m.styles
+	m.status.styles = m.styles
+	m.input.FocusedStyle.Base = m.styles.InputArea
+	m.input.BlurredStyle.Base = m.styles.InputArea
+	m.palette.styles = m.styles
+	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+	}
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
+	m.content.tickCount++
+	m.sidebar.tickCount = m.content.tickCount
+	m.status.streaming = m.content.streamingPhase != ""
+	m.status.promptUsed = m.sidebar.promptUsed
+	m.status.contextBudget = m.sidebar.contextBudget
+	if !m.approval.active {
+		if m.content.streamingPhase != "" {
+			m.input.Placeholder = "streaming… esc to interrupt"
+		} else {
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+		}
+	}
+	// Emit any render or git errors captured during the last cycle
+	if m.content.lastRenderErr != nil {
+		emitRenderError(m.content.lastRenderErr)
+		m.content.lastRenderErr = nil
+	}
+	m.syncViewport()
+	return m, tickCmd()
+}
+
+func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	m.palette.width = msg.Width
+	m.palette.height = msg.Height
+	m.layout()
+	return m, nil
+}
+
+func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
+	m.applyEvent(msg.Event)
+	if m.external != nil {
+		return m, waitForExternalMsg(m.external)
+	}
+	return m, nil
+}
+
+func (m Model) handleBridgeClosedMsg(msg bridgeClosedMsg) (tea.Model, tea.Cmd) {
+	return m, nil
+}
+
+func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.handleMouse(msg)
+	return m, nil
+}
+
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If palette is open, route all keys to it first
+	if m.palette.open {
+		var cmd tea.Cmd
+		m.palette, cmd = m.palette.Update(msg)
+		return m, cmd
+	}
+
+	// Reset completion state on any non-Tab key
+	if msg.Type != tea.KeyTab {
+		m.completionCandidates = nil
+		m.completionIdx = 0
+	}
+
+	// Handle ? for help toggle (only when textarea is empty)
+	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
+		m.helpVisible = !m.helpVisible
+		return m, nil
+	}
+
+	// Block all non-Esc input while streaming
+	if m.content.streamingPhase != "" && msg.Type != tea.KeyEsc {
+		return m, nil
+	}
+
+	// Handle Escape: interrupt streaming first (takes priority over help panel)
+	if msg.Type == tea.KeyEsc && m.content.streamingPhase != "" {
+		m.content.AppendInterrupted()
+		m.status.streaming = false
+		m.input.Placeholder = "ask steiner — / for commands, @ for files"
+		m.syncViewport()
+		return m, nil
+	}
+
+	// Handle Escape to close help
+	if msg.Type == tea.KeyEsc && m.helpVisible {
+		m.helpVisible = false
+		return m, nil
+	}
+
+	switch msg.Type {
+	case tea.KeyCtrlC, tea.KeyCtrlD:
+		return m, tea.Quit
+	case tea.KeyCtrlP:
+		m.palette = m.palette.Open()
+		m.palette.width = m.width
+		m.palette.height = m.height
+		return m, nil
+	case tea.KeyCtrlB:
+		m.sidebar.Toggle()
+		m.layout()
+		return m, nil
+	case tea.KeyTab:
+		return m.handleTabKey(msg)
+	case tea.KeyUp:
+		return m.handleKeyUp(msg)
+	case tea.KeyDown:
+		return m.handleKeyDown(msg)
+	case tea.KeyPgUp:
+		m.scrollUp(max(1, m.viewport.Height))
+		return m, nil
+	case tea.KeyPgDown:
+		m.scrollDown(max(1, m.viewport.Height))
+		return m, nil
+	case tea.KeyEnter:
+		return m.handleEnter()
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	current := m.input.Value()
+	if !strings.HasPrefix(current, "/") {
+		// no "/" prefix — pass Tab through to textarea (does nothing meaningful)
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+	// build or advance candidates
+	if len(m.completionCandidates) == 0 {
+		m.completionCandidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
+		m.completionIdx = 0
+	}
+	if len(m.completionCandidates) == 0 {
+		return m, nil // no matches
+	}
+	// set the value to current candidate
+	m.input.SetValue(m.completionCandidates[m.completionIdx])
+	m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
+	return m, nil
+}
+
+func (m Model) handleKeyUp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
+		m.fileHistoryIdx++
+		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
+		return m, nil
+	}
+	if len(m.fileHistory) > 0 && m.fileHistoryIdx < 0 {
+		m.historyDraft = m.input.Value()
+		m.fileHistoryIdx = 0
+		m.input.SetValue(m.fileHistory[0])
+		return m, nil
+	}
+	m.fileHistoryIdx = -1
+	m.historyIdx = -1
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryIdx > 0 {
+		m.fileHistoryIdx--
+		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
+		return m, nil
+	}
+	if m.fileHistoryIdx == 0 {
+		m.input.SetValue(m.historyDraft)
+		m.fileHistoryIdx = -1
+		return m, nil
+	}
+	m.fileHistoryIdx = -1
+	m.historyIdx = -1
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}

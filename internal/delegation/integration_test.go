@@ -1,4 +1,4 @@
-package delegation_test
+package delegation
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -56,11 +55,11 @@ func (c *collectingSink) Emit(e output.Event) {
 	c.events = append(c.events, e)
 }
 
-func makeSpec(agentID string, outputLimitTokens int) delegation.DelegationSpec {
-	return delegation.DelegationSpec{
+func makeSpec(agentID string, outputLimitTokens int) DelegationSpec {
+	return DelegationSpec{
 		Task:    "test task",
 		AgentID: agentID,
-		Limits: delegation.DelegationLimits{
+		Limits: DelegationLimits{
 			MaxTurns:          5,
 			OutputLimitTokens: outputLimitTokens,
 		},
@@ -78,18 +77,18 @@ func TestBasicDelegationResult(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := delegation.BuildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, err := delegation.SpawnDelegate(context.Background(), spec, req, runner, sink)
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result.AgentID != "agent-1" {
 		t.Errorf("AgentID: got %q, want %q", result.AgentID, "agent-1")
 	}
-	if result.Status != delegation.StatusComplete {
-		t.Errorf("Status: got %q, want %q", result.Status, delegation.StatusComplete)
+	if result.Status != StatusComplete {
+		t.Errorf("Status: got %q, want %q", result.Status, StatusComplete)
 	}
 	if result.Output != "done" {
 		t.Errorf("Output: got %q, want %q", result.Output, "done")
@@ -110,10 +109,10 @@ func TestDelegationEvents(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
-	req := delegation.BuildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	_, err := delegation.SpawnDelegate(context.Background(), spec, req, runner, sink)
+	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,7 +140,7 @@ func TestChildRegistryExcludesDelegate(t *testing.T) {
 		Description: "delegate tool",
 	})
 
-	childReg := delegation.BuildChildToolRegistry(parentReg, "delegate")
+	childReg := BuildChildToolRegistry(parentReg, "delegate")
 
 	_, ok := childReg.Get("delegate")
 	if ok {
@@ -158,10 +157,10 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 		},
 	}
 
-	spec := delegation.DelegationSpec{
+	spec := DelegationSpec{
 		Task:    "test task",
 		AgentID: "agent-4",
-		Limits: delegation.DelegationLimits{
+		Limits: DelegationLimits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 		},
@@ -170,10 +169,10 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := delegation.BuildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, err := delegation.SpawnDelegate(context.Background(), spec, req, runner, sink)
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -216,10 +215,10 @@ func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
 		},
 	}
 
-	spec := delegation.DelegationSpec{
+	spec := DelegationSpec{
 		Task:    "test task",
 		AgentID: "agent-5",
-		Limits: delegation.DelegationLimits{
+		Limits: DelegationLimits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 		},
@@ -228,10 +227,10 @@ func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := delegation.BuildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, err := delegation.SpawnDelegate(context.Background(), spec, req, runner, sink)
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -263,7 +262,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	)
 
 	spec := makeSpec("agent-6", 1000)
-	req := delegation.BuildChildRunRequest(spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, parentReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
+	req := buildChildRunRequest(spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, parentReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
 
 	if len(req.Tools) != 1 {
 		t.Fatalf("Tools length = %d, want 1", len(req.Tools))
@@ -317,20 +316,20 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 		},
 	}
 
-	spec := delegation.DelegationSpec{
+	spec := DelegationSpec{
 		Task:    "test task",
 		AgentID: "agent-7",
-		Limits: delegation.DelegationLimits{
+		Limits: DelegationLimits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 			Timeout:           25 * time.Millisecond,
 		},
 	}
 
-	req := delegation.BuildChildRunRequest(spec, prov, tool.NewRegistry(), agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
+	req := buildChildRunRequest(spec, prov, tool.NewRegistry(), agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
 	runner := &blockingRunner{}
 	start := time.Now()
-	result, err := delegation.SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -355,7 +354,7 @@ func TestDelegateHandlerTaskRequired(t *testing.T) {
 		},
 	}
 
-	deps := delegation.DelegateHandlerDeps{
+	deps := DelegateHandlerDeps{
 		Provider:    prov,
 		ParentReg:   tool.NewRegistry(),
 		SubAgentCfg: config.SubAgentConfig{MaxTurns: 5, MaxTokens: 10000},
@@ -363,7 +362,7 @@ func TestDelegateHandlerTaskRequired(t *testing.T) {
 		Runner:      agent.NewRunner(),
 	}
 
-	handler := delegation.NewDelegateHandler(deps)
+	handler := NewDelegateHandler(deps)
 	_, err := handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error when task is missing")

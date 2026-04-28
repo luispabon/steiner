@@ -15,6 +15,7 @@ type PathPolicy struct {
 	writablePaths   []string
 }
 
+// NewPathPolicy creates a path policy from the working directory and paths configuration.
 func NewPathPolicy(root string, cfg config.PathsConfig) PathPolicy {
 	normalizedRoot := normalizePolicyPath(root, root)
 	policy := PathPolicy{
@@ -87,7 +88,7 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 }
 
 func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (map[string]any, error) {
-	normalized := cloneInputMap(input)
+	normalized := CloneJSONMap(input)
 	switch toolName {
 	case "read", "write":
 		path, err := p.ResolvePath(stringInput(normalized["path"]), toolName == "write")

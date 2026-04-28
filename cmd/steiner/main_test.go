@@ -463,7 +463,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 			status:      output.NewStream(cmd.ErrOrStderr()),
 			events:      events,
 			sharedInput: bufio.NewReader(strings.NewReader("")),
-			close:       fileSink.Close,
+			closeFn:     fileSink.Close,
 		}, nil
 	}
 
@@ -849,18 +849,6 @@ func TestCLIRunnerUsesSelectedSkillSubset(t *testing.T) {
 	}
 	if strings.Contains(joined, "debug skill instructions") {
 		t.Fatalf("request messages included disabled skill content:\n%s", joined)
-	}
-}
-
-func TestInteractiveInputPrefersRawStdin(t *testing.T) {
-	raw := strings.NewReader("raw")
-	shared := bufio.NewReader(strings.NewReader("shared"))
-
-	if got := interactiveInput(cliRuntime{stdin: raw, sharedInput: shared}); got != raw {
-		t.Fatalf("interactiveInput() = %#v, want raw stdin reader", got)
-	}
-	if got := interactiveInput(cliRuntime{sharedInput: shared}); got != shared {
-		t.Fatalf("interactiveInput() fallback = %#v, want shared input reader", got)
 	}
 }
 

@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 type Registry struct {
 	defs map[string]ToolDef
 }
 
+// NewRegistry creates a new tool registry from the provided definitions.
 func NewRegistry(defs ...ToolDef) *Registry {
 	reg := &Registry{defs: make(map[string]ToolDef, len(defs))}
 	for _, def := range defs {
@@ -20,6 +22,7 @@ func NewRegistry(defs ...ToolDef) *Registry {
 	return reg
 }
 
+// NewRegistryFromConfig creates a tool registry from the application configuration.
 func NewRegistryFromConfig(cfg config.Config) *Registry {
 	reg := &Registry{defs: make(map[string]ToolDef, len(cfg.Tools))}
 	for name, toolCfg := range cfg.Tools {
@@ -28,7 +31,7 @@ func NewRegistryFromConfig(cfg config.Config) *Registry {
 			ExecPath:        toolCfg.Exec,
 			Subcommand:      toolCfg.Subcommand,
 			Description:     toolCfg.Description,
-			ParameterSchema: cloneSchemaMap(toolCfg.Parameters),
+			ParameterSchema: CloneJSONMap(toolCfg.Parameters),
 			Timeout:         time.Duration(toolCfg.Timeout.Duration()),
 			Approval:        toolCfg.Approval,
 		})
@@ -88,6 +91,31 @@ func (r *Registry) OpenAISchemas() []map[string]any {
 }
 
 func cloneToolDef(def ToolDef) ToolDef {
-	def.ParameterSchema = cloneSchemaMap(def.ParameterSchema)
+	def.ParameterSchema = CloneJSONMap(def.ParameterSchema)
 	return def
+}
+
+// ToProviderSpecs converts the registry definitions to provider tool specs.
+// The schema maps are cloned to prevent external mutation.
+func (r *Registry) ToProviderSpecs() []provider.ToolSpec {
+	if r == nil {
+		return nil
+	}
+	defs := r.Definitions()
+	if len(defs) == 0 {
+		return nil
+	}
+
+	specs := make([]provider.ToolSpec, 0, len(defs))
+	for _, def := range defs {
+		specs = append(specs, provider.ToolSpec{
+			Type: "function",
+			Function: provider.ToolFunctionSpec{
+				Name:        def.Name,
+				Description: def.Description,
+				Parameters:  CloneJSONMap(def.ParameterSchema),
+			},
+		})
+	}
+	return specs
 }

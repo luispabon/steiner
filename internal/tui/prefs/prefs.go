@@ -12,6 +12,7 @@ type Prefs struct {
 	ShowThinking bool   `yaml:"show_thinking"`
 }
 
+// DefaultPrefs returns the default TUI preferences.
 func DefaultPrefs() Prefs {
 	return Prefs{
 		Accent:       "amber",
@@ -63,7 +64,7 @@ func Save(p Prefs) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, "prefs.yaml")
@@ -71,5 +72,5 @@ func Save(p Prefs) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, data, 0o600)
 }

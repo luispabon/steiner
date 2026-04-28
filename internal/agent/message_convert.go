@@ -157,3 +157,15 @@ func fromPromptContext(state prompt.DurableContextState) ContextState {
 	}
 	return out
 }
+
+// LastAssistantMessage returns the last message with Role == MessageRoleAssistant.
+// It iterates from the end of the slice for efficiency. The bool return indicates
+// whether an assistant message was found.
+func LastAssistantMessage(msgs []Message) (Message, bool) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == MessageRoleAssistant {
+			return msgs[i], true
+		}
+	}
+	return Message{}, false
+}

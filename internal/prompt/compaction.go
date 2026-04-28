@@ -123,7 +123,7 @@ type ToolSummaryEnvelope struct {
 	Content   string               `json:"content"`
 }
 
-func SummarizeToolMessage(message provider.Message, policy ToolSummaryPolicy) ContextBlock {
+func summarizeToolMessage(message provider.Message, policy ToolSummaryPolicy) ContextBlock {
 	limit := policy.MaxBytes
 	if limit <= 0 {
 		limit = defaultToolSummaryBudgetBytes
