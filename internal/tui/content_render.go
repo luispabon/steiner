@@ -96,7 +96,7 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	if contentWidth < 2 {
 		contentWidth = 2
 	}
-	bar := b.styles.UserBar.Render("│")
+	bar := b.styles.UserBar.Render("┃")
 	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
