@@ -16,9 +16,9 @@ type WriteInput struct {
 // EditInput is the typed input for the edit tool.
 type EditInput struct {
 	Path       string `json:"path"`
-	OldString  string `json:"oldString"`
-	NewString  string `json:"newString"`
-	ReplaceAll bool   `json:"replaceAll,omitempty"`
+	OldString  string `json:"old_string"`
+	NewString  string `json:"new_string"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
 // GlobInput is the typed input for the glob tool.
@@ -35,14 +35,14 @@ type GrepInput struct {
 	Path            string `json:"path,omitempty"`
 	Glob            string `json:"glob,omitempty"`
 	Type            string `json:"type,omitempty"`
-	OutputMode      string `json:"outputMode,omitempty"`
-	CaseInsensitive bool   `json:"caseInsensitive,omitempty"`
-	LineNumbers     *bool  `json:"lineNumbers,omitempty"`
-	AfterContext    int    `json:"afterContext,omitempty"`
-	BeforeContext   int    `json:"beforeContext,omitempty"`
+	OutputMode      string `json:"output_mode,omitempty"`
+	CaseInsensitive bool   `json:"case_insensitive,omitempty"`
+	LineNumbers     *bool  `json:"line_numbers,omitempty"`
+	AfterContext    int    `json:"after_context,omitempty"`
+	BeforeContext   int    `json:"before_context,omitempty"`
 	Context         int    `json:"context,omitempty"`
 	Multiline       bool   `json:"multiline,omitempty"`
-	HeadLimit       int    `json:"headLimit,omitempty"`
+	HeadLimit       int    `json:"head_limit,omitempty"`
 	Offset          int    `json:"offset,omitempty"`
 }
 
@@ -58,8 +58,8 @@ type LSInput struct {
 type BashInput struct {
 	Command        string `json:"command"`
 	CWD            string `json:"cwd,omitempty"`
-	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
-	MaxOutputChars int    `json:"maxOutputChars,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	MaxOutputChars int    `json:"max_output_chars,omitempty"`
 }
 
 const (

@@ -11,16 +11,16 @@ type Result struct {
 	Output     string `json:"output"`
 	Error      string `json:"error,omitempty"`
 	Truncated  bool   `json:"truncated,omitempty"`
-	NextOffset int    `json:"nextOffset,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
 }
 
 // ReadResult is the result from a read tool call.
 type ReadResult struct {
 	Path       string `json:"path"`
-	StartLine  int    `json:"startLine"`
-	EndLine    int    `json:"endLine"`
-	TotalLines int    `json:"totalLines"`
-	NextOffset int    `json:"nextOffset,omitempty"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
+	TotalLines int    `json:"total_lines"`
+	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
 }
 
@@ -28,7 +28,7 @@ type ReadResult struct {
 type GrepResult struct {
 	Matches    int    `json:"matches"`
 	Returned   int    `json:"returned"`
-	NextOffset int    `json:"nextOffset,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
 }
 
