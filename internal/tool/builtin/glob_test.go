@@ -21,7 +21,8 @@ func TestGlobTool(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	excluder := tool.NewPathExcluder(nil, nil)
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 	toolDef := NewGlobTool(env)
 	ctx := context.Background()
 
@@ -152,6 +153,191 @@ func TestGlobTool(t *testing.T) {
 		}
 		if result.Returned != 0 {
 			t.Errorf("Returned = %d, want 0", result.Returned)
+		}
+	})
+}
+
+func TestGlobTool_Exclusions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files that should be visible.
+	visible := []string{"main.go", "helper.go", "README.md"}
+	for _, f := range visible {
+		if err := os.WriteFile(filepath.Join(tmpDir, f), []byte(f), 0o644); err != nil {
+			t.Fatalf("write %s: %v", f, err)
+		}
+	}
+
+	// Create files inside directories that should be excluded by built-in rules.
+	excludedDirs := []string{".git", "node_modules", "vendor", ".steiner", ".cache", "dist", "build", "out", "target"}
+	excludedFiles := []string{"config", "index.js", "lib.go", "secret.yaml", "cache.bin", "bundle.js", "output.o", "result", "binary"}
+	for i, dir := range excludedDirs {
+		dirPath := filepath.Join(tmpDir, dir)
+		if err := os.Mkdir(dirPath, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dirPath, excludedFiles[i]), []byte(excludedFiles[i]), 0o644); err != nil {
+			t.Fatalf("write %s/%s: %v", dir, excludedFiles[i], err)
+		}
+	}
+
+	// Create a deeply nested file inside an excluded dir to verify no traversal.
+	nestedExcluded := filepath.Join(tmpDir, "node_modules", "deep", ".cache", "nested.txt")
+	if err := os.MkdirAll(filepath.Dir(nestedExcluded), 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(nestedExcluded, []byte("nested"), 0o644); err != nil {
+		t.Fatalf("write nested: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, nil)
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
+	toolDef := NewGlobTool(env)
+	ctx := context.Background()
+
+	t.Run("excluded directories not returned in results", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+
+		for _, dir := range excludedDirs {
+			if strings.Contains(result.Output, dir+"/") || result.Output == dir {
+				t.Errorf("output contains excluded directory %q: %q", dir, result.Output)
+			}
+		}
+	})
+
+	t.Run("visible files are still found", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*.go",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+		if !strings.Contains(result.Output, "main.go") {
+			t.Errorf("output missing visible file main.go: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "helper.go") {
+			t.Errorf("output missing visible file helper.go: %q", result.Output)
+		}
+	})
+
+	t.Run("deeply nested excluded files not returned", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+		if strings.Contains(result.Output, "nested.txt") {
+			t.Errorf("output contains deeply nested excluded file nested.txt: %q", result.Output)
+		}
+	})
+}
+
+func TestGlobTool_CustomExcludePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create visible files.
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("main"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+
+	// Create a directory that should be excluded via exact path prefix.
+	secretDir := filepath.Join(tmpDir, "secret")
+	if err := os.Mkdir(secretDir, 0o755); err != nil {
+		t.Fatalf("mkdir secret: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(secretDir, "key.txt"), []byte("key"), 0o644); err != nil {
+		t.Fatalf("write secret/key.txt: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder([]string{secretDir}, nil)
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
+	toolDef := NewGlobTool(env)
+	ctx := context.Background()
+
+	t.Run("custom exact path exclusion", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+		if strings.Contains(result.Output, "secret/") || strings.Contains(result.Output, "key.txt") {
+			t.Errorf("output contains excluded path: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "main.go") {
+			t.Errorf("output missing visible file main.go: %q", result.Output)
+		}
+	})
+}
+
+func TestGlobTool_CustomExcludePatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create visible files.
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("main"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+
+	// Create files matching custom exclusion pattern.
+	backupDir := filepath.Join(tmpDir, "backups")
+	if err := os.Mkdir(backupDir, 0o755); err != nil {
+		t.Fatalf("mkdir backups: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "data.bak"), []byte("bak"), 0o644); err != nil {
+		t.Fatalf("write backups/data.bak: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, []string{"*.bak"})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
+	toolDef := NewGlobTool(env)
+	ctx := context.Background()
+
+	t.Run("custom glob pattern exclusion", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+		if strings.Contains(result.Output, ".bak") {
+			t.Errorf("output contains excluded pattern .bak: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "main.go") {
+			t.Errorf("output missing visible file main.go: %q", result.Output)
 		}
 	})
 }
