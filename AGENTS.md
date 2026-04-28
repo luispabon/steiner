@@ -46,9 +46,10 @@ docs/                    Product/design docs and implementation notes
 1. Inspect nearby code, call sites, and the smallest relevant tests before editing.
 2. Prefer `edit` over `write` for in-place changes.
 3. Keep changes minimal and package boundaries intact.
-4. Run `gofmt -w <files>` after Go edits.
-5. Run targeted tests first; broaden checks when practical or risk warrants it.
-6. If checks fail or cannot run, report the exact command and reason.
+4. Ensure comprehensive unit and functional tests are written for any new functionality
+5. Run `gofmt -w <files>` after Go edits.
+6. Run targeted tests first; broaden checks when practical or risk warrants it.
+7. If checks fail or cannot run, report the exact command and reason.
 
 Commands:
 
