@@ -25,7 +25,7 @@ Loaded from `overview.md`.
 | stage-1-step-1 | implemented | Config types update — 167 tests pass, go vet clean |
 | stage-1-step-2 | implemented | Consumer updates — 785 tests pass, build + vet clean |
 | stage-2-step-1 | implemented | ThinkingChunk toggle — config + output tests pass, no deviations |
-| stage-3-step-1 | running | Path exclusion config + PathExcluder |
+| stage-3-step-1 | implemented | Path exclusion config + PathExcluder — config + tool tests pass, no deviations |
 | stage-3-step-2 | pending | Custom glob walker |
 | stage-3-step-3 | pending | Custom grep walker |
 | stage-4-step-1 | pending | Conversation scrollbar |
@@ -43,6 +43,7 @@ Step scheduling complete. Ready to begin implementation.
 | stage-1-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-1-step-1 | tmp/stage-1-step-1 | Yes | Yes |
 | stage-1-step-2 | kimi-k2.6 (same tier) | .worktrees/stage-1-step-2 | tmp/stage-1-step-2 | Yes | Yes |
 | stage-2-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-2-step-1 | tmp/stage-2-step-1 | Yes | Yes |
+| stage-3-step-1 | kimi-k2.6 (same tier) | .worktrees/stage-3-step-1 | tmp/stage-3-step-1 | Yes | Yes |
 
 ## Verification Runs
 
