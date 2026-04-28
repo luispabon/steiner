@@ -578,6 +578,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -592,6 +593,12 @@ func main() {
 	case "binary":
 		_, _ = os.Stdout.Write([]byte{0x00, 0xff, 0x42})
 		_, _ = os.Stderr.Write([]byte{0x00, 0x01, 0x02})
+		os.Exit(1)
+	case "sleep":
+		time.Sleep(10 * time.Second)
+		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
+	case "fail":
+		fmt.Fprint(os.Stdout, "{\"ok\":false,\"error\":{\"kind\":\"tool_failed\",\"message\":\"something went wrong\"}}")
 		os.Exit(1)
 	default:
 		fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
@@ -657,4 +664,165 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatalf("read file %s: %v", path, err)
 	}
 	return data
+}
+
+func TestExecutorApprovalDenied(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: helper,
+		Approval: config.ApprovalModeDeny,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval_denied")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "approval_denied" {
+		t.Fatalf("error kind = %q, want approval_denied", toolErr.Kind)
+	}
+}
+
+func TestExecutorContextCancellation(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: helper,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+		return nil
+	}), t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := executor.Execute(ctx, "probe", nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestExecutorTimeoutExceeded(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:       "probe",
+		ExecPath:   helper,
+		Subcommand: "sleep",
+		Timeout:    100 * time.Millisecond,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want DeadlineExceeded")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestExecutorPathPolicyViolation(t *testing.T) {
+	root := t.TempDir()
+	bin := mustBuildCoreToolsBinary(t)
+	reg := newCoreToolsRegistry(bin)
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			ProjectRootOnly: true,
+		},
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, nil, root)
+	_, err := executor.Execute(context.Background(), "read", map[string]any{"path": "/etc/passwd"})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" {
+		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+}
+
+func TestExecutorNonZeroExitCode(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:       "probe",
+		ExecPath:   helper,
+		Subcommand: "fail",
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModeAuto,
+		},
+	}
+
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want non-zero exit error")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.ExitCode == 0 {
+		t.Fatalf("error exit code = %d, want non-zero", toolErr.ExitCode)
+	}
+	if toolErr.Kind != "tool_failed" {
+		t.Fatalf("error kind = %q, want tool_failed", toolErr.Kind)
+	}
+}
+
+func TestExitCodeFromError(t *testing.T) {
+	if got := exitCodeFromError(nil); got != 0 {
+		t.Fatalf("exitCodeFromError(nil) = %d, want 0", got)
+	}
+	if got := exitCodeFromError(errors.New("random error")); got != 1 {
+		t.Fatalf("exitCodeFromError(errors.New) = %d, want 1", got)
+	}
+
+	err := exec.Command("sh", "-c", "exit 42").Run()
+	if got := exitCodeFromError(err); got != 42 {
+		t.Fatalf("exitCodeFromError(exit 42) = %d, want 42", got)
+	}
+}
+
+func TestNormalizeExecutionRoot(t *testing.T) {
+	if got := normalizeExecutionRoot(""); got != "" {
+		t.Fatalf("normalizeExecutionRoot(\"\") = %q, want \"\"", got)
+	}
+	if got := normalizeExecutionRoot("  "); got != "" {
+		t.Fatalf("normalizeExecutionRoot(\"  \") = %q, want \"\"", got)
+	}
+	cwd, _ := filepath.Abs(".")
+	want := filepath.Clean(cwd)
+	if got := normalizeExecutionRoot("."); got != want {
+		t.Fatalf("normalizeExecutionRoot(\".\") = %q, want %q", got, want)
+	}
 }
