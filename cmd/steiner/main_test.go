@@ -294,12 +294,13 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 		Approval: config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
 			Overrides: map[string]config.ApprovalMode{
-				"read":   config.ApprovalModeAuto,
-				"glob":   config.ApprovalModeAuto,
-				"search": config.ApprovalModeAuto,
-				"write":  config.ApprovalModePrompt,
-				"edit":   config.ApprovalModePrompt,
-				"bash":   config.ApprovalModePrompt,
+				"read":  config.ApprovalModeAuto,
+				"glob":  config.ApprovalModeAuto,
+				"grep":  config.ApprovalModeAuto,
+				"ls":    config.ApprovalModeAuto,
+				"write": config.ApprovalModePrompt,
+				"edit":  config.ApprovalModePrompt,
+				"bash":  config.ApprovalModePrompt,
 			},
 		},
 		Tools: map[string]config.ToolConfig{},
@@ -309,7 +310,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 	}
 
 	got := registry.Names()
-	want := []string{"bash", "edit", "glob", "read", "search", "write"}
+	want := []string{"bash", "edit", "glob", "grep", "ls", "read", "write"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registry names = %v, want %v", got, want)
 	}

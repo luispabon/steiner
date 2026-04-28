@@ -90,12 +90,24 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (map[string]any, error) {
 	normalized := CloneJSONMap(input)
 	switch toolName {
-	case "read", "write":
-		path, err := p.ResolvePath(stringInput(normalized["path"]), toolName == "write")
+	case "read", "glob", "grep", "ls":
+		path := stringInput(normalized["path"])
+		if path == "" {
+			path = "."
+			normalized["path"] = "."
+		}
+		resolved, err := p.ResolvePath(path, false)
 		if err != nil {
 			return nil, err
 		}
-		normalized["path"] = path
+		normalized["path"] = resolved
+	case "write", "edit":
+		path := stringInput(normalized["path"])
+		resolved, err := p.ResolvePath(path, true)
+		if err != nil {
+			return nil, err
+		}
+		normalized["path"] = resolved
 	case "bash":
 		cwd, err := p.ResolveCWD(stringInput(normalized["cwd"]))
 		if err != nil {
