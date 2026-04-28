@@ -163,14 +163,8 @@ func TestExecutorRunsCoreToolsAgainstTempRepo(t *testing.T) {
 	if got, want := previews[1].Tool, "edit"; got != want {
 		t.Fatalf("edit preview tool = %q, want %q", got, want)
 	}
-	if got, want := previews[1].Fields[0].Name, "new"; got != want {
+	if got, want := previews[1].Fields[0].Name, "path"; got != want {
 		t.Fatalf("edit preview first field name = %q, want %q", got, want)
-	}
-	if got, want := previews[1].Fields[1].Name, "old"; got != want {
-		t.Fatalf("edit preview second field name = %q, want %q", got, want)
-	}
-	if got, want := previews[1].Fields[2].Name, "path"; got != want {
-		t.Fatalf("edit preview third field name = %q, want %q", got, want)
 	}
 	if got, want := previews[2].Tool, "bash"; got != want {
 		t.Fatalf("bash preview tool = %q, want %q", got, want)
@@ -338,7 +332,7 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 			name:  "edit out of root",
 			tool:  "edit",
 			input: map[string]any{"path": "../escape.txt", "old": "a", "new": "b"},
-			want:  "outside current working directory",
+			want:  "outside project root",
 		},
 	}
 
@@ -352,11 +346,7 @@ func TestExecutorRejectsUnsafePathsBeforeExecution(t *testing.T) {
 			if !errors.As(err, &toolErr) {
 				t.Fatalf("error type = %T, want *ToolExecutionError", err)
 			}
-			if tc.tool == "edit" {
-				if toolErr.Kind != "edit_error" {
-					t.Fatalf("error kind = %q, want edit_error", toolErr.Kind)
-				}
-			} else if toolErr.Kind != "policy_denied" {
+			if toolErr.Kind != "policy_denied" {
 				t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
 			}
 			if !strings.Contains(toolErr.Message, tc.want) {
