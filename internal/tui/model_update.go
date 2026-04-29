@@ -208,6 +208,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if msg.Type == tea.KeyEnter && msg.String() != "enter" {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
 		return m, tea.Quit

@@ -119,6 +119,48 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestModelModifiedEnterInsertsNewline(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("first line")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submission for modified enter", submitted)
+	}
+	if got := m.input.Value(); got != "first line\n" {
+		t.Fatalf("input value = %q, want newline inserted", got)
+	}
+}
+
+func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("fix the bug")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(submitted) != 1 || submitted[0] != "fix the bug" {
+		t.Fatalf("submitted = %#v, want plain enter submission", submitted)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want reset after submit", got)
+	}
+}
+
 func TestModelHandlesContextCommandLocally(t *testing.T) {
 	var submitted []string
 	contextInspections := 0
