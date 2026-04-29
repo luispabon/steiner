@@ -86,6 +86,7 @@ type Model struct {
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	contextOverlay               contextOverlayState
+	fileViewer                   fileViewerState
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -396,6 +397,15 @@ func (m Model) View() string {
 
 	if m.contextOverlay.open {
 		overlay := m.renderContextOverlay()
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			overlay,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
+
+	if m.fileViewer.open {
+		overlay := m.renderFileViewer()
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			overlay,

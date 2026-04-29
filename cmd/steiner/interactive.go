@@ -47,6 +47,18 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(&rt)
 
+	// Build a ForwardSink so the display_file tool can emit events even though
+	// the TUI event sink is assembled after the registry. We update it below
+	// once the TUI sink is ready.
+	displaySink := output.NewForwardSink()
+
+	// Rebuild the registry with interactive mode and the forward sink wired in.
+	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, displaySink, true)
+	if err != nil {
+		return fmt.Errorf("build interactive registry: %w", err)
+	}
+	rt.registry = interactiveRegistry
+
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
 	approvalResponse := make(chan bool, 1)
@@ -132,6 +144,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		}),
 	)
 	runner.runtime.events = rt.events
+
+	// Wire the TUI sink into the display_file forward sink so the tool can emit
+	// display events once the TUI is running.
+	displaySink.Set(tuiApp.EventSink())
 
 	approver := agent.NewEventingApprover(
 		rt.events,

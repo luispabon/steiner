@@ -95,6 +95,19 @@ func LSSchema() map[string]any {
 	}
 }
 
+// DisplayFileSchema returns the JSON schema for the display_file tool.
+func DisplayFileSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path":     map[string]any{"type": "string", "description": "Absolute or workspace-relative path to the file to display"},
+			"language": map[string]any{"type": "string", "description": "Optional language hint for syntax highlighting (e.g. \"go\", \"json\"). Omit to infer from extension."},
+		},
+		"required":             []string{"path"},
+		"additionalProperties": false,
+	}
+}
+
 // BashSchema returns the JSON schema for the bash tool.
 func BashSchema() map[string]any {
 	return map[string]any{

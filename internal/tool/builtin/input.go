@@ -54,6 +54,12 @@ type LSInput struct {
 	Offset    int    `json:"offset,omitempty"`
 }
 
+// DisplayFileInput is the typed input for the display_file tool.
+type DisplayFileInput struct {
+	Path     string `json:"path"`
+	Language string `json:"language,omitempty"`
+}
+
 // BashInput is the typed input for the bash tool.
 type BashInput struct {
 	Command        string `json:"command"`

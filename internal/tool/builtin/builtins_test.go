@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 7 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 7 {
-			t.Fatalf("Builtins returned %d tools, want 7", len(tools))
+	t.Run("all 8 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 8 {
+			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash"}
+		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash", "display_file"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -57,10 +57,10 @@ func TestBuiltins(t *testing.T) {
 		}
 	})
 
-	t.Run("approval not required for read, grep, glob, ls", func(t *testing.T) {
+	t.Run("approval not required for read, grep, glob, ls, display_file", func(t *testing.T) {
 		for _, td := range tools {
 			switch td.Name {
-			case "read", "grep", "glob", "ls":
+			case "read", "grep", "glob", "ls", "display_file":
 				if td.Approval != config.ApprovalModeAuto {
 					t.Errorf("tool %q Approval = %q, want %q", td.Name, td.Approval, config.ApprovalModeAuto)
 				}
@@ -75,6 +75,7 @@ func TestBuiltins(t *testing.T) {
 			&Result{Output: "file1\nfile2\n", Returned: 2, NextOffset: 5},
 			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
+			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
 		}
 		for i, r := range results {
 			data, err := json.Marshal(r)
@@ -104,8 +105,9 @@ func TestBuiltins(t *testing.T) {
 				_, isGrepResult := errResult.(GrepResult)
 				_, isMutation := errResult.(*MutationResult)
 				_, isBash := errResult.(*BashResult)
+				_, isDisplayFile := errResult.(*DisplayFileResult)
 
-				hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash
+				hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile
 				if !hasResult {
 					t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 				}

@@ -12,5 +12,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewGrepTool(env),
 		NewLSTool(env),
 		NewBashTool(env),
+		NewDisplayFileTool(env),
 	}
 }
