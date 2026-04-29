@@ -70,6 +70,24 @@ func (m Model) executeApprovalAction(value string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
+	if m.onInterrupt != nil {
+		m.onInterrupt()
+	}
+	m.content.AppendInterrupted()
+	m.content.hadChunks = false
+	m.approval = approvalState{}
+	m.status.mode = ""
+	m.status.streaming = false
+	m.input.Reset()
+	m.input.Prompt = "› "
+	m.input.Placeholder = "ask steiner — / for commands, @ for files"
+	m.historyIdx = 0
+	m.syncSidebar()
+	m.syncViewport()
+	return m, nil
+}
+
 func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0

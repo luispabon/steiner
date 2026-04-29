@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,6 +13,32 @@ import (
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
 )
+
+type activeRunController struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (c *activeRunController) Set(cancel context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cancel = cancel
+}
+
+func (c *activeRunController) Clear() {
+	c.mu.Lock()
+	c.cancel = nil
+	c.mu.Unlock()
+}
+
+func (c *activeRunController) Interrupt() {
+	c.mu.Lock()
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
 
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
@@ -28,6 +55,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	triggerCompact := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
+	runController := &activeRunController{}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -59,6 +87,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			case approvalResponse <- allowed:
 			default:
 			}
+		},
+		OnInterrupt: func() {
+			runController.Interrupt()
 		},
 		OnSkillToggle: func(name string, enabled bool) {
 			enabledSkills.Set(name, enabled)
@@ -208,7 +239,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
-			result, err := runner.Run(ctx, conversation, enabledSkills.Snapshot())
+			runCtx, cancel := context.WithCancel(ctx)
+			runController.Set(cancel)
+			result, err := runner.Run(runCtx, conversation, enabledSkills.Snapshot())
+			cancel()
+			runController.Clear()
 			if err != nil {
 				rt.events.Emit(output.Event{
 					Type:    output.EventTypeStopReason,

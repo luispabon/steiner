@@ -184,23 +184,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.completionIdx = 0
 	}
 
-	// Handle ? for help toggle (only when textarea is empty)
-	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
+	activeConversation := m.content.streamingPhase != "" || m.approval.active || m.status.mode == "running" || m.status.mode == "approval"
+
+	// Interrupt the active conversation before any other key routing.
+	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
+		return m.executeInterruptAction()
+	}
+
+	// While a run is active, only approval interaction may pass through.
+	if activeConversation && !m.approval.active {
+		return m, nil
+	}
+
+	// Handle ? for help toggle (only when textarea is empty and no run is active)
+	if !activeConversation && msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 		m.helpVisible = !m.helpVisible
-		return m, nil
-	}
-
-	// Block all non-Esc input while streaming
-	if m.content.streamingPhase != "" && msg.Type != tea.KeyEsc {
-		return m, nil
-	}
-
-	// Handle Escape: interrupt streaming first (takes priority over help panel)
-	if msg.Type == tea.KeyEsc && m.content.streamingPhase != "" {
-		m.content.AppendInterrupted()
-		m.status.streaming = false
-		m.input.Placeholder = "ask steiner — / for commands, @ for files"
-		m.syncViewport()
 		return m, nil
 	}
 
