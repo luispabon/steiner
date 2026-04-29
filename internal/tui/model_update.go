@@ -131,6 +131,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.fileList.height = msg.Height
 	m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.fileViewer.OverlayShell = m.fileViewer.OverlayShell.WithDimensions(msg.Width, msg.Height)
+	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
 }
@@ -153,6 +154,10 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.exitModal.open {
+		return m.handleExitModalKey(msg)
+	}
+
 	// If palette is open, route all keys to it first
 	if m.palette.open {
 		var cmd tea.Cmd
@@ -218,11 +223,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
-		if m.onExitRequested != nil {
-			m.onExitRequested()
-			return m, nil
+		if m.onExitRequested == nil {
+			return m, tea.Quit
 		}
-		return m, tea.Quit
+		return m.openExitModal(), nil
 	case tea.KeyCtrlP:
 		m.palette = m.palette.Open()
 		m.palette.width = m.width
@@ -268,6 +272,24 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		m.exitModal = m.exitModal.moveSelection(-1)
+		return m, nil
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		m.exitModal = m.exitModal.moveSelection(1)
+		return m, nil
+	case tea.KeyEnter, tea.KeyCtrlC, tea.KeyCtrlD:
+		return m.confirmExitModal()
+	case tea.KeyEsc:
+		m.exitModal = m.exitModal.closeExitModal()
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

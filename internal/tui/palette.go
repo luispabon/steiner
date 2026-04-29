@@ -161,12 +161,7 @@ func (p paletteModel) View() string {
 		Padding(1, 1).
 		Render(body)
 
-	return lipgloss.Place(
-		p.width, p.height,
-		lipgloss.Center, lipgloss.Center,
-		box,
-		lipgloss.WithWhitespaceChars(" "),
-	)
+	return box
 }
 
 func (p *paletteModel) filter() {
