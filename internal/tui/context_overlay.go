@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -10,18 +11,51 @@ import (
 
 const contextOverlayMaxLines = 30
 
+// contextOverlayState holds the state for the /context report overlay modal.
+type contextOverlayState struct {
+	OverlayShell
+	content           string
+	renderedLines     []string
+	scrollOffset      int
+	lineCount         int
+	styles            theme.Styles
+	glamourStyleSheet glamour.TermRendererOption
+	renderer          *glamour.TermRenderer
+	renderWidth       int
+}
+
 // openContextOverlay returns a copy of the state with the overlay open and
 // content populated.
-func openContextOverlay(content string, width, height int) contextOverlayState {
+func openContextOverlay(content string, width, height int, styles theme.Styles, styleSheet glamour.TermRendererOption) contextOverlayState {
 	shell := OverlayShell{}
 	shell = shell.WithDimensions(width, height).WithTitle("context report").openShell()
-	lines := strings.Split(content, "\n")
 	return contextOverlayState{
-		OverlayShell: shell,
-		content:      content,
-		scrollOffset: 0,
-		lineCount:    len(lines),
+		OverlayShell:      shell,
+		content:           content,
+		styles:            styles,
+		glamourStyleSheet: styleSheet,
+	}.reflow()
+}
+
+func (s contextOverlayState) reflow() contextOverlayState {
+	rendered, _ := renderMarkdownBlock(s.content, s.InnerWidth(), s.styles, s.glamourStyleSheet, &s.renderer, &s.renderWidth)
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
 	}
+	s.renderedLines = lines
+	s.lineCount = len(lines)
+	maxOffset := s.lineCount - contextOverlayMaxLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if s.scrollOffset > maxOffset {
+		s.scrollOffset = maxOffset
+	}
+	if s.scrollOffset < 0 {
+		s.scrollOffset = 0
+	}
+	return s
 }
 
 // closeContextOverlay returns a copy of the state with the overlay closed.
@@ -67,8 +101,8 @@ func (m *Model) renderContextOverlay() string {
 	headerLine := titleStyle.Render("Context Report")
 	divider := s.Divider()
 
-	// Slice lines for scroll window
-	lines := strings.Split(s.content, "\n")
+	// Slice rendered markdown lines for the scroll window.
+	lines := s.renderedLines
 	start := s.scrollOffset
 	end := start + contextOverlayMaxLines
 	if end > len(lines) {

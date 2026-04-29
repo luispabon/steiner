@@ -188,11 +188,7 @@ func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
 }
 
 func (b *contentBuffer) renderMarkdown(block string, width int) string {
-	renderer := b.markdownRenderer(width)
-	if renderer == nil {
-		return b.styles.AssistantProse.Render("assistant> " + block)
-	}
-	rendered, err := renderer.Render(block)
+	rendered, err := renderMarkdownBlock(block, width, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.AssistantProse.Render("assistant> " + block)
@@ -200,27 +196,39 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 	return rendered
 }
 
-func (b *contentBuffer) markdownRenderer(width int) *glamour.TermRenderer {
-	renderWidth := max(1, width-markdownRenderPadding)
-	if b.renderer != nil && b.renderWidth == renderWidth {
-		return b.renderer
+func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {
+	targetWidth := max(1, width-markdownRenderPadding)
+	if renderer != nil && *renderer != nil && renderWidth != nil && *renderWidth == targetWidth {
+		rendered, err := (*renderer).Render(block)
+		if err != nil {
+			return styles.AssistantProse.Render("assistant> " + block), err
+		}
+		return rendered, nil
 	}
 	opts := []glamour.TermRendererOption{
-		glamour.WithWordWrap(renderWidth),
+		glamour.WithWordWrap(targetWidth),
 		glamour.WithPreservedNewLines(),
 	}
-	if b.glamourStyleSheet != nil {
-		opts = append([]glamour.TermRendererOption{b.glamourStyleSheet}, opts...)
+	if styleSheet != nil {
+		opts = append([]glamour.TermRendererOption{styleSheet}, opts...)
 	} else {
 		opts = append([]glamour.TermRendererOption{glamour.WithStandardStyle("dark")}, opts...)
 	}
-	renderer, err := glamour.NewTermRenderer(opts...)
+	termRenderer, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
-		return nil
+		return styles.AssistantProse.Render("assistant> " + block), err
 	}
-	b.renderer = renderer
-	b.renderWidth = renderWidth
-	return renderer
+	if renderer != nil {
+		*renderer = termRenderer
+	}
+	if renderWidth != nil {
+		*renderWidth = targetWidth
+	}
+	rendered, err := termRenderer.Render(block)
+	if err != nil {
+		return styles.AssistantProse.Render("assistant> " + block), err
+	}
+	return rendered, nil
 }
 
 func (b *contentBuffer) inProgressPreview() string {

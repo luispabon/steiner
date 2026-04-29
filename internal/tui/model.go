@@ -24,14 +24,6 @@ type approvalState struct {
 	selectedAction int
 }
 
-// contextOverlayState holds the state for the /context report overlay modal.
-type contextOverlayState struct {
-	OverlayShell
-	content      string
-	scrollOffset int
-	lineCount    int
-}
-
 type tickMsg struct{}
 
 type paletteSetAccentMsg struct{ preset string }
