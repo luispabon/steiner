@@ -263,12 +263,33 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+func enableKeyboardProtocolCmd() tea.Msg {
+	_, _ = os.Stdout.WriteString("\x1b[>9u")
+	return nil
+}
+
+func disableKeyboardProtocolCmd() tea.Msg {
+	_, _ = os.Stdout.WriteString("\x1b[<u")
+	return nil
+}
+
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
+	cmds := []tea.Cmd{
+		m.input.Focus(),
+		tickCmd(),
+		func() tea.Msg { return enableKeyboardProtocolCmd() },
+	}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m Model) quitProgram() tea.Cmd {
+	return tea.Sequence(
+		func() tea.Msg { return disableKeyboardProtocolCmd() },
+		tea.Quit,
+	)
 }
 
 func (m Model) View() string {
