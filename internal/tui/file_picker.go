@@ -16,7 +16,7 @@ import (
 const maxDisplay = 8
 
 type filePickerOverlay struct {
-	open         bool
+	OverlayShell
 	root         string
 	query        string
 	allEntries   []string
@@ -24,8 +24,6 @@ type filePickerOverlay struct {
 	selection    int
 	scrollOffset int
 	styles       theme.Styles
-	width        int
-	height       int
 }
 
 func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
@@ -33,7 +31,7 @@ func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
 }
 
 func (f filePickerOverlay) Open(root string) filePickerOverlay {
-	f.open = true
+	f.OverlayShell = f.OverlayShell.openShell()
 	f.root = root
 	f.query = ""
 	f.selection = 0
@@ -75,7 +73,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 }
 
 func (f filePickerOverlay) Close() filePickerOverlay {
-	f.open = false
+	f.OverlayShell = f.OverlayShell.closeShell()
 	return f
 }
 
@@ -141,11 +139,7 @@ func (f filePickerOverlay) View() string {
 		return ""
 	}
 
-	overlayWidth := f.width - 4
-	if overlayWidth < 40 {
-		overlayWidth = 40
-	}
-	innerWidth := overlayWidth - 4
+	innerWidth := f.InnerWidth()
 
 	prefix := f.styles.Accent.Render("@")
 	queryDisplay := f.query
@@ -157,7 +151,7 @@ func (f filePickerOverlay) View() string {
 		}
 	}
 	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
-	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
+	divider := f.Divider()
 
 	lines := []string{headerLine, divider}
 
@@ -183,21 +177,11 @@ func (f filePickerOverlay) View() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("... and %d more", len(f.candidates)-(f.scrollOffset+maxDisplay))))
 	}
 
-	footerDivider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
-	chip := func(k string) string {
-		return lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev2)).Foreground(lipgloss.Color(theme.FgFaint)).Padding(0, 1).Render(k)
-	}
-	footerText := chip("↵") + " select   " + chip("↑↓") + " navigate   " + chip("esc") + " close"
-	footerLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(innerWidth).Render(footerText)
-	lines = append(lines, footerDivider, footerLine)
+	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
+	lines = append(lines, f.Divider(), f.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	box := f.styles.PaletteOverlay.
-		Width(innerWidth).
-		Padding(1, 1).
-		Render(body)
-
-	return box
+	return f.Render(overlayStyles{box: f.styles.PaletteOverlay}, body)
 }
 
 func (f *filePickerOverlay) scrollIntoView() {

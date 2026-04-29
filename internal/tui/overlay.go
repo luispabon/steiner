@@ -1,28 +1,23 @@
 package tui
 
-// OverlayShell defines the planned API surface for reusable framed overlays
-// that can be placed over the base TUI model. Concrete overlays (e.g.
-// filePickerOverlay, paletteOverlay) will embed or implement this contract in a
-// later stage.
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
+)
+
+// OverlayShell is a reusable framed overlay chrome shared by concrete overlays
+// (e.g. filePickerOverlay, context viewer) that are placed over the base TUI
+// model.  It handles open/closed state, dimensions, the title/header line, a
+// horizontal divider below the header, the padded body region, footer help-chip
+// rendering, and bottom-anchored placement over a base view string.
 //
-// Planned API surface:
-//
-//   - Open/close state: IsOpen() bool, open/close methods returning a new value.
-//   - Dimensions: width and height passed in from the parent model on resize so
-//     the overlay can compute its own inner dimensions.
-//   - Title: a short string rendered in the header region of the framed box.
-//   - Body region: a rendered string produced by the concrete overlay and placed
-//     inside the padded body area.
-//   - Footer chips: a slice of key-hint strings rendered in the footer bar
-//     (e.g. "↵ select", "esc close").
-//   - Placement: the overlay is layered over the base model view using
-//     lipgloss overlay helpers; the shell is responsible for centering and
-//     z-order, not the caller.
-//
-// TODO(stage-1): Extract the framed box, width/height handling, footer chip
-// rendering, and scroll-window helpers from filePickerOverlay into a concrete
-// OverlayShell implementation. Keep file-search-specific logic (walk, filter,
-// selection) in file_picker.go.
+// Concrete overlays embed OverlayShell, add their own state, and delegate frame
+// rendering via Render.  Placement in the parent Model.View is handled by
+// PlaceBottomAnchored.
 type OverlayShell struct {
 	// open tracks whether the overlay is currently visible.
 	open bool
@@ -49,4 +44,85 @@ func (o OverlayShell) WithDimensions(width, height int) OverlayShell {
 func (o OverlayShell) WithTitle(title string) OverlayShell {
 	o.title = title
 	return o
+}
+
+// open returns a copy of the shell in the open state.
+func (o OverlayShell) openShell() OverlayShell {
+	o.open = true
+	return o
+}
+
+// closeShell returns a copy of the shell in the closed state.
+func (o OverlayShell) closeShell() OverlayShell {
+	o.open = false
+	return o
+}
+
+// overlayWidth computes the width of the framed box from the terminal width.
+func (o OverlayShell) overlayWidth() int {
+	w := o.width - 4
+	if w < 40 {
+		w = 40
+	}
+	return w
+}
+
+// InnerWidth returns the usable content width inside the box padding.
+func (o OverlayShell) InnerWidth() int {
+	return o.overlayWidth() - 4
+}
+
+// Divider returns a horizontal rule string sized to the inner width.
+func (o OverlayShell) Divider() string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", o.InnerWidth()))
+}
+
+// FooterChip renders a single key-hint label using the shared chip style.
+func FooterChip(label string) string {
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev2)).
+		Foreground(lipgloss.Color(theme.FgFaint)).
+		Padding(0, 1).
+		Render(label)
+}
+
+// RenderFooter renders a footer bar from a pre-assembled footer text string,
+// sized to the inner width.
+func (o OverlayShell) RenderFooter(footerText string) string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(o.InnerWidth()).Render(footerText)
+}
+
+// Render wraps body lines (already joined) in the shared overlay frame — a
+// bordered box with padding — and returns the complete framed overlay string.
+// The caller is responsible for assembling body lines (header, divider, list,
+// footer divider, footer) before calling Render.
+func (o OverlayShell) Render(styles overlayStyles, body string) string {
+	return styles.box.Width(o.InnerWidth()).Padding(1, 1).Render(body)
+}
+
+// PlaceBottomAnchored composites the overlay string over the base view string
+// using the file picker's bottom-anchored placement strategy: the overlay sits
+// just above the input area, left-aligned.  inputHeight is the number of rows
+// occupied by the input + status rows at the bottom of the base view.
+func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int) string {
+	baseLines := strings.Split(base, "\n")
+	olLines := strings.Split(overlay, "\n")
+
+	startY := len(baseLines) - len(olLines) - inputHeight - 1
+	if startY < 0 {
+		startY = 0
+	}
+
+	for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
+		idx := startY + i
+		olWidth := lipgloss.Width(olLines[i])
+		baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
+		baseLines[idx] = olLines[i] + baseRight
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+// overlayStyles bundles the lipgloss styles a concrete overlay passes to Render.
+type overlayStyles struct {
+	box lipgloss.Style
 }
