@@ -49,6 +49,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderThinkingSegment(segment)
 	case segmentUser:
 		return b.renderUserSegment(segment, width)
+	case segmentUserMarkdown:
+		return b.renderUserMarkdownSegment(segment, width)
 	case segmentThinkingBlock:
 		return b.renderThinkingBlockSegment(segment)
 	case segmentApprovalPill:
@@ -111,6 +113,31 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 			content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
 			sb.WriteString(bar + content + "\n")
 		}
+	}
+	sb.WriteString(pad + "\n")
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// renderUserMarkdownSegment renders a markdown-like user prompt with glamour
+// while keeping the left-bar framing so user messages remain visually distinct
+// from assistant output.
+func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width int) string {
+	contentWidth := width - 1
+	if contentWidth < 2 {
+		contentWidth = 2
+	}
+	bar := b.styles.UserBar.Render("┃")
+	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+
+	rendered := b.renderMarkdown(segment.text, contentWidth-2)
+	rendered = strings.TrimRight(rendered, "\n")
+
+	var sb strings.Builder
+	sb.WriteString(pad + "\n")
+	for _, line := range strings.Split(rendered, "\n") {
+		content := b.styles.UserBg.Width(contentWidth).Render(" " + line)
+		sb.WriteString(bar + content + "\n")
 	}
 	sb.WriteString(pad + "\n")
 	sb.WriteString("\n")
