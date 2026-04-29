@@ -188,25 +188,23 @@ func readGitBranch(gitDir string) string {
 }
 
 func readGitDirty(ctx context.Context, repoRoot string) bool {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
-	out, err := cmd.Output()
+	out, err := readGitStatusPorcelain(ctx, repoRoot)
 	if err != nil {
-		logGitError(fmt.Errorf("git status --porcelain: %w", err))
 		return false
 	}
-	return len(strings.TrimSpace(string(out))) > 0
+	return len(out) > 0
 }
 
 func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFile {
+	statusLines, err := readGitStatusPorcelain(ctx, repoRoot)
+	if err != nil {
+		return nil
+	}
+
 	numstatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD")
 	numstatOut, err := numstatCmd.Output()
 	if err != nil {
 		logGitError(fmt.Errorf("git diff --numstat: %w", err))
-	}
-	namestatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--name-status", "HEAD")
-	namestatOut, err := namestatCmd.Output()
-	if err != nil {
-		logGitError(fmt.Errorf("git diff --name-status: %w", err))
 	}
 
 	type counts struct{ added, deleted int }
@@ -229,36 +227,12 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFil
 
 	var files []gitModifiedFile
 	seen := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(namestatOut)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) < 2 {
-			continue
-		}
-		code := strings.TrimSpace(fields[0])
-		var path string
-		if (strings.HasPrefix(code, "R") || strings.HasPrefix(code, "C")) && len(fields) >= 3 {
-			path = filepath.Clean(strings.TrimSpace(fields[2]))
-		} else {
-			path = filepath.Clean(strings.TrimSpace(fields[1]))
-		}
-		if seen[path] {
+	for _, line := range statusLines {
+		status, path, ok := parseGitStatusLine(line)
+		if !ok || seen[path] {
 			continue
 		}
 		seen[path] = true
-
-		var status string
-		switch {
-		case strings.HasPrefix(code, "A"), strings.HasPrefix(code, "C"), strings.HasPrefix(code, "R"):
-			status = "A"
-		case strings.HasPrefix(code, "D"):
-			status = "D"
-		default:
-			status = "M"
-		}
 
 		c := countMap[path]
 		files = append(files, gitModifiedFile{
@@ -269,6 +243,52 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFil
 		})
 	}
 	return files
+}
+
+func readGitStatusPorcelain(ctx context.Context, repoRoot string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		logGitError(fmt.Errorf("git status --porcelain: %w", err))
+		return nil, err
+	}
+
+	text := strings.TrimRight(string(out), "\r\n")
+	if text == "" {
+		return nil, nil
+	}
+	return strings.Split(text, "\n"), nil
+}
+
+func parseGitStatusLine(line string) (string, string, bool) {
+	line = strings.TrimRight(line, "\r\n")
+	if len(line) < 3 {
+		return "", "", false
+	}
+
+	code := line[:2]
+	path := strings.TrimSpace(line[3:])
+	if path == "" {
+		return "", "", false
+	}
+	if strings.Contains(path, " -> ") {
+		parts := strings.SplitN(path, " -> ", 2)
+		path = strings.TrimSpace(parts[1])
+	}
+	path = filepath.Clean(path)
+
+	switch {
+	case code == "??":
+		return "U", path, true
+	case strings.Contains(code, "U"):
+		return "U", path, true
+	case strings.Contains(code, "D"):
+		return "D", path, true
+	case strings.Contains(code, "A"), strings.Contains(code, "R"), strings.Contains(code, "C"):
+		return "A", path, true
+	default:
+		return "M", path, true
+	}
 }
 
 func readGitAhead(ctx context.Context, repoRoot string) int {

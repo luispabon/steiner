@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -217,6 +219,71 @@ func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	}
 	if got, want := m.sidebar.contextBudget, 8192; got != want {
 		t.Fatalf("sidebar.contextBudget = %d, want %d", got, want)
+	}
+}
+
+func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
+	repo := initTUITestRepo(t)
+	writeRepoFile(t, repo, "tracked.txt", "one\n")
+	runGit(t, repo, "add", "tracked.txt")
+	runGit(t, repo, "commit", "-m", "init")
+	writeRepoFile(t, repo, "scratch.txt", "draft\n")
+
+	m := newModel(Config{WorkingDir: repo}, nil)
+
+	if !m.sidebar.dirty {
+		t.Fatal("sidebar.dirty = false, want true")
+	}
+	if got, want := len(m.sidebar.modifiedFiles), 1; got != want {
+		t.Fatalf("len(sidebar.modifiedFiles) = %d, want %d", got, want)
+	}
+	if got, want := m.sidebar.modifiedFiles[0].Path, "scratch.txt"; got != want {
+		t.Fatalf("path = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.modifiedFiles[0].Status, "U"; got != want {
+		t.Fatalf("status = %q, want %q", got, want)
+	}
+}
+
+func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
+	repo := initTUITestRepo(t)
+	writeRepoFile(t, repo, "tracked.txt", "one\n")
+	runGit(t, repo, "add", "tracked.txt")
+	runGit(t, repo, "commit", "-m", "init")
+
+	m := newModel(Config{WorkingDir: repo}, nil)
+	if m.sidebar.dirty {
+		t.Fatal("sidebar.dirty = true, want clean repo")
+	}
+
+	writeRepoFile(t, repo, "tracked.txt", "one\ntwo\n")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "write", "call_1", `{"path":"tracked.txt"}`, nil)})
+
+	if !m.sidebar.dirty {
+		t.Fatal("sidebar.dirty = false after tool event, want true")
+	}
+	if got, want := len(m.sidebar.modifiedFiles), 1; got != want {
+		t.Fatalf("len(sidebar.modifiedFiles) after tool event = %d, want %d", got, want)
+	}
+	if got, want := m.sidebar.modifiedFiles[0].Path, "tracked.txt"; got != want {
+		t.Fatalf("path after tool event = %q, want %q", got, want)
+	}
+
+	writeRepoFile(t, repo, "turn.txt", "draft\n")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "stop", "reply", nil)})
+
+	if got, want := len(m.sidebar.modifiedFiles), 2; got != want {
+		t.Fatalf("len(sidebar.modifiedFiles) after turn event = %d, want %d", got, want)
+	}
+	paths := map[string]string{}
+	for _, file := range m.sidebar.modifiedFiles {
+		paths[file.Path] = file.Status
+	}
+	if got, want := paths["tracked.txt"], "M"; got != want {
+		t.Fatalf("tracked.txt status = %q, want %q", got, want)
+	}
+	if got, want := paths["turn.txt"], "U"; got != want {
+		t.Fatalf("turn.txt status = %q, want %q", got, want)
 	}
 }
 
@@ -519,4 +586,21 @@ func updateModel(t *testing.T, m Model, msg tea.Msg) Model {
 		t.Fatalf("unexpected model type %T", next)
 	}
 	return updated
+}
+
+func initTUITestRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	return repo
+}
+
+func writeRepoFile(t *testing.T, repo, name, content string) {
+	t.Helper()
+	path := filepath.Join(repo, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
 }

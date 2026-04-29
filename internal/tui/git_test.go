@@ -49,6 +49,39 @@ func TestDetectGitSnapshotIncludesModifiedFiles(t *testing.T) {
 	}
 }
 
+func TestDetectGitSnapshotIncludesUntrackedFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+
+	tracked := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "tracked.txt")
+	runGit(t, repo, "commit", "-m", "init")
+
+	untracked := filepath.Join(repo, "scratch.txt")
+	if err := os.WriteFile(untracked, []byte("draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := detectGitSnapshot(context.Background(), repo)
+	if !snap.dirty {
+		t.Fatal("snapshot.dirty = false, want true")
+	}
+	if got, want := len(snap.modifiedFiles), 1; got != want {
+		t.Fatalf("len(snapshot.modifiedFiles) = %d, want %d", got, want)
+	}
+	if got, want := snap.modifiedFiles[0].Status, "U"; got != want {
+		t.Fatalf("status = %q, want %q", got, want)
+	}
+	if got, want := snap.modifiedFiles[0].Path, "scratch.txt"; got != want {
+		t.Fatalf("path = %q, want %q", got, want)
+	}
+}
+
 func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 	styles := theme.Default().LipGlossStyles()
 	sidebar := sidebarState{
