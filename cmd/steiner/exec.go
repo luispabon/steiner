@@ -34,13 +34,17 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if execMaxTurns <= 0 {
 		execMaxTurns = rt.cfg.Limits.MaxTurns
 	}
+	if !flags.enableStreaming {
+		rt.human.Printf("Waiting for response…\n")
+	}
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
 			stdinApprovalResponder{reader: approvalReader(rt)},
 		),
-		maxTurns: execMaxTurns,
+		maxTurns:           execMaxTurns,
+		streamingPreferred: flags.enableStreaming,
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
 	if err != nil {
 		return err

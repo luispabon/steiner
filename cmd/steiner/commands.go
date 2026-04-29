@@ -34,6 +34,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "run a single request and exit")
 	rootCmd.PersistentFlags().StringVar(&flags.logFile, "log-file", "", "write full session logs to file")
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
+	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newConfigCommand(flags))

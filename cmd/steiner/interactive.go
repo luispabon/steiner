@@ -55,7 +55,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	runController := &activeRunController{}
-	runner := cliRunner{runtime: rt}
+	runner := cliRunner{runtime: rt, streamingPreferred: true}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
