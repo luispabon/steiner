@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -18,6 +19,8 @@ type activeRunController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 }
+
+const terminalClearSequence = "\x1b[2J\x1b[H"
 
 func (c *activeRunController) Set(cancel context.CancelFunc) {
 	c.mu.Lock()
@@ -38,6 +41,13 @@ func (c *activeRunController) Interrupt() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+func clearTerminalScreen(w io.Writer) {
+	if w == nil {
+		return
+	}
+	_, _ = io.WriteString(w, terminalClearSequence)
 }
 
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
@@ -169,6 +179,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		}
 		stop()
 	}()
+	defer func() {
+		teaProgram.Quit()
+		wg.Wait()
+		clearTerminalScreen(cmd.OutOrStdout())
+	}()
 
 	var conversation []agent.Message
 	runner.approver = approver
@@ -188,7 +203,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		case <-ctx.Done():
 			return nil
 		case <-exitRequests:
-			teaProgram.Quit()
 			return nil
 		case <-contextInspect:
 			if snapshot, ok := requestSnapshots.Snapshot(); ok {
