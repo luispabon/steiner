@@ -23,6 +23,14 @@ type approvalState struct {
 	preview string
 }
 
+// contextOverlayState holds the state for the /context report overlay modal.
+type contextOverlayState struct {
+	OverlayShell
+	content      string
+	scrollOffset int
+	lineCount    int
+}
+
 type tickMsg struct{}
 
 type paletteSetAccentMsg struct{ preset string }
@@ -77,6 +85,7 @@ type Model struct {
 	palette                      paletteModel
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
+	contextOverlay               contextOverlayState
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -383,6 +392,15 @@ func (m Model) View() string {
 			inputHeight = 3
 		}
 		base = m.filePicker.PlaceBottomAnchored(base, overlay, inputHeight)
+	}
+
+	if m.contextOverlay.open {
+		overlay := m.renderContextOverlay()
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			overlay,
+			lipgloss.WithWhitespaceChars(" "),
+		)
 	}
 
 	return base

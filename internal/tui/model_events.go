@@ -8,6 +8,15 @@ import (
 )
 
 func (m *Model) applyEvent(event output.Event) {
+	// Context report events open the overlay instead of going into the transcript.
+	if event.Type == output.EventTypeContextReport {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			m.contextOverlay = openContextOverlay(payload.Content, m.width, m.height)
+		}
+		m.syncViewport()
+		return
+	}
+
 	if event.Type != output.EventTypeHistoryLoaded {
 		m.content.AppendEvent(event)
 	}
