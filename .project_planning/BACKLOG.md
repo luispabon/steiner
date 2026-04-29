@@ -56,6 +56,20 @@ Use https://github.com/charmbracelet/huh to implement tool approval prompts. Als
 - [ ] Approvals still function correctly (approve / deny / always allow)
 - [ ] (Optional) huh is used for prompt auto-suggestions
 
+### T010 — Implement a /config command
+
+**Area:** UX
+**Status:** Not started
+**Priority:** Medium
+
+#### Description
+The /config command will show the current session's full config on a scrollable overlay modal (like the file picker)
+
+#### Acceptance Criteria
+- [ ] Tool approvals use huh for the UI
+- [ ] Approvals still function correctly (approve / deny / always allow)
+- [ ] (Optional) huh is used for prompt auto-suggestions
+
 ---
 
 
@@ -67,7 +81,7 @@ Use https://github.com/charmbracelet/huh to implement tool approval prompts. Als
 **Priority:** Medium
 
 #### Description
-When pressing Ctrl+D or Ctrl+C a second time, show a status message or modal asking the user if they're sure they want to exit.
+When pressing Ctrl+D or Ctrl+C a second time, use huh to create a confirmation dialog, like T009
 
 #### Acceptance Criteria
 - [ ] First Ctrl+D / Ctrl+C during idle does not exit
@@ -333,38 +347,6 @@ The "Compacting summarizing context" progress bar never stops even after compact
 ---
 
 ## Bugs — Sidebar
-
-### T032 — Model host does not change when switching models
-
-**Area:** Bug / Sidebar
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-When switching models via `/model blah`, the host for the new active model doesn't change.
-
-#### Acceptance Criteria
-- [ ] Switching models via `/model` updates both the model name and host
-- [ ] API calls go to the correct host for the selected model
-
----
-
-### T033 — Modified files never update after application loads
-
-**Area:** Bug / Sidebar
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-The modified files list in the sidebar never updates after the application loads. It should load at startup and update after every tool call and turn end.
-
-#### Acceptance Criteria
-- [ ] Modified files are populated at application startup
-- [ ] Modified files list updates after every tool call
-- [ ] Modified files list updates at the end of every turn
-
 ---
 
 ## Bugs — Compaction
@@ -408,21 +390,6 @@ Compaction can break if a tool call results in a lot of data being dumped into t
 ---
 
 ## Bugs — Tools
-
-### T036 — Tool path exclusion not enforced
-
-**Area:** Bug / Tools
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-Ensure that certain directories and files can be excluded from tools, particularly SEARCH and GLOB. (Related to T008.)
-
-#### Acceptance Criteria
-- [ ] Excluded paths are respected by SEARCH
-- [ ] Excluded paths are respected by GLOB
-- [ ] Exclusion config is applied consistently across all traversal tools
 
 ---
 
