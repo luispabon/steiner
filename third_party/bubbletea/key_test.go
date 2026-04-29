@@ -27,6 +27,14 @@ func TestKeyString(t *testing.T) {
 		}
 	})
 
+	t.Run("shift+enter", func(t *testing.T) {
+		if got := KeyMsg(Key{
+			Type: KeyShiftEnter,
+		}).String(); got != "shift+enter" {
+			t.Fatalf(`expected a "shift+enter", got %q`, got)
+		}
+	})
+
 	t.Run("runes", func(t *testing.T) {
 		if got := KeyMsg(Key{
 			Type:  KeyRunes,
