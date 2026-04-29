@@ -309,11 +309,11 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 }
 
 func TestModelApprovalModeTransitions(t *testing.T) {
-	var approved []bool
+	approved := make(chan ApprovalSubmission, 1)
 
 	m := newModel(Config{
-		OnApproval: func(value bool) {
-			approved = append(approved, value)
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
 		},
 	}, nil)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
@@ -326,17 +326,28 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
 	}
-	if len(approved) != 1 || !approved[0] {
-		t.Fatalf("approved = %#v, want accepted response", approved)
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+		if got, want := submission.Tool, "write"; got != want {
+			t.Fatalf("submission.Tool = %q, want %q", got, want)
+		}
+		if got, want := submission.Mode, "prompt"; got != want {
+			t.Fatalf("submission.Mode = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission")
 	}
 }
 
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
-	var approved []bool
+	approved := make(chan ApprovalSubmission, 1)
 
 	m := newModel(Config{
-		OnApproval: func(value bool) {
-			approved = append(approved, value)
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
 		},
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -347,11 +358,82 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m.input.SetValue("yes")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(approved) != 1 || !approved[0] {
-		t.Fatalf("approved = %#v, want accepted response while streaming", approved)
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission while streaming")
 	}
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
+	}
+}
+
+func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
+	approved := make(chan ApprovalSubmission, 1)
+
+	m := newModel(Config{
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
+		},
+	}, nil)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
+
+	if got, want := m.approval.selectedAction, 0; got != want {
+		t.Fatalf("selectedAction = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Fatalf("selectedAction after tab = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAlwaysAllow; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+		if got, want := submission.Tool, "bash"; got != want {
+			t.Fatalf("submission.Tool = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission")
+	}
+	if m.approval.active {
+		t.Fatal("expected approval mode to clear after decision")
+	}
+}
+
+func TestModelApprovalEscDenies(t *testing.T) {
+	approved := make(chan ApprovalSubmission, 1)
+
+	m := newModel(Config{
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
+		},
+	}, nil)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
+	m.input.SetValue("stale text")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionDeny; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected denial submission")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want reset after denial", got)
+	}
+	if m.approval.active {
+		t.Fatal("expected approval mode to clear after esc denial")
 	}
 }
 
