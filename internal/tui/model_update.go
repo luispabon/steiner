@@ -221,6 +221,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
+		if m.onExitRequested != nil {
+			m.onExitRequested()
+			return m, nil
+		}
 		return m, tea.Quit
 	case tea.KeyCtrlP:
 		m.palette = m.palette.Open()

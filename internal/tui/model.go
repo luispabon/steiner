@@ -65,6 +65,7 @@ type Model struct {
 	onContextInspect             func()
 	onApproval                   func(bool)
 	onInterrupt                  func()
+	onExitRequested              func()
 	onSkillToggle                func(string, bool)
 	onModelSwitch                func(string) (string, bool)
 	onClear                      func()
@@ -158,6 +159,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		onContextInspect: cfg.OnContextInspect,
 		onApproval:       cfg.OnApproval,
 		onInterrupt:      cfg.OnInterrupt,
+		onExitRequested:  cfg.OnExitRequested,
 		onSkillToggle:    cfg.OnSkillToggle,
 		onModelSwitch:    cfg.OnModelSwitch,
 		onClear:          cfg.OnClear,
