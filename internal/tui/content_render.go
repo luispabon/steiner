@@ -441,8 +441,7 @@ func (b *contentBuffer) buildDiffPreviewLines(tc *toolCallSegment, width int) []
 		return b.buildPlainLines(tc)
 	}
 
-	lines := make([]string, 0, len(doc.Lines)+2)
-	lines = append(lines, b.renderDiffHeader(doc, width))
+	lines := make([]string, 0, len(doc.Lines)+1)
 	lines = append(lines, b.renderDiffPreviewDocument(doc, width)...)
 	if doc.Truncated {
 		lines = append(lines, b.styles.FgMute.Render("… output truncated"))

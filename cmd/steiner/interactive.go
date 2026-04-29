@@ -50,12 +50,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
 	approvalResponse := make(chan bool, 1)
-	modelSwitch := make(chan string, 1)
 	clearSession := make(chan struct{}, 1)
 	triggerCompact := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	runController := &activeRunController{}
+	runner := cliRunner{runtime: rt}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -94,11 +94,13 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		OnSkillToggle: func(name string, enabled bool) {
 			enabledSkills.Set(name, enabled)
 		},
-		OnModelSwitch: func(name string) {
-			select {
-			case modelSwitch <- name:
-			default:
+		OnModelSwitch: func(name string) (string, bool) {
+			selected, err := switchModelConfigByAlias(&runner.runtime.cfg, name)
+			if err != nil {
+				rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
+				return "", false
 			}
+			return selected.BaseURL, true
 		},
 		OnClear: func() {
 			select {
@@ -147,7 +149,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}()
 
 	var conversation []agent.Message
-	runner := cliRunner{runtime: rt, approver: approver}
+	runner.approver = approver
 	if rt.historyWriter != nil {
 		prompts, err := rt.historyWriter.Load()
 		if err != nil {
@@ -233,10 +235,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 			conversation = newConv
 			rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
-		case name := <-modelSwitch:
-			if m, ok := runner.runtime.cfg.Models[name]; ok {
-				runner.runtime.cfg.Model = m
-			}
 		case text := <-submissions:
 			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 			runCtx, cancel := context.WithCancel(ctx)

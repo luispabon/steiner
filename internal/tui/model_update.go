@@ -71,19 +71,17 @@ func (m Model) handlePaletteToggleThinkingMsg(msg paletteToggleThinkingMsg) (tea
 }
 
 func (m Model) handlePaletteSwitchModelMsg(msg paletteSwitchModelMsg) (tea.Model, tea.Cmd) {
+	providerBaseURL := m.sidebar.provider
 	if m.onModelSwitch != nil {
-		m.onModelSwitch(msg.name)
+		var ok bool
+		providerBaseURL, ok = m.onModelSwitch(msg.name)
+		if !ok {
+			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", msg.name))
+			m.syncViewport()
+			return m, nil
+		}
 	}
-	m.status.model = msg.name
-	m.sidebar.contextBudget = m.contextBudgetForModel(msg.name)
-	m.sidebar.promptUsed = 0
-	m.sidebar.budgetUsed = 0
-	if m.sidebar.contextBudget > 0 {
-		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
-	} else {
-		m.status.context = ""
-	}
-	m.syncSidebar()
+	m.applyModelSelection(msg.name, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
 	m.syncViewport()
 	return m, nil
