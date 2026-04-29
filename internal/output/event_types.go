@@ -1,6 +1,7 @@
 package output
 
 import (
+	"sync"
 	"time"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -64,6 +65,39 @@ func (f SinkFunc) Emit(event Event) {
 type NoopSink struct{}
 
 func (NoopSink) Emit(Event) {}
+
+// ForwardSink is a thread-safe EventSink whose target can be swapped at runtime.
+// It starts with a NoopSink and forwards events to whatever target is set via Set.
+// This is used to wire an event sink into tool environments before the full sink
+// chain (including the TUI sink) is assembled.
+type ForwardSink struct {
+	mu     sync.RWMutex
+	target EventSink
+}
+
+// NewForwardSink creates a ForwardSink that starts with a NoopSink target.
+func NewForwardSink() *ForwardSink {
+	return &ForwardSink{target: NoopSink{}}
+}
+
+// Set replaces the forwarding target. It is safe to call concurrently.
+func (f *ForwardSink) Set(sink EventSink) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sink == nil {
+		f.target = NoopSink{}
+	} else {
+		f.target = sink
+	}
+}
+
+// Emit forwards the event to the current target. It is safe to call concurrently.
+func (f *ForwardSink) Emit(event Event) {
+	f.mu.RLock()
+	t := f.target
+	f.mu.RUnlock()
+	t.Emit(event)
+}
 
 type ModelCallStartedEvent struct {
 	Turn         int    `json:"turn"`
