@@ -212,6 +212,32 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	}
 }
 
+func TestModelDisplaysFileEventInTranscript(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	})})
+
+	if m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = true, want no overlay for display_file")
+	}
+	content := m.content.String(m.viewport.Width)
+	for _, want := range []string{"display file preview", "snippet.go", "package main"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content = %q, want %q", content, want)
+		}
+	}
+	if strings.Contains(m.View(), "file viewer") {
+		t.Fatalf("view = %q, want no file viewer overlay", m.View())
+	}
+}
+
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	m := newModel(Config{
 		Model:           "small",
