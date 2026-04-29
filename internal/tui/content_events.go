@@ -30,6 +30,7 @@ const (
 	segmentTool
 	segmentThinking
 	segmentUser
+	segmentUserMarkdown
 	segmentThinkingBlock
 	segmentToolCall
 	segmentApprovalPill
@@ -326,7 +327,11 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
-		b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
+		kind := segmentUser
+		if isMarkdownLikeUserContent(payload.Content) {
+			kind = segmentUserMarkdown
+		}
+		b.segments = append(b.segments, contentSegment{kind: kind, text: payload.Content})
 		if len(b.segments)-1 >= 0 {
 			b.collapseState[len(b.segments)-1] = false
 		}
@@ -338,10 +343,16 @@ func (b *contentBuffer) AppendLine(line string) {
 	b.appendLine(line)
 }
 
+// AppendUser appends a submitted user prompt. Markdown-like content is
+// rendered with glamour; plain text uses the simple block style.
 func (b *contentBuffer) AppendUser(text string) {
 	b.finishStreaming()
 	idx := len(b.segments)
-	b.segments = append(b.segments, contentSegment{kind: segmentUser, text: text})
+	kind := segmentUser
+	if isMarkdownLikeUserContent(text) {
+		kind = segmentUserMarkdown
+	}
+	b.segments = append(b.segments, contentSegment{kind: kind, text: text})
 	b.collapseState[idx] = false
 }
 

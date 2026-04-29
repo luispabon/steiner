@@ -252,6 +252,124 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 	}
 }
 
+func TestIsMarkdownLikeUserContent(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		// Should trigger glamour
+		{"fenced code block", "Here is code:\n```go\nfmt.Println()\n```", true},
+		{"heading at start", "# My Heading\nsome text", true},
+		{"heading after newline", "Intro\n# Section\ntext", true},
+		{"unordered list multiline", "Items:\n- foo\n- bar", true},
+		{"leading list multiline", "- step one\n- step two", true},
+		{"block quote", "> This is a quote\nmore text", true},
+		{"ordered list continuation", "1. first\n2. second", true},
+		{"tilde fence", "~~~sh\necho hi\n~~~", true},
+
+		// Should NOT trigger glamour
+		{"plain sentence", "Hello, how are you?", false},
+		{"single backtick inline", "use `var` here", false},
+		{"bold in plain sentence", "use **this** approach", false},
+		{"lone dash not list", "- just one item without newline", false},
+		{"empty string", "", false},
+		{"whitespace only", "   \n  ", false},
+		{"plain multiline", "line one\nline two\nline three", false},
+		{"question mark", "What do you think?", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMarkdownLikeUserContent(tt.text)
+			if got != tt.want {
+				t.Errorf("isMarkdownLikeUserContent(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppendUserMarkdownSegmentKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		wantKind contentSegmentKind
+	}{
+		{
+			name:     "plain text stays segmentUser",
+			text:     "Just a normal question",
+			wantKind: segmentUser,
+		},
+		{
+			name:     "markdown heading becomes segmentUserMarkdown",
+			text:     "# Heading\nsome content",
+			wantKind: segmentUserMarkdown,
+		},
+		{
+			name:     "fenced code becomes segmentUserMarkdown",
+			text:     "Check this:\n```go\nfmt.Println()\n```",
+			wantKind: segmentUserMarkdown,
+		},
+		{
+			name:     "bulleted list becomes segmentUserMarkdown",
+			text:     "Steps:\n- one\n- two",
+			wantKind: segmentUserMarkdown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				segments:      make([]contentSegment, 0),
+				collapseState: make(map[int]bool),
+			}
+			b.AppendUser(tt.text)
+			if len(b.segments) != 1 {
+				t.Fatalf("segments count = %d, want 1", len(b.segments))
+			}
+			if got := b.segments[0].kind; got != tt.wantKind {
+				t.Errorf("segment kind = %v, want %v", got, tt.wantKind)
+			}
+		})
+	}
+}
+
+func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
+	b := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	b.segments = []contentSegment{
+		{kind: segmentUserMarkdown, text: "# Title\n\nSome bold content."},
+	}
+
+	got := b.String(80)
+	// ANSI escape codes may split words; check individual tokens.
+	for _, want := range []string{"Title", "bold", "content", "┃"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered user markdown missing %q", want)
+		}
+	}
+}
+
+func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
+	b := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	b.segments = []contentSegment{
+		{kind: segmentUser, text: "just a plain message"},
+	}
+
+	got := b.String(80)
+	if !strings.Contains(got, "just a plain message") {
+		t.Errorf("rendered plain user %q missing text", got)
+	}
+	if !strings.Contains(got, "┃") {
+		t.Errorf("rendered plain user %q missing user bar character", got)
+	}
+}
+
 func TestPluralTurns(t *testing.T) {
 	tests := []struct {
 		count int
