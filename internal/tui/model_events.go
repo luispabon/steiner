@@ -18,10 +18,10 @@ func (m *Model) applyEvent(event output.Event) {
 	}
 
 	// DisplayFile events open the file viewer overlay. File content is read from
-	// disk by the viewer — it is not present in the event payload.
+	// the event payload so it never has to be re-read from disk.
 	if event.Type == output.EventTypeDisplayFile {
 		if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
-			m.fileViewer = openFileViewer(payload.Path, m.width, m.height)
+			m.fileViewer = openFileViewer(payload, m.width, m.height)
 		}
 		m.syncViewport()
 		return

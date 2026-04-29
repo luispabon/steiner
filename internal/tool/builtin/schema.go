@@ -100,8 +100,9 @@ func DisplayFileSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":     map[string]any{"type": "string", "description": "Absolute or workspace-relative path to the file to display"},
-			"language": map[string]any{"type": "string", "description": "Optional language hint for syntax highlighting (e.g. \"go\", \"json\"). Omit to infer from extension."},
+			"path":   map[string]any{"type": "string", "description": "Absolute or workspace-relative path to the file to display"},
+			"offset": map[string]any{"type": "integer", "description": "Starting line number (1-based)", "default": 1},
+			"limit":  map[string]any{"type": "integer", "description": "Max lines to preview", "default": defaultDisplayFileLimit, "maximum": maxDisplayFileLimit},
 		},
 		"required":             []string{"path"},
 		"additionalProperties": false,

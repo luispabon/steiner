@@ -56,8 +56,9 @@ type LSInput struct {
 
 // DisplayFileInput is the typed input for the display_file tool.
 type DisplayFileInput struct {
-	Path     string `json:"path"`
-	Language string `json:"language,omitempty"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 // BashInput is the typed input for the bash tool.
@@ -77,6 +78,8 @@ const (
 	maxLSLimit                = 1000
 	defaultGrepHeadLimit      = 100
 	maxGrepHeadLimit          = 500
+	defaultDisplayFileLimit   = 120
+	maxDisplayFileLimit       = 1000
 	defaultBashTimeoutSeconds = 30
 	maxBashTimeoutSeconds     = 120
 	defaultBashMaxOutputChars = 30000
@@ -137,4 +140,15 @@ func NormalizeBash(in *BashInput) {
 		in.MaxOutputChars = defaultBashMaxOutputChars
 	}
 	in.MaxOutputChars = min(in.MaxOutputChars, maxBashMaxOutputChars)
+}
+
+// NormalizeDisplayFile applies defaults and caps to display_file input.
+func NormalizeDisplayFile(in *DisplayFileInput) {
+	if in.Offset <= 0 {
+		in.Offset = 1
+	}
+	if in.Limit <= 0 {
+		in.Limit = defaultDisplayFileLimit
+	}
+	in.Limit = min(in.Limit, maxDisplayFileLimit)
 }
