@@ -285,9 +285,11 @@ func TestGlobWalk_DoublestarPatterns(t *testing.T) {
 		if err != nil {
 			t.Fatalf("globWalk error: %v", err)
 		}
-		// root.go is at root, not under **/ — only subdir .go files match
-		if len(matches) != 3 {
-			t.Errorf("got %d matches, want 3: %v", len(matches), matches)
+		if len(matches) != 4 {
+			t.Errorf("got %d matches, want 4: %v", len(matches), matches)
+		}
+		if len(matches) > 0 && matches[0] != "root.go" {
+			t.Errorf("first match = %q, want root.go included", matches[0])
 		}
 	})
 
@@ -316,6 +318,29 @@ func TestGlobWalk_DoublestarPatterns(t *testing.T) {
 		}
 		if len(matches) == 0 {
 			t.Error("expected at least some matches")
+		}
+	})
+
+	t.Run("**/AGENTS.md includes root and nested matches", func(t *testing.T) {
+		for _, rel := range []string{"AGENTS.md", "sub1/AGENTS.md"} {
+			if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(rel), 0o644); err != nil {
+				t.Fatalf("write %s: %v", rel, err)
+			}
+		}
+
+		matches, err := globWalk(tmpDir, "**/AGENTS.md", excluder, &policy)
+		if err != nil {
+			t.Fatalf("globWalk error: %v", err)
+		}
+
+		want := []string{"AGENTS.md", "sub1/AGENTS.md"}
+		if len(matches) != len(want) {
+			t.Fatalf("got %d matches, want %d: %v", len(matches), len(want), matches)
+		}
+		for i := range want {
+			if matches[i] != want[i] {
+				t.Errorf("matches[%d] = %q, want %q", i, matches[i], want[i])
+			}
 		}
 	})
 }

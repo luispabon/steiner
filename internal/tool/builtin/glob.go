@@ -86,9 +86,9 @@ func NewGlobTool(env Env) tool.ToolDef {
 // slashes, and are sorted alphabetically. The walk stops early when
 // maxGlobLimit matches are collected.
 func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.PathPolicy) ([]string, error) {
-	g, err := glob.Compile(pattern, '/')
+	matchers, err := compileGlobMatchers(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("compile glob: %w", err)
+		return nil, err
 	}
 
 	var matches []string
@@ -113,7 +113,7 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 		if err != nil {
 			return err
 		}
-		if !g.Match(filepath.ToSlash(rel)) {
+		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
 			return nil
 		}
 
@@ -134,4 +134,61 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 
 	sort.Strings(matches)
 	return matches, nil
+}
+
+func compileGlobMatchers(pattern string) ([]glob.Glob, error) {
+	patterns := expandZeroDirectoryDoublestar(pattern)
+	matchers := make([]glob.Glob, 0, len(patterns))
+	for _, expanded := range patterns {
+		matcher, err := glob.Compile(expanded, '/')
+		if err != nil {
+			return nil, fmt.Errorf("compile glob %q: %w", expanded, err)
+		}
+		matchers = append(matchers, matcher)
+	}
+	return matchers, nil
+}
+
+func matchesAnyGlob(matchers []glob.Glob, path string) bool {
+	for _, matcher := range matchers {
+		if matcher.Match(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func expandZeroDirectoryDoublestar(pattern string) []string {
+	patterns := map[string]struct{}{
+		pattern: {},
+	}
+	queue := []string{pattern}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for searchFrom := 0; searchFrom < len(current); {
+			idx := strings.Index(current[searchFrom:], "**/")
+			if idx < 0 {
+				break
+			}
+			idx += searchFrom
+			next := current[:idx] + current[idx+3:]
+			if _, exists := patterns[next]; exists {
+				searchFrom = idx + 1
+				continue
+			}
+			patterns[next] = struct{}{}
+			queue = append(queue, next)
+			searchFrom = idx + 1
+		}
+	}
+
+	expanded := make([]string, 0, len(patterns))
+	for candidate := range patterns {
+		expanded = append(expanded, candidate)
+	}
+	sort.Strings(expanded)
+	return expanded
 }
