@@ -17,6 +17,7 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, toolName string, input map[string]any) (any, error)
 }
 
+// RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
 	Provider    provider.Provider
 	Executor    ToolExecutor
@@ -28,6 +29,16 @@ type RunRequest struct {
 	MaxTokens   *int
 	Limits      Limits
 	Events      output.EventSink
+
+	// StreamingPreferred signals whether the caller wants streaming responses
+	// (true) or a single final response (false). When false the agent should
+	// prefer ChatCompletion over StreamChatCompletion where the provider
+	// supports both. The field is scaffolded here for stage-0; wiring of
+	// selection logic is deferred to a later stage.
+	//
+	// TODO(stage-N): thread this flag into executeChatRequest / completeModelCall
+	// so that streaming is skipped when StreamingPreferred is false.
+	StreamingPreferred bool
 }
 
 type Runner struct{}

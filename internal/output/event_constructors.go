@@ -368,6 +368,21 @@ func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event
 	}
 }
 
+// NewDisplayFileEvent creates a DisplayFile event that instructs the TUI to
+// render the file at path. An optional language hint can be supplied for
+// syntax highlighting; pass an empty string to let the TUI infer from the
+// file extension. File contents must not be passed here — the TUI loads them.
+func NewDisplayFileEvent(path, language string) Event {
+	return Event{
+		Type:      EventTypeDisplayFile,
+		Timestamp: time.Now().UTC(),
+		Payload: DisplayFilePayload{
+			Path:     path,
+			Language: language,
+		},
+	}
+}
+
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 	return Event{
