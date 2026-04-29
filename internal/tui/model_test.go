@@ -326,6 +326,27 @@ func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
 	}
 }
 
+func TestModelAltEnterInsertsNewline(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.input.SetValue("first line")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+
+	if got := m.input.Value(); got != "first line\n" {
+		t.Fatalf("input value = %q, want newline inserted", got)
+	}
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submit on modified enter", submitted)
+	}
+}
+
 func TestModelResizeAndMouseScroll(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 6})

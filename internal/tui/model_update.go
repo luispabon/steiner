@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/tui/prefs"
@@ -208,12 +209,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if msg.Type == tea.KeyEnter && msg.String() != "enter" {
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
-	}
-
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
 		return m, tea.Quit
@@ -239,6 +234,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scrollDown(max(1, m.viewport.Height))
 		return m, nil
 	case tea.KeyEnter:
+		if !m.approval.active && key.Matches(msg, m.input.KeyMap.InsertNewline) {
+			break
+		}
 		return m.handleEnter()
 	}
 
