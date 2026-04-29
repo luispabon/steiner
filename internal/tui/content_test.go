@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -404,9 +405,9 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 	}, &before))
 	buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil, output.ToolPreview{
 		Kind:     output.ToolPreviewKindFileWrite,
-		Path:     "notes.md",
+		Path:     "explicit-notes.md",
 		Language: "markdown",
-		Contents: "hello\nworld\n",
+		Contents: "explicit\npreview\n",
 		Created:  true,
 	}))
 
@@ -427,14 +428,52 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 	if seg.writeTargetExistedBefore == nil || *seg.writeTargetExistedBefore {
 		t.Fatalf("writeTargetExistedBefore = %v, want false", seg.writeTargetExistedBefore)
 	}
-	if got, want := seg.preview.Path, "notes.md"; got != want {
+	if got, want := seg.preview.Path, "explicit-notes.md"; got != want {
 		t.Fatalf("preview path = %q, want %q", got, want)
 	}
-	if got, want := seg.preview.Contents, "hello\nworld\n"; got != want {
+	if got, want := seg.preview.Contents, "explicit\npreview\n"; got != want {
 		t.Fatalf("preview contents = %q, want %q", got, want)
 	}
 	if !seg.preview.Created {
 		t.Fatalf("preview created = false, want true")
+	}
+}
+
+func TestAppendEventDisplayFileUsesExplicitPreviewDocument(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0].toolData
+	if seg == nil {
+		t.Fatal("tool segment is nil")
+	}
+	if !strings.EqualFold(seg.tool, "display_file") {
+		t.Fatalf("tool = %q, want display_file", seg.tool)
+	}
+	if seg.collapsed {
+		t.Fatal("display_file segment is collapsed, want expanded")
+	}
+	if seg.displayPreview == nil {
+		t.Fatal("display preview is nil")
+	}
+	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
+		t.Fatalf("display preview path = %q, want %q", got, want)
+	}
+	if got, want := seg.displayPreview.Kind, output.PreviewFormatKindFile; got != want {
+		t.Fatalf("display preview kind = %q, want %q", got, want)
 	}
 }
 
@@ -496,6 +535,38 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	for _, want := range []string{"new file preview", "notes.md", "hello", "world"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered preview %q missing %q", got, want)
+		}
+	}
+}
+
+func TestRenderDisplayFilePreviewUsesCaptionAndHighlightedContent(t *testing.T) {
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	if len(preview.Lines) == 0 || !lineHasHighlightedSpan(preview.Lines[0]) {
+		t.Fatal("preview document is not syntax-highlighted")
+	}
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:           "display_file",
+				args:           "snippet.go",
+				bodyKind:       "file",
+				collapsed:      false,
+				displayPreview: &preview,
+			},
+		},
+	}
+
+	got := buffer.String(100)
+	for _, want := range []string{"display file preview", "snippet.go", "package main", "func main()"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered display preview %q missing %q", got, want)
 		}
 	}
 }
@@ -796,4 +867,13 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 			}
 		})
 	}
+}
+
+func lineHasHighlightedSpan(line output.PreviewLine) bool {
+	for _, span := range line.Spans {
+		if span.Type != chroma.Text {
+			return true
+		}
+	}
+	return false
 }

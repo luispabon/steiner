@@ -133,7 +133,6 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
-	m.fileViewer.OverlayShell = m.fileViewer.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
@@ -178,11 +177,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If context overlay is open, handle scroll and close.
 	if m.contextOverlay.open {
 		return m.handleContextOverlayKey(msg)
-	}
-
-	// If file viewer is open, handle scroll and close.
-	if m.fileViewer.open {
-		return m.handleFileViewerKey(msg)
 	}
 
 	// If file picker is open, route keys to it
@@ -326,27 +320,6 @@ func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPgDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
-		return m, nil
-	}
-	return m, nil
-}
-
-func (m Model) handleFileViewerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.fileViewer = m.fileViewer.closeFileViewer()
-		return m, nil
-	case tea.KeyUp:
-		m.fileViewer = m.fileViewer.scrollUp(1)
-		return m, nil
-	case tea.KeyDown:
-		m.fileViewer = m.fileViewer.scrollDown(1)
-		return m, nil
-	case tea.KeyPgUp:
-		m.fileViewer = m.fileViewer.scrollUp(fileViewerMaxLines)
-		return m, nil
-	case tea.KeyPgDown:
-		m.fileViewer = m.fileViewer.scrollDown(fileViewerMaxLines)
 		return m, nil
 	}
 	return m, nil

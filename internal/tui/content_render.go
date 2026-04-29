@@ -485,6 +485,9 @@ func (b *contentBuffer) buildDiffPreviewLines(tc *toolCallSegment, width int) []
 }
 
 func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
+	if tc.displayPreview != nil {
+		return *tc.displayPreview
+	}
 	switch tc.preview.Kind {
 	case output.ToolPreviewKindEditDiff:
 		return output.FormatEditDiffPreview(tc.preview.Path, tc.preview.Before, tc.preview.After)
@@ -499,14 +502,19 @@ func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocum
 
 func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.PreviewDocument) string {
 	label := "file preview"
-	switch tc.preview.Kind {
-	case output.ToolPreviewKindFileWrite:
+	switch {
+	case tc.displayPreview != nil:
+		label = "display file preview"
+		if doc.Language != "" && doc.Language != "plain" {
+			label += " · " + doc.Language
+		}
+	case tc.preview.Kind == output.ToolPreviewKindFileWrite:
 		if tc.preview.Created {
 			label = "new file preview"
 		} else {
 			label = "updated file contents preview"
 		}
-	case output.ToolPreviewKindReadFile:
+	case tc.preview.Kind == output.ToolPreviewKindReadFile:
 		label = "read file preview"
 	}
 	lineCount := previewContentLineCount(doc)

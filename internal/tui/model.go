@@ -80,7 +80,6 @@ type Model struct {
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	contextOverlay               contextOverlayState
-	fileViewer                   fileViewerState
 	exitModal                    exitModalState
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
@@ -383,11 +382,6 @@ func (m Model) View() string {
 
 	if m.contextOverlay.open {
 		overlay := m.renderContextOverlay()
-		return composeCenteredOverlay(base, overlay, m.width, m.height)
-	}
-
-	if m.fileViewer.open {
-		overlay := m.renderFileViewer()
 		return composeCenteredOverlay(base, overlay, m.width, m.height)
 	}
 

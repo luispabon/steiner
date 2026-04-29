@@ -57,6 +57,7 @@ type toolCallSegment struct {
 	rawArgs                  map[string]any
 	writeTargetExistedBefore *bool
 	preview                  output.ToolPreview
+	displayPreview           *output.PreviewDocument
 }
 
 type approvalPillData struct {
@@ -120,6 +121,8 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.appendToolCallStartedEvent(event)
 	case output.EventTypeToolCallFinished:
 		b.appendToolCallFinishedEvent(event)
+	case output.EventTypeDisplayFile:
+		b.appendDisplayFileEvent(event)
 	case output.EventTypeStopReason:
 		b.appendStopReasonEvent(event)
 	case output.EventTypeAssistantMessage:
@@ -240,7 +243,11 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 					if td.hasError {
 						td.meta = "❌"
 					}
-					td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+					if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
+						td.preview = payload.Preview
+					} else {
+						td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+					}
 					if td.preview.Kind != output.ToolPreviewKindPlain {
 						td.bodyKind = previewBodyKind(td.tool, td.preview)
 					} else {
@@ -253,6 +260,27 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	} else {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 	}
+}
+
+func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
+	b.finishStreaming()
+	if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
+		preview := payload.Preview
+		idx := len(b.segments)
+		b.segments = append(b.segments, contentSegment{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:           "display_file",
+				args:           payload.Path,
+				bodyKind:       "file",
+				collapsed:      false,
+				displayPreview: &preview,
+			},
+		})
+		b.collapseState[idx] = false
+		return
+	}
+	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
