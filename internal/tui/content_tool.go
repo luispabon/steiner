@@ -129,16 +129,10 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	// Build header: tag [gap] args [gap] meta
 	// Args column width accounts for meta on the right
 	const gap = 2
+	metaParts, metaWidth := b.renderToolCallMeta(tc)
 	metaStr := ""
-	metaWidth := 0
-	if tc.meta != "" {
-		metaWidth = lipgloss.Width(tc.meta)
-		metaStr = tc.meta
-		if tc.hasError {
-			metaStr = b.styles.Removed.Render(tc.meta)
-		} else {
-			metaStr = b.styles.Added.Render(tc.meta)
-		}
+	if len(metaParts) > 0 {
+		metaStr = strings.Join(metaParts, " ")
 	}
 
 	argsAvail := width - tagWidth - gap - metaWidth - gap - 1
@@ -184,6 +178,37 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	}
 
 	return boxStyle.Width(boxWidth).Render(fullContent) + "\n"
+}
+
+func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {
+	parts := make([]string, 0, 2)
+	width := 0
+	if tc.bodyKind == "diff" {
+		doc := b.previewDocument(tc)
+		if doc.Kind == output.PreviewFormatKindEditDiff {
+			added, removed := output.CountPreviewChanges(doc)
+			diffMeta := b.styles.Added.Render(fmt.Sprintf("+%d", added)) + " " + b.styles.Removed.Render(fmt.Sprintf("-%d", removed))
+			if len(parts) > 0 {
+				width++
+			}
+			parts = append(parts, diffMeta)
+			width += lipgloss.Width(diffMeta)
+		}
+	}
+	if tc.meta != "" {
+		styled := tc.meta
+		if tc.hasError {
+			styled = b.styles.Removed.Render(tc.meta)
+		} else {
+			styled = b.styles.Added.Render(tc.meta)
+		}
+		if len(parts) > 0 {
+			width++
+		}
+		parts = append(parts, styled)
+		width += lipgloss.Width(styled)
+	}
+	return parts, width
 }
 
 func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColor string) string {

@@ -411,6 +411,35 @@ func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 			t.Fatalf("rendered diff %q missing %q", got, want)
 		}
 	}
+	if strings.Contains(got, "[edit]") {
+		t.Fatalf("rendered diff %q unexpectedly duplicated nested edit header", got)
+	}
+}
+
+func TestRenderEditToolHeaderShowsDiffCountsBeforeCompletion(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
+		"path":       "POEM.md",
+		"old_string": "old line\n",
+		"new_string": "new line\n",
+	}))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].toolData == nil {
+		t.Fatalf("tool segments = %#v, want one populated tool segment", buffer.segments)
+	}
+	buffer.segments[0].toolData.collapsed = false
+
+	got := buffer.String(100)
+	if !strings.Contains(got, "+1") || !strings.Contains(got, "-1") {
+		t.Fatalf("rendered diff header %q missing early diff counts", got)
+	}
+	if strings.Contains(got, "✅") {
+		t.Fatalf("rendered diff header %q unexpectedly shows completion meta before finish", got)
+	}
 }
 
 func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
