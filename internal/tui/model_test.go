@@ -469,7 +469,7 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	}
 }
 
-func TestModelIdleCtrlCRequestsExitInsteadOfQuitting(t *testing.T) {
+func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 	exitRequests := 0
 	interrupts := 0
 
@@ -490,22 +490,21 @@ func TestModelIdleCtrlCRequestsExitInsteadOfQuitting(t *testing.T) {
 		t.Fatalf("unexpected model type %T", next)
 	}
 
-	if exitRequests != 1 {
-		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
 	}
 	if interrupts != 0 {
 		t.Fatalf("interrupts = %d, want 0 (idle, not active run)", interrupts)
 	}
-	if cmd != nil {
-		// cmd should be nil — no quit, no side-effects returned.
-		// (tea.Quit would be a non-nil Cmd.)
-		// We can't compare directly, but ensure model state is unchanged.
-		_ = cmd
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
 	}
-	_ = updated
+	if cmd != nil {
+		t.Fatal("expected no quit command when opening exit modal")
+	}
 }
 
-func TestModelIdleCtrlDRequestsExitInsteadOfQuitting(t *testing.T) {
+func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 	exitRequests := 0
 
 	m := newModel(Config{
@@ -515,10 +514,20 @@ func TestModelIdleCtrlDRequestsExitInsteadOfQuitting(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
 
-	if exitRequests != 1 {
-		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
+	}
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command when opening exit modal")
 	}
 }
 
@@ -531,6 +540,69 @@ func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Fatal("expected tea.Quit cmd when no OnExitRequested callback")
+	}
+}
+
+func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !m.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if updated.exitModal.open {
+		t.Fatal("exitModal.open = true, want modal closed")
+	}
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0", exitRequests)
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command on cancel")
+	}
+}
+
+func TestModelExitModalExitRequestsQuit(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !m.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if exitRequests != 1 {
+		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	}
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal to remain open until runtime quits")
+	}
+	if cmd != nil {
+		t.Fatal("expected runtime callback path, not direct tea.Quit")
 	}
 }
 

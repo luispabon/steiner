@@ -122,6 +122,82 @@ func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int)
 	return strings.Join(baseLines, "\n")
 }
 
+// composeCenteredOverlay composites overlay over base at the center of the
+// given terminal bounds without clearing content outside the overlay bounds.
+func composeCenteredOverlay(base, overlay string, width, height int) string {
+	if width < 1 || height < 1 {
+		return base
+	}
+
+	baseLines := normalizeOverlayLines(base, width, height)
+	overlayLines := strings.Split(overlay, "\n")
+	overlayHeight := len(overlayLines)
+	if overlayHeight == 0 {
+		return strings.Join(baseLines, "\n")
+	}
+
+	maxOverlayWidth := 0
+	for _, line := range overlayLines {
+		maxOverlayWidth = max(maxOverlayWidth, lipgloss.Width(line))
+	}
+	if maxOverlayWidth == 0 {
+		return strings.Join(baseLines, "\n")
+	}
+
+	startX := (width - maxOverlayWidth) / 2
+	startY := (height - overlayHeight) / 2
+	endY := min(height, startY+overlayHeight)
+	for y := max(0, startY); y < endY; y++ {
+		overlayLine := overlayLines[y-startY]
+		baseLines[y] = composeOverlayLine(baseLines[y], overlayLine, width, startX, maxOverlayWidth)
+	}
+
+	return strings.Join(baseLines, "\n")
+}
+
+func normalizeOverlayLines(rendered string, width, height int) []string {
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	normalized := make([]string, height)
+	for i := 0; i < height; i++ {
+		if i < len(lines) {
+			normalized[i] = padOverlayLine(ansi.Cut(lines[i], 0, width), width)
+			continue
+		}
+		normalized[i] = strings.Repeat(" ", width)
+	}
+	return normalized
+}
+
+func composeOverlayLine(base, overlay string, totalWidth, startX, overlayWidth int) string {
+	visibleStart := max(0, startX)
+	overlayOffset := max(0, -startX)
+	visibleWidth := min(overlayWidth-overlayOffset, totalWidth-visibleStart)
+	if visibleWidth <= 0 {
+		return base
+	}
+
+	left := padOverlayLine(ansi.Cut(base, 0, visibleStart), visibleStart)
+	mid := padOverlayLine(ansi.Cut(overlay, overlayOffset, overlayOffset+visibleWidth), visibleWidth)
+	rightWidth := totalWidth - visibleStart - visibleWidth
+	right := padOverlayLine(ansi.Cut(base, visibleStart+visibleWidth, totalWidth), rightWidth)
+
+	return left + mid + right
+}
+
+func padOverlayLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	lineWidth := lipgloss.Width(line)
+	if lineWidth >= width {
+		return line
+	}
+	return line + strings.Repeat(" ", width-lineWidth)
+}
+
 // overlayStyles bundles the lipgloss styles a concrete overlay passes to Render.
 type overlayStyles struct {
 	box lipgloss.Style

@@ -89,6 +89,7 @@ type Model struct {
 	filePicker                   filePickerOverlay
 	contextOverlay               contextOverlayState
 	fileViewer                   fileViewerState
+	exitModal                    exitModalState
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -331,11 +332,7 @@ func (m Model) View() string {
 
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
-		viewportView = lipgloss.Place(contentWidth, lipgloss.Height(viewportView),
-			lipgloss.Center, lipgloss.Center,
-			help,
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		viewportView = composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
 	}
 
 	// Horizontal divider: 1-row line of border-soft between transcript and bottom area.
@@ -376,20 +373,11 @@ func (m Model) View() string {
 	}
 
 	if m.palette.open {
-		overlay := m.palette.View()
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			overlay,
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		return composeCenteredOverlay(base, m.palette.View(), m.width, m.height)
 	}
 
 	if m.fileList.open {
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			m.fileList.View(),
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
 	}
 
 	if m.filePicker.open {
@@ -403,20 +391,16 @@ func (m Model) View() string {
 
 	if m.contextOverlay.open {
 		overlay := m.renderContextOverlay()
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			overlay,
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		return composeCenteredOverlay(base, overlay, m.width, m.height)
 	}
 
 	if m.fileViewer.open {
 		overlay := m.renderFileViewer()
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			overlay,
-			lipgloss.WithWhitespaceChars(" "),
-		)
+		return composeCenteredOverlay(base, overlay, m.width, m.height)
+	}
+
+	if m.exitModal.open {
+		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
 	}
 
 	return base

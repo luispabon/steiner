@@ -133,12 +133,7 @@ func (f fileListOverlay) View() string {
 		Padding(1, 1).
 		Render(body)
 
-	return lipgloss.Place(
-		f.width, f.height,
-		lipgloss.Center, lipgloss.Center,
-		box,
-		lipgloss.WithWhitespaceChars(" "),
-	)
+	return box
 }
 
 func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {

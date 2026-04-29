@@ -188,18 +188,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		case <-ctx.Done():
 			return nil
 		case <-exitRequests:
-			confirmed, err := runHuhExitConfirmForm(ctx, teaProgram)
-			if err != nil {
-				// Terminal management failed; log and ignore — do not exit.
-				rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("exit confirmation error: %v", err)))
-				continue
-			}
-			if confirmed {
-				teaProgram.Quit()
-				return nil
-			}
-			// Cancelled: return to idle, nothing to do.
-			continue
+			teaProgram.Quit()
+			return nil
 		case <-contextInspect:
 			if snapshot, ok := requestSnapshots.Snapshot(); ok {
 				report, err := output.BuildContextReport(ctx, snapshot)
