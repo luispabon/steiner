@@ -48,7 +48,7 @@ type toolCallSegment struct {
 	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
 	args                     string // summarized args, ~60 chars max
 	meta                     string // "✅" or "❌" for finished calls
-	bodyKind                 string // "bash", "diff", "file", "plain"
+	bodyKind                 string // "bash", "diff", "file", "glob", "grep", "ls", "plain"
 	body                     string // raw result text
 	callID                   string // for matching started→finished
 	collapsed                bool   // default true

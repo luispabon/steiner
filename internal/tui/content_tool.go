@@ -43,6 +43,14 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 		return "diff"
 	case output.ToolPreviewKindFileWrite, output.ToolPreviewKindReadFile:
 		return "file"
+	case output.ToolPreviewKindGlobList:
+		return "glob"
+	case output.ToolPreviewKindLSList:
+		return "ls"
+	case output.ToolPreviewKindGrep:
+		return "grep"
+	case output.ToolPreviewKindBash:
+		return "bash"
 	case output.ToolPreviewKindPlain:
 		if strings.EqualFold(strings.TrimSpace(tool), "bash") {
 			return "bash"
@@ -190,6 +198,12 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColo
 	switch tc.bodyKind {
 	case "bash":
 		lines = b.buildBashLines(tc)
+	case "glob":
+		lines = b.buildGlobLines(tc)
+	case "ls":
+		lines = b.buildLSLines(tc)
+	case "grep":
+		lines = b.buildGrepLines(tc)
 	case "diff":
 		lines = b.buildDiffPreviewLines(tc, rowWidth-2)
 	case "file":
