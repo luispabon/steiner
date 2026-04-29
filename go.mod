@@ -16,6 +16,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/charmbracelet/bubbletea => ./third_party/bubbletea
+
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect

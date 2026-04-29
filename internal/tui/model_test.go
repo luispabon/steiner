@@ -119,6 +119,48 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestModelModifiedEnterInsertsNewline(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("first line")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submission for modified enter", submitted)
+	}
+	if got := m.input.Value(); got != "first line\n" {
+		t.Fatalf("input value = %q, want newline inserted", got)
+	}
+}
+
+func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("fix the bug")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(submitted) != 1 || submitted[0] != "fix the bug" {
+		t.Fatalf("submitted = %#v, want plain enter submission", submitted)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want reset after submit", got)
+	}
+}
+
 func TestModelHandlesContextCommandLocally(t *testing.T) {
 	var submitted []string
 	contextInspections := 0
@@ -167,6 +209,162 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	}
 	if len(approved) != 1 || !approved[0] {
 		t.Fatalf("approved = %#v, want accepted response", approved)
+	}
+}
+
+func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
+	var approved []bool
+
+	m := newModel(Config{
+		OnApproval: func(value bool) {
+			approved = append(approved, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
+
+	m.input.SetValue("yes")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(approved) != 1 || !approved[0] {
+		t.Fatalf("approved = %#v, want accepted response while streaming", approved)
+	}
+	if m.approval.active {
+		t.Fatal("expected approval mode to clear after decision")
+	}
+}
+
+func TestModelEscInterruptsStreaming(t *testing.T) {
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m.input.SetValue("stale")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if interrupts != 1 {
+		t.Fatalf("interrupts = %d, want 1", interrupts)
+	}
+	if m.content.streamingPhase != "" {
+		t.Fatalf("streamingPhase = %q, want empty", m.content.streamingPhase)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want reset", m.input.Value())
+	}
+	if m.input.Placeholder != "ask steiner — / for commands, @ for files" {
+		t.Fatalf("input placeholder = %q, want default", m.input.Placeholder)
+	}
+	if !strings.Contains(m.content.String(m.viewport.Width), "interrupted") {
+		t.Fatal("expected interrupted marker in content")
+	}
+}
+
+func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if interrupts != 1 {
+		t.Fatalf("interrupts = %d, want 1", interrupts)
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command while streaming")
+	}
+	if updated.content.streamingPhase != "" {
+		t.Fatalf("streamingPhase = %q, want empty", updated.content.streamingPhase)
+	}
+	if updated.input.Value() != "" {
+		t.Fatalf("input value = %q, want reset", updated.input.Value())
+	}
+	if updated.input.Placeholder != "ask steiner — / for commands, @ for files" {
+		t.Fatalf("input placeholder = %q, want default", updated.input.Placeholder)
+	}
+}
+
+func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m.input.SetValue("should stay blocked")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submission while streaming", submitted)
+	}
+	if m.input.Value() != "should stay blocked" {
+		t.Fatalf("input value = %q, want unchanged", m.input.Value())
+	}
+}
+
+func TestModelAltEnterInsertsNewline(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.input.SetValue("first line")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+
+	if got := m.input.Value(); got != "first line\n" {
+		t.Fatalf("input value = %q, want newline inserted", got)
+	}
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submit on modified enter", submitted)
+	}
+}
+
+func TestModelShiftEnterInsertsNewline(t *testing.T) {
+	var submitted []string
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.input.SetValue("first line")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyShiftEnter})
+
+	if got := m.input.Value(); got != "first line\n" {
+		t.Fatalf("input value = %q, want newline inserted", got)
+	}
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no submit on shift+enter", submitted)
 	}
 }
 
