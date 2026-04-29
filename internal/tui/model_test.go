@@ -189,6 +189,37 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	}
 }
 
+func TestModelSwitchUpdatesProviderHost(t *testing.T) {
+	m := newModel(Config{
+		Model:           "small",
+		ModelContexts:   map[string]int{"small": 1024, "large": 8192},
+		ProviderBaseURL: "http://small.example/v1",
+		OnModelSwitch: func(name string) (string, bool) {
+			if name != "large" {
+				return "", false
+			}
+			return "http://large.example/v1", true
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/model large")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got, want := m.status.model, "large"; got != want {
+		t.Fatalf("status.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.model, "large"; got != want {
+		t.Fatalf("sidebar.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.provider, "http://large.example/v1"; got != want {
+		t.Fatalf("sidebar.provider = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.contextBudget, 8192; got != want {
+		t.Fatalf("sidebar.contextBudget = %d, want %d", got, want)
+	}
+}
+
 func TestModelApprovalModeTransitions(t *testing.T) {
 	var approved []bool
 

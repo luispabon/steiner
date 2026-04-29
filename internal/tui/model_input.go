@@ -196,19 +196,19 @@ func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
+	providerBaseURL := m.sidebar.provider
 	if m.onModelSwitch != nil {
-		m.onModelSwitch(modelName)
+		var ok bool
+		providerBaseURL, ok = m.onModelSwitch(modelName)
+		if !ok {
+			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
+			m.input.Reset()
+			m.historyIdx = 0
+			m.syncViewport()
+			return m, nil
+		}
 	}
-	m.status.model = modelName
-	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
-	m.sidebar.promptUsed = 0
-	m.sidebar.budgetUsed = 0
-	if m.sidebar.contextBudget > 0 {
-		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
-	} else {
-		m.status.context = ""
-	}
-	m.syncSidebar()
+	m.applyModelSelection(modelName, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))
 	m.input.Reset()
 	m.historyIdx = 0

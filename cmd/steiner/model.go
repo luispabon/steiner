@@ -23,6 +23,18 @@ func selectedModelConfigByAlias(cfg config.Config, alias string) (config.ModelCo
 	return model, nil
 }
 
+func switchModelConfigByAlias(cfg *config.Config, alias string) (config.ModelConfig, error) {
+	if cfg == nil {
+		return config.ModelConfig{}, fmt.Errorf("config is required")
+	}
+	model, err := selectedModelConfigByAlias(*cfg, alias)
+	if err != nil {
+		return config.ModelConfig{}, err
+	}
+	cfg.Model = model
+	return model, nil
+}
+
 func modelAliasNames(cfg config.Config) []string {
 	if len(cfg.Models) == 0 {
 		return nil

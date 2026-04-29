@@ -60,7 +60,7 @@ type Model struct {
 	onApproval                   func(bool)
 	onInterrupt                  func()
 	onSkillToggle                func(string, bool)
-	onModelSwitch                func(string)
+	onModelSwitch                func(string) (string, bool)
 	onClear                      func()
 	onCompact                    func()
 	activeTheme                  theme.Theme
@@ -255,6 +255,21 @@ func buildDefaultPaletteItems() []paletteItem {
 		})
 	}
 	return items
+}
+
+func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
+	m.status.model = modelName
+	m.sidebar.model = modelName
+	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
+	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
+	m.sidebar.promptUsed = 0
+	m.sidebar.budgetUsed = 0
+	if m.sidebar.contextBudget > 0 {
+		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+	} else {
+		m.status.context = ""
+	}
+	m.syncSidebar()
 }
 
 func tickCmd() tea.Cmd {
