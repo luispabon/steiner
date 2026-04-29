@@ -131,6 +131,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 		}),
 	)
+	runner.runtime.events = rt.events
 
 	approver := agent.NewEventingApprover(
 		rt.events,

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
@@ -50,5 +51,34 @@ func TestSwitchModelConfigByAliasUpdatesRuntimeConfig(t *testing.T) {
 	}
 	if got, want := cfg.Model.BaseURL, "http://new.example/v1"; got != want {
 		t.Fatalf("cfg.Model.BaseURL = %q, want %q", got, want)
+	}
+}
+
+func TestInteractiveRunnerUsesWrappedEventSink(t *testing.T) {
+	baseEvents := 0
+	bridgedEvents := 0
+
+	rt := cliRuntime{
+		events: output.SinkFunc(func(output.Event) {
+			baseEvents++
+		}),
+	}
+	runner := cliRunner{runtime: rt}
+
+	rt.events = output.NewMultiSink(
+		rt.events,
+		output.SinkFunc(func(output.Event) {
+			bridgedEvents++
+		}),
+	)
+	runner.runtime.events = rt.events
+
+	runner.runtime.events.Emit(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+
+	if got, want := baseEvents, 1; got != want {
+		t.Fatalf("base event count = %d, want %d", got, want)
+	}
+	if got, want := bridgedEvents, 1; got != want {
+		t.Fatalf("bridged event count = %d, want %d", got, want)
 	}
 }
