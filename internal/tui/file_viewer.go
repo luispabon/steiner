@@ -1,56 +1,45 @@
 package tui
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 const fileViewerMaxLines = 40
 
 // fileViewerState holds state for the read-only file viewer overlay.
-// The overlay is opened in response to a DisplayFile event; file content is
-// read from disk when the overlay opens, not from the event payload.
+// The overlay is opened in response to a DisplayFile event and renders the
+// preview payload directly.
 type fileViewerState struct {
 	OverlayShell
 	path         string
+	language     string
 	lines        []string
 	scrollOffset int
-	loadErr      string
+	truncated    bool
 }
 
-// openFileViewer opens a file viewer overlay for the given path.
-// The file is read from disk at open time. Width and height are the current
-// terminal dimensions.
-func openFileViewer(path string, width, height int) fileViewerState {
+// openFileViewer opens a file viewer overlay for the given preview payload.
+func openFileViewer(payload output.DisplayFilePayload, width, height int) fileViewerState {
 	shell := OverlayShell{}
 	shell = shell.WithDimensions(width, height).WithTitle("file viewer").openShell()
 
 	var lines []string
-	var loadErr string
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		loadErr = fmt.Sprintf("cannot read file: %v", err)
-	} else {
-		raw := strings.Split(string(data), "\n")
-		// Trim a trailing empty line that Split adds for files ending with \n.
-		if len(raw) > 0 && raw[len(raw)-1] == "" {
-			raw = raw[:len(raw)-1]
-		}
-		lines = raw
+	for _, line := range payload.Preview.Lines {
+		lines = append(lines, previewLineText(line))
 	}
 
 	return fileViewerState{
 		OverlayShell: shell,
-		path:         path,
+		path:         payload.Path,
+		language:     payload.Preview.Language,
 		lines:        lines,
 		scrollOffset: 0,
-		loadErr:      loadErr,
+		truncated:    payload.Preview.Truncated,
 	}
 }
 
@@ -93,32 +82,35 @@ func (m *Model) renderFileViewer() string {
 		Foreground(lipgloss.Color(theme.Fg)).
 		Bold(true).
 		Width(innerWidth)
-	headerLine := titleStyle.Render(s.path)
+	header := s.path
+	if s.language != "" && s.language != "plain" {
+		header += " · " + s.language
+	}
+	headerLine := titleStyle.Render(header)
 	divider := s.Divider()
 
 	var body string
-	if s.loadErr != "" {
-		errStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.FgFaint)).
-			Width(innerWidth)
-		body = errStyle.Render(s.loadErr)
-	} else {
-		start := s.scrollOffset
-		end := start + fileViewerMaxLines
-		if end > len(s.lines) {
-			end = len(s.lines)
-		}
-		var visible []string
-		if len(s.lines) > 0 {
-			visible = s.lines[start:end]
-		}
+	start := s.scrollOffset
+	end := start + fileViewerMaxLines
+	if end > len(s.lines) {
+		end = len(s.lines)
+	}
+	var visible []string
+	if len(s.lines) > 0 {
+		visible = s.lines[start:end]
+	}
 
-		lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(innerWidth)
-		rendered := make([]string, 0, len(visible))
-		for _, line := range visible {
-			rendered = append(rendered, lineStyle.Render(line))
+	lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(innerWidth)
+	rendered := make([]string, 0, len(visible))
+	for _, line := range visible {
+		rendered = append(rendered, lineStyle.Render(line))
+	}
+	body = strings.Join(rendered, "\n")
+	if s.truncated {
+		if body != "" {
+			body += "\n"
 		}
-		body = strings.Join(rendered, "\n")
+		body += lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgFaint)).Render("preview truncated")
 	}
 
 	footerText := FooterChip("↑↓") + " scroll   " + FooterChip("esc") + " close"
@@ -138,4 +130,12 @@ func (m *Model) renderFileViewer() string {
 		Padding(1, 2)
 
 	return boxStyle.Width(innerWidth).Render(full)
+}
+
+func previewLineText(line output.PreviewLine) string {
+	var b strings.Builder
+	for _, span := range line.Spans {
+		b.WriteString(span.Text)
+	}
+	return b.String()
 }

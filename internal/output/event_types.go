@@ -35,12 +35,9 @@ const (
 	EventTypeDelegationFailed   = "delegation_failed"
 
 	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
-	// file to the user. The TUI is responsible for rendering the file content;
-	// file contents must not appear in the event payload, in tool results, or in
-	// conversation history.
-	//
-	// TODO(stage-N): wire the read tool to emit this event instead of returning
-	// file contents in tool results when a display-only read is requested.
+	// file to the user. The event payload carries an explicit preview document so
+	// the UI can render the slice without the model-visible tool result or
+	// conversation history containing file contents.
 	EventTypeDisplayFile = "display_file"
 )
 
@@ -238,14 +235,10 @@ type HistoryLoadedEvent struct {
 	Prompts []string `json:"prompts"`
 }
 
-// DisplayFilePayload is the payload for EventTypeDisplayFile. It carries only
-// the metadata required for the TUI to locate and render the file. File
-// contents are intentionally absent — the TUI reads the file itself so that
-// contents never enter conversation history or tool results.
+// DisplayFilePayload is the payload for EventTypeDisplayFile.
 type DisplayFilePayload struct {
-	// Path is the absolute path of the file to display.
-	Path string `json:"path"`
-	// Language hint for syntax highlighting (e.g. "go", "json"). Empty means
-	// the TUI should infer from the file extension.
-	Language string `json:"language,omitempty"`
+	Path    string          `json:"path"`
+	Offset  int             `json:"offset,omitempty"`
+	Limit   int             `json:"limit,omitempty"`
+	Preview PreviewDocument `json:"preview"`
 }

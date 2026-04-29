@@ -3,6 +3,8 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -41,16 +43,10 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}
 
+			NormalizeDisplayFile(&in)
+
 			if in.Path == "" {
 				return nil, fmt.Errorf("display_file: path is required")
-			}
-
-			if !env.Interactive || env.EventSink == nil {
-				return &DisplayFileResult{
-					Path:    in.Path,
-					Status:  "unavailable",
-					Message: "interactive file display is unavailable in non-TUI mode; use the read tool to retrieve file content instead",
-				}, nil
 			}
 
 			_, err = env.PathPolicy.ResolvePath(in.Path, false)
@@ -62,10 +58,31 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}
-
 			displayPath := relDisplayPath(env.WorkDir, absPath)
 
-			env.EventSink.Emit(output.NewDisplayFileEvent(absPath, in.Language))
+			if !env.Interactive || env.EventSink == nil {
+				return &DisplayFileResult{
+					Path:    displayPath,
+					Status:  "unavailable",
+					Message: "interactive file display is unavailable in non-TUI mode; use the read tool to retrieve file content instead",
+				}, nil
+			}
+
+			contents, truncated, err := readDisplayFilePreview(absPath, in.Offset, in.Limit)
+			if err != nil {
+				return nil, fmt.Errorf("display_file: %w", err)
+			}
+
+			preview := output.FormatFilePreviewWithLimit(displayPath, contents, in.Limit)
+			preview.Truncated = truncated
+			preview.LineLimit = in.Limit
+
+			env.EventSink.Emit(output.NewDisplayFileEvent(output.DisplayFilePayload{
+				Path:    displayPath,
+				Offset:  in.Offset,
+				Limit:   in.Limit,
+				Preview: preview,
+			}))
 
 			return &DisplayFileResult{
 				Path:    displayPath,
@@ -74,4 +91,46 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			}, nil
 		},
 	}
+}
+
+func readDisplayFilePreview(path string, offset, limit int) (string, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, fmt.Errorf("read file: %w", err)
+	}
+
+	lines := splitDisplayFileLines(string(data))
+	if len(lines) == 0 {
+		return "", false, nil
+	}
+
+	start := offset - 1
+	if start < 0 {
+		start = 0
+	}
+	if start > len(lines) {
+		start = len(lines)
+	}
+
+	end := start + limit
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	selected := lines[start:end]
+	truncated := end < len(lines)
+	return strings.Join(selected, "\n"), truncated, nil
+}
+
+func splitDisplayFileLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	lines := strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }

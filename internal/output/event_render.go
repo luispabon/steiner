@@ -87,6 +87,21 @@ func renderEvent(event Event) Segment {
 		return Segment{Channel: ChannelStatus, Label: "thinking", Text: strings.Join(parts, " ")}
 	case ContextReportEvent:
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
+	case DisplayFilePayload:
+		parts := []string{"display"}
+		if payload.Path != "" {
+			parts = append(parts, fmt.Sprintf("path=%s", payload.Path))
+		}
+		if payload.Preview.Language != "" {
+			parts = append(parts, fmt.Sprintf("syntax=%s", payload.Preview.Language))
+		}
+		if payload.Offset > 0 {
+			parts = append(parts, fmt.Sprintf("offset=%d", payload.Offset))
+		}
+		if payload.Limit > 0 {
+			parts = append(parts, fmt.Sprintf("limit=%d", payload.Limit))
+		}
+		return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 	case ModelCallStartedEvent:
 		return Segment{
 			Channel: ChannelStatus,
