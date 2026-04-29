@@ -9,8 +9,8 @@ func defaultConfig() Config {
 		MaxCompletionTokens: 8192,
 		ContextSize:         32768,
 		Compaction: CompactionConfig{
-			SafetyMarginTokens: 2048,
-			SummaryMaxTokens:   1024,
+			SafetyMarginTokens: 8192,
+			SummaryMaxTokens:   4096,
 		},
 	}
 	return Config{
