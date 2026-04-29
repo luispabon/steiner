@@ -70,6 +70,18 @@
     - `6e5cfdf071e17e43993918cb31b86f7d12d4da10`
   - note: worker completed the core Enter-routing fix
   - note: executor added one isolated follow-up commit to remove duplicate routing and keep the newline regression test on the temp branch before merge
+- `manual-fix-round-001`
+  - status: `implemented`
+  - model: `gpt-5.4-mini`
+  - tier_vs_current_runtime: `cheaper`
+  - temporary branch: `tmp/manual-fix-001` (merged and deleted)
+  - worktree: `/tmp/steiner-manual-fix-001` (removed)
+  - commits:
+    - `1fac75f5007a305dd66bc3974b6b58243c398cce`
+    - `6a963195b42e1af9a2ff12ff628ec2683e212405`
+    - `d12200fa0655eb38d97aa0c4bbd7daa340649463`
+  - note: executor implemented a local bubbletea replacement with `shift+enter` decode support and terminal keyboard-protocol enable/disable commands
+  - note: worker added targeted regression coverage in the local bubbletea fork and was explicitly closed after merge
 
 ## Verification Runs
 - `stage-1-step-1`
@@ -83,12 +95,25 @@
   - `go test ./...` -> passed
   - `go vet ./...` -> passed
   - `go build ./...` -> passed
+- `manual-fix-round-001`
+  - `go test . -run 'TestDetectSequenceMap|TestReadInput'` in `third_party/bubbletea` -> passed
+  - `go test ./internal/tui -run 'Test.*(Shift|Enter|Input|Approval)'` -> passed
+  - `go test ./...` -> passed
+  - `go build ./...` -> passed
 
 ## Fix Plans
-- None yet.
+- `manual_fix_plan_round_001.md`
+  - source: manual verification
+  - issue: `Shift+Enter` still does not work in real terminals
+  - status: `implemented`
 
 ## Manual Verification
-- Pending user verification.
+- Round 001:
+  - user report: `Shift+Enter` does not work in Terminator, WezTerm, or Kitty
+  - user report: `Alt+Enter` does work
+  - fix implemented: local bubbletea parser replacement plus terminal keyboard-protocol request for `shift+enter`
+  - caveat: terminals that do not emit a distinguishable modified-enter sequence, such as VTE-family terminals, may still not support this path
+  - status: pending re-test
 
 ## Branch and Worktree Lifecycle
 - Feature branch in use: `cl/2026-04-29_prompt-input-bugs`
@@ -101,6 +126,10 @@
   - merged `tmp/stage-2-step-1` into `cl/2026-04-29_prompt-input-bugs` via fast-forward
   - removed worktree `/tmp/steiner-stage-2-step-1`
   - deleted branch `tmp/stage-2-step-1`
+  - created `tmp/manual-fix-001` at `/tmp/steiner-manual-fix-001`
+  - merged `tmp/manual-fix-001` into `cl/2026-04-29_prompt-input-bugs` via fast-forward
+  - removed worktree `/tmp/steiner-manual-fix-001`
+  - deleted branch `tmp/manual-fix-001`
 
 ## Notes
 - Planner inputs `overview.md` and `plan.yaml` treated as immutable.
