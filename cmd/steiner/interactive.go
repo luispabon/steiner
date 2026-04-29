@@ -61,7 +61,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
-	approvalResponse := make(chan bool, 1)
 	clearSession := make(chan struct{}, 1)
 	triggerCompact := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
@@ -91,12 +90,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		OnContextInspect: func() {
 			select {
 			case contextInspect <- struct{}{}:
-			default:
-			}
-		},
-		OnApproval: func(allowed bool) {
-			select {
-			case approvalResponse <- allowed:
 			default:
 			}
 		},
@@ -149,10 +142,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// display events once the TUI is running.
 	displaySink.Set(tuiApp.EventSink())
 
-	approver := agent.NewEventingApprover(
-		rt.events,
-		channelApprovalResponder{ch: approvalResponse},
-	)
+	// Build the tea.Program so we can pass it to the huh approval responder.
+	// The program reference lets the responder pause/restore the terminal around
+	// huh form rendering (see huh_boundary.go).
+	teaProgram := tuiApp.NewProgram()
+	huhApprover := newHuhApprovalResponder(teaProgram)
+	approver := agent.NewEventingApprover(rt.events, huhApprover)
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
@@ -161,7 +156,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		tuiApp.Run()
+		if _, err := teaProgram.Run(); err != nil {
+			// Non-fatal: program exit errors are expected on normal quit.
+			_ = err
+		}
 		stop()
 	}()
 
