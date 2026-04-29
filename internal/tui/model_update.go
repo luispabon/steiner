@@ -136,6 +136,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.palette.height = msg.Height
 	m.fileList.width = msg.Width
 	m.fileList.height = msg.Height
+	m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
 }
@@ -170,6 +171,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.fileList, cmd = m.fileList.Update(msg)
 		return m, cmd
+	}
+
+	// If context overlay is open, handle scroll and close.
+	if m.contextOverlay.open {
+		return m.handleContextOverlayKey(msg)
 	}
 
 	// If file picker is open, route keys to it
@@ -255,6 +261,27 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.contextOverlay = m.contextOverlay.closeContextOverlay()
+		return m, nil
+	case tea.KeyUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(1)
+		return m, nil
+	case tea.KeyDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(1)
+		return m, nil
+	case tea.KeyPgUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(contextOverlayMaxLines)
+		return m, nil
+	case tea.KeyPgDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

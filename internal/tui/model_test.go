@@ -189,6 +189,27 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
 	}
+
+	// Simulate the context report arriving as an event (as interactive.go would emit).
+	reportContent := "# Last Request Context\nModel: `test`"
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(reportContent)})
+
+	// Overlay should open immediately with report content, not transcript.
+	if !m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = false, want overlay open after context report event")
+	}
+	if !strings.Contains(m.contextOverlay.content, "Last Request Context") {
+		t.Fatalf("contextOverlay.content = %q, want report content", m.contextOverlay.content)
+	}
+	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+		t.Fatalf("content = %q, want no transcript insertion for context report", got)
+	}
+
+	// Esc should close the overlay.
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = true, want overlay closed after Esc")
+	}
 }
 
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
