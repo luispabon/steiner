@@ -4,8 +4,8 @@
 - Planning folder: `.project_planning/2026-04-29_prompt-input-bugs`
 - Active branch: `cl/2026-04-29_prompt-input-bugs`
 - Execution start commit: `d9d45d4`
-- Current stage: `manual_verification_pending`
-- Final handoff state: `not_ready`
+- Current stage: `reviewer_handoff_ready`
+- Final handoff state: `ready_with_user_override_for_unrelated_worktree_changes`
 
 ## Verification Strategy
 - Source: `overview.md` `## Verification Strategy`
@@ -135,7 +135,19 @@
   - user report: normal typing no longer works in Kitty, Ghostty, and WezTerm
   - user report: Terminator still works, but `Shift+Enter` still does not
   - fix implemented: removed runtime keyboard-protocol enable/disable hooks to restore normal typing
-  - status: pending re-test
+  - status: user approved
+
+## Final Handoff
+- Automated verification status: passing
+- Manual verification status: user approved
+- Branch: `cl/2026-04-29_prompt-input-bugs`
+- Deviation:
+  - reviewer handoff is proceeding with explicit user approval despite unrelated working-tree changes outside this task
+- Unrelated working-tree changes present at handoff:
+  - `internal/tool/executor.go`
+  - `internal/tui/sidebar.go`
+  - `POEM.md`
+  - `internal/tui/theme/check_color_test.go`
 
 ## Branch and Worktree Lifecycle
 - Feature branch in use: `cl/2026-04-29_prompt-input-bugs`
