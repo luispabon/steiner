@@ -87,7 +87,7 @@ func (m *Model) applyEvent(event output.Event) {
 		}
 	}
 
-	if event.Type == output.EventTypeToolCallFinished {
+	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
 		m.git.Refresh(context.Background())
 	}
 	m.syncSidebar()
