@@ -82,6 +82,15 @@
     - `d12200fa0655eb38d97aa0c4bbd7daa340649463`
   - note: executor implemented a local bubbletea replacement with `shift+enter` decode support and terminal keyboard-protocol enable/disable commands
   - note: worker added targeted regression coverage in the local bubbletea fork and was explicitly closed after merge
+- `manual-fix-round-002`
+  - status: `implemented`
+  - model: `executor-direct-fallback`
+  - tier_vs_current_runtime: `same`
+  - temporary branch: `tmp/manual-fix-002` (merged and deleted)
+  - worktree: `/tmp/steiner-manual-fix-002` (removed)
+  - commit:
+    - `1f2d7b0ec52522cba2dfd3744e677e3dcba4f6e2`
+  - note: executor removed the terminal keyboard-protocol enable/disable hooks that regressed normal typing in Kitty, Ghostty, and WezTerm
 
 ## Verification Runs
 - `stage-1-step-1`
@@ -100,11 +109,19 @@
   - `go test ./internal/tui -run 'Test.*(Shift|Enter|Input|Approval)'` -> passed
   - `go test ./...` -> passed
   - `go build ./...` -> passed
+- `manual-fix-round-002`
+  - `go test ./internal/tui -run 'Test.*(Shift|Enter|Input|Approval)'` -> passed
+  - `go test ./...` -> passed
+  - `go build ./...` -> passed
 
 ## Fix Plans
 - `manual_fix_plan_round_001.md`
   - source: manual verification
   - issue: `Shift+Enter` still does not work in real terminals
+  - status: `implemented`
+- `manual_fix_plan_round_002.md`
+  - source: manual verification
+  - issue: manual fix round 001 regressed normal typing in Kitty, Ghostty, and WezTerm
   - status: `implemented`
 
 ## Manual Verification
@@ -113,6 +130,11 @@
   - user report: `Alt+Enter` does work
   - fix implemented: local bubbletea parser replacement plus terminal keyboard-protocol request for `shift+enter`
   - caveat: terminals that do not emit a distinguishable modified-enter sequence, such as VTE-family terminals, may still not support this path
+  - status: superseded by round 002 after typing regression report
+- Round 002:
+  - user report: normal typing no longer works in Kitty, Ghostty, and WezTerm
+  - user report: Terminator still works, but `Shift+Enter` still does not
+  - fix implemented: removed runtime keyboard-protocol enable/disable hooks to restore normal typing
   - status: pending re-test
 
 ## Branch and Worktree Lifecycle
@@ -130,6 +152,10 @@
   - merged `tmp/manual-fix-001` into `cl/2026-04-29_prompt-input-bugs` via fast-forward
   - removed worktree `/tmp/steiner-manual-fix-001`
   - deleted branch `tmp/manual-fix-001`
+  - created `tmp/manual-fix-002` at `/tmp/steiner-manual-fix-002`
+  - merged `tmp/manual-fix-002` into `cl/2026-04-29_prompt-input-bugs` via fast-forward
+  - removed worktree `/tmp/steiner-manual-fix-002`
+  - deleted branch `tmp/manual-fix-002`
 
 ## Notes
 - Planner inputs `overview.md` and `plan.yaml` treated as immutable.
