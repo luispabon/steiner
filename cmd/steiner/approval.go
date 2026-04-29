@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 )
 
 type channelApprovalResponder struct {
@@ -29,71 +29,128 @@ func (r channelApprovalResponder) RequestApproval(ctx context.Context, req tool.
 	return nil
 }
 
-// huhApprovalResponder presents a charmbracelet/huh dialog for interactive
-// tool approvals.  It pauses the Bubble Tea program before showing the dialog
-// and restores it after, as required by the boundary contract in
-// huh_boundary.go.
-//
-// It maintains a session-local always-allow cache keyed by tool name.  Entries
-// in the cache are never written to disk.
-type huhApprovalResponder struct {
-	program *tea.Program
+type pendingTUIApproval struct {
+	toolName string
+	mode     string
+	response chan tui.ApprovalSubmission
+}
+
+type tuiApprovalCoordinator struct {
+	mu      sync.Mutex
+	pending *pendingTUIApproval
+}
+
+func (c *tuiApprovalCoordinator) begin(toolName, mode string) chan tui.ApprovalSubmission {
+	response := make(chan tui.ApprovalSubmission, 1)
+	c.mu.Lock()
+	c.pending = &pendingTUIApproval{
+		toolName: toolName,
+		mode:     mode,
+		response: response,
+	}
+	c.mu.Unlock()
+	return response
+}
+
+func (c *tuiApprovalCoordinator) finish(response chan tui.ApprovalSubmission) {
+	c.mu.Lock()
+	if c.pending != nil && c.pending.response == response {
+		c.pending = nil
+	}
+	c.mu.Unlock()
+}
+
+func (c *tuiApprovalCoordinator) submit(submission tui.ApprovalSubmission) {
+	c.mu.Lock()
+	pending := c.pending
+	c.mu.Unlock()
+	if pending == nil {
+		return
+	}
+	if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
+		return
+	}
+	if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
+		return
+	}
+	select {
+	case pending.response <- submission:
+	default:
+	}
+}
+
+type tuiApprovalResponder struct {
+	coordinator *tuiApprovalCoordinator
 
 	mu          sync.Mutex
 	alwaysAllow map[string]bool
 }
 
-// newHuhApprovalResponder creates a responder backed by the given Bubble Tea
-// program.  The program reference is used to pause and resume the terminal
-// around huh form rendering.
-func newHuhApprovalResponder(p *tea.Program) *huhApprovalResponder {
-	return &huhApprovalResponder{
-		program:     p,
+func newTUIApprovalResponder(coordinator *tuiApprovalCoordinator) *tuiApprovalResponder {
+	return &tuiApprovalResponder{
+		coordinator: coordinator,
 		alwaysAllow: make(map[string]bool),
 	}
 }
 
-// RequestApproval shows a huh Select dialog and sends the result on
-// req.Response.
-func (h *huhApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+func (h *tuiApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
 	}
-	if h.program == nil {
-		req.Response <- tool.ApprovalResponse{Allow: false, Message: "no terminal program available"}
-		return fmt.Errorf("no terminal program available")
+	if h == nil || h.coordinator == nil {
+		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval UI is unavailable"}
+		return fmt.Errorf("approval UI is unavailable")
 	}
 
 	toolName := req.Tool.Name
-	preview := req.Preview.Summary()
-
-	// Fast path: already always-allowed for this tool.
-	h.mu.Lock()
-	cached := h.alwaysAllow[toolName]
-	h.mu.Unlock()
-	if cached {
+	if h.isAlwaysAllowed(toolName) {
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
 		return nil
 	}
 
-	choice, err := runHuhApprovalForm(ctx, h.program, toolName, preview)
-	if err != nil {
-		req.Response <- tool.ApprovalResponse{Allow: false, Message: fmt.Sprintf("approval error: %v", err)}
-		return fmt.Errorf("huh approval form: %w", err)
-	}
+	responseCh := h.coordinator.begin(toolName, string(req.Mode))
+	defer h.coordinator.finish(responseCh)
 
-	switch choice {
-	case approvalChoiceAlwaysAllow:
-		h.mu.Lock()
-		h.alwaysAllow[toolName] = true
-		h.mu.Unlock()
-		req.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
-	case approvalChoiceAllow:
-		req.Response <- tool.ApprovalResponse{Allow: true, Message: "approved"}
-	default:
-		req.Response <- tool.ApprovalResponse{Allow: false, Message: "denied"}
+	select {
+	case submission, ok := <-responseCh:
+		if !ok {
+			req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval response channel closed"}
+			return fmt.Errorf("approval response channel closed")
+		}
+		response := approvalResponseForDecision(submission.Decision)
+		if submission.Decision == tui.ApprovalDecisionAlwaysAllow {
+			h.cacheAlwaysAllow(toolName)
+		}
+		req.Response <- response
+		return nil
+	case <-ctx.Done():
+		response := tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
+		req.Response <- response
+		return ctx.Err()
 	}
-	return nil
+}
+
+func (h *tuiApprovalResponder) isAlwaysAllowed(toolName string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.alwaysAllow[toolName]
+}
+
+func (h *tuiApprovalResponder) cacheAlwaysAllow(toolName string) {
+	h.mu.Lock()
+	h.alwaysAllow[toolName] = true
+	h.mu.Unlock()
+}
+
+func approvalResponseForDecision(decision tui.ApprovalDecision) tool.ApprovalResponse {
+	switch decision {
+	case tui.ApprovalDecisionAlwaysAllow:
+		return tool.ApprovalResponse{Allow: true, Message: "always allowed"}
+	case tui.ApprovalDecisionAllowOnce:
+		return tool.ApprovalResponse{Allow: true, Message: "approved"}
+	default:
+		return tool.ApprovalResponse{Allow: false, Message: "denied"}
+	}
 }
 
 type stdinApprovalResponder struct {

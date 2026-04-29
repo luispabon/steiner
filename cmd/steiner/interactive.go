@@ -68,6 +68,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	requestSnapshots := &requestSnapshotStore{}
 	runController := &activeRunController{}
 	runner := cliRunner{runtime: rt, streamingPreferred: true}
+	approvalCoordinator := &tuiApprovalCoordinator{}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -93,6 +94,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			case contextInspect <- struct{}{}:
 			default:
 			}
+		},
+		OnApproval: func(submission tui.ApprovalSubmission) {
+			approvalCoordinator.submit(submission)
 		},
 		OnInterrupt: func() {
 			runController.Interrupt()
@@ -149,12 +153,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// display events once the TUI is running.
 	displaySink.Set(tuiApp.EventSink())
 
-	// Build the tea.Program so we can pass it to the huh approval responder.
-	// The program reference lets the responder pause/restore the terminal around
-	// huh form rendering (see huh_boundary.go).
 	teaProgram := tuiApp.NewProgram()
-	huhApprover := newHuhApprovalResponder(teaProgram)
-	approver := agent.NewEventingApprover(rt.events, huhApprover)
+	approver := agent.NewEventingApprover(rt.events, newTUIApprovalResponder(approvalCoordinator))
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()

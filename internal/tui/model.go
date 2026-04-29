@@ -17,10 +17,11 @@ import (
 )
 
 type approvalState struct {
-	active  bool
-	tool    string
-	mode    string
-	preview string
+	active         bool
+	tool           string
+	mode           string
+	preview        string
+	selectedAction int
 }
 
 // contextOverlayState holds the state for the /context report overlay modal.
@@ -63,7 +64,7 @@ type Model struct {
 	modelContexts                map[string]int
 	onSubmit                     func(string)
 	onContextInspect             func()
-	onApproval                   func(bool)
+	onApproval                   func(ApprovalSubmission)
 	onInterrupt                  func()
 	onExitRequested              func()
 	onSkillToggle                func(string, bool)
@@ -344,12 +345,15 @@ func (m Model) View() string {
 		Render(strings.Repeat("─", contentWidth))
 
 	inputView := m.input.View()
-	if m.input.Focused() && m.content.streamingPhase == "" {
+	if m.showInputFocusBorder() {
 		inputView = m.styles.InputFocusBorder.Width(contentWidth - 2).Render(inputView)
 	}
 	statusView := m.status.view(contentWidth)
 
 	mainComponents := []string{viewportView, hDivider}
+	if tray := m.renderApprovalTray(contentWidth); tray != "" {
+		mainComponents = append(mainComponents, tray)
+	}
 	mainComponents = append(mainComponents, inputView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
@@ -391,7 +395,7 @@ func (m Model) View() string {
 	if m.filePicker.open {
 		overlay := m.filePicker.View()
 		inputHeight := 1
-		if m.input.Focused() && m.content.streamingPhase == "" {
+		if m.showInputFocusBorder() {
 			inputHeight = 3
 		}
 		base = m.filePicker.PlaceBottomAnchored(base, overlay, inputHeight)
@@ -549,22 +553,20 @@ func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {
 	}
 }
 
-func isApprovalAccepted(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "y", "yes", "a", "always":
-		return true
-	default:
-		return false
-	}
+func (m Model) showInputFocusBorder() bool {
+	return m.input.Focused() && m.content.streamingPhase == "" && !m.approval.active
 }
 
-func approvalDecisionText(allowed bool, toolName string) string {
-	state := "denied"
-	if allowed {
-		state = "approved"
+func (m *Model) syncInputChrome() {
+	m.input.Prompt = "› "
+	switch {
+	case m.approval.active:
+		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
+	case m.content.streamingPhase != "":
+		m.input.Placeholder = "streaming… esc to interrupt"
+	default:
+		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}
-	if toolName == "" {
-		return state
-	}
-	return fmt.Sprintf("%s %s", toolName, state)
+	m.status.approvalActive = m.approval.active
+	m.status.streaming = m.content.streamingPhase != "" && !m.approval.active
 }

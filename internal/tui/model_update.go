@@ -110,16 +110,9 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
-	m.status.streaming = m.content.streamingPhase != ""
 	m.status.promptUsed = m.sidebar.promptUsed
 	m.status.contextBudget = m.sidebar.contextBudget
-	if !m.approval.active {
-		if m.content.streamingPhase != "" {
-			m.input.Placeholder = "streaming… esc to interrupt"
-		} else {
-			m.input.Placeholder = "ask steiner — / for commands, @ for files"
-		}
-	}
+	m.syncInputChrome()
 	// Emit any render or git errors captured during the last cycle
 	if m.content.lastRenderErr != nil {
 		emitRenderError(m.content.lastRenderErr)
@@ -187,6 +180,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If file picker is open, route keys to it
 	if m.filePicker.open {
 		return m.handleFilePickerKey(msg)
+	}
+
+	if m.approval.active {
+		return m.handleApprovalKey(msg)
 	}
 
 	// Reset completion state on any non-Tab key
@@ -271,6 +268,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		return m.moveApprovalSelection(-1), nil
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		return m.moveApprovalSelection(1), nil
+	case tea.KeyEnter:
+		return m.executeApprovalDecision(m.selectedApprovalDecision())
+	case tea.KeyEsc:
+		return m.executeApprovalDecision(ApprovalDecisionDeny)
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

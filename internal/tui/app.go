@@ -2,12 +2,27 @@ package tui
 
 import (
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"os"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 )
+
+type ApprovalDecision string
+
+const (
+	ApprovalDecisionAllowOnce   ApprovalDecision = "allow_once"
+	ApprovalDecisionAlwaysAllow ApprovalDecision = "always_allow"
+	ApprovalDecisionDeny        ApprovalDecision = "deny"
+)
+
+type ApprovalSubmission struct {
+	Tool     string
+	Mode     string
+	Decision ApprovalDecision
+}
 
 type Config struct {
 	Model            string
@@ -23,7 +38,7 @@ type Config struct {
 	ShowThinking     bool
 	OnSubmit         func(string)
 	OnContextInspect func()
-	OnApproval       func(bool)
+	OnApproval       func(ApprovalSubmission)
 	OnInterrupt      func()
 	OnExitRequested  func()
 	OnSkillToggle    func(string, bool)
