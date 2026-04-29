@@ -48,7 +48,7 @@ type toolCallSegment struct {
 	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
 	args                     string // summarized args, ~60 chars max
 	meta                     string // "✅" or "❌" for finished calls
-	bodyKind                 string // "bash", "diff", "file", "plain"
+	bodyKind                 string // "bash", "diff", "file", "glob", "grep", "ls", "plain"
 	body                     string // raw result text
 	callID                   string // for matching started→finished
 	collapsed                bool   // default true
@@ -204,13 +204,18 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.finishStreaming()
 	b.streamingPhase = "tool"
 	if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+		rawArgs := cloneToolArguments(payload.Arguments)
 		tc := &toolCallSegment{
 			tool:                     strings.ToLower(payload.Tool),
 			args:                     summarizeArgs(payload.Tool, payload.Arguments),
 			callID:                   payload.CallID,
 			collapsed:                true,
-			rawArgs:                  cloneToolArguments(payload.Arguments),
+			rawArgs:                  rawArgs,
 			writeTargetExistedBefore: payload.WriteTargetExistedBefore,
+		}
+		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "", tc.writeTargetExistedBefore)
+		if tc.preview.Kind != output.ToolPreviewKindPlain {
+			tc.bodyKind = previewBodyKind(tc.tool, tc.preview)
 		}
 		b.segments = append(b.segments, contentSegment{
 			kind:     segmentToolCall,

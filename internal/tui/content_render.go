@@ -230,18 +230,38 @@ func (b *contentBuffer) streamingIndicatorView() string {
 
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 	var lines []string
-	dollar := b.styles.Accent.Render("$")
-	lines = append(lines, dollar+" "+tc.args)
-	if strings.TrimSpace(tc.body) != "" {
-		fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-		for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
-			lines = append(lines, fgStyle.Render(l))
-		}
+	outputText := tc.preview.Output
+	if strings.TrimSpace(outputText) == "" {
+		outputText = tc.body
 	}
-	if tc.hasError {
-		lines = append(lines, b.styles.Removed.Render("exit 1"))
+	if tc.preview.Command != "" {
+		lines = append(lines, b.styles.Accent.Render("$")+" "+tc.preview.Command)
 	} else {
-		lines = append(lines, b.styles.Added.Render("exit 0"))
+		lines = append(lines, b.styles.Accent.Render("$")+" "+tc.args)
+	}
+	outputLines := strings.Split(strings.TrimRight(outputText, "\n"), "\n")
+	if len(outputLines) == 1 && strings.TrimSpace(outputLines[0]) == "" {
+		outputLines = nil
+	}
+	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	for _, l := range outputLines {
+		lines = append(lines, fgStyle.Render(l))
+	}
+	if tc.preview.Message != "" {
+		lines = append(lines, b.styles.FgMute.Render(tc.preview.Message))
+	}
+	exitCode := tc.preview.ExitCode
+	if exitCode == 0 && tc.hasError {
+		exitCode = 1
+	}
+	exitLine := fmt.Sprintf("exit %d", exitCode)
+	if exitCode != 0 {
+		lines = append(lines, b.styles.Removed.Render(exitLine))
+	} else {
+		lines = append(lines, b.styles.Added.Render(exitLine))
+	}
+	if tc.preview.Truncated {
+		lines = append(lines, b.styles.FgMute.Render("output truncated"))
 	}
 	return lines
 }
@@ -250,6 +270,146 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	var lines []string
 	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
 		lines = append(lines, b.styles.FgDim.Render(l))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
+	return b.buildListLines(tc.preview.Path, "glob results", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
+}
+
+func (b *contentBuffer) buildLSLines(tc *toolCallSegment) []string {
+	return b.buildListLines(tc.preview.Path, "directory listing", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
+}
+
+func (b *contentBuffer) buildListLines(path, label string, returned, nextOffset int, truncated bool, entries []output.ToolPreviewListEntry, showDirs bool) []string {
+	summary := label
+	if path != "" {
+		summary = path + " · " + summary
+	}
+	if returned > 0 {
+		summary += fmt.Sprintf(" · %d entries", returned)
+	} else {
+		summary += " · no entries"
+	}
+	if nextOffset > 0 || truncated {
+		summary += " · more available"
+	}
+
+	lines := []string{b.styles.FgDim.Render(summary)}
+	if len(entries) == 0 {
+		lines = append(lines, b.styles.FgMute.Render("no results"))
+		return lines
+	}
+
+	for _, entry := range entries {
+		name := entry.Path
+		if showDirs && entry.IsDir {
+			name += "/"
+			lines = append(lines, b.styles.ToolTagRead.Render(name))
+		} else {
+			lines = append(lines, b.styles.FgDim.Render(name))
+		}
+	}
+	if nextOffset > 0 || truncated {
+		lines = append(lines, b.styles.FgMute.Render("more available"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildGrepLines(tc *toolCallSegment) []string {
+	switch tc.preview.OutputMode {
+	case "files_with_matches":
+		return b.buildGrepFileLines(tc)
+	case "count":
+		return b.buildGrepCountLines(tc)
+	default:
+		return b.buildGrepContentLines(tc)
+	}
+}
+
+func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
+	summary := "files with matches"
+	if tc.preview.Path != "" {
+		summary = tc.preview.Path + " · " + summary
+	}
+	if tc.preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d files", tc.preview.Returned)
+	}
+	if tc.preview.NextOffset > 0 {
+		summary += " · more available"
+	}
+	lines := []string{b.styles.FgDim.Render(summary)}
+	if len(tc.preview.GrepFiles) == 0 {
+		lines = append(lines, b.styles.FgMute.Render("no matches found"))
+		return lines
+	}
+	for _, file := range tc.preview.GrepFiles {
+		lines = append(lines, b.styles.ToolTagGrep.Render(file.Path))
+	}
+	if tc.preview.NextOffset > 0 {
+		lines = append(lines, b.styles.FgMute.Render("more available"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
+	summary := "match counts"
+	if tc.preview.Path != "" {
+		summary = tc.preview.Path + " · " + summary
+	}
+	if tc.preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d matches", tc.preview.Returned)
+	}
+	if tc.preview.NextOffset > 0 {
+		summary += " · more available"
+	}
+	lines := []string{b.styles.FgDim.Render(summary)}
+	if len(tc.preview.GrepFiles) == 0 {
+		lines = append(lines, b.styles.FgMute.Render("no matches found"))
+		return lines
+	}
+	for _, file := range tc.preview.GrepFiles {
+		lines = append(lines, b.styles.ToolTagGrep.Render(fmt.Sprintf("%s:%d", file.Path, file.Count)))
+	}
+	if tc.preview.NextOffset > 0 {
+		lines = append(lines, b.styles.FgMute.Render("more available"))
+	}
+	return lines
+}
+
+func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
+	summary := "content matches"
+	if tc.preview.Path != "" {
+		summary = tc.preview.Path + " · " + summary
+	}
+	total := 0
+	for _, file := range tc.preview.GrepFiles {
+		total += len(file.Matches)
+	}
+	if total > 0 {
+		summary += fmt.Sprintf(" · %d matches", total)
+	}
+	if tc.preview.NextOffset > 0 {
+		summary += " · more available"
+	}
+	lines := []string{b.styles.FgDim.Render(summary)}
+	if len(tc.preview.GrepFiles) == 0 {
+		lines = append(lines, b.styles.FgMute.Render("no matches found"))
+		return lines
+	}
+	for _, file := range tc.preview.GrepFiles {
+		lines = append(lines, b.styles.ToolTagGrep.Render("## "+file.Path))
+		for _, match := range file.Matches {
+			if match.LineNumber > 0 {
+				lines = append(lines, b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", match.LineNumber))+b.styles.FgDim.Render(match.Text))
+				continue
+			}
+			lines = append(lines, b.styles.FgDim.Render(match.Text))
+		}
+	}
+	if tc.preview.NextOffset > 0 {
+		lines = append(lines, b.styles.FgMute.Render("more available"))
 	}
 	return lines
 }

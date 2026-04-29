@@ -411,6 +411,35 @@ func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 			t.Fatalf("rendered diff %q missing %q", got, want)
 		}
 	}
+	if strings.Contains(got, "[edit]") {
+		t.Fatalf("rendered diff %q unexpectedly duplicated nested edit header", got)
+	}
+}
+
+func TestRenderEditToolHeaderShowsDiffCountsBeforeCompletion(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
+		"path":       "POEM.md",
+		"old_string": "old line\n",
+		"new_string": "new line\n",
+	}))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].toolData == nil {
+		t.Fatalf("tool segments = %#v, want one populated tool segment", buffer.segments)
+	}
+	buffer.segments[0].toolData.collapsed = false
+
+	got := buffer.String(100)
+	if !strings.Contains(got, "+1") || !strings.Contains(got, "-1") {
+		t.Fatalf("rendered diff header %q missing early diff counts", got)
+	}
+	if strings.Contains(got, "✅") {
+		t.Fatalf("rendered diff header %q unexpectedly shows completion meta before finish", got)
+	}
 }
 
 func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
@@ -443,5 +472,210 @@ func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
 	got := buffer.String(80)
 	if !strings.Contains(got, "… output truncated") && !strings.Contains(got, "↓ more") {
 		t.Fatalf("rendered preview %q missing truncation marker", got)
+	}
+}
+
+func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
+	tests := []struct {
+		name    string
+		tool    string
+		args    string
+		kind    string
+		preview output.ToolPreview
+		want    []string
+	}{
+		{
+			name: "glob",
+			tool: "glob",
+			args: "**/*.go",
+			kind: "glob",
+			preview: output.ToolPreview{
+				Kind:     output.ToolPreviewKindGlobList,
+				Path:     "src",
+				Returned: 2,
+				Entries:  []output.ToolPreviewListEntry{{Path: "main.go"}, {Path: "pkg/tool.go"}},
+			},
+			want: []string{"glob results", "src", "main.go", "pkg/tool.go"},
+		},
+		{
+			name: "ls",
+			tool: "ls",
+			args: "src",
+			kind: "ls",
+			preview: output.ToolPreview{
+				Kind:     output.ToolPreviewKindLSList,
+				Path:     "src",
+				Returned: 2,
+				Entries:  []output.ToolPreviewListEntry{{Path: "cmd", IsDir: true}, {Path: "main.go"}},
+			},
+			want: []string{"directory listing", "src", "cmd/", "main.go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				styles:        theme.BuildStyles(theme.AccentAmber),
+				collapseState: make(map[int]bool),
+			}
+			buffer.segments = []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      tt.tool,
+						args:      tt.args,
+						bodyKind:  tt.kind,
+						collapsed: false,
+						preview:   tt.preview,
+					},
+				},
+			}
+
+			got := buffer.String(100)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("rendered preview %q missing %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    string
+		preview output.ToolPreview
+		want    []string
+	}{
+		{
+			name: "content",
+			kind: "grep",
+			preview: output.ToolPreview{
+				Kind:       output.ToolPreviewKindGrep,
+				Path:       "src",
+				OutputMode: "content",
+				Returned:   1,
+				GrepFiles: []output.ToolPreviewGrepFile{
+					{
+						Path: "src/main.go",
+						Matches: []output.ToolPreviewGrepMatch{
+							{LineNumber: 12, Text: "hello"},
+							{LineNumber: 13, Text: "world"},
+						},
+					},
+				},
+			},
+			want: []string{"content matches", "src/main.go", "hello", "world"},
+		},
+		{
+			name: "files",
+			kind: "grep",
+			preview: output.ToolPreview{
+				Kind:       output.ToolPreviewKindGrep,
+				OutputMode: "files_with_matches",
+				Returned:   2,
+				GrepFiles:  []output.ToolPreviewGrepFile{{Path: "a.txt"}, {Path: "b.txt"}},
+			},
+			want: []string{"files with matches", "a.txt", "b.txt"},
+		},
+		{
+			name: "count",
+			kind: "grep",
+			preview: output.ToolPreview{
+				Kind:       output.ToolPreviewKindGrep,
+				OutputMode: "count",
+				Returned:   3,
+				GrepFiles:  []output.ToolPreviewGrepFile{{Path: "a.txt", Count: 2}, {Path: "b.txt", Count: 1}},
+			},
+			want: []string{"match counts", "a.txt:2", "b.txt:1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				styles:        theme.BuildStyles(theme.AccentAmber),
+				collapseState: make(map[int]bool),
+			}
+			buffer.segments = []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      "grep",
+						args:      "needle",
+						bodyKind:  tt.kind,
+						collapsed: false,
+						preview:   tt.preview,
+					},
+				},
+			}
+
+			got := buffer.String(100)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("rendered preview %q missing %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
+	tests := []struct {
+		name    string
+		preview output.ToolPreview
+		want    []string
+	}{
+		{
+			name: "exit code and truncation",
+			preview: output.ToolPreview{
+				Kind:      output.ToolPreviewKindBash,
+				Command:   "go test ./...",
+				Output:    "FAIL\n",
+				Message:   "output truncated at 12 characters",
+				ExitCode:  1,
+				Truncated: true,
+			},
+			want: []string{"$ go test ./...", "FAIL", "exit 1", "output truncated"},
+		},
+		{
+			name: "success",
+			preview: output.ToolPreview{
+				Kind:     output.ToolPreviewKindBash,
+				Command:  "pwd",
+				Output:   "/workspace\n",
+				ExitCode: 0,
+			},
+			want: []string{"$ pwd", "/workspace", "exit 0"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				styles:        theme.BuildStyles(theme.AccentAmber),
+				collapseState: make(map[int]bool),
+			}
+			buffer.segments = []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      "bash",
+						args:      tt.preview.Command,
+						bodyKind:  "bash",
+						collapsed: false,
+						preview:   tt.preview,
+					},
+				},
+			}
+
+			got := buffer.String(100)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("rendered preview %q missing %q", got, want)
+				}
+			}
+		})
 	}
 }
