@@ -95,7 +95,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true)
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, true)
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {

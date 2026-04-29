@@ -30,14 +30,9 @@ type RunRequest struct {
 	Limits      Limits
 	Events      output.EventSink
 
-	// StreamingPreferred signals whether the caller wants streaming responses
-	// (true) or a single final response (false). When false the agent should
-	// prefer ChatCompletion over StreamChatCompletion where the provider
-	// supports both. The field is scaffolded here for stage-0; wiring of
-	// selection logic is deferred to a later stage.
-	//
-	// TODO(stage-N): thread this flag into executeChatRequest / completeModelCall
-	// so that streaming is skipped when StreamingPreferred is false.
+	// StreamingPreferred signals whether the caller wants streaming responses.
+	// When false, ChatCompletion is tried first and streaming is used only as a
+	// fallback. Interactive mode sets this to true; --exec defaults to false.
 	StreamingPreferred bool
 }
 

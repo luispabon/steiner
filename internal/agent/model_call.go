@@ -19,6 +19,7 @@ func executeChatRequest(
 	events output.EventSink,
 	blocks []prompt.ContextBlock,
 	isCompaction bool,
+	streamingPreferred bool,
 ) (provider.ChatResponse, error) {
 	if budget.ContextSize > 0 {
 		var fit prompt.RequestTokenBudget
@@ -40,6 +41,17 @@ func executeChatRequest(
 	}
 	emitEvent(events, output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget))
 
+	// When streaming is not preferred, try ChatCompletion first and only fall
+	// back to streaming if it is unavailable.
+	if !streamingPreferred {
+		response, chatErr := prov.ChatCompletion(ctx, req)
+		if chatErr == nil {
+			emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
+			return response, nil
+		}
+		// Fall through to streaming when ChatCompletion fails.
+	}
+
 	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
 		response, streamErr := consumeModelStream(ctx, events, turn, stream)
@@ -60,7 +72,7 @@ func executeChatRequest(
 }
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false)
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred)
 }
 
 func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk) (provider.ChatResponse, error) {
