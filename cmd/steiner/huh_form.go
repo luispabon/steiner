@@ -55,6 +55,32 @@ func runHuhApprovalForm(ctx context.Context, p *tea.Program, toolName, preview s
 	return choice, nil
 }
 
+// runHuhExitConfirmForm pauses p, presents a huh Confirm dialog asking whether
+// to exit, then restores p.  Returns true if the user confirmed exit, false if
+// they cancelled.  An error is returned only when terminal management fails.
+func runHuhExitConfirmForm(ctx context.Context, p *tea.Program) (bool, error) {
+	if err := p.ReleaseTerminal(); err != nil {
+		return false, fmt.Errorf("release terminal: %w", err)
+	}
+	defer func() {
+		_ = p.RestoreTerminal()
+	}()
+
+	confirmed := false
+	confirmField := huh.NewConfirm().
+		Title("Exit steiner?").
+		Affirmative("Yes, exit").
+		Negative("Cancel").
+		Value(&confirmed)
+
+	form := huh.NewForm(huh.NewGroup(confirmField))
+	if err := form.RunWithContext(ctx); err != nil {
+		// User pressed ctrl-c / esc — treat as cancel.
+		return false, nil
+	}
+	return confirmed, nil
+}
+
 // truncatePreview shortens preview text to maxLen characters and appends "…"
 // if truncated.
 func truncatePreview(s string, maxLen int) string {

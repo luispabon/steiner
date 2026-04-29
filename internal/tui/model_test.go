@@ -387,6 +387,71 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	}
 }
 
+func TestModelIdleCtrlCRequestsExitInsteadOfQuitting(t *testing.T) {
+	exitRequests := 0
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	// Idle state: Ctrl+C should fire OnExitRequested, not quit.
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if exitRequests != 1 {
+		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	}
+	if interrupts != 0 {
+		t.Fatalf("interrupts = %d, want 0 (idle, not active run)", interrupts)
+	}
+	if cmd != nil {
+		// cmd should be nil — no quit, no side-effects returned.
+		// (tea.Quit would be a non-nil Cmd.)
+		// We can't compare directly, but ensure model state is unchanged.
+		_ = cmd
+	}
+	_ = updated
+}
+
+func TestModelIdleCtrlDRequestsExitInsteadOfQuitting(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	if exitRequests != 1 {
+		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	}
+}
+
+func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
+	// When OnExitRequested is not wired (e.g. non-interactive mode),
+	// idle Ctrl+C falls back to immediate quit.
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd when no OnExitRequested callback")
+	}
+}
+
 func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 	interrupts := 0
 

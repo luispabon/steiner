@@ -63,6 +63,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	contextInspect := make(chan struct{}, 1)
 	clearSession := make(chan struct{}, 1)
 	triggerCompact := make(chan struct{}, 1)
+	exitRequests := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	runController := &activeRunController{}
@@ -95,6 +96,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		},
 		OnInterrupt: func() {
 			runController.Interrupt()
+		},
+		OnExitRequested: func() {
+			select {
+			case exitRequests <- struct{}{}:
+			default:
+			}
 		},
 		OnSkillToggle: func(name string, enabled bool) {
 			enabledSkills.Set(name, enabled)
@@ -180,6 +187,19 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-exitRequests:
+			confirmed, err := runHuhExitConfirmForm(ctx, teaProgram)
+			if err != nil {
+				// Terminal management failed; log and ignore — do not exit.
+				rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("exit confirmation error: %v", err)))
+				continue
+			}
+			if confirmed {
+				teaProgram.Quit()
+				return nil
+			}
+			// Cancelled: return to idle, nothing to do.
+			continue
 		case <-contextInspect:
 			if snapshot, ok := requestSnapshots.Snapshot(); ok {
 				report, err := output.BuildContextReport(ctx, snapshot)

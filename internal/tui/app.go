@@ -25,6 +25,7 @@ type Config struct {
 	OnContextInspect func()
 	OnApproval       func(bool)
 	OnInterrupt      func()
+	OnExitRequested  func()
 	OnSkillToggle    func(string, bool)
 	OnModelSwitch    func(string) (string, bool)
 	OnClear          func()
