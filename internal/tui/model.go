@@ -12,8 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -380,26 +378,11 @@ func (m Model) View() string {
 
 	if m.filePicker.open {
 		overlay := m.filePicker.View()
-		baseLines := strings.Split(base, "\n")
-		olLines := strings.Split(overlay, "\n")
-
 		inputHeight := 1
 		if m.input.Focused() && m.content.streamingPhase == "" {
 			inputHeight = 3
 		}
-
-		startY := len(baseLines) - len(olLines) - inputHeight - 1
-		if startY < 0 {
-			startY = 0
-		}
-
-		for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
-			idx := startY + i
-			olWidth := lipgloss.Width(olLines[i])
-			baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
-			baseLines[idx] = olLines[i] + baseRight
-		}
-		base = strings.Join(baseLines, "\n")
+		base = m.filePicker.PlaceBottomAnchored(base, overlay, inputHeight)
 	}
 
 	return base
