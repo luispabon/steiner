@@ -152,6 +152,9 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 }
 
 func (r *Runner) handleModelResponse(ctx context.Context, req RunRequest, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, error) {
+	if response.Message.Role == "" {
+		response.Message.Role = provider.MessageRoleAssistant
+	}
 	state.TurnCount = turn
 	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
 	if err != nil {

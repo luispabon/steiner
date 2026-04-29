@@ -477,6 +477,46 @@ func main() {}
 	}
 }
 
+func TestAppendEventDisplayFileSuppressesGenericToolLifecycleRows(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "display_file", "call_1", map[string]any{
+		"path": "snippet.go",
+	}))
+	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "display_file", "call_1", `{"path":"snippet.go","status":"displayed"}`, nil))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0].toolData
+	if seg == nil {
+		t.Fatal("tool segment is nil")
+	}
+	if !strings.EqualFold(seg.tool, "display_file") {
+		t.Fatalf("tool = %q, want display_file", seg.tool)
+	}
+	if seg.displayPreview == nil {
+		t.Fatal("display preview is nil")
+	}
+	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
+		t.Fatalf("display preview path = %q, want %q", got, want)
+	}
+	if got := seg.body; got != "" {
+		t.Fatalf("body = %q, want empty body", got)
+	}
+}
+
 func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -564,7 +604,7 @@ func main() {}
 	}
 
 	got := buffer.String(100)
-	for _, want := range []string{"display file preview", "snippet.go", "package main", "func main()"} {
+	for _, want := range []string{"▾", "display file preview", "snippet.go", "package main", "func main()"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered display preview %q missing %q", got, want)
 		}

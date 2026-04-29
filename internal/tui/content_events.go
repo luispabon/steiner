@@ -208,6 +208,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.finishStreaming()
 	b.streamingPhase = "tool"
 	if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+		if strings.EqualFold(payload.Tool, "display_file") {
+			return
+		}
 		rawArgs := cloneToolArguments(payload.Arguments)
 		tc := &toolCallSegment{
 			tool:                     strings.ToLower(payload.Tool),
@@ -233,6 +236,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+		if strings.EqualFold(payload.Tool, "display_file") {
+			return
+		}
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
 				td := b.segments[i].toolData
