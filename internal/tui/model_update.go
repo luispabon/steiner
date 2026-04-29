@@ -129,7 +129,10 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.palette.height = msg.Height
 	m.fileList.width = msg.Width
 	m.fileList.height = msg.Height
-	m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+	if m.contextOverlay.open {
+		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.contextOverlay = m.contextOverlay.reflow()
+	}
 	m.fileViewer.OverlayShell = m.fileViewer.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
