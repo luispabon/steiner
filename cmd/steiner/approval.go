@@ -12,23 +12,6 @@ import (
 	"github.com/luispabon/steiner/internal/tui"
 )
 
-type channelApprovalResponder struct {
-	ch chan bool
-}
-
-func (r channelApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
-	if req.Response == nil {
-		return fmt.Errorf("approval response channel is required")
-	}
-	allowed, ok := <-r.ch
-	if !ok {
-		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval channel closed"}
-		return fmt.Errorf("approval channel closed")
-	}
-	req.Response <- tool.ApprovalResponse{Allow: allowed, Message: "approved"}
-	return nil
-}
-
 type pendingTUIApproval struct {
 	toolName string
 	mode     string
