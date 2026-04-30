@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -22,7 +24,7 @@ func openExitModal(width, height int) exitModalState {
 	shell = shell.WithDimensions(width, height).WithTitle("exit").openShell()
 	return exitModalState{
 		OverlayShell:   shell,
-		selectedAction: exitModalActionExit,
+		selectedAction: exitModalActionCancel,
 	}
 }
 
@@ -41,7 +43,7 @@ func (m *Model) renderExitModal() string {
 	s := m.exitModal
 	s.OverlayShell = s.OverlayShell.WithDimensions(m.width, m.height)
 
-	overlayWidth := 52
+	overlayWidth := 60
 	if overlayWidth > m.width-4 {
 		overlayWidth = m.width - 4
 	}
@@ -49,39 +51,42 @@ func (m *Model) renderExitModal() string {
 		overlayWidth = 40
 	}
 	innerWidth := overlayWidth - 4
+	contentWidth := max(1, innerWidth-2)
 
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.Fg)).
 		Bold(true).
-		Width(innerWidth).
+		Width(contentWidth).
 		Render("Exit steiner?")
 	body := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgMute)).
-		Width(innerWidth).
+		Width(contentWidth).
 		Render("Leave the interactive session and return to the shell.")
 
-	buttons := lipgloss.JoinHorizontal(lipgloss.Left,
-		m.renderExitModalButton("Exit", s.selectedAction == exitModalActionExit),
-		"  ",
-		m.renderExitModalButton("Cancel", s.selectedAction == exitModalActionCancel),
-	)
-	buttonRow := lipgloss.NewStyle().Width(innerWidth).Render(buttons)
+	cancelButton := m.renderExitModalButton("Cancel", s.selectedAction == exitModalActionCancel)
+	exitButton := m.renderExitModalButton("Exit", s.selectedAction == exitModalActionExit)
+	buttonRow := strings.Repeat(" ", contentWidth)
+	buttonRow = composeOverlayLine(buttonRow, cancelButton, contentWidth, 0, lipgloss.Width(cancelButton))
+	buttonRow = composeOverlayLine(buttonRow, exitButton, contentWidth, contentWidth-lipgloss.Width(exitButton), lipgloss.Width(exitButton))
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BorderSoft)).
+		Render(strings.Repeat("─", contentWidth))
 	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm   " + FooterChip("esc") + " cancel"
 	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgMute)).
-		Width(innerWidth).
+		Width(contentWidth).
 		Render(footerText)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
-		s.Divider(),
+		"",
 		body,
 		"",
 		buttonRow,
-		s.Divider(),
+		divider,
 		footer,
 	)
-	return m.styles.PaletteOverlay.Width(innerWidth).Padding(1, 1).Render(content)
+	return m.styles.PaletteOverlay.Width(innerWidth).Padding(0, 1).Render(content)
 }
 
 func (m *Model) renderExitModalButton(label string, selected bool) string {
