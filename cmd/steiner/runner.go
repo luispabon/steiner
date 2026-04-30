@@ -14,9 +14,10 @@ import (
 )
 
 type cliRunner struct {
-	runtime  cliRuntime
-	approver tool.ApprovalResponder
-	maxTurns int
+	runtime            cliRuntime
+	approver           tool.ApprovalResponder
+	maxTurns           int
+	streamingPreferred bool
 }
 
 type runResult struct {
@@ -94,7 +95,8 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		Events: events,
+		Events:             events,
+		StreamingPreferred: r.streamingPreferred,
 	})
 	if err != nil {
 		return runResult{}, err

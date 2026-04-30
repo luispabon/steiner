@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -19,6 +20,16 @@ func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
 	case <-ctx.Done():
 	default:
 		t.Fatal("expected interrupt to cancel the active run")
+	}
+}
+
+func TestClearTerminalScreenWritesANSISequence(t *testing.T) {
+	var buf bytes.Buffer
+
+	clearTerminalScreen(&buf)
+
+	if got, want := buf.String(), terminalClearSequence; got != want {
+		t.Fatalf("clearTerminalScreen() = %q, want %q", got, want)
 	}
 }
 

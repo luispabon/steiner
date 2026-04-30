@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -18,6 +19,8 @@ type activeRunController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 }
+
+const terminalClearSequence = "\x1b[2J\x1b[H"
 
 func (c *activeRunController) Set(cancel context.CancelFunc) {
 	c.mu.Lock()
@@ -40,6 +43,13 @@ func (c *activeRunController) Interrupt() {
 	}
 }
 
+func clearTerminalScreen(w io.Writer) {
+	if w == nil {
+		return
+	}
+	_, _ = io.WriteString(w, terminalClearSequence)
+}
+
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
@@ -47,15 +57,28 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	defer closeRuntime(&rt)
 
+	// Build a ForwardSink so the display_file tool can emit events even though
+	// the TUI event sink is assembled after the registry. We update it below
+	// once the TUI sink is ready.
+	displaySink := output.NewForwardSink()
+
+	// Rebuild the registry with interactive mode and the forward sink wired in.
+	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, displaySink, true)
+	if err != nil {
+		return fmt.Errorf("build interactive registry: %w", err)
+	}
+	rt.registry = interactiveRegistry
+
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
-	approvalResponse := make(chan bool, 1)
 	clearSession := make(chan struct{}, 1)
 	triggerCompact := make(chan struct{}, 1)
+	exitRequests := make(chan struct{}, 1)
 	enabledSkills := newInteractiveSkills(rt.skillNames)
 	requestSnapshots := &requestSnapshotStore{}
 	runController := &activeRunController{}
-	runner := cliRunner{runtime: rt}
+	runner := cliRunner{runtime: rt, streamingPreferred: true}
+	approvalCoordinator := &tuiApprovalCoordinator{}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -82,14 +105,17 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			default:
 			}
 		},
-		OnApproval: func(allowed bool) {
-			select {
-			case approvalResponse <- allowed:
-			default:
-			}
+		OnApproval: func(submission tui.ApprovalSubmission) {
+			approvalCoordinator.submit(submission)
 		},
 		OnInterrupt: func() {
 			runController.Interrupt()
+		},
+		OnExitRequested: func() {
+			select {
+			case exitRequests <- struct{}{}:
+			default:
+			}
 		},
 		OnSkillToggle: func(name string, enabled bool) {
 			enabledSkills.Set(name, enabled)
@@ -133,10 +159,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	)
 	runner.runtime.events = rt.events
 
-	approver := agent.NewEventingApprover(
-		rt.events,
-		channelApprovalResponder{ch: approvalResponse},
-	)
+	// Wire the TUI sink into the display_file forward sink so the tool can emit
+	// display events once the TUI is running.
+	displaySink.Set(tuiApp.EventSink())
+
+	teaProgram := tuiApp.NewProgram()
+	approver := agent.NewEventingApprover(rt.events, newTUIApprovalResponder(approvalCoordinator))
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
@@ -145,8 +173,16 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		tuiApp.Run()
+		if _, err := teaProgram.Run(); err != nil {
+			// Non-fatal: program exit errors are expected on normal quit.
+			_ = err
+		}
 		stop()
+	}()
+	defer func() {
+		teaProgram.Quit()
+		wg.Wait()
+		clearTerminalScreen(cmd.OutOrStdout())
 	}()
 
 	var conversation []agent.Message
@@ -165,6 +201,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	for {
 		select {
 		case <-ctx.Done():
+			return nil
+		case <-exitRequests:
 			return nil
 		case <-contextInspect:
 			if snapshot, ok := requestSnapshots.Snapshot(); ok {

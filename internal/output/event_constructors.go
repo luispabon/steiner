@@ -368,6 +368,16 @@ func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event
 	}
 }
 
+// NewDisplayFileEvent creates a DisplayFile event with an explicit preview
+// payload for the TUI to render.
+func NewDisplayFileEvent(payload DisplayFilePayload) Event {
+	return Event{
+		Type:      EventTypeDisplayFile,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 	return Event{

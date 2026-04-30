@@ -41,21 +41,6 @@ Currently the user cannot select text with the mouse. Investigate and fix so tha
 
 ## Mid-term
 
-### T009 — Implement approvals using huh
-
-**Area:** UX / Tool Safety
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-Use https://github.com/charmbracelet/huh to implement tool approval prompts. Also explore using it for prompt command auto-suggestions.
-
-#### Acceptance Criteria
-- [ ] Tool approvals use huh for the UI
-- [ ] Approvals still function correctly (approve / deny / always allow)
-- [ ] (Optional) huh is used for prompt auto-suggestions
-
 ### T010 — Implement a /config command
 
 **Area:** UX
@@ -69,42 +54,6 @@ The /config command will show the current session's full config on a scrollable 
 - [ ] Tool approvals use huh for the UI
 - [ ] Approvals still function correctly (approve / deny / always allow)
 - [ ] (Optional) huh is used for prompt auto-suggestions
-
----
-
-
-### T011 — Exit confirmation on Ctrl+D / Ctrl+C
-
-**Area:** UX
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-When pressing Ctrl+D or Ctrl+C a second time, use huh to create a confirmation dialog, like T009
-
-#### Acceptance Criteria
-- [ ] First Ctrl+D / Ctrl+C during idle does not exit
-- [ ] A confirmation modal or status message appears
-- [ ] Confirming exits; cancelling returns to normal
-
----
-
-### T012 — --exec mode no streaming by default
-
-**Area:** CLI / UX
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-The `--exec` mode should not stream responses by default. Add a `--enable-streaming` flag (disabled by default). When streaming is off, show a "waiting" message and display the full response once received.
-
-#### Acceptance Criteria
-- [ ] `--exec` mode does not stream by default
-- [ ] `--enable-streaming` flag added
-- [ ] When streaming is off, a "waiting for response" indicator is shown
-- [ ] Full response is displayed atomically when available
 
 ---
 
@@ -220,40 +169,6 @@ Add sandboxing for commands (e.g. bubblewrap, socat) similar to Claude and Codex
 - [ ] Commands can be run inside a sandbox
 - [ ] Sandboxing is configurable (enabled/disabled)
 - [ ] Sandboxed commands are isolated from the host environment
-
----
-
-### T020 — Tool to display file to user without model reading it
-
-**Area:** Tools / UX
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Low
-
-#### Description
-Add a tool that lets the model request the agent to display a file to the user without the model having to read and regurgitate it first.
-
-#### Acceptance Criteria
-- [ ] New tool allows the model to request file display
-- [ ] File is shown in the TUI without being streamed into the conversation
-- [ ] Tool is opt-in or gated behind a config flag
-
----
-
-### T021 — /context as overlay modal
-
-**Area:** UX
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Low
-
-#### Description
-Make the `/context` command behave like the `?` keybind — open an overlay modal immediately instead of waiting for the current turn to finish. Display information in a table instead of lists of lists.
-
-#### Acceptance Criteria
-- [ ] `/context` opens an overlay modal immediately
-- [ ] Does not wait for the current turn to finish
-- [ ] Context information is displayed in a table format
 
 ---
 

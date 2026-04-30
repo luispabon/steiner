@@ -189,6 +189,53 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
 	}
+
+	// Simulate the context report arriving as an event (as interactive.go would emit).
+	reportContent := "# Last Request Context\nModel: `test`"
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(reportContent)})
+
+	// Overlay should open immediately with report content, not transcript.
+	if !m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = false, want overlay open after context report event")
+	}
+	if !strings.Contains(m.contextOverlay.content, "Last Request Context") {
+		t.Fatalf("contextOverlay.content = %q, want report content", m.contextOverlay.content)
+	}
+	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+		t.Fatalf("content = %q, want no transcript insertion for context report", got)
+	}
+
+	// Esc should close the overlay.
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = true, want overlay closed after Esc")
+	}
+}
+
+func TestModelDisplaysFileEventInTranscript(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	})})
+
+	if m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = true, want no overlay for display_file")
+	}
+	content := m.content.String(m.viewport.Width)
+	for _, want := range []string{"display file preview", "snippet.go", "package main"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content = %q, want %q", content, want)
+		}
+	}
+	if strings.Contains(m.View(), "file viewer") {
+		t.Fatalf("view = %q, want no file viewer overlay", m.View())
+	}
 }
 
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
@@ -288,11 +335,11 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 }
 
 func TestModelApprovalModeTransitions(t *testing.T) {
-	var approved []bool
+	approved := make(chan ApprovalSubmission, 1)
 
 	m := newModel(Config{
-		OnApproval: func(value bool) {
-			approved = append(approved, value)
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
 		},
 	}, nil)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
@@ -305,17 +352,28 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
 	}
-	if len(approved) != 1 || !approved[0] {
-		t.Fatalf("approved = %#v, want accepted response", approved)
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+		if got, want := submission.Tool, "write"; got != want {
+			t.Fatalf("submission.Tool = %q, want %q", got, want)
+		}
+		if got, want := submission.Mode, "prompt"; got != want {
+			t.Fatalf("submission.Mode = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission")
 	}
 }
 
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
-	var approved []bool
+	approved := make(chan ApprovalSubmission, 1)
 
 	m := newModel(Config{
-		OnApproval: func(value bool) {
-			approved = append(approved, value)
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
 		},
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -326,11 +384,82 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m.input.SetValue("yes")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(approved) != 1 || !approved[0] {
-		t.Fatalf("approved = %#v, want accepted response while streaming", approved)
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission while streaming")
 	}
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
+	}
+}
+
+func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
+	approved := make(chan ApprovalSubmission, 1)
+
+	m := newModel(Config{
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
+		},
+	}, nil)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
+
+	if got, want := m.approval.selectedAction, 0; got != want {
+		t.Fatalf("selectedAction = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Fatalf("selectedAction after tab = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionAlwaysAllow; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+		if got, want := submission.Tool, "bash"; got != want {
+			t.Fatalf("submission.Tool = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected approval submission")
+	}
+	if m.approval.active {
+		t.Fatal("expected approval mode to clear after decision")
+	}
+}
+
+func TestModelApprovalEscDenies(t *testing.T) {
+	approved := make(chan ApprovalSubmission, 1)
+
+	m := newModel(Config{
+		OnApproval: func(submission ApprovalSubmission) {
+			approved <- submission
+		},
+	}, nil)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
+	m.input.SetValue("stale text")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	select {
+	case submission := <-approved:
+		if got, want := submission.Decision, ApprovalDecisionDeny; got != want {
+			t.Fatalf("submission.Decision = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected denial submission")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want reset after denial", got)
+	}
+	if m.approval.active {
+		t.Fatal("expected approval mode to clear after esc denial")
 	}
 }
 
@@ -363,6 +492,143 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	}
 	if !strings.Contains(m.content.String(m.viewport.Width), "interrupted") {
 		t.Fatal("expected interrupted marker in content")
+	}
+}
+
+func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
+	exitRequests := 0
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	// Idle state: Ctrl+C should fire OnExitRequested, not quit.
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
+	}
+	if interrupts != 0 {
+		t.Fatalf("interrupts = %d, want 0 (idle, not active run)", interrupts)
+	}
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command when opening exit modal")
+	}
+}
+
+func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
+	}
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command when opening exit modal")
+	}
+}
+
+func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
+	// When OnExitRequested is not wired (e.g. non-interactive mode),
+	// idle Ctrl+C falls back to immediate quit.
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd when no OnExitRequested callback")
+	}
+}
+
+func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !m.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if updated.exitModal.open {
+		t.Fatal("exitModal.open = true, want modal closed")
+	}
+	if exitRequests != 0 {
+		t.Fatalf("exitRequests = %d, want 0", exitRequests)
+	}
+	if cmd != nil {
+		t.Fatal("expected no quit command on cancel")
+	}
+}
+
+func TestModelExitModalExitRequestsQuit(t *testing.T) {
+	exitRequests := 0
+
+	m := newModel(Config{
+		OnExitRequested: func() {
+			exitRequests++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !m.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal open")
+	}
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+
+	if exitRequests != 1 {
+		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	}
+	if !updated.exitModal.open {
+		t.Fatal("exitModal.open = false, want modal to remain open until runtime quits")
+	}
+	if cmd != nil {
+		t.Fatal("expected runtime callback path, not direct tea.Quit")
 	}
 }
 
@@ -486,9 +752,12 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
-	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with focus border) + status(1) → viewport.Height = 12-6 = 6
+	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + status(1) → viewport.Height = 12-6 = 6
 	if m.viewport.Width != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
+	}
+	if got := m.input.Width(); got != 56 {
+		t.Fatalf("input width = %d, want 56 after rail, padding, and tail fill", got)
 	}
 	if m.viewport.Height != 6 {
 		t.Fatalf("viewport height = %d, want 6 after pane chrome", m.viewport.Height)
@@ -554,8 +823,29 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	if !strings.Contains(view, "─") {
 		t.Fatal("expected divider in View()")
 	}
-	if !strings.Contains(view, "›") {
-		t.Fatal("expected input prompt in View()")
+	if !strings.Contains(view, "ask steiner") {
+		t.Fatal("expected composer placeholder in View()")
+	}
+	if !strings.Contains(view, "┃") {
+		t.Fatal("expected accented composer border in View()")
+	}
+}
+
+func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.input.SetValue("asdasd")
+	m.input.SetCursor(len([]rune("asdasd")))
+
+	lines, placeholder := m.renderInputLines(20)
+
+	if placeholder {
+		t.Fatal("expected typed input, not placeholder")
+	}
+	if len(lines) != 1 {
+		t.Fatalf("line count = %d, want 1", len(lines))
+	}
+	if got := lines[0]; got != "asdasd█" {
+		t.Fatalf("line = %q, want %q", got, "asdasd█")
 	}
 }
 

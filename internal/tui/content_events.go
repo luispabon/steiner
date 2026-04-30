@@ -30,6 +30,7 @@ const (
 	segmentTool
 	segmentThinking
 	segmentUser
+	segmentUserMarkdown
 	segmentThinkingBlock
 	segmentToolCall
 	segmentApprovalPill
@@ -56,6 +57,7 @@ type toolCallSegment struct {
 	rawArgs                  map[string]any
 	writeTargetExistedBefore *bool
 	preview                  output.ToolPreview
+	displayPreview           *output.PreviewDocument
 }
 
 type approvalPillData struct {
@@ -119,6 +121,8 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.appendToolCallStartedEvent(event)
 	case output.EventTypeToolCallFinished:
 		b.appendToolCallFinishedEvent(event)
+	case output.EventTypeDisplayFile:
+		b.appendDisplayFileEvent(event)
 	case output.EventTypeStopReason:
 		b.appendStopReasonEvent(event)
 	case output.EventTypeAssistantMessage:
@@ -204,6 +208,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.finishStreaming()
 	b.streamingPhase = "tool"
 	if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
+		if strings.EqualFold(payload.Tool, "display_file") {
+			return
+		}
 		rawArgs := cloneToolArguments(payload.Arguments)
 		tc := &toolCallSegment{
 			tool:                     strings.ToLower(payload.Tool),
@@ -229,6 +236,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+		if strings.EqualFold(payload.Tool, "display_file") {
+			return
+		}
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			if b.segments[i].kind == segmentToolCall && b.segments[i].toolData != nil {
 				td := b.segments[i].toolData
@@ -239,7 +249,11 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 					if td.hasError {
 						td.meta = "❌"
 					}
-					td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+					if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
+						td.preview = payload.Preview
+					} else {
+						td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+					}
 					if td.preview.Kind != output.ToolPreviewKindPlain {
 						td.bodyKind = previewBodyKind(td.tool, td.preview)
 					} else {
@@ -252,6 +266,27 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	} else {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 	}
+}
+
+func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
+	b.finishStreaming()
+	if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
+		preview := payload.Preview
+		idx := len(b.segments)
+		b.segments = append(b.segments, contentSegment{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:           "display_file",
+				args:           payload.Path,
+				bodyKind:       "file",
+				collapsed:      false,
+				displayPreview: &preview,
+			},
+		})
+		b.collapseState[idx] = false
+		return
+	}
+	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
@@ -326,7 +361,11 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
-		b.segments = append(b.segments, contentSegment{kind: segmentUser, text: payload.Content})
+		kind := segmentUser
+		if isMarkdownLikeUserContent(payload.Content) {
+			kind = segmentUserMarkdown
+		}
+		b.segments = append(b.segments, contentSegment{kind: kind, text: payload.Content})
 		if len(b.segments)-1 >= 0 {
 			b.collapseState[len(b.segments)-1] = false
 		}
@@ -338,10 +377,16 @@ func (b *contentBuffer) AppendLine(line string) {
 	b.appendLine(line)
 }
 
+// AppendUser appends a submitted user prompt. Markdown-like content is
+// rendered with glamour; plain text uses the simple block style.
 func (b *contentBuffer) AppendUser(text string) {
 	b.finishStreaming()
 	idx := len(b.segments)
-	b.segments = append(b.segments, contentSegment{kind: segmentUser, text: text})
+	kind := segmentUser
+	if isMarkdownLikeUserContent(text) {
+		kind = segmentUserMarkdown
+	}
+	b.segments = append(b.segments, contentSegment{kind: kind, text: text})
 	b.collapseState[idx] = false
 }
 

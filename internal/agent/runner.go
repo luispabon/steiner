@@ -17,6 +17,7 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, toolName string, input map[string]any) (any, error)
 }
 
+// RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
 	Provider    provider.Provider
 	Executor    ToolExecutor
@@ -28,6 +29,11 @@ type RunRequest struct {
 	MaxTokens   *int
 	Limits      Limits
 	Events      output.EventSink
+
+	// StreamingPreferred signals whether the caller wants streaming responses.
+	// When false, ChatCompletion is tried first and streaming is used only as a
+	// fallback. Interactive mode sets this to true; --exec defaults to false.
+	StreamingPreferred bool
 }
 
 type Runner struct{}
@@ -146,6 +152,9 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 }
 
 func (r *Runner) handleModelResponse(ctx context.Context, req RunRequest, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, error) {
+	if response.Message.Role == "" {
+		response.Message.Role = provider.MessageRoleAssistant
+	}
 	state.TurnCount = turn
 	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
 	if err != nil {

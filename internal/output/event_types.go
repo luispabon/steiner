@@ -1,6 +1,7 @@
 package output
 
 import (
+	"sync"
 	"time"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -32,6 +33,12 @@ const (
 	EventTypeDelegationStarted  = "delegation_started"
 	EventTypeDelegationComplete = "delegation_complete"
 	EventTypeDelegationFailed   = "delegation_failed"
+
+	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
+	// file to the user. The event payload carries an explicit preview document so
+	// the UI can render the slice without the model-visible tool result or
+	// conversation history containing file contents.
+	EventTypeDisplayFile = "display_file"
 )
 
 type Event struct {
@@ -55,6 +62,39 @@ func (f SinkFunc) Emit(event Event) {
 type NoopSink struct{}
 
 func (NoopSink) Emit(Event) {}
+
+// ForwardSink is a thread-safe EventSink whose target can be swapped at runtime.
+// It starts with a NoopSink and forwards events to whatever target is set via Set.
+// This is used to wire an event sink into tool environments before the full sink
+// chain (including the TUI sink) is assembled.
+type ForwardSink struct {
+	mu     sync.RWMutex
+	target EventSink
+}
+
+// NewForwardSink creates a ForwardSink that starts with a NoopSink target.
+func NewForwardSink() *ForwardSink {
+	return &ForwardSink{target: NoopSink{}}
+}
+
+// Set replaces the forwarding target. It is safe to call concurrently.
+func (f *ForwardSink) Set(sink EventSink) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sink == nil {
+		f.target = NoopSink{}
+	} else {
+		f.target = sink
+	}
+}
+
+// Emit forwards the event to the current target. It is safe to call concurrently.
+func (f *ForwardSink) Emit(event Event) {
+	f.mu.RLock()
+	t := f.target
+	f.mu.RUnlock()
+	t.Emit(event)
+}
 
 type ModelCallStartedEvent struct {
 	Turn         int    `json:"turn"`
@@ -190,6 +230,15 @@ type DelegationFailedEvent struct {
 	Error       string `json:"error"`
 }
 
+// HistoryLoadedEvent carries previously recorded prompt strings for display.
 type HistoryLoadedEvent struct {
 	Prompts []string `json:"prompts"`
+}
+
+// DisplayFilePayload is the payload for EventTypeDisplayFile.
+type DisplayFilePayload struct {
+	Path    string          `json:"path"`
+	Offset  int             `json:"offset,omitempty"`
+	Limit   int             `json:"limit,omitempty"`
+	Preview PreviewDocument `json:"preview"`
 }

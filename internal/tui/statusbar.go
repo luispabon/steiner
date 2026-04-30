@@ -16,6 +16,7 @@ type statusState struct {
 	mode          string
 	styles        theme.Styles
 	streaming     bool
+	approvalActive bool
 	promptUsed    int
 	contextBudget int
 }
@@ -60,8 +61,12 @@ func (s statusState) view(width int) string {
 		parts = append(parts, label+val)
 	}
 
-	// Segment 4: send/interrupt (state-dependent)
-	if s.streaming {
+	// Segment 4: action hints (state-dependent)
+	if s.approvalActive {
+		parts = append(parts, s.styles.KeyChip.Render("tab")+" choice")
+		parts = append(parts, s.styles.KeyChip.Render("⏎")+" confirm")
+		parts = append(parts, s.styles.KeyChip.Render("esc")+" deny")
+	} else if s.streaming {
 		chip := s.styles.KeyChip.Render("esc")
 		label := s.styles.Accent.Render("interrupt")
 		parts = append(parts, chip+" "+label)

@@ -22,12 +22,13 @@ import (
 )
 
 type cliFlags struct {
-	configPath string
-	model      string
-	verbose    bool
-	exec       bool
-	logFile    string
-	maxTurns   int
+	configPath      string
+	model           string
+	verbose         bool
+	exec            bool
+	logFile         string
+	maxTurns        int
+	enableStreaming bool
 }
 
 type cliRuntime struct {

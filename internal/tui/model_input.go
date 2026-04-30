@@ -11,7 +11,7 @@ import (
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	value := strings.TrimSpace(m.input.Value())
 	if m.approval.active {
-		return m.executeApprovalAction(value)
+		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	}
 
 	action := parseInput(value, m.enabledSkills)
@@ -54,18 +54,40 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeApprovalAction(value string) (tea.Model, tea.Cmd) {
-	allowed := isApprovalAccepted(value)
-	if m.onApproval != nil {
-		m.onApproval(allowed)
+func (m Model) selectedApprovalDecision() ApprovalDecision {
+	if m.approval.selectedAction < 0 || m.approval.selectedAction >= len(approvalDecisions) {
+		return ApprovalDecisionAllowOnce
 	}
-	m.content.AppendLine(fmt.Sprintf("approval: %s", approvalDecisionText(allowed, m.approval.tool)))
+	return approvalDecisions[m.approval.selectedAction]
+}
+
+func (m Model) moveApprovalSelection(delta int) Model {
+	if !m.approval.active || len(approvalDecisions) == 0 {
+		return m
+	}
+	count := len(approvalDecisions)
+	next := (m.approval.selectedAction + delta) % count
+	if next < 0 {
+		next += count
+	}
+	m.approval.selectedAction = next
+	return m
+}
+
+func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
+	if m.onApproval != nil {
+		m.onApproval(ApprovalSubmission{
+			Tool:     m.approval.tool,
+			Mode:     m.approval.mode,
+			Decision: decision,
+		})
+	}
 	m.approval = approvalState{}
 	m.status.mode = "running"
 	m.input.Reset()
-	m.input.Prompt = "› "
-	m.input.Placeholder = "ask steiner — / for commands, @ for files"
+	m.input.Focus()
 	m.historyIdx = 0
+	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil
 }
@@ -78,11 +100,10 @@ func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
 	m.content.hadChunks = false
 	m.approval = approvalState{}
 	m.status.mode = ""
-	m.status.streaming = false
 	m.input.Reset()
-	m.input.Prompt = "› "
-	m.input.Placeholder = "ask steiner — / for commands, @ for files"
+	m.input.Focus()
 	m.historyIdx = 0
+	m.syncInputChrome()
 	m.syncSidebar()
 	m.syncViewport()
 	return m, nil

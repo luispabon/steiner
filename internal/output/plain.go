@@ -168,6 +168,9 @@ func (r *PlainRenderer) onEventLocked(event Event) {
 			r.renderPreviewDocumentLocked(preview, doc)
 		}
 	}
+	if payload, ok := event.Payload.(DisplayFilePayload); ok {
+		r.renderDisplayFilePreviewLocked(payload)
+	}
 }
 
 func (r *PlainRenderer) rememberToolCallLocked(payload ToolCallStartedEvent) {
@@ -234,6 +237,39 @@ func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) 
 	default:
 		return PreviewDocument{}, false
 	}
+}
+
+func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayload) {
+	doc := payload.Preview
+	if doc.Kind != PreviewFormatKindFile {
+		return
+	}
+
+	if caption := renderDisplayFileCaption(payload); caption != "" {
+		fmt.Fprintln(r.w, r.decorate(ChannelTool, "  "+caption))
+	}
+	for _, line := range doc.Lines {
+		text := renderPreviewLineText(line)
+		if text == "" {
+			continue
+		}
+		fmt.Fprintln(r.w, r.decorate(renderPreviewChannel(line), "  "+text))
+	}
+	if doc.Truncated {
+		truncation := fmt.Sprintf("  output truncated after %d lines", doc.LineLimit)
+		fmt.Fprintln(r.w, r.decorate(ChannelStatus, truncation))
+	}
+}
+
+func renderDisplayFileCaption(payload DisplayFilePayload) string {
+	label := "display file preview"
+	if payload.Preview.Language != "" && payload.Preview.Language != "plain" {
+		label = fmt.Sprintf("%s · %s", label, payload.Preview.Language)
+	}
+	if payload.Path != "" {
+		return fmt.Sprintf("%s · %s · %d lines", payload.Path, label, previewDocumentLineCount(payload.Preview))
+	}
+	return fmt.Sprintf("%s · %d lines", label, previewDocumentLineCount(payload.Preview))
 }
 
 func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc PreviewDocument) {

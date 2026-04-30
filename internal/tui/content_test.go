@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -252,6 +253,124 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 	}
 }
 
+func TestIsMarkdownLikeUserContent(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		// Should trigger glamour
+		{"fenced code block", "Here is code:\n```go\nfmt.Println()\n```", true},
+		{"heading at start", "# My Heading\nsome text", true},
+		{"heading after newline", "Intro\n# Section\ntext", true},
+		{"unordered list multiline", "Items:\n- foo\n- bar", true},
+		{"leading list multiline", "- step one\n- step two", true},
+		{"block quote", "> This is a quote\nmore text", true},
+		{"ordered list continuation", "1. first\n2. second", true},
+		{"tilde fence", "~~~sh\necho hi\n~~~", true},
+
+		// Should NOT trigger glamour
+		{"plain sentence", "Hello, how are you?", false},
+		{"single backtick inline", "use `var` here", false},
+		{"bold in plain sentence", "use **this** approach", false},
+		{"lone dash not list", "- just one item without newline", false},
+		{"empty string", "", false},
+		{"whitespace only", "   \n  ", false},
+		{"plain multiline", "line one\nline two\nline three", false},
+		{"question mark", "What do you think?", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMarkdownLikeUserContent(tt.text)
+			if got != tt.want {
+				t.Errorf("isMarkdownLikeUserContent(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppendUserMarkdownSegmentKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		wantKind contentSegmentKind
+	}{
+		{
+			name:     "plain text stays segmentUser",
+			text:     "Just a normal question",
+			wantKind: segmentUser,
+		},
+		{
+			name:     "markdown heading becomes segmentUserMarkdown",
+			text:     "# Heading\nsome content",
+			wantKind: segmentUserMarkdown,
+		},
+		{
+			name:     "fenced code becomes segmentUserMarkdown",
+			text:     "Check this:\n```go\nfmt.Println()\n```",
+			wantKind: segmentUserMarkdown,
+		},
+		{
+			name:     "bulleted list becomes segmentUserMarkdown",
+			text:     "Steps:\n- one\n- two",
+			wantKind: segmentUserMarkdown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				segments:      make([]contentSegment, 0),
+				collapseState: make(map[int]bool),
+			}
+			b.AppendUser(tt.text)
+			if len(b.segments) != 1 {
+				t.Fatalf("segments count = %d, want 1", len(b.segments))
+			}
+			if got := b.segments[0].kind; got != tt.wantKind {
+				t.Errorf("segment kind = %v, want %v", got, tt.wantKind)
+			}
+		})
+	}
+}
+
+func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
+	b := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	b.segments = []contentSegment{
+		{kind: segmentUserMarkdown, text: "# Title\n\nSome bold content."},
+	}
+
+	got := b.String(80)
+	// ANSI escape codes may split words; check individual tokens.
+	for _, want := range []string{"Title", "bold", "content", "┃"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered user markdown missing %q", want)
+		}
+	}
+}
+
+func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
+	b := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	b.segments = []contentSegment{
+		{kind: segmentUser, text: "just a plain message"},
+	}
+
+	got := b.String(80)
+	if !strings.Contains(got, "just a plain message") {
+		t.Errorf("rendered plain user %q missing text", got)
+	}
+	if !strings.Contains(got, "┃") {
+		t.Errorf("rendered plain user %q missing user bar character", got)
+	}
+}
+
 func TestPluralTurns(t *testing.T) {
 	tests := []struct {
 		count int
@@ -286,9 +405,9 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 	}, &before))
 	buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil, output.ToolPreview{
 		Kind:     output.ToolPreviewKindFileWrite,
-		Path:     "notes.md",
+		Path:     "explicit-notes.md",
 		Language: "markdown",
-		Contents: "hello\nworld\n",
+		Contents: "explicit\npreview\n",
 		Created:  true,
 	}))
 
@@ -309,14 +428,92 @@ func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
 	if seg.writeTargetExistedBefore == nil || *seg.writeTargetExistedBefore {
 		t.Fatalf("writeTargetExistedBefore = %v, want false", seg.writeTargetExistedBefore)
 	}
-	if got, want := seg.preview.Path, "notes.md"; got != want {
+	if got, want := seg.preview.Path, "explicit-notes.md"; got != want {
 		t.Fatalf("preview path = %q, want %q", got, want)
 	}
-	if got, want := seg.preview.Contents, "hello\nworld\n"; got != want {
+	if got, want := seg.preview.Contents, "explicit\npreview\n"; got != want {
 		t.Fatalf("preview contents = %q, want %q", got, want)
 	}
 	if !seg.preview.Created {
 		t.Fatalf("preview created = false, want true")
+	}
+}
+
+func TestAppendEventDisplayFileUsesExplicitPreviewDocument(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0].toolData
+	if seg == nil {
+		t.Fatal("tool segment is nil")
+	}
+	if !strings.EqualFold(seg.tool, "display_file") {
+		t.Fatalf("tool = %q, want display_file", seg.tool)
+	}
+	if seg.collapsed {
+		t.Fatal("display_file segment is collapsed, want expanded")
+	}
+	if seg.displayPreview == nil {
+		t.Fatal("display preview is nil")
+	}
+	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
+		t.Fatalf("display preview path = %q, want %q", got, want)
+	}
+	if got, want := seg.displayPreview.Kind, output.PreviewFormatKindFile; got != want {
+		t.Fatalf("display preview kind = %q, want %q", got, want)
+	}
+}
+
+func TestAppendEventDisplayFileSuppressesGenericToolLifecycleRows(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "display_file", "call_1", map[string]any{
+		"path": "snippet.go",
+	}))
+	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
+		Path:    "snippet.go",
+		Preview: preview,
+	}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "display_file", "call_1", `{"path":"snippet.go","status":"displayed"}`, nil))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0].toolData
+	if seg == nil {
+		t.Fatal("tool segment is nil")
+	}
+	if !strings.EqualFold(seg.tool, "display_file") {
+		t.Fatalf("tool = %q, want display_file", seg.tool)
+	}
+	if seg.displayPreview == nil {
+		t.Fatal("display preview is nil")
+	}
+	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
+		t.Fatalf("display preview path = %q, want %q", got, want)
+	}
+	if got := seg.body; got != "" {
+		t.Fatalf("body = %q, want empty body", got)
 	}
 }
 
@@ -382,6 +579,38 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	}
 }
 
+func TestRenderDisplayFilePreviewUsesCaptionAndHighlightedContent(t *testing.T) {
+	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
+func main() {}
+`, 10)
+	if len(preview.Lines) == 0 || !lineHasHighlightedSpan(preview.Lines[0]) {
+		t.Fatal("preview document is not syntax-highlighted")
+	}
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:           "display_file",
+				args:           "snippet.go",
+				bodyKind:       "file",
+				collapsed:      false,
+				displayPreview: &preview,
+			},
+		},
+	}
+
+	got := buffer.String(100)
+	for _, want := range []string{"▾", "display file preview", "snippet.go", "package main", "func main()"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered display preview %q missing %q", got, want)
+		}
+	}
+}
+
 func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
@@ -413,6 +642,27 @@ func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 	}
 	if strings.Contains(got, "[edit]") {
 		t.Fatalf("rendered diff %q unexpectedly duplicated nested edit header", got)
+	}
+}
+
+func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatEditDiffPreview("main.go", "package main\n", "package demo\n")
+	lines := buffer.renderDiffPreviewDocument(doc, 100)
+	if len(lines) != 3 {
+		t.Fatalf("rendered diff lines = %d, want 3", len(lines))
+	}
+
+	want := buffer.previewTokenStyle(chroma.Keyword).Render("package")
+	if !strings.Contains(lines[1], want) {
+		t.Fatalf("removed diff line %q missing highlighted keyword %q", lines[1], want)
+	}
+	if !strings.Contains(lines[2], want) {
+		t.Fatalf("added diff line %q missing highlighted keyword %q", lines[2], want)
 	}
 }
 
@@ -678,4 +928,13 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 			}
 		})
 	}
+}
+
+func lineHasHighlightedSpan(line output.PreviewLine) bool {
+	for _, span := range line.Spans {
+		if span.Type != chroma.Text {
+			return true
+		}
+	}
+	return false
 }

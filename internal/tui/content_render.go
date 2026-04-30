@@ -49,6 +49,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderThinkingSegment(segment)
 	case segmentUser:
 		return b.renderUserSegment(segment, width)
+	case segmentUserMarkdown:
+		return b.renderUserMarkdownSegment(segment, width)
 	case segmentThinkingBlock:
 		return b.renderThinkingBlockSegment(segment)
 	case segmentApprovalPill:
@@ -117,6 +119,31 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	return sb.String()
 }
 
+// renderUserMarkdownSegment renders a markdown-like user prompt with glamour
+// while keeping the left-bar framing so user messages remain visually distinct
+// from assistant output.
+func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width int) string {
+	contentWidth := width - 1
+	if contentWidth < 2 {
+		contentWidth = 2
+	}
+	bar := b.styles.UserBar.Render("┃")
+	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+
+	rendered := b.renderMarkdown(segment.text, contentWidth-2)
+	rendered = strings.TrimRight(rendered, "\n")
+
+	var sb strings.Builder
+	sb.WriteString(pad + "\n")
+	for _, line := range strings.Split(rendered, "\n") {
+		content := b.styles.UserBg.Width(contentWidth).Render(" " + line)
+		sb.WriteString(bar + content + "\n")
+	}
+	sb.WriteString(pad + "\n")
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) string {
 	if segment.thinkData == nil {
 		return ""
@@ -161,11 +188,7 @@ func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
 }
 
 func (b *contentBuffer) renderMarkdown(block string, width int) string {
-	renderer := b.markdownRenderer(width)
-	if renderer == nil {
-		return b.styles.AssistantProse.Render("assistant> " + block)
-	}
-	rendered, err := renderer.Render(block)
+	rendered, err := renderMarkdownBlock(block, width, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.AssistantProse.Render("assistant> " + block)
@@ -173,27 +196,39 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 	return rendered
 }
 
-func (b *contentBuffer) markdownRenderer(width int) *glamour.TermRenderer {
-	renderWidth := max(1, width-markdownRenderPadding)
-	if b.renderer != nil && b.renderWidth == renderWidth {
-		return b.renderer
+func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {
+	targetWidth := max(1, width-markdownRenderPadding)
+	if renderer != nil && *renderer != nil && renderWidth != nil && *renderWidth == targetWidth {
+		rendered, err := (*renderer).Render(block)
+		if err != nil {
+			return styles.AssistantProse.Render("assistant> " + block), err
+		}
+		return rendered, nil
 	}
 	opts := []glamour.TermRendererOption{
-		glamour.WithWordWrap(renderWidth),
+		glamour.WithWordWrap(targetWidth),
 		glamour.WithPreservedNewLines(),
 	}
-	if b.glamourStyleSheet != nil {
-		opts = append([]glamour.TermRendererOption{b.glamourStyleSheet}, opts...)
+	if styleSheet != nil {
+		opts = append([]glamour.TermRendererOption{styleSheet}, opts...)
 	} else {
 		opts = append([]glamour.TermRendererOption{glamour.WithStandardStyle("dark")}, opts...)
 	}
-	renderer, err := glamour.NewTermRenderer(opts...)
+	termRenderer, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
-		return nil
+		return styles.AssistantProse.Render("assistant> " + block), err
 	}
-	b.renderer = renderer
-	b.renderWidth = renderWidth
-	return renderer
+	if renderer != nil {
+		*renderer = termRenderer
+	}
+	if renderWidth != nil {
+		*renderWidth = targetWidth
+	}
+	rendered, err := termRenderer.Render(block)
+	if err != nil {
+		return styles.AssistantProse.Render("assistant> " + block), err
+	}
+	return rendered, nil
 }
 
 func (b *contentBuffer) inProgressPreview() string {
@@ -450,6 +485,9 @@ func (b *contentBuffer) buildDiffPreviewLines(tc *toolCallSegment, width int) []
 }
 
 func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
+	if tc.displayPreview != nil {
+		return *tc.displayPreview
+	}
 	switch tc.preview.Kind {
 	case output.ToolPreviewKindEditDiff:
 		return output.FormatEditDiffPreview(tc.preview.Path, tc.preview.Before, tc.preview.After)
@@ -464,14 +502,19 @@ func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocum
 
 func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.PreviewDocument) string {
 	label := "file preview"
-	switch tc.preview.Kind {
-	case output.ToolPreviewKindFileWrite:
+	switch {
+	case tc.displayPreview != nil:
+		label = "display file preview"
+		if doc.Language != "" && doc.Language != "plain" {
+			label += " · " + doc.Language
+		}
+	case tc.preview.Kind == output.ToolPreviewKindFileWrite:
 		if tc.preview.Created {
 			label = "new file preview"
 		} else {
 			label = "updated file contents preview"
 		}
-	case output.ToolPreviewKindReadFile:
+	case tc.preview.Kind == output.ToolPreviewKindReadFile:
 		label = "read file preview"
 	}
 	lineCount := previewContentLineCount(doc)
@@ -552,27 +595,26 @@ func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign 
 	default:
 		signStr = b.styles.FgMute.Render(" ")
 	}
-	var raw strings.Builder
-	for _, span := range line.Spans {
-		raw.WriteString(span.Text)
-	}
-	rawText := raw.String()
-	var body string
-	if sign == " " {
-		body = b.styles.FgDim.Render(rawText)
-	} else {
-		body = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(rawText)
-	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
-	return bg.Render(lineNoStr + " " + signStr + " " + body)
+	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	if sign == " " {
+		bodyStyle = b.styles.FgDim
+	}
+
+	var sb strings.Builder
+	sb.WriteString(bg.Render(lineNoStr + " " + signStr + " "))
+	for _, span := range line.Spans {
+		rendered := b.renderPreviewSpan(span)
+		if rendered == "" {
+			continue
+		}
+		sb.WriteString(bg.Render(bodyStyle.Render(rendered)))
+	}
+	return sb.String()
 }
 
 func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
-	var sb strings.Builder
-	for _, span := range line.Spans {
-		sb.WriteString(b.renderPreviewSpan(span))
-	}
-	text := sb.String()
+	text := b.renderPreviewSpans(line.Spans)
 	if text == "" {
 		return b.styles.FgDim.Render("")
 	}
@@ -590,6 +632,14 @@ func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
 	default:
 		return text
 	}
+}
+
+func (b *contentBuffer) renderPreviewSpans(spans []output.PreviewSpan) string {
+	var sb strings.Builder
+	for _, span := range spans {
+		sb.WriteString(b.renderPreviewSpan(span))
+	}
+	return sb.String()
 }
 
 func (b *contentBuffer) renderPreviewSpan(span output.PreviewSpan) string {

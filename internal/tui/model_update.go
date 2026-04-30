@@ -97,8 +97,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.content.styles = m.styles
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
-	m.input.FocusedStyle.Base = m.styles.InputArea
-	m.input.BlurredStyle.Base = m.styles.InputArea
+	m.applyInputStyles()
 	m.palette.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
@@ -110,16 +109,9 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
-	m.status.streaming = m.content.streamingPhase != ""
 	m.status.promptUsed = m.sidebar.promptUsed
 	m.status.contextBudget = m.sidebar.contextBudget
-	if !m.approval.active {
-		if m.content.streamingPhase != "" {
-			m.input.Placeholder = "streaming… esc to interrupt"
-		} else {
-			m.input.Placeholder = "ask steiner — / for commands, @ for files"
-		}
-	}
+	m.syncInputChrome()
 	// Emit any render or git errors captured during the last cycle
 	if m.content.lastRenderErr != nil {
 		emitRenderError(m.content.lastRenderErr)
@@ -136,6 +128,11 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.palette.height = msg.Height
 	m.fileList.width = msg.Width
 	m.fileList.height = msg.Height
+	if m.contextOverlay.open {
+		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.contextOverlay = m.contextOverlay.reflow()
+	}
+	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
 }
@@ -158,6 +155,10 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.exitModal.open {
+		return m.handleExitModalKey(msg)
+	}
+
 	// If palette is open, route all keys to it first
 	if m.palette.open {
 		var cmd tea.Cmd
@@ -172,9 +173,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// If context overlay is open, handle scroll and close.
+	if m.contextOverlay.open {
+		return m.handleContextOverlayKey(msg)
+	}
+
 	// If file picker is open, route keys to it
 	if m.filePicker.open {
 		return m.handleFilePickerKey(msg)
+	}
+
+	if m.approval.active {
+		return m.handleApprovalKey(msg)
 	}
 
 	// Reset completion state on any non-Tab key
@@ -209,7 +219,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
-		return m, tea.Quit
+		if m.onExitRequested == nil {
+			return m, tea.Quit
+		}
+		return m.openExitModal(), nil
 	case tea.KeyCtrlP:
 		m.palette = m.palette.Open()
 		m.palette.width = m.width
@@ -255,6 +268,60 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		m.exitModal = m.exitModal.moveSelection(-1)
+		return m, nil
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		m.exitModal = m.exitModal.moveSelection(1)
+		return m, nil
+	case tea.KeyEnter, tea.KeyCtrlC, tea.KeyCtrlD:
+		return m.confirmExitModal()
+	case tea.KeyEsc:
+		m.exitModal = m.exitModal.closeExitModal()
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		return m.moveApprovalSelection(-1), nil
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		return m.moveApprovalSelection(1), nil
+	case tea.KeyEnter:
+		return m.executeApprovalDecision(m.selectedApprovalDecision())
+	case tea.KeyEsc:
+		return m.executeApprovalDecision(ApprovalDecisionDeny)
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.contextOverlay = m.contextOverlay.closeContextOverlay()
+		return m, nil
+	case tea.KeyUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(1)
+		return m, nil
+	case tea.KeyDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(1)
+		return m, nil
+	case tea.KeyPgUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(contextOverlayMaxLines)
+		return m, nil
+	case tea.KeyPgDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

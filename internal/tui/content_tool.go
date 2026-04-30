@@ -125,6 +125,10 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	tag := tagStyle.Render(tc.tool)
 	tagWidth := lipgloss.Width(tag)
 	tagBgColor := b.toolTagBgHex(tc.tool)
+	disclosure := "▾"
+	if tc.collapsed {
+		disclosure = "▸"
+	}
 
 	// Build header: tag [gap] args [gap] meta
 	// Args column width accounts for meta on the right
@@ -135,7 +139,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		metaStr = strings.Join(metaParts, " ")
 	}
 
-	argsAvail := width - tagWidth - gap - metaWidth - gap - 1
+	argsAvail := width - lipgloss.Width(disclosure) - 1 - tagWidth - gap - metaWidth - gap - 1
 	if argsAvail < 1 {
 		argsAvail = 1
 	}
@@ -146,7 +150,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		argsText = string([]rune(argsText)[:argsAvail-1]) + "…"
 	}
 
-	header := tag + strings.Repeat(" ", gap) + argsText
+	header := disclosure + " " + tag + strings.Repeat(" ", gap) + argsText
 	if metaStr != "" {
 		header = header + strings.Repeat(" ", gap) + metaStr
 	}

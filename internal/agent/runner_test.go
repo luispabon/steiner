@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
@@ -160,10 +161,10 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 						{
 							ID:   "call_1",
 							Name: "write",
-						Arguments: map[string]any{
-							"path":    target,
-							"content": "hello\n",
-						},
+							Arguments: map[string]any{
+								"path":    target,
+								"content": "hello\n",
+							},
 						},
 					},
 				},
@@ -597,6 +598,57 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
+		t.Fatalf("tool message content = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "display_file", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return &builtin.DisplayFileResult{
+				Path:    "note.txt",
+				Status:  "displayed",
+				Message: "file is being shown to the user in the viewer overlay",
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "show note"}},
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 1000},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"path":"note.txt","status":"displayed","message":"file is being shown to the user in the viewer overlay"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
 }

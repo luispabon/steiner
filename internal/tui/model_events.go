@@ -8,6 +8,15 @@ import (
 )
 
 func (m *Model) applyEvent(event output.Event) {
+	// Context report events open the overlay instead of going into the transcript.
+	if event.Type == output.EventTypeContextReport {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			m.contextOverlay = openContextOverlay(payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+		}
+		m.syncViewport()
+		return
+	}
+
 	if event.Type != output.EventTypeHistoryLoaded {
 		m.content.AppendEvent(event)
 	}
@@ -70,26 +79,26 @@ func (m *Model) applyEvent(event output.Event) {
 		switch event.Type {
 		case output.EventTypeApprovalRequested:
 			m.approval = approvalState{
-				active:  true,
-				tool:    payload.Tool,
-				mode:    payload.Mode,
-				preview: payload.Preview,
+				active:         true,
+				tool:           payload.Tool,
+				mode:           payload.Mode,
+				preview:        payload.Preview,
+				selectedAction: 0,
 			}
 			m.status.mode = "approval"
 			m.input.Reset()
-			m.input.Prompt = "approve> "
-			m.input.Placeholder = "approve? y/n/d"
+			m.input.Blur()
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
 			m.status.mode = "running"
-			m.input.Prompt = "› "
-			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+			m.input.Focus()
 		}
 	}
 
 	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
 		m.git.Refresh(context.Background())
 	}
+	m.syncInputChrome()
 	m.syncSidebar()
 	m.syncViewport()
 }
