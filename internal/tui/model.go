@@ -185,15 +185,6 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.sidebar.maxTurns = cfg.MaxTurns
 	m.sidebar.homeDir = strings.TrimSpace(cfg.HomeDir)
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
-	// Wire up git error logger to emit events through the model
-	gitErrorLogger = func(err error) {
-		// Errors are captured and will be emitted on next tick via lastRenderErr
-		m.content.lastRenderErr = err
-	}
-	// Wire up render error logger
-	renderErrorLogger = func(err error) {
-		m.content.lastRenderErr = err
-	}
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()

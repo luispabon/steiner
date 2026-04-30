@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -375,6 +376,25 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 	}
 	if got, want := paths["turn.txt"], "U"; got != want {
 		t.Fatalf("turn.txt status = %q, want %q", got, want)
+	}
+}
+
+func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
+	m1 := newModel(Config{}, nil)
+	m2 := newModel(Config{}, nil)
+
+	errOne := errors.New("first model git error")
+	errTwo := errors.New("second model git error")
+	m1.git.recordError(errOne)
+	m2.git.recordError(errTwo)
+
+	m1 = updateModel(t, m1, tickMsg{})
+
+	if got := m1.git.takeError(); got != nil {
+		t.Fatalf("first model pending git error = %v, want nil after its tick", got)
+	}
+	if got := m2.git.takeError(); !errors.Is(got, errTwo) {
+		t.Fatalf("second model pending git error = %v, want %v", got, errTwo)
 	}
 }
 

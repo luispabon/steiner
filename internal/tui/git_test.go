@@ -29,7 +29,7 @@ func TestDetectGitSnapshotIncludesModifiedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	snap := detectGitSnapshot(context.Background(), repo)
+	snap := detectGitSnapshot(context.Background(), repo, nil)
 	if !snap.ready {
 		t.Fatal("snapshot.ready = false, want true")
 	}
@@ -68,7 +68,7 @@ func TestDetectGitSnapshotIncludesUntrackedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	snap := detectGitSnapshot(context.Background(), repo)
+	snap := detectGitSnapshot(context.Background(), repo, nil)
 	if !snap.dirty {
 		t.Fatal("snapshot.dirty = false, want true")
 	}
@@ -105,16 +105,11 @@ func TestNewGitStateUsesWorkingDirectoryWhenStartDirBlank(t *testing.T) {
 func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
 	t.Cleanup(func() {
 		getWorkingDir = os.Getwd
-		gitErrorLogger = nil
 	})
 
 	cwdErr := errors.New("cwd unavailable")
-	var logged error
 	getWorkingDir = func() (string, error) {
 		return "", cwdErr
-	}
-	gitErrorLogger = func(err error) {
-		logged = err
 	}
 
 	state := newGitState("")
@@ -124,6 +119,7 @@ func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
 	if got := state.startDir; got != "" {
 		t.Fatalf("startDir = %q, want empty", got)
 	}
+	logged := state.takeError()
 	if logged == nil {
 		t.Fatal("logged error = nil, want resolve working directory failure")
 	}

@@ -11,16 +11,7 @@ import (
 	"sync"
 )
 
-// gitErrorLogger is a package-level hook for logging git errors.
-// The TUI model sets this to emit error events.
-var gitErrorLogger func(error)
 var getWorkingDir = os.Getwd
-
-func logGitError(err error) {
-	if gitErrorLogger != nil {
-		gitErrorLogger(err)
-	}
-}
 
 type gitSnapshot struct {
 	repoRoot      string
@@ -42,18 +33,21 @@ type gitState struct {
 	mu       sync.RWMutex
 	startDir string
 	snapshot gitSnapshot
+	err      error
 }
 
 func newGitState(startDir string) *gitState {
+	state := &gitState{}
 	if strings.TrimSpace(startDir) == "" {
 		cwd, err := getWorkingDir()
 		if err != nil {
-			logGitError(fmt.Errorf("resolve working directory: %w", err))
-			return &gitState{}
+			state.recordError(fmt.Errorf("resolve working directory: %w", err))
+			return state
 		}
 		startDir = cwd
 	}
-	return &gitState{startDir: startDir}
+	state.startDir = startDir
+	return state
 }
 
 func (s *gitState) Snapshot() gitSnapshot {
@@ -73,7 +67,7 @@ func (s *gitState) Refresh(ctx context.Context) gitSnapshot {
 		ctx = context.Background()
 	}
 
-	snapshot := detectGitSnapshot(ctx, s.startDir)
+	snapshot := detectGitSnapshot(ctx, s.startDir, s.recordError)
 
 	s.mu.Lock()
 	s.snapshot = snapshot
@@ -82,16 +76,36 @@ func (s *gitState) Refresh(ctx context.Context) gitSnapshot {
 	return snapshot
 }
 
-func detectGitSnapshot(ctx context.Context, startDir string) gitSnapshot {
+func (s *gitState) recordError(err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
+}
+
+func (s *gitState) takeError() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.err
+	s.err = nil
+	return err
+}
+
+func detectGitSnapshot(ctx context.Context, startDir string, logError func(error)) gitSnapshot {
 	repoRoot, gitDir, ok := resolveGitRepo(startDir)
 	if !ok {
 		return gitSnapshot{}
 	}
 
 	branch := readGitBranch(gitDir)
-	dirty := readGitDirty(ctx, repoRoot)
-	ahead := readGitAhead(ctx, repoRoot)
-	modifiedFiles := readGitModifiedFiles(ctx, repoRoot)
+	dirty := readGitDirty(ctx, repoRoot, logError)
+	ahead := readGitAhead(ctx, repoRoot, logError)
+	modifiedFiles := readGitModifiedFiles(ctx, repoRoot, logError)
 
 	return gitSnapshot{
 		repoRoot:      repoRoot,
@@ -193,16 +207,16 @@ func readGitBranch(gitDir string) string {
 	return "detached@" + sha
 }
 
-func readGitDirty(ctx context.Context, repoRoot string) bool {
-	out, err := readGitStatusPorcelain(ctx, repoRoot)
+func readGitDirty(ctx context.Context, repoRoot string, logError func(error)) bool {
+	out, err := readGitStatusPorcelain(ctx, repoRoot, logError)
 	if err != nil {
 		return false
 	}
 	return len(out) > 0
 }
 
-func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFile {
-	statusLines, err := readGitStatusPorcelain(ctx, repoRoot)
+func readGitModifiedFiles(ctx context.Context, repoRoot string, logError func(error)) []gitModifiedFile {
+	statusLines, err := readGitStatusPorcelain(ctx, repoRoot, logError)
 	if err != nil {
 		return nil
 	}
@@ -210,7 +224,9 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFil
 	numstatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD")
 	numstatOut, err := numstatCmd.Output()
 	if err != nil {
-		logGitError(fmt.Errorf("git diff --numstat: %w", err))
+		if logError != nil {
+			logError(fmt.Errorf("git diff --numstat: %w", err))
+		}
 	}
 
 	type counts struct{ added, deleted int }
@@ -251,11 +267,13 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string) []gitModifiedFil
 	return files
 }
 
-func readGitStatusPorcelain(ctx context.Context, repoRoot string) ([]string, error) {
+func readGitStatusPorcelain(ctx context.Context, repoRoot string, logError func(error)) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
-		logGitError(fmt.Errorf("git status --porcelain: %w", err))
+		if logError != nil {
+			logError(fmt.Errorf("git status --porcelain: %w", err))
+		}
 		return nil, err
 	}
 
@@ -297,10 +315,12 @@ func parseGitStatusLine(line string) (string, string, bool) {
 	}
 }
 
-func readGitAhead(ctx context.Context, repoRoot string) int {
+func readGitAhead(ctx context.Context, repoRoot string, logError func(error)) int {
 	out, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-list", "--count", "@{u}..HEAD").Output()
 	if err != nil {
-		logGitError(fmt.Errorf("git rev-list --count: %w", err))
+		if logError != nil {
+			logError(fmt.Errorf("git rev-list --count: %w", err))
+		}
 		return 0
 	}
 	return parseGitNumstatCount(strings.TrimSpace(string(out)))

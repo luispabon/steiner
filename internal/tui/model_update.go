@@ -112,9 +112,11 @@ func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	m.status.promptUsed = m.sidebar.promptUsed
 	m.status.contextBudget = m.sidebar.contextBudget
 	m.syncInputChrome()
-	// Emit any render or git errors captured during the last cycle
+	if m.git != nil {
+		_ = m.git.takeError()
+	}
+	// Clear any render error captured during the last cycle.
 	if m.content.lastRenderErr != nil {
-		emitRenderError(m.content.lastRenderErr)
 		m.content.lastRenderErr = nil
 	}
 	m.syncViewport()
