@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -24,6 +26,14 @@ type activeRunController struct {
 }
 
 const terminalClearSequence = "\x1b[2J\x1b[H"
+
+var runTeaProgram = func(p *tea.Program) (tea.Model, error) {
+	return p.Run()
+}
+
+var quitTeaProgram = func(p *tea.Program) {
+	p.Quit()
+}
 
 func (c *activeRunController) Set(cancel context.CancelFunc) {
 	c.mu.Lock()
@@ -183,14 +193,19 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if _, err := teaProgram.Run(); err != nil {
-			// Non-fatal: program exit errors are expected on normal quit.
-			_ = err
+		if _, err := runTeaProgram(teaProgram); err != nil {
+			if !errors.Is(err, tea.ErrProgramKilled) {
+				rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+					Kind:     "session_health",
+					Severity: "warning",
+					Notes:    []string{fmt.Sprintf("tui runtime failed: %v", err)},
+				}))
+			}
 		}
 		stop()
 	}()
 	defer func() {
-		teaProgram.Quit()
+		quitTeaProgram(teaProgram)
 		wg.Wait()
 		clearTerminalScreen(cmd.OutOrStdout())
 	}()
