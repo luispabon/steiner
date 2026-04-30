@@ -181,6 +181,39 @@ func TestExecutorContextCancellation(t *testing.T) {
 	}
 }
 
+func TestExecutorApprovalBackendFailure(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: helper,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{
+			Default: config.ApprovalModePrompt,
+		},
+	}
+
+	backendErr := errors.New("approval transport unavailable")
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+		return backendErr
+	}), t.TempDir())
+
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval_failed")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "approval_failed" {
+		t.Fatalf("error kind = %q, want approval_failed", toolErr.Kind)
+	}
+	if toolErr.Message != backendErr.Error() {
+		t.Fatalf("error message = %q, want %q", toolErr.Message, backendErr.Error())
+	}
+}
+
 func TestExecutorTimeoutExceeded(t *testing.T) {
 	helper := mustBuildHelperBinary(t)
 	reg := NewRegistry(ToolDef{
