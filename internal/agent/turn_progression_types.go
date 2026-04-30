@@ -16,9 +16,13 @@ type turnInput struct {
 
 // turnOutcome captures the result of advancing one turn.
 type turnOutcome struct {
-	State    RunState
-	Stop     bool
-	Retry    bool
-	Error    error
-	Response *provider.ChatResponse // non-nil when tool calls need execution
+	State RunState
+	Stop  bool
+	Retry bool
+	Error error
+
+	// Response carries the model response from executeModelCall to
+	// executeToolCalls within a single advance call. Internal use only;
+	// never consumed by Runner.Run.
+	Response *provider.ChatResponse
 }
