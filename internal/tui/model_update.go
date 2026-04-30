@@ -97,8 +97,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.content.styles = m.styles
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
-	m.input.FocusedStyle.Base = m.styles.InputArea
-	m.input.BlurredStyle.Base = m.styles.InputArea
+	m.applyInputStyles()
 	m.palette.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)

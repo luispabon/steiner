@@ -7,11 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -35,6 +37,13 @@ type paletteSwitchModelMsg struct{ name string }
 type paletteClearMsg struct{}
 
 type historyLoadedMsg struct{ prompts []string }
+
+const (
+	inputRailWidth = 1
+	inputPadX      = 1
+	inputPadY      = 1
+	inputTailFill  = 1
+)
 
 type Model struct {
 	width    int
@@ -93,7 +102,7 @@ type Model struct {
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := textarea.New()
-	input.Prompt = "› "
+	input.Prompt = ""
 	input.Placeholder = "ask steiner — / for commands, @ for files"
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
@@ -195,9 +204,9 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 
-	// Set textarea styles
-	m.input.FocusedStyle.Base = m.styles.InputArea
-	m.input.BlurredStyle.Base = m.styles.InputArea
+	// Match the composer to user message chrome: accent rail, muted surface.
+	m.applyInputStyles()
+	m.input.Focus()
 
 	// Initialize palette
 	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
@@ -282,7 +291,7 @@ func tickCmd() tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), tea.HideCursor}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}
@@ -332,10 +341,7 @@ func (m Model) View() string {
 		Foreground(lipgloss.Color(theme.BorderSoft)).
 		Render(strings.Repeat("─", contentWidth))
 
-	inputView := m.input.View()
-	if m.showInputFocusBorder() {
-		inputView = m.styles.InputFocusBorder.Width(contentWidth - 2).Render(inputView)
-	}
+	inputView := m.renderInputView(contentWidth)
 	statusView := m.status.view(contentWidth)
 
 	mainComponents := []string{viewportView, hDivider}
@@ -373,11 +379,7 @@ func (m Model) View() string {
 
 	if m.filePicker.open {
 		overlay := m.filePicker.View()
-		inputHeight := 1
-		if m.showInputFocusBorder() {
-			inputHeight = 3
-		}
-		base = m.filePicker.PlaceBottomAnchored(base, overlay, inputHeight)
+		base = m.filePicker.PlaceBottomAnchored(base, overlay, m.inputChromeHeight(contentWidth))
 	}
 
 	if m.contextOverlay.open {
@@ -523,12 +525,8 @@ func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {
 	}
 }
 
-func (m Model) showInputFocusBorder() bool {
-	return m.input.Focused() && m.content.streamingPhase == "" && !m.approval.active
-}
-
 func (m *Model) syncInputChrome() {
-	m.input.Prompt = "› "
+	m.input.Prompt = ""
 	switch {
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
@@ -539,4 +537,156 @@ func (m *Model) syncInputChrome() {
 	}
 	m.status.approvalActive = m.approval.active
 	m.status.streaming = m.content.streamingPhase != "" && !m.approval.active
+}
+
+func (m *Model) applyInputStyles() {
+	base := m.styles.UserBg
+	cursorLine := m.styles.UserBg
+	placeholder := m.styles.UserBg.Foreground(lipgloss.Color(theme.FgDim))
+	text := m.styles.UserBg.Foreground(lipgloss.Color(theme.Fg))
+	endOfBuffer := m.styles.UserBg.Foreground(lipgloss.Color(theme.UserSoft))
+
+	m.input.FocusedStyle.Base = base
+	m.input.FocusedStyle.CursorLine = cursorLine
+	m.input.FocusedStyle.Placeholder = placeholder
+	m.input.FocusedStyle.Prompt = base
+	m.input.FocusedStyle.Text = text
+	m.input.FocusedStyle.EndOfBuffer = endOfBuffer
+
+	m.input.BlurredStyle.Base = base
+	m.input.BlurredStyle.CursorLine = cursorLine
+	m.input.BlurredStyle.Placeholder = placeholder
+	m.input.BlurredStyle.Prompt = base
+	m.input.BlurredStyle.Text = text
+	m.input.BlurredStyle.EndOfBuffer = endOfBuffer
+
+	m.input.Cursor.TextStyle = text
+	m.input.Cursor.Style = text
+	_ = m.input.Cursor.SetMode(cursor.CursorHide)
+	if m.input.Focused() {
+		m.input.Focus()
+	} else {
+		m.input.Blur()
+	}
+}
+
+func (m Model) renderInputView(contentWidth int) string {
+	bar := m.styles.UserBar.Render("┃")
+	bodyWidth := max(1, contentWidth-inputRailWidth)
+	innerWidth := m.inputInnerWidth(contentWidth)
+	lines, isPlaceholder := m.renderInputLines(innerWidth)
+
+	var sb strings.Builder
+	paddingLine := bar + m.styles.UserBg.Width(bodyWidth).Render("")
+	for range inputPadY {
+		sb.WriteString(paddingLine + "\n")
+	}
+	for _, line := range lines {
+		if isPlaceholder {
+			content := m.styles.UserBg.
+				Foreground(lipgloss.Color(theme.FgDim)).
+				Width(bodyWidth).
+				Render(strings.Repeat(" ", inputPadX) + line + strings.Repeat(" ", inputPadX))
+			sb.WriteString(bar + content + "\n")
+			continue
+		}
+		lineStyle := lipgloss.NewStyle().Width(innerWidth)
+		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + lineStyle.Render(line) + strings.Repeat(" ", inputPadX))
+		sb.WriteString(bar + content + "\n")
+	}
+	for range inputPadY {
+		sb.WriteString(paddingLine + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m Model) inputChromeHeight(contentWidth int) int {
+	return lipgloss.Height(m.renderInputView(contentWidth))
+}
+
+func (m Model) inputInnerWidth(contentWidth int) int {
+	return max(1, contentWidth-inputRailWidth-(inputPadX*2)-inputTailFill)
+}
+
+func (m Model) renderInputLines(innerWidth int) ([]string, bool) {
+	if m.input.Value() != "" {
+		return m.renderTypedInputLines(innerWidth), false
+	}
+	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true
+}
+
+func (m Model) renderTypedInputLines(width int) []string {
+	if width < 1 {
+		width = 1
+	}
+
+	valueLines := strings.Split(m.input.Value(), "\n")
+	if len(valueLines) == 0 {
+		valueLines = []string{""}
+	}
+
+	cursorLine := m.input.Line()
+	if cursorLine < 0 {
+		cursorLine = 0
+	}
+	if cursorLine >= len(valueLines) {
+		cursorLine = len(valueLines) - 1
+	}
+	lineInfo := m.input.LineInfo()
+
+	lines := make([]string, 0, len(valueLines))
+	for i, valueLine := range valueLines {
+		wrapped := wrapComposerLine(valueLine, width)
+		if i == cursorLine {
+			row := max(0, min(lineInfo.RowOffset, len(wrapped)-1))
+			col := max(0, min(lineInfo.ColumnOffset, len([]rune(wrapped[row]))))
+			wrapped[row] = insertComposerCursor(wrapped[row], col)
+		}
+		lines = append(lines, wrapped...)
+	}
+	return lines
+}
+
+func wrapComposerLine(line string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	wrapped := ansi.Hardwrap(line, width, true)
+	wrapped = strings.TrimRight(wrapped, "\n")
+	if wrapped == "" {
+		return []string{""}
+	}
+	return strings.Split(wrapped, "\n")
+}
+
+func insertComposerCursor(line string, col int) string {
+	runes := []rune(line)
+	col = max(0, min(col, len(runes)))
+	if col == len(runes) {
+		return string(append(runes, '█'))
+	}
+	out := make([]rune, 0, len(runes)+1)
+	out = append(out, runes[:col]...)
+	out = append(out, '█')
+	out = append(out, runes[col:]...)
+	return string(out)
+}
+
+func renderPlaceholderLines(placeholder string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	wrapped := ansi.Hardwrap(ansi.Wordwrap(placeholder, width, ""), width, true)
+	wrapped = strings.TrimRight(wrapped, "\n")
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	cursorWidth := max(0, width-1)
+	firstLine := lines[0]
+	if cursorWidth == 0 {
+		firstLine = ""
+	}
+	lines[0] = "█" + lipgloss.NewStyle().Width(cursorWidth).Render(firstLine)
+	return lines
 }

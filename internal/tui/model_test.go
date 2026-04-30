@@ -752,9 +752,12 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
-	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with focus border) + status(1) → viewport.Height = 12-6 = 6
+	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + status(1) → viewport.Height = 12-6 = 6
 	if m.viewport.Width != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
+	}
+	if got := m.input.Width(); got != 56 {
+		t.Fatalf("input width = %d, want 56 after rail, padding, and tail fill", got)
 	}
 	if m.viewport.Height != 6 {
 		t.Fatalf("viewport height = %d, want 6 after pane chrome", m.viewport.Height)
@@ -820,8 +823,29 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	if !strings.Contains(view, "─") {
 		t.Fatal("expected divider in View()")
 	}
-	if !strings.Contains(view, "›") {
-		t.Fatal("expected input prompt in View()")
+	if !strings.Contains(view, "ask steiner") {
+		t.Fatal("expected composer placeholder in View()")
+	}
+	if !strings.Contains(view, "┃") {
+		t.Fatal("expected accented composer border in View()")
+	}
+}
+
+func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.input.SetValue("asdasd")
+	m.input.SetCursor(len([]rune("asdasd")))
+
+	lines, placeholder := m.renderInputLines(20)
+
+	if placeholder {
+		t.Fatal("expected typed input, not placeholder")
+	}
+	if len(lines) != 1 {
+		t.Fatalf("line count = %d, want 1", len(lines))
+	}
+	if got := lines[0]; got != "asdasd█" {
+		t.Fatalf("line = %q, want %q", got, "asdasd█")
 	}
 }
 
