@@ -92,7 +92,7 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 
 		select {
@@ -138,7 +138,7 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return fmt.Errorf("read %s: %w", relPath, err)
 		}
 
 		checkLen := 512
@@ -149,7 +149,55 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 			return nil
 		}
 
-		lines := strings.Split(string(content), "\n")
+		contentText := string(content)
+		lines := strings.Split(contentText, "\n")
+		if multiline {
+			lineStarts := make([]int, len(lines))
+			offset := 0
+			for i, line := range lines {
+				lineStarts[i] = offset
+				offset += len(line)
+				if i < len(lines)-1 {
+					offset++
+				}
+			}
+
+			lineMatched := make([]bool, len(lines))
+			matchIndexes := re.FindAllStringIndex(contentText, -1)
+			for _, matchIndex := range matchIndexes {
+				matchStart := matchIndex[0]
+				matchEnd := matchIndex[1]
+				if matchEnd == matchStart {
+					matchEnd++
+				}
+				for i, line := range lines {
+					lineStart := lineStarts[i]
+					lineEnd := lineStart + len(line)
+					if i < len(lines)-1 {
+						lineEnd++
+					}
+					if lineStart < matchEnd && matchStart < lineEnd {
+						lineMatched[i] = true
+					}
+				}
+			}
+
+			for i, matched := range lineMatched {
+				if !matched {
+					continue
+				}
+				matches = append(matches, grepMatch{
+					file:       relPath,
+					lineNumber: i + 1,
+					line:       strings.TrimRight(lines[i], "\r"),
+				})
+				if len(matches) >= limit {
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		}
+
 		for i, line := range lines {
 			if re.MatchString(line) {
 				matches = append(matches, grepMatch{

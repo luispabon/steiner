@@ -2,8 +2,10 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -287,6 +289,97 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 		if strings.Contains(result.Output, "node_modules") {
 			t.Errorf("output contains builtin-excluded node_modules path, got: %s", result.Output)
+		}
+	})
+}
+
+func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "multiline.txt")
+	content := "alpha\nbeta\ngamma\n"
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write multiline file: %v", err)
+	}
+
+	matches, err := grepSearch(context.Background(), tmpDir, "alpha\\nbeta", false, true, "", "", nil, 10)
+	if err != nil {
+		t.Fatalf("grepSearch returned error: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("len(matches) = %d, want 2", len(matches))
+	}
+	if matches[0].file != "multiline.txt" || matches[0].lineNumber != 1 || matches[0].line != "alpha" {
+		t.Fatalf("first match = %#v, want multiline.txt line 1 alpha", matches[0])
+	}
+	if matches[1].file != "multiline.txt" || matches[1].lineNumber != 2 || matches[1].line != "beta" {
+		t.Fatalf("second match = %#v, want multiline.txt line 2 beta", matches[1])
+	}
+}
+
+func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-based traversal/read failure test is unix-oriented")
+	}
+
+	t.Run("returns read errors", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filePath := filepath.Join(tmpDir, "blocked.txt")
+		if err := os.WriteFile(filePath, []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write blocked file: %v", err)
+		}
+		if err := os.Chmod(filePath, 0o000); err != nil {
+			t.Fatalf("chmod blocked file: %v", err)
+		}
+		defer func() {
+			_ = os.Chmod(filePath, 0o644)
+		}()
+
+		if _, err := os.ReadFile(filePath); err == nil {
+			t.Skip("filesystem does not deny file reads after chmod 000")
+		}
+
+		_, err := grepSearch(context.Background(), tmpDir, "needle", false, false, "", "", nil, 10)
+		if err == nil {
+			t.Fatal("expected read error, got nil")
+		}
+		if !strings.Contains(err.Error(), "read blocked.txt") {
+			t.Fatalf("error = %v, want read blocked.txt context", err)
+		}
+		if !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("error = %v, want permission error", err)
+		}
+	})
+
+	t.Run("returns traversal errors", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		blockedDir := filepath.Join(tmpDir, "blocked")
+		if err := os.Mkdir(blockedDir, 0o755); err != nil {
+			t.Fatalf("mkdir blocked dir: %v", err)
+		}
+		secretPath := filepath.Join(blockedDir, "secret.txt")
+		if err := os.WriteFile(secretPath, []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write blocked child file: %v", err)
+		}
+		if err := os.Chmod(blockedDir, 0o000); err != nil {
+			t.Fatalf("chmod blocked dir: %v", err)
+		}
+		defer func() {
+			_ = os.Chmod(blockedDir, 0o755)
+		}()
+
+		if _, err := os.ReadDir(blockedDir); err == nil {
+			t.Skip("filesystem does not deny directory traversal after chmod 000")
+		}
+
+		_, err := grepSearch(context.Background(), tmpDir, "needle", false, false, "", "", nil, 10)
+		if err == nil {
+			t.Fatal("expected traversal error, got nil")
+		}
+		if !strings.Contains(err.Error(), "walk:") {
+			t.Fatalf("error = %v, want walk wrapper", err)
+		}
+		if !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("error = %v, want permission error", err)
 		}
 	})
 }
