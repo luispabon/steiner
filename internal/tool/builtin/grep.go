@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -16,7 +15,6 @@ func NewGrepTool(env Env) tool.ToolDef {
 		Name:            "grep",
 		Description:     `Search file contents. Use output_mode="files_with_matches" to locate relevant files. Use output_mode="content" with context to inspect matches. Use offset to paginate large results.`,
 		ParameterSchema: GrepSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[GrepInput](input)
 			if err != nil {

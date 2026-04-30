@@ -23,7 +23,7 @@ func ResolveApprovalMode(cfg config.Config, def ToolDef) config.ApprovalMode {
 	if cfg.Approval.Default != "" {
 		return cfg.Approval.Default
 	}
-	return config.ApprovalModePrompt
+	return config.ApprovalModeAuto
 }
 
 func (r ApprovalResolver) ModeFor(def ToolDef) config.ApprovalMode {

@@ -292,14 +292,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 			ToolTimeoutDefault: config.MustDuration("30s"),
 		},
 		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
-			ToolOverrides: map[string]*config.ApprovalMode{
-				"read":         configApprovalModePtr(config.ApprovalModeAuto),
-				"glob":         configApprovalModePtr(config.ApprovalModeAuto),
-				"grep":         configApprovalModePtr(config.ApprovalModeAuto),
-				"ls":           configApprovalModePtr(config.ApprovalModeAuto),
-				"display_file": configApprovalModePtr(config.ApprovalModeAuto),
-			},
+			Default: config.ApprovalModeAuto,
 		},
 		Tools: map[string]config.ToolConfig{},
 	}, t.TempDir())
@@ -509,7 +502,10 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 64
 		cfg.Approval = config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
+			Default: config.ApprovalModeAuto,
+			ToolOverrides: map[string]*config.ApprovalMode{
+				"bash": configApprovalModePtr(config.ApprovalModePrompt),
+			},
 		}
 		cfg.Paths = config.PathsConfig{
 			ProjectRootOnly: true,
@@ -597,7 +593,10 @@ func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 0
 		cfg.Approval = config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
+			Default: config.ApprovalModeAuto,
+			ToolOverrides: map[string]*config.ApprovalMode{
+				"bash": configApprovalModePtr(config.ApprovalModePrompt),
+			},
 		}
 		cfg.Paths = config.PathsConfig{
 			ProjectRootOnly: true,

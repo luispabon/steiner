@@ -36,14 +36,7 @@ func defaultConfig() Config {
 			ToolOutputMaxBytes: 65536,
 		},
 		Approval: ApprovalConfig{
-			Default: ApprovalModePrompt,
-			ToolOverrides: map[string]*ApprovalMode{
-				"read":         approvalModeRef(ApprovalModeAuto),
-				"glob":         approvalModeRef(ApprovalModeAuto),
-				"grep":         approvalModeRef(ApprovalModeAuto),
-				"ls":           approvalModeRef(ApprovalModeAuto),
-				"display_file": approvalModeRef(ApprovalModeAuto),
-			},
+			Default: ApprovalModeAuto,
 		},
 		SubAgent: SubAgentConfig{
 			Enabled:       false,
@@ -69,8 +62,4 @@ func defaultConfig() Config {
 			File:  "~/.local/share/steiner/steiner.log",
 		},
 	}
-}
-
-func approvalModeRef(mode ApprovalMode) *ApprovalMode {
-	return &mode
 }

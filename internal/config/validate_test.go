@@ -378,7 +378,7 @@ func TestValidate(t *testing.T) {
 			name: "tool empty name",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools[""] = ToolConfig{Exec: "bar", Timeout: MustDuration("5s"), Approval: ApprovalModeAuto}
+				c.Tools[""] = ToolConfig{Exec: "bar", Timeout: MustDuration("5s")}
 				return c
 			}(),
 			wantErr: `tools contains an empty tool name`,
@@ -387,7 +387,7 @@ func TestValidate(t *testing.T) {
 			name: "tool empty exec",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools["foo"] = ToolConfig{Timeout: MustDuration("5s"), Approval: ApprovalModeAuto}
+				c.Tools["foo"] = ToolConfig{Timeout: MustDuration("5s")}
 				return c
 			}(),
 			wantErr: `exec is required`,
@@ -396,7 +396,7 @@ func TestValidate(t *testing.T) {
 			name: "tool zero timeout",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools["foo"] = ToolConfig{Exec: "bar", Approval: ApprovalModeAuto}
+				c.Tools["foo"] = ToolConfig{Exec: "bar"}
 				return c
 			}(),
 			wantErr: `timeout must be greater than zero`,
