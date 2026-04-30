@@ -50,8 +50,8 @@ type limitsPatch struct {
 }
 
 type approvalPatch struct {
-	Default   *ApprovalMode            `yaml:"default"`
-	Overrides *map[string]ApprovalMode `yaml:"overrides"`
+	Default       *ApprovalMode             `yaml:"default"`
+	ToolOverrides *map[string]*ApprovalMode `yaml:"tool_overrides"`
 }
 
 type subAgentPatch struct {
@@ -228,12 +228,12 @@ func applyApprovalPatch(dst *ApprovalConfig, patch *approvalPatch) {
 	if patch.Default != nil {
 		dst.Default = *patch.Default
 	}
-	if patch.Overrides != nil {
-		if dst.Overrides == nil {
-			dst.Overrides = make(map[string]ApprovalMode)
+	if patch.ToolOverrides != nil {
+		if dst.ToolOverrides == nil {
+			dst.ToolOverrides = make(map[string]*ApprovalMode)
 		}
-		for name, mode := range *patch.Overrides {
-			dst.Overrides[name] = mode
+		for name, mode := range *patch.ToolOverrides {
+			dst.ToolOverrides[name] = mode
 		}
 	}
 }

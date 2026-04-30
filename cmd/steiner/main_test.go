@@ -293,14 +293,12 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 		},
 		Approval: config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
-			Overrides: map[string]config.ApprovalMode{
-				"read":  config.ApprovalModeAuto,
-				"glob":  config.ApprovalModeAuto,
-				"grep":  config.ApprovalModeAuto,
-				"ls":    config.ApprovalModeAuto,
-				"write": config.ApprovalModePrompt,
-				"edit":  config.ApprovalModePrompt,
-				"bash":  config.ApprovalModePrompt,
+			ToolOverrides: map[string]*config.ApprovalMode{
+				"read":         configApprovalModePtr(config.ApprovalModeAuto),
+				"glob":         configApprovalModePtr(config.ApprovalModeAuto),
+				"grep":         configApprovalModePtr(config.ApprovalModeAuto),
+				"ls":           configApprovalModePtr(config.ApprovalModeAuto),
+				"display_file": configApprovalModePtr(config.ApprovalModeAuto),
 			},
 		},
 		Tools: map[string]config.ToolConfig{},
@@ -512,9 +510,6 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 		cfg.Limits.MaxTokens = 64
 		cfg.Approval = config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
-			Overrides: map[string]config.ApprovalMode{
-				"bash": config.ApprovalModePrompt,
-			},
 		}
 		cfg.Paths = config.PathsConfig{
 			ProjectRootOnly: true,
@@ -603,9 +598,6 @@ func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
 		cfg.Limits.MaxTokens = 0
 		cfg.Approval = config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
-			Overrides: map[string]config.ApprovalMode{
-				"bash": config.ApprovalModePrompt,
-			},
 		}
 		cfg.Paths = config.PathsConfig{
 			ProjectRootOnly: true,
@@ -945,8 +937,8 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 				cfg.Limits.MaxTurns = 6
 				cfg.Limits.MaxTokens = 100
 				cfg.ProjectContext.MaxTokens = 64
-				cfg.Approval.Overrides = map[string]config.ApprovalMode{
-					"bash": config.ApprovalModeAuto,
+				cfg.Approval.ToolOverrides = map[string]*config.ApprovalMode{
+					"bash": configApprovalModePtr(config.ApprovalModeAuto),
 				}
 				return cfg
 			}(),
@@ -998,6 +990,10 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	if !foundStopReason {
 		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
 	}
+}
+
+func configApprovalModePtr(mode config.ApprovalMode) *config.ApprovalMode {
+	return &mode
 }
 
 func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {

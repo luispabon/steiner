@@ -96,8 +96,11 @@ func validate(cfg Config) error {
 	if err := validateApprovalMode("approval.default", cfg.Approval.Default); err != nil {
 		problems = append(problems, err.Error())
 	}
-	for name, mode := range cfg.Approval.Overrides {
-		if err := validateApprovalMode(fmt.Sprintf("approval.overrides[%q]", name), mode); err != nil {
+	for name, mode := range cfg.Approval.ToolOverrides {
+		if mode == nil {
+			continue
+		}
+		if err := validateApprovalMode(fmt.Sprintf("approval.tool_overrides[%q]", name), *mode); err != nil {
 			problems = append(problems, err.Error())
 		}
 	}

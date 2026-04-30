@@ -20,7 +20,7 @@ func durationMapPtr(v map[string]Duration) *map[string]Duration {
 	return &v
 }
 
-func approvalModeMapPtr(v map[string]ApprovalMode) *map[string]ApprovalMode {
+func approvalModeMapPtr(v map[string]*ApprovalMode) *map[string]*ApprovalMode {
 	return &v
 }
 
@@ -389,56 +389,69 @@ func TestApplyApprovalPatch(t *testing.T) {
 			want:    ApprovalConfig{Default: ApprovalModeAuto},
 		},
 		{
-			name:    "creates Overrides map when nil and merges",
+			name:    "creates ToolOverrides map when nil and merges",
 			initial: ApprovalConfig{Default: ApprovalModeAuto},
 			patch: approvalPatch{
-				Overrides: approvalModeMapPtr(map[string]ApprovalMode{"bash": ApprovalModeDeny}),
+				ToolOverrides: approvalModeMapPtr(map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)}),
 			},
 			want: ApprovalConfig{
-				Default:   ApprovalModeAuto,
-				Overrides: map[string]ApprovalMode{"bash": ApprovalModeDeny},
+				Default:       ApprovalModeAuto,
+				ToolOverrides: map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)},
 			},
 		},
 		{
-			name: "merges Overrides into existing map",
+			name: "merges ToolOverrides into existing map",
 			initial: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"read": ApprovalModeAuto},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"read": approvalModePtr(ApprovalModeAuto)},
 			},
 			patch: approvalPatch{
-				Overrides: approvalModeMapPtr(map[string]ApprovalMode{"bash": ApprovalModeDeny}),
+				ToolOverrides: approvalModeMapPtr(map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)}),
 			},
 			want: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"read": ApprovalModeAuto, "bash": ApprovalModeDeny},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"read": approvalModePtr(ApprovalModeAuto), "bash": approvalModePtr(ApprovalModeDeny)},
 			},
 		},
 		{
-			name: "overrides patch replaces existing key",
+			name: "tool_overrides patch replaces existing key",
 			initial: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"bash": ApprovalModeAuto},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeAuto)},
 			},
 			patch: approvalPatch{
-				Overrides: approvalModeMapPtr(map[string]ApprovalMode{"bash": ApprovalModeDeny}),
+				ToolOverrides: approvalModeMapPtr(map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)}),
 			},
 			want: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"bash": ApprovalModeDeny},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)},
 			},
 		},
 		{
 			name: "nil default leaves existing default untouched",
 			initial: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"bash": ApprovalModeDeny},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny)},
 			},
 			patch: approvalPatch{
-				Overrides: approvalModeMapPtr(map[string]ApprovalMode{"read": ApprovalModeAuto}),
+				ToolOverrides: approvalModeMapPtr(map[string]*ApprovalMode{"read": approvalModePtr(ApprovalModeAuto)}),
 			},
 			want: ApprovalConfig{
-				Default:   ApprovalModePrompt,
-				Overrides: map[string]ApprovalMode{"bash": ApprovalModeDeny, "read": ApprovalModeAuto},
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"bash": approvalModePtr(ApprovalModeDeny), "read": approvalModePtr(ApprovalModeAuto)},
+			},
+		},
+		{
+			name: "nil tool override is preserved",
+			initial: ApprovalConfig{
+				Default: ApprovalModePrompt,
+			},
+			patch: approvalPatch{
+				ToolOverrides: approvalModeMapPtr(map[string]*ApprovalMode{"bash": nil}),
+			},
+			want: ApprovalConfig{
+				Default:       ApprovalModePrompt,
+				ToolOverrides: map[string]*ApprovalMode{"bash": nil},
 			},
 		},
 		{

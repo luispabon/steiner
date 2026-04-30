@@ -11,9 +11,9 @@ func TestResolveApprovalMode(t *testing.T) {
 	cfg := config.Config{
 		Approval: config.ApprovalConfig{
 			Default: config.ApprovalModePrompt,
-			Overrides: map[string]config.ApprovalMode{
-				"read": config.ApprovalModeAuto,
-				"bash": config.ApprovalModePrompt,
+			ToolOverrides: map[string]*config.ApprovalMode{
+				"read": configApprovalModePtr(config.ApprovalModeAuto),
+				"bash": nil,
 			},
 		},
 	}
@@ -43,6 +43,12 @@ func TestResolveApprovalMode(t *testing.T) {
 			want: config.ApprovalModePrompt,
 		},
 		{
+			cfg:  cfg,
+			name: "nil config override uses default",
+			def:  ToolDef{Name: "bash"},
+			want: config.ApprovalModePrompt,
+		},
+		{
 			cfg:  config.Config{},
 			name: "empty config falls back to prompt",
 			def:  ToolDef{Name: "grep"},
@@ -58,6 +64,10 @@ func TestResolveApprovalMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func configApprovalModePtr(mode config.ApprovalMode) *config.ApprovalMode {
+	return &mode
 }
 
 func TestApprovalResolverBuildsPreviewFromNormalizedInput(t *testing.T) {

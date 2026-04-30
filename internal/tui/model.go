@@ -65,6 +65,7 @@ type Model struct {
 	modelContexts                map[string]int
 	onSubmit                     func(string)
 	onContextInspect             func()
+	onConfigInspect              func()
 	onApproval                   func(ApprovalSubmission)
 	onInterrupt                  func()
 	onExitRequested              func()
@@ -159,6 +160,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		modelContexts:    cloneModelContexts(cfg.ModelContexts),
 		onSubmit:         cfg.OnSubmit,
 		onContextInspect: cfg.OnContextInspect,
+		onConfigInspect:  cfg.OnConfigInspect,
 		onApproval:       cfg.OnApproval,
 		onInterrupt:      cfg.OnInterrupt,
 		onExitRequested:  cfg.OnExitRequested,

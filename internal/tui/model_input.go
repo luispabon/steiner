@@ -24,6 +24,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.compaction {
 		return m.executeCompactAction()
 	}
+	if action.inspectConfig {
+		return m.executeInspectConfigAction()
+	}
 	if action.inspectContext {
 		return m.executeInspectContextAction()
 	}
@@ -141,6 +144,16 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
 	if m.onContextInspect != nil {
 		m.onContextInspect()
+	}
+	m.input.Reset()
+	m.historyIdx = 0
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
+	if m.onConfigInspect != nil {
+		m.onConfigInspect()
 	}
 	m.input.Reset()
 	m.historyIdx = 0

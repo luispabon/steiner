@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -91,5 +92,32 @@ func TestInteractiveRunnerUsesWrappedEventSink(t *testing.T) {
 	}
 	if got, want := bridgedEvents, 1; got != want {
 		t.Fatalf("bridged event count = %d, want %d", got, want)
+	}
+}
+
+func TestBuildConfigOverlayReportFormatsResolvedYAML(t *testing.T) {
+	report, err := buildConfigOverlayReport(config.Config{
+		Model: config.ModelConfig{
+			BaseURL: "http://localhost:11434/v1",
+			Model:   "qwen",
+		},
+		Logging: config.LoggingConfig{
+			Enabled: true,
+			Level:   "debug",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildConfigOverlayReport() error = %v", err)
+	}
+	if !strings.HasPrefix(report, "```yaml\n") {
+		t.Fatalf("report prefix = %q, want yaml fence", report)
+	}
+	for _, want := range []string{"model:", "base_url: http://localhost:11434/v1", "model: qwen", "logging:"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report = %q, want %q", report, want)
+		}
+	}
+	if !strings.HasSuffix(report, "\n```") {
+		t.Fatalf("report suffix = %q, want closing fence", report)
 	}
 }

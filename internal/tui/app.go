@@ -38,6 +38,7 @@ type Config struct {
 	ShowThinking     bool
 	OnSubmit         func(string)
 	OnContextInspect func()
+	OnConfigInspect  func()
 	OnApproval       func(ApprovalSubmission)
 	OnInterrupt      func()
 	OnExitRequested  func()

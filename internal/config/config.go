@@ -60,8 +60,8 @@ const (
 )
 
 type ApprovalConfig struct {
-	Default   ApprovalMode            `yaml:"default"`
-	Overrides map[string]ApprovalMode `yaml:"overrides"`
+	Default       ApprovalMode             `yaml:"default"`
+	ToolOverrides map[string]*ApprovalMode `yaml:"tool_overrides"`
 }
 
 type SubAgentConfig struct {

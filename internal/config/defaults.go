@@ -37,14 +37,12 @@ func defaultConfig() Config {
 		},
 		Approval: ApprovalConfig{
 			Default: ApprovalModePrompt,
-			Overrides: map[string]ApprovalMode{
-				"read":  ApprovalModeAuto,
-				"glob":  ApprovalModeAuto,
-				"grep":  ApprovalModeAuto,
-				"ls":    ApprovalModeAuto,
-				"write": ApprovalModePrompt,
-				"edit":  ApprovalModePrompt,
-				"bash":  ApprovalModePrompt,
+			ToolOverrides: map[string]*ApprovalMode{
+				"read":         approvalModeRef(ApprovalModeAuto),
+				"glob":         approvalModeRef(ApprovalModeAuto),
+				"grep":         approvalModeRef(ApprovalModeAuto),
+				"ls":           approvalModeRef(ApprovalModeAuto),
+				"display_file": approvalModeRef(ApprovalModeAuto),
 			},
 		},
 		SubAgent: SubAgentConfig{
@@ -71,4 +69,8 @@ func defaultConfig() Config {
 			File:  "~/.local/share/steiner/steiner.log",
 		},
 	}
+}
+
+func approvalModeRef(mode ApprovalMode) *ApprovalMode {
+	return &mode
 }

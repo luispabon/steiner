@@ -178,7 +178,8 @@ approval:
   default: prompt
 
   # Per-tool approval overrides.
-  overrides:
+  # Omit a tool here to inherit approval.default.
+  tool_overrides:
     # Allow read-only file access without prompting.
     read: auto
 
@@ -190,15 +191,6 @@ approval:
 
     # Allow directory listing without prompting.
     ls: auto
-
-    # Prompt before file writes.
-    write: prompt
-
-    # Prompt before file edits.
-    edit: prompt
-
-    # Prompt before shell commands.
-    bash: prompt
 
 # Optional sub-agent limits and permissions.
 sub_agent:
