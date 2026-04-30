@@ -311,13 +311,10 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 		switch payload.Kind {
 		case "compaction":
 			if payload.Severity == "compacting" {
-				b.segments = append(b.segments, contentSegment{
-					kind: segmentCompactionBanner,
-					compactionData: &compactionBannerData{
-						label:    "Compacting",
-						subtitle: "summarizing context",
-						finished: false,
-					},
+				b.upsertCompactionBanner(compactionBannerData{
+					label:    "Compacting",
+					subtitle: "summarizing context",
+					finished: false,
 				})
 			} else {
 				msgCount := payload.CompactedMessages
@@ -332,15 +329,12 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 				default:
 					summary = "context compacted"
 				}
-				b.segments = append(b.segments, contentSegment{
-					kind: segmentCompactionBanner,
-					compactionData: &compactionBannerData{
-						label:    "Context compacted",
-						subtitle: summary,
-						finished: true,
-						summary:  summary,
-						msgCount: msgCount,
-					},
+				b.upsertCompactionBanner(compactionBannerData{
+					label:    "Context compacted",
+					subtitle: summary,
+					finished: true,
+					summary:  summary,
+					msgCount: msgCount,
 				})
 			}
 		case "session_health":
@@ -350,6 +344,22 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 			b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 		}
 	}
+}
+
+func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
+	if len(b.segments) > 0 {
+		last := &b.segments[len(b.segments)-1]
+		if last.kind == segmentCompactionBanner && last.compactionData != nil && !last.compactionData.finished {
+			replacement := data
+			last.compactionData = &replacement
+			return
+		}
+	}
+	replacement := data
+	b.segments = append(b.segments, contentSegment{
+		kind:           segmentCompactionBanner,
+		compactionData: &replacement,
+	})
 }
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {

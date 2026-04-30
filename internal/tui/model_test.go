@@ -330,6 +330,11 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 			t.Fatalf("content = %q, want no leaked compaction chunk %q", content, want)
 		}
 	}
+	for _, unwanted := range []string{"compacting", "summarizing context"} {
+		if strings.Contains(strings.ToLower(content), unwanted) {
+			t.Fatalf("content = %q, want no stale in-progress compaction banner text %q", content, unwanted)
+		}
+	}
 	if got := m.input.Placeholder; got != "ask steiner — / for commands, @ for files" {
 		t.Fatalf("input placeholder = %q, want default after compaction finishes", got)
 	}
@@ -362,6 +367,38 @@ func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T)
 	}
 	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "context compacted") {
 		t.Fatalf("content = %q, want compaction banner", got)
+	}
+}
+
+func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Severity: "compacting",
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "warning",
+		CompactionCount: 1,
+		SummaryTitle:    "12 messages summarized into 1",
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextSessionHealthEvent(
+		"conversation",
+		0,
+		1,
+		"info",
+		"stable",
+		"continue, but watch for another compaction",
+		"source generation=1 view=full",
+	)})
+
+	if got := m.sidebar.compaction; got != "" {
+		t.Fatalf("sidebar.compaction = %q, want cleared after finished session health", got)
+	}
+	lines := strings.Join(m.sidebar.lines(38, 50), "\n")
+	if strings.Contains(lines, "compacting…") {
+		t.Fatalf("sidebar = %q, want no compacting spinner after finished session health", lines)
 	}
 }
 

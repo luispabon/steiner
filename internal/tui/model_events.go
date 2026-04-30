@@ -72,7 +72,11 @@ func (m *Model) applyEvent(event output.Event) {
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 		}
 		if payload.Kind == "session_health" {
-			m.sidebar.compaction = compactionSidebarSummary(payload)
+			if m.compacting {
+				m.sidebar.compaction = compactionSidebarSummary(payload)
+			} else {
+				m.sidebar.compaction = ""
+			}
 			if !m.compacting {
 				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 			}
