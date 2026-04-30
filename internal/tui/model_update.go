@@ -193,7 +193,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.completionIdx = 0
 	}
 
-	activeConversation := m.content.streamingPhase != "" || m.approval.active || m.status.mode == "running" || m.status.mode == "approval"
+	activeConversation := m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 
 	// Interrupt the active conversation before any other key routing.
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
