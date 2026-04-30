@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -162,6 +163,60 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 	if got, want := blocks[0].ByteSize, 5; got != want {
 		t.Fatalf("block bytes = %d, want %d", got, want)
+	}
+}
+
+func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global agents content")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir: homeDir,
+		Policy: AssemblyPolicy{
+			Budgets: SourceBudgetModel{
+				PreambleBytes:     5,
+				GlobalAgentsBytes: 4,
+			},
+		},
+		PromptOverrides: config.ModelPrompts{
+			System: "system prompt content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	if got, want := len(assembly.Blocks), 2; got != want {
+		t.Fatalf("len(blocks) = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Blocks[0].Content, "syste"; got != want {
+		t.Fatalf("preamble block content = %q, want %q", got, want)
+	}
+	if !assembly.Blocks[0].Truncated {
+		t.Fatalf("expected preamble block to be truncated")
+	}
+	if got, want := assembly.Blocks[0].ByteSize, 5; got != want {
+		t.Fatalf("preamble block bytes = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Blocks[1].Content, "glob"; got != want {
+		t.Fatalf("agent block content = %q, want %q", got, want)
+	}
+	if !assembly.Blocks[1].Truncated {
+		t.Fatalf("expected agent block to be truncated")
+	}
+	if got, want := assembly.Blocks[1].ByteSize, 4; got != want {
+		t.Fatalf("agent block bytes = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Messages[0].Content, "syste"; got != want {
+		t.Fatalf("preamble message content = %q, want %q", got, want)
+	}
+	if got, want := assembly.Messages[1].Content, "glob"; got != want {
+		t.Fatalf("agent message content = %q, want %q", got, want)
 	}
 }
 
