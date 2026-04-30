@@ -1,0 +1,240 @@
+version: 1
+run:
+  id: "2026-04-30-13-21-slop-detector"
+  generated_at: "2026-04-30 13:21 Europe/London"
+  base_path: "cmd/"
+  mode: deep
+  files_scanned: 18
+  files_with_findings: 4
+  total_findings: 5
+findings:
+  - id: F001
+    severity: high
+    confidence: high
+    category: potential_bugs
+    file: "cmd/steiner/commands.go"
+    language: go
+    symbol: "newToolsCommand / newSkillsCommand"
+    lines:
+      start: 87
+      end: 115
+    summary: "CLI subcommands build a runtime but never close it, leaking the history writer, optional log sink, and `/dev/tty` approval handle."
+    why_it_matters: "Every successful `steiner tools` or `steiner skills` invocation leaves cleanup work deferred forever. In the current runtime this can keep file descriptors open and suppress close-time diagnostics that `closeRuntime` is meant to emit."
+    current_code: |
+      func newToolsCommand(flags *cliFlags) *cobra.Command {
+      	return &cobra.Command{
+      		RunE: func(cmd *cobra.Command, args []string) error {
+      			rt, err := buildRuntime(cmd.Context(), cmd, flags)
+      			if err != nil {
+      				return err
+      			}
+      			renderNames(output.NewStream(cmd.OutOrStdout()), "tools", rt.toolNames)
+      			return nil
+      		},
+      	}
+      }
+
+      func newSkillsCommand(flags *cliFlags) *cobra.Command {
+      	return &cobra.Command{
+      		RunE: func(cmd *cobra.Command, args []string) error {
+      			rt, err := buildRuntime(cmd.Context(), cmd, flags)
+      			if err != nil {
+      				return err
+      			}
+      			renderNames(output.NewStream(cmd.OutOrStdout()), "skills", rt.skillNames)
+      			return nil
+      		},
+      	}
+      }
+    suggested_code: |
+      func newToolsCommand(flags *cliFlags) *cobra.Command {
+      	return &cobra.Command{
+      		Use:   "tools",
+      		Short: "List configured tools",
+      		Args:  cobra.NoArgs,
+      		RunE: func(cmd *cobra.Command, args []string) error {
+      			rt, err := buildRuntime(cmd.Context(), cmd, flags)
+      			if err != nil {
+      				return err
+      			}
+      			defer closeRuntime(&rt)
+      			renderNames(output.NewStream(cmd.OutOrStdout()), "tools", rt.toolNames)
+      			return nil
+      		},
+      	}
+      }
+
+      func newSkillsCommand(flags *cliFlags) *cobra.Command {
+      	return &cobra.Command{
+      		Use:   "skills",
+      		Short: "List discovered skills",
+      		Args:  cobra.NoArgs,
+      		RunE: func(cmd *cobra.Command, args []string) error {
+      			rt, err := buildRuntime(cmd.Context(), cmd, flags)
+      			if err != nil {
+      				return err
+      			}
+      			defer closeRuntime(&rt)
+      			renderNames(output.NewStream(cmd.OutOrStdout()), "skills", rt.skillNames)
+      			return nil
+      		},
+      	}
+      }
+    rationale: "This preserves behaviour while restoring the same lifecycle management already used in `runExecMode` and `runInteractiveMode`."
+    related_findings: []
+    breaking_risk: low
+  - id: F002
+    severity: medium
+    confidence: high
+    category: potential_bugs
+    file: "cmd/steiner/interactive.go"
+    language: go
+    symbol: "runInteractiveMode"
+    lines:
+      start: 184
+      end: 190
+    summary: "Bubble Tea startup/runtime failures are swallowed unconditionally."
+    why_it_matters: "The comment says normal quit errors are expected, but the implementation drops all errors. Real terminal setup failures or TUI crashes disappear, leaving the caller with a silent exit and no diagnostic trail."
+    current_code: |
+      go func() {
+      	defer wg.Done()
+      	if _, err := teaProgram.Run(); err != nil {
+      		// Non-fatal: program exit errors are expected on normal quit.
+      		_ = err
+      	}
+      	stop()
+      }()
+    suggested_code: |
+      go func() {
+      	defer wg.Done()
+      	if _, err := teaProgram.Run(); err != nil {
+      		rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+      			Kind:     "session_health",
+      			Severity: "warning",
+      			Notes:    []string{fmt.Sprintf("interactive tui stopped with error: %v", err)},
+      		}))
+      	}
+      	stop()
+      }()
+    rationale: "If the team later wants to suppress a specific expected quit error, that filtering can be added explicitly. The current blanket ignore masks the useful failures as well."
+    related_findings: [F003]
+    breaking_risk: low
+  - id: F003
+    severity: medium
+    confidence: high
+    category: extract_method
+    file: "cmd/steiner/interactive.go"
+    language: go
+    symbol: "runInteractiveMode"
+    lines:
+      start: 56
+      end: 331
+    summary: "One 276-line function owns setup, TUI wiring, event fan-out, history loading, model switching, compaction, and submission handling."
+    why_it_matters: "This is above the repo’s own size target for production Go files and forces every behavioural change through one high-coupling function. Small regressions in one branch are hard to test in isolation."
+    current_code: |
+      func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
+      	// runtime construction
+      	// display sink wiring
+      	// TUI callback assembly
+      	// event sink wrapping
+      	// Bubble Tea goroutine lifecycle
+      	// history loading
+      	// main select loop with six event branches
+      }
+    suggested_code: |
+      func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
+      	rt, runner, tuiApp, displaySink, approvals, state, err := buildInteractiveSession(cmd, flags)
+      	if err != nil {
+      		return err
+      	}
+      	defer closeRuntime(&rt)
+      	return runInteractiveSessionLoop(cmd, rt, runner, tuiApp, displaySink, approvals, state)
+      }
+
+      func buildInteractiveSession(cmd *cobra.Command, flags *cliFlags) (
+      	cliRuntime,
+      	cliRunner,
+      	*tui.App,
+      	*output.ForwardSink,
+      	*tuiApprovalCoordinator,
+      	interactiveSessionState,
+      	error,
+      ) {
+      	// Build runtime, interactive registry, callbacks, and wrapped event sink.
+      }
+
+      func runInteractiveSessionLoop(
+      	cmd *cobra.Command,
+      	rt cliRuntime,
+      	runner cliRunner,
+      	tuiApp *tui.App,
+      	displaySink *output.ForwardSink,
+      	approvals *tuiApprovalCoordinator,
+      	state interactiveSessionState,
+      ) error {
+      	// Own Bubble Tea lifecycle, history load, inspect/config/compact branches,
+      	// and user submission execution.
+      }
+    rationale: "The extracted boundaries already exist conceptually in the code comments and channel names; formalising them will make unit tests smaller and make later TUI work safer."
+    related_findings: [F002]
+    breaking_risk: low
+  - id: F004
+    severity: low
+    confidence: high
+    category: dead_unreachable_code
+    file: "cmd/steiner/approval.go"
+    language: go
+    symbol: "channelApprovalResponder"
+    lines:
+      start: 15
+      end: 30
+    summary: "The `channelApprovalResponder` type is currently dead code."
+    why_it_matters: "A repository-wide search under `cmd/steiner` shows the type is defined but never constructed or referenced. Keeping dormant approval paths around increases the surface area reviewers need to reason about."
+    current_code: |
+      type channelApprovalResponder struct {
+      	ch chan bool
+      }
+
+      func (r channelApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+      	if req.Response == nil {
+      		return fmt.Errorf("approval response channel is required")
+      	}
+      	allowed, ok := <-r.ch
+      	if !ok {
+      		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval channel closed"}
+      		return fmt.Errorf("approval channel closed")
+      	}
+      	req.Response <- tool.ApprovalResponse{Allow: allowed, Message: "approved"}
+      	return nil
+      }
+    suggested_code: |
+      // Delete channelApprovalResponder and its RequestApproval method.
+      //
+      // If this path is expected to return later, reintroduce it alongside the
+      // call site that actually needs it, with tests covering cancellation and
+      // channel shutdown behaviour.
+    rationale: "Removing unused code is lower risk than carrying an untested alternative approval path."
+    related_findings: []
+    breaking_risk: low
+  - id: F005
+    severity: medium
+    confidence: high
+    category: potential_bugs
+    file: "cmd/glamour-test/main.go"
+    language: go
+    symbol: "main"
+    lines:
+      start: 47
+      end: 47
+    summary: "The final stdout write ignores its error return."
+    why_it_matters: "Broken pipes and short writes are common for CLI tools. Ignoring the error can silently truncate rendered output while still exiting with status 0."
+    current_code: |
+      os.Stdout.Write([]byte(out))
+    suggested_code: |
+      if _, err := os.Stdout.Write([]byte(out)); err != nil {
+      	fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+      	os.Exit(1)
+      }
+    rationale: "This follows the same explicit error handling pattern already used for file read, renderer creation, and render execution."
+    related_findings: []
+    breaking_risk: low
