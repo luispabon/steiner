@@ -338,14 +338,47 @@ func (m *interactiveMode) handleManualCompaction(conversation []agent.Message) [
 		Model:       selected.Model,
 		Events:      m.rt.events,
 	}
-	agentRunner := agent.NewRunner()
-	newConv, err := agentRunner.Compact(m.ctx, compactReq, conversation)
+	newConv, err := m.runManualCompaction(selected.Model, func(ctx context.Context) ([]agent.Message, error) {
+		agentRunner := agent.NewRunner()
+		return agentRunner.Compact(ctx, compactReq, conversation)
+	})
 	if err != nil {
-		m.emitCompactError(err)
+		if !errors.Is(err, context.Canceled) {
+			m.emitCompactError(err)
+		}
 		return conversation
 	}
 	m.rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
 	return newConv
+}
+
+func (m *interactiveMode) runManualCompaction(model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {
+	runCtx, cancel := context.WithCancel(m.ctx)
+	m.runController.Set(cancel)
+	defer func() {
+		cancel()
+		m.runController.Clear()
+
+		reason := "complete"
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				reason = "cancelled"
+			} else {
+				reason = "error"
+			}
+		}
+		m.rt.events.Emit(output.NewRunFinishedEvent(0, reason, "", "", err))
+	}()
+
+	m.rt.events.Emit(output.NewRunStartedEvent("interactive", model, "", 0, 0))
+	m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Scope:    "conversation",
+		Severity: "compacting",
+		Notes:    []string{"starting compaction"},
+	}))
+
+	return run(runCtx)
 }
 
 func (m *interactiveMode) emitCompactError(err error) {

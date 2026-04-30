@@ -64,11 +64,12 @@ func (m *Model) applyEvent(event output.Event) {
 		if payload.Kind == "compaction" {
 			m.compacting = payload.Severity == "compacting"
 			m.content.inCompaction = m.compacting
-			m.sidebar.compaction = compactionSidebarSummary(payload)
-			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
-			if payload.Severity != "compacting" {
-				m.status.mode = "running"
+			if m.compacting {
+				m.sidebar.compaction = compactionSidebarSummary(payload)
+			} else {
+				m.sidebar.compaction = ""
 			}
+			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 		}
 		if payload.Kind == "session_health" {
 			m.sidebar.compaction = compactionSidebarSummary(payload)
