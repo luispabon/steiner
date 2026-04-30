@@ -411,6 +411,65 @@ func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerEmitsRunLifecycleEvents(t *testing.T) {
+	var events []output.Event
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: testRuntimeConfig("test-model"),
+			provider: &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role:    provider.MessageRoleAssistant,
+							Content: "final answer",
+						},
+						FinishReason: "stop",
+						Usage:        &provider.UsageStats{TotalTokens: 3},
+					},
+				},
+			},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+		},
+		runMode: "interactive",
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(events) < 2 {
+		t.Fatalf("events len = %d, want at least 2", len(events))
+	}
+	start, ok := events[0].Payload.(output.RunStartedEvent)
+	if !ok {
+		t.Fatalf("first payload type = %T, want output.RunStartedEvent", events[0].Payload)
+	}
+	if got, want := start.Mode, "interactive"; got != want {
+		t.Fatalf("run started mode = %q, want %q", got, want)
+	}
+	if got, want := start.Prompt, "fix the bug"; got != want {
+		t.Fatalf("run started prompt = %q, want %q", got, want)
+	}
+
+	last := events[len(events)-1]
+	finished, ok := last.Payload.(output.RunFinishedEvent)
+	if !ok {
+		t.Fatalf("last payload type = %T, want output.RunFinishedEvent", last.Payload)
+	}
+	if got, want := finished.Reason, "complete"; got != want {
+		t.Fatalf("run finished reason = %q, want %q", got, want)
+	}
+	if got, want := finished.Summary, "final answer"; got != want {
+		t.Fatalf("run finished summary = %q, want %q", got, want)
+	}
+}
+
 func TestExecModeWritesFullLogFile(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {

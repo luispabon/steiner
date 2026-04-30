@@ -102,7 +102,11 @@ func (e *Executor) Execute(ctx context.Context, toolName string, input map[strin
 			Preview:  preview,
 			Response: responseCh,
 		}); err != nil {
-			return nil, err
+			return nil, &ToolExecutionError{
+				Tool:    def.Name,
+				Kind:    "approval_failed",
+				Message: err.Error(),
+			}
 		}
 		decision := ApprovalResponse{}
 		select {

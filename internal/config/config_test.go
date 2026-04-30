@@ -180,6 +180,181 @@ logging:
 	}
 }
 
+func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
+	tempDir := t.TempDir()
+	explicitHomeDir := filepath.Join(tempDir, "explicit-home")
+	envHomeDir := filepath.Join(tempDir, "env-home")
+	projectDir := filepath.Join(tempDir, "project")
+
+	mustMkdirAll(t, filepath.Join(explicitHomeDir, ".config", "steiner"))
+	mustMkdirAll(t, filepath.Join(envHomeDir, ".config", "steiner"))
+	mustMkdirAll(t, projectDir)
+
+	writeFile(t, filepath.Join(explicitHomeDir, ".config", "steiner", "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://explicit.example/v1
+  model: explicit-backend
+  max_completion_tokens: 1024
+  context_size: 8192
+  compaction:
+    safety_margin_tokens: 128
+    summary_max_tokens: 64
+models:
+  default:
+    type: openai_compat
+    base_url: http://explicit.example/v1
+    model: explicit-backend
+    max_completion_tokens: 1024
+    context_size: 8192
+    compaction:
+      safety_margin_tokens: 128
+      summary_max_tokens: 64
+`)
+
+	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://env.example/v1
+  model: env-backend
+  max_completion_tokens: 2048
+  context_size: 8192
+  compaction:
+    safety_margin_tokens: 256
+    summary_max_tokens: 128
+models:
+  default:
+    type: openai_compat
+    base_url: http://env.example/v1
+    model: env-backend
+    max_completion_tokens: 2048
+    context_size: 8192
+    compaction:
+      safety_margin_tokens: 256
+      summary_max_tokens: 128
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: explicitHomeDir,
+		Env: map[string]string{
+			"HOME": envHomeDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got := cfg.Model.BaseURL; got != "http://explicit.example/v1" {
+		t.Fatalf("model.base_url = %q, want explicit home config", got)
+	}
+}
+
+func TestLoadUsesEnvHomeWhenExplicitHomeDirUnset(t *testing.T) {
+	tempDir := t.TempDir()
+	envHomeDir := filepath.Join(tempDir, "env-home")
+	projectDir := filepath.Join(tempDir, "project")
+
+	mustMkdirAll(t, filepath.Join(envHomeDir, ".config", "steiner"))
+	mustMkdirAll(t, projectDir)
+	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://env.example/v1
+  model: env-backend
+  max_completion_tokens: 2048
+  context_size: 8192
+  compaction:
+    safety_margin_tokens: 256
+    summary_max_tokens: 128
+models:
+  default:
+    type: openai_compat
+    base_url: http://env.example/v1
+    model: env-backend
+    max_completion_tokens: 2048
+    context_size: 8192
+    compaction:
+      safety_margin_tokens: 256
+      summary_max_tokens: 128
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		Env: map[string]string{
+			"HOME": envHomeDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got := cfg.Model.BaseURL; got != "http://env.example/v1" {
+		t.Fatalf("model.base_url = %q, want env home config", got)
+	}
+}
+
+func TestLoadSurfacesHomeResolutionFailure(t *testing.T) {
+	orig := userHomeDir
+	userHomeDir = func() (string, error) {
+		return "", os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		userHomeDir = orig
+	})
+
+	_, err := Load(LoadOptions{
+		Env: map[string]string{
+			"HOME": "",
+		},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want home resolution error")
+	}
+	if !strings.Contains(err.Error(), "resolve home directory") {
+		t.Fatalf("error = %q, want home resolution failure", err)
+	}
+}
+
+func TestLoadSurfacesWorkingDirResolutionFailure(t *testing.T) {
+	orig := getwd
+	getwd = func() (string, error) {
+		return "", os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		getwd = orig
+	})
+
+	_, err := Load(LoadOptions{
+		Env: map[string]string{
+			"HOME": t.TempDir(),
+		},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want working directory resolution error")
+	}
+	if !strings.Contains(err.Error(), "resolve working directory") {
+		t.Fatalf("error = %q, want working directory resolution failure", err)
+	}
+}
+
 func TestLoadExpandsEnvInterpolation(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")

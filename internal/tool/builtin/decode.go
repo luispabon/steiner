@@ -125,7 +125,11 @@ func setField(fv reflect.Value, raw any) error {
 			fv.SetInt(n)
 			return nil
 		case reflect.Float32, reflect.Float64:
-			fv.SetInt(int64(rv.Float()))
+			n, err := strconv.ParseInt(strconv.FormatFloat(rv.Float(), 'f', -1, 64), 10, fv.Type().Bits())
+			if err != nil {
+				return fmt.Errorf("parse int: %w", err)
+			}
+			fv.SetInt(n)
 			return nil
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -138,7 +142,11 @@ func setField(fv reflect.Value, raw any) error {
 			fv.SetUint(n)
 			return nil
 		case reflect.Float32, reflect.Float64:
-			fv.SetUint(uint64(rv.Float()))
+			n, err := strconv.ParseUint(strconv.FormatFloat(rv.Float(), 'f', -1, 64), 10, fv.Type().Bits())
+			if err != nil {
+				return fmt.Errorf("parse uint: %w", err)
+			}
+			fv.SetUint(n)
 			return nil
 		}
 	case reflect.Float32, reflect.Float64:

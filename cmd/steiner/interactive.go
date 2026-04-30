@@ -100,7 +100,7 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 	mode := &interactiveMode{
 		rt:                  rt,
 		runController:       &activeRunController{},
-		runner:              cliRunner{runtime: rt, streamingPreferred: true},
+		runner:              cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
 		enabledSkills:       newInteractiveSkills(rt.skillNames),
 		requestSnapshots:    &requestSnapshotStore{},
 		approvalCoordinator: &tuiApprovalCoordinator{},

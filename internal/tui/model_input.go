@@ -99,6 +99,7 @@ func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
 	if m.onInterrupt != nil {
 		m.onInterrupt()
 	}
+	m.interruptPending = true
 	m.content.AppendInterrupted()
 	m.content.hadChunks = false
 	m.approval = approvalState{}

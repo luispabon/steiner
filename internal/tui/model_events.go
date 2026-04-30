@@ -8,6 +8,10 @@ import (
 )
 
 func (m *Model) applyEvent(event output.Event) {
+	if m.shouldSuppressInterruptedRunEvent(event) {
+		return
+	}
+
 	// Context report events open the overlay instead of going into the transcript.
 	if event.Type == output.EventTypeContextReport {
 		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
@@ -32,6 +36,7 @@ func (m *Model) applyEvent(event output.Event) {
 		m.fileHistoryIdx = -1
 		return
 	case output.RunStartedEvent:
+		m.interruptPending = false
 		m.compacting = false
 		m.content.inCompaction = false
 		if payload.Model != "" {
@@ -44,6 +49,7 @@ func (m *Model) applyEvent(event output.Event) {
 		m.status.mode = "running"
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
+		m.interruptPending = false
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 	case output.TurnStartedEvent:
@@ -101,4 +107,16 @@ func (m *Model) applyEvent(event output.Event) {
 	m.syncInputChrome()
 	m.syncSidebar()
 	m.syncViewport()
+}
+
+func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
+	if !m.interruptPending {
+		return false
+	}
+	switch event.Type {
+	case output.EventTypeRunStarted, output.EventTypeRunFinished, output.EventTypeStopReason, output.EventTypeHistoryLoaded, output.EventTypeContextReport:
+		return false
+	default:
+		return true
+	}
 }

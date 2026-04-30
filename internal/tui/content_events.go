@@ -12,16 +12,6 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-// renderErrorLogger is a package-level hook for logging render errors.
-// The TUI model sets this to emit events through the event bridge.
-var renderErrorLogger func(error)
-
-func emitRenderError(err error) {
-	if renderErrorLogger != nil {
-		renderErrorLogger(err)
-	}
-}
-
 type contentSegmentKind int
 
 const (
@@ -408,12 +398,11 @@ func (b *contentBuffer) AppendInterrupted() {
 }
 
 func (b *contentBuffer) finishStreaming() {
-	if !b.streaming {
-		return
-	}
-	b.finalizeThinkingBlock()
-	if strings.TrimSpace(b.streamBuffer) != "" {
-		b.appendMarkdownBlock(b.streamBuffer)
+	if b.streaming {
+		b.finalizeThinkingBlock()
+		if strings.TrimSpace(b.streamBuffer) != "" {
+			b.appendMarkdownBlock(b.streamBuffer)
+		}
 	}
 	b.streamBuffer = ""
 	b.streaming = false

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -378,6 +379,25 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 	}
 }
 
+func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
+	m1 := newModel(Config{}, nil)
+	m2 := newModel(Config{}, nil)
+
+	errOne := errors.New("first model git error")
+	errTwo := errors.New("second model git error")
+	m1.git.recordError(errOne)
+	m2.git.recordError(errTwo)
+
+	m1 = updateModel(t, m1, tickMsg{})
+
+	if got := m1.git.takeError(); got != nil {
+		t.Fatalf("first model pending git error = %v, want nil after its tick", got)
+	}
+	if got := m2.git.takeError(); !errors.Is(got, errTwo) {
+		t.Fatalf("second model pending git error = %v, want %v", got, errTwo)
+	}
+}
+
 func TestModelApprovalModeTransitions(t *testing.T) {
 	approved := make(chan ApprovalSubmission, 1)
 
@@ -708,6 +728,115 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 	}
 	if updated.input.Placeholder != "ask steiner — / for commands, @ for files" {
 		t.Fatalf("input placeholder = %q, want default", updated.input.Placeholder)
+	}
+}
+
+func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+
+	if m.content.streamingPhase != "" {
+		t.Fatalf("streamingPhase = %q, want empty while waiting for model", m.content.streamingPhase)
+	}
+	if got, want := m.status.mode, "running"; got != want {
+		t.Fatalf("status.mode = %q, want %q", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if interrupts != 1 {
+		t.Fatalf("interrupts = %d, want 1", interrupts)
+	}
+	if got := m.status.mode; got != "" {
+		t.Fatalf("status.mode = %q, want cleared after interrupt", got)
+	}
+}
+
+func TestModelEscInterruptsToolPhase(t *testing.T) {
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git log --oneline -10"})})
+
+	if got := m.content.streamingPhase; got != "tool" {
+		t.Fatalf("streamingPhase = %q, want tool before interrupt", got)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if interrupts != 1 {
+		t.Fatalf("interrupts = %d, want 1", interrupts)
+	}
+	if got := m.content.streamingPhase; got != "" {
+		t.Fatalf("streamingPhase = %q, want empty after interrupt", got)
+	}
+	if got := m.input.Placeholder; got != "ask steiner — / for commands, @ for files" {
+		t.Fatalf("input placeholder = %q, want default after interrupt", got)
+	}
+	if m.status.streaming {
+		t.Fatal("status.streaming = true, want false after interrupt")
+	}
+}
+
+func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
+	interrupts := 0
+
+	m := newModel(Config{
+		OnInterrupt: func() {
+			interrupts++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "prompt", `{"command":"git status"}`, "approved")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "still streaming")})
+
+	if interrupts != 1 {
+		t.Fatalf("interrupts = %d, want 1", interrupts)
+	}
+	if got := m.input.Placeholder; got != "ask steiner — / for commands, @ for files" {
+		t.Fatalf("input placeholder = %q, want default while interrupted", got)
+	}
+	if m.status.streaming {
+		t.Fatal("status.streaming = true, want false while interrupted")
+	}
+	if got := m.content.streamingPhase; got != "" {
+		t.Fatalf("streamingPhase = %q, want empty while interrupted", got)
+	}
+	if strings.Contains(m.content.String(m.viewport.Width), "running tool") {
+		t.Fatal("expected stale tool activity to be suppressed after interrupt")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "cancelled", nil)})
+	if got, want := m.status.mode, "cancelled"; got != want {
+		t.Fatalf("status.mode = %q, want %q after stop", got, want)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "cancelled", "", "", nil)})
+	if !strings.Contains(m.content.String(m.viewport.Width), "status: cancelled") {
+		t.Fatal("expected cancelled stop reason to remain visible")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(2, "fresh run")})
+	if got := m.content.streamingPhase; got != "answer" {
+		t.Fatalf("streamingPhase = %q, want answer after next run resumes", got)
 	}
 }
 

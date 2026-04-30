@@ -5,6 +5,13 @@ import (
 )
 
 func TestDecodeInput(t *testing.T) {
+	type signedByteInput struct {
+		Value int8 `json:"value"`
+	}
+	type unsignedByteInput struct {
+		Value uint8 `json:"value"`
+	}
+
 	t.Run("valid ReadInput decodes correctly", func(t *testing.T) {
 		result, err := decodeInput[ReadInput](map[string]any{
 			"path":   "test.txt",
@@ -159,6 +166,54 @@ func TestDecodeInput(t *testing.T) {
 		}
 		if result.Limit != 100 {
 			t.Errorf("Limit = %d, want %d", result.Limit, 100)
+		}
+	})
+
+	t.Run("integral float accepted for signed ints", func(t *testing.T) {
+		result, err := decodeInput[signedByteInput](map[string]any{
+			"value": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Value != 5 {
+			t.Errorf("Value = %d, want %d", result.Value, 5)
+		}
+	})
+
+	t.Run("fractional float rejected for signed ints", func(t *testing.T) {
+		_, err := decodeInput[signedByteInput](map[string]any{
+			"value": float64(3.9),
+		})
+		if err == nil {
+			t.Fatal("expected error for fractional float")
+		}
+	})
+
+	t.Run("negative float rejected for unsigned ints", func(t *testing.T) {
+		_, err := decodeInput[unsignedByteInput](map[string]any{
+			"value": float64(-1),
+		})
+		if err == nil {
+			t.Fatal("expected error for negative float")
+		}
+	})
+
+	t.Run("out of range float rejected for signed ints", func(t *testing.T) {
+		_, err := decodeInput[signedByteInput](map[string]any{
+			"value": float64(128),
+		})
+		if err == nil {
+			t.Fatal("expected error for out of range float")
+		}
+	})
+
+	t.Run("out of range float rejected for unsigned ints", func(t *testing.T) {
+		_, err := decodeInput[unsignedByteInput](map[string]any{
+			"value": float64(256),
+		})
+		if err == nil {
+			t.Fatal("expected error for out of range float")
 		}
 	})
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -17,6 +18,7 @@ type cliRunner struct {
 	runtime            cliRuntime
 	approver           tool.ApprovalResponder
 	maxTurns           int
+	runMode            string
 	streamingPreferred bool
 }
 
@@ -70,6 +72,18 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Conversation:              toProviderConversation(conversation),
 	}
 
+	runMode := strings.TrimSpace(r.runMode)
+	if runMode == "" {
+		runMode = "exec"
+	}
+	r.runtime.events.Emit(output.NewRunStartedEvent(
+		runMode,
+		selected.Model,
+		lastUserPrompt(conversation),
+		r.maxTurns,
+		r.runtime.cfg.Limits.MaxTokens,
+	))
+
 	var diagnostics []output.Event
 	events := output.NewMultiSink(
 		r.runtime.events,
@@ -98,6 +112,17 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Events:             events,
 		StreamingPreferred: r.streamingPreferred,
 	})
+	reason := string(state.StopReason)
+	if reason == "" && err != nil {
+		reason = string(agent.StopReasonError)
+	}
+	r.runtime.events.Emit(output.NewRunFinishedEvent(
+		state.TurnCount,
+		reason,
+		lastAssistantReply(state.Conversation),
+		"",
+		err,
+	))
 	if err != nil {
 		return runResult{}, err
 	}
@@ -107,6 +132,15 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Reply:        lastAssistantReply(state.Conversation),
 		Diagnostics:  cloneEvents(diagnostics),
 	}, nil
+}
+
+func lastUserPrompt(messages []agent.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == agent.MessageRoleUser {
+			return strings.TrimSpace(messages[i].Content)
+		}
+	}
+	return ""
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {
