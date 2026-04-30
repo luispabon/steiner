@@ -15,19 +15,63 @@ const (
 )
 
 type sourcePlan struct {
-	Sources []plannedSourceKind
+	Steps []sourcePlanStep
+}
+
+type sourcePlanStep struct {
+	Kind  plannedSourceKind
+	Apply func(context.Context, *assemblyState) error
 }
 
 func (a Assembler) planSourceAssembly() sourcePlan {
 	return sourcePlan{
-		Sources: []plannedSourceKind{
-			plannedSourcePreamble,
-			plannedSourceAgents,
-			plannedSourceProjectContext,
-			plannedSourceSkills,
-			plannedSourceDurableContext,
-			plannedSourceConversation,
-			plannedSourceToolSummaries,
+		Steps: []sourcePlanStep{
+			{
+				Kind: plannedSourcePreamble,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					a.appendPreamble(state)
+					return nil
+				},
+			},
+			{
+				Kind: plannedSourceAgents,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					return a.appendAgents(state)
+				},
+			},
+			{
+				Kind: plannedSourceProjectContext,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					return a.appendProjectContext(state)
+				},
+			},
+			{
+				Kind: plannedSourceSkills,
+				Apply: func(ctx context.Context, state *assemblyState) error {
+					return a.appendSkills(ctx, state)
+				},
+			},
+			{
+				Kind: plannedSourceDurableContext,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					a.appendDurableContext(state)
+					return nil
+				},
+			},
+			{
+				Kind: plannedSourceConversation,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					a.appendConversation(state)
+					return nil
+				},
+			},
+			{
+				Kind: plannedSourceToolSummaries,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					a.appendToolSummaries(state)
+					return nil
+				},
+			},
 		},
 	}
 }
@@ -35,28 +79,9 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 func (a Assembler) renderSourcePlan(ctx context.Context, plan sourcePlan) (Assembly, error) {
 	state := newAssemblyState(a.policy, a.opts)
 
-	for _, source := range plan.Sources {
-		switch source {
-		case plannedSourcePreamble:
-			a.appendPreamble(&state)
-		case plannedSourceAgents:
-			if err := a.appendAgents(&state); err != nil {
-				return Assembly{}, err
-			}
-		case plannedSourceProjectContext:
-			if err := a.appendProjectContext(&state); err != nil {
-				return Assembly{}, err
-			}
-		case plannedSourceSkills:
-			if err := a.appendSkills(ctx, &state); err != nil {
-				return Assembly{}, err
-			}
-		case plannedSourceDurableContext:
-			a.appendDurableContext(&state)
-		case plannedSourceConversation:
-			a.appendConversation(&state)
-		case plannedSourceToolSummaries:
-			a.appendToolSummaries(&state)
+	for _, step := range plan.Steps {
+		if err := step.Apply(ctx, &state); err != nil {
+			return Assembly{}, err
 		}
 	}
 

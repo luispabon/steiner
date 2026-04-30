@@ -20,12 +20,15 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 		plannedSourceToolSummaries,
 	}
 
-	if got, wantLen := len(plan.Sources), len(want); got != wantLen {
-		t.Fatalf("len(plan.Sources) = %d, want %d", got, wantLen)
+	if got, wantLen := len(plan.Steps), len(want); got != wantLen {
+		t.Fatalf("len(plan.Steps) = %d, want %d", got, wantLen)
 	}
 	for i, wantKind := range want {
-		if got := plan.Sources[i]; got != wantKind {
-			t.Fatalf("plan.Sources[%d] = %q, want %q", i, got, wantKind)
+		if got := plan.Steps[i].Kind; got != wantKind {
+			t.Fatalf("plan.Steps[%d].Kind = %q, want %q", i, got, wantKind)
+		}
+		if plan.Steps[i].Apply == nil {
+			t.Fatalf("plan.Steps[%d].Apply = nil, want executable step", i)
 		}
 	}
 }
