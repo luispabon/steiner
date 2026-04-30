@@ -77,6 +77,62 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	return turnOutcome{State: state, Response: &response}
 }
 
+// executeToolCalls runs the tool-execution phase of the turn lifecycle and
+// applies tool results to the conversation state. It owns:
+//   - ToolCallStarted event emission
+//   - executor invocation
+//   - cancellation handling
+//   - tool error formatting
+//   - tool preview construction
+//   - ToolCallFinished event emission
+//   - tool message append to conversation/lineage
+//   - TurnFinished event emission after all tools
+func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
+	state := in.State
+	turn := state.TurnCount
+
+	for _, call := range response.Message.ToolCalls {
+		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
+		emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
+
+		result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+		if cancelled, ok := contextCancellationState(ctx, state); ok {
+			emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+			emitStop(in.Request.Events, cancelled, nil)
+			return turnOutcome{State: cancelled, Stop: true}
+		}
+
+		var toolContent string
+		var preview output.ToolPreview
+		if err != nil {
+			toolContent = formatToolError(err)
+			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+		} else {
+			normalizedResult := normalizeToolResult(result)
+			toolContent = normalizedResult.Content
+			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+		}
+		state.Conversation = append(state.Conversation, Message{
+			Role:       MessageRoleTool,
+			Content:    toolContent,
+			ToolCallID: call.ID,
+			Name:       call.Name,
+		})
+		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
+			Role:       MessageRoleTool,
+			Content:    toolContent,
+			ToolCallID: call.ID,
+			Name:       call.Name,
+		}})
+	}
+
+	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
+	state.Conversation = state.Lineage.FullMessages()
+	return turnOutcome{State: state}
+}
+
 // turnProgressor owns the per-turn progression lifecycle.
 type turnProgressor struct {
 	runner *Runner
