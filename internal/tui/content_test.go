@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/alecthomas/chroma/v2"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
+	"github.com/muesli/termenv"
 )
 
 func TestAppendEventDelegationStarted(t *testing.T) {
@@ -579,6 +581,52 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	}
 }
 
+func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
+	useTrueColor(t)
+
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatFilePreview("POEM.md", "# POEM\n")
+	if len(doc.Lines) == 0 {
+		t.Fatal("preview document has no lines")
+	}
+
+	got := buffer.renderPreviewLine(doc.Lines[0])
+	plain := buffer.baseTextStyle().Render("# POEM")
+	if got == plain {
+		t.Fatalf("markdown heading rendered with plain style: %q", got)
+	}
+	if !strings.Contains(stripANSI(got), "# POEM") {
+		t.Fatalf("rendered markdown heading %q missing text", got)
+	}
+}
+
+func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
+	useTrueColor(t)
+
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatFilePreview("Makefile", "BIN_DIR := bin\nGO_FILES := *.go\n")
+	if len(doc.Lines) == 0 {
+		t.Fatal("preview document has no lines")
+	}
+
+	got := buffer.renderPreviewLine(doc.Lines[0])
+	plain := buffer.baseTextStyle().Render("BIN_DIR := bin")
+	if got == plain {
+		t.Fatalf("makefile variable rendered with plain style: %q", got)
+	}
+	if !strings.Contains(stripANSI(got), "BIN_DIR") {
+		t.Fatalf("rendered makefile line %q missing variable name", got)
+	}
+}
+
 func TestRenderDisplayFilePreviewUsesCaptionAndHighlightedContent(t *testing.T) {
 	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
 func main() {}
@@ -608,6 +656,60 @@ func main() {}
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered display preview %q missing %q", got, want)
 		}
+	}
+}
+
+func TestRenderReadFilePreviewIncludesLanguageInCaption(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.segments = []contentSegment{
+		{
+			kind: segmentToolCall,
+			toolData: &toolCallSegment{
+				tool:      "read",
+				args:      "POEM.md",
+				bodyKind:  "file",
+				collapsed: false,
+				preview: output.ToolPreview{
+					Kind:     output.ToolPreviewKindReadFile,
+					Path:     "POEM.md",
+					Language: "markdown",
+					Contents: "# The Quiet Code\n\nline one\n",
+				},
+			},
+		},
+	}
+
+	got := stripANSI(buffer.String(80))
+	for _, want := range []string{"POEM.md · read file preview · markdown ·", "read file preview · markdown"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered read preview %q missing %q", got, want)
+		}
+	}
+}
+
+func TestRenderToolPreviewKeepsGoSyntaxStyling(t *testing.T) {
+	useTrueColor(t)
+
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatFilePreview("snippet.go", "package main\nfunc main() {}\n")
+	if len(doc.Lines) == 0 {
+		t.Fatal("preview document has no lines")
+	}
+
+	got := buffer.renderPreviewLine(doc.Lines[0])
+	plain := buffer.baseTextStyle().Render("package main")
+	if got == plain {
+		t.Fatalf("go keyword line rendered with plain style: %q", got)
+	}
+	if !strings.Contains(stripANSI(got), "package main") {
+		t.Fatalf("rendered go line %q missing text", got)
 	}
 }
 
@@ -646,6 +748,8 @@ func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 }
 
 func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
+	useTrueColor(t)
+
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -663,6 +767,32 @@ func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], want) {
 		t.Fatalf("added diff line %q missing highlighted keyword %q", lines[2], want)
+	}
+	if !hasANSIBackground(lines[1]) || !hasANSIBackground(lines[2]) {
+		t.Fatalf("diff rows lost background styling: removed=%q added=%q", lines[1], lines[2])
+	}
+}
+
+func TestRenderToolPreviewTrimsSharedMarkdownHeadingInDiffs(t *testing.T) {
+	useTrueColor(t)
+
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatEditDiffPreview("POEM.md", "# The Quiet Code\n\nOld body\n", "# The Quiet Code\n\nNew body\n")
+	lines := buffer.renderDiffPreviewDocument(doc, 100)
+
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "# The Quiet Code") {
+		t.Fatalf("markdown diff %q still contains shared heading", joined)
+	}
+	if !strings.Contains(joined, "Old body") || !strings.Contains(joined, "New body") {
+		t.Fatalf("markdown diff lines %v missing edited body text", lines)
+	}
+	if !hasANSIBackground(lines[2]) || !hasANSIBackground(lines[3]) {
+		t.Fatalf("markdown diff lines lost row backgrounds: removed=%q added=%q", lines[2], lines[3])
 	}
 }
 
@@ -937,4 +1067,18 @@ func lineHasHighlightedSpan(line output.PreviewLine) bool {
 		}
 	}
 	return false
+}
+
+func hasANSIBackground(s string) bool {
+	return strings.Contains(s, "\x1b[48;2;") || strings.Contains(s, "\x1b[48;5;")
+}
+
+func useTrueColor(t *testing.T) {
+	t.Helper()
+
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(old)
+	})
 }

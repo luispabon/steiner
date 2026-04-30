@@ -88,19 +88,26 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 			Created:  created,
 		}
 	case "read", "read_file":
-		path := trimmedStringArg(arguments, "path")
-		if path == "" {
+		var payload struct {
+			Path      string `json:"path"`
+			StartLine int    `json:"start_line"`
+			Output    string `json:"output"`
+		}
+		if err := json.Unmarshal([]byte(result), &payload); err != nil {
 			return plainToolPreview()
 		}
-		contents, ok := readContentsFromResult(result)
-		if !ok {
+		path := trimmedStringArg(arguments, "path")
+		if path == "" {
+			path = strings.TrimSpace(payload.Path)
+		}
+		if path == "" || payload.Output == "" {
 			return plainToolPreview()
 		}
 		return ToolPreview{
 			Kind:     ToolPreviewKindReadFile,
 			Path:     path,
 			Language: previewLanguage(path),
-			Contents: contents,
+			Contents: normalizeReadPreviewContents(payload.Output, payload.StartLine),
 		}
 	case "glob":
 		return buildGlobPreview(arguments, result)
@@ -336,19 +343,6 @@ func splitToolPreviewLines(output string) []string {
 
 func trimmedStringArg(arguments map[string]any, key string) string {
 	return strings.TrimSpace(rawStringArg(arguments, key))
-}
-
-func readContentsFromResult(result string) (string, bool) {
-	var payload struct {
-		Output string `json:"output"`
-	}
-	if err := json.Unmarshal([]byte(result), &payload); err != nil {
-		return "", false
-	}
-	if payload.Output == "" {
-		return "", false
-	}
-	return payload.Output, true
 }
 
 func previewLanguage(path string) string {

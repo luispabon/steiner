@@ -5,12 +5,15 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+var previewSyntaxStyle = chromastyles.Get("github-dark")
 
 func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
@@ -516,6 +519,9 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 		}
 	case tc.preview.Kind == output.ToolPreviewKindReadFile:
 		label = "read file preview"
+		if doc.Language != "" && doc.Language != "plain" {
+			label += " · " + doc.Language
+		}
 	}
 	lineCount := previewContentLineCount(doc)
 	if doc.Path != "" {
@@ -596,10 +602,6 @@ func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign 
 		signStr = b.styles.FgMute.Render(" ")
 	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
-	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	if sign == " " {
-		bodyStyle = b.styles.FgDim
-	}
 
 	var sb strings.Builder
 	sb.WriteString(bg.Render(lineNoStr + " " + signStr + " "))
@@ -608,7 +610,7 @@ func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign 
 		if rendered == "" {
 			continue
 		}
-		sb.WriteString(bg.Render(bodyStyle.Render(rendered)))
+		sb.WriteString(bg.Render(rendered))
 	}
 	return sb.String()
 }
@@ -648,31 +650,55 @@ func (b *contentBuffer) renderPreviewSpan(span output.PreviewSpan) string {
 }
 
 func (b *contentBuffer) previewTokenStyle(token chroma.TokenType) lipgloss.Style {
-	switch {
-	case token.InCategory(chroma.Comment):
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgFaint)).Italic(true)
-	case token.InCategory(chroma.Keyword):
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SyntaxBlue))
-	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameBuiltin),
-		token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameClass):
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolCyan))
-	case token.InCategory(chroma.Name) && token.InSubCategory(chroma.NameAttribute):
-		return b.styles.Added // struct tags — green like strings
-	case token.InCategory(chroma.LiteralString):
-		return b.styles.Added // green
-	case token.InCategory(chroma.LiteralNumber):
-		return b.styles.Warn // amber
-	case token.InCategory(chroma.Operator):
-		return b.styles.FgFaint
-	case token.InCategory(chroma.Punctuation):
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	case token.InCategory(chroma.GenericDeleted):
-		return b.styles.Removed
-	case token.InCategory(chroma.GenericInserted):
-		return b.styles.Added
-	default:
-		return b.baseTextStyle()
+	if b.previewStyleCache == nil {
+		b.previewStyleCache = make(map[chroma.TokenType]lipgloss.Style)
 	}
+	if style, ok := b.previewStyleCache[token]; ok {
+		return style
+	}
+
+	style, meaningful := chromaStyleToLipgloss(previewSyntaxStyle.Get(token))
+	if !meaningful {
+		style = b.baseTextStyle()
+	}
+	b.previewStyleCache[token] = style
+	return style
+}
+
+func chromaStyleToLipgloss(entry chroma.StyleEntry) (lipgloss.Style, bool) {
+	style := lipgloss.NewStyle()
+	meaningful := false
+
+	if entry.Colour.IsSet() {
+		style = style.Foreground(lipgloss.Color(entry.Colour.String()))
+		meaningful = true
+	}
+	switch entry.Bold {
+	case chroma.Yes:
+		style = style.Bold(true)
+		meaningful = true
+	case chroma.No:
+		style = style.Bold(false)
+		meaningful = true
+	}
+	switch entry.Italic {
+	case chroma.Yes:
+		style = style.Italic(true)
+		meaningful = true
+	case chroma.No:
+		style = style.Italic(false)
+		meaningful = true
+	}
+	switch entry.Underline {
+	case chroma.Yes:
+		style = style.Underline(true)
+		meaningful = true
+	case chroma.No:
+		style = style.Underline(false)
+		meaningful = true
+	}
+
+	return style, meaningful
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {

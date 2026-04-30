@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -96,6 +98,7 @@ type contentBuffer struct {
 	renderWidth       int
 	styles            theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
+	previewStyleCache map[chroma.TokenType]lipgloss.Style
 	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
 	segmentHeights    []int        // rendered line count per segment (recomputed in String())
 	showThinking      bool         // from prefs; when false skip thinking segments

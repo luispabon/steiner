@@ -79,6 +79,20 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 		},
 		{
+			name: "read file strips numbered preview lines",
+			tool: "read",
+			args: map[string]any{
+				"path": "README.md",
+			},
+			result: `{"path":"README.md","start_line":1,"output":"1 # Heading\n2\n3 Body line\n"}`,
+			want: ToolPreview{
+				Kind:     ToolPreviewKindReadFile,
+				Path:     "README.md",
+				Language: "markdown",
+				Contents: "# Heading\n\nBody line\n",
+			},
+		},
+		{
 			name: "glob list",
 			tool: "glob",
 			args: map[string]any{

@@ -117,6 +117,13 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 
 	beforeLines := splitPreviewLines(normalizePreviewText(before))
 	afterLines := splitPreviewLines(normalizePreviewText(after))
+	if syntax.Language == "markdown" {
+		beforeLines, afterLines = trimSharedMarkdownHeadingPrefix(beforeLines, afterLines)
+	}
+	beforeHighlighted, beforeHighlightedOK := highlightedPreviewLines(joinPreviewLines(beforeLines), syntax.Lexer)
+	afterHighlighted, afterHighlightedOK := highlightedPreviewLines(joinPreviewLines(afterLines), syntax.Lexer)
+	beforeIndex := 0
+	afterIndex := 0
 	oldRange := previewRangeSpec(len(beforeLines))
 	newRange := previewRangeSpec(len(afterLines))
 	hunkHeader := PreviewLine{
@@ -135,11 +142,35 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 		var line PreviewLine
 		switch op.kind {
 		case diffOpEqual:
-			line = highlightedLine(PreviewLineKindContext, " ", syntax.Lexer, op.before)
+			if beforeHighlightedOK {
+				line = beforeHighlighted[beforeIndex]
+				beforeIndex++
+				if afterHighlightedOK {
+					afterIndex++
+				}
+				line.Kind = PreviewLineKindContext
+				line.Prefix = " "
+			} else {
+				line = highlightedLine(PreviewLineKindContext, " ", syntax.Lexer, op.before)
+			}
 		case diffOpDelete:
-			line = highlightedLine(PreviewLineKindRemoved, "-", syntax.Lexer, op.before)
+			if beforeHighlightedOK {
+				line = beforeHighlighted[beforeIndex]
+				beforeIndex++
+				line.Kind = PreviewLineKindRemoved
+				line.Prefix = "-"
+			} else {
+				line = highlightedLine(PreviewLineKindRemoved, "-", syntax.Lexer, op.before)
+			}
 		case diffOpInsert:
-			line = highlightedLine(PreviewLineKindAdded, "+", syntax.Lexer, op.after)
+			if afterHighlightedOK {
+				line = afterHighlighted[afterIndex]
+				afterIndex++
+				line.Kind = PreviewLineKindAdded
+				line.Prefix = "+"
+			} else {
+				line = highlightedLine(PreviewLineKindAdded, "+", syntax.Lexer, op.after)
+			}
 		}
 		if !appendLine(line) {
 			lines = append(lines, truncationLine(lineLimit))
@@ -155,6 +186,26 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 		Truncated: false,
 		LineLimit: lineLimit,
 	}
+}
+
+func trimSharedMarkdownHeadingPrefix(before, after []string) ([]string, []string) {
+	if len(before) == 0 || len(after) == 0 {
+		return before, after
+	}
+	if before[0] != after[0] {
+		return before, after
+	}
+	if !strings.HasPrefix(strings.TrimSpace(before[0]), "#") {
+		return before, after
+	}
+	return before[1:], after[1:]
+}
+
+func joinPreviewLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func detectPreviewLexer(path, contents string) chroma.Lexer {
@@ -278,6 +329,17 @@ func highlightedLine(kind PreviewLineKind, prefix string, lexer chroma.Lexer, te
 		line.Spans = []PreviewSpan{{Type: chroma.Text, Text: text}}
 	}
 	return line
+}
+
+func highlightedPreviewLines(text string, lexer chroma.Lexer) ([]PreviewLine, bool) {
+	lines, _ := formatHighlightedText(text, lexer, PreviewLineKindText, -1)
+	if len(lines) == 0 {
+		return nil, true
+	}
+	if len(lines) != len(splitPreviewLines(normalizePreviewText(text))) {
+		return nil, false
+	}
+	return lines, true
 }
 
 func highlightTextSpans(text string, lexer chroma.Lexer) []PreviewSpan {

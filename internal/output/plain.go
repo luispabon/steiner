@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -233,10 +234,103 @@ func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) 
 	case ToolPreviewKindFileWrite:
 		return FormatFilePreview(preview.Path, preview.Contents), true
 	case ToolPreviewKindReadFile:
-		return FormatFilePreview(preview.Path, preview.Contents), true
+		return FormatFilePreview(preview.Path, normalizeReadPreviewContents(preview.Contents, 0)), true
 	default:
 		return PreviewDocument{}, false
 	}
+}
+
+func normalizeReadPreviewContents(contents string, startLine int) string {
+	if contents == "" {
+		return contents
+	}
+
+	lines := strings.Split(contents, "\n")
+	if len(lines) == 0 {
+		return contents
+	}
+
+	if startLine > 0 {
+		current := startLine
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if !hasReadLineNumberPrefixForLine(line, current) {
+				return contents
+			}
+			current++
+		}
+		return stripReadPreviewContents(lines, startLine)
+	}
+
+	hasNumberedPrefix := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !hasReadLineNumberPrefix(line) {
+			return contents
+		}
+		hasNumberedPrefix = true
+	}
+	if !hasNumberedPrefix {
+		return contents
+	}
+	return stripReadPreviewContents(lines, 1)
+}
+
+func stripReadPreviewContents(lines []string, startLine int) string {
+	out := make([]string, len(lines))
+	current := startLine
+	for i, line := range lines {
+		out[i] = stripReadLineNumberPrefixForLine(line, current)
+		current++
+	}
+	return strings.Join(out, "\n")
+}
+
+func hasReadLineNumberPrefix(line string) bool {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	start := i
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == start {
+		return false
+	}
+	return i < len(line) && (line[i] == ' ' || line[i] == '\t')
+}
+
+func hasReadLineNumberPrefixForLine(line string, lineNumber int) bool {
+	prefix := strconv.Itoa(lineNumber)
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	if !strings.HasPrefix(line[i:], prefix) {
+		return false
+	}
+	i += len(prefix)
+	return i == len(line) || line[i] == ' ' || line[i] == '\t'
+}
+
+func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
+	prefix := strconv.Itoa(lineNumber)
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	if strings.HasPrefix(line[i:], prefix) {
+		i += len(prefix)
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return line[i:]
 }
 
 func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayload) {
