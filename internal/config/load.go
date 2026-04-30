@@ -10,6 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	userHomeDir = os.UserHomeDir
+	getwd       = os.Getwd
+)
+
 // CLIOverrides contains command-line override values.
 type CLIOverrides struct {
 	ConfigPath string
@@ -38,19 +43,24 @@ func Load(opts LoadOptions) (Config, error) {
 
 	homeDir := opts.HomeDir
 	if homeDir == "" {
-		homeDir = os.Getenv("HOME")
-		if homeDir == "" {
-			if resolved, err := os.UserHomeDir(); err == nil {
-				homeDir = resolved
+		if envHome := env["HOME"]; envHome != "" {
+			homeDir = envHome
+		} else {
+			resolved, err := userHomeDir()
+			if err != nil {
+				return Config{}, fmt.Errorf("resolve home directory: %w", err)
 			}
+			homeDir = resolved
 		}
 	}
 
 	workingDir := opts.WorkingDir
 	if workingDir == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			workingDir = cwd
+		cwd, err := getwd()
+		if err != nil {
+			return Config{}, fmt.Errorf("resolve working directory: %w", err)
 		}
+		workingDir = cwd
 	}
 
 	globalPath := opts.GlobalConfigPath
