@@ -1,30 +1,8 @@
-# Architectural Review Plan
+# Architectural Review Subject 1
 
-This document records staged architectural refactor plans for `steiner`.
+## Subject
 
-Each subject should be written so another agent can execute it with minimal additional design work. Every subject should preserve package boundaries, keep changes incremental, and prefer test-first or test-adjacent execution where practical.
-
-## Review Status
-
-### Committed subjects
-
-- Subject 1: Deepen the **Interactive Session** module
-- Subject 2: Deepen the **Delegation Bootstrap** module
-
-### Candidate queue
-
-These are identified architectural review candidates that have not yet been fully grilled or turned into staged implementation plans. They remain in scope for future subjects unless explicitly rejected or deferred.
-
-1. **Turn Progression** module
-2. **Prompt Source Planning** module
-3. **Tool Execution Pipeline** module
-4. **Provider Request Execution** module
-
-### Deferred or rejected subjects
-
-- None yet
-
-## Subject 1: Deepen the Interactive Session module
+Deepen the **Interactive Session** module.
 
 ### Summary
 

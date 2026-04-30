@@ -1,11 +1,8 @@
-# Architectural Review Plan
+# Architectural Review Subject 2
 
-This document records staged architectural refactor plans for `steiner`.
+## Subject
 
-Each subject should be written so another agent can execute it with minimal additional design work. Every subject should preserve package boundaries, keep changes incremental, and prefer test-first or test-adjacent execution where practical.
-
-
-## Subject 2: Deepen the Delegation Bootstrap module
+Deepen the **Delegation Bootstrap** module.
 
 ### Summary
 
