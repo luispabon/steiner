@@ -121,9 +121,11 @@ func TestRenderSourcePlanMatchesAssemble(t *testing.T) {
 		t.Fatalf("newAssembler() error = %v", err)
 	}
 
-	assembly, err := assembler.renderSourcePlan(context.Background(), assembler.planSourceAssembly())
+	plan := assembler.planSourceAssembly()
+
+	assembly, err := plan.render(context.Background(), assembler.policy, assembler.opts)
 	if err != nil {
-		t.Fatalf("renderSourcePlan() error = %v", err)
+		t.Fatalf("plan.render() error = %v", err)
 	}
 
 	got, err := assembler.Assemble(context.Background())
