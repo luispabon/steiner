@@ -67,6 +67,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	basePrompt.Conversation = nil
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
+	p := newTurnProgressor(r)
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -86,66 +87,22 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 
-		var err error
-		state, err = r.runTurn(ctx, req, state, basePrompt, compactionHistory, &compactionCount)
-		if err != nil {
-			return state, err
+		in := turnInput{
+			Request:           req,
+			State:             state,
+			BasePrompt:        basePrompt,
+			CompactionHistory: compactionHistory,
+			CompactionCount:   &compactionCount,
 		}
-		if state.StopReason != "" {
+		outcome := p.advance(ctx, in)
+		state = outcome.State
+		if outcome.Error != nil {
+			return state, outcome.Error
+		}
+		if outcome.Stop {
 			return state, nil
 		}
 	}
-}
-
-func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, basePrompt prompt.AssemblyOptions, compactionHistory map[string]bool, compactionCount *int) (RunState, error) {
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        basePrompt,
-		CompactionHistory: compactionHistory,
-		CompactionCount:   compactionCount,
-	}
-	assembly, chatRequest, fit, err := prepareTurn(ctx, in)
-	if err != nil {
-		return handleRunError(ctx, req.Events, state, err)
-	}
-	if !fit.Fits {
-		p := newTurnProgressor(r)
-		outcome := p.advance(ctx, in, fit)
-		if outcome.Error != nil {
-			return handleRunError(ctx, req.Events, outcome.State, outcome.Error)
-		}
-		return outcome.State, nil
-	}
-
-	p := newTurnProgressor(r)
-	outcome := p.executeModelCall(ctx, in, assembly, chatRequest)
-	if outcome.Error != nil {
-		return outcome.State, outcome.Error
-	}
-	if outcome.Stop {
-		return outcome.State, nil
-	}
-	// Tool calls present — delegate to turnProgressor
-	in.State = outcome.State
-	toolOutcome := p.executeToolCalls(ctx, in, *outcome.Response)
-	if toolOutcome.Error != nil {
-		return toolOutcome.State, toolOutcome.Error
-	}
-	if toolOutcome.Stop {
-		return toolOutcome.State, nil
-	}
-	return toolOutcome.State, nil
-}
-
-func handleRunError(ctx context.Context, events output.EventSink, state RunState, err error) (RunState, error) {
-	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		emitStop(events, cancelled, nil)
-		return cancelled, nil
-	}
-	state.StopReason = StopReasonError
-	emitStop(events, state, err)
-	return state, err
 }
 
 func formatToolError(err error) string {

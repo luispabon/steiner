@@ -142,10 +142,43 @@ func newTurnProgressor(runner *Runner) *turnProgressor {
 	return &turnProgressor{runner: runner}
 }
 
-// advance handles the compaction path of the turn lifecycle.
-// It emits the compaction event, runs compaction, and returns the outcome.
-func (p *turnProgressor) advance(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget) turnOutcome {
-	return p.handleCompaction(ctx, in, fit)
+// advance runs one complete turn: prepare, compaction if needed, model call,
+// and tool calls if the response contains them. It returns the outcome which
+// the Runner's outer loop interprets for stop/retry decisions.
+func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome {
+	assembly, chatRequest, fit, err := prepareTurn(ctx, in)
+	if err != nil {
+		return p.handleError(ctx, in.Request.Events, in.State, err)
+	}
+
+	if !fit.Fits {
+		outcome := p.handleCompaction(ctx, in, fit)
+		if outcome.Error != nil {
+			return p.handleError(ctx, in.Request.Events, outcome.State, outcome.Error)
+		}
+		return outcome
+	}
+
+	outcome := p.executeModelCall(ctx, in, assembly, chatRequest)
+	if outcome.Error != nil || outcome.Stop {
+		return outcome
+	}
+
+	in.State = outcome.State
+	return p.executeToolCalls(ctx, in, *outcome.Response)
+}
+
+// handleError converts an error into a turnOutcome, checking for cancellation
+// first. Cancellation returns Stop with a nil error; everything else sets
+// StopReasonError.
+func (p *turnProgressor) handleError(ctx context.Context, events output.EventSink, state RunState, err error) turnOutcome {
+	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		emitStop(events, cancelled, nil)
+		return turnOutcome{State: cancelled, Stop: true}
+	}
+	state.StopReason = StopReasonError
+	emitStop(events, state, err)
+	return turnOutcome{State: state, Error: err, Stop: true}
 }
 
 // handleCompaction coordinates compaction when the request does not fit
