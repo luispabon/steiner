@@ -42,18 +42,13 @@ Currently the user cannot select text with the mouse. Investigate and fix so tha
 ## Mid-term
 
 ### T010 — Implement a /config command
-
-**Area:** UX
-**Status:** Not started
-**Priority:** Medium
-
 #### Description
 The /config command will show the current session's full config on a scrollable overlay modal (like the file picker)
 
 #### Acceptance Criteria
-- [ ] Tool approvals use huh for the UI
-- [ ] Approvals still function correctly (approve / deny / always allow)
-- [ ] (Optional) huh is used for prompt auto-suggestions
+- [ ] Output is shown on a scrollable overlay
+- [ ] Contents of the config should be a YAML file showing the full config after merging defaults with global config file choices with user config file with environment - eg the very final config object
+- [ ] The config is properly syntax-highlighted
 
 ---
 

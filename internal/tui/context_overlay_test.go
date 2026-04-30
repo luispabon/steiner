@@ -40,6 +40,9 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	if !m.contextOverlay.open {
 		t.Fatal("context overlay = closed, want open after context report")
 	}
+	if got := m.contextOverlay.title; got != "Context Report" {
+		t.Fatalf("context overlay title = %q, want Context Report", got)
+	}
 	rendered := stripANSI(strings.Join(m.contextOverlay.renderedLines, "\n"))
 	for _, want := range []string{"Heading", "item one", "item two", "fmt.Println", "inline code"} {
 		if !strings.Contains(rendered, want) {
@@ -56,6 +59,34 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	}
 	if !strings.Contains(base, "model gpt-test") {
 		t.Fatalf("base view = %q, want sidebar content in the underlying screen", base)
+	}
+}
+
+func TestContextOverlayRendersConfigYAMLWithSyntaxHighlighting(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 24})
+
+	report := "```yaml\nmodel:\n  base_url: http://localhost:11434/v1\n  context_size: 8192\n```"
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConfigReportEvent(report)})
+
+	if !m.contextOverlay.open {
+		t.Fatal("context overlay = closed, want open after config report")
+	}
+	if got := m.contextOverlay.title; got != "Config" {
+		t.Fatalf("context overlay title = %q, want Config", got)
+	}
+	rendered := strings.Join(m.contextOverlay.renderedLines, "\n")
+	plain := stripANSI(rendered)
+	for _, want := range []string{"model:", "base_url:", "context_size:"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("rendered yaml = %q, want %q", plain, want)
+		}
+	}
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("rendered yaml = %q, want styled ANSI output", plain)
+	}
+	if !strings.Contains(stripANSI(m.renderContextOverlay()), "Config") {
+		t.Fatalf("overlay view = %q, want Config header", stripANSI(m.renderContextOverlay()))
 	}
 }
 

@@ -175,30 +175,16 @@ limits:
 # Approval policy for built-in and configured tools.
 approval:
   # Default approval mode for tools without a specific override.
-  default: prompt
+  default: auto
 
   # Per-tool approval overrides.
-  overrides:
-    # Allow read-only file access without prompting.
-    read: auto
-
-    # Allow file globbing without prompting.
-    glob: auto
-
-    # Allow text search without prompting.
-    grep: auto
-
-    # Allow directory listing without prompting.
-    ls: auto
+  # Omit a tool here to inherit approval.default.
+  tool_overrides:
+    # Prompt before shell commands.
+    bash: prompt
 
     # Prompt before file writes.
     write: prompt
-
-    # Prompt before file edits.
-    edit: prompt
-
-    # Prompt before shell commands.
-    bash: prompt
 
 # Optional sub-agent limits and permissions.
 sub_agent:

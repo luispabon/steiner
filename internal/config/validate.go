@@ -96,8 +96,11 @@ func validate(cfg Config) error {
 	if err := validateApprovalMode("approval.default", cfg.Approval.Default); err != nil {
 		problems = append(problems, err.Error())
 	}
-	for name, mode := range cfg.Approval.Overrides {
-		if err := validateApprovalMode(fmt.Sprintf("approval.overrides[%q]", name), mode); err != nil {
+	for name, mode := range cfg.Approval.ToolOverrides {
+		if mode == nil {
+			continue
+		}
+		if err := validateApprovalMode(fmt.Sprintf("approval.tool_overrides[%q]", name), *mode); err != nil {
 			problems = append(problems, err.Error())
 		}
 	}
@@ -131,8 +134,10 @@ func validate(cfg Config) error {
 		if tool.Timeout.IsZero() {
 			problems = append(problems, fmt.Sprintf("tools[%q].timeout must be greater than zero", name))
 		}
-		if err := validateApprovalMode(fmt.Sprintf("tools[%q].approval", name), tool.Approval); err != nil {
-			problems = append(problems, err.Error())
+		if tool.Approval != "" {
+			if err := validateApprovalMode(fmt.Sprintf("tools[%q].approval", name), tool.Approval); err != nil {
+				problems = append(problems, err.Error())
+			}
 		}
 	}
 
@@ -146,9 +151,10 @@ func validateApprovalMode(path string, mode ApprovalMode) error {
 	switch mode {
 	case ApprovalModeAuto, ApprovalModePrompt, ApprovalModeDeny:
 		return nil
-	case "":
-		return fmt.Errorf("%s is required", path)
 	default:
+		if mode == "" {
+			return fmt.Errorf("%s is required", path)
+		}
 		return fmt.Errorf("%s %q is not supported", path, mode)
 	}
 }

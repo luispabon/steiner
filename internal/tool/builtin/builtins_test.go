@@ -46,24 +46,10 @@ func TestBuiltins(t *testing.T) {
 		}
 	})
 
-	t.Run("approval required for write, edit, bash", func(t *testing.T) {
+	t.Run("builtin tools do not hardcode approval defaults", func(t *testing.T) {
 		for _, td := range tools {
-			switch td.Name {
-			case "write", "edit", "bash":
-				if td.Approval != config.ApprovalModePrompt {
-					t.Errorf("tool %q Approval = %q, want %q", td.Name, td.Approval, config.ApprovalModePrompt)
-				}
-			}
-		}
-	})
-
-	t.Run("approval not required for read, grep, glob, ls, display_file", func(t *testing.T) {
-		for _, td := range tools {
-			switch td.Name {
-			case "read", "grep", "glob", "ls", "display_file":
-				if td.Approval != config.ApprovalModeAuto {
-					t.Errorf("tool %q Approval = %q, want %q", td.Name, td.Approval, config.ApprovalModeAuto)
-				}
+			if td.Approval != "" {
+				t.Errorf("tool %q Approval = %q, want empty", td.Name, td.Approval)
 			}
 		}
 	})

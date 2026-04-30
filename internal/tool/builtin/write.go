@@ -6,7 +6,6 @@ import (
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -20,7 +19,6 @@ func NewWriteTool(env Env) tool.ToolDef {
 		Name:            "write",
 		Description:     "Create or overwrite a whole file. For modifying existing files, prefer edit unless a full rewrite is intentional.",
 		ParameterSchema: WriteSchema(),
-		Approval:        config.ApprovalModePrompt,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[WriteInput](input)
 			if err != nil {

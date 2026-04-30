@@ -42,8 +42,8 @@ func validBase() Config {
 			ToolOutputMaxBytes: 65536,
 		},
 		Approval: ApprovalConfig{
-			Default:   ApprovalModeAuto,
-			Overrides: map[string]ApprovalMode{},
+			Default:       ApprovalModeAuto,
+			ToolOverrides: map[string]*ApprovalMode{},
 		},
 		SubAgent: SubAgentConfig{Enabled: false},
 		Tools:    map[string]ToolConfig{},
@@ -286,7 +286,7 @@ func TestValidate(t *testing.T) {
 			name: "invalid approval override",
 			cfg: func() Config {
 				c := validBase()
-				c.Approval.Overrides["test"] = "invalid"
+				c.Approval.ToolOverrides["test"] = approvalModePtr("invalid")
 				return c
 			}(),
 			wantErr: `not supported`,
@@ -295,10 +295,19 @@ func TestValidate(t *testing.T) {
 			name: "empty approval override",
 			cfg: func() Config {
 				c := validBase()
-				c.Approval.Overrides["test"] = ""
+				c.Approval.ToolOverrides["test"] = approvalModePtr("")
 				return c
 			}(),
 			wantErr: `is required`,
+		},
+		{
+			name: "nil approval override inherits default",
+			cfg: func() Config {
+				c := validBase()
+				c.Approval.ToolOverrides["bash"] = nil
+				return c
+			}(),
+			wantErr: ``,
 		},
 
 		// 7. Sub-agent enabled with bad limits
@@ -369,7 +378,7 @@ func TestValidate(t *testing.T) {
 			name: "tool empty name",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools[""] = ToolConfig{Exec: "bar", Timeout: MustDuration("5s"), Approval: ApprovalModeAuto}
+				c.Tools[""] = ToolConfig{Exec: "bar", Timeout: MustDuration("5s")}
 				return c
 			}(),
 			wantErr: `tools contains an empty tool name`,
@@ -378,7 +387,7 @@ func TestValidate(t *testing.T) {
 			name: "tool empty exec",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools["foo"] = ToolConfig{Timeout: MustDuration("5s"), Approval: ApprovalModeAuto}
+				c.Tools["foo"] = ToolConfig{Timeout: MustDuration("5s")}
 				return c
 			}(),
 			wantErr: `exec is required`,
@@ -387,7 +396,7 @@ func TestValidate(t *testing.T) {
 			name: "tool zero timeout",
 			cfg: func() Config {
 				c := validBase()
-				c.Tools["foo"] = ToolConfig{Exec: "bar", Approval: ApprovalModeAuto}
+				c.Tools["foo"] = ToolConfig{Exec: "bar"}
 				return c
 			}(),
 			wantErr: `timeout must be greater than zero`,

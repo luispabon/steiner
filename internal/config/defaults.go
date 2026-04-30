@@ -36,16 +36,7 @@ func defaultConfig() Config {
 			ToolOutputMaxBytes: 65536,
 		},
 		Approval: ApprovalConfig{
-			Default: ApprovalModePrompt,
-			Overrides: map[string]ApprovalMode{
-				"read":  ApprovalModeAuto,
-				"glob":  ApprovalModeAuto,
-				"grep":  ApprovalModeAuto,
-				"ls":    ApprovalModeAuto,
-				"write": ApprovalModePrompt,
-				"edit":  ApprovalModePrompt,
-				"bash":  ApprovalModePrompt,
-			},
+			Default: ApprovalModeAuto,
 		},
 		SubAgent: SubAgentConfig{
 			Enabled:       false,

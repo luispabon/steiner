@@ -212,6 +212,50 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	}
 }
 
+func TestModelHandlesConfigCommandLocally(t *testing.T) {
+	var submitted []string
+	configInspections := 0
+
+	m := newModel(Config{
+		OnSubmit: func(value string) {
+			submitted = append(submitted, value)
+		},
+		OnConfigInspect: func() {
+			configInspections++
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/config")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(submitted) != 0 {
+		t.Fatalf("submitted = %#v, want no provider submission", submitted)
+	}
+	if configInspections != 1 {
+		t.Fatalf("configInspections = %d, want 1", configInspections)
+	}
+	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+		t.Fatalf("content = %q, want no local echo", got)
+	}
+
+	reportContent := "```yaml\nmodel:\n  model: gpt-test\n```"
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConfigReportEvent(reportContent)})
+
+	if !m.contextOverlay.open {
+		t.Fatal("contextOverlay.open = false, want overlay open after config report event")
+	}
+	if got := m.contextOverlay.title; got != "Config" {
+		t.Fatalf("contextOverlay.title = %q, want Config", got)
+	}
+	if !strings.Contains(m.contextOverlay.content, "model:") {
+		t.Fatalf("contextOverlay.content = %q, want yaml content", m.contextOverlay.content)
+	}
+	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+		t.Fatalf("content = %q, want no transcript insertion for config report", got)
+	}
+}
+
 func TestModelDisplaysFileEventInTranscript(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})

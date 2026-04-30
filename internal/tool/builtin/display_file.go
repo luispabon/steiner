@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -36,7 +35,6 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 		Name:            "display_file",
 		Description:     "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
 		ParameterSchema: DisplayFileSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[DisplayFileInput](input)
 			if err != nil {

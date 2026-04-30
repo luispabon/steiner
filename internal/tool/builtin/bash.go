@@ -8,7 +8,6 @@ import (
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -26,7 +25,6 @@ func NewBashTool(env Env) tool.ToolDef {
 		Name:            "bash",
 		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd when needed. Output may be truncated.",
 		ParameterSchema: BashSchema(),
-		Approval:        config.ApprovalModePrompt,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[BashInput](input)
 			if err != nil {

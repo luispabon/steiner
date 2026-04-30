@@ -11,7 +11,6 @@ import (
 
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/toolkit"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -24,7 +23,6 @@ func NewLSTool(env Env) tool.ToolDef {
 		Name:            "ls",
 		Description:     "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
 		ParameterSchema: LSSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[LSInput](input)
 			if err != nil {

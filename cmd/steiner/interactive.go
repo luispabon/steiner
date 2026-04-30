@@ -6,13 +6,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 type activeRunController struct {
@@ -71,6 +74,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	submissions := make(chan string, 1)
 	contextInspect := make(chan struct{}, 1)
+	configInspect := make(chan struct{}, 1)
 	clearSession := make(chan struct{}, 1)
 	triggerCompact := make(chan struct{}, 1)
 	exitRequests := make(chan struct{}, 1)
@@ -102,6 +106,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		OnContextInspect: func() {
 			select {
 			case contextInspect <- struct{}{}:
+			default:
+			}
+		},
+		OnConfigInspect: func() {
+			select {
+			case configInspect <- struct{}{}:
 			default:
 			}
 		},
@@ -216,6 +226,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 			rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
 			continue
+		case <-configInspect:
+			report, err := buildConfigOverlayReport(runner.runtime.cfg)
+			if err != nil {
+				rt.events.Emit(output.NewConfigReportEvent("Resolved config unavailable.\n\n" + err.Error()))
+				continue
+			}
+			rt.events.Emit(output.NewConfigReportEvent(report))
+			continue
 		case <-clearSession:
 			conversation = nil
 		case <-triggerCompact:
@@ -310,4 +328,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			conversation = result.Conversation
 		}
 	}
+}
+
+func buildConfigOverlayReport(cfg config.Config) (string, error) {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal resolved config: %w", err)
+	}
+	return "```yaml\n" + strings.TrimRight(string(data), "\n") + "\n```", nil
 }

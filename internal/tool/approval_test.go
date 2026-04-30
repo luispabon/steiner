@@ -10,10 +10,9 @@ import (
 func TestResolveApprovalMode(t *testing.T) {
 	cfg := config.Config{
 		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
-			Overrides: map[string]config.ApprovalMode{
-				"read": config.ApprovalModeAuto,
-				"bash": config.ApprovalModePrompt,
+			Default: config.ApprovalModeAuto,
+			ToolOverrides: map[string]*config.ApprovalMode{
+				"bash": configApprovalModePtr(config.ApprovalModePrompt),
 			},
 		},
 	}
@@ -33,20 +32,20 @@ func TestResolveApprovalMode(t *testing.T) {
 		{
 			cfg:  cfg,
 			name: "config override wins",
-			def:  ToolDef{Name: "read"},
-			want: config.ApprovalModeAuto,
+			def:  ToolDef{Name: "bash"},
+			want: config.ApprovalModePrompt,
 		},
 		{
 			cfg:  cfg,
 			name: "config default used",
 			def:  ToolDef{Name: "grep"},
-			want: config.ApprovalModePrompt,
+			want: config.ApprovalModeAuto,
 		},
 		{
 			cfg:  config.Config{},
-			name: "empty config falls back to prompt",
+			name: "empty config falls back to auto",
 			def:  ToolDef{Name: "grep"},
-			want: config.ApprovalModePrompt,
+			want: config.ApprovalModeAuto,
 		},
 	}
 
@@ -60,10 +59,14 @@ func TestResolveApprovalMode(t *testing.T) {
 	}
 }
 
+func configApprovalModePtr(mode config.ApprovalMode) *config.ApprovalMode {
+	return &mode
+}
+
 func TestApprovalResolverBuildsPreviewFromNormalizedInput(t *testing.T) {
 	resolver := NewApprovalResolver(config.Config{
 		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
+			Default: config.ApprovalModeAuto,
 		},
 	})
 	policy := NewPathPolicy("/repo", config.PathsConfig{ProjectRootOnly: true})
@@ -79,7 +82,7 @@ func TestApprovalResolverBuildsPreviewFromNormalizedInput(t *testing.T) {
 	if got, want := preview.Tool, "bash"; got != want {
 		t.Fatalf("Tool = %q, want %q", got, want)
 	}
-	if got, want := preview.Mode, config.ApprovalModePrompt; got != want {
+	if got, want := preview.Mode, config.ApprovalModeAuto; got != want {
 		t.Fatalf("Mode = %q, want %q", got, want)
 	}
 	if got, want := preview.WorkDir, "/repo"; got != want {

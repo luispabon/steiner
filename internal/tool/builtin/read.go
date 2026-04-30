@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dive/toolkit"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -19,7 +18,6 @@ func NewReadTool(env Env) tool.ToolDef {
 		Name:            "read",
 		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Returns line-numbered content and pagination metadata.",
 		ParameterSchema: ReadSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ReadInput](input)
 			if err != nil {

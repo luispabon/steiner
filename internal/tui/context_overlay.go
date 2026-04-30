@@ -17,6 +17,7 @@ const (
 // contextOverlayState holds the state for the /context report overlay modal.
 type contextOverlayState struct {
 	OverlayShell
+	title             string
 	content           string
 	renderedLines     []string
 	scrollOffset      int
@@ -40,11 +41,12 @@ func (s contextOverlayState) contextInnerWidth() int {
 
 // openContextOverlay returns a copy of the state with the overlay open and
 // content populated.
-func openContextOverlay(content string, width, height int, styles theme.Styles, styleSheet glamour.TermRendererOption) contextOverlayState {
+func openContextOverlay(title, content string, width, height int, styles theme.Styles, styleSheet glamour.TermRendererOption) contextOverlayState {
 	shell := OverlayShell{}
-	shell = shell.WithDimensions(width, height).WithTitle("context report").openShell()
+	shell = shell.WithDimensions(width, height).WithTitle(strings.TrimSpace(title)).openShell()
 	return contextOverlayState{
 		OverlayShell:      shell,
+		title:             strings.TrimSpace(title),
 		content:           content,
 		fixedWidth:        contextOverlayWidth,
 		styles:            styles,
@@ -123,7 +125,11 @@ func (m *Model) renderContextOverlay() string {
 		Foreground(lipgloss.Color(theme.Fg)).
 		Bold(true).
 		Width(innerWidth)
-	headerLine := titleStyle.Render("Context Report")
+	title := strings.TrimSpace(s.title)
+	if title == "" {
+		title = "Report"
+	}
+	headerLine := titleStyle.Render(title)
 	divider := s.contextDivider()
 
 	// Slice rendered markdown lines for the scroll window.

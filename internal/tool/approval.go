@@ -17,13 +17,13 @@ func ResolveApprovalMode(cfg config.Config, def ToolDef) config.ApprovalMode {
 	if def.Approval != "" {
 		return def.Approval
 	}
-	if mode, ok := cfg.Approval.Overrides[def.Name]; ok && mode != "" {
-		return mode
+	if mode, ok := cfg.Approval.ToolOverrides[def.Name]; ok && mode != nil && *mode != "" {
+		return *mode
 	}
 	if cfg.Approval.Default != "" {
 		return cfg.Approval.Default
 	}
-	return config.ApprovalModePrompt
+	return config.ApprovalModeAuto
 }
 
 func (r ApprovalResolver) ModeFor(def ToolDef) config.ApprovalMode {
