@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
+	"github.com/spf13/cobra"
 )
 
 func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
@@ -92,6 +97,111 @@ func TestInteractiveRunnerUsesWrappedEventSink(t *testing.T) {
 	}
 	if got, want := bridgedEvents, 1; got != want {
 		t.Fatalf("bridged event count = %d, want %d", got, want)
+	}
+}
+
+func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	oldRunTeaProgram := runTeaProgram
+	oldQuitTeaProgram := quitTeaProgram
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+		runTeaProgram = oldRunTeaProgram
+		quitTeaProgram = oldQuitTeaProgram
+	})
+
+	var events []output.Event
+	buildRuntime = func(context.Context, *cobra.Command, *cliFlags) (cliRuntime, error) {
+		return cliRuntime{
+			cfg: config.Config{
+				Model: config.ModelConfig{
+					Model:   "test-model",
+					BaseURL: "http://localhost:11434/v1",
+				},
+			},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+		}, nil
+	}
+	runTeaProgram = func(*tea.Program) (tea.Model, error) {
+		return nil, errors.New("boom")
+	}
+	quitTeaProgram = func(*tea.Program) {}
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := runInteractiveMode(cmd, &cliFlags{}); err != nil {
+		t.Fatalf("runInteractiveMode() error = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			continue
+		}
+		if payload.Severity == "warning" && strings.Contains(strings.Join(payload.Notes, " "), "tui runtime failed: boom") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want warning diagnostic for TUI failure", events)
+	}
+}
+
+func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	oldRunTeaProgram := runTeaProgram
+	oldQuitTeaProgram := quitTeaProgram
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+		runTeaProgram = oldRunTeaProgram
+		quitTeaProgram = oldQuitTeaProgram
+	})
+
+	var events []output.Event
+	buildRuntime = func(context.Context, *cobra.Command, *cliFlags) (cliRuntime, error) {
+		return cliRuntime{
+			cfg: config.Config{
+				Model: config.ModelConfig{
+					Model:   "test-model",
+					BaseURL: "http://localhost:11434/v1",
+				},
+			},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+		}, nil
+	}
+	runTeaProgram = func(*tea.Program) (tea.Model, error) {
+		return nil, tea.ErrProgramKilled
+	}
+	quitTeaProgram = func(*tea.Program) {}
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := runInteractiveMode(cmd, &cliFlags{}); err != nil {
+		t.Fatalf("runInteractiveMode() error = %v, want nil", err)
+	}
+
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok && payload.Severity == "warning" && strings.Contains(strings.Join(payload.Notes, " "), "tui runtime failed") {
+			t.Fatalf("events = %#v, want no warning diagnostic for program killed", events)
+		}
 	}
 }
 
