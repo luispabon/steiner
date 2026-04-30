@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -80,6 +82,187 @@ func TestPrepareTurn_FitFailure(t *testing.T) {
 	}
 	if fit.Fits {
 		t.Fatalf("fit.Fits = true, want false")
+	}
+}
+
+func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "compacted summary of the conversation",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		}),
+	}
+
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{}, nil
+		}},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         10,
+			MaxCompletionTokens: 5,
+			SummaryMaxTokens:    5,
+		},
+		Events: output.NoopSink{},
+	}
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	fit := prompt.RequestTokenBudget{
+		ContextSize: 10,
+		TotalTokens: 100,
+		Fits:        false,
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.handleCompaction(context.Background(), in, fit)
+
+	if outcome.Error != nil {
+		t.Fatalf("handleCompaction() error = %v", outcome.Error)
+	}
+	if !outcome.Retry {
+		t.Fatalf("outcome.Retry = false, want true")
+	}
+	if outcome.Stop {
+		t.Fatalf("outcome.Stop = true, want false")
+	}
+}
+
+func TestHandleCompaction_ProviderError(t *testing.T) {
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, fmt.Errorf("compaction provider unavailable")
+		},
+	}
+
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		}),
+	}
+
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{}, nil
+		}},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+			SummaryMaxTokens:    256,
+		},
+		Events: output.NoopSink{},
+	}
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	fit := prompt.RequestTokenBudget{
+		ContextSize: 4096,
+		TotalTokens: 100,
+		Fits:        false,
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.handleCompaction(context.Background(), in, fit)
+
+	if outcome.Error == nil {
+		t.Fatal("handleCompaction() error = nil, want error")
+	}
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
+	}
+}
+
+func TestHandleCompaction_NoCandidate(t *testing.T) {
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello"},
+		}),
+	}
+
+	req := RunRequest{
+		Provider: &fakeProvider{},
+		Executor: &fakeExecutor{execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{}, nil
+		}},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Events: output.NoopSink{},
+	}
+
+	key := compactionCandidateKey(ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+	})
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{key: true},
+		CompactionCount:   new(int),
+	}
+
+	fit := prompt.RequestTokenBudget{
+		ContextSize: 4096,
+		TotalTokens: 100,
+		Fits:        false,
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.handleCompaction(context.Background(), in, fit)
+
+	if outcome.Error == nil {
+		t.Fatal("handleCompaction() error = nil, want error")
+	}
+	if !strings.Contains(outcome.Error.Error(), "exceeds context window") {
+		t.Fatalf("outcome.Error = %q, want 'exceeds context window'", outcome.Error)
+	}
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
 	}
 }
 
