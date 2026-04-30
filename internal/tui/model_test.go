@@ -283,6 +283,125 @@ func main() {}
 	}
 }
 
+func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) {
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "compacting",
+		CompactionCount: 3,
+		SessionState:    "active",
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEvent(1, "thinking during compaction")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "raw compaction summary text")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:              "compaction",
+		Severity:          "warning",
+		CompactionCount:   3,
+		SessionState:      "fresh",
+		RestartGuidance:   "restart soon in a fresh session",
+		SummaryTitle:      "3 messages summarized into 1",
+		CompactedMessages: 3,
+		CompactedTurns:    1,
+	})})
+
+	if got := m.sidebar.compaction; got != "" {
+		t.Fatalf("sidebar.compaction = %q, want cleared after compaction finishes", got)
+	}
+	if got, want := m.status.mode, "running"; got != want {
+		t.Fatalf("status.mode = %q, want %q while run remains active", got, want)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "stop", "", "", nil)})
+
+	content := m.content.String(m.viewport.Width)
+	for _, want := range []string{"context compacted", "3 messages summarized into 1"} {
+		if !strings.Contains(strings.ToLower(content), want) {
+			t.Fatalf("content = %q, want compaction banner with %q", content, want)
+		}
+	}
+	for _, want := range []string{"thinking during compaction", "raw compaction summary text"} {
+		if strings.Contains(content, want) {
+			t.Fatalf("content = %q, want no leaked compaction chunk %q", content, want)
+		}
+	}
+	for _, unwanted := range []string{"compacting", "summarizing context"} {
+		if strings.Contains(strings.ToLower(content), unwanted) {
+			t.Fatalf("content = %q, want no stale in-progress compaction banner text %q", content, unwanted)
+		}
+	}
+	if got := m.input.Placeholder; got != "ask steiner — / for commands, @ for files" {
+		t.Fatalf("input placeholder = %q, want default after compaction finishes", got)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want reset after compaction finishes", got)
+	}
+	if m.status.streaming {
+		t.Fatal("status.streaming = true, want false after compaction finishes")
+	}
+	if m.approval.active {
+		t.Fatal("approval.active = true, want false after compaction finishes")
+	}
+}
+
+func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "warning",
+		CompactionCount: 2,
+		SummaryTitle:    "2 messages summarized into 1",
+	})})
+
+	if got := m.status.mode; got != "" {
+		t.Fatalf("status.mode = %q, want empty for finished compaction diagnostics", got)
+	}
+	if got := m.sidebar.compaction; got != "" {
+		t.Fatalf("sidebar.compaction = %q, want cleared for finished compaction diagnostics", got)
+	}
+	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "context compacted") {
+		t.Fatalf("content = %q, want compaction banner", got)
+	}
+}
+
+func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Severity: "compacting",
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "warning",
+		CompactionCount: 1,
+		SummaryTitle:    "12 messages summarized into 1",
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextSessionHealthEvent(
+		"conversation",
+		0,
+		1,
+		"info",
+		"stable",
+		"continue, but watch for another compaction",
+		"source generation=1 view=full",
+	)})
+
+	if got := m.sidebar.compaction; got != "" {
+		t.Fatalf("sidebar.compaction = %q, want cleared after finished session health", got)
+	}
+	lines := strings.Join(m.sidebar.lines(38, 50), "\n")
+	if strings.Contains(lines, "compacting…") {
+		t.Fatalf("sidebar = %q, want no compacting spinner after finished session health", lines)
+	}
+}
+
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	m := newModel(Config{
 		Model:           "small",
