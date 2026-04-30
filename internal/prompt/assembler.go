@@ -57,30 +57,8 @@ func newAssembler(opts AssemblyOptions) (Assembler, error) {
 }
 
 func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
-	state := newAssemblyState(a.policy, a.opts)
-
-	a.appendPreamble(&state)
-
-	if err := a.appendAgents(&state); err != nil {
-		return Assembly{}, err
-	}
-
-	if err := a.appendProjectContext(&state); err != nil {
-		return Assembly{}, err
-	}
-
-	if err := a.appendSkills(ctx, &state); err != nil {
-		return Assembly{}, err
-	}
-
-	a.appendDurableContext(&state)
-	a.appendConversation(&state)
-	a.appendToolSummaries(&state)
-
-	return Assembly{
-		Messages: state.messages,
-		Blocks:   state.blocks,
-	}, nil
+	plan := a.planSourceAssembly()
+	return a.renderSourcePlan(ctx, plan)
 }
 
 func (a Assembler) appendPreamble(state *assemblyState) {
