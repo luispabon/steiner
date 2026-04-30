@@ -46,114 +46,97 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 
 	return sourcePlan{
 		Steps: []sourcePlanStep{
-			blockSourceStep(plannedSourcePreamble, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
-				appendPreamble(opts, state)
-				return nil
-			}),
-			blockSourceStep(plannedSourceAgents, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
-				return appendAgents(opts, state)
-			}),
-			blockSourceStep(plannedSourceProjectContext, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
-				return appendProjectContext(opts, policy, state)
-			}),
-			blockSourceStep(plannedSourceSkills, plannedSourcePlacementCore, func(ctx context.Context, state *assemblyState) error {
-				return appendSkills(ctx, opts, state)
-			}),
-			blockSourceStep(plannedSourceDurableContext, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
-				appendDurableContext(opts, policy, state)
-				return nil
-			}),
-			passThroughSourceStep(plannedSourceConversation, plannedSourcePlacementConversation, func(_ context.Context, state *assemblyState) error {
-				appendConversation(opts, state)
-				return nil
-			}),
-			blockSourceStep(plannedSourceToolSummaries, plannedSourcePlacementToolSummaries, func(_ context.Context, state *assemblyState) error {
-				appendToolSummaries(opts, policy, state)
-				return nil
-			}),
+			{
+				Kind:      plannedSourcePreamble,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					state.appendBlock(SystemPreamble(opts.PromptOverrides.System))
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceAgents,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					globalAgentsPath, projectAgentsPath := agentPaths(opts)
+
+					agentBlocks, err := LoadAgents(globalAgentsPath, projectAgentsPath)
+					if err != nil {
+						return err
+					}
+					for _, block := range agentBlocks {
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceProjectContext,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					projectContext, err := GatherProjectContext(ProjectContextOptions{
+						Root:        opts.ProjectRoot,
+						BudgetBytes: policy.Budgets.ProjectContextBytes,
+						ExtraFiles:  opts.ProjectContextExtraFiles,
+						IgnoreFiles: opts.ProjectContextIgnoreFiles,
+					})
+					if err != nil {
+						return err
+					}
+					for _, block := range projectContext {
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceSkills,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(ctx context.Context, state *assemblyState) error {
+					skillRoot := skillRoot(opts)
+					skillBlocks, err := LoadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, opts.SkillNames)
+					if err != nil {
+						return err
+					}
+					for _, block := range skillBlocks {
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceDurableContext,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
+			{
+				Kind:        plannedSourceConversation,
+				Placement:   plannedSourcePlacementConversation,
+				PassThrough: true,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					for _, message := range opts.Conversation {
+						state.appendMessage(message)
+					}
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceToolSummaries,
+				Placement: plannedSourcePlacementToolSummaries,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					for _, toolResult := range opts.ToolResults {
+						block := summarizeToolMessage(toolResult, policy.ToolSummary)
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
 		},
-	}
-}
-
-func blockSourceStep(kind plannedSourceKind, placement plannedSourcePlacement, apply func(context.Context, *assemblyState) error) sourcePlanStep {
-	return sourcePlanStep{
-		Kind:        kind,
-		Placement:   placement,
-		PassThrough: false,
-		Apply:       apply,
-	}
-}
-
-func passThroughSourceStep(kind plannedSourceKind, placement plannedSourcePlacement, apply func(context.Context, *assemblyState) error) sourcePlanStep {
-	return sourcePlanStep{
-		Kind:        kind,
-		Placement:   placement,
-		PassThrough: true,
-		Apply:       apply,
-	}
-}
-
-func appendPreamble(opts AssemblyOptions, state *assemblyState) {
-	state.appendBlock(SystemPreamble(opts.PromptOverrides.System))
-}
-
-func appendAgents(opts AssemblyOptions, state *assemblyState) error {
-	globalAgentsPath, projectAgentsPath := agentPaths(opts)
-
-	agentBlocks, err := LoadAgents(globalAgentsPath, projectAgentsPath)
-	if err != nil {
-		return err
-	}
-	for _, block := range agentBlocks {
-		state.appendBlock(block)
-	}
-	return nil
-}
-
-func appendProjectContext(opts AssemblyOptions, policy AssemblyPolicy, state *assemblyState) error {
-	projectContext, err := GatherProjectContext(ProjectContextOptions{
-		Root:        opts.ProjectRoot,
-		BudgetBytes: policy.Budgets.ProjectContextBytes,
-		ExtraFiles:  opts.ProjectContextExtraFiles,
-		IgnoreFiles: opts.ProjectContextIgnoreFiles,
-	})
-	if err != nil {
-		return err
-	}
-	for _, block := range projectContext {
-		state.appendBlock(block)
-	}
-	return nil
-}
-
-func appendSkills(ctx context.Context, opts AssemblyOptions, state *assemblyState) error {
-	skillRoot := skillRoot(opts)
-	skillBlocks, err := LoadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, opts.SkillNames)
-	if err != nil {
-		return err
-	}
-	for _, block := range skillBlocks {
-		state.appendBlock(block)
-	}
-	return nil
-}
-
-func appendDurableContext(opts AssemblyOptions, policy AssemblyPolicy, state *assemblyState) {
-	if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
-		state.appendBlock(block)
-	}
-}
-
-func appendConversation(opts AssemblyOptions, state *assemblyState) {
-	for _, message := range opts.Conversation {
-		state.appendMessage(message)
-	}
-}
-
-func appendToolSummaries(opts AssemblyOptions, policy AssemblyPolicy, state *assemblyState) {
-	for _, toolResult := range opts.ToolResults {
-		block := summarizeToolMessage(toolResult, policy.ToolSummary)
-		state.appendBlock(block)
 	}
 }
 
