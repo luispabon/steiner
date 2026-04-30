@@ -98,8 +98,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 }
 
 func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, basePrompt prompt.AssemblyOptions, compactionHistory map[string]bool, compactionCount *int) (RunState, error) {
-	turn := state.TurnCount + 1
-
 	in := turnInput{
 		Request:           req,
 		State:             state,
@@ -128,51 +126,16 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 	if outcome.Stop {
 		return outcome.State, nil
 	}
-	// Tool calls present — delegate execution to the runner
-	return r.executeToolCalls(ctx, req, outcome.State, turn, *outcome.Response)
-}
-
-func (r *Runner) executeToolCalls(ctx context.Context, req RunRequest, state RunState, turn int, response provider.ChatResponse) (RunState, error) {
-	for _, call := range response.Message.ToolCalls {
-		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
-		emitEvent(req.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
-
-		result, err := req.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
-		if cancelled, ok := contextCancellationState(ctx, state); ok {
-			emitEvent(req.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-			emitStop(req.Events, cancelled, nil)
-			return cancelled, nil
-		}
-
-		var toolContent string
-		var preview output.ToolPreview
-		if err != nil {
-			toolContent = formatToolError(err)
-			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
-		} else {
-			normalizedResult := normalizeToolResult(result)
-			toolContent = normalizedResult.Content
-			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-			emitEvent(req.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
-		}
-		state.Conversation = append(state.Conversation, Message{
-			Role:       MessageRoleTool,
-			Content:    toolContent,
-			ToolCallID: call.ID,
-			Name:       call.Name,
-		})
-		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
-			Role:       MessageRoleTool,
-			Content:    toolContent,
-			ToolCallID: call.ID,
-			Name:       call.Name,
-		}})
+	// Tool calls present — delegate to turnProgressor
+	in.State = outcome.State
+	toolOutcome := p.executeToolCalls(ctx, in, *outcome.Response)
+	if toolOutcome.Error != nil {
+		return toolOutcome.State, toolOutcome.Error
 	}
-
-	emitEvent(req.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
-	state.Conversation = state.Lineage.FullMessages()
-	return state, nil
+	if toolOutcome.Stop {
+		return toolOutcome.State, nil
+	}
+	return toolOutcome.State, nil
 }
 
 func handleRunError(ctx context.Context, events output.EventSink, state RunState, err error) (RunState, error) {
