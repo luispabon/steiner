@@ -99,6 +99,7 @@ type Model struct {
 	ctxInfoPromptTokens          int
 	ctxInfoReservedTokens        int
 	ctxInfoSafetyTokens          int
+	interruptPending             bool
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {

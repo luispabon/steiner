@@ -398,12 +398,11 @@ func (b *contentBuffer) AppendInterrupted() {
 }
 
 func (b *contentBuffer) finishStreaming() {
-	if !b.streaming {
-		return
-	}
-	b.finalizeThinkingBlock()
-	if strings.TrimSpace(b.streamBuffer) != "" {
-		b.appendMarkdownBlock(b.streamBuffer)
+	if b.streaming {
+		b.finalizeThinkingBlock()
+		if strings.TrimSpace(b.streamBuffer) != "" {
+			b.appendMarkdownBlock(b.streamBuffer)
+		}
 	}
 	b.streamBuffer = ""
 	b.streaming = false
