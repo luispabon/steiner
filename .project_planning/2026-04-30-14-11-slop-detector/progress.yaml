@@ -1,0 +1,1102 @@
+run_id: "2026-04-30-14-11-slop-detector"
+base_path: "./internal"
+mode: "deep"
+files:
+  - path: "internal/agent/agent_test_helpers_test.go"
+    language: "go"
+    hash: "sha256:a0460438fb680d5213d399195d31f3582f3c622a410c4b3ecbf35481f27d3158"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/approval.go"
+    language: "go"
+    hash: "sha256:18175a7d8c8bbe8efbab0b4753f8226052652aa3ad7a953a39635779d3cf21f0"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/approval_test.go"
+    language: "go"
+    hash: "sha256:f6e150f9b8c40f42ec63c14e76216da29b159db0b8427182d81d689ee8869dc1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/clone.go"
+    language: "go"
+    hash: "sha256:da1f0c4c61738fb3112793351014c34c4c24f5b1d1597e749357c810ceeeb76b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/compaction.go"
+    language: "go"
+    hash: "sha256:257d427a035e2a7e936a9c6d5e36b4f5bebc04e2b5b1d34a42c5ef95a17c0317"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/compaction_test.go"
+    language: "go"
+    hash: "sha256:e6cf30ed450d91e432836f984fd111c9edc3ad2259dd66ec68a882ca0e292add"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_state.go"
+    language: "go"
+    hash: "sha256:8962ad17c3d5d7d706e563aa917975b12d7a8453b5435f4c87f857d212740bd5"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/events.go"
+    language: "go"
+    hash: "sha256:4ade8033549da4573a6527b971cbf91f3539afc59a3a57d3049f45f028bc87d6"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/limits.go"
+    language: "go"
+    hash: "sha256:0fd4cb0d9e4e69325c46e6d1dfe64de526af9a01c36a0748a39a5acf36b5e452"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/message_convert.go"
+    language: "go"
+    hash: "sha256:00b6972e5cc9a37b89b8496f90355088080b3d15024ead1856c54b86d22f5b41"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/message_convert_test.go"
+    language: "go"
+    hash: "sha256:96d9384b5aa67e06ae9d026b1f1a5d34d4fe8ce05dede289d9de0c9a2a3f89d7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/model_call.go"
+    language: "go"
+    hash: "sha256:cc1faae334aaabb9cc759541d743dcc4ae3fc2d0f61ee5438cb6d2a8f4647e7b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/runner.go"
+    language: "go"
+    hash: "sha256:e375008fa646ab8c5c64e7c61360982d380b25c7a9b6402098d497d8f7ba5c9c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/runner_test.go"
+    language: "go"
+    hash: "sha256:06ffdb6b6f11f1198092c8e0e3de28949d7364d11f9d21da3a0483642398131c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/state.go"
+    language: "go"
+    hash: "sha256:33d7c9859b720995c5c7f557d5d6b101ccc4d8d264c7b82d72e6828466c94307"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/state_test.go"
+    language: "go"
+    hash: "sha256:1333147ace7cc72e17a2f51cfdea8552a4dfb9ec4d20e25f4622f372ea408af8"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/subagent_state.go"
+    language: "go"
+    hash: "sha256:89d254c79c6555170c1d8b556c906bc24831e4d52addab1f8ccb09d13db4feda"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/subagent_state_test.go"
+    language: "go"
+    hash: "sha256:5882540434c54bff82fa5501aa8fc239998e7351d90af98ded6652ceae0467c8"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/text_util.go"
+    language: "go"
+    hash: "sha256:b48e74cb136f283ba14479e8ab45ff5b8f8167f68cbdad924bcacffebd018318"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/text_util_test.go"
+    language: "go"
+    hash: "sha256:d9381512df890b3ea0a6b233f56a39b2314be05b59f0b1c4df629cb18e15b88f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_exec.go"
+    language: "go"
+    hash: "sha256:75a42ee7c771a8e0545733702f9d566d4b11652b19dffb88ed22284d6b65a4ef"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_exec_test.go"
+    language: "go"
+    hash: "sha256:d91f7397d7e421d7e4219c27d0bc6fe8514b7e9755667bae7e96558ba71c3ffb"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_result.go"
+    language: "go"
+    hash: "sha256:659c365272d0fe9a8edff164f3aedc652ccf1afa458870ae592fb3d15309d135"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/types.go"
+    language: "go"
+    hash: "sha256:623ae49491e239414bea4ba2cd640807bbde705d09c4cf84077f759cd499d1bc"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/config.go"
+    language: "go"
+    hash: "sha256:bf25f95967da47c958fbe8b466dcd796213d768f16e1ac385621bd618e85062b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/config_test.go"
+    language: "go"
+    hash: "sha256:a3f29af0de7ea048eb59652f616062e02f99a95db7dbe381cf1ead85f20260b7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/defaults.go"
+    language: "go"
+    hash: "sha256:b702dedecd7ec1ab52ddcefc0c87d45c47bad8225062306c97f3321bc5d19f77"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/duration.go"
+    language: "go"
+    hash: "sha256:f9dea49b353b4f4fa5da26c7dcdf1cbfae0c95424dd29e99a74741546248d288"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/env.go"
+    language: "go"
+    hash: "sha256:d647ba32fd9ed055fa6945d4c75f1e686023f46a95bb999c8a901a453ee1a8c8"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/load.go"
+    language: "go"
+    hash: "sha256:2c2727dd076369aae1742aad3c62b09a460523da051ed1d4e3459932d21628a0"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/config/patch.go"
+    language: "go"
+    hash: "sha256:bfa1572a14c327607cfd8525d8beb307e39a186a4ce4b0d97675bef1f59f8b20"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_test.go"
+    language: "go"
+    hash: "sha256:138f1c465cffba3acacab6deb1578b55403a0e57a1b66ae65566f7c2d644e2f1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate.go"
+    language: "go"
+    hash: "sha256:c330dbfdad3d4a9b6aa99e64135ea66781353205907ea9dd426aa074ec18bbf1"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/config/validate_test.go"
+    language: "go"
+    hash: "sha256:e6edf262959212872de57d6994206568381df6754de9b5ae4d43cab77d0f49aa"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/contract.go"
+    language: "go"
+    hash: "sha256:9d83b22d8324854ed955a4b0203d331512061c88716b3a685a3d4f9a7012bbbf"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/contract_test.go"
+    language: "go"
+    hash: "sha256:6586620424b48d9db3edea27a861f564581b9ca18388cb7c58f5180da7ebb8af"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/integration_test.go"
+    language: "go"
+    hash: "sha256:d3c70031c103911f597a7e8beefd795d54787d5c26ddac744ef29442f28c2d97"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/limits.go"
+    language: "go"
+    hash: "sha256:be7ed401c93724e69265c2565d4460f7e25c6d5e514fffeb0f0fa98cb9339082"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/limits_test.go"
+    language: "go"
+    hash: "sha256:6cd370e1f3b2eba7778105ce8161a318be4516588635f78c00a216b6c5cb74bd"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/result.go"
+    language: "go"
+    hash: "sha256:2a0e7c227b76db2a972a422832cf04bba54b2b872a7974c8058fb861e146f6b1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/result_test.go"
+    language: "go"
+    hash: "sha256:b1d23550a0de251560bd8ef3d632ebecd26df59663b8c8f63a8c34c755f233de"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/scaffold.go"
+    language: "go"
+    hash: "sha256:6df94b500d60716b6c0013460d6be9378dc55892b5262ca3d5870af672472476"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/scaffold_test.go"
+    language: "go"
+    hash: "sha256:dc05b711e126194dde0fa3cbd3a11304c616b3a5e08559c8d3ff2225fbed59a3"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/task.go"
+    language: "go"
+    hash: "sha256:c25e6292281d30ea2820a6386a73a65a072ebce54d08e45328cdb36f533947c6"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/tool.go"
+    language: "go"
+    hash: "sha256:9e30d644bf37596291b1574b79c0ac5c04d4adc8bb58e5d9d4ef11b14de193c2"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/tool_test.go"
+    language: "go"
+    hash: "sha256:fd81a8b7ab08056e09b5f0c4a6ddf2e1be8954bcba98736f8b8f13a6e62bad0a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/history/writer.go"
+    language: "go"
+    hash: "sha256:36c64ac0263d059ee0bd7a0684ac836cefb31a99516c8e284648bcad86d901f9"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/history/writer_test.go"
+    language: "go"
+    hash: "sha256:63f6a5201a28090b94b3409e98732c1c3c0907d9f7f57793686a7c1cb7ee9b77"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/context_report.go"
+    language: "go"
+    hash: "sha256:357a019e5f3d1195864b64d3a588477b6f4e4dbeaf1b1dbf6937c75d1537dd88"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/context_report_test.go"
+    language: "go"
+    hash: "sha256:c3850d4d690d6baa019a1a2b071244713343d3e81e6c201e61af2285f74ce696"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/debug.go"
+    language: "go"
+    hash: "sha256:a49183d3dfaf340c732de2b4d3ef46502acfbe616c36c32c4c506c31e3034860"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/event_constructors.go"
+    language: "go"
+    hash: "sha256:9905d7327d8ae586cd23a8e7ad3eec79f6388db0e5f92c7ade5bd0f6f251cd9f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/event_render.go"
+    language: "go"
+    hash: "sha256:8b24810246743d6f720164ed905863eb063de994df37f73e2336169b4e26d62d"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/output/event_types.go"
+    language: "go"
+    hash: "sha256:48b7229fe3cf81d305a5412e06e999f753f079ff29b08ef675f1a2b21ffbe447"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/file_log.go"
+    language: "go"
+    hash: "sha256:df4744e8e7bacc883e42177693e87e39fb3e4b3fe87949c655e3156b7ff3b071"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/file_log_test.go"
+    language: "go"
+    hash: "sha256:3d41b47fb787d9d1ef47bab8176022589905bc1a447ef20302fee27880a6dde6"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/log.go"
+    language: "go"
+    hash: "sha256:929e6308d9666ad72dfbcae445214774f060d62385559c49becf19f8b1ac921c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/log_test.go"
+    language: "go"
+    hash: "sha256:0210cf6f1ce18e2f2f204de37438776389df817b1595e231e27b14927ab28042"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/plain.go"
+    language: "go"
+    hash: "sha256:62e39a76fdce3800f95662899ea4345e8789b132945bb40fb89b8a36509116f1"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/output/plain_preview.go"
+    language: "go"
+    hash: "sha256:87dc6e01e684d1eea0cd86f51e31b9d1d0b7e3d920c0ad3fabae2ec3b8d3a42d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview.go"
+    language: "go"
+    hash: "sha256:97be1a2d0ea2e47c48c5f04f633c3ee155e84af8477eb9c36818617e35698dc9"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format.go"
+    language: "go"
+    hash: "sha256:9e91a080f7da2869af9f7557d26c2c1255f79e98a7bd84b10dd1295926f058ac"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format_test.go"
+    language: "go"
+    hash: "sha256:dcb1d100fba245adcf59b9adff748ff12f27722e1b4785c6be0cc9a05e219451"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_test.go"
+    language: "go"
+    hash: "sha256:8cd898f40a7e1f0dc1b17064c111af3eca057e0ae895d459ffaee3d0b0e1ba28"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/stream.go"
+    language: "go"
+    hash: "sha256:30f7ec7376cede0ed854b294f4e8c677414df563d5fa2c06f7752830887a67c7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/stream_test.go"
+    language: "go"
+    hash: "sha256:42a29e3dd4a295742a99105d194c49fbc9fa9857562b88758fbd8c4b5451db9f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/textutil.go"
+    language: "go"
+    hash: "sha256:179f1b35c17aae2f21b8ea0bbd1d98634abfc089fc80aff375c75a7a7c22c7e6"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/agents.go"
+    language: "go"
+    hash: "sha256:8bf93a6842ab0cfd82698850d4b7d07b0927a20f6245894e2572ddb026296742"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/assemble.go"
+    language: "go"
+    hash: "sha256:20198ce47f0bf7d7b7e2acfc9483a3a479cc4cd2fcf937ece115d70b85e0684c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/assemble_test.go"
+    language: "go"
+    hash: "sha256:e7596a1e481cce5eaf20bd46d32dd68923e1c715257be0895cd1c528834fa131"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/assembler.go"
+    language: "go"
+    hash: "sha256:9cf736d315c59ae3e8fbbdf7ab83d76d80f83809a618915373fd6060dfe2e56d"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/prompt/budget.go"
+    language: "go"
+    hash: "sha256:0bc0b20686ba8c736ad4398ae8e295f510445e6dc014c9b0d8fb2a4077fc42da"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/compaction.go"
+    language: "go"
+    hash: "sha256:622f5e245048907c6eb556b6b842cb8c491db56903b3c111ef68f55de1f55fa1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/context.go"
+    language: "go"
+    hash: "sha256:a4312830914b30181e689df1ccb7cf7bcb8ffc3397590962c70236d3f82e981d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/retention.go"
+    language: "go"
+    hash: "sha256:3c4af3ef6792cc8a40169cec4fcd214f5ea85a2d27183a1268621a588ec9de31"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/skills.go"
+    language: "go"
+    hash: "sha256:43404bc63d94d9f12686ffcfb6d272b3dd609a94053d2866d86e80761036e26c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/summary.go"
+    language: "go"
+    hash: "sha256:641c73c7f779a3d677a89c84bb571a7e986d1ba2691a34a52d83ba59f8d26e9b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/system.go"
+    language: "go"
+    hash: "sha256:f66905753c1bac2fcfb7845b1ebc02480d0e3c793b4a29059c11ea38085dd099"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/token_budget.go"
+    language: "go"
+    hash: "sha256:9bcfb44afdf6a11f02f8187b47a076bf4f3864e90decee8afc7003182e996f70"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/token_budget_test.go"
+    language: "go"
+    hash: "sha256:f13a4d7f0ab43430c342920532c9cca066ce951c542dc076c339ca3551359cd1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/types.go"
+    language: "go"
+    hash: "sha256:7c5982c093580ec5c0cad9fd83464ec45923e3785f5f688a4e6bd9f1b5057dbc"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/integration_test.go"
+    language: "go"
+    hash: "sha256:ced69500d769dc085e115b1445fabe654ca29a19ab58c3f790a74749e0eb6e81"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/interface.go"
+    language: "go"
+    hash: "sha256:dc2b2cec4f275cb19d7de03aa3fb3a79b31c8246bdce44d4b2921d086bfd4a42"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_compat.go"
+    language: "go"
+    hash: "sha256:59653cda17025a1c06206d262b529a49e96dc8ad442783702e1460f4764507fe"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_compat_test.go"
+    language: "go"
+    hash: "sha256:f7570bba29141ff3ba0167d48aedc7367bd47cd17865ad272a85f9c527ad1805"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_stream.go"
+    language: "go"
+    hash: "sha256:7d332b8cf2ac54ce52e373c9d0f00fa8b2baddf87a4497af0bd40319b58459fa"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_stream_test.go"
+    language: "go"
+    hash: "sha256:f9b99f776adeb4ccad1f16a240513921fe5d0a8425e2a3cc7c64970fb7b325a0"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_wire.go"
+    language: "go"
+    hash: "sha256:6b4e3e9dfcbeec10684b5c70b8e2493ea319ebeead23d8a00917a415ab3c413a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_wire_test.go"
+    language: "go"
+    hash: "sha256:94e028482be75813d4c9d6cfb5e3e049897a32602b90c1fba69001ebf3c12079"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/request_payload.go"
+    language: "go"
+    hash: "sha256:cbfb3627a3056f8c595710d8f87b01f0456f7d49646c4cbd2f99011c0dd42d9e"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/scheduler.go"
+    language: "go"
+    hash: "sha256:76d6fe043a79903bd716c7ceeec110a18eec08da2eb916c9a189c21a2896732f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/scheduler_test.go"
+    language: "go"
+    hash: "sha256:9f1f215e8ce9c1b7dc3f42249847c08811b5d58e68618163d676b5448c633993"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/token_estimator.go"
+    language: "go"
+    hash: "sha256:c31a3b0da69576430a935ed1b97b7fcd5c3eef59466bfb393b02663c8b352f2c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/token_estimator_test.go"
+    language: "go"
+    hash: "sha256:2dfc32c777cd11f7688b194a28eae0b6eac7599a925890207931127f83e2373d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/types.go"
+    language: "go"
+    hash: "sha256:35fdf8287999ae0b046477f3381a21930e6a68ee34db495af6b87f27fea138b3"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/skill/loader.go"
+    language: "go"
+    hash: "sha256:b726b897e8213db9a54813dcc638d97470ba0edcc058a088f7cc12eaf24ac7ea"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/skill/loader_test.go"
+    language: "go"
+    hash: "sha256:328c14bcb913fcc37c067ef335b73f22a9feb83e9cb2c07cceb628ee8f21d105"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/approval.go"
+    language: "go"
+    hash: "sha256:6126c4ffbcb0d57f2684f384eed34bf4fe9b5f40592c72099d23453aa9b72ca7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/approval_test.go"
+    language: "go"
+    hash: "sha256:37f0a2249d7273fe52ddc8d333824774ffedceceb4922b5da85e99707a26478b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/bash.go"
+    language: "go"
+    hash: "sha256:e3d391afde0d7a8aeceff40edcf3671848ce8c3c46c0d53bb8464c869700c4e3"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/bash_test.go"
+    language: "go"
+    hash: "sha256:021856a820e95f7ed7eeb577268de467f328ec01fd9e7530f1ad70d46588c912"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/builtins.go"
+    language: "go"
+    hash: "sha256:fe9b72e912df75e96c48e0fbf78693b2b457b021a4325a5fffc6c99750746284"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/builtins_test.go"
+    language: "go"
+    hash: "sha256:0391fbed1028724368c7820bd5d12c52bd9b58b39f9586ecfdcca21570c6f2c4"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/decode.go"
+    language: "go"
+    hash: "sha256:94b010610a773854cfa48a6eb5bd7ff7f00a9da3e22c8654a3d0d21fc256bae7"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/tool/builtin/decode_test.go"
+    language: "go"
+    hash: "sha256:9a73b1af9e2ebae1db5c16871c585406e8eaaf82307024c22ac00930ad632a7c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/display_file.go"
+    language: "go"
+    hash: "sha256:7277e427380aa56ec738efcd7097e07740404b286f3d572d0b99176d9688e75c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/display_file_test.go"
+    language: "go"
+    hash: "sha256:feecfcb8fd652cad5632b23a2ba8c65a72a579399d63ec55730fe28eb8273dc5"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/edit.go"
+    language: "go"
+    hash: "sha256:26d774783216f422fe50afddbb459b2ee5f2f62eea309a8dacdd1e6499df0842"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/edit_test.go"
+    language: "go"
+    hash: "sha256:e27d43d0372d1764d4f9ae3fff032085da53e7e59b931b961923fca1d1ae1a28"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/env.go"
+    language: "go"
+    hash: "sha256:bb5372b28eb7664872b5edb98043ea65729d8a0decb3d53d725db7d2b482e61e"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/glob.go"
+    language: "go"
+    hash: "sha256:3bd547dc7761498d63aa335729544dec29b18da483e3c35d635a39970557ecdf"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/glob_test.go"
+    language: "go"
+    hash: "sha256:7f8a5e6f113e5761aba006bc240261b226b38c06dcbf52a341baeb84a108a355"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/grep.go"
+    language: "go"
+    hash: "sha256:d2cfe34076503b326bdc4cdf24a828ccd7d4efffe711125ae087bca0933f367c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/grep_core.go"
+    language: "go"
+    hash: "sha256:15bfa29f7821b5027ab9e4eb2b89396734b0bf1687f465780a454388c2c1bceb"
+    status: "reviewed"
+    findings_count: 2
+    triage_result: null
+  - path: "internal/tool/builtin/grep_test.go"
+    language: "go"
+    hash: "sha256:38d5c42e7a009e7758ca6ae98d1bec3bc72e7664428d74cbe716d5329edb3c9a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/input.go"
+    language: "go"
+    hash: "sha256:a61c797246bc16fd508db81d816bf3660eca153a258490b17496768132bb639d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/input_test.go"
+    language: "go"
+    hash: "sha256:aeef0df3238b1ed658f2aba72224932fc21af6fa3499ff3d3012ded01be73e17"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/ls.go"
+    language: "go"
+    hash: "sha256:5771a762ec675e329927d69f1e1703874f83b833743eba6a7088fe44f6232003"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/ls_test.go"
+    language: "go"
+    hash: "sha256:75338e27617e10d8e52fc3931f6a0147bf91f596ddbefbfec75c6c3fcb8a0cc1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/paths.go"
+    language: "go"
+    hash: "sha256:140fcd9acc83337ef37262ef3ca4266f239ac537aed3229a5fd1a3c471607e2c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/paths_test.go"
+    language: "go"
+    hash: "sha256:f2cd79f90c084381747c1c043819c669c0ee32cd4c08d37000423522c10901bb"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/read.go"
+    language: "go"
+    hash: "sha256:32f1053fe83d666aa7f091efdac3b66d960972711ed7f14d0143154fb804c11f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/read_test.go"
+    language: "go"
+    hash: "sha256:c83abd3052f6377714f1a26be8e7e2f84be0505e03d756de04818c5e9541ff80"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/result.go"
+    language: "go"
+    hash: "sha256:b36fbb75d84dcdda4993ae6861623583500f86a0b20d24bd7538152555c3beb8"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/schema.go"
+    language: "go"
+    hash: "sha256:f2da76c473038ca816cc6d4e13c451067635e30d1b4470c0a09ef988aefd2572"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/schema_test.go"
+    language: "go"
+    hash: "sha256:af502b221220b61e2f3e9878763ebe610c08ff6cee8aad4d952b3a8691931c7b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/write.go"
+    language: "go"
+    hash: "sha256:2a944aaa7f4da7f02a805adacd68ba3952c78ef6a5928bd2ae51599f5efb5553"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/write_test.go"
+    language: "go"
+    hash: "sha256:43ecf5b25eaf74b0e68ff2d52f0cdda78778c5f7c94300494999bdd50590b396"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/clone.go"
+    language: "go"
+    hash: "sha256:a27ee23b783bc60aa82303dd5301edcddfc82e728b41bfe92d6645e67f98c1c0"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/excluder.go"
+    language: "go"
+    hash: "sha256:2ded2b6b6cd7359d41e9b2012fecaa8aff54309f7fdeb61219957bb10727d9ac"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/excluder_test.go"
+    language: "go"
+    hash: "sha256:18fcbb927d719673f39bd34b1ca05e14d4e68b671ca6a13c379c5cc1c0ab6a57"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/executor.go"
+    language: "go"
+    hash: "sha256:9b3109d867156a13e16e8e3deafc3be5c88c1c1f958397e7d4bc493fd14d8c09"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/tool/executor_test.go"
+    language: "go"
+    hash: "sha256:8e2558986d90bcc244564788a6b069b9798077bb06ce1ac8e6b1d2c7e7989f33"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/output.go"
+    language: "go"
+    hash: "sha256:bfc977c2b8f627fef5f0c5aa7430d63d5d13402b53e819097d14b1631b64d1d2"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/policy.go"
+    language: "go"
+    hash: "sha256:0d43dd6aef695652ae89173708b94dd0c520c123a2b3def377a4a55e929bccc0"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/policy_test.go"
+    language: "go"
+    hash: "sha256:a250b0fa3ad25b637e8612613611514f0a6d22eb1ea7e2041020b9c1e2522385"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/preview.go"
+    language: "go"
+    hash: "sha256:a41c8217585536207b169964058b7672c38fa020ec261ebc51fe1e0f769b78b4"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/registry.go"
+    language: "go"
+    hash: "sha256:d487f7d9c486f54d720d313d9ed130e9a15f73204853a856477de09b40a1886b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/schema.go"
+    language: "go"
+    hash: "sha256:ca49c97f6b413a8f2fda59737d2d921aeddef561fdbf54a060d11414b1e9027e"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/schema_test.go"
+    language: "go"
+    hash: "sha256:de37854045e8fd087c31ce7651ba6228b6ff94c0621bfe954a13cd30bf222a50"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/types.go"
+    language: "go"
+    hash: "sha256:3b15ddceb2a4531ac2aa52c38d9454071b76f94efe1dbd9e0050af63b2727ce7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/app.go"
+    language: "go"
+    hash: "sha256:37095a9ef97e4ac033f9854794672750ef2be2d587709df2dd15964787296354"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/approval_tray.go"
+    language: "go"
+    hash: "sha256:43e3b525d47987f3b86c96e9c8008667473ca7ed3e825d9ec02664a82757309b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content.go"
+    language: "go"
+    hash: "sha256:6bb37c350a59103cc4528beed7caa3e565be007c5f5c0051d6be3d84ad2a9e8a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events.go"
+    language: "go"
+    hash: "sha256:e578ca774e46160551bca6701c7416f35fcd8bd3d65d27e0971a28b46b795caa"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_markdown.go"
+    language: "go"
+    hash: "sha256:12adbfc5fd89bbbf4d698987b6cef27e86769d45eeb1423231e6d31922174178"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render.go"
+    language: "go"
+    hash: "sha256:51e20c758eafb4f8f920ab555146082bd436b7e8acaff8060b9693d8d6dd44e3"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_test.go"
+    language: "go"
+    hash: "sha256:9441af8cba0ef7eccab5634d1f7fc6fe2928e91c973ee538a004d95f7d0045a3"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_tool.go"
+    language: "go"
+    hash: "sha256:9c3a9f83230b023b07ce8706efe263a286cd7bceebef1959498664489aeea25d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/context_overlay.go"
+    language: "go"
+    hash: "sha256:2491526f775f10726ca3fe56982913b999968dc2403eaf0b3be5715363dbea25"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/context_overlay_test.go"
+    language: "go"
+    hash: "sha256:430eecf8474c3610bfed1b15fad631f2abb1d2e67f59d5cb38e97b6cd197cbb1"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/exit_modal.go"
+    language: "go"
+    hash: "sha256:aeba51132b149a24674b827217229fc211b9fba347d6d22a7ca1252ab46f3cab"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/exit_modal_test.go"
+    language: "go"
+    hash: "sha256:bf93d6f7438276dfbacf9e8a1f047e780ec560d5c8d8acddb7659522ea2a5d6a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_list.go"
+    language: "go"
+    hash: "sha256:ea7e8396f40c157019f11ad27a873020c8f4d00c5d2c1ef677e5e3bfcc302ad7"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_list_test.go"
+    language: "go"
+    hash: "sha256:0c6226ac8e43d4b73839548908fbb8e0fe4682a015c802fb9f3c18a51243aaa2"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_picker.go"
+    language: "go"
+    hash: "sha256:c3562daf08aa1ad9632a4b89bedc39b73ac443516529634fb9eb45f7781de96b"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_picker_test.go"
+    language: "go"
+    hash: "sha256:9f26d02607ea413f7861c188c3a17d24223e63b1230d358dfc5d0704cea80b01"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/git.go"
+    language: "go"
+    hash: "sha256:fb746a086b3e0abb839f3f41b84758249444787f256e9d2b83897edb5bf64c90"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/tui/git_test.go"
+    language: "go"
+    hash: "sha256:88a35f4dfe223c43066422b482b2b0b11b3c98b9493ea69e01153bf70aa65b9d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/help.go"
+    language: "go"
+    hash: "sha256:cce1336710ee7af81fd009254e5984850f6511ee411d18166e1ba8824febe815"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/help_test.go"
+    language: "go"
+    hash: "sha256:653e2e79b5f771947790d440a51d657847b7cdf9bd6dfd2783850ce8eac4684d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/input.go"
+    language: "go"
+    hash: "sha256:414a41e80badf03bf248d962202e2000a10fbbff0999f8ea849e51aab1ccad35"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/input_test.go"
+    language: "go"
+    hash: "sha256:a41a07210003609a72a0639febb3d984b308ee76e5ef83fc17a7137ac981023f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/keys.go"
+    language: "go"
+    hash: "sha256:e1e8322c8a12930b3b492b3f1ad3deb6a4d3e46f08efe2cffb0b9c85ff5f92be"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model.go"
+    language: "go"
+    hash: "sha256:dad2cd04e0120077a3791d1ddd7f8d73e788ea2b4890155910f8a1a8ff8e7c95"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/tui/model_events.go"
+    language: "go"
+    hash: "sha256:54aa4d10e13ba9be0a913e87dd9f6b8ef4e81c34462a172874453d78d21b92b6"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_input.go"
+    language: "go"
+    hash: "sha256:f61ff302fb9c88d1bada46019b69485004bd191256f71dccc57272055f033bf4"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_layout.go"
+    language: "go"
+    hash: "sha256:477ea9879ed85a0b6c85fd65ad28c38314cb9edfc3bdbab8b111b4d03f466459"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_test.go"
+    language: "go"
+    hash: "sha256:4a48fe7b5f5ff56cfe0c8e3ca922165c1dc71dfc49e4a78335bb89e2e5617610"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_update.go"
+    language: "go"
+    hash: "sha256:7a03420e2b40fb8d4294aced76af50cdb074d968e8c9cd9cd0e3641055787ea6"
+    status: "reviewed"
+    findings_count: 1
+    triage_result: null
+  - path: "internal/tui/overlay.go"
+    language: "go"
+    hash: "sha256:10f67df517ce548c83af16369ca870c55f052ceafd32a7eb2fb45793452f6d51"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/overlay_test.go"
+    language: "go"
+    hash: "sha256:a849d9bd83534d85452acf608a2c519e0168ea0d0739d200229aab356c1de52e"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/palette.go"
+    language: "go"
+    hash: "sha256:a6cf4f2321b3a79e17e431ba23304dbe4d896561d669449c21dbf66390ada5ee"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/prefs/prefs.go"
+    language: "go"
+    hash: "sha256:d87e43e0fef32ad6ad32504518329d302d117b8ce3c14e58327ba7267ae86e2d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/prefs/prefs_test.go"
+    language: "go"
+    hash: "sha256:cb0e04eec913fb10c3b16b2adc25108fefd85132d2518b44e5bff40e4fbdb3ba"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar.go"
+    language: "go"
+    hash: "sha256:0de27e56491b3653b49942ab75635af6a5b953c62c924ec0b80ce161dd5b635c"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/statusbar.go"
+    language: "go"
+    hash: "sha256:3a89c79e8035f5a2b146508932eda06c7e42fe0569243c376fea0107b376e84a"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/oklch.go"
+    language: "go"
+    hash: "sha256:446d75a51e98649884445119991547652c3b3cc1331132fb91ff2852131e1a99"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/oklch_test.go"
+    language: "go"
+    hash: "sha256:c7f19972900e09f09a7710ef472b82c203b499a9ccb0062444e201f062defa8f"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/registry.go"
+    language: "go"
+    hash: "sha256:12ff05bf36d7b73f0ca45068b820023d603cd2553d79eb8dac391465b9469d55"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/registry_test.go"
+    language: "go"
+    hash: "sha256:775825b59a3e716eeb866a53b580c5619e0f207b7ec2be810c938889bdbd3360"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/steiner.go"
+    language: "go"
+    hash: "sha256:b1f3ab99a026caa890fed55161dc06794c52f79bdde85061aecfc8c846922f8d"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/theme.go"
+    language: "go"
+    hash: "sha256:791395eb134e586136d30a34d804250044567fd10bcaaa2b1c60c5bb2dc78ad2"
+    status: "reviewed"
+    findings_count: 0
+    triage_result: null
