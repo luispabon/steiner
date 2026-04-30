@@ -83,6 +83,7 @@ func (a Assembler) renderSourcePlan(ctx context.Context, plan sourcePlan) (Assem
 		if err := step.Apply(ctx, &state); err != nil {
 			return Assembly{}, err
 		}
+		state.renderBlocks()
 	}
 
 	return Assembly{

@@ -33,6 +33,58 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 	}
 }
 
+func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
+	t.Parallel()
+
+	lowBudgetAssembler := Assembler{
+		opts: AssemblyOptions{
+			Policy: AssemblyPolicy{
+				Budgets: SourceBudgetModel{
+					PreambleBytes:       1,
+					GlobalAgentsBytes:   1,
+					ProjectAgentsBytes:  1,
+					ProjectContextBytes: 1,
+					SkillBytes:          1,
+					DurableContextBytes: 1,
+					ToolResultBytes:     1,
+					ToolSummaryBytes:    1,
+				},
+			},
+		},
+	}
+	highBudgetAssembler := Assembler{
+		opts: AssemblyOptions{
+			Policy: AssemblyPolicy{
+				Budgets: SourceBudgetModel{
+					PreambleBytes:       1024,
+					GlobalAgentsBytes:   2048,
+					ProjectAgentsBytes:  8192,
+					ProjectContextBytes: 4096,
+					SkillBytes:          2048,
+					DurableContextBytes: 1024,
+					ToolResultBytes:     2048,
+					ToolSummaryBytes:    1024,
+				},
+			},
+		},
+	}
+
+	lowPlan := lowBudgetAssembler.planSourceAssembly()
+	highPlan := highBudgetAssembler.planSourceAssembly()
+
+	if got, want := len(lowPlan.Steps), len(highPlan.Steps); got != want {
+		t.Fatalf("plan step count differs: low=%d high=%d", got, want)
+	}
+	for i := range lowPlan.Steps {
+		if got, want := lowPlan.Steps[i].Kind, highPlan.Steps[i].Kind; got != want {
+			t.Fatalf("plan step %d kind = %q, want %q", i, got, want)
+		}
+		if lowPlan.Steps[i].Apply == nil || highPlan.Steps[i].Apply == nil {
+			t.Fatalf("plan step %d apply unexpectedly nil", i)
+		}
+	}
+}
+
 func TestRenderSourcePlanMatchesAssemble(t *testing.T) {
 	t.Parallel()
 

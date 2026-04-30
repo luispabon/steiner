@@ -16,35 +16,45 @@ type Assembler struct {
 }
 
 type assemblyState struct {
-	blocks   []ContextBlock
-	messages []provider.Message
-	budgets  *budgetTracker
+	pendingBlocks  []ContextBlock
+	blocks         []ContextBlock
+	messages       []provider.Message
+	budgets        *budgetTracker
+	renderedBlocks int
 }
 
 func newAssemblyState(policy AssemblyPolicy, opts AssemblyOptions) assemblyState {
 	return assemblyState{
-		blocks:   make([]ContextBlock, 0, 8),
-		messages: make([]provider.Message, 0, 8+len(opts.Conversation)+len(opts.ToolResults)),
-		budgets:  newBudgetTracker(policy.Budgets),
+		pendingBlocks: make([]ContextBlock, 0, 8),
+		blocks:        make([]ContextBlock, 0, 8),
+		messages:      make([]provider.Message, 0, 8+len(opts.Conversation)+len(opts.ToolResults)),
+		budgets:       newBudgetTracker(policy.Budgets),
 	}
 }
 
 func (s *assemblyState) appendBlock(block ContextBlock) {
-	clipped, truncated, ok := applyBudget(s.budgets, block.Source, block.Content)
-	if !ok && len(block.Content) > 0 {
-		return
-	}
-	block.Content = clipped
-	block.ByteSize = len(clipped)
-	if truncated {
-		block.Truncated = true
-	}
-	s.blocks = append(s.blocks, block)
-	s.messages = append(s.messages, blockMessage(block))
+	s.pendingBlocks = append(s.pendingBlocks, block)
 }
 
 func (s *assemblyState) appendMessage(message provider.Message) {
 	s.messages = append(s.messages, message)
+}
+
+func (s *assemblyState) renderBlocks() {
+	for _, block := range s.pendingBlocks[s.renderedBlocks:] {
+		clipped, truncated, ok := applyBudget(s.budgets, block.Source, block.Content)
+		if !ok && len(block.Content) > 0 {
+			continue
+		}
+		block.Content = clipped
+		block.ByteSize = len(clipped)
+		if truncated {
+			block.Truncated = true
+		}
+		s.blocks = append(s.blocks, block)
+		s.messages = append(s.messages, blockMessage(block))
+	}
+	s.renderedBlocks = len(s.pendingBlocks)
 }
 
 func newAssembler(opts AssemblyOptions) (Assembler, error) {
