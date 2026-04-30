@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -75,6 +76,7 @@ models:
 func TestCommandsTools(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
+	var closeCalls atomic.Int32
 
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
@@ -83,6 +85,10 @@ func TestCommandsTools(t *testing.T) {
 		return cliRuntime{
 			toolNames: []string{"bash", "read", "write"},
 			cfg:       testRuntimeConfig("test-model"),
+			closeFn: func() error {
+				closeCalls.Add(1)
+				return nil
+			},
 		}, nil
 	}
 
@@ -105,11 +111,15 @@ func TestCommandsTools(t *testing.T) {
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
+	if got := closeCalls.Load(); got != 1 {
+		t.Fatalf("close calls = %d, want 1", got)
+	}
 }
 
 func TestCommandsSkills(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
+	var closeCalls atomic.Int32
 
 	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		_ = ctx
@@ -118,6 +128,10 @@ func TestCommandsSkills(t *testing.T) {
 		return cliRuntime{
 			skillNames: []string{"review", "debug"},
 			cfg:        testRuntimeConfig("test-model"),
+			closeFn: func() error {
+				closeCalls.Add(1)
+				return nil
+			},
 		}, nil
 	}
 
@@ -139,6 +153,9 @@ func TestCommandsSkills(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if got := closeCalls.Load(); got != 1 {
+		t.Fatalf("close calls = %d, want 1", got)
 	}
 }
 

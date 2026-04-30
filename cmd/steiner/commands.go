@@ -94,6 +94,7 @@ func newToolsCommand(flags *cliFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer closeRuntime(&rt)
 			renderNames(output.NewStream(cmd.OutOrStdout()), "tools", rt.toolNames)
 			return nil
 		},
@@ -110,6 +111,7 @@ func newSkillsCommand(flags *cliFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer closeRuntime(&rt)
 			renderNames(output.NewStream(cmd.OutOrStdout()), "skills", rt.skillNames)
 			return nil
 		},
