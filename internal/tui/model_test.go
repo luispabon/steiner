@@ -582,7 +582,6 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 	if !m.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal open")
 	}
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated, ok := next.(Model)
@@ -614,6 +613,7 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 	if !m.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal open")
 	}
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated, ok := next.(Model)
