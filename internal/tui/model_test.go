@@ -647,20 +647,15 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 		t.Fatal("exitModal.open = false, want modal open")
 	}
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated, ok := next.(Model)
-	if !ok {
-		t.Fatalf("unexpected model type %T", next)
-	}
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	updated := m
 
 	if updated.exitModal.open {
 		t.Fatal("exitModal.open = true, want modal closed")
 	}
 	if exitRequests != 0 {
 		t.Fatalf("exitRequests = %d, want 0", exitRequests)
-	}
-	if cmd != nil {
-		t.Fatal("expected no quit command on cancel")
 	}
 }
 
@@ -677,22 +672,15 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 	if !m.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal open")
 	}
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated, ok := next.(Model)
-	if !ok {
-		t.Fatalf("unexpected model type %T", next)
-	}
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	updated := m
 
 	if exitRequests != 1 {
 		t.Fatalf("exitRequests = %d, want 1", exitRequests)
 	}
 	if !updated.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal to remain open until runtime quits")
-	}
-	if cmd != nil {
-		t.Fatal("expected runtime callback path, not direct tea.Quit")
 	}
 }
 

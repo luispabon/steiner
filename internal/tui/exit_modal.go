@@ -24,7 +24,7 @@ func openExitModal(width, height int) exitModalState {
 	shell = shell.WithDimensions(width, height).WithTitle("exit").openShell()
 	return exitModalState{
 		OverlayShell:   shell,
-		selectedAction: exitModalActionCancel,
+		selectedAction: exitModalActionExit,
 	}
 }
 
