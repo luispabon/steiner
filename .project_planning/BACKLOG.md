@@ -57,26 +57,6 @@ The /config command will show the current session's full config on a scrollable 
 
 ---
 
-
-### T011 — Exit confirmation on Ctrl+D / Ctrl+C
-
-**Area:** UX
-**Source:** docs/IDEAS.md
-**Status:** Not started
-**Priority:** Medium
-
-#### Description
-When pressing Ctrl+D or Ctrl+C a second time, use huh to create a confirmation dialog, like T009
-
-#### Acceptance Criteria
-- [ ] First Ctrl+D / Ctrl+C during idle does not exit
-- [ ] A confirmation modal or status message appears
-- [ ] Confirming exits; cancelling returns to normal
-
-
-
----
-
 ### T013 — Apply glamour to user prompts
 
 **Area:** UI / Markdown
