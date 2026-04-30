@@ -15,6 +15,38 @@ type Assembler struct {
 	policy AssemblyPolicy
 }
 
+type assemblyState struct {
+	blocks   []ContextBlock
+	messages []provider.Message
+	budgets  *budgetTracker
+}
+
+func newAssemblyState(policy AssemblyPolicy, opts AssemblyOptions) assemblyState {
+	return assemblyState{
+		blocks:   make([]ContextBlock, 0, 8),
+		messages: make([]provider.Message, 0, 8+len(opts.Conversation)+len(opts.ToolResults)),
+		budgets:  newBudgetTracker(policy.Budgets),
+	}
+}
+
+func (s *assemblyState) appendBlock(block ContextBlock) {
+	clipped, truncated, ok := applyBudget(s.budgets, block.Source, block.Content)
+	if !ok && len(block.Content) > 0 {
+		return
+	}
+	block.Content = clipped
+	block.ByteSize = len(clipped)
+	if truncated {
+		block.Truncated = true
+	}
+	s.blocks = append(s.blocks, block)
+	s.messages = append(s.messages, blockMessage(block))
+}
+
+func (s *assemblyState) appendMessage(message provider.Message) {
+	s.messages = append(s.messages, message)
+}
+
 func newAssembler(opts AssemblyOptions) (Assembler, error) {
 	policy, err := normalizeAssemblyPolicy(opts.Policy)
 	if err != nil {
@@ -25,27 +57,97 @@ func newAssembler(opts AssemblyOptions) (Assembler, error) {
 }
 
 func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
-	blocks := make([]ContextBlock, 0, 8)
-	messages := make([]provider.Message, 0, 8+len(a.opts.Conversation)+len(a.opts.ToolResults))
-	budgets := newBudgetTracker(a.policy.Budgets)
+	state := newAssemblyState(a.policy, a.opts)
 
-	appendBlock := func(block ContextBlock) {
-		clipped, truncated, ok := applyBudget(budgets, block.Source, block.Content)
-		if !ok && len(block.Content) > 0 {
-			return
-		}
-		block.Content = clipped
-		block.ByteSize = len(clipped)
-		if truncated {
-			block.Truncated = true
-		}
-		blocks = append(blocks, block)
-		messages = append(messages, blockMessage(block))
+	a.appendPreamble(&state)
+
+	if err := a.appendAgents(&state); err != nil {
+		return Assembly{}, err
 	}
 
-	preamble := SystemPreamble(a.opts.PromptOverrides.System)
-	appendBlock(preamble)
+	if err := a.appendProjectContext(&state); err != nil {
+		return Assembly{}, err
+	}
 
+	if err := a.appendSkills(ctx, &state); err != nil {
+		return Assembly{}, err
+	}
+
+	a.appendDurableContext(&state)
+	a.appendConversation(&state)
+	a.appendToolSummaries(&state)
+
+	return Assembly{
+		Messages: state.messages,
+		Blocks:   state.blocks,
+	}, nil
+}
+
+func (a Assembler) appendPreamble(state *assemblyState) {
+	state.appendBlock(SystemPreamble(a.opts.PromptOverrides.System))
+}
+
+func (a Assembler) appendAgents(state *assemblyState) error {
+	globalAgentsPath, projectAgentsPath := a.agentPaths()
+
+	agentBlocks, err := LoadAgents(globalAgentsPath, projectAgentsPath)
+	if err != nil {
+		return err
+	}
+	for _, block := range agentBlocks {
+		state.appendBlock(block)
+	}
+	return nil
+}
+
+func (a Assembler) appendProjectContext(state *assemblyState) error {
+	projectContext, err := GatherProjectContext(ProjectContextOptions{
+		Root:        a.opts.ProjectRoot,
+		BudgetBytes: a.policy.Budgets.ProjectContextBytes,
+		ExtraFiles:  a.opts.ProjectContextExtraFiles,
+		IgnoreFiles: a.opts.ProjectContextIgnoreFiles,
+	})
+	if err != nil {
+		return err
+	}
+	for _, block := range projectContext {
+		state.appendBlock(block)
+	}
+	return nil
+}
+
+func (a Assembler) appendSkills(ctx context.Context, state *assemblyState) error {
+	skillRoot := a.skillRoot()
+	skillBlocks, err := LoadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, a.opts.SkillNames)
+	if err != nil {
+		return err
+	}
+	for _, block := range skillBlocks {
+		state.appendBlock(block)
+	}
+	return nil
+}
+
+func (a Assembler) appendDurableContext(state *assemblyState) {
+	if block, ok := durableContextBlock(a.opts.ContextState, a.policy.Compaction); ok {
+		state.appendBlock(block)
+	}
+}
+
+func (a Assembler) appendConversation(state *assemblyState) {
+	for _, message := range a.opts.Conversation {
+		state.appendMessage(message)
+	}
+}
+
+func (a Assembler) appendToolSummaries(state *assemblyState) {
+	for _, toolResult := range a.opts.ToolResults {
+		block := summarizeToolMessage(toolResult, a.policy.ToolSummary)
+		state.appendBlock(block)
+	}
+}
+
+func (a Assembler) agentPaths() (string, string) {
 	globalAgentsPath := a.opts.GlobalAgentsPath
 	if globalAgentsPath == "" {
 		globalAgentsPath = DefaultGlobalAgentsPath(a.opts.HomeDir)
@@ -54,57 +156,15 @@ func (a Assembler) Assemble(ctx context.Context) (Assembly, error) {
 	if projectAgentsPath == "" && a.opts.ProjectRoot != "" {
 		projectAgentsPath = filepath.Join(a.opts.ProjectRoot, "AGENTS.md")
 	}
+	return globalAgentsPath, projectAgentsPath
+}
 
-	agentBlocks, err := LoadAgents(globalAgentsPath, projectAgentsPath)
-	if err != nil {
-		return Assembly{}, err
-	}
-	for _, block := range agentBlocks {
-		appendBlock(block)
-	}
-
-	projectContext, err := GatherProjectContext(ProjectContextOptions{
-		Root:        a.opts.ProjectRoot,
-		BudgetBytes: a.policy.Budgets.ProjectContextBytes,
-		ExtraFiles:  a.opts.ProjectContextExtraFiles,
-		IgnoreFiles: a.opts.ProjectContextIgnoreFiles,
-	})
-	if err != nil {
-		return Assembly{}, err
-	}
-	for _, block := range projectContext {
-		appendBlock(block)
-	}
-
+func (a Assembler) skillRoot() string {
 	skillRoot := a.opts.SkillsRoot
 	if skillRoot == "" {
 		skillRoot = DefaultSkillsRoot(a.opts.HomeDir)
 	}
-	skillBlocks, err := LoadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, a.opts.SkillNames)
-	if err != nil {
-		return Assembly{}, err
-	}
-	for _, block := range skillBlocks {
-		appendBlock(block)
-	}
-
-	if block, ok := durableContextBlock(a.opts.ContextState, a.policy.Compaction); ok {
-		appendBlock(block)
-	}
-
-	for _, message := range a.opts.Conversation {
-		messages = append(messages, message)
-	}
-
-	for _, toolResult := range a.opts.ToolResults {
-		block := summarizeToolMessage(toolResult, a.policy.ToolSummary)
-		appendBlock(block)
-	}
-
-	return Assembly{
-		Messages: messages,
-		Blocks:   blocks,
-	}, nil
+	return skillRoot
 }
 
 func durableContextBlock(state DurableContextState, policy CompactionPolicy) (ContextBlock, bool) {
