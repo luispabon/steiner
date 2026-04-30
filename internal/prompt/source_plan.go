@@ -14,65 +14,72 @@ const (
 	plannedSourceToolSummaries  plannedSourceKind = "tool_summaries"
 )
 
+type plannedSourcePlacement string
+
+const (
+	plannedSourcePlacementCore          plannedSourcePlacement = "core"
+	plannedSourcePlacementConversation  plannedSourcePlacement = "conversation"
+	plannedSourcePlacementToolSummaries plannedSourcePlacement = "tool_summaries"
+)
+
 type sourcePlan struct {
 	Steps []sourcePlanStep
 }
 
 type sourcePlanStep struct {
-	Kind  plannedSourceKind
-	Apply func(context.Context, *assemblyState) error
+	Kind        plannedSourceKind
+	Placement   plannedSourcePlacement
+	PassThrough bool
+	Apply       func(context.Context, *assemblyState) error
 }
 
 func (a Assembler) planSourceAssembly() sourcePlan {
 	return sourcePlan{
 		Steps: []sourcePlanStep{
-			{
-				Kind: plannedSourcePreamble,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					a.appendPreamble(state)
-					return nil
-				},
-			},
-			{
-				Kind: plannedSourceAgents,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					return a.appendAgents(state)
-				},
-			},
-			{
-				Kind: plannedSourceProjectContext,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					return a.appendProjectContext(state)
-				},
-			},
-			{
-				Kind: plannedSourceSkills,
-				Apply: func(ctx context.Context, state *assemblyState) error {
-					return a.appendSkills(ctx, state)
-				},
-			},
-			{
-				Kind: plannedSourceDurableContext,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					a.appendDurableContext(state)
-					return nil
-				},
-			},
-			{
-				Kind: plannedSourceConversation,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					a.appendConversation(state)
-					return nil
-				},
-			},
-			{
-				Kind: plannedSourceToolSummaries,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					a.appendToolSummaries(state)
-					return nil
-				},
-			},
+			blockSourceStep(plannedSourcePreamble, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
+				a.appendPreamble(state)
+				return nil
+			}),
+			blockSourceStep(plannedSourceAgents, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
+				return a.appendAgents(state)
+			}),
+			blockSourceStep(plannedSourceProjectContext, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
+				return a.appendProjectContext(state)
+			}),
+			blockSourceStep(plannedSourceSkills, plannedSourcePlacementCore, func(ctx context.Context, state *assemblyState) error {
+				return a.appendSkills(ctx, state)
+			}),
+			blockSourceStep(plannedSourceDurableContext, plannedSourcePlacementCore, func(_ context.Context, state *assemblyState) error {
+				a.appendDurableContext(state)
+				return nil
+			}),
+			passThroughSourceStep(plannedSourceConversation, plannedSourcePlacementConversation, func(_ context.Context, state *assemblyState) error {
+				a.appendConversation(state)
+				return nil
+			}),
+			blockSourceStep(plannedSourceToolSummaries, plannedSourcePlacementToolSummaries, func(_ context.Context, state *assemblyState) error {
+				a.appendToolSummaries(state)
+				return nil
+			}),
 		},
+	}
+}
+
+func blockSourceStep(kind plannedSourceKind, placement plannedSourcePlacement, apply func(context.Context, *assemblyState) error) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:        kind,
+		Placement:   placement,
+		PassThrough: false,
+		Apply:       apply,
+	}
+}
+
+func passThroughSourceStep(kind plannedSourceKind, placement plannedSourcePlacement, apply func(context.Context, *assemblyState) error) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:        kind,
+		Placement:   placement,
+		PassThrough: true,
+		Apply:       apply,
 	}
 }
 

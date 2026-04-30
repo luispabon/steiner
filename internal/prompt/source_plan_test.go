@@ -33,6 +33,34 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 	}
 }
 
+func TestPlanSourceAssemblyMarksConversationAndToolSummaryPlacement(t *testing.T) {
+	t.Parallel()
+
+	plan := (Assembler{}).planSourceAssembly()
+
+	conv := plan.Steps[5]
+	if got, want := conv.Kind, plannedSourceConversation; got != want {
+		t.Fatalf("conversation step kind = %q, want %q", got, want)
+	}
+	if !conv.PassThrough {
+		t.Fatalf("conversation step PassThrough = false, want true")
+	}
+	if got, want := conv.Placement, plannedSourcePlacementConversation; got != want {
+		t.Fatalf("conversation step placement = %q, want %q", got, want)
+	}
+
+	toolSummaries := plan.Steps[6]
+	if got, want := toolSummaries.Kind, plannedSourceToolSummaries; got != want {
+		t.Fatalf("tool summary step kind = %q, want %q", got, want)
+	}
+	if toolSummaries.PassThrough {
+		t.Fatalf("tool summary step PassThrough = true, want false")
+	}
+	if got, want := toolSummaries.Placement, plannedSourcePlacementToolSummaries; got != want {
+		t.Fatalf("tool summary step placement = %q, want %q", got, want)
+	}
+}
+
 func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 	t.Parallel()
 
