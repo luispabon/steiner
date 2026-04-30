@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,55 @@ func TestDetectGitSnapshotIncludesUntrackedFiles(t *testing.T) {
 	}
 	if got, want := snap.modifiedFiles[0].Path, "scratch.txt"; got != want {
 		t.Fatalf("path = %q, want %q", got, want)
+	}
+}
+
+func TestNewGitStateUsesWorkingDirectoryWhenStartDirBlank(t *testing.T) {
+	t.Cleanup(func() {
+		getWorkingDir = os.Getwd
+	})
+
+	want := "/tmp/project"
+	getWorkingDir = func() (string, error) {
+		return want, nil
+	}
+
+	state := newGitState("   ")
+	if state == nil {
+		t.Fatal("state = nil, want non-nil")
+	}
+	if got := state.startDir; got != want {
+		t.Fatalf("startDir = %q, want %q", got, want)
+	}
+}
+
+func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
+	t.Cleanup(func() {
+		getWorkingDir = os.Getwd
+		gitErrorLogger = nil
+	})
+
+	cwdErr := errors.New("cwd unavailable")
+	var logged error
+	getWorkingDir = func() (string, error) {
+		return "", cwdErr
+	}
+	gitErrorLogger = func(err error) {
+		logged = err
+	}
+
+	state := newGitState("")
+	if state == nil {
+		t.Fatal("state = nil, want non-nil")
+	}
+	if got := state.startDir; got != "" {
+		t.Fatalf("startDir = %q, want empty", got)
+	}
+	if logged == nil {
+		t.Fatal("logged error = nil, want resolve working directory failure")
+	}
+	if got, want := logged.Error(), "resolve working directory: cwd unavailable"; got != want {
+		t.Fatalf("logged error = %q, want %q", got, want)
 	}
 }
 

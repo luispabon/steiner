@@ -14,6 +14,7 @@ import (
 // gitErrorLogger is a package-level hook for logging git errors.
 // The TUI model sets this to emit error events.
 var gitErrorLogger func(error)
+var getWorkingDir = os.Getwd
 
 func logGitError(err error) {
 	if gitErrorLogger != nil {
@@ -45,7 +46,12 @@ type gitState struct {
 
 func newGitState(startDir string) *gitState {
 	if strings.TrimSpace(startDir) == "" {
-		startDir, _ = os.Getwd()
+		cwd, err := getWorkingDir()
+		if err != nil {
+			logGitError(fmt.Errorf("resolve working directory: %w", err))
+			return &gitState{}
+		}
+		startDir = cwd
 	}
 	return &gitState{startDir: startDir}
 }
