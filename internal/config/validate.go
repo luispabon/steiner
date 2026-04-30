@@ -8,32 +8,36 @@ import (
 func validate(cfg Config) error {
 	var problems []string
 
-	if cfg.Model.Type == "" {
-		problems = append(problems, "model.type is required")
-	} else if cfg.Model.Type != "openai_compat" {
-		problems = append(problems, fmt.Sprintf("model.type %q is not supported", cfg.Model.Type))
+	appendModelProblems := func(prefix string, model ModelConfig) {
+		if model.Type == "" {
+			problems = append(problems, fmt.Sprintf("%s.type is required", prefix))
+		} else if model.Type != "openai_compat" {
+			problems = append(problems, fmt.Sprintf("%s.type %q is not supported", prefix, model.Type))
+		}
+		if strings.TrimSpace(model.BaseURL) == "" {
+			problems = append(problems, fmt.Sprintf("%s.base_url is required", prefix))
+		}
+		if strings.TrimSpace(model.Model) == "" {
+			problems = append(problems, fmt.Sprintf("%s.model is required", prefix))
+		}
+		if model.MaxCompletionTokens < 1 {
+			problems = append(problems, fmt.Sprintf("%s.max_completion_tokens must be at least 1", prefix))
+		}
+		if model.ContextSize < 1 {
+			problems = append(problems, fmt.Sprintf("%s.context_size must be at least 1", prefix))
+		}
+		if model.Compaction.SafetyMarginTokens < 0 {
+			problems = append(problems, fmt.Sprintf("%s.compaction.safety_margin_tokens must be at least 0", prefix))
+		}
+		if model.Compaction.SummaryMaxTokens < 1 {
+			problems = append(problems, fmt.Sprintf("%s.compaction.summary_max_tokens must be at least 1", prefix))
+		}
+		if model.Compaction.SummaryMaxTokens > model.MaxCompletionTokens {
+			problems = append(problems, fmt.Sprintf("%s.compaction.summary_max_tokens must be less than or equal to %s.max_completion_tokens", prefix, prefix))
+		}
 	}
-	if strings.TrimSpace(cfg.Model.BaseURL) == "" {
-		problems = append(problems, "model.base_url is required")
-	}
-	if strings.TrimSpace(cfg.Model.Model) == "" {
-		problems = append(problems, "model.model is required")
-	}
-	if cfg.Model.MaxCompletionTokens < 1 {
-		problems = append(problems, "model.max_completion_tokens must be at least 1")
-	}
-	if cfg.Model.ContextSize < 1 {
-		problems = append(problems, "model.context_size must be at least 1")
-	}
-	if cfg.Model.Compaction.SafetyMarginTokens < 0 {
-		problems = append(problems, "model.compaction.safety_margin_tokens must be at least 0")
-	}
-	if cfg.Model.Compaction.SummaryMaxTokens < 1 {
-		problems = append(problems, "model.compaction.summary_max_tokens must be at least 1")
-	}
-	if cfg.Model.Compaction.SummaryMaxTokens > cfg.Model.MaxCompletionTokens {
-		problems = append(problems, "model.compaction.summary_max_tokens must be less than or equal to model.max_completion_tokens")
-	}
+
+	appendModelProblems("model", cfg.Model)
 
 	if cfg.Scheduler.Parallelism < 1 {
 		problems = append(problems, "scheduler.parallelism must be at least 1")
@@ -45,32 +49,7 @@ func validate(cfg Config) error {
 		if strings.TrimSpace(name) == "" {
 			problems = append(problems, "models contains an empty alias")
 		}
-		if model.Type == "" {
-			problems = append(problems, fmt.Sprintf("models[%q].type is required", name))
-		} else if model.Type != "openai_compat" {
-			problems = append(problems, fmt.Sprintf("models[%q].type %q is not supported", name, model.Type))
-		}
-		if strings.TrimSpace(model.BaseURL) == "" {
-			problems = append(problems, fmt.Sprintf("models[%q].base_url is required", name))
-		}
-		if strings.TrimSpace(model.Model) == "" {
-			problems = append(problems, fmt.Sprintf("models[%q].model is required", name))
-		}
-		if model.MaxCompletionTokens < 1 {
-			problems = append(problems, fmt.Sprintf("models[%q].max_completion_tokens must be at least 1", name))
-		}
-		if model.ContextSize < 1 {
-			problems = append(problems, fmt.Sprintf("models[%q].context_size must be at least 1", name))
-		}
-		if model.Compaction.SafetyMarginTokens < 0 {
-			problems = append(problems, fmt.Sprintf("models[%q].compaction.safety_margin_tokens must be at least 0", name))
-		}
-		if model.Compaction.SummaryMaxTokens < 1 {
-			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be at least 1", name))
-		}
-		if model.Compaction.SummaryMaxTokens > model.MaxCompletionTokens {
-			problems = append(problems, fmt.Sprintf("models[%q].compaction.summary_max_tokens must be less than or equal to models[%q].max_completion_tokens", name, name))
-		}
+		appendModelProblems(fmt.Sprintf("models[%q]", name), model)
 	}
 	if cfg.Limits.MaxTurns < 0 {
 		problems = append(problems, "limits.max_turns must be non-negative")
