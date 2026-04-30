@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -121,58 +120,16 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 		return outcome.State, nil
 	}
 
-	emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
-	emitEvent(req.Events, output.NewModelCallStartedEvent(turn, req.Model, len(assembly.Messages)))
-	response, err := completeModelCall(ctx, req, turn, chatRequest, assembly.Blocks, req.ModelBudget)
-	if err != nil {
-		if cancelled, ok := contextCancellationState(ctx, state); ok {
-			emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, nil))
-			emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
-			emitStop(req.Events, cancelled, nil)
-			return cancelled, nil
-		}
-		state.StopReason = StopReasonError
-		emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, "", 0, 0, err))
-		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
-		emitStop(req.Events, state, err)
-		return state, err
+	p := newTurnProgressor(r)
+	outcome := p.executeModelCall(ctx, in, assembly, chatRequest)
+	if outcome.Error != nil {
+		return outcome.State, outcome.Error
 	}
-
-	return r.handleModelResponse(ctx, req, state, turn, chatRequest, response)
-}
-
-func (r *Runner) handleModelResponse(ctx context.Context, req RunRequest, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, error) {
-	if response.Message.Role == "" {
-		response.Message.Role = provider.MessageRoleAssistant
+	if outcome.Stop {
+		return outcome.State, nil
 	}
-	state.TurnCount = turn
-	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
-	if err != nil {
-		emitEvent(req.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-			Kind:     "session_health",
-			Severity: "warning",
-			Notes:    []string{err.Error()},
-		}))
-		// Continue with 0 tokens for this turn; the error is logged but not fatal
-	}
-	state.TokenCount += turnTokens
-	emitEvent(req.Events, output.NewModelCallFinishedEvent(turn, req.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
-	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
-		emitEvent(req.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
-	}
-
-	assistant := fromProviderMessage(response.Message)
-	state.Conversation = append(state.Conversation, assistant)
-	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
-
-	if len(response.Message.ToolCalls) == 0 {
-		emitEvent(req.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
-		state.StopReason = StopReasonComplete
-		emitStop(req.Events, state, nil)
-		return state, nil
-	}
-
-	return r.executeToolCalls(ctx, req, state, turn, response)
+	// Tool calls present — delegate execution to the runner
+	return r.executeToolCalls(ctx, req, outcome.State, turn, *outcome.Response)
 }
 
 func (r *Runner) executeToolCalls(ctx context.Context, req RunRequest, state RunState, turn int, response provider.ChatResponse) (RunState, error) {
