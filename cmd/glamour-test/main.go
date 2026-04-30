@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -44,5 +45,13 @@ func main() {
 	// EXACTLY what steiner does - normalize trailing newlines
 	out = strings.TrimRight(out, "\n") + "\n"
 
-	os.Stdout.Write([]byte(out))
+	if err := write_output(os.Stdout, out); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func write_output(w io.Writer, out string) error {
+	_, err := io.WriteString(w, out)
+	return err
 }
