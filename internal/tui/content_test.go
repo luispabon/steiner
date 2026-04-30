@@ -645,6 +645,27 @@ func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
 	}
 }
 
+func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	doc := output.FormatEditDiffPreview("main.go", "package main\n", "package demo\n")
+	lines := buffer.renderDiffPreviewDocument(doc, 100)
+	if len(lines) != 3 {
+		t.Fatalf("rendered diff lines = %d, want 3", len(lines))
+	}
+
+	want := buffer.previewTokenStyle(chroma.Keyword).Render("package")
+	if !strings.Contains(lines[1], want) {
+		t.Fatalf("removed diff line %q missing highlighted keyword %q", lines[1], want)
+	}
+	if !strings.Contains(lines[2], want) {
+		t.Fatalf("added diff line %q missing highlighted keyword %q", lines[2], want)
+	}
+}
+
 func TestRenderEditToolHeaderShowsDiffCountsBeforeCompletion(t *testing.T) {
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),

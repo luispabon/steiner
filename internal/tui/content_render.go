@@ -595,27 +595,26 @@ func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign 
 	default:
 		signStr = b.styles.FgMute.Render(" ")
 	}
-	var raw strings.Builder
-	for _, span := range line.Spans {
-		raw.WriteString(span.Text)
-	}
-	rawText := raw.String()
-	var body string
-	if sign == " " {
-		body = b.styles.FgDim.Render(rawText)
-	} else {
-		body = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(rawText)
-	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
-	return bg.Render(lineNoStr + " " + signStr + " " + body)
+	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	if sign == " " {
+		bodyStyle = b.styles.FgDim
+	}
+
+	var sb strings.Builder
+	sb.WriteString(bg.Render(lineNoStr + " " + signStr + " "))
+	for _, span := range line.Spans {
+		rendered := b.renderPreviewSpan(span)
+		if rendered == "" {
+			continue
+		}
+		sb.WriteString(bg.Render(bodyStyle.Render(rendered)))
+	}
+	return sb.String()
 }
 
 func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
-	var sb strings.Builder
-	for _, span := range line.Spans {
-		sb.WriteString(b.renderPreviewSpan(span))
-	}
-	text := sb.String()
+	text := b.renderPreviewSpans(line.Spans)
 	if text == "" {
 		return b.styles.FgDim.Render("")
 	}
@@ -633,6 +632,14 @@ func (b *contentBuffer) renderPreviewLine(line output.PreviewLine) string {
 	default:
 		return text
 	}
+}
+
+func (b *contentBuffer) renderPreviewSpans(spans []output.PreviewSpan) string {
+	var sb strings.Builder
+	for _, span := range spans {
+		sb.WriteString(b.renderPreviewSpan(span))
+	}
+	return sb.String()
 }
 
 func (b *contentBuffer) renderPreviewSpan(span output.PreviewSpan) string {
