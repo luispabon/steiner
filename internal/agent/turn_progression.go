@@ -21,7 +21,7 @@ import (
 //   - TurnFinished / StopReason event emission for assistant-only turns
 //
 // When the response contains tool calls, it returns them via outcome.Response
-// so the caller (Runner.runTurn) can delegate to executeToolCalls.
+// so turnProgressor.advance can pass it to executeToolCalls.
 func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
 	turn := in.State.TurnCount + 1
 
