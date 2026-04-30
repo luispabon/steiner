@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -232,6 +233,61 @@ func TestPlainRendererWritesAssistantChunksAsSingleTranscriptLine(t *testing.T) 
 	}
 }
 
+func TestPlainRendererLeavesStreamingInactiveWhenLabelWriteFails(t *testing.T) {
+	var buf failingBuffer
+	buf.failOnWrite = 1
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.WriteAssistantChunk("Hello")
+
+	if got := buf.String(); got != "" {
+		t.Fatalf("buffer = %q, want empty output", got)
+	}
+	if renderer.streaming != "" {
+		t.Fatalf("streaming = %q, want empty", renderer.streaming)
+	}
+	if renderer.Err() == nil {
+		t.Fatal("Err() = nil, want write failure")
+	}
+}
+
+func TestPlainRendererKeepsStreamingActiveWhenChunkWriteFails(t *testing.T) {
+	var buf failingBuffer
+	buf.failOnWrite = 2
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.WriteAssistantChunk("Hello")
+
+	if got, want := buf.String(), "assistant> "; got != want {
+		t.Fatalf("buffer = %q, want %q", got, want)
+	}
+	if renderer.streaming != ChannelAssistant {
+		t.Fatalf("streaming = %q, want %q", renderer.streaming, ChannelAssistant)
+	}
+	if renderer.Err() == nil {
+		t.Fatal("Err() = nil, want write failure")
+	}
+}
+
+func TestPlainRendererKeepsStreamingActiveWhenFinishWriteFails(t *testing.T) {
+	var buf failingBuffer
+	buf.failOnWrite = 3
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.WriteAssistantChunk("Hello")
+	renderer.FinishAssistant()
+
+	if got, want := buf.String(), "assistant> Hello"; got != want {
+		t.Fatalf("buffer = %q, want %q", got, want)
+	}
+	if renderer.streaming != ChannelAssistant {
+		t.Fatalf("streaming = %q, want %q", renderer.streaming, ChannelAssistant)
+	}
+	if renderer.Err() == nil {
+		t.Fatal("Err() = nil, want write failure")
+	}
+}
+
 func TestEventStreamDispatchesToSubscribersAndRenderer(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewPlainRenderer(&buf)
@@ -377,4 +433,22 @@ func TestEventStreamDelegateMethods(t *testing.T) {
 			t.Fatalf("Themed() = %q, want %q", got, "themed-text")
 		}
 	})
+}
+
+type failingBuffer struct {
+	buf         bytes.Buffer
+	failOnWrite int
+	writes      int
+}
+
+func (b *failingBuffer) Write(p []byte) (int, error) {
+	b.writes++
+	if b.failOnWrite > 0 && b.writes == b.failOnWrite {
+		return 0, errors.New("write failed")
+	}
+	return b.buf.Write(p)
+}
+
+func (b *failingBuffer) String() string {
+	return b.buf.String()
 }

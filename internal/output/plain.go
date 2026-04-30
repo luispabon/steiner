@@ -46,6 +46,7 @@ type PlainRenderer struct {
 	theme     Theme
 	streaming Channel
 	toolCalls map[string]retainedToolCall
+	err       error
 }
 
 type retainedToolCall struct {
@@ -85,7 +86,12 @@ func (r *PlainRenderer) Println(args ...any) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishStreamingLocked()
+	if r.err != nil {
+		return
+	}
+	if !r.finishStreamingLocked() {
+		return
+	}
 	fmt.Fprintln(r.w, args...)
 }
 
@@ -95,6 +101,9 @@ func (r *PlainRenderer) Printf(format string, args ...any) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.err != nil {
+		return
+	}
 	fmt.Fprintf(r.w, format, args...)
 }
 
@@ -104,6 +113,9 @@ func (r *PlainRenderer) Render(segment Segment) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.err != nil {
+		return
+	}
 	r.renderLocked(segment)
 }
 
@@ -113,6 +125,9 @@ func (r *PlainRenderer) OnEvent(event Event) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.err != nil {
+		return
+	}
 	r.onEventLocked(event)
 }
 
@@ -130,9 +145,22 @@ func (r *PlainRenderer) FinishAssistant() {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.err != nil {
+		return
+	}
 	if r.streaming == ChannelAssistant {
 		r.finishStreamingLocked()
 	}
+}
+
+// Err reports the first write error observed by the renderer.
+func (r *PlainRenderer) Err() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.err
 }
 
 func (r *PlainRenderer) renderLocked(segment Segment) {
@@ -143,7 +171,9 @@ func (r *PlainRenderer) renderLocked(segment Segment) {
 		r.renderStreamingLocked(segment)
 		return
 	}
-	r.finishStreamingLocked()
+	if !r.finishStreamingLocked() {
+		return
+	}
 	line := formatSegment(segment)
 	if line == "" {
 		return
@@ -388,25 +418,43 @@ func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc Pre
 
 func (r *PlainRenderer) renderStreamingLocked(segment Segment) {
 	if r.streaming != "" && r.streaming != segment.Channel {
-		r.finishStreamingLocked()
+		if !r.finishStreamingLocked() {
+			return
+		}
 	}
 	if r.streaming == "" {
 		label := segment.Label
 		if label == "" {
 			label = string(segment.Channel)
 		}
-		_, _ = io.WriteString(r.w, r.decorate(segment.Channel, label+"> "))
+		if !r.writeStringLocked(r.decorate(segment.Channel, label+"> ")) {
+			return
+		}
 		r.streaming = segment.Channel
 	}
-	_, _ = io.WriteString(r.w, segment.Text)
+	r.writeStringLocked(segment.Text)
 }
 
-func (r *PlainRenderer) finishStreamingLocked() {
+func (r *PlainRenderer) finishStreamingLocked() bool {
 	if r.streaming == "" {
-		return
+		return true
 	}
-	_, _ = io.WriteString(r.w, "\n")
+	if !r.writeStringLocked("\n") {
+		return false
+	}
 	r.streaming = ""
+	return true
+}
+
+func (r *PlainRenderer) writeStringLocked(text string) bool {
+	if r.err != nil {
+		return false
+	}
+	if _, err := io.WriteString(r.w, text); err != nil {
+		r.err = err
+		return false
+	}
+	return true
 }
 
 func (r *PlainRenderer) decorate(channel Channel, text string) string {
