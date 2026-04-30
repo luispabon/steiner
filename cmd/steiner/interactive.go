@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -24,6 +26,34 @@ type activeRunController struct {
 }
 
 const terminalClearSequence = "\x1b[2J\x1b[H"
+
+type interactiveMode struct {
+	rt                  cliRuntime
+	ctx                 context.Context
+	stop                context.CancelFunc
+	teaProgram          *tea.Program
+	runController       *activeRunController
+	runner              cliRunner
+	enabledSkills       *interactiveSkills
+	requestSnapshots    *requestSnapshotStore
+	approvalCoordinator *tuiApprovalCoordinator
+	submissions         chan string
+	contextInspect      chan struct{}
+	configInspect       chan struct{}
+	clearSession        chan struct{}
+	triggerCompact      chan struct{}
+	exitRequests        chan struct{}
+	wg                  sync.WaitGroup
+	conversation        []agent.Message
+}
+
+var runTeaProgram = func(p *tea.Program) (tea.Model, error) {
+	return p.Run()
+}
+
+var quitTeaProgram = func(p *tea.Program) {
+	p.Quit()
+}
 
 func (c *activeRunController) Set(cancel context.CancelFunc) {
 	c.mu.Lock()
@@ -54,11 +84,33 @@ func clearTerminalScreen(w io.Writer) {
 }
 
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
-	rt, err := buildRuntime(cmd.Context(), cmd, flags)
+	mode, err := newInteractiveMode(cmd, flags)
 	if err != nil {
 		return err
 	}
-	defer closeRuntime(&rt)
+	defer mode.close(cmd)
+	return mode.run()
+}
+
+func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, error) {
+	rt, err := buildRuntime(cmd.Context(), cmd, flags)
+	if err != nil {
+		return nil, err
+	}
+	mode := &interactiveMode{
+		rt:                  rt,
+		runController:       &activeRunController{},
+		runner:              cliRunner{runtime: rt, streamingPreferred: true},
+		enabledSkills:       newInteractiveSkills(rt.skillNames),
+		requestSnapshots:    &requestSnapshotStore{},
+		approvalCoordinator: &tuiApprovalCoordinator{},
+		submissions:         make(chan string, 1),
+		contextInspect:      make(chan struct{}, 1),
+		configInspect:       make(chan struct{}, 1),
+		clearSession:        make(chan struct{}, 1),
+		triggerCompact:      make(chan struct{}, 1),
+		exitRequests:        make(chan struct{}, 1),
+	}
 
 	// Build a ForwardSink so the display_file tool can emit events even though
 	// the TUI event sink is assembled after the registry. We update it below
@@ -68,24 +120,13 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// Rebuild the registry with interactive mode and the forward sink wired in.
 	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, displaySink, true)
 	if err != nil {
-		return fmt.Errorf("build interactive registry: %w", err)
+		return nil, fmt.Errorf("build interactive registry: %w", err)
 	}
 	rt.registry = interactiveRegistry
 
-	submissions := make(chan string, 1)
-	contextInspect := make(chan struct{}, 1)
-	configInspect := make(chan struct{}, 1)
-	clearSession := make(chan struct{}, 1)
-	triggerCompact := make(chan struct{}, 1)
-	exitRequests := make(chan struct{}, 1)
-	enabledSkills := newInteractiveSkills(rt.skillNames)
-	requestSnapshots := &requestSnapshotStore{}
-	runController := &activeRunController{}
-	runner := cliRunner{runtime: rt, streamingPreferred: true}
-	approvalCoordinator := &tuiApprovalCoordinator{}
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	tuiApp := tui.NewApp(tui.Config{
@@ -99,54 +140,54 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		SkillNames:      rt.skillNames,
 		OnSubmit: func(text string) {
 			select {
-			case submissions <- text:
+			case mode.submissions <- text:
 			default:
 			}
 		},
 		OnContextInspect: func() {
 			select {
-			case contextInspect <- struct{}{}:
+			case mode.contextInspect <- struct{}{}:
 			default:
 			}
 		},
 		OnConfigInspect: func() {
 			select {
-			case configInspect <- struct{}{}:
+			case mode.configInspect <- struct{}{}:
 			default:
 			}
 		},
 		OnApproval: func(submission tui.ApprovalSubmission) {
-			approvalCoordinator.submit(submission)
+			mode.approvalCoordinator.submit(submission)
 		},
 		OnInterrupt: func() {
-			runController.Interrupt()
+			mode.runController.Interrupt()
 		},
 		OnExitRequested: func() {
 			select {
-			case exitRequests <- struct{}{}:
+			case mode.exitRequests <- struct{}{}:
 			default:
 			}
 		},
 		OnSkillToggle: func(name string, enabled bool) {
-			enabledSkills.Set(name, enabled)
+			mode.enabledSkills.Set(name, enabled)
 		},
 		OnModelSwitch: func(name string) (string, bool) {
-			selected, err := switchModelConfigByAlias(&runner.runtime.cfg, name)
+			selected, err := switchModelConfigByAlias(&mode.runner.runtime.cfg, name)
 			if err != nil {
-				rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
+				mode.rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
 				return "", false
 			}
 			return selected.BaseURL, true
 		},
 		OnClear: func() {
 			select {
-			case clearSession <- struct{}{}:
+			case mode.clearSession <- struct{}{}:
 			default:
 			}
 		},
 		OnCompact: func() {
 			select {
-			case triggerCompact <- struct{}{}:
+			case mode.triggerCompact <- struct{}{}:
 			default:
 			}
 		},
@@ -156,7 +197,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		tuiApp.EventSink(),
 		output.SinkFunc(func(event output.Event) {
 			if payload, ok := event.Payload.(output.APIRequestEvent); ok {
-				requestSnapshots.Store(output.RequestContextSnapshot{
+				mode.requestSnapshots.Store(output.RequestContextSnapshot{
 					Model:       payload.Model,
 					Messages:    payload.Messages,
 					Tools:       payload.Tools,
@@ -167,167 +208,187 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			}
 		}),
 	)
-	runner.runtime.events = rt.events
+	mode.rt.events = rt.events
+	mode.runner.runtime.events = rt.events
 
 	// Wire the TUI sink into the display_file forward sink so the tool can emit
 	// display events once the TUI is running.
 	displaySink.Set(tuiApp.EventSink())
 
-	teaProgram := tuiApp.NewProgram()
-	approver := agent.NewEventingApprover(rt.events, newTUIApprovalResponder(approvalCoordinator))
+	mode.teaProgram = tuiApp.NewProgram()
+	mode.runner.approver = agent.NewEventingApprover(rt.events, newTUIApprovalResponder(mode.approvalCoordinator))
 
-	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
+	mode.ctx, mode.stop = signal.NotifyContext(cmd.Context(), os.Interrupt)
+	mode.wg.Add(1)
 	go func() {
-		defer wg.Done()
-		if _, err := teaProgram.Run(); err != nil {
-			// Non-fatal: program exit errors are expected on normal quit.
-			_ = err
+		defer mode.wg.Done()
+		if _, err := runTeaProgram(mode.teaProgram); err != nil {
+			if !errors.Is(err, tea.ErrProgramKilled) {
+				mode.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+					Kind:     "session_health",
+					Severity: "warning",
+					Notes:    []string{fmt.Sprintf("tui runtime failed: %v", err)},
+				}))
+			}
 		}
-		stop()
+		mode.stop()
 	}()
-	defer func() {
-		teaProgram.Quit()
-		wg.Wait()
-		clearTerminalScreen(cmd.OutOrStdout())
-	}()
+	return mode, nil
+}
 
-	var conversation []agent.Message
-	runner.approver = approver
-	if rt.historyWriter != nil {
-		prompts, err := rt.historyWriter.Load()
+func (m *interactiveMode) close(cmd *cobra.Command) {
+	quitTeaProgram(m.teaProgram)
+	m.wg.Wait()
+	clearTerminalScreen(cmd.OutOrStdout())
+	closeRuntime(&m.rt)
+}
+
+func (m *interactiveMode) run() error {
+	if m.rt.historyWriter != nil {
+		prompts, err := m.rt.historyWriter.Load()
 		if err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 				Kind:     "session_health",
 				Severity: "warning",
 				Notes:    []string{fmt.Sprintf("failed to load history: %v", err)},
 			}))
 		}
-		rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
+		m.rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
 	}
 	for {
 		select {
-		case <-ctx.Done():
+		case <-m.ctx.Done():
 			return nil
-		case <-exitRequests:
+		case <-m.exitRequests:
 			return nil
-		case <-contextInspect:
-			if snapshot, ok := requestSnapshots.Snapshot(); ok {
-				report, err := output.BuildContextReport(ctx, snapshot)
-				if err != nil {
-					rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
-					continue
-				}
-				rt.events.Emit(output.NewContextReportEvent(report))
-				continue
-			}
-			rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
+		case <-m.contextInspect:
+			m.emitContextReport()
 			continue
-		case <-configInspect:
-			report, err := buildConfigOverlayReport(runner.runtime.cfg)
-			if err != nil {
-				rt.events.Emit(output.NewConfigReportEvent("Resolved config unavailable.\n\n" + err.Error()))
-				continue
-			}
-			rt.events.Emit(output.NewConfigReportEvent(report))
+		case <-m.configInspect:
+			m.emitConfigReport()
 			continue
-		case <-clearSession:
-			conversation = nil
-		case <-triggerCompact:
-			if len(conversation) == 0 {
-				rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
-				continue
-			}
-			selected, err := selectedModelConfig(runner.runtime.cfg)
-			if err != nil {
-				rt.events.Emit(output.Event{
-					Type:    output.EventTypeStopReason,
-					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
-				})
-				continue
-			}
-			prov := runner.runtime.provider
-			if runner.runtime.providerFactory != nil {
-				prov, err = runner.runtime.providerFactory(selected)
-				if err != nil {
-					rt.events.Emit(output.Event{
-						Type:    output.EventTypeStopReason,
-						Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
-					})
-					continue
-				}
-			}
-			modelBudget := prompt.ModelTokenBudget{
-				ContextSize:         selected.ContextSize,
-				MaxCompletionTokens: selected.MaxCompletionTokens,
-				SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-				SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
-			}
-			assembly := prompt.AssemblyOptions{
-				HomeDir:         runner.runtime.homeDir,
-				ProjectRoot:     runner.runtime.workDir,
-				SkillsRoot:      prompt.DefaultSkillsRoot(runner.runtime.homeDir),
-				ModelBudget:     modelBudget,
-				PromptOverrides: selected.Prompts,
-			}
-
-			compactReq := agent.RunRequest{
-				Provider:    prov,
-				Prompt:      assembly,
-				ModelBudget: modelBudget,
-				Model:       selected.Model,
-				Events:      rt.events,
-			}
-			agentRunner := agent.NewRunner()
-			newConv, err := agentRunner.Compact(ctx, compactReq, conversation)
-			if err != nil {
-				rt.events.Emit(output.Event{
-					Type:    output.EventTypeStopReason,
-					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
-				})
-				continue
-			}
-			conversation = newConv
-			rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
-		case text := <-submissions:
-			conversation = append(conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
-			runCtx, cancel := context.WithCancel(ctx)
-			runController.Set(cancel)
-			result, err := runner.Run(runCtx, conversation, enabledSkills.Snapshot())
-			cancel()
-			runController.Clear()
-			if err != nil {
-				rt.events.Emit(output.Event{
-					Type:    output.EventTypeStopReason,
-					Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
-				})
-				continue
-			}
-			if rt.historyWriter != nil {
-				if err := rt.historyWriter.Record(text); err != nil {
-					rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-						Kind:     "session_health",
-						Severity: "warning",
-						Notes:    []string{fmt.Sprintf("history record: %v", err)},
-					}))
-				}
-				prompts, err := rt.historyWriter.Load()
-				if err != nil {
-					rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-						Kind:     "session_health",
-						Severity: "warning",
-						Notes:    []string{fmt.Sprintf("history load: %v", err)},
-					}))
-					prompts = nil
-				}
-				rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
-			}
-			conversation = result.Conversation
+		case <-m.clearSession:
+			m.conversation = nil
+		case <-m.triggerCompact:
+			m.conversation = m.handleManualCompaction(m.conversation)
+		case text := <-m.submissions:
+			m.handleSubmission(text)
 		}
 	}
+}
+
+func (m *interactiveMode) emitContextReport() {
+	if snapshot, ok := m.requestSnapshots.Snapshot(); ok {
+		report, err := output.BuildContextReport(m.ctx, snapshot)
+		if err != nil {
+			m.rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
+			return
+		}
+		m.rt.events.Emit(output.NewContextReportEvent(report))
+		return
+	}
+	m.rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
+}
+
+func (m *interactiveMode) emitConfigReport() {
+	report, err := buildConfigOverlayReport(m.runner.runtime.cfg)
+	if err != nil {
+		m.rt.events.Emit(output.NewConfigReportEvent("Resolved config unavailable.\n\n" + err.Error()))
+		return
+	}
+	m.rt.events.Emit(output.NewConfigReportEvent(report))
+}
+
+func (m *interactiveMode) handleManualCompaction(conversation []agent.Message) []agent.Message {
+	if len(conversation) == 0 {
+		m.rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
+		return conversation
+	}
+	selected, err := selectedModelConfig(m.runner.runtime.cfg)
+	if err != nil {
+		m.emitCompactError(err)
+		return conversation
+	}
+	prov := m.runner.runtime.provider
+	if m.runner.runtime.providerFactory != nil {
+		prov, err = m.runner.runtime.providerFactory(selected)
+		if err != nil {
+			m.emitCompactError(err)
+			return conversation
+		}
+	}
+	modelBudget := prompt.ModelTokenBudget{
+		ContextSize:         selected.ContextSize,
+		MaxCompletionTokens: selected.MaxCompletionTokens,
+		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
+		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+	}
+	assembly := prompt.AssemblyOptions{
+		HomeDir:         m.runner.runtime.homeDir,
+		ProjectRoot:     m.runner.runtime.workDir,
+		SkillsRoot:      prompt.DefaultSkillsRoot(m.runner.runtime.homeDir),
+		ModelBudget:     modelBudget,
+		PromptOverrides: selected.Prompts,
+	}
+
+	compactReq := agent.RunRequest{
+		Provider:    prov,
+		Prompt:      assembly,
+		ModelBudget: modelBudget,
+		Model:       selected.Model,
+		Events:      m.rt.events,
+	}
+	agentRunner := agent.NewRunner()
+	newConv, err := agentRunner.Compact(m.ctx, compactReq, conversation)
+	if err != nil {
+		m.emitCompactError(err)
+		return conversation
+	}
+	m.rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
+	return newConv
+}
+
+func (m *interactiveMode) emitCompactError(err error) {
+	m.rt.events.Emit(output.Event{
+		Type:    output.EventTypeStopReason,
+		Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
+	})
+}
+
+func (m *interactiveMode) handleSubmission(text string) {
+	m.conversation = append(m.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+	runCtx, cancel := context.WithCancel(m.ctx)
+	m.runController.Set(cancel)
+	result, err := m.runner.Run(runCtx, m.conversation, m.enabledSkills.Snapshot())
+	cancel()
+	m.runController.Clear()
+	if err != nil {
+		m.rt.events.Emit(output.Event{
+			Type:    output.EventTypeStopReason,
+			Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
+		})
+		return
+	}
+	if m.rt.historyWriter != nil {
+		if err := m.rt.historyWriter.Record(text); err != nil {
+			m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("history record: %v", err)},
+			}))
+		}
+		prompts, err := m.rt.historyWriter.Load()
+		if err != nil {
+			m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("history load: %v", err)},
+			}))
+			prompts = nil
+		}
+		m.rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
+	}
+	m.conversation = result.Conversation
 }
 
 func buildConfigOverlayReport(cfg config.Config) (string, error) {
