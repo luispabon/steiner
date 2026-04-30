@@ -1,0 +1,112 @@
+run_id: "2026-04-30-13-21-slop-detector"
+base_path: "cmd/"
+mode: deep
+files:
+  - path: "cmd/glamour-test/main.go"
+    language: go
+    hash: "sha256:7e8b45ce3417ce7a63216046140af8961a49558c22c1bfbe5038e999c7d7ea4a"
+    status: reviewed
+    findings_count: 1
+    triage_result: null
+  - path: "cmd/steiner/approval.go"
+    language: go
+    hash: "sha256:ea528aa6b453d96ec4c3935365f2f056d9e343dadfb02b19d4f4a737848b0848"
+    status: reviewed
+    findings_count: 1
+    triage_result: null
+  - path: "cmd/steiner/approval_test.go"
+    language: go
+    hash: "sha256:0b1d66ebb37779cdf1602589bcdb2bf7c2419175f69f7ede1c40a3c5dca17a75"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/commands.go"
+    language: go
+    hash: "sha256:eb79e184a4258b4c5cb750e7ca492d81f3078922d12f7fd2c3b57640da374fb2"
+    status: reviewed
+    findings_count: 1
+    triage_result: null
+  - path: "cmd/steiner/commands_test.go"
+    language: go
+    hash: "sha256:66b8f8059477ca9dc27606e40afcf97024445b822d74dcff95b4886a5435d81d"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/exec.go"
+    language: go
+    hash: "sha256:f3502462cfda423673573e65f7835dba54d114eb3b909494bbd81d8a3579b46d"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/exec_test.go"
+    language: go
+    hash: "sha256:139d4c6f15a133b0bac2b7db18978e03c11ae5e554561264a5e8c15b17ac246f"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/huh_boundary.go"
+    language: go
+    hash: "sha256:f601ba394cd25bb4503b595859fb0b02cd5590bc05d7a35618e740c6b3670741"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/huh_form.go"
+    language: go
+    hash: "sha256:334bbe33e3b58b92282e05c7a00fba662a0d3717e5e88ebf9371468aed4c4904"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/interactive.go"
+    language: go
+    hash: "sha256:0b1100701b68ac0099ca21943ef7ac3bf68d9e40911986937824fdc0164be53f"
+    status: reviewed
+    findings_count: 2
+    triage_result: null
+  - path: "cmd/steiner/interactive_test.go"
+    language: go
+    hash: "sha256:792b323f46c596c33df4a7a77a4d844686304d790d1be592ee377ab9d9118397"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/main.go"
+    language: go
+    hash: "sha256:a4e3832b298bf0fdb5d5116e019a903e8939647745542aea8d080a60a311be12"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/main_test.go"
+    language: go
+    hash: "sha256:194964c3c31a7db15dc108b18570686bb75a4cb24b9b46211ee14f44bf339a1e"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/model.go"
+    language: go
+    hash: "sha256:e4923d78255b4985303b7732f5f35b856fab85379e66fd9cabd1012c23e1c4f0"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runner.go"
+    language: go
+    hash: "sha256:0e7faf0df623d027b5ba55586b86eeb5c0ba348b1d3029e1798a2213e935a27a"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runtime.go"
+    language: go
+    hash: "sha256:4d99dbb56fe0b3b471c742765fafd6e04c34d065944ebb300682f9932eb1d7bc"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/state.go"
+    language: go
+    hash: "sha256:c376df5f2ceb47f38347b0047a585adaa56a0ffa2c9c0a8fee82c2068998f9a7"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/tools.go"
+    language: go
+    hash: "sha256:45927ef7ef884d397431cadd5057ac0462d9418c585d873e75ac00cb88fa72ae"
+    status: reviewed
+    findings_count: 0
+    triage_result: null
