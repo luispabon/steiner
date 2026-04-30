@@ -134,6 +134,29 @@ fmt.Println("new")
 	}
 }
 
+func TestFormatEditDiffPreviewTrimsSharedMarkdownHeadingPrefix(t *testing.T) {
+	got := FormatEditDiffPreviewWithLimit("POEM.md", "# The Quiet Code\n\nOld body\n", "# The Quiet Code\n\nNew body\n", 20)
+
+	if got.Kind != PreviewFormatKindEditDiff {
+		t.Fatalf("Kind = %q, want %q", got.Kind, PreviewFormatKindEditDiff)
+	}
+	if got.Language != "markdown" {
+		t.Fatalf("Language = %q, want markdown", got.Language)
+	}
+	if len(got.Lines) != 6 {
+		t.Fatalf("len(Lines) = %d, want 6", len(got.Lines))
+	}
+	if got.Lines[3].Prefix != " " || previewLineText(got.Lines[3]) != "" {
+		t.Fatalf("context line = %#v, want blank context after trimmed heading", got.Lines[3])
+	}
+	if got.Lines[4].Prefix != "-" || previewLineText(got.Lines[4]) != "Old body" {
+		t.Fatalf("removed line = %#v, want Old body", got.Lines[4])
+	}
+	if got.Lines[5].Prefix != "+" || previewLineText(got.Lines[5]) != "New body" {
+		t.Fatalf("added line = %#v, want New body", got.Lines[5])
+	}
+}
+
 func TestFormatFilePreviewTruncates(t *testing.T) {
 	got := FormatFilePreviewWithLimit("notes.txt", "one\ntwo\nthree\n", 2)
 
