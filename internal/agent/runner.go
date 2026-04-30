@@ -100,25 +100,18 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, basePrompt prompt.AssemblyOptions, compactionHistory map[string]bool, compactionCount *int) (RunState, error) {
 	turn := state.TurnCount + 1
-	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        basePrompt,
+		CompactionHistory: compactionHistory,
+		CompactionCount:   compactionCount,
+	}
+	assembly, chatRequest, fit, err := prepareTurn(ctx, in)
 	if err != nil {
 		return handleRunError(ctx, req.Events, state, err)
 	}
-	emitAssemblyDiagnostics(req.Events, req.Prompt, turn, assembly)
-
-	chatRequest := provider.ChatRequest{
-		Model:       req.Model,
-		Messages:    assembly.Messages,
-		Tools:       cloneProviderTools(req.Tools),
-		ExtraParams: req.ExtraParams,
-		MaxTokens:   req.MaxTokens,
-	}
-
-	fit, err := req.ModelBudget.FitRequest(ctx, chatRequest)
-	if err != nil {
-		return handleRunError(ctx, req.Events, state, err)
-	}
-	emitRequestTokenDiagnostic(req.Events, turn, fit, !fit.Fits)
 	if !fit.Fits {
 		emitCompactionStartedEvent(req.Events, turn)
 		compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, compactionCount)
