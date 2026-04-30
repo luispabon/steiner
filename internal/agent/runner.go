@@ -113,15 +113,12 @@ func (r *Runner) runTurn(ctx context.Context, req RunRequest, state RunState, ba
 		return handleRunError(ctx, req.Events, state, err)
 	}
 	if !fit.Fits {
-		emitCompactionStartedEvent(req.Events, turn)
-		compacted, err := r.compactConversationForBudget(ctx, req, &state, turn, compactionHistory, compactionCount)
-		if err != nil {
-			return handleRunError(ctx, req.Events, state, err)
+		p := newTurnProgressor(r)
+		outcome := p.advance(ctx, in, fit)
+		if outcome.Error != nil {
+			return handleRunError(ctx, req.Events, outcome.State, outcome.Error)
 		}
-		if compacted {
-			return state, nil
-		}
-		return handleRunError(ctx, req.Events, state, fmt.Errorf("request exceeds context window: %s", fit.String()))
+		return outcome.State, nil
 	}
 
 	emitEvent(req.Events, output.NewTurnStartedEvent(turn, req.Model, len(assembly.Messages)))
