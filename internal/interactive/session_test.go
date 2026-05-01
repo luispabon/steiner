@@ -1,0 +1,731 @@
+package interactive
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
+)
+
+// compile-time interface checks.
+var (
+	_ Action = SubmitPrompt{}
+	_ Action = RequestContextReport{}
+	_ Action = RequestConfigReport{}
+	_ Action = SubmitApproval{}
+	_ Action = InterruptActiveRun{}
+	_ Action = RequestExit{}
+	_ Action = SetSkillEnabled{}
+	_ Action = SwitchModel{}
+	_ Action = ClearConversation{}
+	_ Action = TriggerManualCompaction{}
+)
+
+func TestNewSession(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	if s == nil {
+		t.Fatal("NewSession returned nil")
+	}
+	if s.events == nil {
+		t.Error("expected non-nil event sink")
+	}
+	if s.displaySink == nil {
+		t.Error("expected non-nil display sink")
+	}
+	if s.runController == nil {
+		t.Error("expected non-nil run controller")
+	}
+	if s.skills == nil {
+		t.Error("expected non-nil skills")
+	}
+	if s.snapshots == nil {
+		t.Error("expected non-nil snapshot store")
+	}
+	if s.approvalCoordinator == nil {
+		t.Error("expected non-nil approval coordinator")
+	}
+}
+
+func TestNewSessionWithSkillNames(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		SkillNames: []string{"go-code-audit", "slop-detector"},
+	})
+	if s == nil {
+		t.Fatal("NewSession returned nil")
+	}
+	names := s.Skills().Snapshot()
+	if got, want := len(names), 2; got != want {
+		t.Fatalf("skill count = %d, want %d", got, want)
+	}
+}
+
+func TestActiveRunControllerInterrupt(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	ctrl := &ActiveRunController{}
+	ctrl.Set(cancel)
+
+	ctrl.Interrupt()
+
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected interrupt to cancel the context")
+	}
+}
+
+func TestActiveRunControllerClear(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	ctrl := &ActiveRunController{}
+	ctrl.Set(cancel)
+	ctrl.Clear()
+
+	if ctrl.HasCancel() {
+		t.Fatal("expected HasCancel to be false after Clear")
+	}
+
+	ctrl.Interrupt()
+	select {
+	case <-ctx.Done():
+		t.Fatal("expected Interrupt to be a no-op after Clear")
+	default:
+	}
+}
+
+func TestSkillsSnapshot(t *testing.T) {
+	t.Parallel()
+	skills := NewSkills([]string{"a", "b", "c"})
+	if got, want := len(skills.Snapshot()), 3; got != want {
+		t.Fatalf("initial snapshot length = %d, want %d", got, want)
+	}
+	skills.Set("b", false)
+	skills.Set("d", true)
+	got := skills.Snapshot()
+	want := []string{"a", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("snapshot = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("snapshot = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestSkillsSetNilSafe(t *testing.T) {
+	t.Parallel()
+	var s *Skills
+	s.Set("anything", true)
+}
+
+func TestSnapshotStoreStoreAndSnapshot(t *testing.T) {
+	t.Parallel()
+	store := &SnapshotStore{}
+	_, ok := store.Snapshot()
+	if ok {
+		t.Fatal("expected ok=false for empty store")
+	}
+
+	store.Store(output.RequestContextSnapshot{
+		Model: "test-model",
+	})
+	snapshot, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true after Store")
+	}
+	if snapshot.Model != "test-model" {
+		t.Fatalf("model = %q, want %q", snapshot.Model, "test-model")
+	}
+}
+
+func TestApprovalCoordinatorLifecycle(t *testing.T) {
+	t.Parallel()
+	coord := &ApprovalCoordinator{}
+	if coord.HasPending() {
+		t.Fatal("expected no pending initially")
+	}
+
+	ch := coord.Begin("write", "auto")
+	if !coord.HasPending() {
+		t.Fatal("expected pending after Begin")
+	}
+
+	coord.Submit(SubmitApproval{
+		Tool:     "write",
+		Mode:     "auto",
+		Decision: "allow_once",
+	})
+
+	select {
+	case sub := <-ch:
+		if sub.Decision != "allow_once" {
+			t.Fatalf("decision = %q, want %q", sub.Decision, "allow_once")
+		}
+	default:
+		t.Fatal("expected submission on channel")
+	}
+
+	coord.Finish(ch)
+	if coord.HasPending() {
+		t.Fatal("expected no pending after Finish")
+	}
+}
+
+func TestApprovalCoordinatorMismatch(t *testing.T) {
+	t.Parallel()
+	coord := &ApprovalCoordinator{}
+	ch := coord.Begin("write", "auto")
+
+	coord.Submit(SubmitApproval{
+		Tool: "not-write",
+		Mode: "auto",
+	})
+	select {
+	case <-ch:
+		t.Fatal("expected mismatch to block submission")
+	default:
+	}
+
+	coord.Submit(SubmitApproval{
+		Tool:     "write",
+		Mode:     "auto",
+		Decision: "deny",
+	})
+	select {
+	case sub := <-ch:
+		if sub.Decision != "deny" {
+			t.Fatalf("decision = %q, want %q", sub.Decision, "deny")
+		}
+	default:
+		t.Fatal("expected submission on channel")
+	}
+}
+
+func TestSessionHandleNoop(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		action Action
+	}{
+		{"RequestContextReport", RequestContextReport{}},
+		{"RequestConfigReport", RequestConfigReport{}},
+		{"SubmitApproval", SubmitApproval{Tool: "write", Mode: "auto", Decision: "allow"}},
+		{"RequestExit", RequestExit{}},
+		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
+		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
+		{"TriggerManualCompaction", TriggerManualCompaction{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := s.Handle(ctx, tt.action); err != nil {
+				t.Errorf("Handle(%T) = %v, want nil", tt.action, err)
+			}
+		})
+	}
+}
+
+func TestSubmitPromptAppendsUserMessage(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return conversation, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	s.mu.Lock()
+	conv := s.conversation
+	s.mu.Unlock()
+
+	if len(conv) != 1 {
+		t.Fatalf("conversation length = %d, want 1", len(conv))
+	}
+	if conv[0].Role != agent.MessageRoleUser || conv[0].Content != "hello" {
+		t.Fatalf("message = %+v, want user/hello", conv[0])
+	}
+}
+
+func TestSubmitPromptDelegatesToRunner(t *testing.T) {
+	t.Parallel()
+	var called bool
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			called = true
+			return conversation, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if !called {
+		t.Fatal("expected Runner.Run to be called")
+	}
+}
+
+func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "hi there"},
+			}, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if got := s.Conversation(); len(got) != 2 {
+		t.Fatalf("conversation length = %d, want 2", len(got))
+	}
+}
+
+func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return nil, fmt.Errorf("run failed")
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeStopReason {
+			found = true
+			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
+				if payload.Reason != "Error: run failed" {
+					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want StopReason event", events)
+	}
+}
+
+func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	recorded := ""
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"}), nil
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(prompt string) error {
+				recorded = prompt
+				return nil
+			},
+			loadFn: func() ([]string, error) {
+				return []string{"prev", recorded}, nil
+			},
+		},
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if recorded != "hello" {
+		t.Fatalf("recorded prompt = %q, want %q", recorded, "hello")
+	}
+
+	var foundHistory bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			foundHistory = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prev" || payload.Prompts[1] != "hello" {
+					t.Fatalf("history prompts = %v, want [prev hello]", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !foundHistory {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	cancelled := false
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			close(block)
+			<-ctx.Done()
+			cancelled = true
+			return nil, ctx.Err()
+		}),
+	})
+
+	go func() {
+		<-block
+		s.Handle(context.Background(), InterruptActiveRun{})
+	}()
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if !cancelled {
+		t.Fatal("expected active run to be cancelled on interrupt")
+	}
+}
+
+func TestInterruptActiveRunCancelsRun(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := NewSession(Dependencies{})
+	s.runController.Set(cancel)
+
+	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
+		t.Fatalf("Handle(InterruptActiveRun) = %v, want nil", err)
+	}
+
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected InterruptActiveRun to cancel the active run")
+	}
+}
+
+func TestClearConversationClearsConversation(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("Handle(ClearConversation) = %v, want nil", err)
+	}
+	if got := s.Conversation(); got != nil {
+		t.Fatalf("conversation after ClearConversation = %v, want nil", got)
+	}
+}
+
+// runExecutorFunc adapts a function to the runExecutor interface.
+type runExecutorFunc func(context.Context, []agent.Message, []string) ([]agent.Message, error)
+
+func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+	return f(ctx, conversation, skillNames)
+}
+
+// recordingHistoryWriter implements historyWriter for testing.
+type recordingHistoryWriter struct {
+	recordFn func(string) error
+	loadFn   func() ([]string, error)
+}
+
+func (w *recordingHistoryWriter) Record(prompt string) error {
+	if w.recordFn == nil {
+		return nil
+	}
+	return w.recordFn(prompt)
+}
+
+func (w *recordingHistoryWriter) Load() ([]string, error) {
+	if w.loadFn == nil {
+		return nil, nil
+	}
+	return w.loadFn()
+}
+
+func TestSessionRunReturnsOnCancel(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Errorf("Run() = %v, want nil", err)
+	}
+}
+
+func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	ctx := context.Background()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Run(ctx)
+	}()
+
+	s.Handle(ctx, RequestExit{})
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after RequestExit")
+	}
+}
+
+func TestSessionRunLoadsHistory(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return []string{"prompt-1", "prompt-2"}, nil
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			found = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prompt-1" || payload.Prompts[1] != "prompt-2" {
+					t.Fatalf("history prompts = %v, want [prompt-1 prompt-2]", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return nil, fmt.Errorf("load error")
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			continue
+		}
+		if payload.Kind == "session_health" && payload.Severity == "warning" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want session_health warning diagnostic", events)
+	}
+}
+
+func TestSessionRunLoadsEmptyHistory(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return nil, nil
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			found = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 0 {
+					t.Fatalf("history prompts = %v, want empty", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSessionConversationAccessors(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	if got := s.Conversation(); got != nil {
+		t.Fatalf("initial conversation = %v, want nil", got)
+	}
+
+	msgs := []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}
+	s.SetConversation(msgs)
+	if got := len(s.Conversation()); got != 1 {
+		t.Fatalf("conversation length = %d, want 1", got)
+	}
+}
+
+func TestSwitchModelSuccess(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Config: config.Config{
+			Model: config.ModelConfig{
+				Model:   "old-model",
+				BaseURL: "http://old.example/v1",
+			},
+			Models: map[string]config.ModelConfig{
+				"fast": {
+					Model:   "new-model",
+					BaseURL: "http://new.example/v1",
+				},
+			},
+		},
+	})
+
+	err := s.Handle(context.Background(), SwitchModel{Name: "fast"})
+	if err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+
+	if got, want := s.deps.Config.Model.Model, "new-model"; got != want {
+		t.Fatalf("config model = %q, want %q", got, want)
+	}
+
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			if strings.Contains(payload.Content, "failed") {
+				t.Fatalf("unexpected error event: %q", payload.Content)
+			}
+		}
+	}
+}
+
+func TestSwitchModelFailure(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Config: config.Config{
+			Model: config.ModelConfig{Model: "current"},
+		},
+	})
+
+	err := s.Handle(context.Background(), SwitchModel{Name: "unknown"})
+	if err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			if strings.Contains(payload.Content, "failed") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want ContextReportEvent with error", events)
+	}
+
+	if got, want := s.deps.Config.Model.Model, "current"; got != want {
+		t.Fatalf("config model after failed switch = %q, want %q", got, want)
+	}
+}
+
+func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		SkillNames: []string{"review", "test"},
+	})
+
+	snap := s.Skills().Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("initial skills = %v, want 2", snap)
+	}
+
+	err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: false})
+	if err != nil {
+		t.Fatalf("Handle(SetSkillEnabled) = %v, want nil", err)
+	}
+
+	snap = s.Skills().Snapshot()
+	if len(snap) != 1 || snap[0] != "test" {
+		t.Fatalf("skills after disable = %v, want [test]", snap)
+	}
+}
+
+func TestSessionAccessorsNonNil(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	if s.EventSink() == nil {
+		t.Error("EventSink() returned nil")
+	}
+	if s.DisplaySink() == nil {
+		t.Error("DisplaySink() returned nil")
+	}
+	if s.ActiveRunController() == nil {
+		t.Error("ActiveRunController() returned nil")
+	}
+	if s.Skills() == nil {
+		t.Error("Skills() returned nil")
+	}
+	if s.SnapshotStore() == nil {
+		t.Error("SnapshotStore() returned nil")
+	}
+	if s.ApprovalCoordinator() == nil {
+		t.Error("ApprovalCoordinator() returned nil")
+	}
+}

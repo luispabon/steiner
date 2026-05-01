@@ -1061,6 +1061,64 @@ func TestDurationUnmarshalYAMLNull(t *testing.T) {
 	}
 }
 
+func TestSwitchModelConfigByAliasUpdatesRuntimeConfig(t *testing.T) {
+	cfg := Config{
+		Model: ModelConfig{
+			Model:   "old-model",
+			BaseURL: "http://old.example/v1",
+		},
+		Models: map[string]ModelConfig{
+			"fast": {
+				Model:   "new-model",
+				BaseURL: "http://new.example/v1",
+			},
+		},
+	}
+
+	selected, err := SwitchModelConfigByAlias(&cfg, "fast")
+	if err != nil {
+		t.Fatalf("SwitchModelConfigByAlias() error = %v", err)
+	}
+	if got, want := selected.Model, "new-model"; got != want {
+		t.Fatalf("selected model = %q, want %q", got, want)
+	}
+	if got, want := selected.BaseURL, "http://new.example/v1"; got != want {
+		t.Fatalf("selected base URL = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.Model, "new-model"; got != want {
+		t.Fatalf("cfg.Model.Model = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.BaseURL, "http://new.example/v1"; got != want {
+		t.Fatalf("cfg.Model.BaseURL = %q, want %q", got, want)
+	}
+}
+
+func TestSelectedModelConfigByAliasErrors(t *testing.T) {
+	cfg := Config{
+		Models: map[string]ModelConfig{
+			"fast": {Model: "fast-model"},
+		},
+	}
+
+	_, err := SelectedModelConfigByAlias(cfg, "")
+	if err == nil {
+		t.Fatal("expected error for empty alias")
+	}
+
+	_, err = SelectedModelConfigByAlias(cfg, "unknown")
+	if err == nil {
+		t.Fatal("expected error for unknown alias")
+	}
+
+	model, err := SelectedModelConfigByAlias(cfg, "fast")
+	if err != nil {
+		t.Fatalf("SelectedModelConfigByAlias() error = %v", err)
+	}
+	if got, want := model.Model, "fast-model"; got != want {
+		t.Fatalf("model = %q, want %q", got, want)
+	}
+}
+
 func TestDurationUnmarshalYAMLEmpty(t *testing.T) {
 	var d Duration
 	if err := yaml.Unmarshal([]byte(`""`), &d); err != nil {

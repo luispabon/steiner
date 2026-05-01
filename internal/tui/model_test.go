@@ -1,16 +1,118 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
+
+// testController records all actions received by Handle for test verification.
+type testController struct {
+	mu      sync.Mutex
+	actions []interactive.Action
+	err     error
+}
+
+func (c *testController) Handle(_ context.Context, action interactive.Action) error {
+	c.mu.Lock()
+	c.actions = append(c.actions, action)
+	c.mu.Unlock()
+	return c.err
+}
+
+func (c *testController) record() []interactive.Action {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]interactive.Action(nil), c.actions...)
+}
+
+func (c *testController) countSubmitPrompt() int {
+	return c.countByType(interactive.SubmitPrompt{})
+}
+
+func (c *testController) countRequestContextReport() int {
+	return c.countByType(interactive.RequestContextReport{})
+}
+
+func (c *testController) countRequestConfigReport() int {
+	return c.countByType(interactive.RequestConfigReport{})
+}
+
+func (c *testController) countInterruptActiveRun() int {
+	return c.countByType(interactive.InterruptActiveRun{})
+}
+
+func (c *testController) countRequestExit() int {
+	return c.countByType(interactive.RequestExit{})
+}
+
+func (c *testController) countSetSkillEnabled() int {
+	return c.countByType(interactive.SetSkillEnabled{})
+}
+
+func (c *testController) countSubmitApproval() int {
+	return c.countByType(interactive.SubmitApproval{})
+}
+
+func (c *testController) submitApprovals() []interactive.SubmitApproval {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SubmitApproval
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SubmitApproval); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func (c *testController) countByType(target interactive.Action) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	count := 0
+	for _, a := range c.actions {
+		switch target.(type) {
+		case interactive.SubmitPrompt:
+			if _, ok := a.(interactive.SubmitPrompt); ok {
+				count++
+			}
+		case interactive.RequestContextReport:
+			if _, ok := a.(interactive.RequestContextReport); ok {
+				count++
+			}
+		case interactive.RequestConfigReport:
+			if _, ok := a.(interactive.RequestConfigReport); ok {
+				count++
+			}
+		case interactive.InterruptActiveRun:
+			if _, ok := a.(interactive.InterruptActiveRun); ok {
+				count++
+			}
+		case interactive.RequestExit:
+			if _, ok := a.(interactive.RequestExit); ok {
+				count++
+			}
+		case interactive.SetSkillEnabled:
+			if _, ok := a.(interactive.SetSkillEnabled); ok {
+				count++
+			}
+		case interactive.SubmitApproval:
+			if _, ok := a.(interactive.SubmitApproval); ok {
+				count++
+			}
+		}
+	}
+	return count
+}
 
 func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m := newModel(Config{
@@ -83,17 +185,11 @@ func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
 }
 
 func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
-	var submitted []string
-	var toggled []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
 		SkillNames: []string{"review"},
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
-		OnSkillToggle: func(name string, enabled bool) {
-			toggled = append(toggled, name)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	if !m.enabledSkills["review"] {
@@ -102,8 +198,8 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 
 	m.input.SetValue("fix the bug")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if len(submitted) != 1 || submitted[0] != "fix the bug" {
-		t.Fatalf("submitted = %#v, want input callback", submitted)
+	if ctrl.countSubmitPrompt() != 1 {
+		t.Fatalf("submit count = %d, want 1", ctrl.countSubmitPrompt())
 	}
 
 	m.input.SetValue("/skill review")
@@ -111,8 +207,8 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
 	}
-	if len(toggled) != 1 || toggled[0] != "review" {
-		t.Fatalf("toggled = %#v, want review", toggled)
+	if ctrl.countSetSkillEnabled() != 1 {
+		t.Fatalf("skill toggle count = %d, want 1", ctrl.countSetSkillEnabled())
 	}
 
 	m.input.SetValue("/skill +review")
@@ -123,20 +219,18 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 }
 
 func TestModelModifiedEnterInsertsNewline(t *testing.T) {
-	var submitted []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("first line")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
 
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no submission for modified enter", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 for modified enter", ctrl.countSubmitPrompt())
 	}
 	if got := m.input.Value(); got != "first line\n" {
 		t.Fatalf("input value = %q, want newline inserted", got)
@@ -144,20 +238,18 @@ func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 }
 
 func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
-	var submitted []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("fix the bug")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(submitted) != 1 || submitted[0] != "fix the bug" {
-		t.Fatalf("submitted = %#v, want plain enter submission", submitted)
+	if ctrl.countSubmitPrompt() != 1 {
+		t.Fatalf("submit count = %d, want 1", ctrl.countSubmitPrompt())
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("input value = %q, want reset after submit", got)
@@ -165,27 +257,21 @@ func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
 }
 
 func TestModelHandlesContextCommandLocally(t *testing.T) {
-	var submitted []string
-	contextInspections := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
-		OnContextInspect: func() {
-			contextInspections++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/context")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no provider submission", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())
 	}
-	if contextInspections != 1 {
-		t.Fatalf("contextInspections = %d, want 1", contextInspections)
+	if ctrl.countRequestContextReport() != 1 {
+		t.Fatalf("context report count = %d, want 1", ctrl.countRequestContextReport())
 	}
 	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
@@ -214,27 +300,21 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 }
 
 func TestModelHandlesConfigCommandLocally(t *testing.T) {
-	var submitted []string
-	configInspections := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
-		OnConfigInspect: func() {
-			configInspections++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/config")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no provider submission", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())
 	}
-	if configInspections != 1 {
-		t.Fatalf("configInspections = %d, want 1", configInspections)
+	if ctrl.countRequestConfigReport() != 1 {
+		t.Fatalf("config report count = %d, want 1", ctrl.countRequestConfigReport())
 	}
 	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
@@ -403,16 +483,14 @@ func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.
 }
 
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
+	ctrl := &testController{}
+
 	m := newModel(Config{
 		Model:           "small",
 		ModelContexts:   map[string]int{"small": 1024, "large": 8192},
+		ModelBaseURLs:   map[string]string{"large": "http://large.example/v1"},
 		ProviderBaseURL: "http://small.example/v1",
-		OnModelSwitch: func(name string) (string, bool) {
-			if name != "large" {
-				return "", false
-			}
-			return "http://large.example/v1", true
-		},
+		Controller:      ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -518,12 +596,10 @@ func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
 }
 
 func TestModelApprovalModeTransitions(t *testing.T) {
-	approved := make(chan ApprovalSubmission, 1)
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnApproval: func(submission ApprovalSubmission) {
-			approved <- submission
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 	if !m.approval.active {
@@ -535,29 +611,26 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
 	}
-	select {
-	case submission := <-approved:
-		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
-			t.Fatalf("submission.Decision = %q, want %q", got, want)
-		}
-		if got, want := submission.Tool, "write"; got != want {
-			t.Fatalf("submission.Tool = %q, want %q", got, want)
-		}
-		if got, want := submission.Mode, "prompt"; got != want {
-			t.Fatalf("submission.Mode = %q, want %q", got, want)
-		}
-	default:
-		t.Fatal("expected approval submission")
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 {
+		t.Fatalf("approval count = %d, want 1", len(submissions))
+	}
+	if got, want := submissions[0].Decision, "allow_once"; got != want {
+		t.Fatalf("submission.Decision = %q, want %q", got, want)
+	}
+	if got, want := submissions[0].Tool, "write"; got != want {
+		t.Fatalf("submission.Tool = %q, want %q", got, want)
+	}
+	if got, want := submissions[0].Mode, "prompt"; got != want {
+		t.Fatalf("submission.Mode = %q, want %q", got, want)
 	}
 }
 
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
-	approved := make(chan ApprovalSubmission, 1)
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnApproval: func(submission ApprovalSubmission) {
-			approved <- submission
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -567,13 +640,12 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m.input.SetValue("yes")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	select {
-	case submission := <-approved:
-		if got, want := submission.Decision, ApprovalDecisionAllowOnce; got != want {
-			t.Fatalf("submission.Decision = %q, want %q", got, want)
-		}
-	default:
-		t.Fatal("expected approval submission while streaming")
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 {
+		t.Fatalf("approval count = %d, want 1", len(submissions))
+	}
+	if got, want := submissions[0].Decision, "allow_once"; got != want {
+		t.Fatalf("submission.Decision = %q, want %q", got, want)
 	}
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
@@ -581,12 +653,10 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 }
 
 func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
-	approved := make(chan ApprovalSubmission, 1)
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnApproval: func(submission ApprovalSubmission) {
-			approved <- submission
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
 
@@ -601,16 +671,15 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	select {
-	case submission := <-approved:
-		if got, want := submission.Decision, ApprovalDecisionAlwaysAllow; got != want {
-			t.Fatalf("submission.Decision = %q, want %q", got, want)
-		}
-		if got, want := submission.Tool, "bash"; got != want {
-			t.Fatalf("submission.Tool = %q, want %q", got, want)
-		}
-	default:
-		t.Fatal("expected approval submission")
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 {
+		t.Fatalf("approval count = %d, want 1", len(submissions))
+	}
+	if got, want := submissions[0].Decision, "always_allow"; got != want {
+		t.Fatalf("submission.Decision = %q, want %q", got, want)
+	}
+	if got, want := submissions[0].Tool, "bash"; got != want {
+		t.Fatalf("submission.Tool = %q, want %q", got, want)
 	}
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
@@ -618,25 +687,22 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 }
 
 func TestModelApprovalEscDenies(t *testing.T) {
-	approved := make(chan ApprovalSubmission, 1)
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnApproval: func(submission ApprovalSubmission) {
-			approved <- submission
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 	m.input.SetValue("stale text")
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
-	select {
-	case submission := <-approved:
-		if got, want := submission.Decision, ApprovalDecisionDeny; got != want {
-			t.Fatalf("submission.Decision = %q, want %q", got, want)
-		}
-	default:
-		t.Fatal("expected denial submission")
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 {
+		t.Fatalf("approval count = %d, want 1", len(submissions))
+	}
+	if got, want := submissions[0].Decision, "deny"; got != want {
+		t.Fatalf("submission.Decision = %q, want %q", got, want)
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("input value = %q, want reset after denial", got)
@@ -647,12 +713,10 @@ func TestModelApprovalEscDenies(t *testing.T) {
 }
 
 func TestModelEscInterruptsStreaming(t *testing.T) {
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -661,8 +725,8 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
-	if interrupts != 1 {
-		t.Fatalf("interrupts = %d, want 1", interrupts)
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
 	}
 	if m.content.streamingPhase != "" {
 		t.Fatalf("streamingPhase = %q, want empty", m.content.streamingPhase)
@@ -679,31 +743,25 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 }
 
 func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
-	exitRequests := 0
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
-		OnExitRequested: func() {
-			exitRequests++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	// Idle state: Ctrl+C should fire OnExitRequested, not quit.
+	// Idle state: Ctrl+C should open exit modal, not quit.
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated, ok := next.(Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
 	}
 
-	if exitRequests != 0 {
-		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
+	if ctrl.countRequestExit() != 0 {
+		t.Fatalf("exit request count = %d, want 0 before confirmation", ctrl.countRequestExit())
 	}
-	if interrupts != 0 {
-		t.Fatalf("interrupts = %d, want 0 (idle, not active run)", interrupts)
+	if ctrl.countInterruptActiveRun() != 0 {
+		t.Fatalf("interrupt count = %d, want 0 (idle, not active run)", ctrl.countInterruptActiveRun())
 	}
 	if !updated.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal open")
@@ -714,12 +772,10 @@ func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 }
 
 func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
-	exitRequests := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnExitRequested: func() {
-			exitRequests++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -729,8 +785,8 @@ func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 		t.Fatalf("unexpected model type %T", next)
 	}
 
-	if exitRequests != 0 {
-		t.Fatalf("exitRequests = %d, want 0 before confirmation", exitRequests)
+	if ctrl.countRequestExit() != 0 {
+		t.Fatalf("exit request count = %d, want 0 before confirmation", ctrl.countRequestExit())
 	}
 	if !updated.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal open")
@@ -753,12 +809,10 @@ func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
 }
 
 func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
-	exitRequests := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnExitRequested: func() {
-			exitRequests++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -773,18 +827,16 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 	if updated.exitModal.open {
 		t.Fatal("exitModal.open = true, want modal closed")
 	}
-	if exitRequests != 0 {
-		t.Fatalf("exitRequests = %d, want 0", exitRequests)
+	if ctrl.countRequestExit() != 0 {
+		t.Fatalf("exit request count = %d, want 0", ctrl.countRequestExit())
 	}
 }
 
 func TestModelExitModalExitRequestsQuit(t *testing.T) {
-	exitRequests := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnExitRequested: func() {
-			exitRequests++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -795,8 +847,8 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	updated := m
 
-	if exitRequests != 1 {
-		t.Fatalf("exitRequests = %d, want 1", exitRequests)
+	if ctrl.countRequestExit() != 1 {
+		t.Fatalf("exit request count = %d, want 1", ctrl.countRequestExit())
 	}
 	if !updated.exitModal.open {
 		t.Fatal("exitModal.open = false, want modal to remain open until runtime quits")
@@ -804,12 +856,10 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 }
 
 func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -821,8 +871,8 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 		t.Fatalf("unexpected model type %T", next)
 	}
 
-	if interrupts != 1 {
-		t.Fatalf("interrupts = %d, want 1", interrupts)
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
 	}
 	if cmd != nil {
 		t.Fatal("expected no quit command while streaming")
@@ -839,12 +889,10 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 }
 
 func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -858,8 +906,8 @@ func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
-	if interrupts != 1 {
-		t.Fatalf("interrupts = %d, want 1", interrupts)
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
 	}
 	if got := m.status.mode; got != "" {
 		t.Fatalf("status.mode = %q, want cleared after interrupt", got)
@@ -867,12 +915,10 @@ func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
 }
 
 func TestModelEscInterruptsToolPhase(t *testing.T) {
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -884,8 +930,8 @@ func TestModelEscInterruptsToolPhase(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
-	if interrupts != 1 {
-		t.Fatalf("interrupts = %d, want 1", interrupts)
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
 	}
 	if got := m.content.streamingPhase; got != "" {
 		t.Fatalf("streamingPhase = %q, want empty after interrupt", got)
@@ -899,12 +945,10 @@ func TestModelEscInterruptsToolPhase(t *testing.T) {
 }
 
 func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
-	interrupts := 0
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnInterrupt: func() {
-			interrupts++
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -914,8 +958,8 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "prompt", `{"command":"git status"}`, "approved")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "still streaming")})
 
-	if interrupts != 1 {
-		t.Fatalf("interrupts = %d, want 1", interrupts)
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
 	}
 	if got := m.input.Placeholder; got != "ask steiner — / for commands, @ for files" {
 		t.Fatalf("input placeholder = %q, want default while interrupted", got)
@@ -948,12 +992,10 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 }
 
 func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
-	var submitted []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -962,8 +1004,8 @@ func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no submission while streaming", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
 	}
 	if m.input.Value() != "should stay blocked" {
 		t.Fatalf("input value = %q, want unchanged", m.input.Value())
@@ -971,12 +1013,10 @@ func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
 }
 
 func TestModelAltEnterInsertsNewline(t *testing.T) {
-	var submitted []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m.input.SetValue("first line")
@@ -986,18 +1026,16 @@ func TestModelAltEnterInsertsNewline(t *testing.T) {
 	if got := m.input.Value(); got != "first line\n" {
 		t.Fatalf("input value = %q, want newline inserted", got)
 	}
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no submit on modified enter", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 on modified enter", ctrl.countSubmitPrompt())
 	}
 }
 
 func TestModelShiftEnterInsertsNewline(t *testing.T) {
-	var submitted []string
+	ctrl := &testController{}
 
 	m := newModel(Config{
-		OnSubmit: func(value string) {
-			submitted = append(submitted, value)
-		},
+		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m.input.SetValue("first line")
@@ -1007,8 +1045,8 @@ func TestModelShiftEnterInsertsNewline(t *testing.T) {
 	if got := m.input.Value(); got != "first line\n" {
 		t.Fatalf("input value = %q, want newline inserted", got)
 	}
-	if len(submitted) != 0 {
-		t.Fatalf("submitted = %#v, want no submit on shift+enter", submitted)
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 on shift+enter", ctrl.countSubmitPrompt())
 	}
 }
 

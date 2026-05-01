@@ -1,64 +1,10 @@
 package delegation
 
 import (
-	"context"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
-
-func TestScaffoldChildContext(t *testing.T) {
-	tests := []struct {
-		name             string
-		spec             DelegationSpec
-		wantSystemPrompt string
-		wantProjectCtx   string
-	}{
-		{
-			name: "uses provided system prompt",
-			spec: DelegationSpec{
-				SystemPrompt: "Custom prompt",
-				Context:      "project context",
-			},
-			wantSystemPrompt: "Custom prompt",
-			wantProjectCtx:   "project context",
-		},
-		{
-			name: "uses default system prompt when empty",
-			spec: DelegationSpec{
-				SystemPrompt: "",
-				Context:      "project context",
-			},
-			wantSystemPrompt: "You are a sub-agent. Complete the task given to you.",
-			wantProjectCtx:   "project context",
-		},
-		{
-			name: "handles empty context",
-			spec: DelegationSpec{
-				SystemPrompt: "Custom prompt",
-				Context:      "",
-			},
-			wantSystemPrompt: "Custom prompt",
-			wantProjectCtx:   "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			got, err := scaffoldChildContext(ctx, tt.spec)
-			if err != nil {
-				t.Fatalf("scaffoldChildContext() error = %v", err)
-			}
-			if got.SystemPrompt != tt.wantSystemPrompt {
-				t.Errorf("SystemPrompt=%q, want %q", got.SystemPrompt, tt.wantSystemPrompt)
-			}
-			if got.ProjectContext != tt.wantProjectCtx {
-				t.Errorf("ProjectContext=%q, want %q", got.ProjectContext, tt.wantProjectCtx)
-			}
-		})
-	}
-}
 
 func TestBuildChildToolRegistry(t *testing.T) {
 	tests := []struct {
@@ -117,7 +63,7 @@ func TestBuildChildToolRegistry(t *testing.T) {
 				parent = tool.NewRegistry(tt.parentTools...)
 			}
 
-			got := BuildChildToolRegistry(parent, tt.delegateToolName)
+			got := buildChildToolRegistry(parent, tt.delegateToolName)
 
 			names := got.Names()
 			if len(names) != tt.wantToolCount {

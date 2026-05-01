@@ -1,5 +1,10 @@
 package config
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler      SchedulerConfig        `yaml:"scheduler"`
@@ -102,6 +107,34 @@ type LoggingConfig struct {
 	Level         string `yaml:"level"`
 	File          string `yaml:"file"`
 	ThinkingChunk bool   `yaml:"thinking_chunk"`
+}
+
+// SwitchModelConfigByAlias looks up a model config by alias and updates cfg.Model
+// to point to it. It returns the selected ModelConfig.
+func SwitchModelConfigByAlias(cfg *Config, alias string) (ModelConfig, error) {
+	if cfg == nil {
+		return ModelConfig{}, fmt.Errorf("config is required")
+	}
+	model, err := SelectedModelConfigByAlias(*cfg, alias)
+	if err != nil {
+		return ModelConfig{}, err
+	}
+	cfg.Model = model
+	return model, nil
+}
+
+// SelectedModelConfigByAlias looks up a model config by its alias in the
+// Models map. It returns an error if the alias is empty or not found.
+func SelectedModelConfigByAlias(cfg Config, alias string) (ModelConfig, error) {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return ModelConfig{}, fmt.Errorf("model is required")
+	}
+	model, ok := cfg.Models[alias]
+	if !ok {
+		return ModelConfig{}, fmt.Errorf("model %q is not defined", alias)
+	}
+	return model, nil
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

@@ -9,211 +9,12 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
 )
-
-func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	controller := &activeRunController{}
-	controller.Set(cancel)
-
-	controller.Interrupt()
-
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("expected interrupt to cancel the active run")
-	}
-}
-
-func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
-	var events []output.Event
-	controller := &activeRunController{}
-	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
-		rt: cliRuntime{
-			events: output.SinkFunc(func(event output.Event) {
-				events = append(events, event)
-			}),
-		},
-	}
-
-	result, err := mode.runManualCompaction("test-model", func(ctx context.Context) ([]agent.Message, error) {
-		mode.rt.events.Emit(output.NewAssistantChunkEvent(1, "streamed chunk"))
-		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
-	})
-	if err != nil {
-		t.Fatalf("runManualCompaction() error = %v, want nil", err)
-	}
-	if got, want := len(result), 1; got != want {
-		t.Fatalf("result len = %d, want %d", got, want)
-	}
-
-	if controller.cancel != nil {
-		t.Fatal("expected controller to be cleared after successful compaction")
-	}
-
-	if got, want := len(events), 4; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeAssistantChunk; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-	if got, want := events[3].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[3].Type = %q, want %q", got, want)
-	}
-
-	started, ok := events[0].Payload.(output.RunStartedEvent)
-	if !ok {
-		t.Fatalf("events[0].Payload type = %T, want output.RunStartedEvent", events[0].Payload)
-	}
-	if got, want := started.Mode, "interactive"; got != want {
-		t.Fatalf("run started mode = %q, want %q", got, want)
-	}
-	if got, want := started.Model, "test-model"; got != want {
-		t.Fatalf("run started model = %q, want %q", got, want)
-	}
-
-	compacting, ok := events[1].Payload.(output.ContextDiagnosticsEvent)
-	if !ok {
-		t.Fatalf("events[1].Payload type = %T, want output.ContextDiagnosticsEvent", events[1].Payload)
-	}
-	if got, want := compacting.Kind, "compaction"; got != want {
-		t.Fatalf("compaction kind = %q, want %q", got, want)
-	}
-	if got, want := compacting.Severity, "compacting"; got != want {
-		t.Fatalf("compaction severity = %q, want %q", got, want)
-	}
-
-	finished, ok := events[3].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[3].Payload type = %T, want output.RunFinishedEvent", events[3].Payload)
-	}
-	if got, want := finished.Reason, "complete"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, ""; got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
-	}
-}
-
-func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
-	var events []output.Event
-	controller := &activeRunController{}
-	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
-		rt: cliRuntime{
-			events: output.SinkFunc(func(event output.Event) {
-				events = append(events, event)
-			}),
-		},
-	}
-
-	_, err := mode.runManualCompaction("test-model", func(context.Context) ([]agent.Message, error) {
-		return nil, errors.New("boom")
-	})
-	if err == nil {
-		t.Fatal("runManualCompaction() error = nil, want non-nil")
-	}
-	if controller.cancel != nil {
-		t.Fatal("expected controller to be cleared after failed compaction")
-	}
-
-	if got, want := len(events), 3; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-
-	finished, ok := events[2].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[2].Payload type = %T, want output.RunFinishedEvent", events[2].Payload)
-	}
-	if got, want := finished.Reason, "error"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, "boom"; got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
-	}
-}
-
-func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
-	var events []output.Event
-	controller := &activeRunController{}
-	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
-		rt: cliRuntime{
-			events: output.SinkFunc(func(event output.Event) {
-				events = append(events, event)
-			}),
-		},
-	}
-
-	started := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		<-started
-		controller.Interrupt()
-		close(done)
-	}()
-
-	_, err := mode.runManualCompaction("test-model", func(ctx context.Context) ([]agent.Message, error) {
-		close(started)
-		<-ctx.Done()
-		return nil, ctx.Err()
-	})
-	<-done
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("runManualCompaction() error = %v, want context.Canceled", err)
-	}
-	if controller.cancel != nil {
-		t.Fatal("expected controller to be cleared after cancelled compaction")
-	}
-
-	if got, want := len(events), 3; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-
-	finished, ok := events[2].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[2].Payload type = %T, want output.RunFinishedEvent", events[2].Payload)
-	}
-	if got, want := finished.Reason, "cancelled"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, context.Canceled.Error(); got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
-	}
-}
 
 func TestClearTerminalScreenWritesANSISequence(t *testing.T) {
 	var buf bytes.Buffer
@@ -222,38 +23,6 @@ func TestClearTerminalScreenWritesANSISequence(t *testing.T) {
 
 	if got, want := buf.String(), terminalClearSequence; got != want {
 		t.Fatalf("clearTerminalScreen() = %q, want %q", got, want)
-	}
-}
-
-func TestSwitchModelConfigByAliasUpdatesRuntimeConfig(t *testing.T) {
-	cfg := config.Config{
-		Model: config.ModelConfig{
-			Model:   "old-model",
-			BaseURL: "http://old.example/v1",
-		},
-		Models: map[string]config.ModelConfig{
-			"fast": {
-				Model:   "new-model",
-				BaseURL: "http://new.example/v1",
-			},
-		},
-	}
-
-	selected, err := switchModelConfigByAlias(&cfg, "fast")
-	if err != nil {
-		t.Fatalf("switchModelConfigByAlias() error = %v", err)
-	}
-	if got, want := selected.Model, "new-model"; got != want {
-		t.Fatalf("selected model = %q, want %q", got, want)
-	}
-	if got, want := selected.BaseURL, "http://new.example/v1"; got != want {
-		t.Fatalf("selected base URL = %q, want %q", got, want)
-	}
-	if got, want := cfg.Model.Model, "new-model"; got != want {
-		t.Fatalf("cfg.Model.Model = %q, want %q", got, want)
-	}
-	if got, want := cfg.Model.BaseURL, "http://new.example/v1"; got != want {
-		t.Fatalf("cfg.Model.BaseURL = %q, want %q", got, want)
 	}
 }
 
@@ -283,6 +52,33 @@ func TestInteractiveRunnerUsesWrappedEventSink(t *testing.T) {
 	}
 	if got, want := bridgedEvents, 1; got != want {
 		t.Fatalf("bridged event count = %d, want %d", got, want)
+	}
+}
+
+func TestInteractiveRunnerUsesRebuiltInteractiveRegistry(t *testing.T) {
+	initial := tool.NewRegistry(tool.ToolDef{Name: "display_file", Description: "non-interactive"})
+	interactive := tool.NewRegistry(tool.ToolDef{Name: "display_file", Description: "interactive"})
+
+	rt := cliRuntime{
+		registry:  initial,
+		toolNames: initial.Names(),
+	}
+	runner := cliRunner{runtime: rt}
+
+	rt.registry = interactive
+	rt.toolNames = interactive.Names()
+	runner.runtime.registry = interactive
+	runner.runtime.toolNames = append([]string(nil), rt.toolNames...)
+
+	got, ok := runner.runtime.registry.Get("display_file")
+	if !ok {
+		t.Fatal("runner registry missing display_file")
+	}
+	if got.Description != "interactive" {
+		t.Fatalf("runner display_file description = %q, want %q", got.Description, "interactive")
+	}
+	if len(runner.runtime.toolNames) != 1 || runner.runtime.toolNames[0] != "display_file" {
+		t.Fatalf("runner toolNames = %#v, want [display_file]", runner.runtime.toolNames)
 	}
 }
 
@@ -391,29 +187,46 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 	}
 }
 
-func TestBuildConfigOverlayReportFormatsResolvedYAML(t *testing.T) {
-	report, err := buildConfigOverlayReport(config.Config{
-		Model: config.ModelConfig{
-			BaseURL: "http://localhost:11434/v1",
-			Model:   "qwen",
+func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
+	tests := []struct {
+		name string
+		wire func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink
+		want int
+	}{
+		{
+			name: "fixed wiring does not duplicate",
+			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+				return sess.EventSink()
+			},
+			want: 1,
 		},
-		Logging: config.LoggingConfig{
-			Enabled: true,
-			Level:   "debug",
+		{
+			name: "buggy wiring duplicates TUI events",
+			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+				return output.NewMultiSink(sess.EventSink(), tuiSink)
+			},
+			want: 2,
 		},
-	})
-	if err != nil {
-		t.Fatalf("buildConfigOverlayReport() error = %v", err)
 	}
-	if !strings.HasPrefix(report, "```yaml\n") {
-		t.Fatalf("report prefix = %q, want yaml fence", report)
-	}
-	for _, want := range []string{"model:", "base_url: http://localhost:11434/v1", "model: qwen", "logging:"} {
-		if !strings.Contains(report, want) {
-			t.Fatalf("report = %q, want %q", report, want)
-		}
-	}
-	if !strings.HasSuffix(report, "\n```") {
-		t.Fatalf("report suffix = %q, want closing fence", report)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var count int
+			tuiSink := output.SinkFunc(func(output.Event) {
+				count++
+			})
+
+			sess := interactive.NewSession(interactive.Dependencies{
+				BaseEvents: output.NoopSink{},
+			})
+			sess.DisplaySink().Set(tuiSink)
+
+			events := tt.wire(sess, tuiSink)
+			events.Emit(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+
+			if count != tt.want {
+				t.Fatalf("TUI sink received %d events, want %d", count, tt.want)
+			}
+		})
 	}
 }

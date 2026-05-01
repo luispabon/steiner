@@ -99,7 +99,8 @@ func TestToolHandler_EmptyTask(t *testing.T) {
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{}, nil
 		}},
-		Events: noopEventSink{},
+		Events:  noopEventSink{},
+		WorkDir: "/tmp/work",
 	}
 	handler := NewDelegateHandler(deps)
 
@@ -124,7 +125,8 @@ func TestToolHandler_ParsesMaxTurns(t *testing.T) {
 			got = req.Limits
 			return successRunState(), nil
 		}},
-		Events: noopEventSink{},
+		Events:  noopEventSink{},
+		WorkDir: "/tmp/work",
 	}
 	handler := NewDelegateHandler(deps)
 
@@ -167,7 +169,8 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 					_, gotDeadline = ctx.Deadline()
 					return successRunState(), nil
 				}},
-				Events: noopEventSink{},
+				Events:  noopEventSink{},
+				WorkDir: "/tmp/work",
 			}
 			handler := NewDelegateHandler(deps)
 
@@ -197,7 +200,8 @@ func TestToolHandler_AppliesLimitOverrides(t *testing.T) {
 			got = req.Limits
 			return successRunState(), nil
 		}},
-		Events: noopEventSink{},
+		Events:  noopEventSink{},
+		WorkDir: "/tmp/work",
 	}
 	handler := NewDelegateHandler(deps)
 
@@ -224,7 +228,8 @@ func TestToolHandler_UniqueAgentID(t *testing.T) {
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return successRunState(), nil
 		}},
-		Events: noopEventSink{},
+		Events:  noopEventSink{},
+		WorkDir: "/tmp/work",
 	}
 	handler := NewDelegateHandler(deps)
 	ctx := context.Background()

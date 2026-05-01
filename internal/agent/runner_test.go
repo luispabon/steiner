@@ -445,6 +445,51 @@ func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	}
 }
 
+func TestRunnerStopsAtMaxTokens(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return map[string]any{"contents": "hello"}, nil
+		},
+	}
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 4, MaxTokens: 5},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if got, want := state.StopReason, StopReasonMaxTokens; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := state.TurnCount, 1; got != want {
+		t.Fatalf("TurnCount = %d, want %d", got, want)
+	}
+	if got, want := eventTypes(events)[len(events)-1], output.EventTypeStopReason; got != want {
+		t.Fatalf("last event type = %q, want %q", got, want)
+	}
+}
+
 func TestRunnerTreatsProviderContextCancellationAsCancelled(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

@@ -1,11 +1,8 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -70,7 +67,13 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	}
 	defer p.release()
 
-	payload, err := p.doChatCompletion(ctx, request, false)
+	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: false})
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := p.decodeNonStreamResponse(resp)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -115,86 +118,12 @@ func (p *OpenAICompat) release() {
 	p.scheduler.Release()
 }
 
-func (p *OpenAICompat) doChatCompletion(ctx context.Context, request ChatRequest, stream bool) (*openAIResponse, error) {
-	body, err := p.marshalRequest(request, stream)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, p.readErrorResponse(resp)
-	}
-
-	var payload openAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode chat completion response: %w", err)
-	}
-	return &payload, nil
-}
-
 func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
-	body, err := p.marshalRequest(request, true)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(req)
+	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: true})
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return p.readErrorResponse(resp)
-	}
-
-	return decodeChatStream(ctx, resp.Body, out)
-}
-
-func (p *OpenAICompat) chatCompletionsURL() string {
-	base := *p.baseURL
-	base.Path = strings.TrimRight(base.Path, "/") + "/chat/completions"
-	return base.String()
-}
-
-func (p *OpenAICompat) marshalRequest(request ChatRequest, stream bool) ([]byte, error) {
-	wire, err := chatRequestWire(request, p.model, stream)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(wire)
-}
-
-func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	if err != nil {
-		return fmt.Errorf("read error response body: %w", err)
-	}
-	if len(body) == 0 {
-		return fmt.Errorf("chat completions request failed: %s", resp.Status)
-	}
-	return fmt.Errorf("chat completions request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	return p.decodeStreamResponse(ctx, resp.Body, out)
 }

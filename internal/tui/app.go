@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 )
@@ -25,27 +26,19 @@ type ApprovalSubmission struct {
 }
 
 type Config struct {
-	Model            string
-	ModelNames       []string
-	ModelContexts    map[string]int
-	ProviderBaseURL  string
-	HomeDir          string
-	WorkingDir       string
-	MaxTurns         int
-	SkillNames       []string
-	Theme            string
-	AccentPreset     string
-	ShowThinking     bool
-	OnSubmit         func(string)
-	OnContextInspect func()
-	OnConfigInspect  func()
-	OnApproval       func(ApprovalSubmission)
-	OnInterrupt      func()
-	OnExitRequested  func()
-	OnSkillToggle    func(string, bool)
-	OnModelSwitch    func(string) (string, bool)
-	OnClear          func()
-	OnCompact        func()
+	Model           string
+	ModelNames      []string
+	ModelContexts   map[string]int
+	ModelBaseURLs   map[string]string
+	ProviderBaseURL string
+	HomeDir         string
+	WorkingDir      string
+	MaxTurns        int
+	SkillNames      []string
+	Theme           string
+	AccentPreset    string
+	ShowThinking    bool
+	Controller      interactive.Controller
 }
 
 type App struct {

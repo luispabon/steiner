@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -13,6 +12,10 @@ import (
 )
 
 const delegateToolName = "delegate"
+
+func generateAgentID() string {
+	return fmt.Sprintf("child-%d", time.Now().UnixNano())
+}
 
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
 func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
@@ -43,6 +46,7 @@ type DelegateHandlerDeps struct {
 	SubAgentCfg config.SubAgentConfig
 	Events      output.EventSink
 	Runner      AgentRunner
+	WorkDir     string
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -57,7 +61,6 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		systemPrompt, _ := input["system_prompt"].(string)
 		model, _ := input["model"].(string)
 
-		baseLimits := DefaultLimits(deps.SubAgentCfg)
 		var overrides DelegationLimits
 		if v, ok := input["max_turns"].(float64); ok {
 			overrides.MaxTurns = int(v)
@@ -67,17 +70,25 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 				overrides.Timeout = d
 			}
 		}
-		limits := ApplyOverrides(baseLimits, overrides)
 
-		agentID := fmt.Sprintf("child-%d", time.Now().UnixNano())
+		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
-			Model: model, Limits: limits, AgentID: agentID,
+			Model: model, AgentID: agentID,
+			Limits: overrides,
 		}
 
-		childReg := BuildChildToolRegistry(deps.ParentReg, delegateToolName)
-		agentLimits := agent.Limits{MaxTurns: limits.MaxTurns, MaxTokens: limits.OutputLimitTokens}
-		req := buildChildRunRequest(spec, deps.Provider, childReg, agentLimits, deps.Events)
+		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
+			Provider:    deps.Provider,
+			ParentReg:   deps.ParentReg,
+			SubAgentCfg: deps.SubAgentCfg,
+			Events:      deps.Events,
+			WorkDir:     deps.WorkDir,
+		}, spec)
+		if err != nil {
+			return nil, fmt.Errorf("delegate: build child run: %w", err)
+		}
+		spec.Limits = limits
 
 		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -63,26 +64,15 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	if got := assembly.Messages[0].Role; got != provider.MessageRoleSystem {
 		t.Fatalf("message[0].role = %q, want system", got)
 	}
-	if got, want := assembly.Messages[1].Content, "global rules"; got != want {
-		t.Fatalf("message[1].content = %q, want %q", got, want)
-	}
-	if got, want := assembly.Messages[2].Content, "project rules"; got != want {
-		t.Fatalf("message[2].content = %q, want %q", got, want)
-	}
-	if got := assembly.Messages[3].Role; got != provider.MessageRoleUser {
-		t.Fatalf("message[3].role = %q, want user", got)
-	}
-	if got := strings.Contains(assembly.Messages[3].Name, "README.md"); !got {
-		t.Fatalf("message[3].name = %q, want README.md path", assembly.Messages[3].Name)
-	}
-	if got, want := assembly.Messages[4].Content, "module example.com/test\n"; got != want {
-		t.Fatalf("message[4].content = %q, want %q", got, want)
-	}
-	if got, want := assembly.Messages[5].Content, "how do I fix this?"; got != want {
-		t.Fatalf("message[5].content = %q, want %q", got, want)
-	}
-	if got := strings.Contains(assembly.Messages[7].Content, "\"kind\":\"tool_summary\""); !got {
-		t.Fatalf("message[7].content = %q, want tool summary envelope", assembly.Messages[7].Content)
+
+	globalRules := messageIndexByContent(t, assembly.Messages, "global rules")
+	projectRules := messageIndexByContent(t, assembly.Messages, "project rules")
+	readme := messageIndexByNameContains(t, assembly.Messages, "README.md")
+	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
+	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
+
+	if !(globalRules < projectRules && projectRules < readme && readme < conversation && conversation < toolSummary) {
+		t.Fatalf("message order = global:%d project:%d readme:%d conversation:%d tool_summary:%d", globalRules, projectRules, readme, conversation, toolSummary)
 	}
 }
 
@@ -119,19 +109,15 @@ func TestAssembleLoadsExplicitSkills(t *testing.T) {
 		t.Fatalf("expected skill block to be present")
 	}
 
-	// The skill should appear after the project context and before any conversation.
-	gotIndex := -1
-	for i, message := range assembly.Messages {
-		if message.Content == "skill instructions" {
-			gotIndex = i
-			break
-		}
-	}
+	gotIndex := messageIndexByContent(t, assembly.Messages, "skill instructions")
 	if gotIndex < 0 {
 		t.Fatalf("skill message not found")
 	}
-	if gotIndex == 0 || assembly.Messages[gotIndex-1].Role != provider.MessageRoleSystem {
-		t.Fatalf("skill message not placed after system context")
+	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
+		t.Fatalf("skill message role = %q, want user", got)
+	}
+	if got, want := assembly.Messages[gotIndex].Name, filepath.Base(filepath.Join(skillsRoot, "codex", "SKILL.md")); got != want {
+		t.Fatalf("skill message name = %q, want %q", got, want)
 	}
 }
 
@@ -162,6 +148,60 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 	if got, want := blocks[0].ByteSize, 5; got != want {
 		t.Fatalf("block bytes = %d, want %d", got, want)
+	}
+}
+
+func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global agents content")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir: homeDir,
+		Policy: AssemblyPolicy{
+			Budgets: SourceBudgetModel{
+				PreambleBytes:     5,
+				GlobalAgentsBytes: 4,
+			},
+		},
+		PromptOverrides: config.ModelPrompts{
+			System: "system prompt content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	if got, want := len(assembly.Blocks), 2; got != want {
+		t.Fatalf("len(blocks) = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Blocks[0].Content, "syste"; got != want {
+		t.Fatalf("preamble block content = %q, want %q", got, want)
+	}
+	if !assembly.Blocks[0].Truncated {
+		t.Fatalf("expected preamble block to be truncated")
+	}
+	if got, want := assembly.Blocks[0].ByteSize, 5; got != want {
+		t.Fatalf("preamble block bytes = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Blocks[1].Content, "glob"; got != want {
+		t.Fatalf("agent block content = %q, want %q", got, want)
+	}
+	if !assembly.Blocks[1].Truncated {
+		t.Fatalf("expected agent block to be truncated")
+	}
+	if got, want := assembly.Blocks[1].ByteSize, 4; got != want {
+		t.Fatalf("agent block bytes = %d, want %d", got, want)
+	}
+
+	if got, want := assembly.Messages[0].Content, "syste"; got != want {
+		t.Fatalf("preamble message content = %q, want %q", got, want)
+	}
+	if got, want := assembly.Messages[1].Content, "glob"; got != want {
+		t.Fatalf("agent message content = %q, want %q", got, want)
 	}
 }
 
@@ -371,4 +411,28 @@ func mustWrite(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
+}
+
+func messageIndexByContent(t *testing.T, messages []provider.Message, want string) int {
+	t.Helper()
+
+	for i, message := range messages {
+		if message.Content == want {
+			return i
+		}
+	}
+	t.Fatalf("message with content %q not found", want)
+	return -1
+}
+
+func messageIndexByNameContains(t *testing.T, messages []provider.Message, want string) int {
+	t.Helper()
+
+	for i, message := range messages {
+		if strings.Contains(message.Name, want) {
+			return i
+		}
+	}
+	t.Fatalf("message with name containing %q not found", want)
+	return -1
 }

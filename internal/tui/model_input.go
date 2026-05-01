@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/luispabon/steiner/internal/interactive"
 )
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
@@ -78,11 +81,11 @@ func (m Model) moveApprovalSelection(delta int) Model {
 }
 
 func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
-	if m.onApproval != nil {
-		m.onApproval(ApprovalSubmission{
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.SubmitApproval{
 			Tool:     m.approval.tool,
 			Mode:     m.approval.mode,
-			Decision: decision,
+			Decision: string(decision),
 		})
 	}
 	m.approval = approvalState{}
@@ -96,8 +99,8 @@ func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, te
 }
 
 func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
-	if m.onInterrupt != nil {
-		m.onInterrupt()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.InterruptActiveRun{})
 	}
 	m.interruptPending = true
 	m.content.AppendInterrupted()
@@ -123,8 +126,8 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 		m.status.context = ""
 	}
 	m.syncSidebar()
-	if m.onClear != nil {
-		m.onClear()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.ClearConversation{})
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -133,8 +136,8 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
-	if m.onCompact != nil {
-		m.onCompact()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{})
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -143,8 +146,8 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
-	if m.onContextInspect != nil {
-		m.onContextInspect()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.RequestContextReport{})
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -153,8 +156,8 @@ func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
-	if m.onConfigInspect != nil {
-		m.onConfigInspect()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.RequestConfigReport{})
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -178,8 +181,8 @@ func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 
 func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
 	m.enabledSkills[skill] = enable
-	if m.onSkillToggle != nil {
-		m.onSkillToggle(skill, enable)
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enable})
 	}
 	state := "disabled"
 	if enable {
@@ -232,16 +235,17 @@ func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 
 func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
 	providerBaseURL := m.sidebar.provider
-	if m.onModelSwitch != nil {
-		var ok bool
-		providerBaseURL, ok = m.onModelSwitch(modelName)
-		if !ok {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
 			m.input.Reset()
 			m.historyIdx = 0
 			m.syncViewport()
 			return m, nil
 		}
+	}
+	if baseURL, ok := m.modelBaseURLs[modelName]; ok {
+		providerBaseURL = baseURL
 	}
 	m.applyModelSelection(modelName, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))
@@ -257,8 +261,8 @@ func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, 
 		m.inputHistory = append([]string{value}, m.inputHistory...)
 		m.historyIdx = 0
 	}
-	if m.onSubmit != nil {
-		m.onSubmit(submitText)
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText})
 	}
 	m.content.AppendUser(submitText)
 	m.input.Reset()

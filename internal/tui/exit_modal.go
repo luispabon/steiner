@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -111,8 +113,8 @@ func (m Model) confirmExitModal() (tea.Model, tea.Cmd) {
 		m.exitModal = m.exitModal.closeExitModal()
 		return m, nil
 	default:
-		if m.onExitRequested != nil {
-			m.onExitRequested()
+		if m.controller != nil {
+			m.controller.Handle(context.Background(), interactive.RequestExit{})
 			return m, nil
 		}
 		return m, tea.Quit
