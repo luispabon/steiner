@@ -13,6 +13,10 @@ import (
 
 const delegateToolName = "delegate"
 
+func generateAgentID() string {
+	return fmt.Sprintf("child-%d", time.Now().UnixNano())
+}
+
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
 func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
@@ -67,7 +71,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			}
 		}
 
-		agentID := fmt.Sprintf("child-%d", time.Now().UnixNano())
+		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
 			Model: model, AgentID: agentID,
