@@ -7,18 +7,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 const terminalClearSequence = "\x1b[2J\x1b[H"
@@ -30,8 +27,6 @@ type interactiveMode struct {
 	stop           context.CancelFunc
 	teaProgram     *tea.Program
 	runner         cliRunner
-	contextInspect chan struct{}
-	configInspect  chan struct{}
 	clearSession   chan struct{}
 	triggerCompact chan struct{}
 	exitRequests   chan struct{}
@@ -72,14 +67,13 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		Runner:        sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}},
 		HistoryWriter: rt.historyWriter,
 		SkillNames:    rt.skillNames,
+		Config:        rt.cfg,
 	})
 
 	mode := &interactiveMode{
 		session:        sess,
 		rt:             rt,
 		runner:         cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
-		contextInspect: make(chan struct{}, 1),
-		configInspect:  make(chan struct{}, 1),
 		clearSession:   make(chan struct{}, 1),
 		triggerCompact: make(chan struct{}, 1),
 		exitRequests:   make(chan struct{}, 1),
@@ -168,40 +162,12 @@ func (m *interactiveMode) run() error {
 			return nil
 		case <-m.exitRequests:
 			return nil
-		case <-m.contextInspect:
-			m.emitContextReport()
-			continue
-		case <-m.configInspect:
-			m.emitConfigReport()
-			continue
 		case <-m.clearSession:
 			m.session.SetConversation(nil)
 		case <-m.triggerCompact:
 			m.session.SetConversation(m.handleManualCompaction(m.session.Conversation()))
 		}
 	}
-}
-
-func (m *interactiveMode) emitContextReport() {
-	if snapshot, ok := m.session.SnapshotStore().Snapshot(); ok {
-		report, err := output.BuildContextReport(m.ctx, snapshot)
-		if err != nil {
-			m.rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
-			return
-		}
-		m.rt.events.Emit(output.NewContextReportEvent(report))
-		return
-	}
-	m.rt.events.Emit(output.NewContextReportEvent("No request recorded yet in this interactive session."))
-}
-
-func (m *interactiveMode) emitConfigReport() {
-	report, err := buildConfigOverlayReport(m.runner.runtime.cfg)
-	if err != nil {
-		m.rt.events.Emit(output.NewConfigReportEvent("Resolved config unavailable.\n\n" + err.Error()))
-		return
-	}
-	m.rt.events.Emit(output.NewConfigReportEvent(report))
 }
 
 func (m *interactiveMode) handleManualCompaction(conversation []agent.Message) []agent.Message {
@@ -305,12 +271,4 @@ func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, sk
 		return nil, err
 	}
 	return result.Conversation, nil
-}
-
-func buildConfigOverlayReport(cfg config.Config) (string, error) {
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return "", fmt.Errorf("marshal resolved config: %w", err)
-	}
-	return "```yaml\n" + strings.TrimRight(string(data), "\n") + "\n```", nil
 }

@@ -121,9 +121,13 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	case ClearConversation:
 		s.SetConversation(nil)
 		return nil
-	case RequestContextReport,
-		RequestConfigReport,
-		SubmitApproval,
+	case RequestContextReport:
+		s.emitContextReport(ctx)
+		return nil
+	case RequestConfigReport:
+		s.emitConfigReport()
+		return nil
+	case SubmitApproval,
 		RequestExit,
 		SetSkillEnabled,
 		SwitchModel,
