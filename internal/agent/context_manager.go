@@ -12,7 +12,7 @@ import (
 
 // Compactor reduces an oversize conversation to fit the model token budget.
 type Compactor interface {
-	Compact(ctx context.Context, state RunState) (RunState, error)
+	Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error)
 }
 
 // ContextManager is the pipeline hook interface for active context management.
@@ -43,9 +43,25 @@ type SmartContextManager struct {
 	maskingWindowTurns int
 	readAnnotations    bool
 	configApplied      bool
+	compactionStrategy config.CompactionStrategy
 	fileTracker        FileTracker
 	scratchpad         Scratchpad
 	scratchpadFailures int
+}
+
+// Compact selects the configured compaction strategy for smart context
+// management.
+func (s *SmartContextManager) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
+	switch s.compactionStrategy {
+	case config.CompactionStrategyDrop:
+		return dropCompactor{retainTurns: defaultDropRetainTurns}.Compact(ctx, req, state, turn, candidate)
+	case config.CompactionStrategyHybrid:
+		return hybridCompactor{maskingWindowTurns: s.maskingWindow()}.Compact(ctx, req, state, turn, candidate)
+	case config.CompactionStrategySummarize, "":
+		fallthrough
+	default:
+		return summarizeCompactor{}.Compact(ctx, req, state, turn, candidate)
+	}
 }
 
 // PostIngestion normalizes tool output in the loaded conversation.
@@ -105,6 +121,7 @@ func NewContextManager(mode string, cfg ...config.ContextManagementConfig) Conte
 		if len(cfg) > 0 {
 			manager.maskingWindowTurns = cfg[0].MaskingWindowTurns
 			manager.readAnnotations = cfg[0].ReadAnnotations
+			manager.compactionStrategy = cfg[0].CompactionStrategy
 			manager.configApplied = true
 		}
 		return manager

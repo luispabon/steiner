@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func TestNaiveContextManagerPostIngestion(t *testing.T) {
@@ -224,6 +226,18 @@ func TestNewContextManager(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
+	m, ok := NewContextManager("smart", config.ContextManagementConfig{
+		CompactionStrategy: config.CompactionStrategyHybrid,
+	}).(*SmartContextManager)
+	if !ok {
+		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
+	}
+	if got, want := m.compactionStrategy, config.CompactionStrategyHybrid; got != want {
+		t.Fatalf("compactionStrategy = %q, want %q", got, want)
 	}
 }
 
