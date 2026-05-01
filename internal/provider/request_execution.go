@@ -58,6 +58,14 @@ func (p *OpenAICompat) executeHTTP(ctx context.Context, req *http.Request) (*htt
 	return resp, nil
 }
 
+func (p *OpenAICompat) decodeNonStreamResponse(resp *http.Response) (*openAIResponse, error) {
+	var payload openAIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode chat completion response: %w", err)
+	}
+	return &payload, nil
+}
+
 func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
