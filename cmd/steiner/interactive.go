@@ -30,7 +30,6 @@ type interactiveMode struct {
 	stop           context.CancelFunc
 	teaProgram     *tea.Program
 	runner         cliRunner
-	submissions    chan string
 	contextInspect chan struct{}
 	configInspect  chan struct{}
 	clearSession   chan struct{}
@@ -69,15 +68,16 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		return nil, err
 	}
 	sess := interactive.NewSession(interactive.Dependencies{
-		BaseEvents: rt.events,
-		SkillNames: rt.skillNames,
+		BaseEvents:    rt.events,
+		Runner:        sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}},
+		HistoryWriter: rt.historyWriter,
+		SkillNames:    rt.skillNames,
 	})
 
 	mode := &interactiveMode{
 		session:        sess,
 		rt:             rt,
 		runner:         cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
-		submissions:    make(chan string, 1),
 		contextInspect: make(chan struct{}, 1),
 		configInspect:  make(chan struct{}, 1),
 		clearSession:   make(chan struct{}, 1),
@@ -178,8 +178,6 @@ func (m *interactiveMode) run() error {
 			m.session.SetConversation(nil)
 		case <-m.triggerCompact:
 			m.session.SetConversation(m.handleManualCompaction(m.session.Conversation()))
-		case text := <-m.submissions:
-			m.handleSubmission(text)
 		}
 	}
 }
@@ -295,41 +293,18 @@ func (m *interactiveMode) emitCompactError(err error) {
 	})
 }
 
-func (m *interactiveMode) handleSubmission(text string) {
-	conv := append(m.session.Conversation(), agent.Message{Role: agent.MessageRoleUser, Content: text})
-	m.session.SetConversation(conv)
-	runCtx, cancel := context.WithCancel(m.ctx)
-	m.session.ActiveRunController().Set(cancel)
-	result, err := m.runner.Run(runCtx, m.session.Conversation(), m.session.Skills().Snapshot())
-	cancel()
-	m.session.ActiveRunController().Clear()
+// sessionRunner adapts cliRunner to the runExecutor interface expected by
+// the interactive session.
+type sessionRunner struct {
+	runner cliRunner
+}
+
+func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+	result, err := r.runner.Run(ctx, conversation, skillNames)
 	if err != nil {
-		m.rt.events.Emit(output.Event{
-			Type:    output.EventTypeStopReason,
-			Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Error: %v", err)},
-		})
-		return
+		return nil, err
 	}
-	if m.rt.historyWriter != nil {
-		if err := m.rt.historyWriter.Record(text); err != nil {
-			m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("history record: %v", err)},
-			}))
-		}
-		prompts, err := m.rt.historyWriter.Load()
-		if err != nil {
-			m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("history load: %v", err)},
-			}))
-			prompts = nil
-		}
-		m.rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
-	}
-	m.session.SetConversation(result.Conversation)
+	return result.Conversation, nil
 }
 
 func buildConfigOverlayReport(cfg config.Config) (string, error) {

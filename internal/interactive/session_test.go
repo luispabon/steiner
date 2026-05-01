@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -214,15 +215,12 @@ func TestSessionHandleNoop(t *testing.T) {
 		name   string
 		action Action
 	}{
-		{"SubmitPrompt", SubmitPrompt{Text: "hello"}},
 		{"RequestContextReport", RequestContextReport{}},
 		{"RequestConfigReport", RequestConfigReport{}},
 		{"SubmitApproval", SubmitApproval{Tool: "write", Mode: "auto", Decision: "allow"}},
-		{"InterruptActiveRun", InterruptActiveRun{}},
 		{"RequestExit", RequestExit{}},
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
-		{"ClearConversation", ClearConversation{}},
 		{"TriggerManualCompaction", TriggerManualCompaction{}},
 	}
 
@@ -233,6 +231,221 @@ func TestSessionHandleNoop(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSubmitPromptAppendsUserMessage(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return conversation, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	s.mu.Lock()
+	conv := s.conversation
+	s.mu.Unlock()
+
+	if len(conv) != 1 {
+		t.Fatalf("conversation length = %d, want 1", len(conv))
+	}
+	if conv[0].Role != agent.MessageRoleUser || conv[0].Content != "hello" {
+		t.Fatalf("message = %+v, want user/hello", conv[0])
+	}
+}
+
+func TestSubmitPromptDelegatesToRunner(t *testing.T) {
+	t.Parallel()
+	var called bool
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			called = true
+			return conversation, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if !called {
+		t.Fatal("expected Runner.Run to be called")
+	}
+}
+
+func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "hi there"},
+			}, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if got := s.Conversation(); len(got) != 2 {
+		t.Fatalf("conversation length = %d, want 2", len(got))
+	}
+}
+
+func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return nil, fmt.Errorf("run failed")
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeStopReason {
+			found = true
+			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
+				if payload.Reason != "Error: run failed" {
+					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want StopReason event", events)
+	}
+}
+
+func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	recorded := ""
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			return append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"}), nil
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(prompt string) error {
+				recorded = prompt
+				return nil
+			},
+			loadFn: func() ([]string, error) {
+				return []string{"prev", recorded}, nil
+			},
+		},
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if recorded != "hello" {
+		t.Fatalf("recorded prompt = %q, want %q", recorded, "hello")
+	}
+
+	var foundHistory bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			foundHistory = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prev" || payload.Prompts[1] != "hello" {
+					t.Fatalf("history prompts = %v, want [prev hello]", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !foundHistory {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	cancelled := false
+	s := NewSession(Dependencies{
+		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			close(block)
+			<-ctx.Done()
+			cancelled = true
+			return nil, ctx.Err()
+		}),
+	})
+
+	go func() {
+		<-block
+		s.Handle(context.Background(), InterruptActiveRun{})
+	}()
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if !cancelled {
+		t.Fatal("expected active run to be cancelled on interrupt")
+	}
+}
+
+func TestInterruptActiveRunCancelsRun(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := NewSession(Dependencies{})
+	s.runController.Set(cancel)
+
+	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
+		t.Fatalf("Handle(InterruptActiveRun) = %v, want nil", err)
+	}
+
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected InterruptActiveRun to cancel the active run")
+	}
+}
+
+func TestClearConversationClearsConversation(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("Handle(ClearConversation) = %v, want nil", err)
+	}
+	if got := s.Conversation(); got != nil {
+		t.Fatalf("conversation after ClearConversation = %v, want nil", got)
+	}
+}
+
+// runExecutorFunc adapts a function to the runExecutor interface.
+type runExecutorFunc func(context.Context, []agent.Message, []string) ([]agent.Message, error)
+
+func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+	return f(ctx, conversation, skillNames)
+}
+
+// recordingHistoryWriter implements historyWriter for testing.
+type recordingHistoryWriter struct {
+	recordFn func(string) error
+	loadFn   func() ([]string, error)
+}
+
+func (w *recordingHistoryWriter) Record(prompt string) error {
+	if w.recordFn == nil {
+		return nil
+	}
+	return w.recordFn(prompt)
+}
+
+func (w *recordingHistoryWriter) Load() ([]string, error) {
+	if w.loadFn == nil {
+		return nil, nil
+	}
+	return w.loadFn()
 }
 
 func TestSessionRunClose(t *testing.T) {

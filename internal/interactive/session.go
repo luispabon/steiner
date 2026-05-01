@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -13,6 +14,7 @@ import (
 // run lifecycle, approvals, model switches, compaction, enabled skills,
 // and the core event bus composition.
 type Session struct {
+	mu                  sync.RWMutex
 	deps                Dependencies
 	events              output.EventSink
 	displaySink         *output.ForwardSink
@@ -93,28 +95,38 @@ func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 // Conversation returns the current conversation message slice. Callers must
 // not mutate the returned slice; use SetConversation to replace it.
 func (s *Session) Conversation() []agent.Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.conversation
 }
 
 // SetConversation replaces the current conversation with the given messages.
 func (s *Session) SetConversation(conversation []agent.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.conversation = conversation
 }
 
-// Handle processes an interactive action. Currently a no-op placeholder that
-// returns nil for all recognized action types. Behavior will be implemented
-// in later stages.
+// Handle processes an interactive action. SubmitPrompt, InterruptActiveRun,
+// and ClearConversation are handled by the session; all other actions are
+// currently no-ops and return nil.
 func (s *Session) Handle(ctx context.Context, action Action) error {
-	switch action.(type) {
-	case SubmitPrompt,
-		RequestContextReport,
+	switch a := action.(type) {
+	case SubmitPrompt:
+		go s.submitPrompt(ctx, a.Text)
+		return nil
+	case InterruptActiveRun:
+		s.runController.Interrupt()
+		return nil
+	case ClearConversation:
+		s.SetConversation(nil)
+		return nil
+	case RequestContextReport,
 		RequestConfigReport,
 		SubmitApproval,
-		InterruptActiveRun,
 		RequestExit,
 		SetSkillEnabled,
 		SwitchModel,
-		ClearConversation,
 		TriggerManualCompaction:
 		return nil
 	default:
