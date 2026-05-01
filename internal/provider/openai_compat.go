@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -116,28 +115,11 @@ func (p *OpenAICompat) release() {
 }
 
 func (p *OpenAICompat) doChatCompletion(ctx context.Context, request ChatRequest, stream bool) (*openAIResponse, error) {
-	body, err := p.marshalRequest(request, stream)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(req)
+	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: stream})
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, p.readErrorResponse(resp)
-	}
 
 	var payload openAIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -147,29 +129,11 @@ func (p *OpenAICompat) doChatCompletion(ctx context.Context, request ChatRequest
 }
 
 func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
-	body, err := p.marshalRequest(request, true)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(req)
+	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: true})
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return p.readErrorResponse(resp)
-	}
 
 	return decodeChatStream(ctx, resp.Body, out)
 }
