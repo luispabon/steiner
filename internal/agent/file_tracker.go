@@ -17,19 +17,21 @@ type trackedFileRead struct {
 	ModTime    time.Time
 }
 
+type readResult struct {
+	Path       string
+	StartLine  int
+	EndLine    int
+	TotalLines int
+	Output     string
+}
+
 type FileTracker struct {
 	reads map[string]trackedFileRead
 }
 
 func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled bool) string {
-	var result struct {
-		Path       string `json:"path"`
-		StartLine  int    `json:"start_line"`
-		EndLine    int    `json:"end_line"`
-		TotalLines int    `json:"total_lines"`
-		Output     string `json:"output"`
-	}
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
+	result, ok := parseReadResult(content)
+	if !ok {
 		return content
 	}
 	path := strings.TrimSpace(result.Path)
@@ -70,6 +72,25 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 		return content
 	}
 	return string(data)
+}
+
+func parseReadResult(content string) (readResult, bool) {
+	var result readResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return readResult{}, false
+	}
+	return result, true
+}
+
+func (r readResult) rangeSummary() string {
+	switch {
+	case r.EndLine > 0 && r.TotalLines > 0:
+		return fmt.Sprintf("lines %d-%d/%d", r.StartLine, r.EndLine, r.TotalLines)
+	case r.TotalLines > 0:
+		return fmt.Sprintf("%d lines", r.TotalLines)
+	default:
+		return "unknown range"
+	}
 }
 
 func (t *FileTracker) Clone() FileTracker {

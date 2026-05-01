@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -44,6 +46,7 @@ type SmartContextManager struct {
 	readAnnotations    bool
 	configApplied      bool
 	compactionStrategy config.CompactionStrategy
+	events             output.EventSink
 	fileTracker        FileTracker
 	scratchpad         Scratchpad
 	scratchpadFailures int
@@ -80,7 +83,9 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	if len(conversation) == 0 {
 		conversation = next.Conversation
 	}
-	masked := fromProviderMessages(prompt.MaskConversation(toProviderMessages(conversation), s.maskingWindow()))
+	window := s.maskingWindow()
+	masked := fromProviderMessages(prompt.MaskConversation(toProviderMessages(conversation), window))
+	s.emitMaskingDiagnostics(next.TurnCount+1, window, conversation, masked)
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
 	return next, nil
@@ -88,7 +93,7 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 
 // IngestAssistantResponse captures model-written scratchpad state and strips it
 // from the visible assistant reply.
-func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (string, string) {
+func (s *SmartContextManager) IngestAssistantResponse(turn int, content string) (string, string) {
 	next, ok := ParseScratchpad(content, s.scratchpad)
 	if !ok {
 		s.scratchpadFailures++
@@ -96,10 +101,12 @@ func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (st
 		if s.scratchpadFailures >= 3 {
 			note = "scratchpad block missing or invalid in 3+ consecutive assistant replies"
 		}
+		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), s.scratchpadFailures, note))
 		return strings.TrimSpace(content), note
 	}
 	s.scratchpad = next
 	s.scratchpadFailures = 0
+	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
 	return StripScratchpad(content), ""
 }
 
@@ -108,9 +115,22 @@ func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (st
 func (s *SmartContextManager) IngestToolResult(turn int, toolName, content string) string {
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
 	if toolName == "read" {
-		return s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
+		result, ok := parseReadResult(shaped)
+		var previous trackedFileRead
+		var hadPrevious bool
+		if ok && strings.TrimSpace(result.Path) != "" && s.fileTracker.reads != nil {
+			previous, hadPrevious = s.fileTracker.reads[strings.TrimSpace(result.Path)]
+		}
+		next := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
+		s.emitFileAnnotationDiagnostics(turn, result, previous, hadPrevious, shaped, next)
+		return next
 	}
 	return shaped
+}
+
+// SetEventSink installs the sink used for context-management diagnostics.
+func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
+	s.events = sink
 }
 
 // NewContextManager constructs the appropriate ContextManager for the given
@@ -172,6 +192,77 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	next.FileTrackerSummary = s.fileTracker.Summaries(5)
 	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
 	return next
+}
+
+func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, previous trackedFileRead, hadPrevious bool, original, shaped string) {
+	if s.events == nil {
+		return
+	}
+	if strings.TrimSpace(result.Path) == "" {
+		return
+	}
+
+	action := "full"
+	reason := "first read"
+	if strings.TrimSpace(shaped) != strings.TrimSpace(original) {
+		action = "annotated"
+		if hadPrevious {
+			reason = fmt.Sprintf("unchanged since turn %d", previous.LastTurn)
+		} else {
+			reason = "unchanged reread"
+		}
+	} else if !s.annotationsEnabled() {
+		reason = "annotations disabled"
+	} else if hadPrevious {
+		info, err := os.Stat(strings.TrimSpace(result.Path))
+		if err == nil && !previous.ModTime.Equal(info.ModTime()) {
+			reason = "modified file"
+		} else if hadPrevious {
+			reason = "served full content"
+		}
+	}
+
+	notes := []string{fmt.Sprintf("range=%s", result.rangeSummary())}
+	if strings.TrimSpace(original) != strings.TrimSpace(shaped) {
+		notes = append(notes, "annotation produced")
+	}
+	if previous.Path != "" {
+		notes = append(notes, fmt.Sprintf("previous_turn=%d", previous.LastTurn))
+	}
+	emitEvent(s.events, output.NewFileAnnotationEvent(turn, strings.TrimSpace(result.Path), action, reason, previous.LastTurn, notes...))
+}
+
+func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original, masked []Message) {
+	if s.events == nil || len(original) == 0 || len(original) != len(masked) {
+		return
+	}
+	for i := range original {
+		if strings.TrimSpace(original[i].Content) == strings.TrimSpace(masked[i].Content) {
+			continue
+		}
+		action := "masked"
+		reason := "older than masking window"
+		toolName := strings.TrimSpace(original[i].Name)
+		switch original[i].Role {
+		case MessageRoleAssistant:
+			if strings.TrimSpace(masked[i].Content) != "" && strings.TrimSpace(masked[i].Content) != strings.TrimSpace(original[i].Content) {
+				action = "trimmed"
+				reason = "older assistant prose"
+			}
+		case MessageRoleTool:
+			if toolName == "" {
+				toolName = "tool"
+			}
+			reason = "older tool result"
+		default:
+			action = "masked"
+		}
+		notes := []string{fmt.Sprintf("message_index=%d", i)}
+		if original[i].ToolCallID != "" {
+			notes = append(notes, "tool_call_id="+original[i].ToolCallID)
+		}
+		emitEvent(s.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, notes...))
+	}
 }
 
 func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolName, content string) string {

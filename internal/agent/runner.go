@@ -67,6 +67,9 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitStop(req.Events, state, nil)
 		return state, nil
 	}
+	if setter, ok := req.ContextManager.(interface{ SetEventSink(output.EventSink) }); ok {
+		setter.SetEventSink(req.Events)
+	}
 
 	var err error
 	state, err = req.ContextManager.PostIngestion(ctx, state)
