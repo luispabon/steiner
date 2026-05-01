@@ -67,18 +67,15 @@ func buildChildExecutionRegistry(parent *tool.Registry) *tool.Registry {
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
-// Prompt options must be provided pre-built; the caller (typically BuildChildRun)
-// is responsible for prompt assembly.
-func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions) agent.RunRequest {
-	visibleReg := BuildChildToolRegistry(childReg, delegateToolName)
-	executionReg := buildChildExecutionRegistry(visibleReg)
-
+// Registries and prompt must be provided pre-built; the caller (typically
+// BuildChildRun) is responsible for registry and prompt assembly.
+func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions) agent.RunRequest {
 	workDir, _ := os.Getwd()
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
 
 	req := agent.RunRequest{
 		Provider: prov,
-		Executor: tool.NewExecutor(executionReg, childCfg, nil, workDir),
+		Executor: tool.NewExecutor(execReg, childCfg, nil, workDir),
 		Tools:    visibleReg.ToProviderSpecs(),
 		Model:    spec.Model,
 		Limits:   baseLimits,
