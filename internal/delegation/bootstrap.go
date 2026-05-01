@@ -53,9 +53,9 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // buildChildPrompt assembles the prompt.AssemblyOptions for a child agent,
 // including system prompt (from spec or default) and task with optional context.
 func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
-	childCtx, err := scaffoldChildContext(context.Background(), spec)
-	if err != nil {
-		return prompt.AssemblyOptions{}, fmt.Errorf("scaffold child context: %w", err)
+	systemPrompt := spec.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are a sub-agent. Complete the task given to you."
 	}
 
 	taskContent := spec.Task
@@ -67,9 +67,9 @@ func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 		{Role: provider.MessageRoleUser, Content: taskContent},
 	}
 
-	if childCtx.SystemPrompt != "" {
+	if systemPrompt != "" {
 		conversation = append(
-			[]provider.Message{{Role: provider.MessageRoleSystem, Content: childCtx.SystemPrompt}},
+			[]provider.Message{{Role: provider.MessageRoleSystem, Content: systemPrompt}},
 			conversation...,
 		)
 	}

@@ -149,20 +149,6 @@ func TestDelegationEvents(t *testing.T) {
 	}
 }
 
-func TestChildRegistryExcludesDelegate(t *testing.T) {
-	parentReg := tool.NewRegistry(tool.ToolDef{
-		Name:        "delegate",
-		Description: "delegate tool",
-	})
-
-	childReg := BuildChildToolRegistry(parentReg, "delegate")
-
-	_, ok := childReg.Get("delegate")
-	if ok {
-		t.Error("child registry should not contain delegate tool")
-	}
-}
-
 func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	longContent := strings.Repeat("x", 5000)
 	prov := &fakeProvider{

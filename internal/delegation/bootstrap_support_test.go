@@ -63,7 +63,7 @@ func TestBuildChildToolRegistry(t *testing.T) {
 				parent = tool.NewRegistry(tt.parentTools...)
 			}
 
-			got := BuildChildToolRegistry(parent, tt.delegateToolName)
+			got := buildChildToolRegistry(parent, tt.delegateToolName)
 
 			names := got.Names()
 			if len(names) != tt.wantToolCount {
