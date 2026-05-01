@@ -22,8 +22,8 @@
 | stage-3-step-1 | Assembly masking: observation + prose masking | implemented |
 | stage-3-step-2 | File tracker: metadata tracking + annotation | implemented |
 | stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | implemented |
-| stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | running |
-| stage-6-step-1 | Observability + end-to-end integration | pending |
+| stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | implemented |
+| stage-6-step-1 | Observability + end-to-end integration | running |
 
 ## Dependency Graph
 ```
@@ -60,6 +60,7 @@ stage-1-step-1
 | Step | Branch | Worktree | Model | Status |
 |------|--------|----------|-------|--------|
 | stage-2-step-1 | `tmp/2026-05-01_active_context_management_stage-2-step-1` | `/tmp/steiner-stage-2-step-1` | `gpt-5.4-mini` | closed; isolation violated |
+| stage-5-step-1 | `tmp/2026-05-01_active_context_management_stage-5-step-1` | `/tmp/steiner-stage-5-step-1` | `gpt-5.4-mini` | closed; isolation violated |
 
 ## Temporary Branches and Worktrees
 
@@ -67,6 +68,9 @@ stage-1-step-1
 - Added worktree at `/tmp/steiner-stage-2-step-1`
 - Removed stray worktree `/tmp/steiner-step-stage-2-step-1`
 - Deleted branches `tmp/2026-05-01_active_context_management_stage-2-step-1` and `step/stage-2-step-1`
+- Created `tmp/2026-05-01_active_context_management_stage-5-step-1` from `cl/2026-05-01_active_context_management`
+- Added worktree at `/tmp/steiner-stage-5-step-1`
+- Deleted branch `tmp/2026-05-01_active_context_management_stage-5-step-1`
 
 ### 2026-05-01 — stage-2-step-1 started
 - Objective: implement ingestion-time truncation strategies and noise stripping in smart mode
@@ -97,6 +101,7 @@ stage-1-step-1
 - `go test ./internal/config/... -run 'TestValidate|TestContextMode'` — passed
 - `go test ./internal/agent/... -run 'Test(Scratchpad|ContextState|RunnerSmartContextManagerStripsAndReinjectsScratchpad|PostIngestion|PreAssembly|FileTracker|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
 - `go test ./internal/prompt/... -run 'Test(PlanSourceAssembly|AssembleCarriesRetainedSummaries|AssembleLoadsExplicitSkills|AssembleOrdersContext)'` — passed
+- `go test ./internal/agent/... -run 'TestCompact|TestCompaction|TestRunnerRecompactsUntilTheBudgetFits'` — passed
 
 ## Blockers / Deviations
 
@@ -104,6 +109,9 @@ stage-1-step-1
   - the temp branch ref and temp worktree did not reflect the worker-reported commits
   - the implementation commits landed on the execution branch instead of the temp branch
   - cleanup required removing stray worktree/branch state outside the planned isolated flow
+- Isolated sub-agent execution was not trustworthy for `stage-5-step-1`:
+  - the temp branch stayed at `34997bf`
+  - the worker commit `a992555` landed directly on the execution branch
 - Treat isolated sub-agent execution as unsafe until proven otherwise; use direct fallback for subsequent implementation steps if execution continues in this runtime.
 
 ### 2026-05-01 — stage-3-step-1 and stage-3-step-2 implemented
@@ -154,3 +162,21 @@ stage-1-step-1
 - Dispatch mode: serial isolated sub-agent
 - Sub-agent model: `gpt-5.4-mini` (cheaper tier than current runtime)
 - Note: reusing isolated sub-agent execution despite prior stage-2 isolation violation because the user explicitly requested the same sub-agent pattern
+
+### 2026-05-01 — stage-5-step-1 implemented
+- Landed commit on execution branch:
+  - `a992555` `Add configurable compaction strategies`
+- Reviewed contract outcome:
+  - smart context manager now selects `drop`, `summarize`, or `hybrid` compaction based on config
+  - summarize compaction remains wired through the existing compaction request path
+  - drop compaction keeps recent turns and inserts a scratchpad-referencing discontinuity marker
+  - hybrid compaction masks first and only summarizes when required
+  - compaction tests now cover strategy selection and retention behavior
+- Targeted verification passed:
+  - `go test ./internal/agent/... -run 'TestCompact|TestCompaction|TestRunnerRecompactsUntilTheBudgetFits'`
+
+### 2026-05-01 — stage-6-step-1 started
+- Objective: add observability/integration coverage and manual validation guidance
+- Scope: `internal/output/`, `internal/agent/`, related integration tests, and `/tmp/context_manual_test.md`
+- Dispatch mode: serial isolated sub-agent
+- Planned manual artifact: `/tmp/context_manual_test.md`
