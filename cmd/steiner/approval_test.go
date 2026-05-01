@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/luispabon/steiner/internal/tui"
 )
 
 func TestTUIApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
-	coordinator := &tuiApprovalCoordinator{}
+	coordinator := &interactive.ApprovalCoordinator{}
 	responder := newTUIApprovalResponder(coordinator)
 
 	firstResponse := make(chan tool.ApprovalResponse, 1)
@@ -25,10 +25,10 @@ func TestTUIApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	}()
 	waitForPendingApproval(t, coordinator)
 
-	coordinator.submit(tui.ApprovalSubmission{
+	coordinator.Submit(interactive.SubmitApproval{
 		Tool:     "write",
 		Mode:     "prompt",
-		Decision: tui.ApprovalDecisionAlwaysAllow,
+		Decision: "always_allow",
 	})
 
 	if err := <-firstDone; err != nil {
@@ -63,7 +63,7 @@ func TestTUIApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 }
 
 func TestTUIApprovalResponderDeniesDecisions(t *testing.T) {
-	coordinator := &tuiApprovalCoordinator{}
+	coordinator := &interactive.ApprovalCoordinator{}
 	responder := newTUIApprovalResponder(coordinator)
 
 	responseCh := make(chan tool.ApprovalResponse, 1)
@@ -77,10 +77,10 @@ func TestTUIApprovalResponderDeniesDecisions(t *testing.T) {
 	}()
 	waitForPendingApproval(t, coordinator)
 
-	coordinator.submit(tui.ApprovalSubmission{
+	coordinator.Submit(interactive.SubmitApproval{
 		Tool:     "bash",
 		Mode:     "prompt",
-		Decision: tui.ApprovalDecisionDeny,
+		Decision: "deny",
 	})
 
 	if err := <-done; err != nil {
@@ -92,7 +92,7 @@ func TestTUIApprovalResponderDeniesDecisions(t *testing.T) {
 }
 
 func TestTUIApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
-	coordinator := &tuiApprovalCoordinator{}
+	coordinator := &interactive.ApprovalCoordinator{}
 	responder := newTUIApprovalResponder(coordinator)
 
 	responseCh := make(chan tool.ApprovalResponse, 1)
@@ -106,10 +106,10 @@ func TestTUIApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	}()
 	waitForPendingApproval(t, coordinator)
 
-	coordinator.submit(tui.ApprovalSubmission{
+	coordinator.Submit(interactive.SubmitApproval{
 		Tool:     "edit",
 		Mode:     "prompt",
-		Decision: tui.ApprovalDecisionAllowOnce,
+		Decision: "allow_once",
 	})
 
 	if err := <-done; err != nil {
@@ -120,14 +120,11 @@ func TestTUIApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	}
 }
 
-func waitForPendingApproval(t *testing.T, coordinator *tuiApprovalCoordinator) {
+func waitForPendingApproval(t *testing.T, coordinator *interactive.ApprovalCoordinator) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		coordinator.mu.Lock()
-		pending := coordinator.pending
-		coordinator.mu.Unlock()
-		if pending != nil {
+		if coordinator.HasPending() {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

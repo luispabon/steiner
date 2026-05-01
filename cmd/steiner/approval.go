@@ -8,68 +8,18 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/luispabon/steiner/internal/tui"
 )
 
-type pendingTUIApproval struct {
-	toolName string
-	mode     string
-	response chan tui.ApprovalSubmission
-}
-
-type tuiApprovalCoordinator struct {
-	mu      sync.Mutex
-	pending *pendingTUIApproval
-}
-
-func (c *tuiApprovalCoordinator) begin(toolName, mode string) chan tui.ApprovalSubmission {
-	response := make(chan tui.ApprovalSubmission, 1)
-	c.mu.Lock()
-	c.pending = &pendingTUIApproval{
-		toolName: toolName,
-		mode:     mode,
-		response: response,
-	}
-	c.mu.Unlock()
-	return response
-}
-
-func (c *tuiApprovalCoordinator) finish(response chan tui.ApprovalSubmission) {
-	c.mu.Lock()
-	if c.pending != nil && c.pending.response == response {
-		c.pending = nil
-	}
-	c.mu.Unlock()
-}
-
-func (c *tuiApprovalCoordinator) submit(submission tui.ApprovalSubmission) {
-	c.mu.Lock()
-	pending := c.pending
-	c.mu.Unlock()
-	if pending == nil {
-		return
-	}
-	if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
-		return
-	}
-	if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
-		return
-	}
-	select {
-	case pending.response <- submission:
-	default:
-	}
-}
-
 type tuiApprovalResponder struct {
-	coordinator *tuiApprovalCoordinator
+	coordinator *interactive.ApprovalCoordinator
 
 	mu          sync.Mutex
 	alwaysAllow map[string]bool
 }
 
-func newTUIApprovalResponder(coordinator *tuiApprovalCoordinator) *tuiApprovalResponder {
+func newTUIApprovalResponder(coordinator *interactive.ApprovalCoordinator) *tuiApprovalResponder {
 	return &tuiApprovalResponder{
 		coordinator: coordinator,
 		alwaysAllow: make(map[string]bool),
@@ -91,8 +41,8 @@ func (h *tuiApprovalResponder) RequestApproval(ctx context.Context, req tool.App
 		return nil
 	}
 
-	responseCh := h.coordinator.begin(toolName, string(req.Mode))
-	defer h.coordinator.finish(responseCh)
+	responseCh := h.coordinator.Begin(toolName, string(req.Mode))
+	defer h.coordinator.Finish(responseCh)
 
 	select {
 	case submission, ok := <-responseCh:
@@ -101,7 +51,7 @@ func (h *tuiApprovalResponder) RequestApproval(ctx context.Context, req tool.App
 			return fmt.Errorf("approval response channel closed")
 		}
 		response := approvalResponseForDecision(submission.Decision)
-		if submission.Decision == tui.ApprovalDecisionAlwaysAllow {
+		if submission.Decision == "always_allow" {
 			h.cacheAlwaysAllow(toolName)
 		}
 		req.Response <- response
@@ -125,11 +75,11 @@ func (h *tuiApprovalResponder) cacheAlwaysAllow(toolName string) {
 	h.mu.Unlock()
 }
 
-func approvalResponseForDecision(decision tui.ApprovalDecision) tool.ApprovalResponse {
+func approvalResponseForDecision(decision string) tool.ApprovalResponse {
 	switch decision {
-	case tui.ApprovalDecisionAlwaysAllow:
+	case "always_allow":
 		return tool.ApprovalResponse{Allow: true, Message: "always allowed"}
-	case tui.ApprovalDecisionAllowOnce:
+	case "allow_once":
 		return tool.ApprovalResponse{Allow: true, Message: "approved"}
 	default:
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -941,7 +942,7 @@ func testRuntimeConfig(alias string) config.Config {
 }
 
 func TestInteractiveSkillsSnapshotTracksEnabledSubset(t *testing.T) {
-	skills := newInteractiveSkills([]string{"review", "debug", "test"})
+	skills := interactive.NewSkills([]string{"review", "debug", "test"})
 	if got, want := skills.Snapshot(), []string{"review", "debug", "test"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("initial Snapshot() = %v, want %v", got, want)
 	}
@@ -1106,14 +1107,14 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 }
 
 func TestRequestSnapshotStoreStartsEmpty(t *testing.T) {
-	store := &requestSnapshotStore{}
+	store := &interactive.SnapshotStore{}
 	if _, ok := store.Snapshot(); ok {
 		t.Fatal("Snapshot() ok = true, want false")
 	}
 }
 
 func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
-	store := &requestSnapshotStore{}
+	store := &interactive.SnapshotStore{}
 	sink := output.SinkFunc(func(event output.Event) {
 		payload, ok := event.Payload.(output.APIRequestEvent)
 		if !ok {

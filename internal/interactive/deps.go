@@ -31,13 +31,14 @@ type snapshotStore interface {
 	LatestSnapshot() output.RequestContextSnapshot
 }
 
-// Dependencies groups the external dependencies required by an interactive
-// session. Each field uses a consumer-defined interface to avoid premature
-// coupling to concrete implementations.
+// Dependencies groups the external dependencies and initial configuration
+// required by an interactive session. Each field uses a consumer-defined
+// interface to avoid premature coupling to concrete implementations.
 type Dependencies struct {
 	Runtime             cliRuntime
 	Runner              runExecutor
 	ApprovalCoordinator approvalCoordinator
 	RequestSnapshots    snapshotStore
 	DisplaySink         *output.ForwardSink
+	SkillNames          []string
 }
