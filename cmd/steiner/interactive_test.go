@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
@@ -183,5 +184,49 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok && payload.Severity == "warning" && strings.Contains(strings.Join(payload.Notes, " "), "tui runtime failed") {
 			t.Fatalf("events = %#v, want no warning diagnostic for program killed", events)
 		}
+	}
+}
+
+func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
+	tests := []struct {
+		name string
+		wire func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink
+		want int
+	}{
+		{
+			name: "fixed wiring does not duplicate",
+			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+				return sess.EventSink()
+			},
+			want: 1,
+		},
+		{
+			name: "buggy wiring duplicates TUI events",
+			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+				return output.NewMultiSink(sess.EventSink(), tuiSink)
+			},
+			want: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var count int
+			tuiSink := output.SinkFunc(func(output.Event) {
+				count++
+			})
+
+			sess := interactive.NewSession(interactive.Dependencies{
+				BaseEvents: output.NoopSink{},
+			})
+			sess.DisplaySink().Set(tuiSink)
+
+			events := tt.wire(sess, tuiSink)
+			events.Emit(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+
+			if count != tt.want {
+				t.Fatalf("TUI sink received %d events, want %d", count, tt.want)
+			}
+		})
 	}
 }
