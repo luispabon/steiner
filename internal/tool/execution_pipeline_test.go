@@ -306,3 +306,61 @@ func TestExecuteToolBashCwdOverride(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", execResult.Metadata.ExitCode)
 	}
 }
+
+func TestDecodeExecutionOutputInvalidJSON(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 1}
+	_, err := decodeExecutionOutput([]byte(`not json`), metadata, "test_tool")
+	if err == nil {
+		t.Fatal("decodeExecutionOutput() error = nil, want ToolExecutionError")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "invalid_json" {
+		t.Fatalf("error kind = %q, want invalid_json", toolErr.Kind)
+	}
+	if toolErr.ExitCode != 1 {
+		t.Fatalf("error exit code = %d, want 1", toolErr.ExitCode)
+	}
+	if !strings.Contains(toolErr.Message, "not valid JSON") {
+		t.Fatalf("error message = %q, want 'not valid JSON'", toolErr.Message)
+	}
+}
+
+func TestRunPipelineInvalidJSON(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:       "echoer",
+		ExecPath:   "echo",
+		Subcommand: "not json",
+		Approval:   config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "echoer", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want invalid_json")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "invalid_json" {
+		t.Fatalf("error kind = %q, want invalid_json", toolErr.Kind)
+	}
+	if !strings.Contains(toolErr.Error(), "not valid JSON") {
+		t.Fatalf("error = %v, want 'not valid JSON'", toolErr.Error())
+	}
+}
+
+func TestRunPipelineNilRegistry(t *testing.T) {
+	_, err := NewExecutor(nil, config.Config{}, nil, t.TempDir()).Execute(context.Background(), "test", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("error = %v, want 'not configured'", err)
+	}
+}
