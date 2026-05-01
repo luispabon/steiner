@@ -245,6 +245,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 		ParentReg:   parent,
 		SubAgentCfg: config.SubAgentConfig{},
 		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
 	}
 
 	spec := DelegationSpec{
@@ -282,4 +283,33 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 
 	// Executor registry behavior is verified through the integration tests
 	// that exercise req.Executor.Execute directly.
+}
+
+func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+	}
+
+	spec := DelegationSpec{
+		Task:    "test",
+		AgentID: "test-workdir",
+		Limits:  DelegationLimits{MaxTurns: 5},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+
+	if req.Executor == nil {
+		t.Fatal("BuildChildRun() produced a nil Executor - executor should be non-nil")
+	}
 }

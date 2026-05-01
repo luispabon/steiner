@@ -42,6 +42,7 @@ type DelegateHandlerDeps struct {
 	SubAgentCfg config.SubAgentConfig
 	Events      output.EventSink
 	Runner      AgentRunner
+	WorkDir     string
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -78,6 +79,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			ParentReg:   deps.ParentReg,
 			SubAgentCfg: deps.SubAgentCfg,
 			Events:      deps.Events,
+			WorkDir:     deps.WorkDir,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
