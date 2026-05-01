@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -68,31 +67,11 @@ func buildChildExecutionRegistry(parent *tool.Registry) *tool.Registry {
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
-func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink) agent.RunRequest {
-	childCtx, _ := scaffoldChildContext(context.Background(), spec)
+// Prompt options must be provided pre-built; the caller (typically BuildChildRun)
+// is responsible for prompt assembly.
+func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions) agent.RunRequest {
 	visibleReg := BuildChildToolRegistry(childReg, delegateToolName)
 	executionReg := buildChildExecutionRegistry(visibleReg)
-
-	taskContent := spec.Task
-	if spec.Context != "" {
-		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
-	}
-
-	conversation := []provider.Message{
-		{Role: provider.MessageRoleUser, Content: taskContent},
-	}
-
-	assemblyOpts := prompt.AssemblyOptions{
-		Conversation: conversation,
-	}
-
-	// Set the system prompt as a preamble via a pre-populated conversation message.
-	if childCtx.SystemPrompt != "" {
-		assemblyOpts.Conversation = append(
-			[]provider.Message{{Role: provider.MessageRoleSystem, Content: childCtx.SystemPrompt}},
-			conversation...,
-		)
-	}
 
 	workDir, _ := os.Getwd()
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
@@ -104,7 +83,7 @@ func buildChildRunRequest(spec DelegationSpec, prov provider.Provider, childReg 
 		Model:    spec.Model,
 		Limits:   baseLimits,
 		Events:   events,
-		Prompt:   assemblyOpts,
+		Prompt:   promptOpts,
 	}
 
 	return req

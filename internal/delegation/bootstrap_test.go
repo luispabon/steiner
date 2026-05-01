@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func TestDeriveChildLimits(t *testing.T) {
@@ -85,6 +86,80 @@ func TestDeriveChildLimits(t *testing.T) {
 			}
 			if got.Timeout != tt.wantTimeout {
 				t.Errorf("Timeout=%v, want %v", got.Timeout, tt.wantTimeout)
+			}
+		})
+	}
+}
+
+func TestBuildChildPrompt(t *testing.T) {
+	tests := []struct {
+		name           string
+		spec           DelegationSpec
+		wantFirstRole  provider.MessageRole
+		wantFirstText  string
+		wantSecondText string
+		wantLen        int
+	}{
+		{
+			name: "default system prompt with task only",
+			spec: DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-1",
+			},
+			wantFirstRole:  provider.MessageRoleSystem,
+			wantFirstText:  "You are a sub-agent. Complete the task given to you.",
+			wantSecondText: "do something",
+			wantLen:        2,
+		},
+		{
+			name: "custom system prompt",
+			spec: DelegationSpec{
+				Task:         "do something",
+				SystemPrompt: "Custom prompt",
+				AgentID:      "test-2",
+			},
+			wantFirstRole:  provider.MessageRoleSystem,
+			wantFirstText:  "Custom prompt",
+			wantSecondText: "do something",
+			wantLen:        2,
+		},
+		{
+			name: "task with context formats correctly",
+			spec: DelegationSpec{
+				Task:    "do something",
+				Context: "relevant info",
+				AgentID: "test-3",
+			},
+			wantFirstRole:  provider.MessageRoleSystem,
+			wantFirstText:  "You are a sub-agent. Complete the task given to you.",
+			wantSecondText: "do something\n\nAdditional context:\nrelevant info",
+			wantLen:        2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			promptOpts, err := buildChildPrompt(tt.spec)
+			if err != nil {
+				t.Fatalf("buildChildPrompt() error = %v", err)
+			}
+			if len(promptOpts.Conversation) != tt.wantLen {
+				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
+			}
+			if len(promptOpts.Conversation) > 0 {
+				first := promptOpts.Conversation[0]
+				if first.Role != tt.wantFirstRole {
+					t.Errorf("Conversation[0].Role = %q, want %q", first.Role, tt.wantFirstRole)
+				}
+				if first.Content != tt.wantFirstText {
+					t.Errorf("Conversation[0].Content = %q, want %q", first.Content, tt.wantFirstText)
+				}
+			}
+			if tt.wantSecondText != "" && len(promptOpts.Conversation) > 1 {
+				second := promptOpts.Conversation[1]
+				if second.Content != tt.wantSecondText {
+					t.Errorf("Conversation[1].Content = %q, want %q", second.Content, tt.wantSecondText)
+				}
 			}
 		})
 	}

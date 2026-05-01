@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -55,6 +56,17 @@ func (c *collectingSink) Emit(e output.Event) {
 	c.events = append(c.events, e)
 }
 
+// testBuildPrompt is a test helper that builds prompt options for a spec.
+// It mirrors the bootstrap path and exists so tests that call buildChildRunRequest
+// directly can construct the prompt parameter without importing bootstrap internals.
+func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
+	p, err := buildChildPrompt(spec)
+	if err != nil {
+		panic("testBuildPrompt: " + err.Error())
+	}
+	return p
+}
+
 func makeSpec(agentID string, outputLimitTokens int) DelegationSpec {
 	return DelegationSpec{
 		Task:    "test task",
@@ -77,7 +89,7 @@ func TestBasicDelegationResult(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink, testBuildPrompt(spec))
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -109,7 +121,7 @@ func TestDelegationEvents(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
-	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink, testBuildPrompt(spec))
 
 	runner := agent.NewRunner()
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -169,7 +181,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink, testBuildPrompt(spec))
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -227,7 +239,7 @@ func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
 	childReg := tool.NewRegistry()
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
-	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink)
+	req := buildChildRunRequest(spec, prov, childReg, agentLimits, sink, testBuildPrompt(spec))
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -262,7 +274,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	)
 
 	spec := makeSpec("agent-6", 1000)
-	req := buildChildRunRequest(spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, parentReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
+	req := buildChildRunRequest(spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, parentReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec))
 
 	if len(req.Tools) != 1 {
 		t.Fatalf("Tools length = %d, want 1", len(req.Tools))
@@ -326,7 +338,7 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 		},
 	}
 
-	req := buildChildRunRequest(spec, prov, tool.NewRegistry(), agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
+	req := buildChildRunRequest(spec, prov, tool.NewRegistry(), agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec))
 	runner := &blockingRunner{}
 	start := time.Now()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
