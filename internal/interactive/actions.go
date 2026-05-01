@@ -1,8 +1,17 @@
 package interactive
 
+import "context"
+
 // Action is the interface for all interactive-mode user actions.
 type Action interface {
 	isInteractiveAction()
+}
+
+// Controller is the interface for handling interactive-mode user actions.
+// Implementations process actions such as prompt submission, approvals,
+// interrupts, and model switches.
+type Controller interface {
+	Handle(ctx context.Context, action Action) error
 }
 
 // SubmitPrompt represents a user submitting a new prompt during an interactive

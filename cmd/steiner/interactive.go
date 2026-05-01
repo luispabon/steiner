@@ -109,68 +109,13 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		Model:           rt.cfg.Model.Model,
 		ModelNames:      modelAliasNames(rt.cfg),
 		ModelContexts:   modelContextSizes(rt.cfg),
+		ModelBaseURLs:   modelBaseURLs(rt.cfg),
 		ProviderBaseURL: selected.BaseURL,
 		HomeDir:         rt.homeDir,
 		WorkingDir:      rt.workDir,
 		MaxTurns:        0,
 		SkillNames:      rt.skillNames,
-		OnSubmit: func(text string) {
-			select {
-			case mode.submissions <- text:
-			default:
-			}
-		},
-		OnContextInspect: func() {
-			select {
-			case mode.contextInspect <- struct{}{}:
-			default:
-			}
-		},
-		OnConfigInspect: func() {
-			select {
-			case mode.configInspect <- struct{}{}:
-			default:
-			}
-		},
-		OnApproval: func(submission tui.ApprovalSubmission) {
-			mode.session.ApprovalCoordinator().Submit(interactive.SubmitApproval{
-				Tool:     submission.Tool,
-				Mode:     submission.Mode,
-				Decision: string(submission.Decision),
-			})
-		},
-		OnInterrupt: func() {
-			mode.session.ActiveRunController().Interrupt()
-		},
-		OnExitRequested: func() {
-			select {
-			case mode.exitRequests <- struct{}{}:
-			default:
-			}
-		},
-		OnSkillToggle: func(name string, enabled bool) {
-			mode.session.Skills().Set(name, enabled)
-		},
-		OnModelSwitch: func(name string) (string, bool) {
-			selected, err := switchModelConfigByAlias(&mode.runner.runtime.cfg, name)
-			if err != nil {
-				mode.rt.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
-				return "", false
-			}
-			return selected.BaseURL, true
-		},
-		OnClear: func() {
-			select {
-			case mode.clearSession <- struct{}{}:
-			default:
-			}
-		},
-		OnCompact: func() {
-			select {
-			case mode.triggerCompact <- struct{}{}:
-			default:
-			}
-		},
+		Controller:      sess,
 	})
 	rt.events = output.NewMultiSink(
 		rt.events,
