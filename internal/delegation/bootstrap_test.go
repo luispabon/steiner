@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -311,5 +312,147 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 	if req.Executor == nil {
 		t.Fatal("BuildChildRun() produced a nil Executor - executor should be non-nil")
+	}
+}
+
+func TestBuildChildRun(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "delegate"},
+		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+
+	tests := []struct {
+		name string
+		spec DelegationSpec
+		want func(t *testing.T, req agent.RunRequest, limits DelegationLimits)
+	}{
+		{
+			name: "default limits and prompt",
+			spec: DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-1",
+				Limits:  DelegationLimits{},
+			},
+			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+				if req.Limits.MaxTurns != 15 {
+					t.Errorf("MaxTurns=%d, want 15", req.Limits.MaxTurns)
+				}
+				if req.Limits.MaxTokens != 100000 {
+					t.Errorf("MaxTokens=%d, want 100000", req.Limits.MaxTokens)
+				}
+				if len(req.Prompt.Conversation) != 2 {
+					t.Fatalf("Conversation length=%d, want 2", len(req.Prompt.Conversation))
+				}
+				if req.Prompt.Conversation[0].Role != provider.MessageRoleSystem {
+					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleSystem)
+				}
+				if req.Prompt.Conversation[0].Content != "You are a sub-agent. Complete the task given to you." {
+					t.Errorf("Conversation[0].Content=%q, want default system prompt", req.Prompt.Conversation[0].Content)
+				}
+				if req.Prompt.Conversation[1].Content != "do something" {
+					t.Errorf("Conversation[1].Content=%q, want 'do something'", req.Prompt.Conversation[1].Content)
+				}
+				for _, ts := range req.Tools {
+					if ts.Function.Name == "delegate" {
+						t.Error("visible provider specs contain delegate tool")
+					}
+				}
+				if len(req.Tools) != 2 {
+					t.Errorf("visible tools=%d, want 2", len(req.Tools))
+				}
+				if req.Executor == nil {
+					t.Error("Executor is nil")
+				}
+				if req.Model != "" {
+					t.Errorf("Model=%q, want empty", req.Model)
+				}
+			},
+		},
+		{
+			name: "with overrides",
+			spec: DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-2",
+				Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50000},
+			},
+			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+				if req.Limits.MaxTurns != 5 {
+					t.Errorf("MaxTurns=%d, want 5", req.Limits.MaxTurns)
+				}
+				if req.Limits.MaxTokens != 50000 {
+					t.Errorf("MaxTokens=%d, want 50000", req.Limits.MaxTokens)
+				}
+			},
+		},
+		{
+			name: "with model override",
+			spec: DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-3",
+				Model:   "gpt-4",
+				Limits:  DelegationLimits{},
+			},
+			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+				if req.Model != "gpt-4" {
+					t.Errorf("Model=%q, want 'gpt-4'", req.Model)
+				}
+			},
+		},
+		{
+			name: "with system prompt override",
+			spec: DelegationSpec{
+				Task:         "do something",
+				AgentID:      "test-4",
+				SystemPrompt: "custom",
+				Limits:       DelegationLimits{},
+			},
+			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+				if len(req.Prompt.Conversation) < 1 {
+					t.Fatal("Conversation empty")
+				}
+				if req.Prompt.Conversation[0].Role != provider.MessageRoleSystem {
+					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleSystem)
+				}
+				if req.Prompt.Conversation[0].Content != "custom" {
+					t.Errorf("Conversation[0].Content=%q, want 'custom'", req.Prompt.Conversation[0].Content)
+				}
+			},
+		},
+		{
+			name: "with context",
+			spec: DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-5",
+				Context: "extra",
+				Limits:  DelegationLimits{},
+			},
+			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+				if len(req.Prompt.Conversation) < 2 {
+					t.Fatal("Conversation length < 2")
+				}
+				want := "do something\n\nAdditional context:\nextra"
+				if req.Prompt.Conversation[1].Content != want {
+					t.Errorf("Conversation[1].Content=%q, want %q", req.Prompt.Conversation[1].Content, want)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := BootstrapDeps{
+				ParentReg:   parent,
+				SubAgentCfg: config.SubAgentConfig{},
+				Events:      output.NoopSink{},
+				WorkDir:     "/tmp/work",
+				Provider:    stubProvider{},
+			}
+			req, _, err := BuildChildRun(context.Background(), deps, tt.spec)
+			if err != nil {
+				t.Fatalf("BuildChildRun() error = %v", err)
+			}
+			tt.want(t, req, DelegationLimits{})
+		})
 	}
 }
