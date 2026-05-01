@@ -19,14 +19,24 @@ type BootstrapDeps struct {
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
-// In this initial stage it delegates to existing helpers; future stages will
-// consolidate prompt, limit, tool, and work-dir logic into this flow.
-func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, error) {
+// It derives final limits by combining SubAgentConfig defaults with spec-level
+// overrides, then delegates internal assembly to existing helpers. Returns the
+// assembled request and the computed DelegationLimits.
+func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
+	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	agentLimits := agent.Limits{
-		MaxTurns:  spec.Limits.MaxTurns,
-		MaxTokens: spec.Limits.OutputLimitTokens,
+		MaxTurns:  limits.MaxTurns,
+		MaxTokens: limits.OutputLimitTokens,
 	}
 	childReg := BuildChildToolRegistry(deps.ParentReg, delegateToolName)
 	req := buildChildRunRequest(spec, deps.Provider, childReg, agentLimits, deps.Events)
-	return req, nil
+	return req, limits, nil
+}
+
+// deriveChildLimits combines SubAgentConfig defaults with overrides from the
+// spec using tighten-only semantics. The returned Limits have all unset override
+// fields filled from configuration defaults.
+func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) DelegationLimits {
+	base := DefaultLimits(cfg)
+	return ApplyOverrides(base, overrides)
 }
