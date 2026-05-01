@@ -57,7 +57,7 @@ type hybridCompactor struct {
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
-	return summarizeCompactionOutcome(ctx, req, state, turn, candidate, candidate.Messages, retainedMessagesForCandidate(state.Lineage, candidate))
+	return summarizeCompactionOutcome(ctx, req, state, turn, candidate, candidate.Messages, nil)
 }
 
 func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
@@ -288,10 +288,6 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 	}
 
 	retained := cloneMessages(retainedMessages)
-	if len(retained) == 0 {
-		retained = cloneMessages(compactionCandidate.Messages)
-	}
-
 	summaryPrefix := []Message{{Role: MessageRoleSummary, Content: summaryText}}
 	nextLineage := state.Lineage.WithNewGeneration(summaryPrefix, retained)
 	nextState := state.Clone()

@@ -183,6 +183,9 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	if got, want := len(providerStub.requests), 1; got != want {
 		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
 	}
+	if got, want := len(outcome.State.Conversation), 1; got != want {
+		t.Fatalf("len(conversation) = %d, want 1 (summary only, no retained messages)", got)
+	}
 	if got, want := outcome.State.Conversation[0].Role, MessageRoleSummary; got != want {
 		t.Fatalf("conversation[0].role = %q, want %q", got, want)
 	}
@@ -194,6 +197,81 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	}
 	if got, want := outcome.State.Context.RetainedSummaries[0].Text, "summary handoff text"; got != want {
 		t.Fatalf("retained summary text = %q, want %q", got, want)
+	}
+}
+
+func TestSummarizeCompactorDoesNotRetainMessagesOnRecompaction(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "recompaction summary",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "original user"},
+				{Role: MessageRoleAssistant, Content: "original assistant"},
+			}),
+			newConversationGeneration(2, []Message{
+				{Role: MessageRoleSummary, Content: "first compaction summary"},
+			}, []Message{
+				{Role: MessageRoleUser, Content: "post-compaction user"},
+				{Role: MessageRoleAssistant, Content: "post-compaction assistant"},
+			}),
+		},
+		NextGenerationID: 3,
+	}
+
+	state := RunState{
+		Conversation: lineage.FullMessages(),
+		Lineage:      lineage,
+	}
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(
+		context.Background(),
+		RunRequest{
+			Provider: providerStub,
+			Model:    "test-model",
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         100000,
+				MaxCompletionTokens: 256,
+				SafetyMarginTokens:  0,
+				SummaryMaxTokens:    128,
+			},
+		},
+		state,
+		5,
+		candidate,
+	)
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
+	}
+	if got, want := len(outcome.State.Conversation), 1; got != want {
+		t.Fatalf("len(conversation) = %d, want 1 (summary only, no old messages retained)", got)
+	}
+	if got, want := outcome.State.Conversation[0].Role, MessageRoleSummary; got != want {
+		t.Fatalf("conversation[0].role = %q, want %q", got, want)
+	}
+	if got, want := outcome.State.Conversation[0].Content, "recompaction summary"; got != want {
+		t.Fatalf("conversation[0].content = %q, want %q", got, want)
 	}
 }
 
