@@ -8,16 +8,21 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// ApprovalResponder handles tool execution approval prompts.
 type ApprovalResponder interface {
 	RequestApproval(ctx context.Context, req ApprovalRequest) error
 }
 
+// ApprovalResponderFunc is an adapter that turns a plain function into an
+// ApprovalResponder.
 type ApprovalResponderFunc func(ctx context.Context, req ApprovalRequest) error
 
 func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req ApprovalRequest) error {
 	return f(ctx, req)
 }
 
+// Executor runs tool definitions through a resolution, normalization, approval,
+// and dispatch pipeline. The caller-facing seam is Execute.
 type Executor struct {
 	registry    *Registry
 	approval    ApprovalResolver
@@ -44,6 +49,8 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 	}
 }
 
+// Execute runs toolName with the given input through the full execution pipeline
+// and returns the decoded result or a structured ToolExecutionError.
 func (e *Executor) Execute(ctx context.Context, toolName string, input map[string]any) (any, error) {
 	return e.runPipeline(ctx, executionInput{ToolName: toolName, Input: input})
 }

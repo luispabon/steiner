@@ -99,6 +99,19 @@ func (e *Executor) normalizeExecutionInput(def ToolDef, input map[string]any) (m
 	return normalizedInput, nil
 }
 
+func (e *Executor) resolveApprovalState(def ToolDef, normalizedInput map[string]any) (config.ApprovalMode, ApprovalPreview, error) {
+	mode := e.approval.ModeFor(def)
+	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
+	if err != nil {
+		return mode, ApprovalPreview{}, &ToolExecutionError{
+			Tool:    def.Name,
+			Kind:    "policy_denied",
+			Message: err.Error(),
+		}
+	}
+	return mode, preview, nil
+}
+
 func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, error) {
 	def, err := e.resolveDefinition(in)
 	if err != nil {
@@ -110,14 +123,9 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	mode := e.approval.ModeFor(def)
-	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
+	mode, preview, err := e.resolveApprovalState(def, normalizedInput)
 	if err != nil {
-		return nil, &ToolExecutionError{
-			Tool:    def.Name,
-			Kind:    "policy_denied",
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
 	ec := executionContext{
