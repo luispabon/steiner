@@ -13,17 +13,24 @@ type executionInput struct {
 	Input    map[string]any
 }
 
-func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, error) {
-	if e == nil || e.registry == nil {
-		return nil, fmt.Errorf("tool executor is not configured")
-	}
+type executionContext struct {
+	Def             ToolDef
+	NormalizedInput map[string]any
+}
 
+func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
+	if e == nil || e.registry == nil {
+		return ToolDef{}, fmt.Errorf("tool executor is not configured")
+	}
 	def, ok := e.registry.Get(in.ToolName)
 	if !ok {
-		return nil, fmt.Errorf("tool %q is not registered", in.ToolName)
+		return ToolDef{}, fmt.Errorf("tool %q is not registered", in.ToolName)
 	}
+	return def, nil
+}
 
-	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, in.Input)
+func (e *Executor) normalizeExecutionInput(def ToolDef, input map[string]any) (map[string]any, error) {
+	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
 	if err != nil {
 		return nil, &ToolExecutionError{
 			Tool:    def.Name,
@@ -31,12 +38,30 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 			Message: err.Error(),
 		}
 	}
+	return normalizedInput, nil
+}
 
-	mode := e.approval.ModeFor(def)
-	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
+func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, error) {
+	def, err := e.resolveDefinition(in)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedInput, err := e.normalizeExecutionInput(def, in.Input)
+	if err != nil {
+		return nil, err
+	}
+
+	ec := executionContext{
+		Def:             def,
+		NormalizedInput: normalizedInput,
+	}
+
+	mode := e.approval.ModeFor(ec.Def)
+	preview, err := e.approval.PreviewFor(ec.Def, ec.NormalizedInput, e.pathPolicy)
 	if err != nil {
 		return nil, &ToolExecutionError{
-			Tool:    def.Name,
+			Tool:    ec.Def.Name,
 			Kind:    "policy_denied",
 			Message: err.Error(),
 		}
@@ -45,29 +70,29 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	switch {
 	case IsApprovalDenied(mode):
 		return nil, &ToolExecutionError{
-			Tool:    def.Name,
+			Tool:    ec.Def.Name,
 			Kind:    "approval_denied",
 			Message: "tool execution denied by approval policy",
 		}
 	case IsApprovalPrompt(mode):
 		if e.approver == nil {
 			return nil, &ToolExecutionError{
-				Tool:    def.Name,
+				Tool:    ec.Def.Name,
 				Kind:    "approval_required",
 				Message: "tool execution requires approval",
 			}
 		}
 		responseCh := make(chan ApprovalResponse, 1)
 		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
-			Tool:     def,
+			Tool:     ec.Def,
 			Mode:     mode,
-			Input:    CloneJSONMap(normalizedInput),
+			Input:    CloneJSONMap(ec.NormalizedInput),
 			WorkDir:  e.pathPolicy.Root(),
 			Preview:  preview,
 			Response: responseCh,
 		}); err != nil {
 			return nil, &ToolExecutionError{
-				Tool:    def.Name,
+				Tool:    ec.Def.Name,
 				Kind:    "approval_failed",
 				Message: err.Error(),
 			}
@@ -84,43 +109,43 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 				message = "tool execution denied"
 			}
 			return nil, &ToolExecutionError{
-				Tool:    def.Name,
+				Tool:    ec.Def.Name,
 				Kind:    "approval_denied",
 				Message: message,
 			}
 		}
 	}
 
-	if def.Handler != nil {
-		return def.Handler(ctx, normalizedInput)
+	if ec.Def.Handler != nil {
+		return ec.Def.Handler(ctx, ec.NormalizedInput)
 	}
 
-	payload, err := json.Marshal(CloneJSONMap(normalizedInput))
+	payload, err := json.Marshal(CloneJSONMap(ec.NormalizedInput))
 	if err != nil {
-		return nil, fmt.Errorf("marshal tool input for %q: %w", def.Name, err)
+		return nil, fmt.Errorf("marshal tool input for %q: %w", ec.Def.Name, err)
 	}
 
 	execCtx := ctx
 	var cancel context.CancelFunc
-	if def.Timeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, def.Timeout)
+	if ec.Def.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, ec.Def.Timeout)
 		defer cancel()
 	}
 
 	workDir := e.pathPolicy.Root()
-	if def.Name == "bash" {
-		if cwd, ok := normalizedInput["cwd"].(string); ok && strings.TrimSpace(cwd) != "" {
+	if ec.Def.Name == "bash" {
+		if cwd, ok := ec.NormalizedInput["cwd"].(string); ok && strings.TrimSpace(cwd) != "" {
 			workDir = cwd
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, def, payload, workDir, e.outputLimit)
+	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
 		}
 		return nil, &ToolExecutionError{
-			Tool:     def.Name,
+			Tool:     ec.Def.Name,
 			Kind:     "subprocess_failed",
 			Message:  runErr.Error(),
 			ExitCode: metadata.ExitCode,
@@ -132,7 +157,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	var envelope JSONEnvelope
 	if err := json.Unmarshal(stdout, &envelope); err != nil {
 		return nil, &ToolExecutionError{
-			Tool:     def.Name,
+			Tool:     ec.Def.Name,
 			Kind:     "invalid_json",
 			Message:  "tool output was not valid JSON",
 			ExitCode: metadata.ExitCode,
@@ -149,7 +174,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 			}
 		}
 		return nil, &ToolExecutionError{
-			Tool:     def.Name,
+			Tool:     ec.Def.Name,
 			Kind:     envelope.Error.Kind,
 			Message:  envelope.Error.Message,
 			ExitCode: metadata.ExitCode,
