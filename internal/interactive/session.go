@@ -127,11 +127,16 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	case RequestConfigReport:
 		s.emitConfigReport()
 		return nil
+	case TriggerManualCompaction:
+		go s.manualCompaction(ctx)
+		return nil
+	case RequestExit:
+		return nil
+	case SetSkillEnabled:
+		s.skills.Set(a.Name, a.Enabled)
+		return nil
 	case SubmitApproval,
-		RequestExit,
-		SetSkillEnabled,
-		SwitchModel,
-		TriggerManualCompaction:
+		SwitchModel:
 		return nil
 	default:
 		return fmt.Errorf("handle: unknown action type %T", action)
