@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 type executionInput struct {
@@ -16,6 +18,60 @@ type executionInput struct {
 type executionContext struct {
 	Def             ToolDef
 	NormalizedInput map[string]any
+	ApprovalMode    config.ApprovalMode
+	Preview         ApprovalPreview
+}
+
+func (e *Executor) authorizeExecution(ctx context.Context, ec *executionContext) error {
+	switch {
+	case IsApprovalDenied(ec.ApprovalMode):
+		return &ToolExecutionError{
+			Tool:    ec.Def.Name,
+			Kind:    "approval_denied",
+			Message: "tool execution denied by approval policy",
+		}
+	case IsApprovalPrompt(ec.ApprovalMode):
+		if e.approver == nil {
+			return &ToolExecutionError{
+				Tool:    ec.Def.Name,
+				Kind:    "approval_required",
+				Message: "tool execution requires approval",
+			}
+		}
+		responseCh := make(chan ApprovalResponse, 1)
+		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
+			Tool:     ec.Def,
+			Mode:     ec.ApprovalMode,
+			Input:    CloneJSONMap(ec.NormalizedInput),
+			WorkDir:  e.pathPolicy.Root(),
+			Preview:  ec.Preview,
+			Response: responseCh,
+		}); err != nil {
+			return &ToolExecutionError{
+				Tool:    ec.Def.Name,
+				Kind:    "approval_failed",
+				Message: err.Error(),
+			}
+		}
+		decision := ApprovalResponse{}
+		select {
+		case decision = <-responseCh:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if !decision.Allow {
+			message := strings.TrimSpace(decision.Message)
+			if message == "" {
+				message = "tool execution denied"
+			}
+			return &ToolExecutionError{
+				Tool:    ec.Def.Name,
+				Kind:    "approval_denied",
+				Message: message,
+			}
+		}
+	}
+	return nil
 }
 
 func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
@@ -52,68 +108,25 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	ec := executionContext{
-		Def:             def,
-		NormalizedInput: normalizedInput,
-	}
-
-	mode := e.approval.ModeFor(ec.Def)
-	preview, err := e.approval.PreviewFor(ec.Def, ec.NormalizedInput, e.pathPolicy)
+	mode := e.approval.ModeFor(def)
+	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
 	if err != nil {
 		return nil, &ToolExecutionError{
-			Tool:    ec.Def.Name,
+			Tool:    def.Name,
 			Kind:    "policy_denied",
 			Message: err.Error(),
 		}
 	}
 
-	switch {
-	case IsApprovalDenied(mode):
-		return nil, &ToolExecutionError{
-			Tool:    ec.Def.Name,
-			Kind:    "approval_denied",
-			Message: "tool execution denied by approval policy",
-		}
-	case IsApprovalPrompt(mode):
-		if e.approver == nil {
-			return nil, &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_required",
-				Message: "tool execution requires approval",
-			}
-		}
-		responseCh := make(chan ApprovalResponse, 1)
-		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
-			Tool:     ec.Def,
-			Mode:     mode,
-			Input:    CloneJSONMap(ec.NormalizedInput),
-			WorkDir:  e.pathPolicy.Root(),
-			Preview:  preview,
-			Response: responseCh,
-		}); err != nil {
-			return nil, &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_failed",
-				Message: err.Error(),
-			}
-		}
-		decision := ApprovalResponse{}
-		select {
-		case decision = <-responseCh:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		if !decision.Allow {
-			message := strings.TrimSpace(decision.Message)
-			if message == "" {
-				message = "tool execution denied"
-			}
-			return nil, &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_denied",
-				Message: message,
-			}
-		}
+	ec := executionContext{
+		Def:             def,
+		NormalizedInput: normalizedInput,
+		ApprovalMode:    mode,
+		Preview:         preview,
+	}
+
+	if err := e.authorizeExecution(ctx, &ec); err != nil {
+		return nil, err
 	}
 
 	if ec.Def.Handler != nil {
