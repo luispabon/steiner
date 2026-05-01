@@ -135,7 +135,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 // executeTool dispatches tool execution to the appropriate phase:
 //   - handler execution, if the tool defines a Handler
 //   - subprocess execution, with JSON input marshaling, per-tool timeout,
-//     work-dir selection, and JSON envelope decoding
+//     work-dir selection, and output decoding via decodeExecutionOutput
 func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, error) {
 	if ec.Def.Handler != nil {
 		return ec.Def.Handler(ctx, ec.NormalizedInput)
@@ -175,10 +175,17 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
+	return decodeExecutionOutput(stdout, metadata, ec.Def.Name)
+}
+
+// decodeExecutionOutput decodes the JSON envelope from subprocess stdout
+// and shapes the result into either an ExecutionResult or a structured error
+// carrying execution metadata.
+func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName string) (any, error) {
 	var envelope JSONEnvelope
 	if err := json.Unmarshal(stdout, &envelope); err != nil {
 		return nil, &ToolExecutionError{
-			Tool:     ec.Def.Name,
+			Tool:     toolName,
 			Kind:     "invalid_json",
 			Message:  "tool output was not valid JSON",
 			ExitCode: metadata.ExitCode,
@@ -195,7 +202,7 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 			}
 		}
 		return nil, &ToolExecutionError{
-			Tool:     ec.Def.Name,
+			Tool:     toolName,
 			Kind:     envelope.Error.Kind,
 			Message:  envelope.Error.Message,
 			ExitCode: metadata.ExitCode,

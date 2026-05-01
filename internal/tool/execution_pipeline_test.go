@@ -214,6 +214,72 @@ func TestExecuteToolTimeout(t *testing.T) {
 	}
 }
 
+func TestDecodeExecutionOutputCommandNotFound(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:     "nonexistent",
+		ExecPath: "/path/to/nonexistent/binary",
+		Approval: config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "nonexistent", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want subprocess_failed")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "subprocess_failed" {
+		t.Fatalf("error kind = %q, want subprocess_failed", toolErr.Kind)
+	}
+}
+
+func TestDecodeExecutionOutputEnvelopeNotOK(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 1}
+	_, err := decodeExecutionOutput([]byte(`{"ok":false,"error":{"kind":"custom_fail","message":"nope"}}`), metadata, "test_tool")
+	if err == nil {
+		t.Fatal("decodeExecutionOutput() error = nil, want ToolExecutionError")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "custom_fail" {
+		t.Fatalf("error kind = %q, want custom_fail", toolErr.Kind)
+	}
+	if toolErr.Message != "nope" {
+		t.Fatalf("error message = %q, want 'nope'", toolErr.Message)
+	}
+	if toolErr.ExitCode != 1 {
+		t.Fatalf("error exit code = %d, want 1", toolErr.ExitCode)
+	}
+}
+
+func TestDecodeExecutionOutputSuccess(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 0}
+	result, err := decodeExecutionOutput([]byte(`{"ok":true,"result":{"status":"ok"}}`), metadata, "test_tool")
+	if err != nil {
+		t.Fatalf("decodeExecutionOutput() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	resultMap, ok := execResult.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("result value type = %T, want map[string]any", execResult.Value)
+	}
+	if resultMap["status"] != "ok" {
+		t.Fatalf("result status = %v, want 'ok'", resultMap["status"])
+	}
+	if execResult.Metadata.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", execResult.Metadata.ExitCode)
+	}
+}
+
 func TestExecuteToolBashCwdOverride(t *testing.T) {
 	helper := mustBuildHelperBinary(t)
 	reg := NewRegistry(ToolDef{
