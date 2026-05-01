@@ -128,6 +128,9 @@ func validate(cfg Config) error {
 			problems = append(problems, err.Error())
 		}
 	}
+	if cfg.ContextManagement.MaskingWindowTurns <= 0 {
+		problems = append(problems, "context_management.masking_window_turns must be at least 1")
+	}
 
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid config: %s", strings.Join(problems, "; "))

@@ -19,6 +19,8 @@ type configPatch struct {
 type contextManagementPatch struct {
 	Mode               *ContextMode        `yaml:"mode"`
 	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
+	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
+	ReadAnnotations    *bool               `yaml:"read_annotations"`
 }
 
 type schedulerPatch struct {
@@ -343,5 +345,11 @@ func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextMan
 	}
 	if patch.CompactionStrategy != nil {
 		dst.CompactionStrategy = *patch.CompactionStrategy
+	}
+	if patch.MaskingWindowTurns != nil {
+		dst.MaskingWindowTurns = *patch.MaskingWindowTurns
+	}
+	if patch.ReadAnnotations != nil {
+		dst.ReadAnnotations = *patch.ReadAnnotations
 	}
 }

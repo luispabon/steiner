@@ -35,6 +35,8 @@ const (
 type ContextManagementConfig struct {
 	Mode               ContextMode        `yaml:"mode"`
 	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
+	MaskingWindowTurns int                `yaml:"masking_window_turns"`
+	ReadAnnotations    bool               `yaml:"read_annotations"`
 }
 
 // Config is the complete application configuration.

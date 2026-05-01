@@ -19,8 +19,8 @@
 |------|-----------|--------|
 | stage-1-step-1 | Foundation: ContextManager interface, config, CLI, naive mode | implemented |
 | stage-2-step-1 | Ingestion: truncation + noise stripping | implemented |
-| stage-3-step-1 | Assembly masking: observation + prose masking | pending |
-| stage-3-step-2 | File tracker: metadata tracking + annotation | pending |
+| stage-3-step-1 | Assembly masking: observation + prose masking | implemented |
+| stage-3-step-2 | File tracker: metadata tracking + annotation | implemented |
 | stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | pending |
 | stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | pending |
 | stage-6-step-1 | Observability + end-to-end integration | pending |
@@ -92,6 +92,9 @@ stage-1-step-1
 
 - `go test ./internal/tool/... -run 'TestTruncation|TestNoiseStrip'` — passed
 - `go test ./internal/agent/... -run 'Test(PostIngestion|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
+- `go test ./internal/prompt/... -run 'TestMask|TestPlanSourceAssembly|TestAssemble'` — passed
+- `go test ./internal/agent/... -run 'Test(PostIngestion|PreAssembly|FileTracker|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
+- `go test ./internal/config/... -run 'TestValidate|TestContextMode'` — passed
 
 ## Blockers / Deviations
 
@@ -100,3 +103,23 @@ stage-1-step-1
   - the implementation commits landed on the execution branch instead of the temp branch
   - cleanup required removing stray worktree/branch state outside the planned isolated flow
 - Treat isolated sub-agent execution as unsafe until proven otherwise; use direct fallback for subsequent implementation steps if execution continues in this runtime.
+
+### 2026-05-01 — stage-3-step-1 and stage-3-step-2 implemented
+- Execution mode: direct fallback on the execution branch because isolated sub-agent execution remains unsafe in this runtime
+- `stage-3-step-1` outcome:
+  - added pure prompt-side masking in `internal/prompt/masking.go`
+  - older assistant prose now trims to the first line outside the recent masking window
+  - older tool results are replaced with placeholders that preserve tool name and argument summary
+  - tool-call metadata remains attached to the assistant tool-call message; recent turns remain unchanged
+- `stage-3-step-2` outcome:
+  - added `FileTracker` in `internal/agent/file_tracker.go`
+  - smart mode now tracks successful `read` results by path, line range, turn, and file mtime
+  - unchanged repeated reads of the same range return an annotation instead of the full file body when read annotations are enabled
+  - tracker state lives on the context manager and survives prompt assembly and future compaction steps
+- Config added for smart mode:
+  - `context_management.masking_window_turns` default `5`
+  - `context_management.read_annotations` default `true`
+- Wiring changes:
+  - `SmartContextManager.PreAssembly` now applies prompt masking non-destructively
+  - `SmartContextManager.IngestToolResult` now handles `read` tracking and annotation
+  - CLI runner now constructs the context manager with full context-management config

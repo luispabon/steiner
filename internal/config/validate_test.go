@@ -57,6 +57,8 @@ func validBase() Config {
 		ContextManagement: ContextManagementConfig{
 			Mode:               ContextModeNaive,
 			CompactionStrategy: CompactionStrategyDrop,
+			MaskingWindowTurns: 5,
+			ReadAnnotations:    true,
 		},
 	}
 }
