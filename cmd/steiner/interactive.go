@@ -123,6 +123,9 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		return nil, fmt.Errorf("build interactive registry: %w", err)
 	}
 	rt.registry = interactiveRegistry
+	mode.runner.runtime.registry = interactiveRegistry
+	rt.toolNames = interactiveRegistry.Names()
+	mode.runner.runtime.toolNames = append([]string(nil), rt.toolNames...)
 
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {

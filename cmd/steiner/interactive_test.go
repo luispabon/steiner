@@ -286,6 +286,33 @@ func TestInteractiveRunnerUsesWrappedEventSink(t *testing.T) {
 	}
 }
 
+func TestInteractiveRunnerUsesRebuiltInteractiveRegistry(t *testing.T) {
+	initial := tool.NewRegistry(tool.ToolDef{Name: "display_file", Description: "non-interactive"})
+	interactive := tool.NewRegistry(tool.ToolDef{Name: "display_file", Description: "interactive"})
+
+	rt := cliRuntime{
+		registry:  initial,
+		toolNames: initial.Names(),
+	}
+	runner := cliRunner{runtime: rt}
+
+	rt.registry = interactive
+	rt.toolNames = interactive.Names()
+	runner.runtime.registry = interactive
+	runner.runtime.toolNames = append([]string(nil), rt.toolNames...)
+
+	got, ok := runner.runtime.registry.Get("display_file")
+	if !ok {
+		t.Fatal("runner registry missing display_file")
+	}
+	if got.Description != "interactive" {
+		t.Fatalf("runner display_file description = %q, want %q", got.Description, "interactive")
+	}
+	if len(runner.runtime.toolNames) != 1 || runner.runtime.toolNames[0] != "display_file" {
+		t.Fatalf("runner toolNames = %#v, want [display_file]", runner.runtime.toolNames)
+	}
+}
+
 func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	oldRunTeaProgram := runTeaProgram
