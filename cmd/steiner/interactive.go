@@ -67,11 +67,6 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt.registry = interactiveRegistry
 	rt.toolNames = interactiveRegistry.Names()
 
-	// Create runner with updated registry and approver, then wire into session.
-	runner := cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}
-	runner.approver = sess.Approver(rt.events)
-	sess.SetRunner(sessionRunner{runner: runner})
-
 	selected, err := selectedModelConfig(rt.cfg)
 	if err != nil {
 		return err
@@ -90,9 +85,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		Controller:      sess,
 	})
 
-	// Attach TUI sink to session event bus.
+	// Attach TUI sink to session event bus before creating the runner,
+	// so the runner's copy of the runtime picks up the multi-sink events.
 	rt.events = output.NewMultiSink(sess.EventSink(), tuiApp.EventSink())
-	runner.runtime.events = rt.events
+
+	// Create runner with updated registry and approver, then wire into session.
+	runner := cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}
+	runner.approver = sess.Approver(rt.events)
+	sess.SetRunner(sessionRunner{runner: runner})
 
 	// Wire display_file forward target to TUI.
 	sess.DisplaySink().Set(tuiApp.EventSink())

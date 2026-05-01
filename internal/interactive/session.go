@@ -150,6 +150,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		s.skills.Set(a.Name, a.Enabled)
 		return nil
 	case SubmitApproval:
+		s.approvalCoordinator.Submit(a)
 		return nil
 	case SwitchModel:
 		_, err := config.SwitchModelConfigByAlias(&s.deps.Config, a.Name)
