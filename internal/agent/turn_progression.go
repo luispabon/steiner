@@ -110,7 +110,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
 		} else {
 			normalizedResult := normalizeToolResult(result)
-			toolContent = normalizedResult.Content
+			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, call.Name, normalizedResult.Content)
 			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}

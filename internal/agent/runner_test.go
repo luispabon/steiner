@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -135,6 +136,103 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
+	}
+}
+
+func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{
+							ID:   "call_1",
+							Name: "bash",
+							Arguments: map[string]any{
+								"command": "echo test",
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 7},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3},
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "bash" {
+				return nil, fmt.Errorf("tool = %s, want bash", toolName)
+			}
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"exit_code": 1,
+					"output":    "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+				},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 1,
+				},
+			}, nil
+		},
+	}
+
+	runner := NewRunner()
+	state, err := runner.Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: &SmartContextManager{},
+		Tools:          []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "Run shell commands", Parameters: map[string]any{"type": "object"}}}},
+		Prompt:         prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
+		Model:          "test-model",
+		MaxTokens:      intPtr(64),
+		Limits:         Limits{MaxTurns: 4, MaxTokens: 50},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	second := providerStub.requests[1]
+	if got := second.Messages[len(second.Messages)-1].ToolCallID; got != "call_1" {
+		t.Fatalf("tool call id = %q, want call_1", got)
+	}
+	var toolResult struct {
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(second.Messages[len(second.Messages)-1].Content), &toolResult); err != nil {
+		t.Fatalf("unmarshal tool result: %v", err)
+	}
+	if strings.Contains(toolResult.Output, "HEAD-SENTINEL") {
+		t.Fatalf("tool result output = %q, want head truncated at append time", toolResult.Output)
+	}
+	if strings.Contains(toolResult.Output, "\x1b[") {
+		t.Fatalf("tool result output = %q, want ANSI stripped", toolResult.Output)
+	}
+	if !strings.Contains(toolResult.Output, "warning: retry (repeated 3x)") {
+		t.Fatalf("tool result output = %q, want repeated warning collapse", toolResult.Output)
+	}
+	if !toolResult.Truncated {
+		t.Fatal("tool result truncated = false, want true")
+	}
+	if !strings.Contains(toolResult.Message, "<truncated output shown=") {
+		t.Fatalf("tool result message = %q, want truncation marker", toolResult.Message)
 	}
 }
 

@@ -51,6 +51,12 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	return state, nil
 }
 
+// IngestToolResult shapes a newly produced tool result before it enters the
+// active conversation history.
+func (s *SmartContextManager) IngestToolResult(toolName, content string) string {
+	return tool.ShapeIngestedToolResult(toolName, content)
+}
+
 // NewContextManager constructs the appropriate ContextManager for the given
 // mode. An unrecognised mode falls back to NaiveContextManager.
 func NewContextManager(mode string) ContextManager {
@@ -93,4 +99,14 @@ func normalizeIngestedMessage(message Message) Message {
 	}
 	message.Content = tool.ShapeIngestedToolResult(message.Name, message.Content)
 	return message
+}
+
+func shapeIngestedToolResultForContextManager(cm ContextManager, toolName, content string) string {
+	type toolResultIngestor interface {
+		IngestToolResult(toolName, content string) string
+	}
+	if ingestor, ok := cm.(toolResultIngestor); ok {
+		return ingestor.IngestToolResult(toolName, content)
+	}
+	return content
 }
