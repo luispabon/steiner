@@ -583,6 +583,28 @@ func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.
 	}
 }
 
+func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
+	ctrl := &testController{err: errors.New("model not found")}
+
+	m := newModel(Config{
+		Model:         "original",
+		ModelContexts: map[string]int{"original": 1024},
+		Controller:    ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.applyModelSelection("original", "")
+
+	m.input.SetValue("/model unknown")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got, want := m.status.model, "original"; got != want {
+		t.Fatalf("status.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.model, "original"; got != want {
+		t.Fatalf("sidebar.model = %q, want %q", got, want)
+	}
+}
+
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	ctrl := &testController{}
 

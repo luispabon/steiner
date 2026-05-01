@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
@@ -90,7 +91,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt.events = sess.EventSink()
 
 	// Create runner with updated registry and approver, then wire into session.
-	runner := cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}
+	runner := cliRunner{
+		runtime:            rt,
+		runMode:            "interactive",
+		streamingPreferred: true,
+		currentModel:       func() config.ModelConfig { return sess.CurrentModelConfig() },
+	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})
 

@@ -32,7 +32,7 @@ func (b *contentBuffer) String(width int) string {
 	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, preview)
 	}
-	parts = append(parts, b.streamingIndicatorView())
+
 	return strings.Join(parts, "")
 }
 

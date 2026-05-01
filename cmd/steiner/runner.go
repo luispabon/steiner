@@ -21,6 +21,7 @@ type cliRunner struct {
 	maxTurns           int
 	runMode            string
 	streamingPreferred bool
+	currentModel       func() config.ModelConfig
 }
 
 type runResult struct {
@@ -37,10 +38,13 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	if err != nil {
 		return runResult{}, err
 	}
+	if r.currentModel != nil {
+		selected = r.currentModel()
+	}
 
 	prov := r.runtime.provider
 	if r.runtime.providerFactory != nil {
-		prov, err = r.runtime.providerFactory(r.runtime.cfg.Model)
+		prov, err = r.runtime.providerFactory(selected)
 		if err != nil {
 			return runResult{}, err
 		}
