@@ -47,6 +47,18 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
+	if response.Message.Content != "" {
+		sanitized, note := processAssistantResponseForContextManager(in.Request.ContextManager, turn, response.Message.Content)
+		response.Message.Content = sanitized
+		if note != "" {
+			emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Turn:     turn,
+				Notes:    []string{note},
+			}))
+		}
+	}
 	state := in.State
 	state.TurnCount = turn
 	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)

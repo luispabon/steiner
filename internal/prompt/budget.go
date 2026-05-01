@@ -106,6 +106,8 @@ func (m SourceBudgetModel) limitFor(source ContextSource) int {
 		return m.SkillBytes
 	case ContextSourceDurableContext:
 		return m.DurableContextBytes
+	case ContextSourceScratchpad:
+		return m.DurableContextBytes
 	case ContextSourceToolSummary, ContextSourceDelegationResult:
 		return m.ToolSummaryBytes
 	case ContextSourceToolResult:
@@ -135,6 +137,7 @@ func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 			ContextSourceProjectContext:   model.ProjectContextBytes,
 			ContextSourceSkill:            model.SkillBytes,
 			ContextSourceDurableContext:   model.DurableContextBytes,
+			ContextSourceScratchpad:       model.DurableContextBytes,
 			ContextSourceToolResult:       model.ToolResultBytes,
 			ContextSourceToolSummary:      model.ToolSummaryBytes,
 			ContextSourceDelegationResult: model.ToolSummaryBytes,

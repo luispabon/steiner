@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"strings"
+
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -79,14 +81,20 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	base.Conversation = toProviderMessages(conversation)
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
+	base.ScratchpadEnabled = base.ScratchpadEnabled || strings.TrimSpace(state.Context.Scratchpad) != ""
 	return base
 }
 
 func toPromptContext(state ContextState) prompt.DurableContextState {
 	out := prompt.DurableContextState{
-		ActiveConstraints: make([]prompt.DurableContextEntry, 0, len(state.ActiveConstraints)),
-		UnresolvedWork:    make([]prompt.DurableContextEntry, 0, len(state.UnresolvedWork)),
-		RetainedSummaries: make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
+		ActiveConstraints:  make([]prompt.DurableContextEntry, 0, len(state.ActiveConstraints)),
+		UnresolvedWork:     make([]prompt.DurableContextEntry, 0, len(state.UnresolvedWork)),
+		RetainedSummaries:  make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
+		FileTrackerSummary: cloneStrings(state.FileTrackerSummary),
+		RecentToolCalls:    cloneStrings(state.RecentToolCalls),
+		TurnCount:          state.TurnCount,
+		CompactionCount:    state.CompactionCount,
+		Scratchpad:         state.Scratchpad,
 	}
 	for _, item := range state.ActiveConstraints {
 		out.ActiveConstraints = append(out.ActiveConstraints, prompt.DurableContextEntry{
@@ -122,9 +130,14 @@ func toPromptContext(state ContextState) prompt.DurableContextState {
 
 func fromPromptContext(state prompt.DurableContextState) ContextState {
 	out := ContextState{
-		ActiveConstraints: make([]ActiveConstraint, 0, len(state.ActiveConstraints)),
-		UnresolvedWork:    make([]UnresolvedWorkItem, 0, len(state.UnresolvedWork)),
-		RetainedSummaries: make([]RetainedSummary, 0, len(state.RetainedSummaries)),
+		ActiveConstraints:  make([]ActiveConstraint, 0, len(state.ActiveConstraints)),
+		UnresolvedWork:     make([]UnresolvedWorkItem, 0, len(state.UnresolvedWork)),
+		RetainedSummaries:  make([]RetainedSummary, 0, len(state.RetainedSummaries)),
+		FileTrackerSummary: cloneStrings(state.FileTrackerSummary),
+		RecentToolCalls:    cloneStrings(state.RecentToolCalls),
+		TurnCount:          state.TurnCount,
+		CompactionCount:    state.CompactionCount,
+		Scratchpad:         state.Scratchpad,
 	}
 	for _, item := range state.ActiveConstraints {
 		out.ActiveConstraints = append(out.ActiveConstraints, ActiveConstraint{

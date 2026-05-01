@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -43,6 +44,8 @@ type SmartContextManager struct {
 	readAnnotations    bool
 	configApplied      bool
 	fileTracker        FileTracker
+	scratchpad         Scratchpad
+	scratchpadFailures int
 }
 
 // PostIngestion normalizes tool output in the loaded conversation.
@@ -56,6 +59,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 // PreAssembly applies non-destructive prompt-time masking on a copy of state.
 func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (RunState, error) {
 	next := state.Clone()
+	next.Context = s.enrichContextState(next)
 	conversation := next.Lineage.SummaryPrefixStrippedMessages()
 	if len(conversation) == 0 {
 		conversation = next.Conversation
@@ -64,6 +68,23 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
 	return next, nil
+}
+
+// IngestAssistantResponse captures model-written scratchpad state and strips it
+// from the visible assistant reply.
+func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (string, string) {
+	next, ok := ParseScratchpad(content, s.scratchpad)
+	if !ok {
+		s.scratchpadFailures++
+		note := ""
+		if s.scratchpadFailures >= 3 {
+			note = "scratchpad block missing or invalid in 3+ consecutive assistant replies"
+		}
+		return strings.TrimSpace(content), note
+	}
+	s.scratchpad = next
+	s.scratchpadFailures = 0
+	return StripScratchpad(content), ""
 }
 
 // IngestToolResult shapes a newly produced tool result before it enters the
@@ -127,6 +148,15 @@ func (s *SmartContextManager) annotationsEnabled() bool {
 	return s.readAnnotations
 }
 
+func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
+	next := state.Context.Clone()
+	next.TurnCount = state.TurnCount
+	next.Scratchpad = s.scratchpad.Render()
+	next.FileTrackerSummary = s.fileTracker.Summaries(5)
+	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
+	return next
+}
+
 func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolName, content string) string {
 	type toolResultIngestor interface {
 		IngestToolResult(turn int, toolName, content string) string
@@ -135,4 +165,58 @@ func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolN
 		return ingestor.IngestToolResult(turn, toolName, content)
 	}
 	return content
+}
+
+func processAssistantResponseForContextManager(cm ContextManager, turn int, content string) (string, string) {
+	type assistantIngestor interface {
+		IngestAssistantResponse(turn int, content string) (string, string)
+	}
+	if ingestor, ok := cm.(assistantIngestor); ok {
+		return ingestor.IngestAssistantResponse(turn, content)
+	}
+	return content, ""
+}
+
+func summarizeRecentToolCalls(messages []Message, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	for i := len(messages) - 1; i >= 0 && len(out) < limit; i-- {
+		message := messages[i]
+		if message.Role != MessageRoleAssistant || len(message.ToolCalls) == 0 {
+			continue
+		}
+		for j := len(message.ToolCalls) - 1; j >= 0 && len(out) < limit; j-- {
+			call := message.ToolCalls[j]
+			out = append(out, call.Name+" "+summarizeCallArguments(call.Arguments))
+		}
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+func summarizeCallArguments(arguments map[string]any) string {
+	if len(arguments) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	for _, key := range []string{"path", "pattern", "command", "offset", "limit"} {
+		value, ok := arguments[key]
+		if !ok {
+			continue
+		}
+		parts = append(parts, key+"="+summarizeTextValue(value))
+	}
+	return strings.TrimSpace(strings.Join(parts, ", "))
+}
+
+func summarizeTextValue(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if len(text) <= 40 {
+		return text
+	}
+	return text[:40] + "..."
 }

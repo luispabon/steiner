@@ -16,10 +16,10 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 
 	want := []sourcePlanStep{
 		{Kind: plannedSourcePreamble, Placement: plannedSourcePlacementCore, PassThrough: false},
+		{Kind: plannedSourceDurableContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceAgents, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceProjectContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
-		{Kind: plannedSourceDurableContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
 		{Kind: plannedSourceToolSummaries, Placement: plannedSourcePlacementToolSummaries, PassThrough: false},
 	}
@@ -58,7 +58,7 @@ func TestPlanSourceAssemblyExcludesAbsentOptionalSources(t *testing.T) {
 	if got, want := assembly.Messages[0].Role, provider.MessageRoleSystem; got != want {
 		t.Fatalf("message[0].role = %q, want %q", got, want)
 	}
-	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreamble("").Content, got) {
+	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreamble("", false).Content, got) {
 		t.Fatalf("message[0].content = %q, want prefix of default preamble", got)
 	}
 }
@@ -84,7 +84,9 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "retained conversation", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
+			Scratchpad: "<scratchpad>\ngoal: ship masking\n</scratchpad>",
 		},
+		ScratchpadEnabled: true,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: "conversation turn"},
 		},
@@ -97,11 +99,12 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 
 	if got, want := blockSources(assembly.Blocks), []ContextSource{
 		ContextSourcePreamble,
+		ContextSourceDurableContext,
+		ContextSourceScratchpad,
 		ContextSourceGlobalAgentsMD,
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceSkill,
-		ContextSourceDurableContext,
 		ContextSourceToolSummary,
 	}; !sourcesEqual(got, want) {
 		t.Fatalf("block sources = %v, want %v", got, want)

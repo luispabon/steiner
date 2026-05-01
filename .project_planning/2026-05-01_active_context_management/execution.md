@@ -21,7 +21,7 @@
 | stage-2-step-1 | Ingestion: truncation + noise stripping | implemented |
 | stage-3-step-1 | Assembly masking: observation + prose masking | implemented |
 | stage-3-step-2 | File tracker: metadata tracking + annotation | implemented |
-| stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | pending |
+| stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | implemented |
 | stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | pending |
 | stage-6-step-1 | Observability + end-to-end integration | pending |
 
@@ -95,6 +95,8 @@ stage-1-step-1
 - `go test ./internal/prompt/... -run 'TestMask|TestPlanSourceAssembly|TestAssemble'` — passed
 - `go test ./internal/agent/... -run 'Test(PostIngestion|PreAssembly|FileTracker|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
 - `go test ./internal/config/... -run 'TestValidate|TestContextMode'` — passed
+- `go test ./internal/agent/... -run 'Test(Scratchpad|ContextState|RunnerSmartContextManagerStripsAndReinjectsScratchpad|PostIngestion|PreAssembly|FileTracker|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
+- `go test ./internal/prompt/... -run 'Test(PlanSourceAssembly|AssembleCarriesRetainedSummaries|AssembleLoadsExplicitSkills|AssembleOrdersContext)'` — passed
 
 ## Blockers / Deviations
 
@@ -123,3 +125,25 @@ stage-1-step-1
   - `SmartContextManager.PreAssembly` now applies prompt masking non-destructively
   - `SmartContextManager.IngestToolResult` now handles `read` tracking and annotation
   - CLI runner now constructs the context manager with full context-management config
+
+### 2026-05-01 — stage-4-step-1 implemented
+- Execution mode: direct fallback on the execution branch
+- Scaffold state extended in `internal/agent/context_state.go` and prompt durable context state:
+  - file tracker summary
+  - recent tool call summary
+  - turn count
+  - compaction count
+  - rendered scratchpad text
+- Added scratchpad lifecycle in `internal/agent/scratchpad.go`:
+  - lenient tagged-block parsing from `<scratchpad>...</scratchpad>`
+  - carry-forward of missing fields and missing block
+  - stripping scratchpad from visible assistant replies before transcript storage
+  - ignoring `<thinking>...</thinking>` blocks during parsing
+- Prompt injection changes:
+  - scratchpad instructions appended to the system preamble in smart mode
+  - durable context and scratchpad blocks now render immediately after the preamble, before later prompt context
+  - scratchpad block persists across turns through smart-manager-owned state
+- Tests added:
+  - scratchpad parser carry-forward and stripping
+  - scaffold-state render
+  - runner-level scratchpad stripping and reinjection on the next turn

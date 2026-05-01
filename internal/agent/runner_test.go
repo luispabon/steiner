@@ -236,6 +236,95 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 }
 
+func TestRunnerSmartContextManagerStripsAndReinjectsScratchpad(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					Content: "working\n<scratchpad>\n" +
+						"goal: ship scratchpad\n" +
+						"plan: parse and inject\n" +
+						"step: call read\n" +
+						"next: inspect response\n" +
+						"open: none\n" +
+						"</scratchpad>",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3},
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"path":        "note.txt",
+					"start_line":  1,
+					"end_line":    1,
+					"total_lines": 1,
+					"output":      "hello\n",
+				},
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: &SmartContextManager{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "use scratchpad"}},
+			ScratchpadEnabled: true,
+		},
+		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
+		Model:     "test-model",
+		MaxTokens: intPtr(64),
+		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got := state.Conversation[1].Content; got != "working" {
+		t.Fatalf("assistant content = %q, want scratchpad stripped", got)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	second := providerStub.requests[1]
+	scratchpadIndex := -1
+	assistantIndex := -1
+	for i, message := range second.Messages {
+		if strings.Contains(message.Content, "<scratchpad>") {
+			scratchpadIndex = i
+		}
+		if message.Role == provider.MessageRoleAssistant && message.Content == "working" {
+			assistantIndex = i
+		}
+	}
+	if scratchpadIndex < 0 {
+		t.Fatalf("second request missing scratchpad block: %+v", second.Messages)
+	}
+	if assistantIndex < 0 {
+		t.Fatalf("second request missing stripped assistant content: %+v", second.Messages)
+	}
+	if scratchpadIndex >= assistantIndex {
+		t.Fatalf("scratchpad block index = %d, want before assistant conversation index %d", scratchpadIndex, assistantIndex)
+	}
+}
+
 func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing.T) {
 	dir := t.TempDir()
 	oldWD, err := os.Getwd()

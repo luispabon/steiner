@@ -83,6 +83,20 @@ func (t *FileTracker) Clone() FileTracker {
 	return out
 }
 
+func (t *FileTracker) Summaries(limit int) []string {
+	if len(t.reads) == 0 || limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, len(t.reads))
+	for _, read := range t.reads {
+		out = append(out, fmt.Sprintf("%s lines %d-%d/%d", read.Path, read.StartLine, read.EndLine, read.TotalLines))
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
 func fileUnchangedAnnotation(read trackedFileRead) string {
 	rangeSummary := fmt.Sprintf("lines %d-%d of %d", read.StartLine, read.EndLine, read.TotalLines)
 	if read.EndLine == 0 {

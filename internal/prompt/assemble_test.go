@@ -292,6 +292,10 @@ func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "compacted conversation history", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
+			FileTrackerSummary: []string{"README.md lines 1-40"},
+			RecentToolCalls:    []string{"read path=README.md"},
+			TurnCount:          4,
+			CompactionCount:    1,
 		},
 	})
 	if err != nil {
@@ -304,6 +308,12 @@ func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
 	}
 	if !strings.Contains(block.Content, "earlier request and tool output") {
 		t.Fatalf("durable context block = %q, want retained summary text", block.Content)
+	}
+	if !strings.Contains(block.Content, "tracked files") {
+		t.Fatalf("durable context block = %q, want tracked files section", block.Content)
+	}
+	if !strings.Contains(block.Content, "recent tool calls") {
+		t.Fatalf("durable context block = %q, want recent tool calls section", block.Content)
 	}
 }
 

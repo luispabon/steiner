@@ -69,6 +69,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
+		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.Mode == config.ContextModeSmart,
 		Conversation:              toProviderConversation(conversation),
 	}
 

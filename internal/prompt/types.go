@@ -14,6 +14,7 @@ const (
 	ContextSourceProjectContext      ContextSource = "project_context"
 	ContextSourceSkill               ContextSource = "skill"
 	ContextSourceDurableContext      ContextSource = "durable_context"
+	ContextSourceScratchpad          ContextSource = "scratchpad"
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	ContextSourceToolSummary         ContextSource = "tool_summary"
 	ContextSourceConversation        ContextSource = "conversation"
@@ -84,10 +85,15 @@ type DurableSummaryEntry struct {
 }
 
 type DurableContextState struct {
-	ActiveConstraints []DurableContextEntry `json:"active_constraints,omitempty"`
-	UnresolvedWork    []DurableContextEntry `json:"unresolved_work,omitempty"`
-	ActiveFocus       *DurableContextEntry  `json:"active_focus,omitempty"`
-	RetainedSummaries []DurableSummaryEntry `json:"retained_summaries,omitempty"`
+	ActiveConstraints  []DurableContextEntry `json:"active_constraints,omitempty"`
+	UnresolvedWork     []DurableContextEntry `json:"unresolved_work,omitempty"`
+	ActiveFocus        *DurableContextEntry  `json:"active_focus,omitempty"`
+	RetainedSummaries  []DurableSummaryEntry `json:"retained_summaries,omitempty"`
+	FileTrackerSummary []string              `json:"file_tracker_summary,omitempty"`
+	RecentToolCalls    []string              `json:"recent_tool_calls,omitempty"`
+	TurnCount          int                   `json:"turn_count,omitempty"`
+	CompactionCount    int                   `json:"compaction_count,omitempty"`
+	Scratchpad         string                `json:"scratchpad,omitempty"`
 }
 
 type AssemblyOptions struct {
@@ -105,6 +111,7 @@ type AssemblyOptions struct {
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
+	ScratchpadEnabled         bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 }

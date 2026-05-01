@@ -45,10 +45,13 @@ Tool guidance:
 - Use bash only when a command is more reliable than file tools.
 - Paginate large read/grep/glob/ls outputs with offset.`
 
-func SystemPreamble(override string) ContextBlock {
+func SystemPreamble(override string, scratchpadEnabled bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {
 		content = override
+	}
+	if scratchpadEnabled {
+		content += "\n\nScratchpad:\n- Include a <scratchpad>...</scratchpad> block in every assistant reply.\n- Keep exactly these one-line fields: goal, plan, step, next, open."
 	}
 	return ContextBlock{
 		Source:   ContextSourcePreamble,

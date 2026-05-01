@@ -13,6 +13,7 @@ type plannedSourceKind string
 
 const (
 	plannedSourcePreamble       plannedSourceKind = "preamble"
+	plannedSourceScratchpad     plannedSourceKind = "scratchpad"
 	plannedSourceAgents         plannedSourceKind = "agents"
 	plannedSourceProjectContext plannedSourceKind = "project_context"
 	plannedSourceSkills         plannedSourceKind = "skills"
@@ -50,7 +51,20 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 				Kind:      plannedSourcePreamble,
 				Placement: plannedSourcePlacementCore,
 				Apply: func(_ context.Context, state *assemblyState) error {
-					state.appendBlock(SystemPreamble(opts.PromptOverrides.System))
+					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled))
+					return nil
+				},
+			},
+			{
+				Kind:      plannedSourceDurableContext,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
+						state.appendBlock(block)
+					}
+					if block, ok := scratchpadBlock(opts.ContextState, opts.ScratchpadEnabled); ok {
+						state.appendBlock(block)
+					}
 					return nil
 				},
 			},
@@ -99,16 +113,6 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 						return err
 					}
 					for _, block := range skillBlocks {
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceDurableContext,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
 						state.appendBlock(block)
 					}
 					return nil
@@ -236,7 +240,23 @@ func durableContextSections(state DurableContextState) []string {
 		sections = append(sections, strings.Join(lines, "\n"))
 	}
 
+	if state.TurnCount > 0 || state.CompactionCount > 0 {
+		sections = append(sections, compactSessionState(state.TurnCount, state.CompactionCount))
+	}
+
+	if len(state.FileTrackerSummary) > 0 {
+		sections = append(sections, "tracked files:\n- "+strings.Join(state.FileTrackerSummary, "\n- "))
+	}
+
+	if len(state.RecentToolCalls) > 0 {
+		sections = append(sections, "recent tool calls:\n- "+strings.Join(state.RecentToolCalls, "\n- "))
+	}
+
 	return sections
+}
+
+func compactSessionState(turnCount, compactionCount int) string {
+	return fmt.Sprintf("session state: turn=%d compactions=%d", turnCount, compactionCount)
 }
 
 func compactDurableContextEntry(entry DurableContextEntry) string {
@@ -272,4 +292,20 @@ func compactDurableSummaryEntry(entry DurableSummaryEntry) string {
 		parts = append(parts, "("+strings.Join(metadata, ", ")+")")
 	}
 	return strings.Join(parts, ": ")
+}
+
+func scratchpadBlock(state DurableContextState, enabled bool) (ContextBlock, bool) {
+	if !enabled {
+		return ContextBlock{}, false
+	}
+	content := strings.TrimSpace(state.Scratchpad)
+	if content == "" {
+		content = strings.TrimSpace("<scratchpad>\ngoal: \nplan: \nstep: \nnext: \nopen: \n</scratchpad>")
+	}
+	return ContextBlock{
+		Source:   ContextSourceScratchpad,
+		Path:     "scratchpad",
+		Content:  content,
+		ByteSize: len(content),
+	}, true
 }
