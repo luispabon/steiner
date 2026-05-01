@@ -138,20 +138,6 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 	return decodeChatStream(ctx, resp.Body, out)
 }
 
-func (p *OpenAICompat) chatCompletionsURL() string {
-	base := *p.baseURL
-	base.Path = strings.TrimRight(base.Path, "/") + "/chat/completions"
-	return base.String()
-}
-
-func (p *OpenAICompat) marshalRequest(request ChatRequest, stream bool) ([]byte, error) {
-	wire, err := chatRequestWire(request, p.model, stream)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(wire)
-}
-
 func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
