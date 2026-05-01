@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui"
@@ -20,31 +21,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type activeRunController struct {
-	mu     sync.Mutex
-	cancel context.CancelFunc
-}
-
 const terminalClearSequence = "\x1b[2J\x1b[H"
 
 type interactiveMode struct {
-	rt                  cliRuntime
-	ctx                 context.Context
-	stop                context.CancelFunc
-	teaProgram          *tea.Program
-	runController       *activeRunController
-	runner              cliRunner
-	enabledSkills       *interactiveSkills
-	requestSnapshots    *requestSnapshotStore
-	approvalCoordinator *tuiApprovalCoordinator
-	submissions         chan string
-	contextInspect      chan struct{}
-	configInspect       chan struct{}
-	clearSession        chan struct{}
-	triggerCompact      chan struct{}
-	exitRequests        chan struct{}
-	wg                  sync.WaitGroup
-	conversation        []agent.Message
+	session        *interactive.Session
+	rt             cliRuntime
+	ctx            context.Context
+	stop           context.CancelFunc
+	teaProgram     *tea.Program
+	runner         cliRunner
+	submissions    chan string
+	contextInspect chan struct{}
+	configInspect  chan struct{}
+	clearSession   chan struct{}
+	triggerCompact chan struct{}
+	exitRequests   chan struct{}
+	wg             sync.WaitGroup
 }
 
 var runTeaProgram = func(p *tea.Program) (tea.Model, error) {
@@ -53,27 +45,6 @@ var runTeaProgram = func(p *tea.Program) (tea.Model, error) {
 
 var quitTeaProgram = func(p *tea.Program) {
 	p.Quit()
-}
-
-func (c *activeRunController) Set(cancel context.CancelFunc) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cancel = cancel
-}
-
-func (c *activeRunController) Clear() {
-	c.mu.Lock()
-	c.cancel = nil
-	c.mu.Unlock()
-}
-
-func (c *activeRunController) Interrupt() {
-	c.mu.Lock()
-	cancel := c.cancel
-	c.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 }
 
 func clearTerminalScreen(w io.Writer) {
@@ -97,25 +68,27 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 	if err != nil {
 		return nil, err
 	}
-	mode := &interactiveMode{
-		rt:                  rt,
-		runController:       &activeRunController{},
-		runner:              cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
-		enabledSkills:       newInteractiveSkills(rt.skillNames),
-		requestSnapshots:    &requestSnapshotStore{},
-		approvalCoordinator: &tuiApprovalCoordinator{},
-		submissions:         make(chan string, 1),
-		contextInspect:      make(chan struct{}, 1),
-		configInspect:       make(chan struct{}, 1),
-		clearSession:        make(chan struct{}, 1),
-		triggerCompact:      make(chan struct{}, 1),
-		exitRequests:        make(chan struct{}, 1),
-	}
-
 	// Build a ForwardSink so the display_file tool can emit events even though
 	// the TUI event sink is assembled after the registry. We update it below
 	// once the TUI sink is ready.
 	displaySink := output.NewForwardSink()
+
+	sess := interactive.NewSession(interactive.Dependencies{
+		DisplaySink: displaySink,
+		SkillNames:  rt.skillNames,
+	})
+
+	mode := &interactiveMode{
+		session:        sess,
+		rt:             rt,
+		runner:         cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
+		submissions:    make(chan string, 1),
+		contextInspect: make(chan struct{}, 1),
+		configInspect:  make(chan struct{}, 1),
+		clearSession:   make(chan struct{}, 1),
+		triggerCompact: make(chan struct{}, 1),
+		exitRequests:   make(chan struct{}, 1),
+	}
 
 	// Rebuild the registry with interactive mode and the forward sink wired in.
 	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, displaySink, true)
@@ -160,10 +133,14 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 			}
 		},
 		OnApproval: func(submission tui.ApprovalSubmission) {
-			mode.approvalCoordinator.submit(submission)
+			mode.session.ApprovalCoordinator().Submit(interactive.SubmitApproval{
+				Tool:     submission.Tool,
+				Mode:     submission.Mode,
+				Decision: string(submission.Decision),
+			})
 		},
 		OnInterrupt: func() {
-			mode.runController.Interrupt()
+			mode.session.ActiveRunController().Interrupt()
 		},
 		OnExitRequested: func() {
 			select {
@@ -172,7 +149,7 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 			}
 		},
 		OnSkillToggle: func(name string, enabled bool) {
-			mode.enabledSkills.Set(name, enabled)
+			mode.session.Skills().Set(name, enabled)
 		},
 		OnModelSwitch: func(name string) (string, bool) {
 			selected, err := switchModelConfigByAlias(&mode.runner.runtime.cfg, name)
@@ -200,7 +177,7 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		tuiApp.EventSink(),
 		output.SinkFunc(func(event output.Event) {
 			if payload, ok := event.Payload.(output.APIRequestEvent); ok {
-				mode.requestSnapshots.Store(output.RequestContextSnapshot{
+				mode.session.SnapshotStore().Store(output.RequestContextSnapshot{
 					Model:       payload.Model,
 					Messages:    payload.Messages,
 					Tools:       payload.Tools,
@@ -219,7 +196,7 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 	displaySink.Set(tuiApp.EventSink())
 
 	mode.teaProgram = tuiApp.NewProgram()
-	mode.runner.approver = agent.NewEventingApprover(rt.events, newTUIApprovalResponder(mode.approvalCoordinator))
+	mode.runner.approver = agent.NewEventingApprover(rt.events, newTUIApprovalResponder(mode.session.ApprovalCoordinator()))
 
 	mode.ctx, mode.stop = signal.NotifyContext(cmd.Context(), os.Interrupt)
 	mode.wg.Add(1)
@@ -271,9 +248,9 @@ func (m *interactiveMode) run() error {
 			m.emitConfigReport()
 			continue
 		case <-m.clearSession:
-			m.conversation = nil
+			m.session.SetConversation(nil)
 		case <-m.triggerCompact:
-			m.conversation = m.handleManualCompaction(m.conversation)
+			m.session.SetConversation(m.handleManualCompaction(m.session.Conversation()))
 		case text := <-m.submissions:
 			m.handleSubmission(text)
 		}
@@ -281,7 +258,7 @@ func (m *interactiveMode) run() error {
 }
 
 func (m *interactiveMode) emitContextReport() {
-	if snapshot, ok := m.requestSnapshots.Snapshot(); ok {
+	if snapshot, ok := m.session.SnapshotStore().Snapshot(); ok {
 		report, err := output.BuildContextReport(m.ctx, snapshot)
 		if err != nil {
 			m.rt.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
@@ -357,10 +334,10 @@ func (m *interactiveMode) handleManualCompaction(conversation []agent.Message) [
 
 func (m *interactiveMode) runManualCompaction(model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {
 	runCtx, cancel := context.WithCancel(m.ctx)
-	m.runController.Set(cancel)
+	m.session.ActiveRunController().Set(cancel)
 	defer func() {
 		cancel()
-		m.runController.Clear()
+		m.session.ActiveRunController().Clear()
 
 		reason := "complete"
 		if err != nil {
@@ -392,12 +369,13 @@ func (m *interactiveMode) emitCompactError(err error) {
 }
 
 func (m *interactiveMode) handleSubmission(text string) {
-	m.conversation = append(m.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+	conv := append(m.session.Conversation(), agent.Message{Role: agent.MessageRoleUser, Content: text})
+	m.session.SetConversation(conv)
 	runCtx, cancel := context.WithCancel(m.ctx)
-	m.runController.Set(cancel)
-	result, err := m.runner.Run(runCtx, m.conversation, m.enabledSkills.Snapshot())
+	m.session.ActiveRunController().Set(cancel)
+	result, err := m.runner.Run(runCtx, m.session.Conversation(), m.session.Skills().Snapshot())
 	cancel()
-	m.runController.Clear()
+	m.session.ActiveRunController().Clear()
 	if err != nil {
 		m.rt.events.Emit(output.Event{
 			Type:    output.EventTypeStopReason,
@@ -424,7 +402,7 @@ func (m *interactiveMode) handleSubmission(text string) {
 		}
 		m.rt.events.Emit(output.NewHistoryLoadedEvent(prompts))
 	}
-	m.conversation = result.Conversation
+	m.session.SetConversation(result.Conversation)
 }
 
 func buildConfigOverlayReport(cfg config.Config) (string, error) {

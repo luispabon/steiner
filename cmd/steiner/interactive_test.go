@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
@@ -18,7 +19,7 @@ import (
 
 func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	controller := &activeRunController{}
+	controller := &interactive.ActiveRunController{}
 	controller.Set(cancel)
 
 	controller.Interrupt()
@@ -32,10 +33,13 @@ func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
 
 func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
 	var events []output.Event
-	controller := &activeRunController{}
+	sess := interactive.NewSession(interactive.Dependencies{
+		DisplaySink: nil,
+	})
+	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
+		ctx:     context.Background(),
+		session: sess,
 		rt: cliRuntime{
 			events: output.SinkFunc(func(event output.Event) {
 				events = append(events, event)
@@ -54,7 +58,7 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 		t.Fatalf("result len = %d, want %d", got, want)
 	}
 
-	if controller.cancel != nil {
+	if ctrl.HasCancel() {
 		t.Fatal("expected controller to be cleared after successful compaction")
 	}
 
@@ -110,10 +114,13 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 
 func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
 	var events []output.Event
-	controller := &activeRunController{}
+	sess := interactive.NewSession(interactive.Dependencies{
+		DisplaySink: nil,
+	})
+	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
+		ctx:     context.Background(),
+		session: sess,
 		rt: cliRuntime{
 			events: output.SinkFunc(func(event output.Event) {
 				events = append(events, event)
@@ -127,7 +134,7 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 	if err == nil {
 		t.Fatal("runManualCompaction() error = nil, want non-nil")
 	}
-	if controller.cancel != nil {
+	if ctrl.HasCancel() {
 		t.Fatal("expected controller to be cleared after failed compaction")
 	}
 
@@ -158,10 +165,13 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 
 func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	var events []output.Event
-	controller := &activeRunController{}
+	sess := interactive.NewSession(interactive.Dependencies{
+		DisplaySink: nil,
+	})
+	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
-		ctx:           context.Background(),
-		runController: controller,
+		ctx:     context.Background(),
+		session: sess,
 		rt: cliRuntime{
 			events: output.SinkFunc(func(event output.Event) {
 				events = append(events, event)
@@ -173,7 +183,7 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		<-started
-		controller.Interrupt()
+		ctrl.Interrupt()
 		close(done)
 	}()
 
@@ -186,7 +196,7 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runManualCompaction() error = %v, want context.Canceled", err)
 	}
-	if controller.cancel != nil {
+	if ctrl.HasCancel() {
 		t.Fatal("expected controller to be cleared after cancelled compaction")
 	}
 
