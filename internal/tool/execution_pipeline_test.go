@@ -72,3 +72,72 @@ func TestRunPipelineResolveAndNormalizeSuccess(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", execResult.Metadata.ExitCode)
 	}
 }
+
+func TestRunPipelineApprovalDenied(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: "true",
+		Approval: config.ApprovalModeDeny,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval_denied")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "approval_denied" {
+		t.Fatalf("error kind = %q, want approval_denied", toolErr.Kind)
+	}
+	if toolErr.Message != "tool execution denied by approval policy" {
+		t.Fatalf("error message = %q, want 'tool execution denied by approval policy'", toolErr.Message)
+	}
+}
+
+func TestRunPipelineApprovalRequiredNoApprover(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: "true",
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModePrompt},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want approval_required")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "approval_required" {
+		t.Fatalf("error kind = %q, want approval_required", toolErr.Kind)
+	}
+}
+
+func TestRunPipelineApprovalContextCanceled(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: "true",
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModePrompt},
+	}
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+		return nil
+	}), t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := executor.Execute(ctx, "probe", nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
