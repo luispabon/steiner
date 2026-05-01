@@ -33,9 +33,7 @@ func TestActiveRunControllerInterruptCancelsCurrentRun(t *testing.T) {
 
 func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
 	var events []output.Event
-	sess := interactive.NewSession(interactive.Dependencies{
-		DisplaySink: nil,
-	})
+	sess := interactive.NewSession(interactive.Dependencies{})
 	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
 		ctx:     context.Background(),
@@ -114,9 +112,7 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 
 func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
 	var events []output.Event
-	sess := interactive.NewSession(interactive.Dependencies{
-		DisplaySink: nil,
-	})
+	sess := interactive.NewSession(interactive.Dependencies{})
 	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
 		ctx:     context.Background(),
@@ -165,9 +161,7 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 
 func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	var events []output.Event
-	sess := interactive.NewSession(interactive.Dependencies{
-		DisplaySink: nil,
-	})
+	sess := interactive.NewSession(interactive.Dependencies{})
 	ctrl := sess.ActiveRunController()
 	mode := &interactiveMode{
 		ctx:     context.Background(),

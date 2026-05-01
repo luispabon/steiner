@@ -24,15 +24,15 @@ var (
 
 func TestNewSession(t *testing.T) {
 	t.Parallel()
-	deps := Dependencies{
-		DisplaySink: nil,
-	}
-	s := NewSession(deps)
+	s := NewSession(Dependencies{})
 	if s == nil {
 		t.Fatal("NewSession returned nil")
 	}
-	if s.sink != nil {
-		t.Errorf("expected nil sink, got %v", s.sink)
+	if s.events == nil {
+		t.Error("expected non-nil event sink")
+	}
+	if s.displaySink == nil {
+		t.Error("expected non-nil display sink")
 	}
 	if s.runController == nil {
 		t.Error("expected non-nil run controller")
@@ -50,11 +50,9 @@ func TestNewSession(t *testing.T) {
 
 func TestNewSessionWithSkillNames(t *testing.T) {
 	t.Parallel()
-	deps := Dependencies{
-		DisplaySink: nil,
-		SkillNames:  []string{"go-code-audit", "slop-detector"},
-	}
-	s := NewSession(deps)
+	s := NewSession(Dependencies{
+		SkillNames: []string{"go-code-audit", "slop-detector"},
+	})
 	if s == nil {
 		t.Fatal("NewSession returned nil")
 	}
@@ -209,10 +207,7 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 
 func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
-	deps := Dependencies{
-		DisplaySink: nil,
-	}
-	s := NewSession(deps)
+	s := NewSession(Dependencies{})
 	ctx := context.Background()
 
 	tests := []struct {
@@ -242,10 +237,7 @@ func TestSessionHandleNoop(t *testing.T) {
 
 func TestSessionRunClose(t *testing.T) {
 	t.Parallel()
-	deps := Dependencies{
-		DisplaySink: nil,
-	}
-	s := NewSession(deps)
+	s := NewSession(Dependencies{})
 	ctx := context.Background()
 
 	if err := s.Run(ctx); err != nil {
@@ -258,7 +250,7 @@ func TestSessionRunClose(t *testing.T) {
 
 func TestSessionConversationAccessors(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{DisplaySink: nil})
+	s := NewSession(Dependencies{})
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("initial conversation = %v, want nil", got)
 	}
@@ -270,19 +262,25 @@ func TestSessionConversationAccessors(t *testing.T) {
 	}
 }
 
-func TestSessionAccessors(t *testing.T) {
+func TestSessionAccessorsNonNil(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{DisplaySink: nil})
-	if s.ActiveRunController() != s.runController {
-		t.Error("ActiveRunController accessor mismatch")
+	s := NewSession(Dependencies{})
+	if s.EventSink() == nil {
+		t.Error("EventSink() returned nil")
 	}
-	if s.Skills() != s.skills {
-		t.Error("Skills accessor mismatch")
+	if s.DisplaySink() == nil {
+		t.Error("DisplaySink() returned nil")
 	}
-	if s.SnapshotStore() != s.snapshots {
-		t.Error("SnapshotStore accessor mismatch")
+	if s.ActiveRunController() == nil {
+		t.Error("ActiveRunController() returned nil")
 	}
-	if s.ApprovalCoordinator() != s.approvalCoordinator {
-		t.Error("ApprovalCoordinator accessor mismatch")
+	if s.Skills() == nil {
+		t.Error("Skills() returned nil")
+	}
+	if s.SnapshotStore() == nil {
+		t.Error("SnapshotStore() returned nil")
+	}
+	if s.ApprovalCoordinator() == nil {
+		t.Error("ApprovalCoordinator() returned nil")
 	}
 }

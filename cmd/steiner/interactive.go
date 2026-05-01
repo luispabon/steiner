@@ -68,14 +68,9 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 	if err != nil {
 		return nil, err
 	}
-	// Build a ForwardSink so the display_file tool can emit events even though
-	// the TUI event sink is assembled after the registry. We update it below
-	// once the TUI sink is ready.
-	displaySink := output.NewForwardSink()
-
 	sess := interactive.NewSession(interactive.Dependencies{
-		DisplaySink: displaySink,
-		SkillNames:  rt.skillNames,
+		BaseEvents: rt.events,
+		SkillNames: rt.skillNames,
 	})
 
 	mode := &interactiveMode{
@@ -91,7 +86,7 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 	}
 
 	// Rebuild the registry with interactive mode and the forward sink wired in.
-	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, displaySink, true)
+	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true)
 	if err != nil {
 		return nil, fmt.Errorf("build interactive registry: %w", err)
 	}
@@ -117,31 +112,18 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		SkillNames:      rt.skillNames,
 		Controller:      sess,
 	})
-	rt.events = output.NewMultiSink(
-		rt.events,
-		tuiApp.EventSink(),
-		output.SinkFunc(func(event output.Event) {
-			if payload, ok := event.Payload.(output.APIRequestEvent); ok {
-				mode.session.SnapshotStore().Store(output.RequestContextSnapshot{
-					Model:       payload.Model,
-					Messages:    payload.Messages,
-					Tools:       payload.Tools,
-					MaxTokens:   payload.MaxTokens,
-					Blocks:      payload.Blocks,
-					ModelBudget: payload.ModelBudget,
-				})
-			}
-		}),
-	)
+	// Attach TUI sink to the session event bus. The session already owns the
+	// base events, display forward sink, and snapshot capture.
+	rt.events = output.NewMultiSink(sess.EventSink(), tuiApp.EventSink())
 	mode.rt.events = rt.events
 	mode.runner.runtime.events = rt.events
 
 	// Wire the TUI sink into the display_file forward sink so the tool can emit
 	// display events once the TUI is running.
-	displaySink.Set(tuiApp.EventSink())
+	sess.DisplaySink().Set(tuiApp.EventSink())
 
 	mode.teaProgram = tuiApp.NewProgram()
-	mode.runner.approver = agent.NewEventingApprover(rt.events, newTUIApprovalResponder(mode.session.ApprovalCoordinator()))
+	mode.runner.approver = sess.Approver(rt.events)
 
 	mode.ctx, mode.stop = signal.NotifyContext(cmd.Context(), os.Interrupt)
 	mode.wg.Add(1)
