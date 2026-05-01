@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -139,5 +140,103 @@ func TestRunPipelineApprovalContextCanceled(t *testing.T) {
 	_, err := executor.Execute(ctx, "probe", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestExecuteToolHandlerSuccess(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name: "greeter",
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			return map[string]any{"message": "hello"}, nil
+		},
+		Approval: config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	result, err := executor.Execute(context.Background(), "greeter", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want map[string]any", result)
+	}
+	if resultMap["message"] != "hello" {
+		t.Fatalf("result message = %v, want 'hello'", resultMap["message"])
+	}
+}
+
+func TestExecuteToolSubprocessSuccess(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:     "probe",
+		ExecPath: helper,
+		Approval: config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	result, err := executor.Execute(context.Background(), "probe", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if execResult.Metadata.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", execResult.Metadata.ExitCode)
+	}
+}
+
+func TestExecuteToolTimeout(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:       "probe",
+		ExecPath:   helper,
+		Subcommand: "sleep",
+		Timeout:    100 * time.Millisecond,
+		Approval:   config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want DeadlineExceeded")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestExecuteToolBashCwdOverride(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	reg := NewRegistry(ToolDef{
+		Name:     "bash",
+		ExecPath: helper,
+		Approval: config.ApprovalModeAuto,
+	})
+	cfg := config.Config{
+		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
+	}
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, cfg, nil, workDir)
+	result, err := executor.Execute(context.Background(), "bash", map[string]any{
+		"cwd": workDir,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if execResult.Metadata.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", execResult.Metadata.ExitCode)
 	}
 }

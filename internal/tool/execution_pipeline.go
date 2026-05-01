@@ -129,6 +129,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
+	return e.executeTool(ctx, &ec)
+}
+
+// executeTool dispatches tool execution to the appropriate phase:
+//   - handler execution, if the tool defines a Handler
+//   - subprocess execution, with JSON input marshaling, per-tool timeout,
+//     work-dir selection, and JSON envelope decoding
+func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, error) {
 	if ec.Def.Handler != nil {
 		return ec.Def.Handler(ctx, ec.NormalizedInput)
 	}
