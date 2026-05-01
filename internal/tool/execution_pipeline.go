@@ -1,10 +1,12 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -215,4 +217,69 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 		Value:    envelope.Result,
 		Metadata: metadata,
 	}, nil
+}
+
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int) ([]byte, []byte, ExecutionMetadata, error) {
+	if def.ExecPath == "" {
+		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
+			Tool:    def.Name,
+			Kind:    "invalid_definition",
+			Message: "tool exec path is empty",
+		}
+	}
+
+	args := []string{}
+	if def.Subcommand != "" {
+		args = append(args, def.Subcommand)
+	}
+
+	cmd := exec.CommandContext(ctx, def.ExecPath, args...)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
+	cmd.Stdin = bytes.NewReader(payload)
+
+	stdoutCapture := newBoundedCapture(limit)
+	stderrCapture := newBoundedCapture(limit)
+	cmd.Stdout = stdoutCapture
+	cmd.Stderr = stderrCapture
+
+	err := cmd.Run()
+	metadata := ExecutionMetadata{
+		ExitCode: exitCodeFromError(err),
+		Stdout:   stdoutCapture.Capture(),
+		Stderr:   stderrCapture.Capture(),
+	}
+	if err != nil && ctx.Err() != nil {
+		return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, ctx.Err()
+	}
+
+	return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, err
+}
+
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
+		return exitErr.ProcessState.ExitCode()
+	}
+	return 1
+}
+
+func outputDetails(metadata ExecutionMetadata) map[string]any {
+	details := map[string]any{
+		"stdout": metadata.Stdout,
+		"stderr": metadata.Stderr,
+	}
+	if metadata.ExitCode != 0 {
+		details["exit_code"] = metadata.ExitCode
+	}
+	return details
+}
+
+func isExitStatusError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
 }
