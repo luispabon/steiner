@@ -10,15 +10,15 @@ import (
 )
 
 type statusState struct {
-	model         string
-	turn          int
-	context       string
-	mode          string
-	styles        theme.Styles
-	streaming     bool
+	model          string
+	turn           int
+	context        string
+	mode           string
+	styles         theme.Styles
+	streaming      bool
 	approvalActive bool
-	promptUsed    int
-	contextBudget int
+	promptUsed     int
+	contextBudget  int
 }
 
 func (s statusState) view(width int) string {

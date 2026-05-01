@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -63,16 +64,8 @@ type Model struct {
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int
-	onSubmit                     func(string)
-	onContextInspect             func()
-	onConfigInspect              func()
-	onApproval                   func(ApprovalSubmission)
-	onInterrupt                  func()
-	onExitRequested              func()
-	onSkillToggle                func(string, bool)
-	onModelSwitch                func(string) (string, bool)
-	onClear                      func()
-	onCompact                    func()
+	modelBaseURLs                map[string]string
+	controller                   interactive.Controller
 	activeTheme                  theme.Theme
 	styles                       theme.Styles
 	inputHistory                 []string
@@ -153,31 +146,23 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:         external,
-		autoScroll:       true,
-		skillNames:       append([]string(nil), cfg.SkillNames...),
-		enabledSkills:    enabledSkills,
-		modelNames:       append([]string(nil), cfg.ModelNames...),
-		modelContexts:    cloneModelContexts(cfg.ModelContexts),
-		onSubmit:         cfg.OnSubmit,
-		onContextInspect: cfg.OnContextInspect,
-		onConfigInspect:  cfg.OnConfigInspect,
-		onApproval:       cfg.OnApproval,
-		onInterrupt:      cfg.OnInterrupt,
-		onExitRequested:  cfg.OnExitRequested,
-		onSkillToggle:    cfg.OnSkillToggle,
-		onModelSwitch:    cfg.OnModelSwitch,
-		onClear:          cfg.OnClear,
-		onCompact:        cfg.OnCompact,
-		activeTheme:      t,
-		styles:           theme.BuildStyles(accentHex),
-		inputHistory:     []string{},
-		historyIdx:       0,
-		historyDraft:     "",
-		fileHistory:      []string{},
-		fileHistoryIdx:   -1,
-		showThinking:     cfg.ShowThinking,
-		accentPreset:     cfg.AccentPreset,
+		external:       external,
+		autoScroll:     true,
+		skillNames:     append([]string(nil), cfg.SkillNames...),
+		enabledSkills:  enabledSkills,
+		modelNames:     append([]string(nil), cfg.ModelNames...),
+		modelContexts:  cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:  cloneModelBaseURLs(cfg.ModelBaseURLs),
+		controller:     cfg.Controller,
+		activeTheme:    t,
+		styles:         theme.BuildStyles(accentHex),
+		inputHistory:   []string{},
+		historyIdx:     0,
+		historyDraft:   "",
+		fileHistory:    []string{},
+		fileHistoryIdx: -1,
+		showThinking:   cfg.ShowThinking,
+		accentPreset:   cfg.AccentPreset,
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -460,6 +445,17 @@ func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+func cloneModelBaseURLs(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func cloneModelContexts(src map[string]int) map[string]int {

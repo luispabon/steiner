@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -51,8 +53,8 @@ func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
 		m.status.context = ""
 	}
 	m.syncSidebar()
-	if m.onClear != nil {
-		m.onClear()
+	if m.controller != nil {
+		m.controller.Handle(context.Background(), interactive.ClearConversation{})
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -72,14 +74,15 @@ func (m Model) handlePaletteToggleThinkingMsg(msg paletteToggleThinkingMsg) (tea
 
 func (m Model) handlePaletteSwitchModelMsg(msg paletteSwitchModelMsg) (tea.Model, tea.Cmd) {
 	providerBaseURL := m.sidebar.provider
-	if m.onModelSwitch != nil {
-		var ok bool
-		providerBaseURL, ok = m.onModelSwitch(msg.name)
-		if !ok {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: msg.name}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", msg.name))
 			m.syncViewport()
 			return m, nil
 		}
+	}
+	if baseURL, ok := m.modelBaseURLs[msg.name]; ok {
+		providerBaseURL = baseURL
 	}
 	m.applyModelSelection(msg.name, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
@@ -221,7 +224,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
-		if m.onExitRequested == nil {
+		if m.controller == nil {
 			return m, tea.Quit
 		}
 		return m.openExitModal(), nil
