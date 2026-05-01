@@ -119,9 +119,10 @@ func (s *Session) SetRunner(runner runExecutor) {
 	s.deps.Runner = runner
 }
 
-// Handle processes an interactive action. SubmitPrompt, InterruptActiveRun,
-// and ClearConversation are handled by the session; all other actions are
-// currently no-ops and return nil.
+// Handle processes an interactive action. Handles SubmitPrompt,
+// InterruptActiveRun, ClearConversation, RequestContextReport,
+// RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
+// SwitchModel, and SubmitApproval.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	switch a := action.(type) {
 	case SubmitPrompt:
@@ -182,11 +183,5 @@ func (s *Session) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	case <-s.done:
 	}
-	return nil
-}
-
-// Close releases any resources held by the session. Currently a no-op
-// placeholder.
-func (s *Session) Close() error {
 	return nil
 }

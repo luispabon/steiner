@@ -6,14 +6,9 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 )
-
-func selectedModelConfig(cfg config.Config) (config.ModelConfig, error) {
-	return cfg.Model, nil
-}
 
 func (s *Session) manualCompaction(ctx context.Context) {
 	s.mu.RLock()
@@ -25,13 +20,9 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	cfg := s.deps.Config
-	selected, err := selectedModelConfig(cfg)
-	if err != nil {
-		s.emitCompactError(err)
-		return
-	}
+	selected := s.deps.Config.Model
 
+	var err error
 	prov := s.deps.Provider
 	if prov == nil && s.deps.ProviderFactory != nil {
 		prov, err = s.deps.ProviderFactory(selected)
