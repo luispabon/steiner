@@ -357,7 +357,7 @@ func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
 	if strings.HasPrefix(line[i:], prefix) {
 		i += len(prefix)
 	}
-	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+	if i < len(line) && (line[i] == ' ' || line[i] == '\t') {
 		i++
 	}
 	return line[i:]

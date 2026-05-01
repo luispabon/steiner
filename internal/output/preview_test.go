@@ -5,6 +5,119 @@ import (
 	"testing"
 )
 
+func TestStripReadLineNumberPrefixForLine(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		lineNumber int
+		want       string
+	}{
+		{
+			name:       "line number with tab separator and indented content",
+			line:       "     8\t\tNewReadTool(env),",
+			lineNumber: 8,
+			want:       "\tNewReadTool(env),",
+		},
+		{
+			name:       "line number with space separator and no indentation",
+			line:       "1 hello",
+			lineNumber: 1,
+			want:       "hello",
+		},
+		{
+			name:       "leading spaces before line number",
+			line:       "  12\tcontent",
+			lineNumber: 12,
+			want:       "content",
+		},
+		{
+			name:       "no line number prefix returns as-is",
+			line:       "just content",
+			lineNumber: 1,
+			want:       "just content",
+		},
+		{
+			name:       "empty line",
+			line:       "",
+			lineNumber: 1,
+			want:       "",
+		},
+		{
+			name:       "line number no content after",
+			line:       "     5",
+			lineNumber: 5,
+			want:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripReadLineNumberPrefixForLine(tt.line, tt.lineNumber)
+			if got != tt.want {
+				t.Fatalf("stripReadLineNumberPrefixForLine(%q, %d) = %q, want %q", tt.line, tt.lineNumber, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripReadPreviewContents(t *testing.T) {
+	input := []string{
+		"     1\tpackage main",
+		"     2\t",
+		"     3\tfunc main() {",
+		"     4\t\tfmt.Println(\"hi\")",
+		"     5\t}",
+	}
+	want := "package main\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}"
+	got := stripReadPreviewContents(input, 1)
+	if got != want {
+		t.Fatalf("stripReadPreviewContents() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeReadPreviewContents(t *testing.T) {
+	tests := []struct {
+		name      string
+		contents  string
+		startLine int
+		want      string
+	}{
+		{
+			name:      "Dive-style numbered content with indentation",
+			contents:  "     1\tpackage main\n     2\t\n     3\tfunc main() {\n     4\t\tfmt.Println(\"hi\")\n     5\t}\n",
+			startLine: 1,
+			want:      "package main\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n",
+		},
+		{
+			name:      "empty content",
+			contents:  "",
+			startLine: 1,
+			want:      "",
+		},
+		{
+			name:      "content without line number prefixes",
+			contents:  "hello\nworld\n",
+			startLine: 0,
+			want:      "hello\nworld\n",
+		},
+		{
+			name:      "startLine zero with non-numbered content",
+			contents:  "hello\nworld\n",
+			startLine: 0,
+			want:      "hello\nworld\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeReadPreviewContents(tt.contents, tt.startLine)
+			if got != tt.want {
+				t.Fatalf("normalizeReadPreviewContents(%q, %d) = %q, want %q", tt.contents, tt.startLine, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildToolPreview(t *testing.T) {
 	writeExisted := true
 	writeMissing := false
@@ -90,6 +203,20 @@ func TestBuildToolPreview(t *testing.T) {
 				Path:     "README.md",
 				Language: "markdown",
 				Contents: "# Heading\n\nBody line\n",
+			},
+		},
+		{
+			name: "read file preserves content indentation",
+			tool: "read",
+			args: map[string]any{
+				"path": "main.go",
+			},
+			result: `{"path":"main.go","start_line":1,"output":"1 package main\n2\n3 func main() {\n4 \t\tfmt.Println(\"hi\")\n5 }\n"}`,
+			want: ToolPreview{
+				Kind:     ToolPreviewKindReadFile,
+				Path:     "main.go",
+				Language: "go",
+				Contents: "package main\n\nfunc main() {\n\t\tfmt.Println(\"hi\")\n}\n",
 			},
 		},
 		{
