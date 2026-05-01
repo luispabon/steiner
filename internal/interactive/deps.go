@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -32,4 +33,5 @@ type Dependencies struct {
 	Runner        runExecutor
 	HistoryWriter historyWriter
 	SkillNames    []string
+	Config        config.Config
 }
