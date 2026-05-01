@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -119,12 +118,7 @@ func (p *OpenAICompat) doChatCompletion(ctx context.Context, request ChatRequest
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	var payload openAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode chat completion response: %w", err)
-	}
-	return &payload, nil
+	return p.decodeNonStreamResponse(resp)
 }
 
 func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
