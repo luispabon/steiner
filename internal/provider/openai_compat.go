@@ -128,5 +128,5 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 	}
 	defer resp.Body.Close()
 
-	return decodeChatStream(ctx, resp.Body, out)
+	return p.decodeStreamResponse(ctx, resp.Body, out)
 }

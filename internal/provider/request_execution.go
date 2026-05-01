@@ -66,6 +66,10 @@ func (p *OpenAICompat) decodeNonStreamResponse(resp *http.Response) (*openAIResp
 	return &payload, nil
 }
 
+func (p *OpenAICompat) decodeStreamResponse(ctx context.Context, body io.Reader, out chan<- ChatChunk) error {
+	return decodeChatStream(ctx, body, out)
+}
+
 func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
