@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -136,15 +135,4 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 	defer resp.Body.Close()
 
 	return decodeChatStream(ctx, resp.Body, out)
-}
-
-func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	if err != nil {
-		return fmt.Errorf("read error response body: %w", err)
-	}
-	if len(body) == 0 {
-		return fmt.Errorf("chat completions request failed: %s", resp.Status)
-	}
-	return fmt.Errorf("chat completions request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 }
