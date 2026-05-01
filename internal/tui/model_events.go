@@ -137,7 +137,9 @@ func (m *Model) applyEvent(event output.Event) {
 	}
 	m.syncInputChrome()
 	m.syncSidebar()
-	m.syncViewport()
+	if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
+		m.syncViewport()
+	}
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {

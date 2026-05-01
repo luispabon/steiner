@@ -105,14 +105,7 @@ func (b *eventBridge) Emit(event output.Event) {
 	if b == nil {
 		return
 	}
-	msg := runtimeEventMsg{Event: event}
-	select {
-	case b.ch <- msg:
-	default:
-		go func() {
-			b.ch <- msg
-		}()
-	}
+	b.ch <- runtimeEventMsg{Event: event}
 }
 
 type noopSubscriber struct{}

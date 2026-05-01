@@ -29,9 +29,10 @@ func (b *contentBuffer) String(width int) string {
 			parts = append(parts, rendered)
 		}
 	}
-	if preview := b.inProgressPreview(); preview != "" {
+	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, preview)
 	}
+	parts = append(parts, b.streamingIndicatorView())
 	return strings.Join(parts, "")
 }
 
@@ -233,7 +234,7 @@ func renderMarkdownBlock(block string, width int, styles theme.Styles, styleShee
 	return rendered, nil
 }
 
-func (b *contentBuffer) inProgressPreview() string {
+func (b *contentBuffer) inProgressPreview(width int) string {
 	preview := strings.TrimRight(b.streamBuffer, "\n")
 	if strings.TrimSpace(preview) == "" {
 		return ""
@@ -242,7 +243,7 @@ func (b *contentBuffer) inProgressPreview() string {
 	if b.tickCount%2 == 0 {
 		cursor = "█"
 	}
-	return b.styles.AssistantProse.Render(preview+cursor) + "\n"
+	return b.styles.AssistantProse.Width(max(1, width)).Render(preview+cursor) + "\n"
 }
 
 func (b *contentBuffer) streamingIndicatorView() string {
