@@ -6,14 +6,16 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // Session is an interactive-mode session that owns conversation state,
-// run lifecycle, approvals, model switches, compaction, and enabled skills.
-// Currently a skeleton; behavior will be moved here in later stages.
+// run lifecycle, approvals, model switches, compaction, enabled skills,
+// and the core event bus composition.
 type Session struct {
 	deps                Dependencies
-	sink                *output.ForwardSink
+	events              output.EventSink
+	displaySink         *output.ForwardSink
 	runController       *ActiveRunController
 	skills              *Skills
 	snapshots           *SnapshotStore
@@ -22,21 +24,40 @@ type Session struct {
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
+// It composes the session-level event bus: display_file forwarding, API
+// request snapshot capture, and any caller-provided base events.
 func NewSession(deps Dependencies) *Session {
+	displaySink := output.NewForwardSink()
+	snaps := &SnapshotStore{}
+
+	events := output.NewMultiSink(
+		deps.BaseEvents,
+		displaySink,
+		&snapshotSink{store: snaps},
+	)
+
 	return &Session{
 		deps:                deps,
-		sink:                deps.DisplaySink,
+		events:              events,
+		displaySink:         displaySink,
 		runController:       &ActiveRunController{},
 		skills:              NewSkills(deps.SkillNames),
-		snapshots:           &SnapshotStore{},
+		snapshots:           snaps,
 		approvalCoordinator: &ApprovalCoordinator{},
 	}
 }
 
-// EventSink returns the session's event sink for external consumers to attach
-// to the session's event stream.
+// EventSink returns the session's composed event sink for external consumers
+// to attach to the session's event stream.
 func (s *Session) EventSink() output.EventSink {
-	return s.sink
+	return s.events
+}
+
+// DisplaySink returns the session's ForwardSink, which forwards events to
+// whatever target is set via Set. The display_file tool uses this to emit
+// display events before the TUI sink is wired in.
+func (s *Session) DisplaySink() *output.ForwardSink {
+	return s.displaySink
 }
 
 // ActiveRunController returns the session's run controller, which manages
@@ -60,6 +81,13 @@ func (s *Session) SnapshotStore() *SnapshotStore {
 // manages pending approval requests.
 func (s *Session) ApprovalCoordinator() *ApprovalCoordinator {
 	return s.approvalCoordinator
+}
+
+// Approver returns an tool.ApprovalResponder that routes tool approval
+// requests through the session's ApprovalCoordinator and emits approval
+// events to the given sink.
+func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
+	return agent.NewEventingApprover(eventSink, newApprovalResponder(s.approvalCoordinator))
 }
 
 // Conversation returns the current conversation message slice. Callers must

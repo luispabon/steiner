@@ -39,6 +39,6 @@ type Dependencies struct {
 	Runner              runExecutor
 	ApprovalCoordinator approvalCoordinator
 	RequestSnapshots    snapshotStore
-	DisplaySink         *output.ForwardSink
+	BaseEvents          output.EventSink
 	SkillNames          []string
 }
