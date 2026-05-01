@@ -12,6 +12,13 @@ type ContextDiagnosticsEvent struct {
 	Turn               int      `json:"turn,omitempty"`
 	Severity           string   `json:"severity,omitempty"`
 	SessionState       string   `json:"session_state,omitempty"`
+	Action             string   `json:"action,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
+	Tool               string   `json:"tool,omitempty"`
+	Path               string   `json:"path,omitempty"`
+	Window             int      `json:"window,omitempty"`
+	Parsed             bool     `json:"parsed,omitempty"`
+	Failures           int      `json:"failures,omitempty"`
 	CompactionCount    int      `json:"compaction_count,omitempty"`
 	RestartGuidance    string   `json:"restart_guidance,omitempty"`
 	RetainedTurns      int      `json:"retained_turns,omitempty"`
@@ -30,6 +37,11 @@ type ContextDiagnosticsEvent struct {
 	TotalTokens        int      `json:"total_tokens,omitempty"`
 	Truncated          bool     `json:"truncated,omitempty"`
 	Notes              []string `json:"notes,omitempty"`
+}
+
+type ContextBudgetCategory struct {
+	Name   string `json:"name"`
+	Tokens int    `json:"tokens"`
 }
 
 // NewContextDiagnosticsEvent creates a new context diagnostics event.
@@ -107,10 +119,78 @@ func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens
 	})
 }
 
+// NewContextMaskingEvent creates a new masking diagnostic event.
+func NewContextMaskingEvent(turn int, toolName, action, reason string, window int, notes ...string) Event {
+	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:     "masking",
+		Scope:    "conversation",
+		Turn:     turn,
+		Severity: "info",
+		Action:   action,
+		Reason:   reason,
+		Tool:     toolName,
+		Window:   window,
+		Notes:    append([]string(nil), notes...),
+	})
+}
+
+// NewFileAnnotationEvent creates a new file annotation diagnostic event.
+func NewFileAnnotationEvent(turn int, path, action, reason string, previousTurn int, notes ...string) Event {
+	eventNotes := append([]string(nil), notes...)
+	if previousTurn > 0 {
+		eventNotes = append(eventNotes, fmt.Sprintf("previous_turn=%d", previousTurn))
+	}
+	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:     "file_annotation",
+		Scope:    "read",
+		Turn:     turn,
+		Severity: "info",
+		Action:   action,
+		Reason:   reason,
+		Path:     path,
+		Notes:    eventNotes,
+	})
+}
+
+// NewScratchpadEvent creates a new scratchpad diagnostic event.
+func NewScratchpadEvent(turn int, parsed bool, content string, failures int, note string) Event {
+	payload := ContextDiagnosticsEvent{
+		Kind:   "scratchpad",
+		Scope:  "assistant",
+		Turn:   turn,
+		Action: "update",
+		Parsed: parsed,
+	}
+	if parsed {
+		payload.Severity = "info"
+		payload.SummaryPreview = TruncateWithEllipsis(content, 160)
+		payload.SummaryBytes = len(content)
+		if len(content) > 160 {
+			payload.Truncated = true
+		}
+	} else {
+		payload.Severity = "warning"
+		payload.Reason = "scratchpad block missing or invalid"
+		if note != "" {
+			payload.Notes = []string{note}
+		}
+	}
+	if failures > 0 {
+		payload.Failures = failures
+	}
+	return NewContextDiagnosticsEvent(payload)
+}
+
 func formatContextDiagnosticsEvent(payload ContextDiagnosticsEvent) string {
 	switch payload.Kind {
 	case "budget":
 		return formatContextBudgetSummary(payload)
+	case "masking":
+		return formatContextMaskingSummary(payload)
+	case "file_annotation":
+		return formatContextFileAnnotationSummary(payload)
+	case "scratchpad":
+		return formatContextScratchpadSummary(payload)
 	case "compaction":
 		return formatContextCompactionSummary(payload)
 	case "session_health":
@@ -151,6 +231,68 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	}
 	if payload.Truncated {
 		parts = append(parts, "truncated")
+	}
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatContextMaskingSummary(payload ContextDiagnosticsEvent) string {
+	parts := []string{formatDiagnosticHeadline(payload, "masking")}
+	if action := strings.TrimSpace(payload.Action); action != "" {
+		parts = append(parts, action)
+	}
+	if payload.Tool != "" {
+		parts = append(parts, fmt.Sprintf("tool=%s", payload.Tool))
+	}
+	if payload.Window > 0 {
+		parts = append(parts, fmt.Sprintf("window=%d", payload.Window))
+	}
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		parts = append(parts, fmt.Sprintf("reason=%s", reason))
+	}
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatContextFileAnnotationSummary(payload ContextDiagnosticsEvent) string {
+	parts := []string{formatDiagnosticHeadline(payload, "file annotation")}
+	if action := strings.TrimSpace(payload.Action); action != "" {
+		parts = append(parts, action)
+	}
+	if payload.Path != "" {
+		parts = append(parts, fmt.Sprintf("path=%s", payload.Path))
+	}
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		parts = append(parts, fmt.Sprintf("reason=%s", reason))
+	}
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatContextScratchpadSummary(payload ContextDiagnosticsEvent) string {
+	parts := []string{formatDiagnosticHeadline(payload, "scratchpad")}
+	if payload.Parsed {
+		parts = append(parts, "parsed")
+	} else {
+		parts = append(parts, "parse_failed")
+	}
+	if content := strings.TrimSpace(payload.SummaryPreview); content != "" {
+		parts = append(parts, fmt.Sprintf("content=%q", content))
+	}
+	if payload.SummaryBytes > 0 {
+		parts = append(parts, fmt.Sprintf("bytes=%d", payload.SummaryBytes))
+	}
+	if payload.Failures > 0 {
+		parts = append(parts, fmt.Sprintf("failures=%d", payload.Failures))
+	}
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		parts = append(parts, fmt.Sprintf("reason=%s", reason))
 	}
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
