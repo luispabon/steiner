@@ -6,6 +6,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
@@ -29,9 +30,13 @@ type historyWriter interface {
 // required by an interactive session. Each field uses a consumer-defined
 // interface to avoid premature coupling to concrete implementations.
 type Dependencies struct {
-	BaseEvents    output.EventSink
-	Runner        runExecutor
-	HistoryWriter historyWriter
-	SkillNames    []string
-	Config        config.Config
+	BaseEvents      output.EventSink
+	Runner          runExecutor
+	HistoryWriter   historyWriter
+	SkillNames      []string
+	Config          config.Config
+	Provider        provider.Provider
+	ProviderFactory func(config.ModelConfig) (provider.Provider, error)
+	HomeDir         string
+	WorkDir         string
 }

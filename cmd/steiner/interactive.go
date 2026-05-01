@@ -13,7 +13,6 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -21,16 +20,15 @@ import (
 const terminalClearSequence = "\x1b[2J\x1b[H"
 
 type interactiveMode struct {
-	session        *interactive.Session
-	rt             cliRuntime
-	ctx            context.Context
-	stop           context.CancelFunc
-	teaProgram     *tea.Program
-	runner         cliRunner
-	clearSession   chan struct{}
-	triggerCompact chan struct{}
-	exitRequests   chan struct{}
-	wg             sync.WaitGroup
+	session      *interactive.Session
+	rt           cliRuntime
+	ctx          context.Context
+	stop         context.CancelFunc
+	teaProgram   *tea.Program
+	runner       cliRunner
+	clearSession chan struct{}
+	exitRequests chan struct{}
+	wg           sync.WaitGroup
 }
 
 var runTeaProgram = func(p *tea.Program) (tea.Model, error) {
@@ -63,20 +61,23 @@ func newInteractiveMode(cmd *cobra.Command, flags *cliFlags) (*interactiveMode, 
 		return nil, err
 	}
 	sess := interactive.NewSession(interactive.Dependencies{
-		BaseEvents:    rt.events,
-		Runner:        sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}},
-		HistoryWriter: rt.historyWriter,
-		SkillNames:    rt.skillNames,
-		Config:        rt.cfg,
+		BaseEvents:      rt.events,
+		Runner:          sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}},
+		HistoryWriter:   rt.historyWriter,
+		SkillNames:      rt.skillNames,
+		Config:          rt.cfg,
+		Provider:        rt.provider,
+		ProviderFactory: rt.providerFactory,
+		HomeDir:         rt.homeDir,
+		WorkDir:         rt.workDir,
 	})
 
 	mode := &interactiveMode{
-		session:        sess,
-		rt:             rt,
-		runner:         cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
-		clearSession:   make(chan struct{}, 1),
-		triggerCompact: make(chan struct{}, 1),
-		exitRequests:   make(chan struct{}, 1),
+		session:      sess,
+		rt:           rt,
+		runner:       cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true},
+		clearSession: make(chan struct{}, 1),
+		exitRequests: make(chan struct{}, 1),
 	}
 
 	// Rebuild the registry with interactive mode and the forward sink wired in.
@@ -164,99 +165,8 @@ func (m *interactiveMode) run() error {
 			return nil
 		case <-m.clearSession:
 			m.session.SetConversation(nil)
-		case <-m.triggerCompact:
-			m.session.SetConversation(m.handleManualCompaction(m.session.Conversation()))
 		}
 	}
-}
-
-func (m *interactiveMode) handleManualCompaction(conversation []agent.Message) []agent.Message {
-	if len(conversation) == 0 {
-		m.rt.events.Emit(output.NewContextReportEvent("No conversation to compact."))
-		return conversation
-	}
-	selected, err := selectedModelConfig(m.runner.runtime.cfg)
-	if err != nil {
-		m.emitCompactError(err)
-		return conversation
-	}
-	prov := m.runner.runtime.provider
-	if m.runner.runtime.providerFactory != nil {
-		prov, err = m.runner.runtime.providerFactory(selected)
-		if err != nil {
-			m.emitCompactError(err)
-			return conversation
-		}
-	}
-	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
-	}
-	assembly := prompt.AssemblyOptions{
-		HomeDir:         m.runner.runtime.homeDir,
-		ProjectRoot:     m.runner.runtime.workDir,
-		SkillsRoot:      prompt.DefaultSkillsRoot(m.runner.runtime.homeDir),
-		ModelBudget:     modelBudget,
-		PromptOverrides: selected.Prompts,
-	}
-
-	compactReq := agent.RunRequest{
-		Provider:    prov,
-		Prompt:      assembly,
-		ModelBudget: modelBudget,
-		Model:       selected.Model,
-		Events:      m.rt.events,
-	}
-	newConv, err := m.runManualCompaction(selected.Model, func(ctx context.Context) ([]agent.Message, error) {
-		agentRunner := agent.NewRunner()
-		return agentRunner.Compact(ctx, compactReq, conversation)
-	})
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			m.emitCompactError(err)
-		}
-		return conversation
-	}
-	m.rt.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
-	return newConv
-}
-
-func (m *interactiveMode) runManualCompaction(model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {
-	runCtx, cancel := context.WithCancel(m.ctx)
-	m.session.ActiveRunController().Set(cancel)
-	defer func() {
-		cancel()
-		m.session.ActiveRunController().Clear()
-
-		reason := "complete"
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				reason = "cancelled"
-			} else {
-				reason = "error"
-			}
-		}
-		m.rt.events.Emit(output.NewRunFinishedEvent(0, reason, "", "", err))
-	}()
-
-	m.rt.events.Emit(output.NewRunStartedEvent("interactive", model, "", 0, 0))
-	m.rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:     "compaction",
-		Scope:    "conversation",
-		Severity: "compacting",
-		Notes:    []string{"starting compaction"},
-	}))
-
-	return run(runCtx)
-}
-
-func (m *interactiveMode) emitCompactError(err error) {
-	m.rt.events.Emit(output.Event{
-		Type:    output.EventTypeStopReason,
-		Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
-	})
 }
 
 // sessionRunner adapts cliRunner to the runExecutor interface expected by
