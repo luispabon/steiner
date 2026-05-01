@@ -13,6 +13,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 // testController records all actions received by Handle for test verification.
@@ -426,6 +427,106 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 	}
 	if m.approval.active {
 		t.Fatal("approval.active = true, want false after compaction finishes")
+	}
+}
+
+func TestModelActivityRowReservesLayoutSpace(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
+
+	if got := m.activityRowHeight(m.viewport.Width); got != 1 {
+		t.Fatalf("activity row height = %d, want 1", got)
+	}
+	if m.viewport.Height != 5 {
+		t.Fatalf("viewport height = %d, want 5 after reserved activity row", m.viewport.Height)
+	}
+}
+
+func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.T) {
+	m := newModel(Config{Model: "gpt-test"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"waiting on model", "gpt-test", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"running tool", "bash", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelActivityRowShowsCompactionSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "compacting",
+		CompactionCount: 2,
+		Turn:            7,
+	})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"compacting context", "2 compactions", "turn 7", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	if !strings.Contains(strings.ToLower(row), "approval required") {
+		t.Fatalf("activity row = %q, want approval label", row)
+	}
+	if strings.Contains(row, "⠋") {
+		t.Fatalf("activity row = %q, want no spinner for approval", row)
+	}
+	if m.activity.busy() {
+		t.Fatal("activity.busy = true, want false for approval")
+	}
+}
+
+func TestModelInterruptClearsActivityImmediately(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{Controller: ctrl}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
+	}
+	if m.activity.busy() {
+		t.Fatal("activity.busy = true, want false after interrupt")
+	}
+	if m.activity.label != "" || m.activity.detail != "" {
+		t.Fatalf("activity = %#v, want cleared", m.activity)
+	}
+	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width)); strings.Contains(got, "waiting on model") || strings.Contains(got, "running tool") {
+		t.Fatalf("activity row = %q, want cleared", got)
 	}
 }
 
@@ -1070,15 +1171,15 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
-	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + status(1) → viewport.Height = 12-6 = 6
+	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + activity(1) + status(1) → viewport.Height = 12-7 = 5
 	if m.viewport.Width != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
 	}
 	if got := m.input.Width(); got != 56 {
 		t.Fatalf("input width = %d, want 56 after rail, padding, and tail fill", got)
 	}
-	if m.viewport.Height != 6 {
-		t.Fatalf("viewport height = %d, want 6 after pane chrome", m.viewport.Height)
+	if m.viewport.Height != 5 {
+		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
 	}
 }
 

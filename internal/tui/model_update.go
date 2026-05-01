@@ -100,6 +100,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.content.styles = m.styles
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
+	m.activity = m.activity.withStyles(m.styles)
 	m.applyInputStyles()
 	m.palette.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
@@ -112,6 +113,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
+	m.activity = m.activity.advance()
 	m.status.promptUsed = m.sidebar.promptUsed
 	m.status.contextBudget = m.sidebar.contextBudget
 	m.syncInputChrome()
