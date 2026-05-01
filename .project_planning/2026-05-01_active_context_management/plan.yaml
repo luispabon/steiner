@@ -66,10 +66,10 @@ stages:
           - Truncation marker in output so model knows content was removed
 
           Add noise stripping pipeline:
-          - ANSI escape code removal
-          - Collapse duplicate consecutive blank lines to single
-          - Collapse repeated identical warning/info lines to count summary
-          - Strip progress bar / spinner patterns
+          - ANSI escape code removal: use github.com/acarl005/stripansi (13-line battle-tested regex, handles CSI/OSC/8-bit). Add to go.mod.
+          - Collapse duplicate consecutive blank lines to single (~4 lines inline)
+          - Collapse repeated identical warning/info lines to count summary (~15 lines inline, keep first occurrence + "[repeated N times]")
+          - Strip progress bar / spinner patterns via carriage return removal (~5 lines inline, strip \r-based overwrites)
 
           Wire into SmartContextManager.PostIngestion — this is where tool results get processed before storage.
           NaiveContextManager.PostIngestion remains pass-through.
