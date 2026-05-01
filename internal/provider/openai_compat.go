@@ -67,7 +67,13 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	}
 	defer p.release()
 
-	payload, err := p.doChatCompletion(ctx, request, false)
+	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: false})
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := p.decodeNonStreamResponse(resp)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -110,15 +116,6 @@ func (p *OpenAICompat) release() {
 		return
 	}
 	p.scheduler.Release()
-}
-
-func (p *OpenAICompat) doChatCompletion(ctx context.Context, request ChatRequest, stream bool) (*openAIResponse, error) {
-	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: stream})
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return p.decodeNonStreamResponse(resp)
 }
 
 func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
