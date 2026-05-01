@@ -3,10 +3,12 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -606,6 +608,102 @@ func TestSessionConversationAccessors(t *testing.T) {
 	s.SetConversation(msgs)
 	if got := len(s.Conversation()); got != 1 {
 		t.Fatalf("conversation length = %d, want 1", got)
+	}
+}
+
+func TestSwitchModelSuccess(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Config: config.Config{
+			Model: config.ModelConfig{
+				Model:   "old-model",
+				BaseURL: "http://old.example/v1",
+			},
+			Models: map[string]config.ModelConfig{
+				"fast": {
+					Model:   "new-model",
+					BaseURL: "http://new.example/v1",
+				},
+			},
+		},
+	})
+
+	err := s.Handle(context.Background(), SwitchModel{Name: "fast"})
+	if err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+
+	if got, want := s.deps.Config.Model.Model, "new-model"; got != want {
+		t.Fatalf("config model = %q, want %q", got, want)
+	}
+
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			if strings.Contains(payload.Content, "failed") {
+				t.Fatalf("unexpected error event: %q", payload.Content)
+			}
+		}
+	}
+}
+
+func TestSwitchModelFailure(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		Config: config.Config{
+			Model: config.ModelConfig{Model: "current"},
+		},
+	})
+
+	err := s.Handle(context.Background(), SwitchModel{Name: "unknown"})
+	if err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			if strings.Contains(payload.Content, "failed") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want ContextReportEvent with error", events)
+	}
+
+	if got, want := s.deps.Config.Model.Model, "current"; got != want {
+		t.Fatalf("config model after failed switch = %q, want %q", got, want)
+	}
+}
+
+func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		SkillNames: []string{"review", "test"},
+	})
+
+	snap := s.Skills().Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("initial skills = %v, want 2", snap)
+	}
+
+	err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: false})
+	if err != nil {
+		t.Fatalf("Handle(SetSkillEnabled) = %v, want nil", err)
+	}
+
+	snap = s.Skills().Snapshot()
+	if len(snap) != 1 || snap[0] != "test" {
+		t.Fatalf("skills after disable = %v, want [test]", snap)
 	}
 }
 
