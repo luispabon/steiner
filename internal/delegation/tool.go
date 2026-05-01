@@ -56,7 +56,6 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		systemPrompt, _ := input["system_prompt"].(string)
 		model, _ := input["model"].(string)
 
-		baseLimits := DefaultLimits(deps.SubAgentCfg)
 		var overrides DelegationLimits
 		if v, ok := input["max_turns"].(float64); ok {
 			overrides.MaxTurns = int(v)
@@ -66,15 +65,15 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 				overrides.Timeout = d
 			}
 		}
-		limits := ApplyOverrides(baseLimits, overrides)
 
 		agentID := fmt.Sprintf("child-%d", time.Now().UnixNano())
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
-			Model: model, Limits: limits, AgentID: agentID,
+			Model: model, AgentID: agentID,
+			Limits: overrides,
 		}
 
-		req, err := BuildChildRun(ctx, BootstrapDeps{
+		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
 			Provider:    deps.Provider,
 			ParentReg:   deps.ParentReg,
 			SubAgentCfg: deps.SubAgentCfg,
@@ -83,6 +82,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
 		}
+		spec.Limits = limits
 
 		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
 		if err != nil {
