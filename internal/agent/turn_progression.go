@@ -208,6 +208,17 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit
 // event sink.
 func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.ChatRequest, prompt.RequestTokenBudget, error) {
 	turn := in.State.TurnCount + 1
+
+	cm := in.Request.ContextManager
+	if cm == nil {
+		cm = &NaiveContextManager{}
+	}
+	var err error
+	in.State, err = cm.PreAssembly(ctx, in.State)
+	if err != nil {
+		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
+	}
+
 	assembly, err := prompt.Assemble(ctx, assemblyOptions(in.BasePrompt, in.State))
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
