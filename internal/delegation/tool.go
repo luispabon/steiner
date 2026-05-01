@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -75,9 +74,15 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			Model: model, Limits: limits, AgentID: agentID,
 		}
 
-		childReg := BuildChildToolRegistry(deps.ParentReg, delegateToolName)
-		agentLimits := agent.Limits{MaxTurns: limits.MaxTurns, MaxTokens: limits.OutputLimitTokens}
-		req := buildChildRunRequest(spec, deps.Provider, childReg, agentLimits, deps.Events)
+		req, err := BuildChildRun(ctx, BootstrapDeps{
+			Provider:    deps.Provider,
+			ParentReg:   deps.ParentReg,
+			SubAgentCfg: deps.SubAgentCfg,
+			Events:      deps.Events,
+		}, spec)
+		if err != nil {
+			return nil, fmt.Errorf("delegate: build child run: %w", err)
+		}
 
 		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
 		if err != nil {
