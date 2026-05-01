@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -147,8 +148,14 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	case SetSkillEnabled:
 		s.skills.Set(a.Name, a.Enabled)
 		return nil
-	case SubmitApproval,
-		SwitchModel:
+	case SubmitApproval:
+		return nil
+	case SwitchModel:
+		_, err := config.SwitchModelConfigByAlias(&s.deps.Config, a.Name)
+		if err != nil {
+			s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
+			return nil
+		}
 		return nil
 	default:
 		return fmt.Errorf("handle: unknown action type %T", action)
