@@ -87,7 +87,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 
 	// Attach TUI sink to session event bus before creating the runner,
 	// so the runner's copy of the runtime picks up the multi-sink events.
-	rt.events = output.NewMultiSink(sess.EventSink(), tuiApp.EventSink())
+	rt.events = sess.EventSink()
 
 	// Create runner with updated registry and approver, then wire into session.
 	runner := cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}
