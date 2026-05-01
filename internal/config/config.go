@@ -5,18 +5,51 @@ import (
 	"strings"
 )
 
+// ContextMode controls which context management strategy the agent uses.
+type ContextMode string
+
+const (
+	// ContextModeNaive is the default pass-through mode that keeps existing
+	// compaction behaviour unchanged.
+	ContextModeNaive ContextMode = "naive"
+	// ContextModeSmart enables active context management with signal extraction
+	// and structured state.
+	ContextModeSmart ContextMode = "smart"
+)
+
+// CompactionStrategy controls how the smart context manager reduces context
+// when the conversation grows too large.
+type CompactionStrategy string
+
+const (
+	// CompactionStrategyDrop discards old turns without summarising.
+	CompactionStrategyDrop CompactionStrategy = "drop"
+	// CompactionStrategySummarize summarises dropped turns before removing them.
+	CompactionStrategySummarize CompactionStrategy = "summarize"
+	// CompactionStrategyHybrid combines summarisation with selective retention.
+	CompactionStrategyHybrid CompactionStrategy = "hybrid"
+)
+
+// ContextManagementConfig holds settings for the active context management
+// feature.
+type ContextManagementConfig struct {
+	Mode               ContextMode        `yaml:"mode"`
+	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
+}
+
 // Config is the complete application configuration.
 type Config struct {
-	Scheduler      SchedulerConfig        `yaml:"scheduler"`
-	Model          ModelConfig            `yaml:"model"`
-	Models         map[string]ModelConfig `yaml:"models"`
-	Limits         LimitsConfig           `yaml:"limits"`
-	Approval       ApprovalConfig         `yaml:"approval"`
-	SubAgent       SubAgentConfig         `yaml:"sub_agent"`
-	Tools          map[string]ToolConfig  `yaml:"tools"`
-	ProjectContext ProjectContextConfig   `yaml:"project_context"`
-	Paths          PathsConfig            `yaml:"paths"`
-	Logging        LoggingConfig          `yaml:"logging"`
+	Scheduler         SchedulerConfig         `yaml:"scheduler"`
+	Model             ModelConfig             `yaml:"model"`
+	Models            map[string]ModelConfig  `yaml:"models"`
+	Limits            LimitsConfig            `yaml:"limits"`
+	Approval          ApprovalConfig          `yaml:"approval"`
+	SubAgent          SubAgentConfig          `yaml:"sub_agent"`
+	Tools             map[string]ToolConfig   `yaml:"tools"`
+	ProjectContext    ProjectContextConfig    `yaml:"project_context"`
+	Paths             PathsConfig             `yaml:"paths"`
+	Logging           LoggingConfig           `yaml:"logging"`
+	ContextManagement ContextManagementConfig `yaml:"context_management"`
 }
 
 type SchedulerConfig struct {

@@ -96,6 +96,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
 	maxTokens := selected.MaxCompletionTokens
+	ctxManager := agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode))
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
 		Executor:    executor,
@@ -110,6 +111,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
 		Events:             events,
+		ContextManager:     ctxManager,
 		StreamingPreferred: r.streamingPreferred,
 	})
 	reason := string(state.StopReason)

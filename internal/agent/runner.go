@@ -18,16 +18,17 @@ type ToolExecutor interface {
 
 // RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
-	Provider    provider.Provider
-	Executor    ToolExecutor
-	Tools       []provider.ToolSpec
-	Prompt      prompt.AssemblyOptions
-	ModelBudget prompt.ModelTokenBudget
-	Model       string
-	ExtraParams map[string]any
-	MaxTokens   *int
-	Limits      Limits
-	Events      output.EventSink
+	Provider       provider.Provider
+	Executor       ToolExecutor
+	Tools          []provider.ToolSpec
+	Prompt         prompt.AssemblyOptions
+	ModelBudget    prompt.ModelTokenBudget
+	Model          string
+	ExtraParams    map[string]any
+	MaxTokens      *int
+	Limits         Limits
+	Events         output.EventSink
+	ContextManager ContextManager
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a
@@ -43,6 +44,10 @@ func NewRunner() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
+	if req.ContextManager == nil {
+		req.ContextManager = &NaiveContextManager{}
+	}
+
 	conversation := fromProviderMessages(req.Prompt.Conversation)
 	state := RunState{
 		Conversation: conversation,
@@ -61,6 +66,13 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		state.StopReason = StopReasonCancelled
 		emitStop(req.Events, state, nil)
 		return state, nil
+	}
+
+	var err error
+	state, err = req.ContextManager.PostIngestion(ctx, state)
+	if err != nil {
+		state.StopReason = StopReasonError
+		return state, fmt.Errorf("post ingestion: %w", err)
 	}
 
 	basePrompt := req.Prompt
