@@ -23,7 +23,7 @@
 | stage-3-step-2 | File tracker: metadata tracking + annotation | implemented |
 | stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | implemented |
 | stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | implemented |
-| stage-6-step-1 | Observability + end-to-end integration | running |
+| stage-6-step-1 | Observability + end-to-end integration | implemented |
 
 ## Dependency Graph
 ```
@@ -61,6 +61,7 @@ stage-1-step-1
 |------|--------|----------|-------|--------|
 | stage-2-step-1 | `tmp/2026-05-01_active_context_management_stage-2-step-1` | `/tmp/steiner-stage-2-step-1` | `gpt-5.4-mini` | closed; isolation violated |
 | stage-5-step-1 | `tmp/2026-05-01_active_context_management_stage-5-step-1` | `/tmp/steiner-stage-5-step-1` | `gpt-5.4-mini` | closed; isolation violated |
+| stage-6-step-1 | `tmp/2026-05-01_active_context_management_stage-6-step-1` | `/tmp/steiner-stage-6-step-1` | `gpt-5.4-mini` | closed; merged cleanly |
 
 ## Temporary Branches and Worktrees
 
@@ -71,6 +72,10 @@ stage-1-step-1
 - Created `tmp/2026-05-01_active_context_management_stage-5-step-1` from `cl/2026-05-01_active_context_management`
 - Added worktree at `/tmp/steiner-stage-5-step-1`
 - Deleted branch `tmp/2026-05-01_active_context_management_stage-5-step-1`
+- Created `tmp/2026-05-01_active_context_management_stage-6-step-1` from `cl/2026-05-01_active_context_management`
+- Added worktree at `/tmp/steiner-stage-6-step-1`
+- Merged `tmp/2026-05-01_active_context_management_stage-6-step-1` into `cl/2026-05-01_active_context_management`
+- Deleted branch `tmp/2026-05-01_active_context_management_stage-6-step-1`
 
 ### 2026-05-01 — stage-2-step-1 started
 - Objective: implement ingestion-time truncation strategies and noise stripping in smart mode
@@ -102,6 +107,10 @@ stage-1-step-1
 - `go test ./internal/agent/... -run 'Test(Scratchpad|ContextState|RunnerSmartContextManagerStripsAndReinjectsScratchpad|PostIngestion|PreAssembly|FileTracker|RunnerSmartContextManagerShapesFreshToolResultsOnAppend)'` — passed
 - `go test ./internal/prompt/... -run 'Test(PlanSourceAssembly|AssembleCarriesRetainedSummaries|AssembleLoadsExplicitSkills|AssembleOrdersContext)'` — passed
 - `go test ./internal/agent/... -run 'TestCompact|TestCompaction|TestRunnerRecompactsUntilTheBudgetFits'` — passed
+- `go test ./internal/agent/...` — passed
+- `go test ./internal/prompt/...` — passed
+- `go test ./internal/output/...` — passed
+- `go build ./...` — passed
 
 ## Blockers / Deviations
 
@@ -180,3 +189,17 @@ stage-1-step-1
 - Scope: `internal/output/`, `internal/agent/`, related integration tests, and `/tmp/context_manual_test.md`
 - Dispatch mode: serial isolated sub-agent
 - Planned manual artifact: `/tmp/context_manual_test.md`
+
+### 2026-05-01 — stage-6-step-1 implemented
+- Merged worker commit from isolated branch:
+  - `f9432be` `stage-6-step-1 context diagnostics`
+- Reviewed contract outcome:
+  - added structured context diagnostics for masking, file annotation, and scratchpad parsing through the existing `EventSink`
+  - added smart-mode end-to-end integration coverage and naive-mode regression coverage
+  - updated plain-output rendering tests for the new diagnostics
+  - wrote the manual validation script at `/tmp/context_manual_test.md`
+- Broad verification passed on the execution branch:
+  - `go test ./internal/agent/...`
+  - `go test ./internal/prompt/...`
+  - `go test ./internal/output/...`
+  - `go build ./...`
