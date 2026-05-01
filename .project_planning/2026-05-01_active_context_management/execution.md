@@ -22,7 +22,7 @@
 | stage-3-step-1 | Assembly masking: observation + prose masking | implemented |
 | stage-3-step-2 | File tracker: metadata tracking + annotation | implemented |
 | stage-4-step-1 | Scratchpad: scaffold state + model scratchpad + injection | implemented |
-| stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | pending |
+| stage-5-step-1 | Compaction: Compactor interface + drop/summarize/hybrid | running |
 | stage-6-step-1 | Observability + end-to-end integration | pending |
 
 ## Dependency Graph
@@ -147,3 +147,10 @@ stage-1-step-1
   - scratchpad parser carry-forward and stripping
   - scaffold-state render
   - runner-level scratchpad stripping and reinjection on the next turn
+
+### 2026-05-01 — stage-5-step-1 started
+- Objective: refactor compaction behind `Compactor` with `drop`, `summarize`, and `hybrid` strategies
+- Scope: `internal/agent/compaction.go`, `internal/agent/compaction_test.go`, `internal/agent/context_manager.go`
+- Dispatch mode: serial isolated sub-agent
+- Sub-agent model: `gpt-5.4-mini` (cheaper tier than current runtime)
+- Note: reusing isolated sub-agent execution despite prior stage-2 isolation violation because the user explicitly requested the same sub-agent pattern
