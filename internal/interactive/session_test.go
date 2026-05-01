@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -448,16 +449,149 @@ func (w *recordingHistoryWriter) Load() ([]string, error) {
 	return w.loadFn()
 }
 
-func TestSessionRunClose(t *testing.T) {
+func TestSessionRunReturnsOnCancel(t *testing.T) {
 	t.Parallel()
 	s := NewSession(Dependencies{})
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	if err := s.Run(ctx); err != nil {
 		t.Errorf("Run() = %v, want nil", err)
 	}
-	if err := s.Close(); err != nil {
-		t.Errorf("Close() = %v, want nil", err)
+}
+
+func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{})
+	ctx := context.Background()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Run(ctx)
+	}()
+
+	s.Handle(ctx, RequestExit{})
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after RequestExit")
+	}
+}
+
+func TestSessionRunLoadsHistory(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return []string{"prompt-1", "prompt-2"}, nil
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			found = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prompt-1" || payload.Prompts[1] != "prompt-2" {
+					t.Fatalf("history prompts = %v, want [prompt-1 prompt-2]", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return nil, fmt.Errorf("load error")
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			continue
+		}
+		if payload.Kind == "session_health" && payload.Severity == "warning" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want session_health warning diagnostic", events)
+	}
+}
+
+func TestSessionRunLoadsEmptyHistory(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			loadFn: func() ([]string, error) {
+				return nil, nil
+			},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			found = true
+			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
+				if len(payload.Prompts) != 0 {
+					t.Fatalf("history prompts = %v, want empty", payload.Prompts)
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
 	}
 }
 

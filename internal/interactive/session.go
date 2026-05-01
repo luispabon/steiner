@@ -23,6 +23,8 @@ type Session struct {
 	snapshots           *SnapshotStore
 	approvalCoordinator *ApprovalCoordinator
 	conversation        []agent.Message
+	done                chan struct{}
+	exitOnce            sync.Once
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
@@ -46,6 +48,7 @@ func NewSession(deps Dependencies) *Session {
 		skills:              NewSkills(deps.SkillNames),
 		snapshots:           snaps,
 		approvalCoordinator: &ApprovalCoordinator{},
+		done:                make(chan struct{}),
 	}
 }
 
@@ -107,6 +110,14 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 	s.conversation = conversation
 }
 
+// SetRunner replaces the session's run executor. This allows the CLI adapter
+// to create the session without a runner, build the interactive registry using
+// the session's display sink, and then wire the runner in with the correct
+// registry and approver.
+func (s *Session) SetRunner(runner runExecutor) {
+	s.deps.Runner = runner
+}
+
 // Handle processes an interactive action. SubmitPrompt, InterruptActiveRun,
 // and ClearConversation are handled by the session; all other actions are
 // currently no-ops and return nil.
@@ -131,6 +142,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		go s.manualCompaction(ctx)
 		return nil
 	case RequestExit:
+		s.exitOnce.Do(func() { close(s.done) })
 		return nil
 	case SetSkillEnabled:
 		s.skills.Set(a.Name, a.Enabled)
@@ -143,8 +155,26 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	}
 }
 
-// Run enters the interactive session loop. Currently a no-op placeholder.
+// Run enters the interactive session loop. It loads history if a writer is
+// configured, then blocks until the context is cancelled or RequestExit is
+// handled.
 func (s *Session) Run(ctx context.Context) error {
+	if s.deps.HistoryWriter != nil {
+		prompts, err := s.deps.HistoryWriter.Load()
+		if err != nil {
+			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("failed to load history: %v", err)},
+			}))
+		}
+		s.events.Emit(output.NewHistoryLoadedEvent(prompts))
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-s.done:
+	}
 	return nil
 }
 
