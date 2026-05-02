@@ -90,7 +90,27 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: "turn 3 answer",
+					Content: "turn 3 answer\nmore detail",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_sp3", Name: "scratchpad", Arguments: map[string]any{
+							"goal":      "inspect note",
+							"plan":      "reread file",
+							"step":      "compare reread",
+							"decisions": "still unchanged",
+							"files":     "note.txt (read)",
+							"open":      "none",
+							"next":      "finish",
+						}},
+						{ID: "call_3", Name: "bash", Arguments: map[string]any{"command": "echo done"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 4 answer",
 				},
 				FinishReason: "stop",
 				Usage:        &provider.UsageStats{TotalTokens: 3},
@@ -142,7 +162,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
 		},
-		Limits: Limits{MaxTurns: 3, MaxTokens: 100},
+		Limits: Limits{MaxTurns: 4, MaxTokens: 100},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
@@ -151,7 +171,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	if got, want := state.StopReason, StopReasonComplete; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if got, want := len(providerStub.requests), 3; got != want {
+	if got, want := len(providerStub.requests), 4; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 
@@ -171,14 +191,20 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	if !messageContentsContain(thirdRequest, "step: compare reread") {
 		t.Fatalf("third request missing updated scratchpad step: %#v", thirdRequest)
 	}
-	if !messageContentsContain(thirdRequest, "turn 1 answer") {
-		t.Fatalf("third request missing trimmed older assistant content: %#v", thirdRequest)
+
+	// Masking only applies after the 2-turn grace period, so checks move to the fourth request.
+	fourthRequest := providerStub.requests[3].Messages
+	if !messageContentsContain(fourthRequest, "goal: inspect note") {
+		t.Fatalf("fourth request missing carried scratchpad goal: %#v", fourthRequest)
 	}
-	if !messageContentsContain(thirdRequest, "tool result") || !messageContentsContain(thirdRequest, "masked") {
-		t.Fatalf("third request missing masked older tool result: %#v", thirdRequest)
+	if !messageContentsContain(fourthRequest, "turn 1 answer") {
+		t.Fatalf("fourth request missing trimmed older assistant content: %#v", fourthRequest)
 	}
-	if !messageContentsContain(thirdRequest, "file unchanged since turn 1") {
-		t.Fatalf("third request missing unchanged reread annotation: %#v", thirdRequest)
+	if !messageContentsContain(fourthRequest, "tool result") || !messageContentsContain(fourthRequest, "masked") {
+		t.Fatalf("fourth request missing masked older tool result: %#v", fourthRequest)
+	}
+	if !messageContentsContain(fourthRequest, "file unchanged since turn 1") {
+		t.Fatalf("fourth request missing unchanged reread annotation: %#v", fourthRequest)
 	}
 
 	kinds := contextDiagnosticKinds(events)

@@ -19,17 +19,22 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 		windowTurns = defaultMaskingWindowTurns
 	}
 
+	effectiveWindow := windowTurns
+	if effectiveWindow < 2 {
+		effectiveWindow = 2
+	}
+
 	totalAssistantTurns := 0
 	for _, message := range messages {
 		if message.Role == provider.MessageRoleAssistant {
 			totalAssistantTurns++
 		}
 	}
-	if totalAssistantTurns <= windowTurns {
+	if totalAssistantTurns <= effectiveWindow {
 		return cloneProviderMessages(messages)
 	}
 
-	cutoffTurn := totalAssistantTurns - windowTurns
+	cutoffTurn := totalAssistantTurns - effectiveWindow
 	out := make([]provider.Message, 0, len(messages))
 	assistantTurn := 0
 	var currentToolCalls []provider.ToolCall
@@ -43,7 +48,9 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 				cloned.Content = maskAssistantMessage(cloned)
 			}
 		case provider.MessageRoleTool:
-			if assistantTurn <= cutoffTurn {
+			if toolResultName(cloned, currentToolCalls) == "scratchpad" {
+				cloned.Content = ""
+			} else if assistantTurn <= cutoffTurn {
 				cloned.Content = maskToolResult(cloned, currentToolCalls)
 			}
 		}
@@ -94,6 +101,14 @@ func maskToolResult(message provider.Message, toolCalls []provider.ToolCall) str
 		parts = append(parts, "]")
 	}
 	return strings.Join(parts, " ")
+}
+
+func toolResultName(message provider.Message, toolCalls []provider.ToolCall) string {
+	name, _ := toolCallMetadata(message, toolCalls)
+	if name == "" {
+		name = strings.TrimSpace(message.Name)
+	}
+	return name
 }
 
 func toolCallMetadata(message provider.Message, toolCalls []provider.ToolCall) (string, string) {

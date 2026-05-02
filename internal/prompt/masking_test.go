@@ -19,11 +19,21 @@ func TestMaskConversationMasksOlderToolResults(t *testing.T) {
 		},
 		{Role: provider.MessageRoleTool, ToolCallID: "call_1", Name: "grep", Content: "raw grep output"},
 		{Role: provider.MessageRoleUser, Content: "user 2"},
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: "tool turn 2",
+			ToolCalls: []provider.ToolCall{
+				{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "foo.go"}},
+			},
+		},
+		{Role: provider.MessageRoleTool, ToolCallID: "call_2", Name: "read", Content: "file body"},
+		{Role: provider.MessageRoleUser, Content: "user 3"},
 		{Role: provider.MessageRoleAssistant, Content: "recent answer\nwith more detail"},
 	}
 
 	got := MaskConversation(messages, 1)
 
+	// Turn 1 tool result should be masked.
 	if got[2].Content == messages[2].Content {
 		t.Fatalf("tool result content = %q, want masked placeholder", got[2].Content)
 	}
@@ -36,6 +46,10 @@ func TestMaskConversationMasksOlderToolResults(t *testing.T) {
 	if got[1].ToolCalls[0].Name != "grep" {
 		t.Fatalf("assistant tool call metadata lost: %+v", got[1].ToolCalls[0])
 	}
+	// Turn 2 tool result should be preserved (within the 2-turn grace window).
+	if got[5].Content != messages[5].Content {
+		t.Fatalf("turn 2 tool result content = %q, want unmasked", got[5].Content)
+	}
 }
 
 func TestMaskConversationTrimsOlderAssistantProse(t *testing.T) {
@@ -43,6 +57,8 @@ func TestMaskConversationTrimsOlderAssistantProse(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "u1"},
 		{Role: provider.MessageRoleAssistant, Content: "first line\nsecond line\nthird line"},
 		{Role: provider.MessageRoleUser, Content: "u2"},
+		{Role: provider.MessageRoleAssistant, Content: "second turn"},
+		{Role: provider.MessageRoleUser, Content: "u3"},
 		{Role: provider.MessageRoleAssistant, Content: "keep all lines\nsecond line"},
 	}
 
@@ -53,7 +69,10 @@ func TestMaskConversationTrimsOlderAssistantProse(t *testing.T) {
 		t.Fatalf("older assistant content = %q, want first line only", got[1].Content)
 	}
 	if got[3].Content != messages[3].Content {
-		t.Fatalf("recent assistant content = %q, want unchanged", got[3].Content)
+		t.Fatalf("middle assistant content = %q, want unchanged", got[3].Content)
+	}
+	if got[5].Content != messages[5].Content {
+		t.Fatalf("recent assistant content = %q, want unchanged", got[5].Content)
 	}
 }
 
@@ -86,7 +105,9 @@ func TestMaskConversationIncludesTurnInMaskedText(t *testing.T) {
 		},
 		{Role: provider.MessageRoleTool, ToolCallID: "c1", Name: "read", Content: "file body", Turn: 1},
 		{Role: provider.MessageRoleUser, Content: "u2", Turn: 2},
-		{Role: provider.MessageRoleAssistant, Content: "recent", Turn: 2},
+		{Role: provider.MessageRoleAssistant, Content: "middle", Turn: 2},
+		{Role: provider.MessageRoleUser, Content: "u3", Turn: 3},
+		{Role: provider.MessageRoleAssistant, Content: "recent", Turn: 3},
 	}
 
 	got := MaskConversation(messages, 1)
@@ -99,6 +120,13 @@ func TestMaskConversationIncludesTurnInMaskedText(t *testing.T) {
 	}
 	if !strings.Contains(got[1].Content, "[turn 1]") {
 		t.Fatalf("masked assistant = %q, want turn prefix", got[1].Content)
+	}
+	// Turn 2 and 3 should remain unmasked.
+	if got[4].Content != messages[4].Content {
+		t.Fatalf("middle assistant content = %q, want unchanged", got[4].Content)
+	}
+	if got[6].Content != messages[6].Content {
+		t.Fatalf("recent assistant content = %q, want unchanged", got[6].Content)
 	}
 }
 
@@ -114,6 +142,9 @@ func TestMaskConversationHandlesMultiToolTurn(t *testing.T) {
 		},
 		{Role: provider.MessageRoleTool, ToolCallID: "call_1", Name: "read", Content: "file body"},
 		{Role: provider.MessageRoleTool, ToolCallID: "call_2", Name: "grep", Content: "grep body"},
+		{Role: provider.MessageRoleUser, Content: "u2"},
+		{Role: provider.MessageRoleAssistant, Content: "middle"},
+		{Role: provider.MessageRoleUser, Content: "u3"},
 		{Role: provider.MessageRoleAssistant, Content: "recent"},
 	}
 
@@ -124,5 +155,68 @@ func TestMaskConversationHandlesMultiToolTurn(t *testing.T) {
 	}
 	if !strings.Contains(got[3].Content, "grep") {
 		t.Fatalf("second masked tool result = %q, want grep metadata", got[3].Content)
+	}
+	// Turn 2 and 3 should remain unmasked.
+	if got[5].Content != messages[5].Content {
+		t.Fatalf("middle assistant content = %q, want unchanged", got[5].Content)
+	}
+	if got[7].Content != messages[7].Content {
+		t.Fatalf("recent assistant content = %q, want unchanged", got[7].Content)
+	}
+}
+
+func TestMaskConversationGracePeriod(t *testing.T) {
+	messages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "u1"},
+		{Role: provider.MessageRoleAssistant, Content: "turn 1"},
+		{Role: provider.MessageRoleUser, Content: "u2"},
+		{Role: provider.MessageRoleAssistant, Content: "turn 2"},
+	}
+
+	// With only 2 assistant turns and windowTurns=1, the effective window is 2,
+	// so nothing should be masked.
+	got := MaskConversation(messages, 1)
+
+	for i := range got {
+		if got[i].Content != messages[i].Content {
+			t.Fatalf("message %d content = %q, want %q", i, got[i].Content, messages[i].Content)
+		}
+	}
+}
+
+func TestMaskConversationScratchpadToolResultDropped(t *testing.T) {
+	messages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "u1"},
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{
+				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.go"}},
+			},
+		},
+		{Role: provider.MessageRoleTool, ToolCallID: "call_1", Name: "read", Content: "file body"},
+		{Role: provider.MessageRoleUser, Content: "u2"},
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{
+				{ID: "call_2", Name: "scratchpad", Arguments: map[string]any{"content": "plan"}},
+			},
+		},
+		{Role: provider.MessageRoleTool, ToolCallID: "call_2", Name: "scratchpad", Content: `{"ok":true}`},
+		{Role: provider.MessageRoleUser, Content: "u3"},
+		{Role: provider.MessageRoleAssistant, Content: "recent"},
+	}
+
+	got := MaskConversation(messages, 1)
+
+	// Older non-scratchpad tool result should be masked.
+	if got[2].Content == messages[2].Content {
+		t.Fatalf("read tool result content = %q, want masked placeholder", got[2].Content)
+	}
+	if !strings.Contains(got[2].Content, "read") {
+		t.Fatalf("read tool result content = %q, want tool name preserved", got[2].Content)
+	}
+	// Scratchpad tool result should be empty, not masked.
+	if got[5].Content != "" {
+		t.Fatalf("scratchpad tool result content = %q, want empty string", got[5].Content)
 	}
 }

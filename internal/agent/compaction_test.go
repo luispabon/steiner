@@ -409,7 +409,8 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 	if got, want := outcome.State.Conversation[1].Content, "turn 1 assistant"; got != want {
 		t.Fatalf("turn 1 assistant = %q, want %q", got, want)
 	}
-	if got, want := outcome.State.Conversation[4].Content, "turn 2 assistant"; got != want {
+	// With the 2-turn grace period, turn 2 assistant should remain unmasked.
+	if got, want := outcome.State.Conversation[4].Content, "turn 2 assistant\nmore detail"; got != want {
 		t.Fatalf("turn 2 assistant = %q, want %q", got, want)
 	}
 	if got := outcome.State.Conversation[7].Content; !strings.Contains(got, "more detail") {
