@@ -639,8 +639,20 @@ func (m Model) renderTypedInputLines(width int) []string {
 	for i, valueLine := range valueLines {
 		wrapped := wrapComposerLine(valueLine, width)
 		if i == cursorLine {
-			row := max(0, min(lineInfo.RowOffset, len(wrapped)-1))
-			col := max(0, min(lineInfo.ColumnOffset, len([]rune(wrapped[row]))))
+			absPos := lineInfo.ColumnOffset
+			if absPos < 0 {
+				absPos = 0
+			}
+			row := 0
+			col := absPos
+			for r, seg := range wrapped {
+				segLen := len([]rune(seg))
+				if col < segLen || (col == segLen && r == len(wrapped)-1) {
+					row = r
+					break
+				}
+				col -= segLen
+			}
 			wrapped[row] = insertComposerCursor(wrapped[row], col)
 		}
 		lines = append(lines, wrapped...)

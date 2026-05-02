@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
@@ -108,7 +109,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if _, err := runTeaProgram(p); err != nil {
 			if !errors.Is(err, tea.ErrProgramKilled) {
 				rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
@@ -124,6 +128,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	err = sess.Run(ctx)
 
 	quitTeaProgram(p)
+	wg.Wait()
 	clearTerminalScreen(cmd.OutOrStdout())
 	closeRuntime(&rt)
 	return err

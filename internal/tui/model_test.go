@@ -1197,8 +1197,8 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	if m.viewport.Width != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
 	}
-	if got := m.input.Width(); got != 56 {
-		t.Fatalf("input width = %d, want 56 after rail, padding, and tail fill", got)
+	if got := m.input.Width(); got != 99999 {
+		t.Fatalf("input width = %d, want 99999 (no internal textarea wrapping)", got)
 	}
 	if m.viewport.Height != 5 {
 		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
@@ -1287,6 +1287,102 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	}
 	if got := lines[0]; got != "asdasd█" {
 		t.Fatalf("line = %q, want %q", got, "asdasd█")
+	}
+}
+
+func TestModelCursorInHardwrappedInput(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	innerWidth := m.inputInnerWidth(40)
+	if innerWidth != 36 {
+		t.Fatalf("innerWidth = %d, want 36", innerWidth)
+	}
+
+	// 100-char line hardwraps into 3 segments at width 36: 36 + 36 + 28
+	val := strings.Repeat("x", 100)
+	m.input.SetValue(val)
+
+	tests := []struct {
+		name    string
+		absPos  int
+		wantSeg int
+		wantCol int
+	}{
+		{"start-of-line", 0, 0, 0},
+		{"mid-first-segment", 18, 0, 18},
+		{"boundary-first-to-second", 36, 1, 0},
+		{"mid-second-segment", 54, 1, 18},
+		{"boundary-second-to-third", 72, 2, 0},
+		{"end-of-line", 100, 2, 28},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.input.SetCursor(tt.absPos)
+			lines := m.renderTypedInputLines(innerWidth)
+
+			cursorRow := -1
+			cursorCol := -1
+			for i, line := range lines {
+				if idx := strings.Index(line, "█"); idx >= 0 {
+					if cursorRow >= 0 {
+						t.Fatal("multiple cursor markers found")
+					}
+					cursorRow = i
+					cursorCol = idx
+				}
+			}
+			if cursorRow < 0 {
+				t.Fatal("no cursor marker found")
+			}
+			if cursorRow != tt.wantSeg {
+				t.Fatalf("cursor row = %d, want %d", cursorRow, tt.wantSeg)
+			}
+			if cursorCol != tt.wantCol {
+				t.Fatalf("cursor col = %d, want %d", cursorCol, tt.wantCol)
+			}
+		})
+	}
+}
+
+func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	innerWidth := m.inputInnerWidth(40)
+
+	// 50-char single-line input wraps into 2 segments: 36 + 14
+	val := strings.Repeat("y", 50)
+	m.input.SetValue(val)
+
+	// After SetValue cursor is at end; press left arrow 3 times via textarea update
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+
+	lines := m.renderTypedInputLines(innerWidth)
+
+	cursorRow := -1
+	cursorCol := -1
+	for i, line := range lines {
+		if idx := strings.Index(line, "█"); idx >= 0 {
+			if cursorRow >= 0 {
+				t.Fatal("multiple cursor markers found")
+			}
+			cursorRow = i
+			cursorCol = idx
+		}
+	}
+	if cursorRow < 0 {
+		t.Fatal("no cursor marker found")
+	}
+	// Cursor at position 47: second segment (36-based), offset 11
+	if cursorRow != 1 {
+		t.Fatalf("cursor row = %d, want 1 (second segment)", cursorRow)
+	}
+	if cursorCol != 11 {
+		t.Fatalf("cursor col = %d, want 11", cursorCol)
 	}
 }
 
