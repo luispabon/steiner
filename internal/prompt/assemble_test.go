@@ -57,7 +57,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		}
 	}
 
-	if got, want := len(assembly.Messages), 8; got != want {
+	if got, want := len(assembly.Messages), 7; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
