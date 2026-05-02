@@ -61,5 +61,11 @@ func defaultConfig() Config {
 			Level: "info",
 			File:  "~/.local/share/steiner/steiner.log",
 		},
+		ContextManagement: ContextManagementConfig{
+			Mode:               ContextModeNaive,
+			CompactionStrategy: CompactionStrategyDrop,
+			MaskingWindowTurns: 5,
+			ReadAnnotations:    true,
+		},
 	}
 }

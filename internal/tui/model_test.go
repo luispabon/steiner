@@ -13,6 +13,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 // testController records all actions received by Handle for test verification.
@@ -429,6 +430,106 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 	}
 }
 
+func TestModelActivityRowReservesLayoutSpace(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
+
+	if got := m.activityRowHeight(m.viewport.Width); got != 1 {
+		t.Fatalf("activity row height = %d, want 1", got)
+	}
+	if m.viewport.Height != 5 {
+		t.Fatalf("viewport height = %d, want 5 after reserved activity row", m.viewport.Height)
+	}
+}
+
+func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.T) {
+	m := newModel(Config{Model: "gpt-test"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"waiting on model", "gpt-test", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"running tool", "bash", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelActivityRowShowsCompactionSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "compacting",
+		CompactionCount: 2,
+		Turn:            7,
+	})})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	for _, want := range []string{"compacting context", "2 compactions", "turn 7", "⠋"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("activity row = %q, want %q", row, want)
+		}
+	}
+}
+
+func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
+
+	row := m.renderActivityRow(m.viewport.Width)
+	if !strings.Contains(strings.ToLower(row), "approval required") {
+		t.Fatalf("activity row = %q, want approval label", row)
+	}
+	if strings.Contains(row, "⠋") {
+		t.Fatalf("activity row = %q, want no spinner for approval", row)
+	}
+	if m.activity.busy() {
+		t.Fatal("activity.busy = true, want false for approval")
+	}
+}
+
+func TestModelInterruptClearsActivityImmediately(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{Controller: ctrl}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if ctrl.countInterruptActiveRun() != 1 {
+		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
+	}
+	if m.activity.busy() {
+		t.Fatal("activity.busy = true, want false after interrupt")
+	}
+	if m.activity.label != "" || m.activity.detail != "" {
+		t.Fatalf("activity = %#v, want cleared", m.activity)
+	}
+	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width)); strings.Contains(got, "waiting on model") || strings.Contains(got, "running tool") {
+		t.Fatalf("activity row = %q, want cleared", got)
+	}
+}
+
 func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -479,6 +580,28 @@ func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.
 	lines := strings.Join(m.sidebar.lines(38, 50), "\n")
 	if strings.Contains(lines, "compacting…") {
 		t.Fatalf("sidebar = %q, want no compacting spinner after finished session health", lines)
+	}
+}
+
+func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
+	ctrl := &testController{err: errors.New("model not found")}
+
+	m := newModel(Config{
+		Model:         "original",
+		ModelContexts: map[string]int{"original": 1024},
+		Controller:    ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.applyModelSelection("original", "")
+
+	m.input.SetValue("/model unknown")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got, want := m.status.model, "original"; got != want {
+		t.Fatalf("status.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.model, "original"; got != want {
+		t.Fatalf("sidebar.model = %q, want %q", got, want)
 	}
 }
 
@@ -1070,15 +1193,15 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
-	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + status(1) → viewport.Height = 12-6 = 6
+	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + activity(1) + status(1) → viewport.Height = 12-7 = 5
 	if m.viewport.Width != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
 	}
-	if got := m.input.Width(); got != 56 {
-		t.Fatalf("input width = %d, want 56 after rail, padding, and tail fill", got)
+	if got := m.input.Width(); got != 99999 {
+		t.Fatalf("input width = %d, want 99999 (no internal textarea wrapping)", got)
 	}
-	if m.viewport.Height != 6 {
-		t.Fatalf("viewport height = %d, want 6 after pane chrome", m.viewport.Height)
+	if m.viewport.Height != 5 {
+		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
 	}
 }
 
@@ -1164,6 +1287,102 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	}
 	if got := lines[0]; got != "asdasd█" {
 		t.Fatalf("line = %q, want %q", got, "asdasd█")
+	}
+}
+
+func TestModelCursorInHardwrappedInput(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	innerWidth := m.inputInnerWidth(40)
+	if innerWidth != 36 {
+		t.Fatalf("innerWidth = %d, want 36", innerWidth)
+	}
+
+	// 100-char line hardwraps into 3 segments at width 36: 36 + 36 + 28
+	val := strings.Repeat("x", 100)
+	m.input.SetValue(val)
+
+	tests := []struct {
+		name    string
+		absPos  int
+		wantSeg int
+		wantCol int
+	}{
+		{"start-of-line", 0, 0, 0},
+		{"mid-first-segment", 18, 0, 18},
+		{"boundary-first-to-second", 36, 1, 0},
+		{"mid-second-segment", 54, 1, 18},
+		{"boundary-second-to-third", 72, 2, 0},
+		{"end-of-line", 100, 2, 28},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.input.SetCursor(tt.absPos)
+			lines := m.renderTypedInputLines(innerWidth)
+
+			cursorRow := -1
+			cursorCol := -1
+			for i, line := range lines {
+				if idx := strings.Index(line, "█"); idx >= 0 {
+					if cursorRow >= 0 {
+						t.Fatal("multiple cursor markers found")
+					}
+					cursorRow = i
+					cursorCol = idx
+				}
+			}
+			if cursorRow < 0 {
+				t.Fatal("no cursor marker found")
+			}
+			if cursorRow != tt.wantSeg {
+				t.Fatalf("cursor row = %d, want %d", cursorRow, tt.wantSeg)
+			}
+			if cursorCol != tt.wantCol {
+				t.Fatalf("cursor col = %d, want %d", cursorCol, tt.wantCol)
+			}
+		})
+	}
+}
+
+func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	innerWidth := m.inputInnerWidth(40)
+
+	// 50-char single-line input wraps into 2 segments: 36 + 14
+	val := strings.Repeat("y", 50)
+	m.input.SetValue(val)
+
+	// After SetValue cursor is at end; press left arrow 3 times via textarea update
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+
+	lines := m.renderTypedInputLines(innerWidth)
+
+	cursorRow := -1
+	cursorCol := -1
+	for i, line := range lines {
+		if idx := strings.Index(line, "█"); idx >= 0 {
+			if cursorRow >= 0 {
+				t.Fatal("multiple cursor markers found")
+			}
+			cursorRow = i
+			cursorCol = idx
+		}
+	}
+	if cursorRow < 0 {
+		t.Fatal("no cursor marker found")
+	}
+	// Cursor at position 47: second segment (36-based), offset 11
+	if cursorRow != 1 {
+		t.Fatalf("cursor row = %d, want 1 (second segment)", cursorRow)
+	}
+	if cursorCol != 11 {
+		t.Fatalf("cursor col = %d, want 11", cursorCol)
 	}
 }
 

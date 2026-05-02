@@ -57,6 +57,7 @@ type Model struct {
 	git      *gitState
 
 	approval                     approvalState
+	activity                     activityState
 	external                     <-chan tea.Msg
 	autoScroll                   bool
 	contentTopPad                int
@@ -182,6 +183,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.content.showThinking = m.showThinking
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
+	m.activity = newActivityState(m.styles)
 
 	// Match the composer to user message chrome: accent rail, muted surface.
 	m.applyInputStyles()
@@ -321,13 +323,14 @@ func (m Model) View() string {
 		Render(strings.Repeat("─", contentWidth))
 
 	inputView := m.renderInputView(contentWidth)
+	activityView := m.renderActivityRow(contentWidth)
 	statusView := m.status.view(contentWidth)
 
 	mainComponents := []string{viewportView, hDivider}
 	if tray := m.renderApprovalTray(contentWidth); tray != "" {
 		mainComponents = append(mainComponents, tray)
 	}
-	mainComponents = append(mainComponents, inputView, statusView)
+	mainComponents = append(mainComponents, inputView, activityView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 
@@ -358,7 +361,7 @@ func (m Model) View() string {
 
 	if m.filePicker.open {
 		overlay := m.filePicker.View()
-		base = m.filePicker.PlaceBottomAnchored(base, overlay, m.inputChromeHeight(contentWidth))
+		base = m.filePicker.PlaceBottomAnchored(base, overlay, m.inputChromeHeight(contentWidth)+m.activityRowHeight(contentWidth))
 	}
 
 	if m.contextOverlay.open {
@@ -520,13 +523,17 @@ func (m *Model) syncInputChrome() {
 	switch {
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
-	case m.content.streamingPhase != "":
-		m.input.Placeholder = "streaming… esc to interrupt"
+	case m.activity.busy():
+		m.input.Placeholder = "working… esc to interrupt"
 	default:
 		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}
 	m.status.approvalActive = m.approval.active
-	m.status.streaming = m.content.streamingPhase != "" && !m.approval.active
+	m.status.streaming = m.activity.busy() && !m.approval.active
+}
+
+func (m Model) renderActivityRow(contentWidth int) string {
+	return m.activity.view(contentWidth, m.styles)
 }
 
 func (m *Model) applyInputStyles() {
@@ -594,6 +601,10 @@ func (m Model) inputChromeHeight(contentWidth int) int {
 	return lipgloss.Height(m.renderInputView(contentWidth))
 }
 
+func (m Model) activityRowHeight(contentWidth int) int {
+	return 1
+}
+
 func (m Model) inputInnerWidth(contentWidth int) int {
 	return max(1, contentWidth-inputRailWidth-(inputPadX*2)-inputTailFill)
 }
@@ -628,8 +639,20 @@ func (m Model) renderTypedInputLines(width int) []string {
 	for i, valueLine := range valueLines {
 		wrapped := wrapComposerLine(valueLine, width)
 		if i == cursorLine {
-			row := max(0, min(lineInfo.RowOffset, len(wrapped)-1))
-			col := max(0, min(lineInfo.ColumnOffset, len([]rune(wrapped[row]))))
+			absPos := lineInfo.ColumnOffset
+			if absPos < 0 {
+				absPos = 0
+			}
+			row := 0
+			col := absPos
+			for r, seg := range wrapped {
+				segLen := len([]rune(seg))
+				if col < segLen || (col == segLen && r == len(wrapped)-1) {
+					row = r
+					break
+				}
+				col -= segLen
+			}
 			wrapped[row] = insertComposerCursor(wrapped[row], col)
 		}
 		lines = append(lines, wrapped...)

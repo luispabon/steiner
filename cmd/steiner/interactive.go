@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
@@ -90,7 +92,12 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt.events = sess.EventSink()
 
 	// Create runner with updated registry and approver, then wire into session.
-	runner := cliRunner{runtime: rt, runMode: "interactive", streamingPreferred: true}
+	runner := cliRunner{
+		runtime:            rt,
+		runMode:            "interactive",
+		streamingPreferred: true,
+		currentModel:       func() config.ModelConfig { return sess.CurrentModelConfig() },
+	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})
 
@@ -102,7 +109,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if _, err := runTeaProgram(p); err != nil {
 			if !errors.Is(err, tea.ErrProgramKilled) {
 				rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
@@ -118,6 +128,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	err = sess.Run(ctx)
 
 	quitTeaProgram(p)
+	wg.Wait()
 	clearTerminalScreen(cmd.OutOrStdout())
 	closeRuntime(&rt)
 	return err

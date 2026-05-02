@@ -211,7 +211,14 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 
 func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := NewSession(Dependencies{
+		Config: config.Config{
+			Model: config.ModelConfig{Model: "gpt-4"},
+			Models: map[string]config.ModelConfig{
+				"gpt-4": {Model: "gpt-4"},
+			},
+		},
+	})
 	ctx := context.Background()
 
 	tests := []struct {
@@ -663,8 +670,8 @@ func TestSwitchModelFailure(t *testing.T) {
 	})
 
 	err := s.Handle(context.Background(), SwitchModel{Name: "unknown"})
-	if err != nil {
-		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	if err == nil {
+		t.Fatal("Handle(SwitchModel) = nil, want error")
 	}
 
 	var found bool
@@ -682,6 +689,22 @@ func TestSwitchModelFailure(t *testing.T) {
 
 	if got, want := s.deps.Config.Model.Model, "current"; got != want {
 		t.Fatalf("config model after failed switch = %q, want %q", got, want)
+	}
+}
+
+func TestCurrentModelConfig(t *testing.T) {
+	t.Parallel()
+	s := NewSession(Dependencies{
+		Config: config.Config{
+			Model: config.ModelConfig{Model: "test-model", BaseURL: "http://example/v1"},
+		},
+	})
+	got := s.CurrentModelConfig()
+	if got.Model != "test-model" {
+		t.Fatalf("CurrentModelConfig().Model = %q, want %q", got.Model, "test-model")
+	}
+	if got.BaseURL != "http://example/v1" {
+		t.Fatalf("CurrentModelConfig().BaseURL = %q, want %q", got.BaseURL, "http://example/v1")
 	}
 }
 

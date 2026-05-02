@@ -10,6 +10,7 @@ import (
 
 type StreamCapture struct {
 	Bytes     int    `json:"bytes"`
+	Shown     int    `json:"shown,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	Binary    bool   `json:"binary,omitempty"`
 	Preview   string `json:"preview,omitempty"`
@@ -76,6 +77,7 @@ func (c *boundedCapture) Capture() StreamCapture {
 		if len(previewBytes) > 16 {
 			previewBytes = previewBytes[:16]
 		}
+		capture.Shown = len(previewBytes)
 		capture.Preview = hex.EncodeToString(previewBytes)
 		return capture
 	}
@@ -84,6 +86,7 @@ func (c *boundedCapture) Capture() StreamCapture {
 	if len(previewBytes) > 0 && !utf8.Valid(previewBytes) {
 		previewBytes = bytes.ToValidUTF8(previewBytes, []byte("?"))
 	}
+	capture.Shown = len(previewBytes)
 	capture.Preview = string(previewBytes)
 	return capture
 }
@@ -98,12 +101,12 @@ func (c *boundedCapture) Bytes() []byte {
 func (c StreamCapture) Summary() string {
 	switch {
 	case c.Binary:
-		return fmt.Sprintf("<binary output bytes=%d>", c.Bytes)
+		return fmt.Sprintf("<binary output shown=%d total=%d>", c.Shown, c.Bytes)
 	case c.Truncated:
 		if c.Preview == "" {
-			return fmt.Sprintf("<truncated output bytes=%d>", c.Bytes)
+			return fmt.Sprintf("<truncated output shown=%d total=%d>", c.Shown, c.Bytes)
 		}
-		return fmt.Sprintf("%s\n<truncated output bytes=%d>", c.Preview, c.Bytes)
+		return fmt.Sprintf("%s\n<truncated output shown=%d total=%d>", c.Preview, c.Shown, c.Bytes)
 	default:
 		return c.Preview
 	}

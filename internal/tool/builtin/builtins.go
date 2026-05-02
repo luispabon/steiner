@@ -13,5 +13,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewLSTool(env),
 		NewBashTool(env),
 		NewDisplayFileTool(env),
+		NewScratchpadTool(env),
 	}
 }

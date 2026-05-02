@@ -35,7 +35,6 @@ type SourceBudgetModel struct {
 	ProjectAgentsBytes  int
 	ProjectContextBytes int
 	SkillBytes          int
-	DurableContextBytes int
 	ToolResultBytes     int
 	ToolSummaryBytes    int
 }
@@ -84,9 +83,6 @@ type DurableSummaryEntry struct {
 }
 
 type DurableContextState struct {
-	ActiveConstraints []DurableContextEntry `json:"active_constraints,omitempty"`
-	UnresolvedWork    []DurableContextEntry `json:"unresolved_work,omitempty"`
-	ActiveFocus       *DurableContextEntry  `json:"active_focus,omitempty"`
 	RetainedSummaries []DurableSummaryEntry `json:"retained_summaries,omitempty"`
 }
 
@@ -105,8 +101,14 @@ type AssemblyOptions struct {
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
+	ScratchpadEnabled         bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
+	// CachedPreamble is the pre-built system preamble string. When non-empty it
+	// is used directly, bypassing SystemPreamble. Both inputs to SystemPreamble
+	// (PromptOverrides.System and ScratchpadEnabled) are session-constants, so
+	// caching once per session is safe.
+	CachedPreamble string
 }
 
 type Assembly struct {

@@ -17,9 +17,10 @@ var (
 
 // CLIOverrides contains command-line override values.
 type CLIOverrides struct {
-	ConfigPath string
-	Model      string
-	Verbose    bool
+	ConfigPath  string
+	Model       string
+	Verbose     bool
+	ContextMode ContextMode
 }
 
 // LoadOptions contains options for loading configuration.
@@ -179,6 +180,9 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	}
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"
+	}
+	if cli.ContextMode != "" {
+		cfg.ContextManagement.Mode = cli.ContextMode
 	}
 }
 

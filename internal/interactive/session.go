@@ -96,6 +96,13 @@ func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 	return agent.NewEventingApprover(eventSink, newApprovalResponder(s.approvalCoordinator))
 }
 
+// CurrentModelConfig returns the currently active model config.
+func (s *Session) CurrentModelConfig() config.ModelConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config.Model
+}
+
 // Conversation returns the current conversation message slice. Callers must
 // not mutate the returned slice; use SetConversation to replace it.
 func (s *Session) Conversation() []agent.Message {
@@ -156,7 +163,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		_, err := config.SwitchModelConfigByAlias(&s.deps.Config, a.Name)
 		if err != nil {
 			s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
-			return nil
+			return err
 		}
 		return nil
 	default:

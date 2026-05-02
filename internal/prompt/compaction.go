@@ -158,14 +158,31 @@ func renderConversationCompactionSource(turns []conversationTurn, state DurableC
 		renderConversationTranscript(turns),
 	}
 
-	if durable := durableContextSections(state); len(durable) > 0 {
-		sections = append(sections,
-			"durable context:",
-			strings.Join(durable, "\n\n"),
-		)
+	if summaries := renderRetainedSummaries(state); summaries != "" {
+		sections = append(sections, "durable context:", summaries)
 	}
 
 	return strings.Join(filterNonEmptyStrings(sections), "\n\n")
+}
+
+func renderRetainedSummaries(state DurableContextState) string {
+	if len(state.RetainedSummaries) == 0 {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "retained summaries:")
+	for _, s := range state.RetainedSummaries {
+		text := s.Text
+		if len(text) > 160 {
+			text = text[:160] + "..."
+		}
+		if s.Title != "" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", s.Title, text))
+		} else {
+			lines = append(lines, "- "+text)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderConversationTranscript(turns []conversationTurn) string {

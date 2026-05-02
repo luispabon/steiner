@@ -57,7 +57,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		}
 	}
 
-	if got, want := len(assembly.Messages), 8; got != want {
+	if got, want := len(assembly.Messages), 7; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
@@ -281,7 +281,7 @@ func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 	}
 }
 
-func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
+func TestAssembleRetainedSummariesAreNotInjectedIntoSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
@@ -298,12 +298,12 @@ func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	block := findBlockBySource(t, assembly.Blocks, ContextSourceDurableContext)
-	if !strings.Contains(block.Content, "retained summaries") {
-		t.Fatalf("durable context block = %q, want retained summaries section", block.Content)
-	}
-	if !strings.Contains(block.Content, "earlier request and tool output") {
-		t.Fatalf("durable context block = %q, want retained summary text", block.Content)
+	// Retained summaries should no longer produce a durable_context block in
+	// the system prompt zone — they are injected via the volatile zone instead.
+	for _, block := range assembly.Blocks {
+		if block.Source == ContextSourceDurableContext {
+			t.Fatalf("unexpected durable_context block in system prompt: %+v", block)
+		}
 	}
 }
 
@@ -315,8 +315,9 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		{Role: provider.MessageRoleAssistant, Content: "solution design is to add compaction"},
 		{Role: provider.MessageRoleUser, Content: "what should we do next?"},
 	}, DurableContextState{
-		ActiveConstraints: []DurableContextEntry{{Text: "do not drop constraints", Source: "user", Turn: 1}},
-		UnresolvedWork:    []DurableContextEntry{{Text: "finish the compaction loop", Source: "assistant", Turn: 2}},
+		RetainedSummaries: []DurableSummaryEntry{
+			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
+		},
 	}, "")
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)

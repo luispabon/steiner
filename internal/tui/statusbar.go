@@ -61,7 +61,14 @@ func (s statusState) view(width int) string {
 		parts = append(parts, label+val)
 	}
 
-	// Segment 4: action hints (state-dependent)
+	// Segment 4: mode
+	if s.mode != "" {
+		label := s.styles.FgMute.Render("mode ")
+		val := s.styles.FgDim.Render(s.mode)
+		parts = append(parts, label+val)
+	}
+
+	// Segment 5: action hints (state-dependent)
 	if s.approvalActive {
 		parts = append(parts, s.styles.KeyChip.Render("tab")+" choice")
 		parts = append(parts, s.styles.KeyChip.Render("⏎")+" confirm")
@@ -75,19 +82,19 @@ func (s statusState) view(width int) string {
 		parts = append(parts, chip+" send")
 	}
 
-	// Segment 5: newline
+	// Segment 6: newline
 	parts = append(parts, s.styles.KeyChip.Render("⇧⏎")+" newline")
 
-	// Segment 6: commands
+	// Segment 7: commands
 	parts = append(parts, s.styles.KeyChip.Render("^P")+" commands")
 
-	// Segment 7: sidebar
+	// Segment 8: sidebar
 	parts = append(parts, s.styles.KeyChip.Render("^B")+" sidebar")
 
-	// Segment 8: switch model
+	// Segment 9: switch model
 	parts = append(parts, s.styles.KeyChip.Render("/model")+" switch")
 
-	// Segment 9: help
+	// Segment 10: help
 	parts = append(parts, s.styles.KeyChip.Render("?")+" help")
 
 	text := strings.Join(parts, sep)

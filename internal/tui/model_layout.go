@@ -19,13 +19,15 @@ func (m *Model) layout() {
 		contentWidth = 1
 	}
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
-	// Total rows: top_pad(1) + viewport + hDivider(1) + approval tray + input + status(1).
+	// Total rows: top_pad(1) + viewport + hDivider(1) + approval tray + input + activity + status(1).
 	// The composer renders as a padded message-style card, so derive its height.
-	m.input.SetWidth(m.inputInnerWidth(contentWidth))
+	m.input.MaxWidth = 0
+	m.input.SetWidth(99999)
 	inputRows := m.inputChromeHeight(contentWidth)
 	approvalRows := m.approvalTrayHeight(contentWidth)
+	activityRows := m.activityRowHeight(contentWidth)
 	m.viewport.Width = max(1, contentWidth-6)
-	m.viewport.Height = max(1, m.height-3-inputRows-approvalRows)
+	m.viewport.Height = max(1, m.height-3-inputRows-approvalRows-activityRows)
 	m.syncViewport()
 }
 

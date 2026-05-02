@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -112,7 +113,6 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -122,7 +122,6 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -135,6 +134,213 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
+	}
+}
+
+func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{
+							ID:   "call_1",
+							Name: "bash",
+							Arguments: map[string]any{
+								"command": "echo test",
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 7},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3},
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "bash" {
+				return nil, fmt.Errorf("tool = %s, want bash", toolName)
+			}
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"exit_code": 1,
+					"output":    "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+				},
+				Metadata: tool.ExecutionMetadata{
+					ExitCode: 1,
+				},
+			}, nil
+		},
+	}
+
+	runner := NewRunner()
+	state, err := runner.Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: &SmartContextManager{},
+		Tools:          []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "Run shell commands", Parameters: map[string]any{"type": "object"}}}},
+		Prompt:         prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
+		Model:          "test-model",
+		MaxTokens:      intPtr(64),
+		Limits:         Limits{MaxTurns: 4, MaxTokens: 50},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	second := providerStub.requests[1]
+	var toolResultMsg provider.Message
+	for _, m := range second.Messages {
+		if m.ToolCallID == "call_1" {
+			toolResultMsg = m
+			break
+		}
+	}
+	if toolResultMsg.ToolCallID != "call_1" {
+		t.Fatalf("tool call id = %q, want call_1", toolResultMsg.ToolCallID)
+	}
+	var toolResult struct {
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(toolResultMsg.Content), &toolResult); err != nil {
+		t.Fatalf("unmarshal tool result: %v", err)
+	}
+	if strings.Contains(toolResult.Output, "HEAD-SENTINEL") {
+		t.Fatalf("tool result output = %q, want head truncated at append time", toolResult.Output)
+	}
+	if strings.Contains(toolResult.Output, "\x1b[") {
+		t.Fatalf("tool result output = %q, want ANSI stripped", toolResult.Output)
+	}
+	if !strings.Contains(toolResult.Output, "warning: retry (repeated 3x)") {
+		t.Fatalf("tool result output = %q, want repeated warning collapse", toolResult.Output)
+	}
+	if !toolResult.Truncated {
+		t.Fatal("tool result truncated = false, want true")
+	}
+	if !strings.Contains(toolResult.Message, "<truncated output shown=") {
+		t.Fatalf("tool result message = %q, want truncation marker", toolResult.Message)
+	}
+}
+
+func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
+	// Scratchpad state is now captured exclusively via tool call results.
+	// The assistant content is preserved unchanged; the rendered scratchpad
+	// is injected into the context state for the next turn.
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "working",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_sp", Name: "scratchpad", Arguments: map[string]any{
+							"goal":      "ship scratchpad",
+							"plan":      "parse and inject",
+							"step":      "call scratchpad tool",
+							"decisions": "use tool result path",
+							"files":     "none",
+							"open":      "none",
+							"next":      "inspect response",
+						}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3},
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName == "scratchpad" {
+				goal, _ := input["goal"].(string)
+				plan, _ := input["plan"].(string)
+				step, _ := input["step"].(string)
+				decisions, _ := input["decisions"].(string)
+				files, _ := input["files"].(string)
+				open, _ := input["open"].(string)
+				next, _ := input["next"].(string)
+				return tool.ExecutionResult{
+					Value: map[string]string{
+						"status":    "ok",
+						"goal":      goal,
+						"plan":      plan,
+						"step":      step,
+						"decisions": decisions,
+						"files":     files,
+						"open":      open,
+						"next":      next,
+					},
+				}, nil
+			}
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"path": "note.txt", "start_line": 1, "end_line": 1,
+					"total_lines": 1, "output": "hello\n",
+				},
+			}, nil
+		},
+	}
+
+	cm := &SmartContextManager{}
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: cm,
+		Prompt: prompt.AssemblyOptions{
+			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "use scratchpad"}},
+			ScratchpadEnabled: true,
+		},
+		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "scratchpad", Description: "scratchpad", Parameters: map[string]any{"type": "object"}}}},
+		Model:     "test-model",
+		MaxTokens: intPtr(64),
+		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// Assistant content is preserved unchanged (no XML stripping).
+	if got := state.Conversation[1].Content; got != "working" {
+		t.Fatalf("assistant content = %q, want working", got)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	// Scratchpad state is captured in context manager.
+	if got := cm.scratchpad.Goal; got != "ship scratchpad" {
+		t.Fatalf("scratchpad goal = %q, want ship scratchpad", got)
+	}
+	// Second request should include the rendered scratchpad state via context.
+	second := providerStub.requests[1]
+	if !messageContentsContain(second.Messages, "goal: ship scratchpad") {
+		t.Fatalf("second request missing scratchpad state: %+v", second.Messages)
 	}
 }
 
@@ -292,7 +498,6 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 		t.Fatalf("assistant content = %q, want %q", got, want)
 	}
 	wantTypes := []string{
-		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -572,7 +777,6 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -772,7 +976,6 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -784,7 +987,6 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -853,16 +1055,8 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ContextState: prompt.DurableContextState{
-				ActiveConstraints: []prompt.DurableContextEntry{
-					{Text: "do not lose the active constraint", Source: "user", Turn: 1},
-				},
-				UnresolvedWork: []prompt.DurableContextEntry{
-					{Text: "finish the long-running session", Source: "assistant", Turn: 1},
-				},
-				ActiveFocus: &prompt.DurableContextEntry{
-					Text:   "keep prompt assembly policy-driven",
-					Source: "assistant",
-					Turn:   1,
+				RetainedSummaries: []prompt.DurableSummaryEntry{
+					{Title: "prior work", Text: "keep prompt assembly policy-driven", Source: "assistant", Turn: 1},
 				},
 			},
 			Policy: prompt.AssemblyPolicy{
@@ -892,15 +1086,12 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		t.Fatalf("lineage first message = %q, want %q", got, want)
 	}
 
-	lastRequest := providerStub.requests[len(providerStub.requests)-1].Messages
-	if !messageContentsContain(lastRequest, "do not lose the active constraint") {
-		t.Fatalf("last request did not retain active constraint: %#v", lastRequest)
+	// RetainedSummaries survive across turns via the compaction path.
+	if got, want := len(state.Context.RetainedSummaries), 1; got != want {
+		t.Fatalf("retained summaries = %d, want %d", got, want)
 	}
-	if !messageContentsContain(lastRequest, "keep prompt assembly policy-driven") {
-		t.Fatalf("last request did not retain active focus: %#v", lastRequest)
-	}
-	if got, want := state.Context.ActiveFocus.Text, "keep prompt assembly policy-driven"; got != want {
-		t.Fatalf("ActiveFocus = %q, want %q", got, want)
+	if got, want := state.Context.RetainedSummaries[0].Text, "keep prompt assembly policy-driven"; got != want {
+		t.Fatalf("retained summary text = %q, want %q", got, want)
 	}
 }
 
@@ -949,22 +1140,11 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ContextState: prompt.DurableContextState{
-				ActiveConstraints: []prompt.DurableContextEntry{
-					{Text: strings.Repeat("constraint ", 8), Source: "user", Turn: 1},
-				},
-				UnresolvedWork: []prompt.DurableContextEntry{
-					{Text: strings.Repeat("unresolved ", 8), Source: "assistant", Turn: 1},
-				},
-				ActiveFocus: &prompt.DurableContextEntry{
-					Text:   strings.Repeat("focus ", 8),
-					Source: "assistant",
-					Turn:   1,
+				RetainedSummaries: []prompt.DurableSummaryEntry{
+					{Title: "prior", Text: strings.Repeat("summary ", 8), Source: "user", Turn: 1},
 				},
 			},
 			Policy: prompt.AssemblyPolicy{
-				Budgets: prompt.SourceBudgetModel{
-					DurableContextBytes: 64,
-				},
 				Compaction: prompt.CompactionPolicy{
 					SummaryBytes: 64,
 				},

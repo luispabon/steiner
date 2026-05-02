@@ -18,16 +18,17 @@ type ToolExecutor interface {
 
 // RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
-	Provider    provider.Provider
-	Executor    ToolExecutor
-	Tools       []provider.ToolSpec
-	Prompt      prompt.AssemblyOptions
-	ModelBudget prompt.ModelTokenBudget
-	Model       string
-	ExtraParams map[string]any
-	MaxTokens   *int
-	Limits      Limits
-	Events      output.EventSink
+	Provider       provider.Provider
+	Executor       ToolExecutor
+	Tools          []provider.ToolSpec
+	Prompt         prompt.AssemblyOptions
+	ModelBudget    prompt.ModelTokenBudget
+	Model          string
+	ExtraParams    map[string]any
+	MaxTokens      *int
+	Limits         Limits
+	Events         output.EventSink
+	ContextManager ContextManager
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a
@@ -43,6 +44,10 @@ func NewRunner() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
+	if req.ContextManager == nil {
+		req.ContextManager = &NaiveContextManager{}
+	}
+
 	conversation := fromProviderMessages(req.Prompt.Conversation)
 	state := RunState{
 		Conversation: conversation,
@@ -62,9 +67,29 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitStop(req.Events, state, nil)
 		return state, nil
 	}
+	if setter, ok := req.ContextManager.(interface{ SetEventSink(output.EventSink) }); ok {
+		setter.SetEventSink(req.Events)
+	}
+
+	var err error
+	state, err = req.ContextManager.PostIngestion(ctx, state)
+	if err != nil {
+		state.StopReason = StopReasonError
+		return state, fmt.Errorf("post ingestion: %w", err)
+	}
 
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
+	// Cache the system preamble once per session so every turn sends the
+	// byte-identical string, preventing KV cache busting on local servers.
+	if preambler, ok := req.ContextManager.(interface {
+		CachedSystemPreamble(override string, scratchpadEnabled bool) string
+	}); ok {
+		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
+			basePrompt.PromptOverrides.System,
+			basePrompt.ScratchpadEnabled,
+		)
+	}
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
 	p := newTurnProgressor(r)

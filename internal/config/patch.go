@@ -2,17 +2,25 @@ package config
 
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
-	Scheduler      *schedulerPatch        `yaml:"scheduler"`
-	Model          *modelPatch            `yaml:"model"`
-	ModelAlias     string                 `yaml:"-"` // populated when model is a scalar alias string
-	Models         *map[string]modelPatch `yaml:"models"`
-	Limits         *limitsPatch           `yaml:"limits"`
-	Approval       *approvalPatch         `yaml:"approval"`
-	SubAgent       *subAgentPatch         `yaml:"sub_agent"`
-	Tools          *map[string]toolPatch  `yaml:"tools"`
-	ProjectContext *projectContextPatch   `yaml:"project_context"`
-	Paths          *pathsPatch            `yaml:"paths"`
-	Logging        *loggingPatch          `yaml:"logging"`
+	Scheduler         *schedulerPatch         `yaml:"scheduler"`
+	Model             *modelPatch             `yaml:"model"`
+	ModelAlias        string                  `yaml:"-"` // populated when model is a scalar alias string
+	Models            *map[string]modelPatch  `yaml:"models"`
+	Limits            *limitsPatch            `yaml:"limits"`
+	Approval          *approvalPatch          `yaml:"approval"`
+	SubAgent          *subAgentPatch          `yaml:"sub_agent"`
+	Tools             *map[string]toolPatch   `yaml:"tools"`
+	ProjectContext    *projectContextPatch    `yaml:"project_context"`
+	Paths             *pathsPatch             `yaml:"paths"`
+	Logging           *loggingPatch           `yaml:"logging"`
+	ContextManagement *contextManagementPatch `yaml:"context_management"`
+}
+
+type contextManagementPatch struct {
+	Mode               *ContextMode        `yaml:"mode"`
+	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
+	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
+	ReadAnnotations    *bool               `yaml:"read_annotations"`
 }
 
 type schedulerPatch struct {
@@ -144,6 +152,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 	}
 	if patch.Logging != nil {
 		applyLoggingPatch(&cfg.Logging, patch.Logging)
+	}
+	if patch.ContextManagement != nil {
+		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
 	}
 }
 
@@ -325,5 +336,20 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 	if patch.ThinkingChunk != nil {
 		dst.ThinkingChunk = *patch.ThinkingChunk
+	}
+}
+
+func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {
+	if patch.Mode != nil {
+		dst.Mode = *patch.Mode
+	}
+	if patch.CompactionStrategy != nil {
+		dst.CompactionStrategy = *patch.CompactionStrategy
+	}
+	if patch.MaskingWindowTurns != nil {
+		dst.MaskingWindowTurns = *patch.MaskingWindowTurns
+	}
+	if patch.ReadAnnotations != nil {
+		dst.ReadAnnotations = *patch.ReadAnnotations
 	}
 }

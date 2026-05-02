@@ -90,6 +90,7 @@ func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, te
 	}
 	m.approval = approvalState{}
 	m.status.mode = "running"
+	m.activity = m.activity.static("approval submitted", string(decision))
 	m.input.Reset()
 	m.input.Focus()
 	m.historyIdx = 0
@@ -106,6 +107,7 @@ func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
 	m.content.AppendInterrupted()
 	m.content.hadChunks = false
 	m.approval = approvalState{}
+	m.activity = m.activity.clear()
 	m.status.mode = ""
 	m.input.Reset()
 	m.input.Focus()

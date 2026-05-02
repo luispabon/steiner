@@ -54,6 +54,12 @@ func validBase() Config {
 			Level: "info",
 			File:  "steiner.log",
 		},
+		ContextManagement: ContextManagementConfig{
+			Mode:               ContextModeNaive,
+			CompactionStrategy: CompactionStrategyDrop,
+			MaskingWindowTurns: 5,
+			ReadAnnotations:    true,
+		},
 	}
 }
 

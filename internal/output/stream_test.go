@@ -170,6 +170,9 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	renderer.OnEvent(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 	renderer.OnEvent(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
 	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 4096, 16384, 22162, 65536, false))
+	renderer.OnEvent(NewContextMaskingEvent(5, "read", "masked", "older tool result", 1, "message_index=7"))
+	renderer.OnEvent(NewFileAnnotationEvent(5, "note.txt", "annotated", "unchanged since turn 2", 2, "range=lines 1-3/3"))
+	renderer.OnEvent(NewScratchpadEvent(5, true, "[Current task state]\ngoal: keep going\nnext: finish", 0, ""))
 
 	got := buf.String()
 	for _, want := range []string{
@@ -177,6 +180,9 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 		`context: warning: session health #2 turn 4; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; after 2 compactions`,
 		"context: budget project context used 900/512 bytes; turn 4; truncated; notes trimmed extra files",
 		"context: budget conversation prompt=1682 reserve=4096 safety=16384 budget=22162/65536 tokens; turn 4",
+		"context: info: masking turn 5; masked; tool=read; window=1; reason=older tool result; notes message_index 7",
+		"context: info: file annotation turn 5; annotated; path=note.txt; reason=unchanged since turn 2; notes range lines 1-3/3, previous_turn 2",
+		"context: info: scratchpad turn 5; parsed; content=\"[Current task state] goal: keep going next: finish\"; bytes=50",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stream output %q missing %q", got, want)

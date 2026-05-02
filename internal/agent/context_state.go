@@ -1,13 +1,23 @@
 package agent
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ContextState holds durable agent intent that must survive compaction.
 // Later stages can render these fields into bounded prompt blocks without
 // depending on transcript-only history.
 type ContextState struct {
-	ActiveConstraints []ActiveConstraint
-	UnresolvedWork    []UnresolvedWorkItem
-	ActiveFocus       *ActiveFocus
-	RetainedSummaries []RetainedSummary
+	ActiveConstraints  []ActiveConstraint
+	UnresolvedWork     []UnresolvedWorkItem
+	ActiveFocus        *ActiveFocus
+	RetainedSummaries  []RetainedSummary
+	FileTrackerSummary []string
+	RecentToolCalls    []string
+	TurnCount          int
+	CompactionCount    int
+	Scratchpad         string
 }
 
 // ActiveConstraint represents a durable constraint that should remain in force
@@ -46,15 +56,35 @@ type RetainedSummary struct {
 // Clone returns a deep copy of the context state.
 func (s ContextState) Clone() ContextState {
 	next := ContextState{
-		ActiveConstraints: cloneActiveConstraints(s.ActiveConstraints),
-		UnresolvedWork:    cloneUnresolvedWorkItems(s.UnresolvedWork),
-		RetainedSummaries: cloneRetainedSummaries(s.RetainedSummaries),
+		ActiveConstraints:  cloneActiveConstraints(s.ActiveConstraints),
+		UnresolvedWork:     cloneUnresolvedWorkItems(s.UnresolvedWork),
+		RetainedSummaries:  cloneRetainedSummaries(s.RetainedSummaries),
+		FileTrackerSummary: cloneStrings(s.FileTrackerSummary),
+		RecentToolCalls:    cloneStrings(s.RecentToolCalls),
+		TurnCount:          s.TurnCount,
+		CompactionCount:    s.CompactionCount,
+		Scratchpad:         s.Scratchpad,
 	}
 	if s.ActiveFocus != nil {
 		focus := *s.ActiveFocus
 		next.ActiveFocus = &focus
 	}
 	return next
+}
+
+// Render returns a compact text snapshot of scaffold-maintained context state.
+func (s ContextState) Render() string {
+	var parts []string
+	if s.TurnCount > 0 || s.CompactionCount > 0 {
+		parts = append(parts, compactSessionState(s.TurnCount, s.CompactionCount))
+	}
+	if len(s.FileTrackerSummary) > 0 {
+		parts = append(parts, "tracked files: "+strings.Join(s.FileTrackerSummary, "; "))
+	}
+	if len(s.RecentToolCalls) > 0 {
+		parts = append(parts, "recent tool calls: "+strings.Join(s.RecentToolCalls, "; "))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // WithActiveFocus returns a copy of the state with the active focus replaced.
@@ -113,4 +143,17 @@ func cloneRetainedSummaries(items []RetainedSummary) []RetainedSummary {
 	out := make([]RetainedSummary, len(items))
 	copy(out, items)
 	return out
+}
+
+func cloneStrings(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, len(items))
+	copy(out, items)
+	return out
+}
+
+func compactSessionState(turnCount, compactionCount int) string {
+	return fmt.Sprintf("session state: turn=%d compactions=%d", turnCount, compactionCount)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -20,6 +21,7 @@ type cliRunner struct {
 	maxTurns           int
 	runMode            string
 	streamingPreferred bool
+	currentModel       func() config.ModelConfig
 }
 
 type runResult struct {
@@ -36,10 +38,13 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	if err != nil {
 		return runResult{}, err
 	}
+	if r.currentModel != nil {
+		selected = r.currentModel()
+	}
 
 	prov := r.runtime.provider
 	if r.runtime.providerFactory != nil {
-		prov, err = r.runtime.providerFactory(r.runtime.cfg.Model)
+		prov, err = r.runtime.providerFactory(selected)
 		if err != nil {
 			return runResult{}, err
 		}
@@ -69,6 +74,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
+		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.Mode == config.ContextModeSmart,
 		Conversation:              toProviderConversation(conversation),
 	}
 
@@ -96,6 +102,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
 	maxTokens := selected.MaxCompletionTokens
+	ctxManager := agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement)
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
 		Executor:    executor,
@@ -110,6 +117,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
 		Events:             events,
+		ContextManager:     ctxManager,
 		StreamingPreferred: r.streamingPreferred,
 	})
 	reason := string(state.StopReason)

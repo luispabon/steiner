@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -47,11 +48,14 @@ func (m *Model) applyEvent(event output.Event) {
 			m.sidebar.maxTurns = payload.MaxTurns
 		}
 		m.status.mode = "running"
+		m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.interruptPending = false
+		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
+		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
 		m.status.turn = payload.Turn
 		m.sidebar.currentTurn = payload.Turn
@@ -59,6 +63,20 @@ func (m *Model) applyEvent(event output.Event) {
 			m.status.model = payload.Model
 			m.sidebar.model = payload.Model
 		}
+		m.activity = m.activity.waiting("waiting on model", turnLabel(payload.Turn))
+	case output.ModelCallStartedEvent:
+		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
+	case output.ModelCallFinishedEvent:
+		detail := strings.TrimSpace(payload.FinishReason)
+		if detail == "" && payload.TotalTokens > 0 {
+			detail = fmt.Sprintf("%d tokens", payload.TotalTokens)
+		}
+		m.activity = m.activity.static("model call complete", detail)
+	case output.APIRequestEvent:
+		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
+	case output.APIResponseEvent:
+		detail := strings.TrimSpace(payload.FinishReason)
+		m.activity = m.activity.waiting("receiving response", detail)
 	case output.ContextDiagnosticsEvent:
 		m.applyContextBudget(payload)
 		if payload.Kind == "compaction" {
@@ -66,8 +84,10 @@ func (m *Model) applyEvent(event output.Event) {
 			m.content.inCompaction = m.compacting
 			if m.compacting {
 				m.sidebar.compaction = compactionSidebarSummary(payload)
+				m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 			} else {
 				m.sidebar.compaction = ""
+				m.activity = m.activity.static("context compacted", compactedLabel(payload))
 			}
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 		}
@@ -97,13 +117,19 @@ func (m *Model) applyEvent(event output.Event) {
 				selectedAction: 0,
 			}
 			m.status.mode = "approval"
+			m.activity = m.activity.static("approval required", approvalDetail(payload))
 			m.input.Reset()
 			m.input.Blur()
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
 			m.status.mode = "running"
+			m.activity = m.activity.static(approvalResultLabel(event.Type), approvalDetail(payload))
 			m.input.Focus()
 		}
+	case output.ToolCallStartedEvent:
+		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
+	case output.ToolCallFinishedEvent:
+		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	}
 
 	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
@@ -111,7 +137,9 @@ func (m *Model) applyEvent(event output.Event) {
 	}
 	m.syncInputChrome()
 	m.syncSidebar()
-	m.syncViewport()
+	if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
+		m.syncViewport()
+	}
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {

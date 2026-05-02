@@ -302,7 +302,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 	}
 
 	got := registry.Names()
-	want := []string{"bash", "display_file", "edit", "glob", "grep", "ls", "read", "write"}
+	want := []string{"bash", "display_file", "edit", "glob", "grep", "ls", "read", "scratchpad", "write"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registry names = %v, want %v", got, want)
 	}
@@ -1209,6 +1209,88 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	}
 	if got, want := second.ModelBudget.MaxCompletionTokens, 96; got != want {
 		t.Fatalf("second max completion tokens = %d, want %d", got, want)
+	}
+}
+
+func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+				FinishReason: "stop",
+			},
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	models := map[string]config.ModelConfig{
+		"small": {
+			Type:                "openai_compat",
+			BaseURL:             "http://small.example/v1",
+			Model:               "gpt-4o-mini",
+			MaxCompletionTokens: 32,
+			ContextSize:         1024,
+			Compaction: config.CompactionConfig{
+				SafetyMarginTokens: 8,
+				SummaryMaxTokens:   16,
+			},
+		},
+		"large": {
+			Type:                "openai_compat",
+			BaseURL:             "http://large.example/v1",
+			Model:               "gpt-4o",
+			MaxCompletionTokens: 96,
+			ContextSize:         8192,
+			Compaction: config.CompactionConfig{
+				SafetyMarginTokens: 24,
+				SummaryMaxTokens:   48,
+			},
+		},
+	}
+
+	callIndex := 0
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: func() config.Config {
+				cfg := testRuntimeConfig("small")
+				cfg.Model = models["small"]
+				cfg.Models = models
+				return cfg
+			}(),
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		currentModel: func() config.ModelConfig {
+			defer func() { callIndex++ }()
+			if callIndex == 0 {
+				return models["small"]
+			}
+			return models["large"]
+		},
+	}
+
+	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil)
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	firstReq := providerStub.requests[0]
+	if firstReq.Model != "gpt-4o-mini" {
+		t.Fatalf("first request model = %q, want %q", firstReq.Model, "gpt-4o-mini")
+	}
+
+	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil)
+	if err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	secondReq := providerStub.requests[1]
+	if secondReq.Model != "gpt-4o" {
+		t.Fatalf("second request model = %q, want %q", secondReq.Model, "gpt-4o")
 	}
 }
 

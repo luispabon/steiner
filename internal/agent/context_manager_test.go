@@ -1,0 +1,397 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
+)
+
+func TestNaiveContextManagerPostIngestion(t *testing.T) {
+	tests := []struct {
+		name  string
+		state RunState
+	}{
+		{
+			name:  "empty state passes through unchanged",
+			state: RunState{},
+		},
+		{
+			name: "state with conversation passes through unchanged",
+			state: RunState{
+				Conversation: []Message{
+					{Role: MessageRoleUser, Content: "hello"},
+				},
+				TurnCount: 3,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &NaiveContextManager{}
+			got, err := m.PostIngestion(context.Background(), tc.state)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.TurnCount != tc.state.TurnCount {
+				t.Errorf("TurnCount: got %d, want %d", got.TurnCount, tc.state.TurnCount)
+			}
+			if len(got.Conversation) != len(tc.state.Conversation) {
+				t.Errorf("Conversation len: got %d, want %d", len(got.Conversation), len(tc.state.Conversation))
+			}
+		})
+	}
+}
+
+func TestNaiveContextManagerPreAssembly(t *testing.T) {
+	tests := []struct {
+		name  string
+		state RunState
+	}{
+		{
+			name:  "empty state passes through unchanged",
+			state: RunState{},
+		},
+		{
+			name: "state with context passes through unchanged",
+			state: RunState{
+				TurnCount:  5,
+				TokenCount: 1000,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &NaiveContextManager{}
+			got, err := m.PreAssembly(context.Background(), tc.state)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.TurnCount != tc.state.TurnCount {
+				t.Errorf("TurnCount: got %d, want %d", got.TurnCount, tc.state.TurnCount)
+			}
+			if got.TokenCount != tc.state.TokenCount {
+				t.Errorf("TokenCount: got %d, want %d", got.TokenCount, tc.state.TokenCount)
+			}
+		})
+	}
+}
+
+func TestPostIngestionNaiveContextManagerKeepsToolOutput(t *testing.T) {
+	state := RunState{
+		TurnCount: 2,
+		Conversation: []Message{
+			{
+				Role: MessageRoleTool,
+				Name: "bash",
+				Content: mustJSON(t, map[string]any{
+					"exit_code": 1,
+					"output":    "warning: keep\nwarning: keep\nfinal",
+				}),
+			},
+		},
+	}
+
+	got, err := (&NaiveContextManager{}).PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Conversation[0].Content != state.Conversation[0].Content {
+		t.Fatalf("Conversation[0].Content = %q, want unchanged", got.Conversation[0].Content)
+	}
+	if got.TurnCount != state.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
+	}
+}
+
+func TestPostIngestionSmartContextManagerTransformsToolOutput(t *testing.T) {
+	bashContent := mustJSON(t, bashOutputForIngestionTest())
+	grepContent := mustJSON(t, grepOutputForIngestionTest())
+	readContent := mustJSON(t, map[string]any{
+		"path":        "README.md",
+		"start_line":  1,
+		"end_line":    3,
+		"total_lines": 3,
+		"output":      "alpha\n\nbeta\n",
+	})
+
+	state := RunState{
+		TurnCount: 4,
+		Conversation: []Message{
+			{Role: MessageRoleTool, Name: "bash", Content: bashContent},
+			{Role: MessageRoleTool, Name: "grep", Content: grepContent},
+			{Role: MessageRoleTool, Name: "read", Content: readContent},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	got, err := (&SmartContextManager{}).PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.TurnCount != state.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
+	}
+	if len(got.Conversation) != len(state.Conversation) {
+		t.Fatalf("Conversation len = %d, want %d", len(got.Conversation), len(state.Conversation))
+	}
+
+	var bashResult struct {
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(got.Conversation[0].Content), &bashResult); err != nil {
+		t.Fatalf("unmarshal bash result: %v", err)
+	}
+	if !bashResult.Truncated {
+		t.Fatal("bash truncated = false, want true")
+	}
+	if !strings.Contains(bashResult.Output, "final tail") {
+		t.Fatalf("bash output = %q, want tail content", bashResult.Output)
+	}
+	if strings.Contains(bashResult.Output, "\x1b[") {
+		t.Fatalf("bash output = %q, want ANSI stripped", bashResult.Output)
+	}
+	if !strings.Contains(bashResult.Output, "warning: retry (repeated 3x)") {
+		t.Fatalf("bash output = %q, want repeated warning collapse", bashResult.Output)
+	}
+	if !strings.Contains(bashResult.Message, "<truncated output shown=") {
+		t.Fatalf("bash message = %q, want truncation marker", bashResult.Message)
+	}
+
+	var grepResult struct {
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(got.Conversation[1].Content), &grepResult); err != nil {
+		t.Fatalf("unmarshal grep result: %v", err)
+	}
+	if !strings.Contains(grepResult.Output, "info: retrying (repeated 200x)") {
+		t.Fatalf("grep output = %q, want collapsed info lines", grepResult.Output)
+	}
+	if !strings.Contains(grepResult.Output, "<truncated output shown=") {
+		t.Fatalf("grep output = %q, want truncation marker", grepResult.Output)
+	}
+
+	if got.Conversation[2].Content != state.Conversation[2].Content {
+		t.Fatalf("read content = %q, want unchanged", got.Conversation[2].Content)
+	}
+	if len(got.Lineage.FullMessages()) != len(got.Conversation) {
+		t.Fatalf("lineage len = %d, want %d", len(got.Lineage.FullMessages()), len(got.Conversation))
+	}
+	if got.Lineage.FullMessages()[0].Content != got.Conversation[0].Content {
+		t.Fatal("lineage conversation diverged from active conversation")
+	}
+}
+
+func TestSmartContextManagerPreAssembly(t *testing.T) {
+	m := &SmartContextManager{}
+	state := RunState{TurnCount: 4}
+	got, err := m.PreAssembly(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.TurnCount != state.TurnCount {
+		t.Errorf("TurnCount: got %d, want %d", got.TurnCount, state.TurnCount)
+	}
+}
+
+func TestNewContextManager(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     string
+		wantType string
+	}{
+		{"naive mode", "naive", "*agent.NaiveContextManager"},
+		{"smart mode", "smart", "*agent.SmartContextManager"},
+		{"empty falls back to naive", "", "*agent.NaiveContextManager"},
+		{"unknown falls back to naive", "unknown", "*agent.NaiveContextManager"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewContextManager(tc.mode)
+			if m == nil {
+				t.Fatal("NewContextManager returned nil")
+			}
+			switch tc.wantType {
+			case "*agent.NaiveContextManager":
+				if _, ok := m.(*NaiveContextManager); !ok {
+					t.Errorf("got %T, want *NaiveContextManager", m)
+				}
+			case "*agent.SmartContextManager":
+				if _, ok := m.(*SmartContextManager); !ok {
+					t.Errorf("got %T, want *SmartContextManager", m)
+				}
+			}
+		})
+	}
+}
+
+func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
+	m, ok := NewContextManager("smart", config.ContextManagementConfig{
+		CompactionStrategy: config.CompactionStrategyHybrid,
+	}).(*SmartContextManager)
+	if !ok {
+		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
+	}
+	if got, want := m.compactionStrategy, config.CompactionStrategyHybrid; got != want {
+		t.Fatalf("compactionStrategy = %q, want %q", got, want)
+	}
+}
+
+func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
+	t.Parallel()
+	cm := &SmartContextManager{}
+	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
+	if result != `{"ok":true}` {
+		t.Fatalf("result = %q, want compact ack", result)
+	}
+	if cm.scratchpad.Goal != "fix bug" {
+		t.Fatalf("Goal = %q, want fix bug", cm.scratchpad.Goal)
+	}
+	if cm.scratchpad.Plan != "read code" {
+		t.Fatalf("Plan = %q, want read code", cm.scratchpad.Plan)
+	}
+	if cm.scratchpad.Decisions != "chose X" {
+		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
+	}
+}
+
+func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
+	cm := &SmartContextManager{scratchpadFailures: 2}
+	cm.OnTurnComplete(1, true)
+	if cm.scratchpadFailures != 0 {
+		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpadFailures)
+	}
+}
+
+func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
+	cm := &SmartContextManager{}
+	cm.OnTurnComplete(1, false)
+	if cm.scratchpadFailures != 1 {
+		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpadFailures)
+	}
+	cm.OnTurnComplete(2, false)
+	if cm.scratchpadFailures != 2 {
+		t.Fatalf("scratchpadFailures = %d, want 2", cm.scratchpadFailures)
+	}
+}
+
+func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
+	var events []output.Event
+	cm := &SmartContextManager{}
+	cm.SetEventSink(output.SinkFunc(func(e output.Event) { events = append(events, e) }))
+
+	cm.OnTurnComplete(1, false)
+	cm.OnTurnComplete(2, false)
+	if len(events) != 0 {
+		t.Fatalf("events emitted before threshold: %d", len(events))
+	}
+	cm.OnTurnComplete(3, false)
+	if len(events) != 1 {
+		t.Fatalf("events = %d after threshold, want 1", len(events))
+	}
+}
+
+func TestOnTurnCompleteNaiveIsNoop(t *testing.T) {
+	// NaiveContextManager.OnTurnComplete must not panic.
+	m := &NaiveContextManager{}
+	m.OnTurnComplete(0, false)
+	m.OnTurnComplete(1, true)
+}
+
+func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
+	tests := []struct {
+		name          string
+		previous      Scratchpad
+		content       string
+		wantDecisions string
+	}{
+		{
+			name:          "first decision appended",
+			previous:      Scratchpad{},
+			content:       `{"goal":"g","decisions":"chose A"}`,
+			wantDecisions: "chose A",
+		},
+		{
+			name:          "subsequent decision concatenated",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":"chose B"}`,
+			wantDecisions: "chose A\nchose B",
+		},
+		{
+			name:          "none skips append",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":"none"}`,
+			wantDecisions: "chose A",
+		},
+		{
+			name:          "empty skips append",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":""}`,
+			wantDecisions: "chose A",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseScratchpadToolResult(tc.content, tc.previous)
+			if !ok {
+				t.Fatal("parseScratchpadToolResult() = false, want true")
+			}
+			if got.Decisions != tc.wantDecisions {
+				t.Errorf("Decisions = %q, want %q", got.Decisions, tc.wantDecisions)
+			}
+		})
+	}
+}
+
+func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
+	// Fill previous decisions close to cap, then add more to trigger eviction.
+	old := strings.Repeat("x", 1990)
+	previous := Scratchpad{Decisions: old}
+	content := `{"goal":"g","decisions":"new entry"}`
+	got, ok := parseScratchpadToolResult(content, previous)
+	if !ok {
+		t.Fatal("parseScratchpadToolResult() = false, want true")
+	}
+	if len(got.Decisions) > decisionsMaxBytes {
+		t.Errorf("Decisions len = %d, want <= %d", len(got.Decisions), decisionsMaxBytes)
+	}
+	if !strings.Contains(got.Decisions, "new entry") {
+		t.Errorf("Decisions = %q, want to contain newest entry", got.Decisions)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return string(data)
+}
+
+func bashOutputForIngestionTest() map[string]any {
+	return map[string]any{
+		"exit_code": 1,
+		"output":    strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+	}
+}
+
+func grepOutputForIngestionTest() map[string]any {
+	lines := make([]string, 0, 240)
+	for i := 0; i < 205; i++ {
+		lines = append(lines, "info: retrying")
+	}
+	for i := 0; i < 35; i++ {
+		lines = append(lines, "match line")
+	}
+	return map[string]any{
+		"matches":  240,
+		"returned": 240,
+		"output":   strings.Join(lines, "\n"),
+	}
+}

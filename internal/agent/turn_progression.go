@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -47,6 +48,18 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
+	if response.Message.Content != "" {
+		sanitized, note := processAssistantResponseForContextManager(in.Request.ContextManager, turn, response.Message.Content)
+		response.Message.Content = sanitized
+		if note != "" {
+			emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Turn:     turn,
+				Notes:    []string{note},
+			}))
+		}
+	}
 	state := in.State
 	state.TurnCount = turn
 	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
@@ -64,10 +77,14 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	}
 
 	assistant := fromProviderMessage(response.Message)
+	assistant.Turn = turn
 	state.Conversation = append(state.Conversation, assistant)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
 	if len(response.Message.ToolCalls) == 0 {
+		if in.Request.ContextManager != nil {
+			in.Request.ContextManager.OnTurnComplete(turn, false)
+		}
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 		state.StopReason = StopReasonComplete
 		emitStop(in.Request.Events, state, nil)
@@ -87,11 +104,16 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
 //   - TurnFinished event emission after all tools
+//   - OnTurnComplete notification for scratchpad tracking
 func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
 	state := in.State
 	turn := state.TurnCount
+	scratchpadCalled := false
 
 	for _, call := range response.Message.ToolCalls {
+		if call.Name == "scratchpad" {
+			scratchpadCalled = true
+		}
 		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
 		emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
 
@@ -110,7 +132,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
 		} else {
 			normalizedResult := normalizeToolResult(result)
-			toolContent = normalizedResult.Content
+			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, normalizedResult.Content)
 			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}
@@ -119,15 +141,20 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 			Content:    toolContent,
 			ToolCallID: call.ID,
 			Name:       call.Name,
+			Turn:       turn,
 		})
 		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
 			Role:       MessageRoleTool,
 			Content:    toolContent,
 			ToolCallID: call.ID,
 			Name:       call.Name,
+			Turn:       turn,
 		}})
 	}
 
+	if in.Request.ContextManager != nil {
+		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)
+	}
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
@@ -208,11 +235,35 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit
 // event sink.
 func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.ChatRequest, prompt.RequestTokenBudget, error) {
 	turn := in.State.TurnCount + 1
+
+	cm := in.Request.ContextManager
+	if cm == nil {
+		cm = &NaiveContextManager{}
+	}
+	var err error
+	in.State, err = cm.PreAssembly(ctx, in.State)
+	if err != nil {
+		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
+	}
+
 	assembly, err := prompt.Assemble(ctx, assemblyOptions(in.BasePrompt, in.State))
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
 	emitAssemblyDiagnostics(in.Request.Events, in.Request.Prompt, turn, assembly)
+
+	// Debug log: byte sizes per prompt zone to aid KV-cache tuning.
+	systemBytes, conversationBytes := 0, 0
+	for _, block := range assembly.Blocks {
+		switch block.Source {
+		case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD,
+			prompt.ContextSourceConversationSummary:
+			systemBytes += block.ByteSize
+		default:
+			conversationBytes += block.ByteSize
+		}
+	}
+	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
 		Model:       in.Request.Model,

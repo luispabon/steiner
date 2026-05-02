@@ -120,10 +120,43 @@ func validate(cfg Config) error {
 		}
 	}
 
+	if err := validateContextMode("context_management.mode", cfg.ContextManagement.Mode); err != nil {
+		problems = append(problems, err.Error())
+	}
+	if cfg.ContextManagement.CompactionStrategy != "" {
+		if err := validateCompactionStrategy("context_management.compaction_strategy", cfg.ContextManagement.CompactionStrategy); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	if cfg.ContextManagement.MaskingWindowTurns <= 0 {
+		problems = append(problems, "context_management.masking_window_turns must be at least 1")
+	}
+
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid config: %s", strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+func validateContextMode(path string, mode ContextMode) error {
+	switch mode {
+	case ContextModeNaive, ContextModeSmart:
+		return nil
+	default:
+		if mode == "" {
+			return fmt.Errorf("%s is required", path)
+		}
+		return fmt.Errorf("%s %q is not supported", path, mode)
+	}
+}
+
+func validateCompactionStrategy(path string, strategy CompactionStrategy) error {
+	switch strategy {
+	case CompactionStrategyDrop, CompactionStrategySummarize, CompactionStrategyHybrid:
+		return nil
+	default:
+		return fmt.Errorf("%s %q is not supported", path, strategy)
+	}
 }
 
 func validateApprovalMode(path string, mode ApprovalMode) error {

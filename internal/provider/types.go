@@ -32,6 +32,7 @@ type Message struct {
 	Name       string      `json:"name,omitempty"`
 	ToolCallID string      `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	Turn       int         `json:"turn,omitempty"`
 }
 
 type UsageStats struct {

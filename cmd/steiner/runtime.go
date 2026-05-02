@@ -29,6 +29,7 @@ type cliFlags struct {
 	logFile         string
 	maxTurns        int
 	enableStreaming bool
+	contextMode     string
 }
 
 type cliRuntime struct {
@@ -56,9 +57,10 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	_ = ctx
 	cfg, err := config.Load(config.LoadOptions{
 		CLI: config.CLIOverrides{
-			ConfigPath: flags.configPath,
-			Model:      flags.model,
-			Verbose:    flags.verbose,
+			ConfigPath:  flags.configPath,
+			Model:       flags.model,
+			Verbose:     flags.verbose,
+			ContextMode: config.ContextMode(flags.contextMode),
 		},
 	})
 	if err != nil {
