@@ -3,7 +3,7 @@
 ## Executor State
 - planning_folder: `.project_planning/2026-05-02_context-management-implementation`
 - execution_branch: `cl/2026-05-02_context-management-implementation`
-- current_phase: `step_scheduling`
+- current_phase: `sub_agent_implementation`
 - overall_status: `in_progress`
 - started_at: `2026-05-02`
 
@@ -106,14 +106,14 @@
   - can_run_in_parallel: `false`
   - suggested_model: `cheap-good`
 - `stage-2-step-1`
-  - status: `ready`
+  - status: `running`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
   - can_run_in_parallel: `true`
   - suggested_model: `cheap-good`
 - `stage-3-step-1`
-  - status: `ready`
+  - status: `running`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
@@ -134,6 +134,7 @@
 - `2026-05-02`: corrected step graph after fuller plan load to include dependent `stage-3-step-2`
 - `2026-05-02`: reviewed `stage-1-step-1` output against the step contract, merged temporary branch `cl/2026-05-02_context-management-implementation-stage-1-step-1`, closed the sub-agent, removed worktree `/tmp/steiner-stage-1-step-1`, and deleted the merged temporary branch
 - `2026-05-02`: recorded executor deviation for model selection on `stage-1-step-1`; inherited runtime was used instead of the cheapest likely-safe worker tier
+- `2026-05-02`: marked `stage-2-step-1` and `stage-3-step-1` as `running` for parallel isolated execution after `stage-1-step-1` implementation
 
 ## Sub-Agents
 - completed:
@@ -144,12 +145,34 @@
   - status: `closed after merge`
   - commit: `9218c4d0eb7242a00505e2547789fef3ee702eab`
   - commit_message: `Track smart-context file generations`
+- pending dispatch:
+  - step_id: `stage-2-step-1`
+  - model: `gpt-5.4-mini`
+  - tier_vs_current: `cheaper`
+  - execution_mode: `parallel`
+  - branch: `cl/2026-05-02_context-management-implementation-stage-2-step-1`
+  - worktree: `/tmp/steiner-stage-2-step-1`
+  - status: `provisioning`
+  - step_id: `stage-3-step-1`
+  - model: `gpt-5.4-mini`
+  - tier_vs_current: `cheaper`
+  - execution_mode: `parallel`
+  - branch: `cl/2026-05-02_context-management-implementation-stage-3-step-1`
+  - worktree: `/tmp/steiner-stage-3-step-1`
+  - status: `provisioning`
 
 ## Temporary Branches And Worktrees
 - merged and cleaned up:
   - step_id: `stage-1-step-1`
   - branch: `cl/2026-05-02_context-management-implementation-stage-1-step-1`
   - worktree: `/tmp/steiner-stage-1-step-1`
+- pending provisioning:
+  - step_id: `stage-2-step-1`
+  - branch: `cl/2026-05-02_context-management-implementation-stage-2-step-1`
+  - worktree: `/tmp/steiner-stage-2-step-1`
+  - step_id: `stage-3-step-1`
+  - branch: `cl/2026-05-02_context-management-implementation-stage-3-step-1`
+  - worktree: `/tmp/steiner-stage-3-step-1`
 
 ## Verification Runs
 - `stage-1-step-1` sub-agent verification
