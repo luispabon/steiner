@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -18,14 +17,10 @@ func writeTargetExistedBefore(toolName string, input map[string]any) *bool {
 	if !ok || strings.TrimSpace(path) == "" {
 		return nil
 	}
-	if !filepath.IsAbs(path) {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return nil
-		}
-		path = absPath
+	path, ok = normalizeTrackedPath(path)
+	if !ok {
+		return nil
 	}
-	path = filepath.Clean(path)
 	_, err := os.Stat(path)
 	if err == nil {
 		existed := true
@@ -36,6 +31,26 @@ func writeTargetExistedBefore(toolName string, input map[string]any) *bool {
 		return &existed
 	}
 	return nil
+}
+
+func recordMutationForContextManager(cm ContextManager, toolName string, input map[string]any) {
+	if cm == nil {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "write", "write_file", "edit":
+	default:
+		return
+	}
+	path, ok := input["path"].(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return
+	}
+	recorder, ok := cm.(interface{ RecordMutation(path string) })
+	if !ok {
+		return
+	}
+	recorder.RecordMutation(path)
 }
 
 func contextCancellationState(ctx context.Context, state RunState) (RunState, bool) {

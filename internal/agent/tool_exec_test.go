@@ -38,3 +38,24 @@ func TestWriteTargetExistedBefore(t *testing.T) {
 		t.Fatalf("missing relative target = %v, want false", missing)
 	}
 }
+
+func TestRecordMutationForContextManager(t *testing.T) {
+	cm := &SmartContextManager{}
+
+	recordMutationForContextManager(cm, "read", map[string]any{"path": "note.txt"})
+	if got := cm.fileTracker.generations; len(got) != 0 {
+		t.Fatalf("read generations = %v, want empty", got)
+	}
+
+	recordMutationForContextManager(cm, "write", map[string]any{"path": "note.txt"})
+	if got := len(cm.fileTracker.generations); got != 1 {
+		t.Fatalf("generation entries = %d, want 1", got)
+	}
+
+	recordMutationForContextManager(cm, "edit", map[string]any{"path": "note.txt"})
+	for _, generation := range cm.fileTracker.generations {
+		if generation != 2 {
+			t.Fatalf("generation = %d, want 2", generation)
+		}
+	}
+}
