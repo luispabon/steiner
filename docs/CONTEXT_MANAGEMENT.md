@@ -15,12 +15,13 @@ steiner --context-mode smart
 
 **Smart mode** activates the full context management pipeline: ingestion rules, observation masking, file read annotation, scratchpad, and structured compaction.
 
-Both modes share the same provider, tool, and runner infrastructure. The context manager is an interface called at two points in the agent loop:
+Both modes share the same provider, tool, and runner infrastructure. The context manager is an interface called at three points in the agent loop:
 
 1. **PostIngestion** — after a tool result arrives, before it enters conversation history
 2. **PreAssembly** — before building the next model request, to filter the conversation view
+3. **OnTurnComplete** — after each model response, to track whether the scratchpad tool was called
 
-In naive mode, both hooks are pass-through.
+In naive mode, all hooks are pass-through.
 
 ## Pipeline Architecture
 
@@ -50,21 +51,23 @@ Phase 2: Prompt Assembly (when building the next model request)
           │
           ▼
     assemble prompt:
-      system instructions
-      scaffold state (maintained by steiner)
-      model scratchpad (from previous turn)
+      system instructions (stable zone — cached per session)
       project context (skills, repo instructions)
-      recent turns (verbatim)
       older turns (masked)
+      synthetic scratchpad user message (scaffold state + model scratchpad from previous turn)
+      recent turns (verbatim)
           │
           ▼
     prompt sent to model
           │
           ▼
-    model responds (action + scratchpad update)
+    model responds (action + scratchpad tool call)
           │
           ▼
-    scratchpad parsed and stored for next turn
+    scratchpad tool result processed, decisions appended, stored for next turn
+          │
+          ▼
+    OnTurnComplete fires (tracks whether scratchpad tool was called)
 ```
 
 ## Ingestion Rules
@@ -103,11 +106,14 @@ These apply every turn when building the prompt. They do not modify stored histo
 
 ### Observation masking
 
-Tool results and assistant prose older than M turns have their body replaced with a placeholder. The tool call metadata is preserved so the model knows what happened.
+Tool results and assistant prose older than M turns have their body replaced with a placeholder that includes the absolute turn index. The tool call metadata is preserved so the model knows what happened.
 
 ```
 Turn 3: [tool_call] read internal/agent/runner.go
-        [result] (output from 9 turns ago — re-read if needed)
+        [result] [tool result from turn 3 masked: read path=internal/agent/runner.go - re-read if needed]
+
+Turn 3: [assistant]
+        [turn 3] package agent...   ← first line only, with turn prefix
 
 Turn 10: [tool_call] read internal/agent/runner.go
          [result] package agent...  (full content, recent turn)
@@ -143,9 +149,19 @@ Invalidation:
 - File writes and edits by steiner's own tools invalidate tracking for that path.
 - File tracking state persists across compaction (it lives in Go, not in conversation history).
 
+### Prompt zone stability
+
+steiner splits every prompt into two zones:
+
+- **Stable zone** (system prompt only): role, tool rules, project context, scratchpad instructions. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on `SmartContextManager`. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching.
+
+- **Volatile zone** (messages array): older masked turns, recent turns verbatim, synthetic scratchpad user message, actual user message.
+
+A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "scratchpad_bytes", Y, "conversation_bytes", Z)`) records the byte sizes of each zone. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
+
 ## The Scratchpad
 
-The scratchpad is a small block of text (~400-600 tokens) injected near the top of every prompt, right after system instructions. It provides the model's "where am I" anchor, especially important after observation masking has removed old context or compaction has dropped conversation history.
+The scratchpad is a small block of text (~400-600 tokens) injected as a user-role message near the end of each prompt, just before the conversation history's recent turns. It provides the model's "where am I" anchor, especially important after observation masking has removed old context or compaction has dropped conversation history.
 
 ### Two parts
 
@@ -157,37 +173,34 @@ The scratchpad is a small block of text (~400-600 tokens) injected near the top 
 
 The model reads this for orientation but cannot modify it. steiner updates it automatically based on what happened during the session.
 
-**Model scratchpad (~200-400 tokens)** — written by the model, best-effort:
+**Model scratchpad (~200-400 tokens)** — written by the model via a tool call, best-effort:
 
-The system prompt instructs the model to include an updated scratchpad in every response:
+The system prompt instructs the model to call the `scratchpad` tool on every turn without exception. The tool takes seven fields:
 
-```
-<scratchpad>
-goal: fix authentication timeout in middleware
-plan: add configurable timeout, update tests
-step: writing unit tests for new timeout parameter
-next: run tests, then update README
-open: unclear if timeout should apply to refresh tokens
-</scratchpad>
-```
+| Field | Owner | Description |
+|-------|-------|-------------|
+| `goal` | model | Current overall objective |
+| `plan` | model | High-level approach |
+| `step` | model | What is being done this turn |
+| `decisions` | steiner-managed | Key decisions made so far; model writes only this turn's new decisions; steiner appends to history (2000-byte cap, oldest-first eviction). Never overwritten by the model. |
+| `files` | model | Files the model considers relevant to the current task (intent signal, distinct from FileTracker's ground-truth tracking) |
+| `open` | model | Unresolved questions or risks |
+| `next` | model | Planned next action |
 
-Fields are flat strings only. No nesting, no arrays, no JSON. Tagged text is more robust than structured formats for small models.
-
-steiner parses the scratchpad from the model's visible output (thinking/reasoning block content is excluded), stores it separately from conversation history, and injects the latest version at the fixed prompt position on the next turn.
+steiner processes the tool result via `IngestToolResult`, stores state separately from conversation history, and injects the latest version as a synthetic user-role message on the next turn.
 
 ### Failure handling
 
-If the model fails to produce a valid scratchpad:
+Failure is defined as: the model did not call the `scratchpad` tool this turn. `OnTurnComplete(turnIndex int, scratchpadCalled bool)` is invoked after each model response. If `scratchpadCalled == false`, `SmartContextManager` increments a consecutive-miss counter; the counter resets to 0 on any successful call.
 
-1. Carry forward the previous scratchpad unchanged
-2. Log a warning
-3. After 3+ consecutive failures, surface a model compatibility warning to the user
+1. Miss: carry forward the previous scratchpad state unchanged and log a warning
+2. After 3+ consecutive misses: emit a model compatibility warning to the user
 
-The system never crashes or loses state because of a missing scratchpad. The scaffold state provides the factual safety net regardless of model cooperation.
+The system never crashes or loses state because of a missing scratchpad call. The scaffold state provides the factual safety net regardless of model cooperation.
 
 ### Staleness detection
 
-If scratchpad content is identical across N consecutive turns, the model may be stuck (copy-forward failure mode). steiner detects this and logs it as a signal.
+With the tool-call approach the model is required to call `scratchpad` each turn, making copy-forward less of a concern than with inline XML. If the same field values appear across consecutive turns, steiner logs it as a signal but does not treat it as a hard failure.
 
 ## Compaction
 
@@ -293,7 +306,7 @@ Smart mode emits structured events through the existing EventSink:
 - **ContextMaskingEvent**: which turn and tool call was masked, why
 - **FileAnnotationEvent**: file path, whether annotation or full content was served, why
 - **CompactionEvent**: strategy used, token count before/after, turns dropped
-- **ScratchpadEvent**: scratchpad content after each model response, parse success/failure
+- **ScratchpadEvent**: scratchpad content after each model response; whether the scratchpad tool was called this turn (fired via `OnTurnComplete`)
 - **TokenBudgetEvent**: per-category token counts each turn (system, scratchpad, project context, conversation)
 
 Debug mode (`--log-level debug`) logs the full assembled prompt with masking decisions annotated, plus the full unmasked conversation history.
@@ -310,7 +323,7 @@ For small local models, summarization has additional problems: it fills the enti
 
 Research on structured output from small models (arXiv:2408.11061, arXiv:2510.03847) shows 82% average compliance for 8B models with high variance, format drift over long sessions, and field omission under token pressure. The SWE-agent and Springdrift patterns (scaffold-injected state that the model reads but doesn't write) are more reliable.
 
-The hybrid approach uses scaffold-maintained state for the facts (always correct) and an optional model-written scratchpad for intent (best-effort). The model's scratchpad failing gracefully is better than depending on it.
+The hybrid approach uses scaffold-maintained state for the facts (always correct) and a model-called scratchpad tool for intent (best-effort). Tool calls are more reliably structured than inline XML in assistant text, but models can still fail to call the tool. The `decisions` field mitigates drift: steiner appends to it rather than letting the model overwrite, so key decisions accumulate reliably regardless of what the model writes in a given turn. The model's scratchpad failing gracefully is better than depending on it.
 
 ### Why is ingestion destructive but assembly non-destructive?
 
