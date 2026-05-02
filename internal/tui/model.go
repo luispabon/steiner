@@ -331,7 +331,7 @@ func (m Model) View() string {
 	if tray := m.renderApprovalTray(contentWidth); tray != "" {
 		mainComponents = append(mainComponents, tray)
 	}
-	mainComponents = append(mainComponents, inputView, activityView, statusView)
+	mainComponents = append(mainComponents, activityView, inputView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 
