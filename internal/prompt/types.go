@@ -114,6 +114,11 @@ type AssemblyOptions struct {
 	ScratchpadEnabled         bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
+	// CachedPreamble is the pre-built system preamble string. When non-empty it
+	// is used directly, bypassing SystemPreamble. Both inputs to SystemPreamble
+	// (PromptOverrides.System and ScratchpadEnabled) are session-constants, so
+	// caching once per session is safe.
+	CachedPreamble string
 }
 
 type Assembly struct {
