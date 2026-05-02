@@ -47,24 +47,13 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 
 	return sourcePlan{
 		Steps: []sourcePlanStep{
+			// Static sources first — stable prefix maximizes KV cache
+			// reuse in local inference servers (llama.cpp, LM Studio).
 			{
 				Kind:      plannedSourcePreamble,
 				Placement: plannedSourcePlacementCore,
 				Apply: func(_ context.Context, state *assemblyState) error {
 					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled))
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceDurableContext,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
-						state.appendBlock(block)
-					}
-					if block, ok := scratchpadBlock(opts.ContextState, opts.ScratchpadEnabled); ok {
-						state.appendBlock(block)
-					}
 					return nil
 				},
 			},
@@ -113,6 +102,21 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 						return err
 					}
 					for _, block := range skillBlocks {
+						state.appendBlock(block)
+					}
+					return nil
+				},
+			},
+			// Volatile sources after static — these change per turn but
+			// don't invalidate the cached prefix above.
+			{
+				Kind:      plannedSourceDurableContext,
+				Placement: plannedSourcePlacementCore,
+				Apply: func(_ context.Context, state *assemblyState) error {
+					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
+						state.appendBlock(block)
+					}
+					if block, ok := scratchpadBlock(opts.ContextState, opts.ScratchpadEnabled); ok {
 						state.appendBlock(block)
 					}
 					return nil

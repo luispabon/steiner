@@ -16,10 +16,10 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 
 	want := []sourcePlanStep{
 		{Kind: plannedSourcePreamble, Placement: plannedSourcePlacementCore, PassThrough: false},
-		{Kind: plannedSourceDurableContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceAgents, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceProjectContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
+		{Kind: plannedSourceDurableContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
 		{Kind: plannedSourceToolSummaries, Placement: plannedSourcePlacementToolSummaries, PassThrough: false},
 	}
@@ -99,12 +99,12 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 
 	if got, want := blockSources(assembly.Blocks), []ContextSource{
 		ContextSourcePreamble,
-		ContextSourceDurableContext,
-		ContextSourceScratchpad,
 		ContextSourceGlobalAgentsMD,
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceSkill,
+		ContextSourceDurableContext,
+		ContextSourceScratchpad,
 		ContextSourceToolSummary,
 	}; !sourcesEqual(got, want) {
 		t.Fatalf("block sources = %v, want %v", got, want)
