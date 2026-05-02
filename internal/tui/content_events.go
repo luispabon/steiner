@@ -132,7 +132,10 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		b.appendUserInputEvent(event)
 	case output.EventTypeRunStarted, output.EventTypeRunFinished,
 		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
-		output.EventTypeAPIRequest, output.EventTypeAPIResponse:
+		output.EventTypeAPIRequest:
+		return
+	case output.EventTypeAPIResponse:
+		b.finishStreaming()
 		return
 	default:
 		b.finishStreaming()
@@ -471,19 +474,23 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 			kind: segmentThinkingBlock,
 			thinkData: &thinkingBlockData{
 				preview:   preview,
-				collapsed: true,
+				collapsed: false,
 				streaming: true,
 				body:      text,
 				source:    source,
 			},
 		})
-		b.collapseState[idx] = true
+		b.collapseState[idx] = false
 	}
 }
 
 func (b *contentBuffer) finalizeThinkingBlock() {
 	if td := b.liveThinkingSegment(); td != nil {
 		td.streaming = false
+		td.collapsed = true
+		if idx := len(b.segments) - 1; idx >= 0 {
+			b.collapseState[idx] = true
+		}
 	}
 }
 

@@ -300,6 +300,81 @@ func TestAppendEventShowsScaffoldInferenceChunksWhenDebugEnabled(t *testing.T) {
 	}
 }
 
+func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "first line"))
+	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "\nsecond line"))
+
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments count while streaming = %d, want 1", got)
+	}
+	thinking := buffer.segments[0].thinkData
+	if thinking == nil {
+		t.Fatal("thinkData = nil, want thinking block")
+	}
+	if thinking.collapsed {
+		t.Fatal("thinking block collapsed while streaming, want expanded")
+	}
+	if !thinking.streaming {
+		t.Fatal("thinking block streaming = false, want true")
+	}
+	renderedStreaming := buffer.String(80)
+	for _, want := range []string{"▾ Thinking", "first line", "second line"} {
+		if !strings.Contains(renderedStreaming, want) {
+			t.Fatalf("streaming render = %q, want %q", renderedStreaming, want)
+		}
+	}
+
+	buffer.finalizeThinkingBlock()
+
+	if thinking.streaming {
+		t.Fatal("thinking block streaming = true after finalize, want false")
+	}
+	if !thinking.collapsed {
+		t.Fatal("thinking block collapsed = false after finalize, want true")
+	}
+	if got := buffer.collapseState[0]; !got {
+		t.Fatalf("collapseState[0] = %v, want true after finalize", got)
+	}
+	renderedCollapsed := buffer.String(80)
+	if !strings.Contains(renderedCollapsed, "▸ Thinking · first line") {
+		t.Fatalf("collapsed render = %q, want collapsed summary", renderedCollapsed)
+	}
+}
+
+func TestAPIResponseFinalizesScaffoldInferenceJSONAfterThinking(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:                      make([]contentSegment, 0),
+		collapseState:                 make(map[int]bool),
+		styles:                        theme.BuildStyles(theme.AccentAmber),
+		showThinking:                  true,
+		showInternalScaffoldInference: true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAPIResponseEvent(nil, nil, "stop", nil))
+
+	if got := strings.TrimSpace(buffer.streamBuffer); got != "" {
+		t.Fatalf("streamBuffer = %q, want empty after API response", got)
+	}
+	if got := len(buffer.segments); got != 2 {
+		t.Fatalf("segments count = %d, want 2", got)
+	}
+	if buffer.segments[0].thinkData == nil || !buffer.segments[0].thinkData.collapsed {
+		t.Fatal("thinking block not collapsed after API response finalization")
+	}
+	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) || !strings.Contains(got, `"next":"read file"`) {
+		t.Fatalf("assistant segment = %q, want finalized scaffold json", got)
+	}
+}
+
 func TestStreamingScaffoldInferencePreviewHardWrapsLongJSON(t *testing.T) {
 	buffer := &contentBuffer{
 		showInternalScaffoldInference: true,
