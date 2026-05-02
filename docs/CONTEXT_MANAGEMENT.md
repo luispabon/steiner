@@ -54,8 +54,8 @@ Phase 2: Prompt Assembly (when building the next model request)
       system instructions (stable zone — cached per session)
       project context (skills, repo instructions)
       older turns (masked)
-      synthetic scratchpad user message (scaffold state + model scratchpad from previous turn)
       recent turns (verbatim)
+      synthetic scratchpad user message (scaffold state + model scratchpad from previous turn)
           │
           ▼
     prompt sent to model
@@ -88,7 +88,7 @@ Different tool types use different truncation strategies:
 
 Truncation marker example:
 ```
-[output truncated: 4521 of 12830 bytes shown — re-run with narrower parameters if needed]
+<truncated output shown=4521 total=12830>
 ```
 
 ### Noise stripping
@@ -139,7 +139,7 @@ File reads are the dominant source of context consumption (67-76% of total token
 When the model requests a file that was recently read and is unmodified since (checked via filesystem stat), steiner replaces the tool result with a short annotation:
 
 ```
-[file unchanged since turn 5, 247 lines — re-read with force=true if needed]
+[file unchanged since turn 5: lines 1-247 of 247 in /path/to/file]
 ```
 
 This is the most aggressive option. The model can always re-read if it needs the content.
@@ -155,13 +155,13 @@ steiner splits every prompt into two zones:
 
 - **Stable zone** (system prompt only): role, tool rules, project context, scratchpad instructions. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on `SmartContextManager`. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching.
 
-- **Volatile zone** (messages array): older masked turns, recent turns verbatim, synthetic scratchpad user message, actual user message.
+- **Volatile zone** (messages array): older masked turns, recent turns verbatim, actual user message, synthetic scratchpad user message (appended as last message).
 
 A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "conversation_bytes", Z)`) records the byte sizes of each zone. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
 
 ## The Scratchpad
 
-The scratchpad is a small block of text (~400-600 tokens) injected as a user-role message near the end of each prompt, just before the conversation history's recent turns. It provides the model's "where am I" anchor, especially important after observation masking has removed old context or compaction has dropped conversation history.
+The scratchpad is a small block of text (~400-600 tokens) injected as a user-role message appended at the end of each prompt, after all conversation messages. It provides the model's "where am I" anchor, especially important after observation masking has removed old context or compaction has dropped conversation history.
 
 ### Two parts
 
@@ -194,7 +194,7 @@ steiner processes the tool result via `IngestToolResult`, stores state separatel
 Failure is defined as: the model did not call the `scratchpad` tool this turn. `OnTurnComplete(turnIndex int, scratchpadCalled bool)` is invoked after each model response. If `scratchpadCalled == false`, `SmartContextManager` increments a consecutive-miss counter; the counter resets to 0 on any successful call.
 
 1. Miss: carry forward the previous scratchpad state unchanged (no event emitted; miss counter incremented silently)
-2. After 3+ consecutive misses: emit a model compatibility warning to the user
+2. After 3+ consecutive misses: emit a ScratchpadEvent with note "scratchpad tool not called in 3+ consecutive turns"
 
 The system never crashes or loses state because of a missing scratchpad call. The scaffold state provides the factual safety net regardless of model cooperation.
 
@@ -227,7 +227,7 @@ Zero-cost compaction. No model call.
 
 1. Keep the last N turns verbatim (configurable `retain_turns`, default 3)
 2. Drop all older turns
-3. Insert a discontinuity marker: `[context compacted — see scratchpad for task state, re-read files if needed]`
+3. Insert a discontinuity marker: `[context compacted - see scratchpad for task state; re-read files if needed]`
 
 The scratchpad (both scaffold state and model-written) survives verbatim — it is injected at assembly time from Go state, not stored in conversation history. File tracking metadata also survives.
 
@@ -286,26 +286,35 @@ The components are complementary and layer progressively:
 
 ## Configuration
 
-All context management settings live under the model configuration:
+Context management settings are configured at the top level under `context_management`:
+
+```yaml
+context_management:
+  mode: smart                    # naive or smart (default: naive)
+  compaction_strategy: drop      # drop, summarize, or hybrid (default: drop)
+  masking_window_turns: 5        # M: turns before masking (default: 5)
+  read_annotations: true         # annotate unchanged re-reads (default: true)
+```
+
+Additional budget parameters live under the model's `compaction` block:
 
 ```yaml
 models:
   default:
     model: qwen3-35b-a3b
     context_size: 32768
-
-    context_management:
-      mode: smart                    # naive or smart
-      masking_window: 5              # M: turns before masking
-      file_annotation: true          # annotate unchanged re-reads
-      scratchpad: true               # enable model-written scratchpad
-
+    max_completion_tokens: 8192
     compaction:
-      strategy: drop                 # drop, summarize, or hybrid
-      threshold: 0.6                 # context fill ratio to trigger
-      retain_turns: 3                # turns to keep after compaction
-      safety_margin_tokens: 2048     # headroom before trigger
+      safety_margin_tokens: 8192  # headroom before compaction trigger
+      summary_max_tokens: 4096    # max tokens for summarization
 ```
+
+Notes on missing spec fields:
+
+- **No `scratchpad` toggle**: the scratchpad is always enabled in smart mode.
+- **No `threshold`**: compaction fires when the prompt exceeds the context window (after applying safety margin); there is no configurable fill-ratio.
+- **No `retain_turns`**: the drop strategy keeps the last 3 turns (hardcoded).
+- **`safety_margin_tokens`** lives under `compaction`, not under `context_management`, and defaults to 8192 (not 2048).
 
 The CLI flag `--context-mode naive|smart` overrides the config file setting.
 

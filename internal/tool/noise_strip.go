@@ -194,6 +194,7 @@ func stripToolNoise(text string) string {
 	}
 	text = ansiEscapePattern.ReplaceAllString(text, "")
 	text = stripCarriageReturnOverwrites(text)
+	text = stripProgressLines(text)
 	return collapseToolLines(text)
 }
 
@@ -276,4 +277,45 @@ func isWarningOrInfoLine(line string) bool {
 		strings.HasPrefix(trimmed, "warn ") ||
 		strings.HasPrefix(trimmed, "info:") ||
 		strings.HasPrefix(trimmed, "info ")
+}
+
+var (
+	// progressBarLine matches lines that are purely progress bar visualisation:
+	//   [########>       ]  or  [====>      ] 45%
+	progressBarLine = regexp.MustCompile(`^\s*\[[= \.\#>\-]+\](?:\s*\d+\.?\d*%)?\s*$`)
+
+	// purePercentageLine matches lines that are just a percentage value:
+	//   45%  or  45.5%
+	purePercentageLine = regexp.MustCompile(`^\s*\d+\.?\d*\s*%\s*$`)
+
+	// progressKeywordLine matches lines with common progress/download/install
+	// keywords followed by a percentage:
+	//   Downloading 45%  |  Receiving objects: 67%  |  Extracting package (32%)
+	progressKeywordLine = regexp.MustCompile(`(?i)^\s*(?:download|upload|install|extract|fetch|receiv|transfer|progress|checking|resolving).*\d+\.?\d*\s*%`)
+
+	// spinnerLine matches lines that are just a spinner character optionally
+	// followed by whitespace and/or a short label:
+	//   ⠋  |  -  |  \  |  |
+	spinnerLine = regexp.MustCompile(`^\s*[-\|/\\⠁-⣿](?:\s+\S+)?\s*$`)
+)
+
+// stripProgressLines removes lines that represent transient progress output:
+// progress bars, percentage-only lines, download progress lines, and spinner
+// characters. These are never useful to preserve in ingested tool output.
+func stripProgressLines(text string) string {
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if progressBarLine.MatchString(line) ||
+			purePercentageLine.MatchString(line) ||
+			progressKeywordLine.MatchString(line) ||
+			spinnerLine.MatchString(line) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

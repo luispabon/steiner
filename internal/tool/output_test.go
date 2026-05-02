@@ -102,8 +102,8 @@ func TestNoiseStripRemovesANSIAndCarriageReturns(t *testing.T) {
 	if !strings.Contains(got, "final") {
 		t.Fatalf("stripToolNoise() = %q, want final overwrite line", got)
 	}
-	if !strings.Contains(got, "progress 2%") {
-		t.Fatalf("stripToolNoise() = %q, want final progress line", got)
+	if strings.Contains(got, "progress 2%") {
+		t.Fatalf("stripToolNoise() = %q, want progress line stripped", got)
 	}
 }
 
@@ -140,5 +140,81 @@ func TestTruncationMarkerUsesShownAndTotal(t *testing.T) {
 	}
 	if strings.Contains(got, "bytes=") {
 		t.Fatalf("Summary() = %q, want no bytes= marker", got)
+	}
+}
+
+func TestNoiseStripRemovesProgressBarLines(t *testing.T) {
+	input := "header\n[########>       ]\n[========>] 45%\nfooter\n"
+	got := stripToolNoise(input)
+	if strings.Contains(got, "[########>") {
+		t.Fatalf("stripToolNoise() = %q, want progress bar removed", got)
+	}
+	if strings.Contains(got, "[========>] 45%") {
+		t.Fatalf("stripToolNoise() = %q, want progress bar with pct removed", got)
+	}
+	if !strings.Contains(got, "header") {
+		t.Fatalf("stripToolNoise() = %q, want header preserved", got)
+	}
+	if !strings.Contains(got, "footer") {
+		t.Fatalf("stripToolNoise() = %q, want footer preserved", got)
+	}
+}
+
+func TestNoiseStripRemovesPercentageOnlyLines(t *testing.T) {
+	input := "start\n45%\n100%\nend\n"
+	got := stripToolNoise(input)
+	if strings.Contains(got, "45%") {
+		t.Fatalf("stripToolNoise() = %q, want percentage line removed", got)
+	}
+	if strings.Contains(got, "100%") {
+		t.Fatalf("stripToolNoise() = %q, want percentage line removed", got)
+	}
+	if !strings.Contains(got, "start") {
+		t.Fatalf("stripToolNoise() = %q, want start preserved", got)
+	}
+	if !strings.Contains(got, "end") {
+		t.Fatalf("stripToolNoise() = %q, want end preserved", got)
+	}
+}
+
+func TestNoiseStripRemovesDownloadKeywordLines(t *testing.T) {
+	input := "before\nDownloading package 45%\nReceiving objects: 67%\nExtracting archive (32%)\nafter\n"
+	got := stripToolNoise(input)
+	if strings.Contains(got, "Downloading") {
+		t.Fatalf("stripToolNoise() = %q, want download line removed", got)
+	}
+	if strings.Contains(got, "Receiving objects") {
+		t.Fatalf("stripToolNoise() = %q, want receiving line removed", got)
+	}
+	if strings.Contains(got, "Extracting") {
+		t.Fatalf("stripToolNoise() = %q, want extracting line removed", got)
+	}
+	if !strings.Contains(got, "before") || !strings.Contains(got, "after") {
+		t.Fatalf("stripToolNoise() = %q, want non-progress lines preserved", got)
+	}
+}
+
+func TestNoiseStripRemovesSpinnerLines(t *testing.T) {
+	input := "line1\n⠋\n\\\n|\n/\n-\nline2\n"
+	got := stripToolNoise(input)
+	if strings.Contains(got, "⠋") {
+		t.Fatalf("stripToolNoise() = %q, want braille spinner removed", got)
+	}
+	if strings.Contains(got, "\n\\\n") {
+		t.Fatalf("stripToolNoise() = %q, want ascii spinner removed", got)
+	}
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("stripToolNoise() = %q, want non-spinner lines preserved", got)
+	}
+}
+
+func TestNoiseStripLeavesPercentageInContext(t *testing.T) {
+	input := "coverage: 87.5% of statements\n75% of tests pass\n"
+	got := stripToolNoise(input)
+	if !strings.Contains(got, "coverage: 87.5% of statements") {
+		t.Fatalf("stripToolNoise() = %q, want percentage in context preserved", got)
+	}
+	if !strings.Contains(got, "75% of tests pass") {
+		t.Fatalf("stripToolNoise() = %q, want percentage at line start with context preserved", got)
 	}
 }
