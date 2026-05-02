@@ -17,7 +17,7 @@ steiner --context-mode smart
 
 Both modes share the same provider, tool, and runner infrastructure. The context manager is an interface called at three points in the agent loop:
 
-1. **PostIngestion** — after a tool result arrives, before it enters conversation history
+1. **PostIngestion** — runs once at session start on the initial loaded conversation. Per-tool-result shaping during a run is handled by `IngestToolResult` on `SmartContextManager`.
 2. **PreAssembly** — before building the next model request, to filter the conversation view
 3. **OnTurnComplete** — after each model response, to track whether the scratchpad tool was called
 
@@ -76,15 +76,15 @@ These apply once, when a tool result is received. They run in Go with no model c
 
 ### Tool output truncation
 
-Every tool result is subject to a configurable maximum size. When output exceeds the limit, it is truncated with a marker so the model knows content was removed and can re-run with different parameters.
+Bash and grep tool results are subject to a maximum size at ingestion. When output exceeds the limit, it is truncated with a marker so the model knows content was removed and can re-run with different parameters. Other tool types (read, ls, glob, edit, write) bypass ingestion truncation — their output is managed at assembly time.
 
 Different tool types use different truncation strategies:
 
 | Tool type | Strategy | Rationale |
 |-----------|----------|-----------|
-| bash, test, build | Tail-priority | Errors and failures appear at the end |
-| grep, search, glob | Count cap | Limit number of results, not bytes |
-| read | No truncation | File size managed at assembly time |
+| bash | Tail-priority | Errors and failures appear at the end |
+| grep | Count cap | Limit number of results, not bytes |
+| default (read, ls, glob, edit, write) | None | Output size managed at assembly time (observation masking, file annotation) |
 
 Truncation marker example:
 ```
@@ -326,7 +326,7 @@ Smart mode emits structured events through the existing EventSink:
 - **FileAnnotationEvent**: file path, whether annotation or full content was served, why
 - **CompactionEvent**: strategy used, token count before/after, turns dropped
 - **ScratchpadEvent**: scratchpad content after each model response; whether the scratchpad tool was called this turn (fired via `OnTurnComplete`)
-- **TokenBudgetEvent**: per-category token counts each turn (system, scratchpad, project context, conversation)
+- **TokenBudgetEvent**: aggregate prompt token counts each turn (estimated prompt, reserved completion, safety margin, context size, total). No per-category breakdown is emitted.
 
 Debug mode (`--log-level debug`) logs the full assembled prompt with masking decisions annotated, plus the full unmasked conversation history.
 
