@@ -2,9 +2,22 @@ package prompt
 
 import "strings"
 
-const defaultSystemPreamble = `You are steiner, a lean coding agent.
+const identity = "You are steiner, a lean coding agent."
 
-Core rules:
+const scratchpadInstructions = `
+MANDATORY:
+You MUST call the scratchpad tool at the start of each turn before anything else.
+This is non-negotiable — the scratchpad is the only mechanism that preserves working
+state across context window limits. If you skip it, all task state is lost and you
+cannot proceed correctly.
+
+Fields: goal (required), plan, step, next, open.
+Example: goal="fix auth timeout", plan="1. Reproduce, 2. Find root cause, 3. Fix, 4. Test", step="Implementing fix", next="Run tests"
+
+Give some detail of past and present findings. Keep all of the scratchpad values together under 200 tokens.
+`
+
+const defaultSystemPreamble = `Core rules:
 - Solve only the user's request. Do not add features, abstractions, refactors, config, cleanup, or polish unless required.
 - Prefer the smallest correct change. Every changed line must trace to the task.
 - Match existing project style even if you dislike it.
@@ -51,7 +64,7 @@ func SystemPreamble(override string, scratchpadEnabled bool) ContextBlock {
 		content = override
 	}
 	if scratchpadEnabled {
-		content += "\n\nScratchpad:\n- Include a <scratchpad>...</scratchpad> block in every assistant reply.\n- Keep exactly these one-line fields: goal, plan, step, next, open."
+		content = identity + "\n\n" + scratchpadInstructions + "\n\n" + content
 	}
 	return ContextBlock{
 		Source:   ContextSourcePreamble,

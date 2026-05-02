@@ -241,6 +241,21 @@ func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
 	}
 }
 
+func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
+	t.Parallel()
+	cm := &SmartContextManager{}
+	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","next":"fix","open":""}`)
+	if result != `{"ok":true}` {
+		t.Fatalf("result = %q, want compact ack", result)
+	}
+	if cm.scratchpad.Goal != "fix bug" {
+		t.Fatalf("Goal = %q, want fix bug", cm.scratchpad.Goal)
+	}
+	if cm.scratchpad.Plan != "read code" {
+		t.Fatalf("Plan = %q, want read code", cm.scratchpad.Plan)
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)

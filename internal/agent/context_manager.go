@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -114,6 +115,14 @@ func (s *SmartContextManager) IngestAssistantResponse(turn int, content string) 
 // active conversation history.
 func (s *SmartContextManager) IngestToolResult(turn int, toolName, content string) string {
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
+	if toolName == "scratchpad" {
+		if next, ok := parseScratchpadToolResult(shaped, s.scratchpad); ok {
+			s.scratchpad = next
+			s.scratchpadFailures = 0
+			emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+		}
+		return `{"ok":true}`
+	}
 	if toolName == "read" {
 		result, ok := parseReadResult(shaped)
 		var previous trackedFileRead
@@ -327,4 +336,28 @@ func summarizeTextValue(value any) string {
 		return text
 	}
 	return text[:40] + "..."
+}
+
+func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(content), &fields); err != nil {
+		return previous, false
+	}
+	next := previous
+	if v, ok := fields["goal"]; ok && v != "" {
+		next.Goal = v
+	}
+	if v, ok := fields["plan"]; ok {
+		next.Plan = v
+	}
+	if v, ok := fields["step"]; ok {
+		next.Step = v
+	}
+	if v, ok := fields["next"]; ok {
+		next.Next = v
+	}
+	if v, ok := fields["open"]; ok {
+		next.Open = v
+	}
+	return next, true
 }
