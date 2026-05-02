@@ -36,6 +36,11 @@ type ContextDiagnosticsEvent struct {
 	ContextTokens      int      `json:"context_tokens,omitempty"`
 	TotalTokens        int      `json:"total_tokens,omitempty"`
 	Truncated          bool     `json:"truncated,omitempty"`
+	EpochBoundary      int      `json:"epoch_boundary"`
+	EpochStartTurn     int      `json:"epoch_start_turn"`
+	EpochTrigger       string   `json:"epoch_trigger,omitempty"`
+	EpochStatus        string   `json:"epoch_status,omitempty"`
+	EpochMaskedTurns   int      `json:"epoch_masked_turns,omitempty"`
 	Notes              []string `json:"notes,omitempty"`
 }
 
@@ -120,17 +125,22 @@ func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens
 }
 
 // NewContextMaskingEvent creates a new masking diagnostic event.
-func NewContextMaskingEvent(turn int, toolName, action, reason string, window int, notes ...string) Event {
+func NewContextMaskingEvent(turn int, toolName, action, reason string, window, epochBoundary, epochStartTurn, epochMaskedTurns int, epochTrigger, epochStatus string, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:     "masking",
-		Scope:    "conversation",
-		Turn:     turn,
-		Severity: "info",
-		Action:   action,
-		Reason:   reason,
-		Tool:     toolName,
-		Window:   window,
-		Notes:    append([]string(nil), notes...),
+		Kind:             "masking",
+		Scope:            "conversation",
+		Turn:             turn,
+		Severity:         "info",
+		Action:           action,
+		Reason:           reason,
+		Tool:             toolName,
+		Window:           window,
+		EpochBoundary:    epochBoundary,
+		EpochStartTurn:   epochStartTurn,
+		EpochTrigger:     epochTrigger,
+		EpochStatus:      epochStatus,
+		EpochMaskedTurns: epochMaskedTurns,
+		Notes:            append([]string(nil), notes...),
 	})
 }
 
@@ -252,6 +262,7 @@ func formatContextMaskingSummary(payload ContextDiagnosticsEvent) string {
 	if reason := strings.TrimSpace(payload.Reason); reason != "" {
 		parts = append(parts, fmt.Sprintf("reason=%s", reason))
 	}
+	parts = append(parts, formatContextEpochDetails(payload)...)
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
 	}
@@ -272,6 +283,7 @@ func formatContextFileAnnotationSummary(payload ContextDiagnosticsEvent) string 
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
 	}
+	parts = append(parts, formatContextEpochDetails(payload)...)
 	return strings.Join(parts, "; ")
 }
 
@@ -417,6 +429,24 @@ func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {
 	}
 	if payload.Kind != "session_health" && payload.CompactionCount > 0 {
 		parts = append(parts, fmt.Sprintf("compactions %d", payload.CompactionCount))
+	}
+	return parts
+}
+
+func formatContextEpochDetails(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 5)
+	if payload.EpochBoundary != 0 || payload.EpochStartTurn != 0 || payload.EpochTrigger != "" || payload.EpochStatus != "" || payload.EpochMaskedTurns > 0 {
+		parts = append(parts, fmt.Sprintf("epoch boundary=%d", payload.EpochBoundary))
+		parts = append(parts, fmt.Sprintf("start=%d", payload.EpochStartTurn))
+	}
+	if trigger := strings.TrimSpace(payload.EpochTrigger); trigger != "" {
+		parts = append(parts, fmt.Sprintf("trigger=%s", trigger))
+	}
+	if status := strings.TrimSpace(payload.EpochStatus); status != "" {
+		parts = append(parts, fmt.Sprintf("status=%s", status))
+	}
+	if payload.EpochMaskedTurns > 0 {
+		parts = append(parts, fmt.Sprintf("masked=%d", payload.EpochMaskedTurns))
 	}
 	return parts
 }

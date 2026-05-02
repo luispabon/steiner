@@ -242,6 +242,9 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		case "masking":
 			if payload.Action == "masked" && payload.Tool == "read" {
 				sawMasked = true
+				if payload.EpochStatus == "" {
+					t.Fatal("masked read diagnostic missing epoch status")
+				}
 			}
 			if payload.Action == "trimmed" {
 				sawTrimmed = true
