@@ -51,18 +51,19 @@ func (n *NaiveContextManager) RecordMutation(_ string) {}
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
 type SmartContextManager struct {
-	maskingWindowTurns     int
-	readAnnotations        bool
-	configApplied          bool
-	compactionStrategy     config.CompactionStrategy
-	scratchpadMode         config.ScratchpadMode
-	events                 output.EventSink
-	fileTracker            FileTracker
-	scratchpad             Scratchpad
-	scratchpadFailures     int
-	epochMaskBoundary      int
-	epochStartTurn         int
-	contextPressureTrigger func(currentTurn int, state RunState) bool
+	maskingWindowTurns      int
+	readAnnotations         bool
+	configApplied           bool
+	compactionStrategy      config.CompactionStrategy
+	scratchpadMode          config.ScratchpadMode
+	events                  output.EventSink
+	fileTracker             FileTracker
+	scratchpad              Scratchpad
+	scratchpadFailures      int
+	epochMaskBoundary       int
+	epochStartTurn          int
+	contextPressureTrigger  func(currentTurn int, state RunState) bool
+	lastScaffoldFingerprint string
 	// cachedPreamble holds the system preamble built once per session.
 	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
 	// so building the string once prevents unnecessary allocations and keeps
@@ -488,6 +489,42 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	return next
 }
 
+func (s *SmartContextManager) scaffoldPromptState() string {
+	return s.scratchpad.Render()
+}
+
+func (s *SmartContextManager) shouldRunScaffoldInference(state RunState, compactionCount int) bool {
+	if s.scratchpadMode != config.ScratchpadModeScaffoldOnly {
+		return false
+	}
+	fingerprint := s.scaffoldFingerprint(state, compactionCount)
+	if fingerprint == s.lastScaffoldFingerprint {
+		return false
+	}
+	s.lastScaffoldFingerprint = fingerprint
+	return true
+}
+
+func (s *SmartContextManager) applyScaffoldInference(turn int, content string) (bool, string) {
+	next, parsed, note := parseScaffoldInferenceResult(content, s.scratchpad)
+	if !parsed {
+		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), 0, note))
+		return false, note
+	}
+	s.scratchpad = next
+	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+	return true, ""
+}
+
+func (s *SmartContextManager) scaffoldFingerprint(state RunState, compactionCount int) string {
+	toolSummary := ""
+	if recent := summarizeRecentToolCalls(state.Lineage.FullMessages(), 1); len(recent) > 0 {
+		toolSummary = recent[0]
+	}
+	workingFile := strings.TrimSpace(s.scratchpad.WorkingFile)
+	return fmt.Sprintf("compaction=%d|working=%s|tool=%s", compactionCount, workingFile, toolSummary)
+}
+
 func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, observation fileObservation, original, shaped string) {
 	if s.events == nil {
 		return
@@ -678,6 +715,22 @@ func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad,
 	}
 
 	return next, warnings, true
+}
+
+func parseScaffoldInferenceResult(content string, previous Scratchpad) (Scratchpad, bool, string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return previous, false, "invalid scaffold inference JSON: " + err.Error()
+	}
+
+	next := previous
+	if v, ok := decodeScratchpadString(raw, "intent"); ok {
+		next.Intent = v
+	}
+	if v, ok := decodeScratchpadString(raw, "next"); ok {
+		next.Next = v
+	}
+	return next, true, ""
 }
 
 func decodeScratchpadString(raw map[string]json.RawMessage, key string) (string, bool) {
