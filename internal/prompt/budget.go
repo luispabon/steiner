@@ -3,14 +3,13 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes       = 2048
-	defaultGlobalAgentsBudgetBytes   = 2048
-	defaultProjectAgentsBudgetBytes  = 8192
-	defaultSkillBudgetBytes          = 2048
-	defaultDurableContextBudgetBytes = 1024
-	defaultToolResultBudgetBytes     = 2048
-	defaultToolSummaryBudgetBytes    = 1024
-	defaultCompactionSummaryBytes    = 1024
+	defaultPreambleBudgetBytes      = 2048
+	defaultGlobalAgentsBudgetBytes  = 2048
+	defaultProjectAgentsBudgetBytes = 8192
+	defaultSkillBudgetBytes         = 2048
+	defaultToolResultBudgetBytes    = 2048
+	defaultToolSummaryBudgetBytes   = 1024
+	defaultCompactionSummaryBytes   = 1024
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.
@@ -22,7 +21,6 @@ func DefaultAssemblyPolicy() AssemblyPolicy {
 			ProjectAgentsBytes:  defaultProjectAgentsBudgetBytes,
 			ProjectContextBytes: defaultProjectContextBudgetBytes,
 			SkillBytes:          defaultSkillBudgetBytes,
-			DurableContextBytes: defaultDurableContextBudgetBytes,
 			ToolResultBytes:     defaultToolResultBudgetBytes,
 			ToolSummaryBytes:    defaultToolSummaryBudgetBytes,
 		},
@@ -39,7 +37,6 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		policy.Budgets.ProjectAgentsBytes < 0 ||
 		policy.Budgets.ProjectContextBytes < 0 ||
 		policy.Budgets.SkillBytes < 0 ||
-		policy.Budgets.DurableContextBytes < 0 ||
 		policy.Budgets.ToolResultBytes < 0 ||
 		policy.Budgets.ToolSummaryBytes < 0 {
 		return AssemblyPolicy{}, fmt.Errorf("assembly budgets must not be negative")
@@ -65,9 +62,6 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 	}
 	if policy.Budgets.SkillBytes == 0 {
 		policy.Budgets.SkillBytes = defaults.Budgets.SkillBytes
-	}
-	if policy.Budgets.DurableContextBytes == 0 {
-		policy.Budgets.DurableContextBytes = defaults.Budgets.DurableContextBytes
 	}
 	if policy.Budgets.ToolResultBytes == 0 {
 		policy.Budgets.ToolResultBytes = defaults.Budgets.ToolResultBytes
@@ -104,10 +98,6 @@ func (m SourceBudgetModel) limitFor(source ContextSource) int {
 		return m.ProjectContextBytes
 	case ContextSourceSkill:
 		return m.SkillBytes
-	case ContextSourceDurableContext:
-		return m.DurableContextBytes
-	case ContextSourceScratchpad:
-		return m.DurableContextBytes
 	case ContextSourceToolSummary, ContextSourceDelegationResult:
 		return m.ToolSummaryBytes
 	case ContextSourceToolResult:
@@ -136,8 +126,6 @@ func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 			ContextSourceProjectAgentsMD:  model.ProjectAgentsBytes,
 			ContextSourceProjectContext:   model.ProjectContextBytes,
 			ContextSourceSkill:            model.SkillBytes,
-			ContextSourceDurableContext:   model.DurableContextBytes,
-			ContextSourceScratchpad:       model.DurableContextBytes,
 			ContextSourceToolResult:       model.ToolResultBytes,
 			ContextSourceToolSummary:      model.ToolSummaryBytes,
 			ContextSourceDelegationResult: model.ToolSummaryBytes,

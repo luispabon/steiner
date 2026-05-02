@@ -2,9 +2,7 @@ package prompt
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/skill"
 )
@@ -13,11 +11,9 @@ type plannedSourceKind string
 
 const (
 	plannedSourcePreamble       plannedSourceKind = "preamble"
-	plannedSourceScratchpad     plannedSourceKind = "scratchpad"
 	plannedSourceAgents         plannedSourceKind = "agents"
 	plannedSourceProjectContext plannedSourceKind = "project_context"
 	plannedSourceSkills         plannedSourceKind = "skills"
-	plannedSourceDurableContext plannedSourceKind = "durable_context"
 	plannedSourceConversation   plannedSourceKind = "conversation"
 	plannedSourceToolSummaries  plannedSourceKind = "tool_summaries"
 )
@@ -115,21 +111,6 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 					return nil
 				},
 			},
-			// Volatile sources after static — these change per turn but
-			// don't invalidate the cached prefix above.
-			{
-				Kind:      plannedSourceDurableContext,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					if block, ok := durableContextBlock(opts.ContextState, policy.Compaction); ok {
-						state.appendBlock(block)
-					}
-					if block, ok := scratchpadBlock(opts.ContextState, opts.ScratchpadEnabled); ok {
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
 			{
 				Kind:        plannedSourceConversation,
 				Placement:   plannedSourcePlacementConversation,
@@ -174,150 +155,4 @@ func skillRoot(opts AssemblyOptions) string {
 		skillRoot = DefaultSkillsRoot(opts.HomeDir)
 	}
 	return skillRoot
-}
-
-func durableContextBlock(state DurableContextState, policy CompactionPolicy) (ContextBlock, bool) {
-	sections := durableContextSections(state)
-	if len(sections) == 0 {
-		return ContextBlock{}, false
-	}
-
-	joined := strings.Join(sections, "\n")
-	limit := policy.SummaryBytes
-	if limit <= 0 {
-		limit = defaultCompactionSummaryBytes
-	}
-	content := truncateText(joined, limit)
-	if content == "" {
-		return ContextBlock{}, false
-	}
-
-	envelope := struct {
-		Kind      string `json:"kind"`
-		Title     string `json:"title"`
-		ByteSize  int    `json:"byte_size"`
-		Truncated bool   `json:"truncated,omitempty"`
-		Content   string `json:"content"`
-	}{
-		Kind:     "durable_context",
-		Title:    "retained context state",
-		ByteSize: len(content),
-		Content:  content,
-	}
-	if len(content) < len(joined) {
-		envelope.Truncated = true
-	}
-
-	encoded := marshalEnvelope(envelope)
-	return ContextBlock{
-		Source:    ContextSourceDurableContext,
-		Path:      envelope.Title,
-		Content:   encoded,
-		ByteSize:  len(encoded),
-		Truncated: envelope.Truncated,
-	}, true
-}
-
-func durableContextSections(state DurableContextState) []string {
-	sections := make([]string, 0, 4)
-
-	if len(state.ActiveConstraints) > 0 {
-		lines := make([]string, 0, len(state.ActiveConstraints)+1)
-		lines = append(lines, "active constraints:")
-		for _, item := range state.ActiveConstraints {
-			lines = append(lines, "- "+compactDurableContextEntry(item))
-		}
-		sections = append(sections, strings.Join(lines, "\n"))
-	}
-
-	if len(state.UnresolvedWork) > 0 {
-		lines := make([]string, 0, len(state.UnresolvedWork)+1)
-		lines = append(lines, "unresolved work:")
-		for _, item := range state.UnresolvedWork {
-			lines = append(lines, "- "+compactDurableContextEntry(item))
-		}
-		sections = append(sections, strings.Join(lines, "\n"))
-	}
-
-	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
-		sections = append(sections, "active focus:\n- "+compactDurableContextEntry(*state.ActiveFocus))
-	}
-
-	if len(state.RetainedSummaries) > 0 {
-		lines := make([]string, 0, len(state.RetainedSummaries)+1)
-		lines = append(lines, "retained summaries:")
-		for _, item := range state.RetainedSummaries {
-			lines = append(lines, "- "+compactDurableSummaryEntry(item))
-		}
-		sections = append(sections, strings.Join(lines, "\n"))
-	}
-
-	if state.TurnCount > 0 || state.CompactionCount > 0 {
-		sections = append(sections, compactSessionState(state.TurnCount, state.CompactionCount))
-	}
-
-	if len(state.FileTrackerSummary) > 0 {
-		sections = append(sections, "tracked files:\n- "+strings.Join(state.FileTrackerSummary, "\n- "))
-	}
-
-	if len(state.RecentToolCalls) > 0 {
-		sections = append(sections, "recent tool calls:\n- "+strings.Join(state.RecentToolCalls, "\n- "))
-	}
-
-	return sections
-}
-
-func compactSessionState(turnCount, compactionCount int) string {
-	return fmt.Sprintf("session state: turn=%d compactions=%d", turnCount, compactionCount)
-}
-
-func compactDurableContextEntry(entry DurableContextEntry) string {
-	text := compactMessageContent(entry.Text, 160)
-	metadata := make([]string, 0, 2)
-	if entry.Source != "" {
-		metadata = append(metadata, "source="+entry.Source)
-	}
-	if entry.Turn > 0 {
-		metadata = append(metadata, fmt.Sprintf("turn=%d", entry.Turn))
-	}
-	if len(metadata) == 0 {
-		return text
-	}
-	return text + " (" + strings.Join(metadata, ", ") + ")"
-}
-
-func compactDurableSummaryEntry(entry DurableSummaryEntry) string {
-	text := compactMessageContent(entry.Text, 160)
-	parts := make([]string, 0, 3)
-	if strings.TrimSpace(entry.Title) != "" {
-		parts = append(parts, entry.Title)
-	}
-	parts = append(parts, text)
-	metadata := make([]string, 0, 2)
-	if entry.Source != "" {
-		metadata = append(metadata, "source="+entry.Source)
-	}
-	if entry.Turn > 0 {
-		metadata = append(metadata, fmt.Sprintf("turn=%d", entry.Turn))
-	}
-	if len(metadata) > 0 {
-		parts = append(parts, "("+strings.Join(metadata, ", ")+")")
-	}
-	return strings.Join(parts, ": ")
-}
-
-func scratchpadBlock(state DurableContextState, enabled bool) (ContextBlock, bool) {
-	if !enabled {
-		return ContextBlock{}, false
-	}
-	content := strings.TrimSpace(state.Scratchpad)
-	if content == "" {
-		content = "[Current task state]\ngoal: \nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: "
-	}
-	return ContextBlock{
-		Source:   ContextSourceScratchpad,
-		Path:     "scratchpad",
-		Content:  content,
-		ByteSize: len(content),
-	}, true
 }

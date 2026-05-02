@@ -148,9 +148,6 @@ func diagnosticBudgets(opts prompt.AssemblyOptions) prompt.SourceBudgetModel {
 	if budgets.SkillBytes == 0 {
 		budgets.SkillBytes = defaults.SkillBytes
 	}
-	if budgets.DurableContextBytes == 0 {
-		budgets.DurableContextBytes = defaults.DurableContextBytes
-	}
 	if budgets.ToolResultBytes == 0 {
 		budgets.ToolResultBytes = defaults.ToolResultBytes
 	}
@@ -173,8 +170,6 @@ func budgetForSource(budgets prompt.SourceBudgetModel, source prompt.ContextSour
 		return budgets.ProjectContextBytes
 	case prompt.ContextSourceSkill:
 		return budgets.SkillBytes
-	case prompt.ContextSourceDurableContext:
-		return budgets.DurableContextBytes
 	case prompt.ContextSourceToolResult:
 		return budgets.ToolResultBytes
 	case prompt.ContextSourceToolSummary, prompt.ContextSourceDelegationResult:

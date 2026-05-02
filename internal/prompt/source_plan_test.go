@@ -19,7 +19,6 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 		{Kind: plannedSourceAgents, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceProjectContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
-		{Kind: plannedSourceDurableContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
 		{Kind: plannedSourceToolSummaries, Placement: plannedSourcePlacementToolSummaries, PassThrough: false},
 	}
@@ -84,7 +83,6 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "retained conversation", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
-			Scratchpad: "[Current task state]\ngoal: ship masking\nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: ",
 		},
 		ScratchpadEnabled: true,
 		Conversation: []provider.Message{
@@ -103,16 +101,11 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceSkill,
-		ContextSourceDurableContext,
-		ContextSourceScratchpad,
 		ContextSourceToolSummary,
 	}; !sourcesEqual(got, want) {
 		t.Fatalf("block sources = %v, want %v", got, want)
 	}
 
-	if got, want := messageIndexContaining(assembly.Messages, "earlier request and tool output"), messageIndexContaining(assembly.Messages, "conversation turn"); got < 0 || want < 0 || got >= want {
-		t.Fatalf("durable context message should appear before conversation: durable=%d conversation=%d", got, want)
-	}
 	if got, want := messageIndexContaining(assembly.Messages, "conversation turn"), messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\""); got < 0 || want < 0 || got >= want {
 		t.Fatalf("conversation should appear before tool summary: conversation=%d tool_summary=%d", got, want)
 	}
@@ -137,7 +130,6 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 					ProjectAgentsBytes:  1,
 					ProjectContextBytes: 1,
 					SkillBytes:          1,
-					DurableContextBytes: 1,
 					ToolResultBytes:     1,
 					ToolSummaryBytes:    1,
 				},
@@ -153,7 +145,6 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 					ProjectAgentsBytes:  8192,
 					ProjectContextBytes: 4096,
 					SkillBytes:          2048,
-					DurableContextBytes: 1024,
 					ToolResultBytes:     2048,
 					ToolSummaryBytes:    1024,
 				},

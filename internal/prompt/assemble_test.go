@@ -281,7 +281,7 @@ func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 	}
 }
 
-func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
+func TestAssembleRetainedSummariesAreNotInjectedIntoSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
@@ -292,28 +292,18 @@ func TestAssembleCarriesRetainedSummariesIntoDurableContext(t *testing.T) {
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "compacted conversation history", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
-			FileTrackerSummary: []string{"README.md lines 1-40"},
-			RecentToolCalls:    []string{"read path=README.md"},
-			TurnCount:          4,
-			CompactionCount:    1,
 		},
 	})
 	if err != nil {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	block := findBlockBySource(t, assembly.Blocks, ContextSourceDurableContext)
-	if !strings.Contains(block.Content, "retained summaries") {
-		t.Fatalf("durable context block = %q, want retained summaries section", block.Content)
-	}
-	if !strings.Contains(block.Content, "earlier request and tool output") {
-		t.Fatalf("durable context block = %q, want retained summary text", block.Content)
-	}
-	if !strings.Contains(block.Content, "tracked files") {
-		t.Fatalf("durable context block = %q, want tracked files section", block.Content)
-	}
-	if !strings.Contains(block.Content, "recent tool calls") {
-		t.Fatalf("durable context block = %q, want recent tool calls section", block.Content)
+	// Retained summaries should no longer produce a durable_context block in
+	// the system prompt zone — they are injected via the volatile zone instead.
+	for _, block := range assembly.Blocks {
+		if block.Source == ContextSourceDurableContext {
+			t.Fatalf("unexpected durable_context block in system prompt: %+v", block)
+		}
 	}
 }
 
@@ -325,8 +315,9 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		{Role: provider.MessageRoleAssistant, Content: "solution design is to add compaction"},
 		{Role: provider.MessageRoleUser, Content: "what should we do next?"},
 	}, DurableContextState{
-		ActiveConstraints: []DurableContextEntry{{Text: "do not drop constraints", Source: "user", Turn: 1}},
-		UnresolvedWork:    []DurableContextEntry{{Text: "finish the compaction loop", Source: "assistant", Turn: 2}},
+		RetainedSummaries: []DurableSummaryEntry{
+			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
+		},
 	}, "")
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)

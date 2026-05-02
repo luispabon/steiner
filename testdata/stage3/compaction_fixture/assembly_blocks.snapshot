@@ -2,5 +2,4 @@ source=global_agents_md path=AGENTS.md truncated=false content=global rules
 source=project_agents_md path=AGENTS.md truncated=false content=project rules
 source=project_context path=README.md truncated=false content=stage 3 fixture readme
 source=project_context path=go.mod truncated=false content=module example.com/stage3
-source=durable_context path=retained context state truncated=false content=active constraints: - do not change public APIs (source=user, turn=1) unresolved work: - tighten retry handling (source=assistant, turn=2) active focus: - finish compaction diagnostics (source=assistant, turn=3)
 source=conversation_summary path=compacted conversation history truncated=false content=turn 1: user: turn one user: keep prompt assembly policy-driven and document bounded growth | assistant: turn one assistant: scheduler should retain only recent turns turn 2: user: turn two user: make compact summaries preserve intent | assistant: turn two assistant: diagnostics should expose compaction turn 3: user: turn three user: state preservation matters | assistant: turn three assistant: durable context survives compaction

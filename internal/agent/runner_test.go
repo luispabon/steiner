@@ -206,15 +206,22 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 
 	second := providerStub.requests[1]
-	if got := second.Messages[len(second.Messages)-1].ToolCallID; got != "call_1" {
-		t.Fatalf("tool call id = %q, want call_1", got)
+	var toolResultMsg provider.Message
+	for _, m := range second.Messages {
+		if m.ToolCallID == "call_1" {
+			toolResultMsg = m
+			break
+		}
+	}
+	if toolResultMsg.ToolCallID != "call_1" {
+		t.Fatalf("tool call id = %q, want call_1", toolResultMsg.ToolCallID)
 	}
 	var toolResult struct {
 		Output    string `json:"output"`
 		Message   string `json:"message"`
 		Truncated bool   `json:"truncated"`
 	}
-	if err := json.Unmarshal([]byte(second.Messages[len(second.Messages)-1].Content), &toolResult); err != nil {
+	if err := json.Unmarshal([]byte(toolResultMsg.Content), &toolResult); err != nil {
 		t.Fatalf("unmarshal tool result: %v", err)
 	}
 	if strings.Contains(toolResult.Output, "HEAD-SENTINEL") {
@@ -1048,16 +1055,8 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ContextState: prompt.DurableContextState{
-				ActiveConstraints: []prompt.DurableContextEntry{
-					{Text: "do not lose the active constraint", Source: "user", Turn: 1},
-				},
-				UnresolvedWork: []prompt.DurableContextEntry{
-					{Text: "finish the long-running session", Source: "assistant", Turn: 1},
-				},
-				ActiveFocus: &prompt.DurableContextEntry{
-					Text:   "keep prompt assembly policy-driven",
-					Source: "assistant",
-					Turn:   1,
+				RetainedSummaries: []prompt.DurableSummaryEntry{
+					{Title: "prior work", Text: "keep prompt assembly policy-driven", Source: "assistant", Turn: 1},
 				},
 			},
 			Policy: prompt.AssemblyPolicy{
@@ -1087,15 +1086,12 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		t.Fatalf("lineage first message = %q, want %q", got, want)
 	}
 
-	lastRequest := providerStub.requests[len(providerStub.requests)-1].Messages
-	if !messageContentsContain(lastRequest, "do not lose the active constraint") {
-		t.Fatalf("last request did not retain active constraint: %#v", lastRequest)
+	// RetainedSummaries survive across turns via the compaction path.
+	if got, want := len(state.Context.RetainedSummaries), 1; got != want {
+		t.Fatalf("retained summaries = %d, want %d", got, want)
 	}
-	if !messageContentsContain(lastRequest, "keep prompt assembly policy-driven") {
-		t.Fatalf("last request did not retain active focus: %#v", lastRequest)
-	}
-	if got, want := state.Context.ActiveFocus.Text, "keep prompt assembly policy-driven"; got != want {
-		t.Fatalf("ActiveFocus = %q, want %q", got, want)
+	if got, want := state.Context.RetainedSummaries[0].Text, "keep prompt assembly policy-driven"; got != want {
+		t.Fatalf("retained summary text = %q, want %q", got, want)
 	}
 }
 
@@ -1144,22 +1140,11 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ContextState: prompt.DurableContextState{
-				ActiveConstraints: []prompt.DurableContextEntry{
-					{Text: strings.Repeat("constraint ", 8), Source: "user", Turn: 1},
-				},
-				UnresolvedWork: []prompt.DurableContextEntry{
-					{Text: strings.Repeat("unresolved ", 8), Source: "assistant", Turn: 1},
-				},
-				ActiveFocus: &prompt.DurableContextEntry{
-					Text:   strings.Repeat("focus ", 8),
-					Source: "assistant",
-					Turn:   1,
+				RetainedSummaries: []prompt.DurableSummaryEntry{
+					{Title: "prior", Text: strings.Repeat("summary ", 8), Source: "user", Turn: 1},
 				},
 			},
 			Policy: prompt.AssemblyPolicy{
-				Budgets: prompt.SourceBudgetModel{
-					DurableContextBytes: 64,
-				},
 				Compaction: prompt.CompactionPolicy{
 					SummaryBytes: 64,
 				},

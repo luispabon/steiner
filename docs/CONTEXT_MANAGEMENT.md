@@ -157,7 +157,7 @@ steiner splits every prompt into two zones:
 
 - **Volatile zone** (messages array): older masked turns, recent turns verbatim, synthetic scratchpad user message, actual user message.
 
-A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "scratchpad_bytes", Y, "conversation_bytes", Z)`) records the byte sizes of each zone. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
+A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "conversation_bytes", Z)`) records the byte sizes of each zone. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
 
 ## The Scratchpad
 

@@ -253,19 +253,17 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	emitAssemblyDiagnostics(in.Request.Events, in.Request.Prompt, turn, assembly)
 
 	// Debug log: byte sizes per prompt zone to aid KV-cache tuning.
-	systemBytes, scratchpadBytes, conversationBytes := 0, 0, 0
+	systemBytes, conversationBytes := 0, 0
 	for _, block := range assembly.Blocks {
 		switch block.Source {
 		case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD,
-			prompt.ContextSourceDurableContext, prompt.ContextSourceConversationSummary:
+			prompt.ContextSourceConversationSummary:
 			systemBytes += block.ByteSize
-		case prompt.ContextSourceScratchpad:
-			scratchpadBytes += block.ByteSize
 		default:
 			conversationBytes += block.ByteSize
 		}
 	}
-	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "scratchpad_bytes", scratchpadBytes, "conversation_bytes", conversationBytes)
+	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
 		Model:       in.Request.Model,

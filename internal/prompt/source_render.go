@@ -94,8 +94,6 @@ func blockMessage(block ContextBlock) provider.Message {
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
 		message.Role = provider.MessageRoleSystem
-	case ContextSourceDurableContext:
-		message.Role = provider.MessageRoleSystem
 	case ContextSourceToolSummary, ContextSourceToolResult, ContextSourceDelegationResult:
 		message.Role = provider.MessageRoleTool
 	default:

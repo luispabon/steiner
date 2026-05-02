@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -76,48 +77,93 @@ func fromProviderMessage(message provider.Message) Message {
 }
 
 func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.AssemblyOptions {
-	conversation := state.Lineage.SummaryPrefixStrippedMessages()
+	conversation := state.Lineage.FullMessages()
 	if len(conversation) == 0 {
 		conversation = state.Conversation
 	}
-	base.Conversation = toProviderMessages(conversation)
+
+	scratchpadEnabled := base.ScratchpadEnabled || strings.TrimSpace(state.Context.Scratchpad) != ""
+	providerMsgs := toProviderMessages(conversation)
+
+	if scratchpadMsg, ok := buildScratchpadMessage(state.Context, scratchpadEnabled); ok {
+		providerMsgs = append(providerMsgs, scratchpadMsg)
+	}
+
+	base.Conversation = providerMsgs
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
-	base.ScratchpadEnabled = base.ScratchpadEnabled || strings.TrimSpace(state.Context.Scratchpad) != ""
+	base.ScratchpadEnabled = scratchpadEnabled
 	return base
+}
+
+func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provider.Message, bool) {
+	hasSubstantiveContent := strings.TrimSpace(state.Scratchpad) != "" ||
+		len(state.ActiveConstraints) > 0 ||
+		len(state.UnresolvedWork) > 0 ||
+		state.ActiveFocus != nil ||
+		len(state.FileTrackerSummary) > 0 ||
+		len(state.RecentToolCalls) > 0
+
+	if !scratchpadEnabled && !hasSubstantiveContent {
+		return provider.Message{}, false
+	}
+
+	hasContent := hasSubstantiveContent || state.TurnCount > 0
+	if !hasContent {
+		return provider.Message{}, false
+	}
+
+	var parts []string
+	parts = append(parts, "[Current task state]")
+
+	if state.TurnCount > 0 || state.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("session: turn=%d compactions=%d", state.TurnCount, state.CompactionCount))
+	}
+
+	if len(state.ActiveConstraints) > 0 {
+		lines := []string{"active constraints:"}
+		for _, c := range state.ActiveConstraints {
+			lines = append(lines, "- "+c.Text)
+		}
+		parts = append(parts, strings.Join(lines, "\n"))
+	}
+
+	if len(state.UnresolvedWork) > 0 {
+		lines := []string{"unresolved work:"}
+		for _, w := range state.UnresolvedWork {
+			lines = append(lines, "- "+w.Text)
+		}
+		parts = append(parts, strings.Join(lines, "\n"))
+	}
+
+	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
+		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
+	}
+
+	if len(state.FileTrackerSummary) > 0 {
+		parts = append(parts, "tracked files:\n- "+strings.Join(state.FileTrackerSummary, "\n- "))
+	}
+
+	if len(state.RecentToolCalls) > 0 {
+		parts = append(parts, "recent tool calls:\n- "+strings.Join(state.RecentToolCalls, "\n- "))
+	}
+
+	scratchpad := strings.TrimSpace(state.Scratchpad)
+	if scratchpad != "" {
+		parts = append(parts, scratchpad)
+	} else {
+		parts = append(parts, "goal: \nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: ")
+	}
+
+	return provider.Message{
+		Role:    provider.MessageRoleUser,
+		Content: strings.Join(parts, "\n\n"),
+	}, true
 }
 
 func toPromptContext(state ContextState) prompt.DurableContextState {
 	out := prompt.DurableContextState{
-		ActiveConstraints:  make([]prompt.DurableContextEntry, 0, len(state.ActiveConstraints)),
-		UnresolvedWork:     make([]prompt.DurableContextEntry, 0, len(state.UnresolvedWork)),
-		RetainedSummaries:  make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
-		FileTrackerSummary: cloneStrings(state.FileTrackerSummary),
-		RecentToolCalls:    cloneStrings(state.RecentToolCalls),
-		TurnCount:          state.TurnCount,
-		CompactionCount:    state.CompactionCount,
-		Scratchpad:         state.Scratchpad,
-	}
-	for _, item := range state.ActiveConstraints {
-		out.ActiveConstraints = append(out.ActiveConstraints, prompt.DurableContextEntry{
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	for _, item := range state.UnresolvedWork {
-		out.UnresolvedWork = append(out.UnresolvedWork, prompt.DurableContextEntry{
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	if state.ActiveFocus != nil {
-		out.ActiveFocus = &prompt.DurableContextEntry{
-			Text:   state.ActiveFocus.Text,
-			Source: state.ActiveFocus.Source,
-			Turn:   state.ActiveFocus.Turn,
-		}
+		RetainedSummaries: make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
 	}
 	for _, item := range state.RetainedSummaries {
 		out.RetainedSummaries = append(out.RetainedSummaries, prompt.DurableSummaryEntry{
@@ -132,35 +178,7 @@ func toPromptContext(state ContextState) prompt.DurableContextState {
 
 func fromPromptContext(state prompt.DurableContextState) ContextState {
 	out := ContextState{
-		ActiveConstraints:  make([]ActiveConstraint, 0, len(state.ActiveConstraints)),
-		UnresolvedWork:     make([]UnresolvedWorkItem, 0, len(state.UnresolvedWork)),
-		RetainedSummaries:  make([]RetainedSummary, 0, len(state.RetainedSummaries)),
-		FileTrackerSummary: cloneStrings(state.FileTrackerSummary),
-		RecentToolCalls:    cloneStrings(state.RecentToolCalls),
-		TurnCount:          state.TurnCount,
-		CompactionCount:    state.CompactionCount,
-		Scratchpad:         state.Scratchpad,
-	}
-	for _, item := range state.ActiveConstraints {
-		out.ActiveConstraints = append(out.ActiveConstraints, ActiveConstraint{
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	for _, item := range state.UnresolvedWork {
-		out.UnresolvedWork = append(out.UnresolvedWork, UnresolvedWorkItem{
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	if state.ActiveFocus != nil {
-		out.ActiveFocus = &ActiveFocus{
-			Text:   state.ActiveFocus.Text,
-			Source: state.ActiveFocus.Source,
-			Turn:   state.ActiveFocus.Turn,
-		}
+		RetainedSummaries: make([]RetainedSummary, 0, len(state.RetainedSummaries)),
 	}
 	for _, item := range state.RetainedSummaries {
 		out.RetainedSummaries = append(out.RetainedSummaries, RetainedSummary{

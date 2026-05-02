@@ -371,60 +371,26 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 }
 
 func TestMessageConvert_ToPromptContext(t *testing.T) {
-	t.Run("empty state produces empty slices and nil pointer", func(t *testing.T) {
+	t.Run("empty state produces empty slice", func(t *testing.T) {
 		state := ContextState{}
 		result := toPromptContext(state)
-		if result.ActiveFocus != nil {
-			t.Error("expected nil ActiveFocus")
-		}
-		if len(result.ActiveConstraints) != 0 {
-			t.Errorf("expected 0 constraints, got %d", len(result.ActiveConstraints))
-		}
-		if len(result.UnresolvedWork) != 0 {
-			t.Errorf("expected 0 work items, got %d", len(result.UnresolvedWork))
-		}
 		if len(result.RetainedSummaries) != 0 {
 			t.Errorf("expected 0 summaries, got %d", len(result.RetainedSummaries))
 		}
 	})
 
-	t.Run("maps all fields correctly", func(t *testing.T) {
+	t.Run("maps retained summaries correctly", func(t *testing.T) {
 		state := ContextState{
+			// Non-summary fields are deliberately not mapped to prompt.DurableContextState
+			// since they are now rendered into the volatile zone via buildScratchpadMessage.
 			ActiveConstraints: []ActiveConstraint{
 				{Text: "constraint1", Source: "user", Turn: 1},
-			},
-			UnresolvedWork: []UnresolvedWorkItem{
-				{Text: "work1", Source: "system", Turn: 2},
-			},
-			ActiveFocus: &ActiveFocus{
-				Text: "focus", Source: "agent", Turn: 3,
 			},
 			RetainedSummaries: []RetainedSummary{
 				{Title: "summary1", Text: "body", Source: "compactor", Turn: 4},
 			},
 		}
 		result := toPromptContext(state)
-
-		if len(result.ActiveConstraints) != 1 {
-			t.Fatalf("expected 1 constraint, got %d", len(result.ActiveConstraints))
-		}
-		if result.ActiveConstraints[0] != (prompt.DurableContextEntry{Text: "constraint1", Source: "user", Turn: 1}) {
-			t.Errorf("constraint mismatch: %+v", result.ActiveConstraints[0])
-		}
-
-		if len(result.UnresolvedWork) != 1 {
-			t.Fatalf("expected 1 work item, got %d", len(result.UnresolvedWork))
-		}
-		if result.UnresolvedWork[0] != (prompt.DurableContextEntry{Text: "work1", Source: "system", Turn: 2}) {
-			t.Errorf("work item mismatch: %+v", result.UnresolvedWork[0])
-		}
-
-		if result.ActiveFocus == nil {
-			t.Fatal("expected non-nil ActiveFocus")
-		}
-		if *result.ActiveFocus != (prompt.DurableContextEntry{Text: "focus", Source: "agent", Turn: 3}) {
-			t.Errorf("active focus mismatch: %+v", *result.ActiveFocus)
-		}
 
 		if len(result.RetainedSummaries) != 1 {
 			t.Fatalf("expected 1 summary, got %d", len(result.RetainedSummaries))
@@ -433,71 +399,24 @@ func TestMessageConvert_ToPromptContext(t *testing.T) {
 			t.Errorf("summary mismatch: %+v", result.RetainedSummaries[0])
 		}
 	})
-
-	t.Run("nil active focus stays nil", func(t *testing.T) {
-		state := ContextState{ActiveFocus: nil}
-		result := toPromptContext(state)
-		if result.ActiveFocus != nil {
-			t.Error("expected nil ActiveFocus")
-		}
-	})
 }
 
 func TestMessageConvert_FromPromptContext(t *testing.T) {
-	t.Run("empty state produces empty slices and nil pointer", func(t *testing.T) {
+	t.Run("empty state produces empty slice", func(t *testing.T) {
 		state := prompt.DurableContextState{}
 		result := fromPromptContext(state)
-		if result.ActiveFocus != nil {
-			t.Error("expected nil ActiveFocus")
-		}
-		if len(result.ActiveConstraints) != 0 {
-			t.Errorf("expected 0 constraints, got %d", len(result.ActiveConstraints))
-		}
-		if len(result.UnresolvedWork) != 0 {
-			t.Errorf("expected 0 work items, got %d", len(result.UnresolvedWork))
-		}
 		if len(result.RetainedSummaries) != 0 {
 			t.Errorf("expected 0 summaries, got %d", len(result.RetainedSummaries))
 		}
 	})
 
-	t.Run("maps all fields correctly", func(t *testing.T) {
+	t.Run("maps retained summaries correctly", func(t *testing.T) {
 		state := prompt.DurableContextState{
-			ActiveConstraints: []prompt.DurableContextEntry{
-				{Text: "c1", Source: "user", Turn: 1},
-			},
-			UnresolvedWork: []prompt.DurableContextEntry{
-				{Text: "w1", Source: "system", Turn: 2},
-			},
-			ActiveFocus: &prompt.DurableContextEntry{
-				Text: "f1", Source: "agent", Turn: 3,
-			},
 			RetainedSummaries: []prompt.DurableSummaryEntry{
 				{Title: "s1", Text: "body", Source: "compactor", Turn: 4},
 			},
 		}
 		result := fromPromptContext(state)
-
-		if len(result.ActiveConstraints) != 1 {
-			t.Fatalf("expected 1 constraint, got %d", len(result.ActiveConstraints))
-		}
-		if result.ActiveConstraints[0] != (ActiveConstraint{Text: "c1", Source: "user", Turn: 1}) {
-			t.Errorf("constraint mismatch: %+v", result.ActiveConstraints[0])
-		}
-
-		if len(result.UnresolvedWork) != 1 {
-			t.Fatalf("expected 1 work item, got %d", len(result.UnresolvedWork))
-		}
-		if result.UnresolvedWork[0] != (UnresolvedWorkItem{Text: "w1", Source: "system", Turn: 2}) {
-			t.Errorf("work item mismatch: %+v", result.UnresolvedWork[0])
-		}
-
-		if result.ActiveFocus == nil {
-			t.Fatal("expected non-nil ActiveFocus")
-		}
-		if *result.ActiveFocus != (ActiveFocus{Text: "f1", Source: "agent", Turn: 3}) {
-			t.Errorf("active focus mismatch: %+v", *result.ActiveFocus)
-		}
 
 		if len(result.RetainedSummaries) != 1 {
 			t.Fatalf("expected 1 summary, got %d", len(result.RetainedSummaries))
@@ -506,43 +425,17 @@ func TestMessageConvert_FromPromptContext(t *testing.T) {
 			t.Errorf("summary mismatch: %+v", result.RetainedSummaries[0])
 		}
 	})
-
-	t.Run("nil active focus stays nil", func(t *testing.T) {
-		state := prompt.DurableContextState{ActiveFocus: nil}
-		result := fromPromptContext(state)
-		if result.ActiveFocus != nil {
-			t.Error("expected nil ActiveFocus")
-		}
-	})
 }
 
 func TestMessageConvert_PromptContextRoundTrip(t *testing.T) {
-	t.Run("round-trips all fields including active focus pointer", func(t *testing.T) {
+	t.Run("round-trips retained summaries", func(t *testing.T) {
 		original := ContextState{
-			ActiveConstraints: []ActiveConstraint{
-				{Text: "constraint", Source: "user", Turn: 1},
-			},
-			UnresolvedWork: []UnresolvedWorkItem{
-				{Text: "work", Source: "system", Turn: 2},
-			},
-			ActiveFocus: &ActiveFocus{
-				Text: "focus", Source: "agent", Turn: 3,
-			},
 			RetainedSummaries: []RetainedSummary{
 				{Title: "title", Text: "body", Source: "compactor", Turn: 4},
 			},
 		}
 		result := fromPromptContext(toPromptContext(original))
 
-		if len(result.ActiveConstraints) != 1 || result.ActiveConstraints[0] != (ActiveConstraint{Text: "constraint", Source: "user", Turn: 1}) {
-			t.Errorf("constraint mismatch after round-trip: %+v", result.ActiveConstraints)
-		}
-		if len(result.UnresolvedWork) != 1 || result.UnresolvedWork[0] != (UnresolvedWorkItem{Text: "work", Source: "system", Turn: 2}) {
-			t.Errorf("work item mismatch after round-trip: %+v", result.UnresolvedWork)
-		}
-		if result.ActiveFocus == nil || *result.ActiveFocus != (ActiveFocus{Text: "focus", Source: "agent", Turn: 3}) {
-			t.Errorf("active focus mismatch after round-trip: %+v", result.ActiveFocus)
-		}
 		if len(result.RetainedSummaries) != 1 || result.RetainedSummaries[0] != (RetainedSummary{Title: "title", Text: "body", Source: "compactor", Turn: 4}) {
 			t.Errorf("summary mismatch after round-trip: %+v", result.RetainedSummaries)
 		}
