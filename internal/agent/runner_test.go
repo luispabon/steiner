@@ -113,7 +113,6 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -123,7 +122,6 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
@@ -480,7 +478,6 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	}
 	wantTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -759,7 +756,6 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -959,7 +955,6 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
@@ -971,7 +966,6 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
-		output.EventTypeContextDiagnostics,
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
