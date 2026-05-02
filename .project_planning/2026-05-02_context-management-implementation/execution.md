@@ -3,7 +3,7 @@
 ## Executor State
 - planning_folder: `.project_planning/2026-05-02_context-management-implementation`
 - execution_branch: `cl/2026-05-02_context-management-implementation`
-- current_phase: `step_scheduling`
+- current_phase: `sub_agent_implementation`
 - overall_status: `in_progress`
 - started_at: `2026-05-02`
 
@@ -122,12 +122,18 @@
 
 ## Execution Timeline
 - `2026-05-02`: validated planning folder, confirmed required planner inputs, confirmed execution branch exists, and confirmed clean startup state before executor initialization
+- `2026-05-02`: loaded stage 1 local code context covering `FileTracker`, `SmartContextManager`, write/edit execution flow, and file-annotation diagnostics before first sub-agent dispatch
+- `2026-05-02`: marked `stage-1-step-1` as `running` and prepared isolated execution handoff
 
 ## Sub-Agents
-- none yet
+- pending dispatch:
+  - step_id: `stage-1-step-1`
+  - model: `inherited current runtime`
+  - tier_vs_current: `same tier`
+  - execution_mode: `serial`
 
 ## Temporary Branches And Worktrees
-- none yet
+- pending provisioning for `stage-1-step-1`
 
 ## Verification Runs
 - none yet
