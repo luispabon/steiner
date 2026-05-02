@@ -44,7 +44,12 @@ func (s *assemblyState) renderBlocks() {
 			block.Truncated = true
 		}
 		s.blocks = append(s.blocks, block)
-		s.messages = append(s.messages, blockMessage(block))
+		msg := blockMessage(block)
+		if msg.Role == provider.MessageRoleUser && len(s.messages) > 0 && s.messages[len(s.messages)-1].Role == provider.MessageRoleUser {
+			s.messages[len(s.messages)-1].Content += "\n" + msg.Content
+		} else {
+			s.messages = append(s.messages, msg)
+		}
 	}
 	s.renderedBlocks = len(s.pendingBlocks)
 }
@@ -85,7 +90,7 @@ func blockMessage(block ContextBlock) provider.Message {
 	}
 
 	switch block.Source {
-	case ContextSourcePreamble, ContextSourceScratchpad, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
 		message.Role = provider.MessageRoleSystem
