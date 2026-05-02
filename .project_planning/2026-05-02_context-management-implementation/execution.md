@@ -3,7 +3,7 @@
 ## Executor State
 - planning_folder: `.project_planning/2026-05-02_context-management-implementation`
 - execution_branch: `cl/2026-05-02_context-management-implementation`
-- current_phase: `sub_agent_implementation`
+- current_phase: `step_scheduling`
 - overall_status: `in_progress`
 - started_at: `2026-05-02`
 
@@ -100,20 +100,20 @@
 
 ## Step Graph
 - `stage-1-step-1`
-  - status: `ready`
+  - status: `implemented`
   - depends_on: none
   - parallel_group: none
   - can_run_in_parallel: `false`
   - suggested_model: `cheap-good`
 - `stage-2-step-1`
-  - status: `pending`
+  - status: `ready`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
   - can_run_in_parallel: `true`
   - suggested_model: `cheap-good`
 - `stage-3-step-1`
-  - status: `pending`
+  - status: `ready`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
@@ -132,19 +132,33 @@
 - `2026-05-02`: loaded stage 1 local code context covering `FileTracker`, `SmartContextManager`, write/edit execution flow, and file-annotation diagnostics before first sub-agent dispatch
 - `2026-05-02`: marked `stage-1-step-1` as `running` and prepared isolated execution handoff
 - `2026-05-02`: corrected step graph after fuller plan load to include dependent `stage-3-step-2`
+- `2026-05-02`: reviewed `stage-1-step-1` output against the step contract, merged temporary branch `cl/2026-05-02_context-management-implementation-stage-1-step-1`, closed the sub-agent, removed worktree `/tmp/steiner-stage-1-step-1`, and deleted the merged temporary branch
+- `2026-05-02`: recorded executor deviation for model selection on `stage-1-step-1`; inherited runtime was used instead of the cheapest likely-safe worker tier
 
 ## Sub-Agents
-- pending dispatch:
+- completed:
   - step_id: `stage-1-step-1`
   - model: `inherited current runtime`
   - tier_vs_current: `same tier`
   - execution_mode: `serial`
+  - status: `closed after merge`
+  - commit: `9218c4d0eb7242a00505e2547789fef3ee702eab`
+  - commit_message: `Track smart-context file generations`
 
 ## Temporary Branches And Worktrees
-- pending provisioning for `stage-1-step-1`
+- merged and cleaned up:
+  - step_id: `stage-1-step-1`
+  - branch: `cl/2026-05-02_context-management-implementation-stage-1-step-1`
+  - worktree: `/tmp/steiner-stage-1-step-1`
 
 ## Verification Runs
-- none yet
+- `stage-1-step-1` sub-agent verification
+  - `gofmt -w internal/agent/file_tracker.go internal/agent/file_tracker_test.go internal/agent/context_manager.go internal/agent/context_manager_test.go internal/agent/context_management_integration_test.go internal/agent/tool_exec.go internal/agent/tool_exec_test.go internal/agent/turn_progression.go internal/output/debug.go`
+  - `go test ./internal/agent -run TestFileTracker`
+  - `go test ./internal/agent -run TestContext`
+  - `go test ./internal/agent -run TestRecordMutationForContextManager`
+  - `go test ./internal/agent -run TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite`
+  - result: `passed`
 
 ## Fix Plans
 - none yet
@@ -156,7 +170,8 @@
 - none
 
 ## Blockers And Deviations
-- none
+- executor deviation:
+  - `stage-1-step-1` used the inherited runtime model tier instead of the cheapest likely-safe worker model; future sub-agents will default to a cheaper worker tier first
 
 ## Handoff State
 - reviewer_ready: `false`
