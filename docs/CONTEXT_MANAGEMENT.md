@@ -193,7 +193,7 @@ steiner processes the tool result via `IngestToolResult`, stores state separatel
 
 Failure is defined as: the model did not call the `scratchpad` tool this turn. `OnTurnComplete(turnIndex int, scratchpadCalled bool)` is invoked after each model response. If `scratchpadCalled == false`, `SmartContextManager` increments a consecutive-miss counter; the counter resets to 0 on any successful call.
 
-1. Miss: carry forward the previous scratchpad state unchanged and log a warning
+1. Miss: carry forward the previous scratchpad state unchanged (no event emitted; miss counter incremented silently)
 2. After 3+ consecutive misses: emit a model compatibility warning to the user
 
 The system never crashes or loses state because of a missing scratchpad call. The scaffold state provides the factual safety net regardless of model cooperation.
@@ -241,6 +241,15 @@ Model-based compaction. The existing behavior from naive mode, enhanced with scr
 
 This costs one full-context model call. For local models, this is the most expensive possible operation. For frontier API models where inference is cheap relative to context cost, it may produce better continuity than `drop`.
 
+**Fallback layers:** When the full conversation does not fit the compaction budget, the implementation escalates through four progressive fallback attempts before giving up:
+
+1. Mask the conversation with window=1 (heavily compressed) and retry
+2. If still too large, truncate each message body to 80 characters and retry
+3. If still too large, replace the compaction system prompt with a short (`"Write a concise handoff summary for the next turn."`) version and retry
+4. If nothing fits, return `Applied: false` and the caller receives an error
+
+These fallbacks are invisible to callers beyond the eventual error if all four fail.
+
 #### hybrid
 
 Observation masking first, then conditional model summary. Best empirical results from research (43% of raw agent cost, +2.6pp solve rate improvement over pure masking).
@@ -259,6 +268,7 @@ The model call, when needed, processes a much smaller input than raw summarizati
 - File metadata tracking persists across compaction (lives in Go, not conversation).
 - Scaffold state and model scratchpad survive all strategies.
 - Escalation system tracks compaction count: info (1st), warning (2nd), critical (3rd+). At critical, steiner advises restarting in a fresh session.
+- **Fragility bump:** When the post-compaction budget overage exceeds 20% of context size, the severity is bumped one level (info -> warning, warning -> critical) because the retained context is too fragile to be reliable.
 
 ## Interaction Between Components
 
