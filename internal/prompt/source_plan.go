@@ -53,6 +53,14 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 				Kind:      plannedSourcePreamble,
 				Placement: plannedSourcePlacementCore,
 				Apply: func(_ context.Context, state *assemblyState) error {
+					if opts.CachedPreamble != "" {
+						state.appendBlock(ContextBlock{
+							Source:   ContextSourcePreamble,
+							Content:  opts.CachedPreamble,
+							ByteSize: len(opts.CachedPreamble),
+						})
+						return nil
+					}
 					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled))
 					return nil
 				},

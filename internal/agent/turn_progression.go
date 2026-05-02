@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -250,6 +251,21 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
 	emitAssemblyDiagnostics(in.Request.Events, in.Request.Prompt, turn, assembly)
+
+	// Debug log: byte sizes per prompt zone to aid KV-cache tuning.
+	systemBytes, scratchpadBytes, conversationBytes := 0, 0, 0
+	for _, block := range assembly.Blocks {
+		switch block.Source {
+		case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD,
+			prompt.ContextSourceDurableContext, prompt.ContextSourceConversationSummary:
+			systemBytes += block.ByteSize
+		case prompt.ContextSourceScratchpad:
+			scratchpadBytes += block.ByteSize
+		default:
+			conversationBytes += block.ByteSize
+		}
+	}
+	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "scratchpad_bytes", scratchpadBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
 		Model:       in.Request.Model,

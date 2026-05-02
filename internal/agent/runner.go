@@ -80,6 +80,16 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
+	// Cache the system preamble once per session so every turn sends the
+	// byte-identical string, preventing KV cache busting on local servers.
+	if preambler, ok := req.ContextManager.(interface {
+		CachedSystemPreamble(override string, scratchpadEnabled bool) string
+	}); ok {
+		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
+			basePrompt.PromptOverrides.System,
+			basePrompt.ScratchpadEnabled,
+		)
+	}
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
 	p := newTurnProgressor(r)

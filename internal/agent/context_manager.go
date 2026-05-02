@@ -56,6 +56,20 @@ type SmartContextManager struct {
 	fileTracker        FileTracker
 	scratchpad         Scratchpad
 	scratchpadFailures int
+	// cachedPreamble holds the system preamble built once per session.
+	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
+	// so building the string once prevents unnecessary allocations and keeps
+	// the bytes byte-identical across turns, preserving KV cache hits.
+	cachedPreamble string
+}
+
+// CachedSystemPreamble returns the system preamble string, building it once
+// and caching it for the lifetime of the manager.
+func (s *SmartContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool) string {
+	if s.cachedPreamble == "" {
+		s.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled).Content
+	}
+	return s.cachedPreamble
 }
 
 // Compact selects the configured compaction strategy for smart context
