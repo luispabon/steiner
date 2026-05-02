@@ -21,9 +21,11 @@ type Compactor interface {
 // ContextManager is the pipeline hook interface for active context management.
 // PostIngestion runs once after the initial conversation is loaded.
 // PreAssembly runs before each turn's prompt is assembled.
+// OnTurnComplete is called after each turn with whether the scratchpad tool was called.
 type ContextManager interface {
 	PostIngestion(ctx context.Context, state RunState) (RunState, error)
 	PreAssembly(ctx context.Context, state RunState) (RunState, error)
+	OnTurnComplete(turnIndex int, scratchpadCalled bool)
 }
 
 // NaiveContextManager is a pass-through implementation that leaves state
@@ -39,6 +41,9 @@ func (n *NaiveContextManager) PostIngestion(_ context.Context, state RunState) (
 func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (RunState, error) {
 	return state, nil
 }
+
+// OnTurnComplete is a no-op for the naive manager.
+func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
 
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
@@ -92,23 +97,25 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	return next, nil
 }
 
-// IngestAssistantResponse captures model-written scratchpad state and strips it
-// from the visible assistant reply.
-func (s *SmartContextManager) IngestAssistantResponse(turn int, content string) (string, string) {
-	next, ok := ParseScratchpad(content, s.scratchpad)
-	if !ok {
-		s.scratchpadFailures++
-		note := ""
-		if s.scratchpadFailures >= 3 {
-			note = "scratchpad block missing or invalid in 3+ consecutive assistant replies"
-		}
-		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), s.scratchpadFailures, note))
-		return strings.TrimSpace(content), note
+// IngestAssistantResponse returns the assistant content unchanged.
+// Scratchpad state is now captured exclusively via tool results; failure
+// counting has moved to OnTurnComplete.
+func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (string, string) {
+	return content, ""
+}
+
+// OnTurnComplete tracks whether the scratchpad tool was called this turn and
+// emits a warning event when three consecutive turns have been missed.
+func (s *SmartContextManager) OnTurnComplete(turnIndex int, scratchpadCalled bool) {
+	if scratchpadCalled {
+		s.scratchpadFailures = 0
+		return
 	}
-	s.scratchpad = next
-	s.scratchpadFailures = 0
-	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
-	return StripScratchpad(content), ""
+	s.scratchpadFailures++
+	if s.scratchpadFailures >= 3 {
+		note := "scratchpad tool not called in 3+ consecutive turns"
+		emitEvent(s.events, output.NewScratchpadEvent(turnIndex, false, s.scratchpad.Render(), s.scratchpadFailures, note))
+	}
 }
 
 // IngestToolResult shapes a newly produced tool result before it enters the
@@ -338,6 +345,8 @@ func summarizeTextValue(value any) string {
 	return text[:40] + "..."
 }
 
+const decisionsMaxBytes = 2000
+
 func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
 	var fields map[string]string
 	if err := json.Unmarshal([]byte(content), &fields); err != nil {
@@ -358,6 +367,32 @@ func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad,
 	}
 	if v, ok := fields["open"]; ok {
 		next.Open = v
+	}
+	if v, ok := fields["files"]; ok {
+		next.Files = v
+	}
+	// decisions: steiner-managed concatenation with oldest-first eviction at byte cap.
+	if v, ok := fields["decisions"]; ok {
+		newDecisions := strings.TrimSpace(v)
+		if newDecisions != "" && strings.ToLower(newDecisions) != "none" {
+			combined := strings.TrimSpace(previous.Decisions)
+			if combined != "" {
+				combined = combined + "\n" + newDecisions
+			} else {
+				combined = newDecisions
+			}
+			// Evict oldest entries (from the start) until under cap.
+			for len(combined) > decisionsMaxBytes {
+				idx := strings.Index(combined, "\n")
+				if idx < 0 {
+					// Single entry exceeds cap; truncate from start.
+					combined = combined[len(combined)-decisionsMaxBytes:]
+					break
+				}
+				combined = combined[idx+1:]
+			}
+			next.Decisions = combined
+		}
 	}
 	return next, true
 }

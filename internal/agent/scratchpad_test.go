@@ -5,56 +5,82 @@ import (
 	"testing"
 )
 
-func TestParseScratchpadCarriesForwardMissingFields(t *testing.T) {
-	previous := Scratchpad{
-		Goal: "goal",
-		Plan: "plan",
-		Step: "step",
-		Next: "next",
-		Open: "open",
+func TestScratchpadRenderContainsAllFields(t *testing.T) {
+	s := Scratchpad{
+		Goal:      "fix auth timeout",
+		Plan:      "1. Reproduce 2. Fix 3. Test",
+		Step:      "reading auth code",
+		Decisions: "use context deadline; avoid global state",
+		Files:     "internal/auth/handler.go (read)",
+		Open:      "why does it only fail under load?",
+		Next:      "add test reproducing timeout",
 	}
+	got := s.Render()
 
-	got, ok := ParseScratchpad("<scratchpad>\ngoal: updated\nnext: finish tests\n</scratchpad>", previous)
-	if !ok {
-		t.Fatal("ParseScratchpad() = false, want true")
+	checks := []struct {
+		label string
+		want  string
+	}{
+		{"header", "[Current task state]"},
+		{"goal", "goal: fix auth timeout"},
+		{"plan", "plan: 1. Reproduce 2. Fix 3. Test"},
+		{"step", "step: reading auth code"},
+		{"decisions", "decisions: use context deadline; avoid global state"},
+		{"files", "files: internal/auth/handler.go (read)"},
+		{"open", "open: why does it only fail under load?"},
+		{"next", "next: add test reproducing timeout"},
 	}
-	if got.Goal != "updated" || got.Next != "finish tests" {
-		t.Fatalf("parsed fields mismatch: %+v", got)
-	}
-	if got.Plan != "plan" || got.Step != "step" || got.Open != "open" {
-		t.Fatalf("missing fields should carry forward: %+v", got)
+	for _, c := range checks {
+		if !strings.Contains(got, c.want) {
+			t.Errorf("Render() missing %s: %q not in %q", c.label, c.want, got)
+		}
 	}
 }
 
-func TestParseScratchpadIgnoresThinkingBlocks(t *testing.T) {
-	text := "<thinking>\n<scratchpad>\ngoal: hidden\n</scratchpad>\n</thinking>\n<scratchpad>\ngoal: visible\n</scratchpad>"
-	got, ok := ParseScratchpad(text, Scratchpad{})
-	if !ok {
-		t.Fatal("ParseScratchpad() = false, want true")
+func TestScratchpadRenderFieldOrder(t *testing.T) {
+	s := Scratchpad{
+		Goal:      "g",
+		Plan:      "p",
+		Step:      "s",
+		Decisions: "d",
+		Files:     "f",
+		Open:      "o",
+		Next:      "n",
 	}
-	if got.Goal != "visible" {
-		t.Fatalf("Goal = %q, want visible", got.Goal)
+	got := s.Render()
+	// Verify order: goal < plan < step < decisions < files < open < next
+	order := []string{"goal:", "plan:", "step:", "decisions:", "files:", "open:", "next:"}
+	prev := 0
+	for _, field := range order {
+		idx := strings.Index(got, field)
+		if idx < prev {
+			t.Errorf("field %q appears before expected position (prev=%d, idx=%d)", field, prev, idx)
+		}
+		prev = idx
 	}
 }
 
-func TestParseScratchpadMissingBlockCarriesForward(t *testing.T) {
-	previous := Scratchpad{Goal: "keep me"}
-	got, ok := ParseScratchpad("plain assistant reply", previous)
-	if ok {
-		t.Fatal("ParseScratchpad() = true, want false")
-	}
-	if got.Goal != "keep me" {
-		t.Fatalf("Goal = %q, want carry-forward", got.Goal)
+func TestScratchpadRenderNoXMLTags(t *testing.T) {
+	s := Scratchpad{Goal: "test"}
+	got := s.Render()
+	if strings.Contains(got, "<scratchpad>") || strings.Contains(got, "</scratchpad>") {
+		t.Errorf("Render() should not contain XML tags, got: %q", got)
 	}
 }
 
-func TestStripScratchpadRemovesTaggedBlock(t *testing.T) {
-	text := "done\n<scratchpad>\ngoal: x\n</scratchpad>"
-	got := StripScratchpad(text)
-	if strings.Contains(got, "<scratchpad>") {
-		t.Fatalf("StripScratchpad() = %q, want scratchpad removed", got)
+func TestScratchpadRenderEmptyFields(t *testing.T) {
+	s := Scratchpad{Goal: "only goal set"}
+	got := s.Render()
+	if !strings.Contains(got, "[Current task state]") {
+		t.Errorf("Render() missing header")
 	}
-	if got != "done" {
-		t.Fatalf("StripScratchpad() = %q, want done", got)
+	if !strings.Contains(got, "goal: only goal set") {
+		t.Errorf("Render() missing goal")
+	}
+	// Other fields present with empty values.
+	for _, field := range []string{"plan:", "step:", "decisions:", "files:", "open:", "next:"} {
+		if !strings.Contains(got, field) {
+			t.Errorf("Render() missing field label %q", field)
+		}
 	}
 }

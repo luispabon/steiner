@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestNaiveContextManagerPostIngestion(t *testing.T) {
@@ -244,7 +245,7 @@ func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
 func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	t.Parallel()
 	cm := &SmartContextManager{}
-	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","next":"fix","open":""}`)
+	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
@@ -253,6 +254,114 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	}
 	if cm.scratchpad.Plan != "read code" {
 		t.Fatalf("Plan = %q, want read code", cm.scratchpad.Plan)
+	}
+	if cm.scratchpad.Decisions != "chose X" {
+		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
+	}
+}
+
+func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
+	cm := &SmartContextManager{scratchpadFailures: 2}
+	cm.OnTurnComplete(1, true)
+	if cm.scratchpadFailures != 0 {
+		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpadFailures)
+	}
+}
+
+func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
+	cm := &SmartContextManager{}
+	cm.OnTurnComplete(1, false)
+	if cm.scratchpadFailures != 1 {
+		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpadFailures)
+	}
+	cm.OnTurnComplete(2, false)
+	if cm.scratchpadFailures != 2 {
+		t.Fatalf("scratchpadFailures = %d, want 2", cm.scratchpadFailures)
+	}
+}
+
+func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
+	var events []output.Event
+	cm := &SmartContextManager{}
+	cm.SetEventSink(output.SinkFunc(func(e output.Event) { events = append(events, e) }))
+
+	cm.OnTurnComplete(1, false)
+	cm.OnTurnComplete(2, false)
+	if len(events) != 0 {
+		t.Fatalf("events emitted before threshold: %d", len(events))
+	}
+	cm.OnTurnComplete(3, false)
+	if len(events) != 1 {
+		t.Fatalf("events = %d after threshold, want 1", len(events))
+	}
+}
+
+func TestOnTurnCompleteNaiveIsNoop(t *testing.T) {
+	// NaiveContextManager.OnTurnComplete must not panic.
+	m := &NaiveContextManager{}
+	m.OnTurnComplete(0, false)
+	m.OnTurnComplete(1, true)
+}
+
+func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
+	tests := []struct {
+		name          string
+		previous      Scratchpad
+		content       string
+		wantDecisions string
+	}{
+		{
+			name:          "first decision appended",
+			previous:      Scratchpad{},
+			content:       `{"goal":"g","decisions":"chose A"}`,
+			wantDecisions: "chose A",
+		},
+		{
+			name:          "subsequent decision concatenated",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":"chose B"}`,
+			wantDecisions: "chose A\nchose B",
+		},
+		{
+			name:          "none skips append",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":"none"}`,
+			wantDecisions: "chose A",
+		},
+		{
+			name:          "empty skips append",
+			previous:      Scratchpad{Decisions: "chose A"},
+			content:       `{"goal":"g","decisions":""}`,
+			wantDecisions: "chose A",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseScratchpadToolResult(tc.content, tc.previous)
+			if !ok {
+				t.Fatal("parseScratchpadToolResult() = false, want true")
+			}
+			if got.Decisions != tc.wantDecisions {
+				t.Errorf("Decisions = %q, want %q", got.Decisions, tc.wantDecisions)
+			}
+		})
+	}
+}
+
+func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
+	// Fill previous decisions close to cap, then add more to trigger eviction.
+	old := strings.Repeat("x", 1990)
+	previous := Scratchpad{Decisions: old}
+	content := `{"goal":"g","decisions":"new entry"}`
+	got, ok := parseScratchpadToolResult(content, previous)
+	if !ok {
+		t.Fatal("parseScratchpadToolResult() = false, want true")
+	}
+	if len(got.Decisions) > decisionsMaxBytes {
+		t.Errorf("Decisions len = %d, want <= %d", len(got.Decisions), decisionsMaxBytes)
+	}
+	if !strings.Contains(got.Decisions, "new entry") {
+		t.Errorf("Decisions = %q, want to contain newest entry", got.Decisions)
 	}
 }
 
