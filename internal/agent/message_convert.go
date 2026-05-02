@@ -96,6 +96,63 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	return base
 }
 
+func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantContent string) provider.ChatRequest {
+	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false).Content
+	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
+	return provider.ChatRequest{
+		Model:       req.Model,
+		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
+		ExtraParams: req.ExtraParams,
+		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
+	}
+}
+
+func scaffoldInferenceUserPrompt(scaffoldState, assistantContent string) string {
+	parts := []string{
+		"[Current scaffold state]",
+		strings.TrimSpace(scaffoldState),
+		"[Last assistant response]",
+		truncateScaffoldInferenceText(assistantContent, 200),
+		"Respond with ONLY a JSON object:",
+		`{"intent":"what is being done and why","next":"planned next action"}`,
+	}
+	return strings.Join(filterEmptyStrings(parts), "\n\n")
+}
+
+func truncateScaffoldInferenceText(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "(empty)"
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	words := strings.Fields(text)
+	if len(words) <= limit {
+		return text
+	}
+	return strings.Join(words[:limit], " ") + " ..."
+}
+
+func scaffoldInferenceMaxTokens(budget prompt.ModelTokenBudget) *int {
+	maxTokens := 150
+	if budget.MaxCompletionTokens > 0 && budget.MaxCompletionTokens < maxTokens {
+		maxTokens = budget.MaxCompletionTokens
+	}
+	return &maxTokens
+}
+
+func filterEmptyStrings(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered
+}
+
 func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provider.Message, bool) {
 	hasSubstantiveContent := strings.TrimSpace(state.Scratchpad) != "" ||
 		len(state.ActiveConstraints) > 0 ||

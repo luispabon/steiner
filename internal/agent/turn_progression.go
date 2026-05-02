@@ -83,6 +83,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 
 	if len(response.Message.ToolCalls) == 0 {
 		if in.Request.ContextManager != nil {
+			p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
 			in.Request.ContextManager.OnTurnComplete(turn, false)
 		}
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
@@ -154,6 +155,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 	}
 
 	if in.Request.ContextManager != nil {
+		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
 		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)
 	}
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
@@ -194,6 +196,37 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 
 	in.State = outcome.State
 	return p.executeToolCalls(ctx, in, *outcome.Response)
+}
+
+func (p *turnProgressor) maybeRunScaffoldInference(ctx context.Context, in turnInput, state RunState, turn int, assistantContent string) {
+	cm, ok := in.Request.ContextManager.(*SmartContextManager)
+	if !ok {
+		return
+	}
+	if in.CompactionCount == nil {
+		return
+	}
+	if !cm.shouldRunScaffoldInference(state, *in.CompactionCount) {
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
+	request := buildScaffoldInferenceRequest(in.Request, cm.scaffoldPromptState(), assistantContent)
+	response, err := completeScaffoldInferenceCall(ctx, in.Request, turn, request)
+	if err != nil {
+		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.scaffoldPromptState(), 0, err.Error()))
+		return
+	}
+
+	content := strings.TrimSpace(response.Message.Content)
+	if content == "" {
+		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.scaffoldPromptState(), 0, "scaffold inference returned empty content"))
+		return
+	}
+
+	cm.applyScaffoldInference(turn, content)
 }
 
 // handleError converts an error into a turnOutcome, checking for cancellation

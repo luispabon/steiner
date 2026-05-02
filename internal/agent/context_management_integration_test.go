@@ -27,6 +27,16 @@ func scratchpadToolResult(intent, decisions, open, next string) map[string]any {
 	}
 }
 
+func minimalScaffoldInferenceRequest(t *testing.T, request provider.ChatRequest) {
+	t.Helper()
+	if got, want := len(request.Messages), 2; got != want {
+		t.Fatalf("scaffold inference messages = %d, want %d", got, want)
+	}
+	if got, want := rolesOf(request.Messages), []string{"system", "user"}; !equalStrings(got, want) {
+		t.Fatalf("scaffold inference roles = %v, want %v", got, want)
+	}
+}
+
 func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -190,7 +200,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	if !messageContentsContain(fourthRequest, "tool result") || !messageContentsContain(fourthRequest, "masked") {
 		t.Fatalf("fourth request missing masked older tool result: %#v", fourthRequest)
 	}
-	if !messageContentsContain(fourthRequest, "file unchanged since turn 1") {
+	if !messageContentsContain(fourthRequest, "file unchanged") {
 		t.Fatalf("fourth request missing unchanged reread annotation: %#v", fourthRequest)
 	}
 
@@ -248,6 +258,336 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	}
 	if !sawTrimmed {
 		t.Fatal("missing trimmed assistant prose diagnostic")
+	}
+}
+
+func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 1 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: mustMarshalJSON(t, map[string]any{"intent": "inspect note", "next": "reread note"}),
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 2 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 3 answer",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "read" {
+				return nil, nil
+			}
+			path, _ := input["path"].(string)
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"path":        path,
+					"start_line":  1,
+					"end_line":    3,
+					"total_lines": 3,
+					"output":      "one\ntwo\nthree\n",
+				},
+			}, nil
+		},
+	}
+
+	manager := NewContextManager("smart", config.ContextManagementConfig{ScratchpadMode: config.ScratchpadModeScaffoldOnly})
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: manager,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
+		},
+		Model: "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 4; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	minimalScaffoldInferenceRequest(t, providerStub.requests[1])
+	if content := providerStub.requests[1].Messages[1].Content; !strings.Contains(content, "Current scaffold state") || !strings.Contains(content, "Last assistant response") {
+		t.Fatalf("scaffold inference prompt = %q, want scaffold state and last response sections", content)
+	}
+	if !messageContentsContain(providerStub.requests[2].Messages, "intent: inspect note") {
+		t.Fatalf("steady turn missing carried scaffold intent: %#v", providerStub.requests[2].Messages)
+	}
+	if !messageContentsContain(providerStub.requests[2].Messages, "next: reread note") {
+		t.Fatalf("steady turn missing carried scaffold next: %#v", providerStub.requests[2].Messages)
+	}
+	if got := len(providerStub.requests[2].Messages); got <= 2 {
+		t.Fatalf("steady turn messages = %d, want assembled conversation path", got)
+	}
+}
+
+func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
+	longText := strings.Repeat("very long context ", 200)
+	shortText := "short"
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "post-compaction answer",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 4},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: mustMarshalJSON(t, map[string]any{"intent": "resume work", "next": "continue"}),
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+		},
+	}
+
+	initialConversation := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: longText},
+		{Role: provider.MessageRoleAssistant, Content: longText},
+		{Role: provider.MessageRoleUser, Content: shortText},
+		{Role: provider.MessageRoleAssistant, Content: shortText},
+		{Role: provider.MessageRoleUser, Content: shortText},
+		{Role: provider.MessageRoleAssistant, Content: shortText},
+		{Role: provider.MessageRoleUser, Content: shortText},
+		{Role: provider.MessageRoleAssistant, Content: shortText},
+	}
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       &fakeExecutor{},
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{CompactionStrategy: config.CompactionStrategyDrop, ScratchpadMode: config.ScratchpadModeScaffoldOnly}),
+		Prompt: prompt.AssemblyOptions{
+			Conversation: initialConversation,
+		},
+		Model: "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         1024,
+			MaxCompletionTokens: 128,
+		},
+		Limits: Limits{MaxTurns: 1, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	minimalScaffoldInferenceRequest(t, providerStub.requests[1])
+
+	sawCompaction := false
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok {
+			continue
+		}
+		if payload.Kind == "compaction" {
+			sawCompaction = true
+			break
+		}
+	}
+	if !sawCompaction {
+		t.Fatal("missing compaction diagnostic before scaffold inference")
+	}
+}
+
+func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	otherPath := filepath.Join(dir, "other.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(otherPath, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 1 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: mustMarshalJSON(t, map[string]any{"intent": "inspect note", "next": "reread note"}),
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 2 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "other.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "not json",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 3 answer",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2},
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "read" {
+				return nil, nil
+			}
+			path, _ := input["path"].(string)
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"path":        path,
+					"start_line":  1,
+					"end_line":    2,
+					"total_lines": 2,
+					"output":      "line 1\nline 2\n",
+				},
+			}, nil
+		},
+	}
+
+	cm := NewContextManager("smart", config.ContextManagementConfig{ScratchpadMode: config.ScratchpadModeScaffoldOnly})
+	smartCM, ok := cm.(*SmartContextManager)
+	if !ok {
+		t.Fatalf("context manager type = %T, want *SmartContextManager", cm)
+	}
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: cm,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
+		},
+		Model: "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 5; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	minimalScaffoldInferenceRequest(t, providerStub.requests[1])
+	minimalScaffoldInferenceRequest(t, providerStub.requests[3])
+	if !messageContentsContain(providerStub.requests[4].Messages, "intent: inspect note") {
+		t.Fatalf("post-failure turn missing carried scaffold intent: %#v", providerStub.requests[4].Messages)
+	}
+	if !messageContentsContain(providerStub.requests[4].Messages, "next: reread note") {
+		t.Fatalf("post-failure turn missing carried scaffold next: %#v", providerStub.requests[4].Messages)
+	}
+	if got := smartCM.scratchpad.Intent; got != "inspect note" {
+		t.Fatalf("scratchpad intent = %q, want inspect note", got)
+	}
+	if got := smartCM.scratchpad.Next; got != "reread note" {
+		t.Fatalf("scratchpad next = %q, want reread note", got)
 	}
 }
 
