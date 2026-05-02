@@ -749,6 +749,43 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	}
 }
 
+func TestModelThinkingToggleDoesNotRevealHiddenScaffoldInference(t *testing.T) {
+	m := newModel(Config{
+		ShowThinking:                  false,
+		ShowInternalScaffoldInference: false,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "hidden scaffold reasoning", output.ChunkSourceScaffoldInference)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEvent(1, "normal reasoning")})
+
+	if got := m.content.String(m.viewport.Width); strings.Contains(got, "hidden scaffold reasoning") || strings.Contains(got, "normal reasoning") {
+		t.Fatalf("content = %q, want no thinking while toggle is off", got)
+	}
+
+	m = updateModel(t, m, paletteToggleThinkingMsg{})
+
+	content := m.content.String(m.viewport.Width)
+	if !strings.Contains(content, "normal reasoning") {
+		t.Fatalf("content = %q, want visible normal thinking after toggle", content)
+	}
+	if strings.Contains(content, "hidden scaffold reasoning") {
+		t.Fatalf("content = %q, want scaffold reasoning hidden with debug flag off", content)
+	}
+}
+
+func TestModelShowsScaffoldInferenceThinkingOnlyWhenDebugEnabled(t *testing.T) {
+	m := newModel(Config{
+		ShowThinking:                  true,
+		ShowInternalScaffoldInference: true,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "visible scaffold reasoning", output.ChunkSourceScaffoldInference)})
+
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "visible scaffold reasoning") {
+		t.Fatalf("content = %q, want scaffold reasoning visible when debug flag enabled", got)
+	}
+}
+
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	ctrl := &testController{}
 

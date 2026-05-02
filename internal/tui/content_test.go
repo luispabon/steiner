@@ -255,6 +255,70 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 	}
 }
 
+func TestAppendEventSuppressesScaffoldInferenceChunksWhenDebugDisabled(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:                      make([]contentSegment, 0),
+		collapseState:                 make(map[int]bool),
+		showInternalScaffoldInference: false,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAssistantChunkEvent(1, "visible answer"))
+	buffer.finishStreaming()
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].text; !strings.Contains(got, "visible answer") {
+		t.Fatalf("segment text = %q, want visible answer", got)
+	}
+	if got := buffer.String(80); strings.Contains(got, "internal reasoning") || strings.Contains(got, `"intent":"inspect"`) {
+		t.Fatalf("rendered content leaked scaffold inference: %q", got)
+	}
+}
+
+func TestAppendEventShowsScaffoldInferenceChunksWhenDebugEnabled(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:                      make([]contentSegment, 0),
+		collapseState:                 make(map[int]bool),
+		showInternalScaffoldInference: true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
+	buffer.finishStreaming()
+
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
+	}
+	if buffer.segments[0].kind != segmentThinkingBlock {
+		t.Fatalf("segment[0].kind = %v, want segmentThinkingBlock", buffer.segments[0].kind)
+	}
+	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) {
+		t.Fatalf("assistant segment = %q, want scaffold json", got)
+	}
+}
+
+func TestStreamingScaffoldInferencePreviewHardWrapsLongJSON(t *testing.T) {
+	buffer := &contentBuffer{
+		showInternalScaffoldInference: true,
+		styles:                        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect_scratchpad_go_to_find_scaffold_inference","next":"read_turn_progression_go"}`, output.ChunkSourceScaffoldInference))
+
+	rendered := buffer.String(30)
+	if !strings.Contains(rendered, "\n") {
+		t.Fatalf("rendered = %q, want wrapped preview", rendered)
+	}
+	for _, want := range []string{`"intent":"inspect_`, `"next":"read_turn_progression`, `_go"`} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered = %q, want %q", rendered, want)
+		}
+	}
+}
+
 func TestIsMarkdownLikeUserContent(t *testing.T) {
 	tests := []struct {
 		name string

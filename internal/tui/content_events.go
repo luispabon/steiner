@@ -35,6 +35,7 @@ type thinkingBlockData struct {
 	collapsed bool   // default true
 	body      string // full content
 	streaming bool   // true while chunks are still arriving
+	source    output.ChunkSource
 }
 
 type toolCallSegment struct {
@@ -80,22 +81,24 @@ type contentSegment struct {
 }
 
 type contentBuffer struct {
-	segments          []contentSegment
-	streaming         bool
-	hadChunks         bool
-	streamBuffer      string
-	renderer          *glamour.TermRenderer
-	renderWidth       int
-	styles            theme.Styles
-	glamourStyleSheet glamour.TermRendererOption
-	previewStyleCache map[chroma.TokenType]lipgloss.Style
-	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
-	segmentHeights    []int        // rendered line count per segment (recomputed in String())
-	showThinking      bool         // from prefs; when false skip thinking segments
-	inCompaction      bool         // when true skip thinking chunks from compaction
-	streamingPhase    string       // "thinking" | "tool" | "answer" | ""
-	tickCount         int          // incremented by 500ms tick, used for cursor blink
-	lastRenderErr     error        // captures the last render error for logging
+	segments                      []contentSegment
+	streaming                     bool
+	hadChunks                     bool
+	streamBuffer                  string
+	renderer                      *glamour.TermRenderer
+	renderWidth                   int
+	styles                        theme.Styles
+	glamourStyleSheet             glamour.TermRendererOption
+	previewStyleCache             map[chroma.TokenType]lipgloss.Style
+	collapseState                 map[int]bool // segment index → collapsed (for tool calls and thinking)
+	segmentHeights                []int        // rendered line count per segment (recomputed in String())
+	showThinking                  bool         // from prefs; when false skip thinking segments
+	showInternalScaffoldInference bool
+	inCompaction                  bool   // when true skip thinking chunks from compaction
+	streamingPhase                string // "thinking" | "tool" | "answer" | ""
+	streamingSource               output.ChunkSource
+	tickCount                     int   // incremented by 500ms tick, used for cursor blink
+	lastRenderErr                 error // captures the last render error for logging
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -146,7 +149,10 @@ func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
 		return
 	}
 	if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
-		b.appendThinkingChunk(payload.Content)
+		if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
+			return
+		}
+		b.appendThinkingChunk(payload.Content, payload.Source)
 	}
 }
 
@@ -155,8 +161,11 @@ func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
 		return
 	}
 	if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
+		if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
+			return
+		}
 		b.finalizeThinkingBlock()
-		b.appendAssistantChunk(payload.Content)
+		b.appendAssistantChunk(payload.Content, payload.Source)
 	}
 }
 
@@ -399,6 +408,7 @@ func (b *contentBuffer) Clear() {
 	b.streamBuffer = ""
 	b.streaming = false
 	b.streamingPhase = ""
+	b.streamingSource = ""
 	b.collapseState = make(map[int]bool)
 }
 
@@ -417,6 +427,7 @@ func (b *contentBuffer) finishStreaming() {
 	b.streamBuffer = ""
 	b.streaming = false
 	b.streamingPhase = ""
+	b.streamingSource = ""
 }
 
 // liveThinkingSegment returns the thinkingBlockData of the last segment if it is
@@ -432,13 +443,14 @@ func (b *contentBuffer) liveThinkingSegment() *thinkingBlockData {
 	return nil
 }
 
-func (b *contentBuffer) appendThinkingChunk(text string) {
+func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSource) {
 	if text == "" {
 		return
 	}
 	b.streaming = true
 	b.hadChunks = true
 	b.streamingPhase = "thinking"
+	b.streamingSource = source
 
 	if td := b.liveThinkingSegment(); td != nil {
 		td.body += text
@@ -462,6 +474,7 @@ func (b *contentBuffer) appendThinkingChunk(text string) {
 				collapsed: true,
 				streaming: true,
 				body:      text,
+				source:    source,
 			},
 		})
 		b.collapseState[idx] = true
@@ -474,13 +487,14 @@ func (b *contentBuffer) finalizeThinkingBlock() {
 	}
 }
 
-func (b *contentBuffer) appendAssistantChunk(text string) {
+func (b *contentBuffer) appendAssistantChunk(text string, source output.ChunkSource) {
 	if text == "" {
 		return
 	}
 	b.streaming = true
 	b.hadChunks = true
 	b.streamBuffer += text
+	b.streamingSource = source
 	if b.streamingPhase == "" || b.streamingPhase == "thinking" {
 		b.streamingPhase = "answer"
 	}

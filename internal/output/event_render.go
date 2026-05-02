@@ -121,6 +121,9 @@ func renderAssistantChunkEvent(payload AssistantChunkEvent) Segment {
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
 	}
+	if payload.Source != "" {
+		parts = append(parts, fmt.Sprintf("source=%s", payload.Source))
+	}
 	if payload.Content != "" {
 		parts = append(parts, fmt.Sprintf("chunk=%s", payload.Content))
 	}
@@ -131,6 +134,9 @@ func renderThinkingChunkEvent(payload ThinkingChunkEvent) Segment {
 	parts := []string{}
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
+	}
+	if payload.Source != "" {
+		parts = append(parts, fmt.Sprintf("source=%s", payload.Source))
 	}
 	if payload.Content != "" {
 		parts = append(parts, fmt.Sprintf("thinking=%s", payload.Content))

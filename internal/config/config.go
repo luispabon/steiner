@@ -63,6 +63,7 @@ type Config struct {
 	ProjectContext    ProjectContextConfig    `yaml:"project_context"`
 	Paths             PathsConfig             `yaml:"paths"`
 	Logging           LoggingConfig           `yaml:"logging"`
+	Debug             DebugConfig             `yaml:"debug"`
 	ContextManagement ContextManagementConfig `yaml:"context_management"`
 }
 
@@ -154,6 +155,10 @@ type LoggingConfig struct {
 	Level         string `yaml:"level"`
 	File          string `yaml:"file"`
 	ThinkingChunk bool   `yaml:"thinking_chunk"`
+}
+
+type DebugConfig struct {
+	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
 }
 
 // SwitchModelConfigByAlias looks up a model config by alias and updates cfg.Model

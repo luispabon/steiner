@@ -320,24 +320,38 @@ func NewAssistantMessageEvent(turn int, role, content string) Event {
 
 // NewThinkingChunkEvent creates a new thinking chunk event.
 func NewThinkingChunkEvent(turn int, content string) Event {
+	return NewThinkingChunkEventWithSource(turn, content, ChunkSourceAssistant)
+}
+
+// NewThinkingChunkEventWithSource creates a new thinking chunk event with an
+// explicit chunk source.
+func NewThinkingChunkEventWithSource(turn int, content string, source ChunkSource) Event {
 	return Event{
 		Type:      EventTypeThinkingChunk,
 		Timestamp: time.Now().UTC(),
 		Payload: ThinkingChunkEvent{
 			Turn:    turn,
 			Content: content,
+			Source:  source,
 		},
 	}
 }
 
 // NewAssistantChunkEvent creates a new assistant chunk event.
 func NewAssistantChunkEvent(turn int, content string) Event {
+	return NewAssistantChunkEventWithSource(turn, content, ChunkSourceAssistant)
+}
+
+// NewAssistantChunkEventWithSource creates a new assistant chunk event with an
+// explicit chunk source.
+func NewAssistantChunkEventWithSource(turn int, content string, source ChunkSource) Event {
 	return Event{
 		Type:      EventTypeAssistantChunk,
 		Timestamp: time.Now().UTC(),
 		Payload: AssistantChunkEvent{
 			Turn:    turn,
 			Content: content,
+			Source:  source,
 		},
 	}
 }

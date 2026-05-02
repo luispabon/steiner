@@ -8,6 +8,7 @@ import (
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -152,20 +153,28 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 		return ""
 	}
 	td := segment.thinkData
+	style := b.thinkingTextStyle(td.source)
 	if td.collapsed {
 		runes := []rune(td.preview)
 		if len(runes) > 60 {
 			runes = runes[:60]
 		}
-		return b.styles.ThinkingBar.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+		return style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
 	}
 	var sb strings.Builder
-	sb.WriteString(b.styles.ThinkingBar.Render("▾ Thinking") + "\n")
-	bar := b.styles.ThinkingBar.Render("▎")
+	sb.WriteString(style.Render("▾ Thinking") + "\n")
+	bar := style.Render("▎")
 	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
-		sb.WriteString(bar + " " + b.styles.ThinkingBar.Render(line) + "\n")
+		sb.WriteString(bar + " " + style.Render(line) + "\n")
 	}
 	return sb.String()
+}
+
+func (b *contentBuffer) thinkingTextStyle(source output.ChunkSource) lipgloss.Style {
+	if source == output.ChunkSourceScaffoldInference {
+		return b.styles.ThinkingBar
+	}
+	return b.styles.FgDim.Italic(true)
 }
 
 func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width int) string {
@@ -243,7 +252,8 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if b.tickCount%2 == 0 {
 		cursor = "█"
 	}
-	return b.styles.AssistantProse.Width(max(1, width)).Render(preview+cursor) + "\n"
+	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
+	return b.styles.AssistantProse.Render(wrapped) + "\n"
 }
 
 func (b *contentBuffer) streamingIndicatorView() string {

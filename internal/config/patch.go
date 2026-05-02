@@ -13,6 +13,7 @@ type configPatch struct {
 	ProjectContext    *projectContextPatch    `yaml:"project_context"`
 	Paths             *pathsPatch             `yaml:"paths"`
 	Logging           *loggingPatch           `yaml:"logging"`
+	Debug             *debugPatch             `yaml:"debug"`
 	ContextManagement *contextManagementPatch `yaml:"context_management"`
 }
 
@@ -103,6 +104,10 @@ type loggingPatch struct {
 	ThinkingChunk *bool   `yaml:"thinking_chunk"`
 }
 
+type debugPatch struct {
+	ShowInternalScaffoldInference *bool `yaml:"show_internal_scaffold_inference"`
+}
+
 // applyPatch applies a config patch to the config.
 func applyPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
@@ -153,6 +158,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 	}
 	if patch.Logging != nil {
 		applyLoggingPatch(&cfg.Logging, patch.Logging)
+	}
+	if patch.Debug != nil {
+		applyDebugPatch(&cfg.Debug, patch.Debug)
 	}
 	if patch.ContextManagement != nil {
 		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
@@ -337,6 +345,12 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 	if patch.ThinkingChunk != nil {
 		dst.ThinkingChunk = *patch.ThinkingChunk
+	}
+}
+
+func applyDebugPatch(dst *DebugConfig, patch *debugPatch) {
+	if patch.ShowInternalScaffoldInference != nil {
+		dst.ShowInternalScaffoldInference = *patch.ShowInternalScaffoldInference
 	}
 }
 

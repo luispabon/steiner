@@ -35,6 +35,13 @@ func TestDefaultConfigScratchpadModeDefaultsToScaffoldOnly(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigShowInternalScaffoldInferenceDefaultsToFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Debug.ShowInternalScaffoldInference {
+		t.Fatal("default debug.show_internal_scaffold_inference = true, want false")
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 

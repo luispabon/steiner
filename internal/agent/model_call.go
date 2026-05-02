@@ -20,6 +20,7 @@ func executeChatRequest(
 	blocks []prompt.ContextBlock,
 	isCompaction bool,
 	streamingPreferred bool,
+	source output.ChunkSource,
 ) (provider.ChatResponse, error) {
 	if budget.ContextSize > 0 {
 		var fit prompt.RequestTokenBudget
@@ -54,7 +55,7 @@ func executeChatRequest(
 
 	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
-		response, streamErr := consumeModelStream(ctx, events, turn, stream)
+		response, streamErr := consumeModelStream(ctx, events, turn, stream, source)
 		if streamErr != nil {
 			emitEvent(events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
 			return provider.ChatResponse{}, streamErr
@@ -72,14 +73,14 @@ func executeChatRequest(
 }
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred)
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 }
 
 func completeScaffoldInferenceCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, req.ModelBudget, req.Events, nil, false, req.StreamingPreferred)
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, req.ModelBudget, req.Events, nil, false, req.StreamingPreferred, output.ChunkSourceScaffoldInference)
 }
 
-func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk) (provider.ChatResponse, error) {
+func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
@@ -93,11 +94,11 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 		}
 		if !chunk.Done {
 			if thinking := chunk.Thinking; thinking != "" {
-				emitEvent(sink, output.NewThinkingChunkEvent(turn, thinking))
+				emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
 			}
 			if content := chunk.Delta.Content; content != "" {
 				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 			}
 			if len(chunk.Delta.ToolCalls) > 0 {
 				message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
@@ -111,14 +112,14 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 			switch {
 			case message.Content == "":
 				message.Content = content
-				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 			case strings.HasPrefix(content, message.Content):
 				message.Content = content
 			case strings.HasPrefix(message.Content, content):
 				// Final chunk already represented by prior deltas.
 			default:
 				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEvent(turn, content))
+				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 			}
 		}
 		if len(chunk.Delta.ToolCalls) > 0 {

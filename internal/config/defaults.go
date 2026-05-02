@@ -61,6 +61,9 @@ func defaultConfig() Config {
 			Level: "info",
 			File:  "~/.local/share/steiner/steiner.log",
 		},
+		Debug: DebugConfig{
+			ShowInternalScaffoldInference: false,
+		},
 		ContextManagement: ContextManagementConfig{
 			Mode:               ContextModeNaive,
 			CompactionStrategy: CompactionStrategyDrop,

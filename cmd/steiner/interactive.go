@@ -75,16 +75,17 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 
 	tuiApp := tui.NewApp(tui.Config{
-		Model:           rt.cfg.Model.Model,
-		ModelNames:      modelAliasNames(rt.cfg),
-		ModelContexts:   modelContextSizes(rt.cfg),
-		ModelBaseURLs:   modelBaseURLs(rt.cfg),
-		ProviderBaseURL: selected.BaseURL,
-		HomeDir:         rt.homeDir,
-		WorkingDir:      rt.workDir,
-		MaxTurns:        0,
-		SkillNames:      rt.skillNames,
-		Controller:      sess,
+		Model:                         rt.cfg.Model.Model,
+		ModelNames:                    modelAliasNames(rt.cfg),
+		ModelContexts:                 modelContextSizes(rt.cfg),
+		ModelBaseURLs:                 modelBaseURLs(rt.cfg),
+		ProviderBaseURL:               selected.BaseURL,
+		HomeDir:                       rt.homeDir,
+		WorkingDir:                    rt.workDir,
+		MaxTurns:                      0,
+		SkillNames:                    rt.skillNames,
+		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
+		Controller:                    sess,
 	})
 
 	// Attach TUI sink to session event bus before creating the runner,
