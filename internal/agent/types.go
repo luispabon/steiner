@@ -24,4 +24,5 @@ type Message struct {
 	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
 	Source     string      `json:"source,omitempty"`
 	ByteSize   int         `json:"byte_size,omitempty"`
+	Turn       int         `json:"turn,omitempty"`
 }

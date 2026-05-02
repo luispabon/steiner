@@ -48,6 +48,7 @@ func TestMaskConversationTrimsOlderAssistantProse(t *testing.T) {
 
 	got := MaskConversation(messages, 1)
 
+	// No Turn set — masked content is first line only (no turn prefix).
 	if got[1].Content != "first line" {
 		t.Fatalf("older assistant content = %q, want first line only", got[1].Content)
 	}
@@ -69,6 +70,35 @@ func TestMaskConversationKeepsConversationUnchangedWithinWindow(t *testing.T) {
 		if got[i].Content != messages[i].Content {
 			t.Fatalf("message %d content = %q, want %q", i, got[i].Content, messages[i].Content)
 		}
+	}
+}
+
+func TestMaskConversationIncludesTurnInMaskedText(t *testing.T) {
+	messages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "u1", Turn: 1},
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: "first answer",
+			Turn:    1,
+			ToolCalls: []provider.ToolCall{
+				{ID: "c1", Name: "read", Arguments: map[string]any{"path": "foo.go"}},
+			},
+		},
+		{Role: provider.MessageRoleTool, ToolCallID: "c1", Name: "read", Content: "file body", Turn: 1},
+		{Role: provider.MessageRoleUser, Content: "u2", Turn: 2},
+		{Role: provider.MessageRoleAssistant, Content: "recent", Turn: 2},
+	}
+
+	got := MaskConversation(messages, 1)
+
+	if !strings.Contains(got[2].Content, "turn 1") {
+		t.Fatalf("masked tool result = %q, want turn reference", got[2].Content)
+	}
+	if !strings.Contains(got[2].Content, "re-read if needed") {
+		t.Fatalf("masked tool result = %q, want re-read hint", got[2].Content)
+	}
+	if !strings.Contains(got[1].Content, "[turn 1]") {
+		t.Fatalf("masked assistant = %q, want turn prefix", got[1].Content)
 	}
 }
 
