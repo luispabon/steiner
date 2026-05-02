@@ -59,6 +59,7 @@ func validBase() Config {
 			CompactionStrategy: CompactionStrategyDrop,
 			MaskingWindowTurns: 5,
 			ReadAnnotations:    true,
+			ScratchpadMode:     ScratchpadModeScaffoldOnly,
 		},
 	}
 }
@@ -70,6 +71,15 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid", cfg: validBase(), wantErr: ""},
+		{
+			name: "invalid scratchpad mode",
+			cfg: func() Config {
+				c := validBase()
+				c.ContextManagement.ScratchpadMode = "bogus"
+				return c
+			}(),
+			wantErr: `context_management.scratchpad_mode "bogus" is not supported`,
+		},
 
 		// 2. Empty model fields, bad parallelism, missing models
 		{

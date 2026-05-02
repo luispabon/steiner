@@ -21,6 +21,7 @@ type contextManagementPatch struct {
 	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
 	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
 	ReadAnnotations    *bool               `yaml:"read_annotations"`
+	ScratchpadMode     *ScratchpadMode     `yaml:"scratchpad_mode"`
 }
 
 type schedulerPatch struct {
@@ -351,5 +352,8 @@ func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextMan
 	}
 	if patch.ReadAnnotations != nil {
 		dst.ReadAnnotations = *patch.ReadAnnotations
+	}
+	if patch.ScratchpadMode != nil {
+		dst.ScratchpadMode = *patch.ScratchpadMode
 	}
 }

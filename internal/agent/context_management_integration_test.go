@@ -17,14 +17,11 @@ import (
 )
 
 // scratchpadToolResult builds a JSON scratchpad tool result for use in fake executor responses.
-func scratchpadToolResult(goal, plan, step, decisions, files, open, next string) map[string]any {
+func scratchpadToolResult(intent, decisions, open, next string) map[string]any {
 	return map[string]any{
 		"status":    "ok",
-		"goal":      goal,
-		"plan":      plan,
-		"step":      step,
+		"intent":    intent,
 		"decisions": decisions,
-		"files":     files,
 		"open":      open,
 		"next":      next,
 	}
@@ -54,11 +51,8 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					Content: "turn 1 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_sp1", Name: "scratchpad", Arguments: map[string]any{
-							"goal":      "inspect note",
-							"plan":      "reread file",
-							"step":      "read first pass",
+							"intent":    "inspect note",
 							"decisions": "decided to read file first",
-							"files":     "note.txt (read)",
 							"open":      "none",
 							"next":      "reread note",
 						}},
@@ -74,11 +68,8 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					Content: "turn 2 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_sp2", Name: "scratchpad", Arguments: map[string]any{
-							"goal":      "inspect note",
-							"plan":      "reread file",
-							"step":      "compare reread",
+							"intent":    "inspect note",
 							"decisions": "file unchanged",
-							"files":     "note.txt (read)",
 							"open":      "none",
 							"next":      "finish",
 						}},
@@ -94,11 +85,8 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					Content: "turn 3 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_sp3", Name: "scratchpad", Arguments: map[string]any{
-							"goal":      "inspect note",
-							"plan":      "reread file",
-							"step":      "compare reread",
+							"intent":    "inspect note",
 							"decisions": "still unchanged",
-							"files":     "note.txt (read)",
 							"open":      "none",
 							"next":      "finish",
 						}},
@@ -121,15 +109,12 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
 			if toolName == "scratchpad" {
-				goal, _ := input["goal"].(string)
-				plan, _ := input["plan"].(string)
-				step, _ := input["step"].(string)
+				intent, _ := input["intent"].(string)
 				decisions, _ := input["decisions"].(string)
-				files, _ := input["files"].(string)
 				open, _ := input["open"].(string)
 				next, _ := input["next"].(string)
 				return tool.ExecutionResult{
-					Value: scratchpadToolResult(goal, plan, step, decisions, files, open, next),
+					Value: scratchpadToolResult(intent, decisions, open, next),
 				}, nil
 			}
 			return tool.ExecutionResult{
@@ -147,6 +132,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	manager := NewContextManager("smart", config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
+		ScratchpadMode:     config.ScratchpadModeHybrid,
 	})
 
 	var events []output.Event
@@ -178,25 +164,25 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 
 	// Scratchpad state injected into second request via context state.
 	secondRequest := providerStub.requests[1].Messages
-	if !messageContentsContain(secondRequest, "goal: inspect note") {
-		t.Fatalf("second request missing carried scratchpad goal: %#v", secondRequest)
+	if !messageContentsContain(secondRequest, "intent: inspect note") {
+		t.Fatalf("second request missing carried scratchpad intent: %#v", secondRequest)
 	}
-	if !messageContentsContain(secondRequest, "step: read first pass") {
-		t.Fatalf("second request missing carried scratchpad step: %#v", secondRequest)
+	if !messageContentsContain(secondRequest, "working file: note.txt") {
+		t.Fatalf("second request missing carried working file: %#v", secondRequest)
 	}
 
 	thirdRequest := providerStub.requests[2].Messages
-	if !messageContentsContain(thirdRequest, "goal: inspect note") {
-		t.Fatalf("third request missing carried scratchpad goal: %#v", thirdRequest)
+	if !messageContentsContain(thirdRequest, "intent: inspect note") {
+		t.Fatalf("third request missing carried scratchpad intent: %#v", thirdRequest)
 	}
-	if !messageContentsContain(thirdRequest, "step: compare reread") {
-		t.Fatalf("third request missing updated scratchpad step: %#v", thirdRequest)
+	if !messageContentsContain(thirdRequest, "last action: read note.txt") {
+		t.Fatalf("third request missing updated scratchpad last action: %#v", thirdRequest)
 	}
 
 	// Masking only applies after the 2-turn grace period, so checks move to the fourth request.
 	fourthRequest := providerStub.requests[3].Messages
-	if !messageContentsContain(fourthRequest, "goal: inspect note") {
-		t.Fatalf("fourth request missing carried scratchpad goal: %#v", fourthRequest)
+	if !messageContentsContain(fourthRequest, "intent: inspect note") {
+		t.Fatalf("fourth request missing carried scratchpad intent: %#v", fourthRequest)
 	}
 	if !messageContentsContain(fourthRequest, "turn 1 answer") {
 		t.Fatalf("fourth request missing trimmed older assistant content: %#v", fourthRequest)
@@ -375,7 +361,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{ReadAnnotations: true}),
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{ReadAnnotations: true, ScratchpadMode: config.ScratchpadModeHybrid}),
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
