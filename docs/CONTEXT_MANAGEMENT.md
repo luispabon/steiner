@@ -78,18 +78,20 @@ These apply once, when a tool result is received. They run in Go with no model c
 
 Bash and grep tool results are subject to a maximum size at ingestion. When output exceeds the limit, it is truncated with a marker so the model knows content was removed and can re-run with different parameters. Other tool types (read, ls, glob, edit, write) bypass ingestion truncation — their output is managed at assembly time.
 
-Different tool types use different truncation strategies:
+Different tool types use different truncation strategies and limits:
 
-| Tool type | Strategy | Rationale |
-|-----------|----------|-----------|
-| bash | Tail-priority | Errors and failures appear at the end |
-| grep | Count cap | Limit number of results, not bytes |
-| default (read, ls, glob, edit, write) | None | Output size managed at assembly time (observation masking, file annotation) |
+| Tool type | Strategy | Limit | Rationale |
+|-----------|----------|-------|-----------|
+| bash | Tail-priority | 4096 bytes | Errors and failures appear at the end; cap avoids context flooding from large stdout |
+| grep | Count cap | 200 results | Limit number of results, not bytes; preserves signal-to-noise ratio |
+| default (read, ls, glob, edit, write) | None | — | Output size managed at assembly time (observation masking, file annotation) |
 
 Truncation marker example:
 ```
 <truncated output shown=4521 total=12830>
 ```
+
+The marker is prepended for tail-priority strategies (bash) and appended for head-based strategies (grep count cap). `shown` is the byte-size of the truncated output after noise stripping, not the raw limit.
 
 ### Noise stripping
 
@@ -119,12 +121,14 @@ Turn 10: [tool_call] read internal/agent/runner.go
          [result] package agent...  (full content, recent turn)
 ```
 
-M is configurable. Default is 5 (conservative starting point for steiner's target window sizes, smaller than the M=10 that worked for SWE-agent on frontier models).
+M is configurable. Default is 5 (conservative starting point for steiner's target window sizes, smaller than the M=10 that worked for SWE-agent on frontier models). The minimum effective window is 2 — a configured value of 1 is silently raised to 2 to ensure at least enough recent context for coherent tool call sequences.
+
+Scratchpad tool results are special-cased during masking: their content is always cleared (set to empty string) regardless of turn. The scratchpad state survives masking because it is injected from Go state at assembly time, not from conversation history.
 
 Invariants:
 - Tool calls and their results are atomic. If a tool call is present, either its full result or its masked placeholder is also present. They are never separated.
 - Only the tool result body is replaced. The tool name and a summary of arguments are preserved in the placeholder so the model retains orientation.
-- Assistant prose older than M turns is trimmed to its first line or dropped entirely.
+- Assistant prose older than M turns is trimmed to its first line (with a `[turn N]` prefix). It is never dropped entirely — at minimum the first line is preserved.
 - Masking operates on a copy. The stored conversation history is never modified.
 
 ### File read annotation
@@ -153,11 +157,11 @@ Invalidation:
 
 steiner splits every prompt into two zones:
 
-- **Stable zone** (system prompt only): role, tool rules, project context, scratchpad instructions. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on `SmartContextManager`. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching.
+- **Stable zone**: the system preamble (identity, scratchpad instructions, core rules), global agents file, and project AGENTS.md. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on `SmartContextManager`. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching. Also included are compaction summary blocks when they exist. Project context and skill files are **not** cached — they are loaded fresh each turn from disk.
 
-- **Volatile zone** (messages array): older masked turns, recent turns verbatim, actual user message, synthetic scratchpad user message (appended as last message).
+- **Volatile zone** (messages array): older masked turns, recent turns verbatim, actual user message, project context blocks, skill blocks, synthetic scratchpad user message (appended as last message).
 
-A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "conversation_bytes", Z)`) records the byte sizes of each zone. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
+A per-turn debug log (`slog.Debug("prompt zones", "turn", N, "system_bytes", X, "conversation_bytes", Z)`) records the byte sizes of each zone. The system count includes preamble, agents, and conversation summary blocks. Project context, skills, durable context, tool results, and the conversation messages are counted as conversation bytes. Enable with `--log-level debug`. See `docs/providers.md` for provider-specific KV cache behaviour.
 
 ## The Scratchpad
 
@@ -198,22 +202,16 @@ Failure is defined as: the model did not call the `scratchpad` tool this turn. `
 
 The system never crashes or loses state because of a missing scratchpad call. The scaffold state provides the factual safety net regardless of model cooperation.
 
-### Staleness detection
-
-With the tool-call approach the model is required to call `scratchpad` each turn, making copy-forward less of a concern than with inline XML. If the same field values appear across consecutive turns, steiner logs it as a signal but does not treat it as a hard failure.
-
 ## Compaction
 
 Compaction is the fallback when masking alone is insufficient to keep context within limits.
 
 ### Trigger
 
-Compaction fires when context usage exceeds a configurable threshold. Default is 60% for large windows. For small windows (8k-32k), the threshold may need to be lower.
+Compaction fires when the estimated total token usage (prompt tokens + reserved completion tokens + safety margin) exceeds the model's context window size. There is no configurable fill-ratio threshold — the trigger is purely the hard capacity check after applying `safety_margin_tokens`.
 
 ```yaml
 compaction:
-  threshold: 0.6
-  retain_turns: 3
   strategy: drop
 ```
 
@@ -225,7 +223,7 @@ Three compaction strategies are available, all behind a common interface:
 
 Zero-cost compaction. No model call.
 
-1. Keep the last N turns verbatim (configurable `retain_turns`, default 3)
+1. Keep the last 3 turns verbatim (hardcoded)
 2. Drop all older turns
 3. Insert a discontinuity marker: `[context compacted - see scratchpad for task state; re-read files if needed]`
 
@@ -328,7 +326,7 @@ Smart mode emits structured events through the existing EventSink:
 - **ScratchpadEvent**: scratchpad content after each model response; whether the scratchpad tool was called this turn (fired via `OnTurnComplete`)
 - **TokenBudgetEvent**: aggregate prompt token counts each turn (estimated prompt, reserved completion, safety margin, context size, total). No per-category breakdown is emitted.
 
-Debug mode (`--log-level debug`) logs the full assembled prompt with masking decisions annotated, plus the full unmasked conversation history.
+Debug mode (`--log-level debug`) logs a one-line summary of per-zone byte sizes (`prompt zones`). Masking decisions and file annotation outcomes are emitted as structured events (ContextMaskingEvent, FileAnnotationEvent) regardless of log level. The full assembled prompt content and unmasked conversation are not logged at any log level.
 
 ## Design Rationale
 
