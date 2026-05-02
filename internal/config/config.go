@@ -30,6 +30,17 @@ const (
 	CompactionStrategyHybrid CompactionStrategy = "hybrid"
 )
 
+// ScratchpadMode controls how the scratchpad state is maintained.
+type ScratchpadMode string
+
+const (
+	// ScratchpadModeScaffoldOnly uses steiner-managed scaffold state only.
+	ScratchpadModeScaffoldOnly ScratchpadMode = "scaffold_only"
+	// ScratchpadModeHybrid enables the model-written scratchpad tool in addition
+	// to the steiner-managed scaffold state.
+	ScratchpadModeHybrid ScratchpadMode = "hybrid"
+)
+
 // ContextManagementConfig holds settings for the active context management
 // feature.
 type ContextManagementConfig struct {
@@ -37,6 +48,7 @@ type ContextManagementConfig struct {
 	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
 	MaskingWindowTurns int                `yaml:"masking_window_turns"`
 	ReadAnnotations    bool               `yaml:"read_annotations"`
+	ScratchpadMode     ScratchpadMode     `yaml:"scratchpad_mode"`
 }
 
 // Config is the complete application configuration.

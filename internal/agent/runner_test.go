@@ -253,11 +253,8 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 					Content: "working",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_sp", Name: "scratchpad", Arguments: map[string]any{
-							"goal":      "ship scratchpad",
-							"plan":      "parse and inject",
-							"step":      "call scratchpad tool",
+							"intent":    "ship scratchpad",
 							"decisions": "use tool result path",
-							"files":     "none",
 							"open":      "none",
 							"next":      "inspect response",
 						}},
@@ -280,21 +277,15 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
 			if toolName == "scratchpad" {
-				goal, _ := input["goal"].(string)
-				plan, _ := input["plan"].(string)
-				step, _ := input["step"].(string)
+				intent, _ := input["intent"].(string)
 				decisions, _ := input["decisions"].(string)
-				files, _ := input["files"].(string)
 				open, _ := input["open"].(string)
 				next, _ := input["next"].(string)
 				return tool.ExecutionResult{
 					Value: map[string]string{
 						"status":    "ok",
-						"goal":      goal,
-						"plan":      plan,
-						"step":      step,
+						"intent":    intent,
 						"decisions": decisions,
-						"files":     files,
 						"open":      open,
 						"next":      next,
 					},
@@ -334,12 +325,12 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 	// Scratchpad state is captured in context manager.
-	if got := cm.scratchpad.Goal; got != "ship scratchpad" {
-		t.Fatalf("scratchpad goal = %q, want ship scratchpad", got)
+	if got := cm.scratchpad.Intent; got != "ship scratchpad" {
+		t.Fatalf("scratchpad intent = %q, want ship scratchpad", got)
 	}
 	// Second request should include the rendered scratchpad state via context.
 	second := providerStub.requests[1]
-	if !messageContentsContain(second.Messages, "goal: ship scratchpad") {
+	if !messageContentsContain(second.Messages, "intent: ship scratchpad") {
 		t.Fatalf("second request missing scratchpad state: %+v", second.Messages)
 	}
 }

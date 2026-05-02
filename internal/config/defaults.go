@@ -66,6 +66,7 @@ func defaultConfig() Config {
 			CompactionStrategy: CompactionStrategyDrop,
 			MaskingWindowTurns: 5,
 			ReadAnnotations:    true,
+			ScratchpadMode:     ScratchpadModeScaffoldOnly,
 		},
 	}
 }

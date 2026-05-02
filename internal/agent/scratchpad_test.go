@@ -7,13 +7,15 @@ import (
 
 func TestScratchpadRenderContainsAllFields(t *testing.T) {
 	s := Scratchpad{
-		Goal:      "fix auth timeout",
-		Plan:      "1. Reproduce 2. Fix 3. Test",
-		Step:      "reading auth code",
-		Decisions: "use context deadline; avoid global state",
-		Files:     "internal/auth/handler.go (read)",
-		Open:      "why does it only fail under load?",
-		Next:      "add test reproducing timeout",
+		Intent:          "fix auth timeout",
+		Decisions:       "use context deadline; avoid global state",
+		Open:            "why does it only fail under load?",
+		Next:            "add test reproducing timeout",
+		WorkingFile:     "internal/auth/handler.go",
+		LastAction:      "edited internal/auth/handler.go: tightened timeout handling",
+		SessionState:    "session state: turn=4 compactions=1",
+		TrackedFiles:    []string{"README.md lines 1-40/120"},
+		RecentToolCalls: []string{"read path=README.md"},
 	}
 	got := s.Render()
 
@@ -22,11 +24,13 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 		want  string
 	}{
 		{"header", "[Current task state]"},
-		{"goal", "goal: fix auth timeout"},
-		{"plan", "plan: 1. Reproduce 2. Fix 3. Test"},
-		{"step", "step: reading auth code"},
+		{"session", "session state: turn=4 compactions=1"},
+		{"working file", "working file: internal/auth/handler.go"},
+		{"last action", "last action: edited internal/auth/handler.go: tightened timeout handling"},
+		{"tracked files", "tracked files:\n- README.md lines 1-40/120"},
+		{"recent tool calls", "recent tool calls:\n- read path=README.md"},
+		{"intent", "intent: fix auth timeout"},
 		{"decisions", "decisions: use context deadline; avoid global state"},
-		{"files", "files: internal/auth/handler.go (read)"},
 		{"open", "open: why does it only fail under load?"},
 		{"next", "next: add test reproducing timeout"},
 	}
@@ -39,17 +43,15 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 
 func TestScratchpadRenderFieldOrder(t *testing.T) {
 	s := Scratchpad{
-		Goal:      "g",
-		Plan:      "p",
-		Step:      "s",
-		Decisions: "d",
-		Files:     "f",
-		Open:      "o",
-		Next:      "n",
+		Intent:      "i",
+		Decisions:   "d",
+		Open:        "o",
+		Next:        "n",
+		WorkingFile: "f",
+		LastAction:  "a",
 	}
 	got := s.Render()
-	// Verify order: goal < plan < step < decisions < files < open < next
-	order := []string{"goal:", "plan:", "step:", "decisions:", "files:", "open:", "next:"}
+	order := []string{"working file:", "last action:", "intent:", "decisions:", "open:", "next:"}
 	prev := 0
 	for _, field := range order {
 		idx := strings.Index(got, field)
@@ -61,7 +63,7 @@ func TestScratchpadRenderFieldOrder(t *testing.T) {
 }
 
 func TestScratchpadRenderNoXMLTags(t *testing.T) {
-	s := Scratchpad{Goal: "test"}
+	s := Scratchpad{Intent: "test"}
 	got := s.Render()
 	if strings.Contains(got, "<scratchpad>") || strings.Contains(got, "</scratchpad>") {
 		t.Errorf("Render() should not contain XML tags, got: %q", got)
@@ -69,16 +71,15 @@ func TestScratchpadRenderNoXMLTags(t *testing.T) {
 }
 
 func TestScratchpadRenderEmptyFields(t *testing.T) {
-	s := Scratchpad{Goal: "only goal set"}
+	s := Scratchpad{Intent: "only intent set"}
 	got := s.Render()
 	if !strings.Contains(got, "[Current task state]") {
 		t.Errorf("Render() missing header")
 	}
-	if !strings.Contains(got, "goal: only goal set") {
-		t.Errorf("Render() missing goal")
+	if !strings.Contains(got, "intent: only intent set") {
+		t.Errorf("Render() missing intent")
 	}
-	// Other fields present with empty values.
-	for _, field := range []string{"plan:", "step:", "decisions:", "files:", "open:", "next:"} {
+	for _, field := range []string{"decisions:", "open:", "next:"} {
 		if !strings.Contains(got, field) {
 			t.Errorf("Render() missing field label %q", field)
 		}

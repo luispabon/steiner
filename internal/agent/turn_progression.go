@@ -133,7 +133,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 		} else {
 			recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments)
 			normalizedResult := normalizeToolResult(result)
-			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, normalizedResult.Content)
+			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
 			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}

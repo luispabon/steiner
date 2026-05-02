@@ -152,7 +152,7 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 	if scratchpad != "" {
 		parts = append(parts, scratchpad)
 	} else {
-		parts = append(parts, "goal: \nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: ")
+		parts = append(parts, "intent: \ndecisions: \nopen: \nnext: ")
 	}
 
 	return provider.Message{

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -165,8 +166,21 @@ func (t *FileTracker) Summaries(limit int) []string {
 	if len(t.reads) == 0 || limit <= 0 {
 		return nil
 	}
-	out := make([]string, 0, len(t.reads))
+	reads := make([]trackedFileRead, 0, len(t.reads))
 	for _, read := range t.reads {
+		reads = append(reads, read)
+	}
+	sort.Slice(reads, func(i, j int) bool {
+		if reads[i].LastTurn != reads[j].LastTurn {
+			return reads[i].LastTurn > reads[j].LastTurn
+		}
+		if reads[i].Path != reads[j].Path {
+			return reads[i].Path < reads[j].Path
+		}
+		return reads[i].StartLine < reads[j].StartLine
+	})
+	out := make([]string, 0, len(reads))
+	for _, read := range reads {
 		out = append(out, fmt.Sprintf("%s lines %d-%d/%d", read.Path, read.StartLine, read.EndLine, read.TotalLines))
 		if len(out) == limit {
 			break

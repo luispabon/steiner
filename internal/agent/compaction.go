@@ -170,6 +170,9 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	*state = outcome.State
 	if compactionCount != nil {
 		(*compactionCount)++
+		if recorder, ok := req.ContextManager.(interface{ RecordCompaction(turn int) }); ok {
+			recorder.RecordCompaction(turn)
+		}
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, outcome.Fit, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
 	}
 	resetEpochForContextManager(req.ContextManager, turn)
