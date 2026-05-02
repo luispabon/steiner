@@ -50,14 +50,17 @@ func (n *NaiveContextManager) RecordMutation(_ string) {}
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
 type SmartContextManager struct {
-	maskingWindowTurns int
-	readAnnotations    bool
-	configApplied      bool
-	compactionStrategy config.CompactionStrategy
-	events             output.EventSink
-	fileTracker        FileTracker
-	scratchpad         Scratchpad
-	scratchpadFailures int
+	maskingWindowTurns     int
+	readAnnotations        bool
+	configApplied          bool
+	compactionStrategy     config.CompactionStrategy
+	events                 output.EventSink
+	fileTracker            FileTracker
+	scratchpad             Scratchpad
+	scratchpadFailures     int
+	epochMaskBoundary      int
+	epochStartTurn         int
+	contextPressureTrigger func(currentTurn int, state RunState) bool
 	// cachedPreamble holds the system preamble built once per session.
 	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
 	// so building the string once prevents unnecessary allocations and keeps
@@ -94,6 +97,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 	next := state.Clone()
 	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
 	next.Lineage = newConversationLineage(next.Conversation)
+	s.initializeEpochFromTurnCount(next.TurnCount)
 	return next, nil
 }
 
@@ -105,9 +109,17 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	if len(conversation) == 0 {
 		conversation = next.Conversation
 	}
+	s.initializeEpochFromTurnCount(next.TurnCount)
+	currentTurn := next.TurnCount + 1
+	previousBoundary := s.epochMaskBoundary
+	previousStartTurn := s.epochStartTurn
+	trigger := ""
+	if s.shouldAdvanceEpoch(currentTurn, next) {
+		trigger = s.advanceEpoch(currentTurn)
+	}
 	window := s.maskingWindow()
-	masked := fromProviderMessages(prompt.MaskConversation(toProviderMessages(conversation), window))
-	s.emitMaskingDiagnostics(next.TurnCount+1, window, conversation, masked)
+	masked := fromProviderMessages(prompt.MaskConversationBeforeTurn(toProviderMessages(conversation), s.epochMaskBoundary))
+	s.emitMaskingDiagnostics(currentTurn, window, previousBoundary, previousStartTurn, trigger, conversation, masked)
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
 	return next, nil
@@ -161,6 +173,12 @@ func (s *SmartContextManager) RecordMutation(path string) {
 	s.fileTracker.BumpGeneration(path)
 }
 
+// ResetEpoch resets the current masking epoch after compaction so retained
+// conversation starts from a clean boundary.
+func (s *SmartContextManager) ResetEpoch(turn int) {
+	s.resetEpoch(turn, "compaction")
+}
+
 // SetEventSink installs the sink used for context-management diagnostics.
 func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
 	s.events = sink
@@ -211,6 +229,52 @@ func (s *SmartContextManager) maskingWindow() int {
 	return s.maskingWindowTurns
 }
 
+func (s *SmartContextManager) initializeEpochFromTurnCount(turnCount int) {
+	if turnCount <= 0 {
+		return
+	}
+	if s.epochStartTurn > 0 || s.epochMaskBoundary > 0 {
+		return
+	}
+	window := s.maskingWindow()
+	s.epochStartTurn = turnCount
+	s.epochMaskBoundary = turnCount - window
+	if s.epochMaskBoundary < 0 {
+		s.epochMaskBoundary = 0
+	}
+}
+
+func (s *SmartContextManager) shouldAdvanceEpoch(currentTurn int, state RunState) bool {
+	window := s.maskingWindow()
+	if currentTurn-s.epochStartTurn >= window {
+		return true
+	}
+	if s.contextPressureTrigger == nil {
+		return false
+	}
+	return s.contextPressureTrigger(currentTurn, state)
+}
+
+func (s *SmartContextManager) advanceEpoch(currentTurn int) string {
+	window := s.maskingWindow()
+	trigger := "turn_count"
+	if s.contextPressureTrigger != nil && currentTurn-s.epochStartTurn < window {
+		trigger = "context_pressure"
+	}
+	s.epochMaskBoundary = currentTurn - window
+	if s.epochMaskBoundary < 0 {
+		s.epochMaskBoundary = 0
+	}
+	s.epochStartTurn = currentTurn
+	return trigger
+}
+
+func (s *SmartContextManager) resetEpoch(turn int, trigger string) {
+	s.epochMaskBoundary = 0
+	s.epochStartTurn = turn
+	s.emitEpochResetDiagnostic(turn, trigger)
+}
+
 func (s *SmartContextManager) annotationsEnabled() bool {
 	if !s.configApplied {
 		return true
@@ -255,16 +319,36 @@ func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result rea
 	))
 }
 
-func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original, masked []Message) {
+func (s *SmartContextManager) emitEpochResetDiagnostic(turn int, trigger string) {
+	if s.events == nil {
+		return
+	}
+	emitEvent(s.events, output.NewContextMaskingEvent(
+		turn,
+		"",
+		"reset",
+		"epoch boundary reset",
+		s.maskingWindow(),
+		s.epochMaskBoundary,
+		s.epochStartTurn,
+		0,
+		trigger,
+		"reset",
+	))
+}
+
+func (s *SmartContextManager) emitMaskingDiagnostics(turn, window, previousBoundary, previousStartTurn int, trigger string, original, masked []Message) {
 	if s.events == nil || len(original) == 0 || len(original) != len(masked) {
 		return
 	}
+	newlyMaskedTurns := map[int]struct{}{}
 	for i := range original {
 		if strings.TrimSpace(original[i].Content) == strings.TrimSpace(masked[i].Content) {
 			continue
 		}
 		action := "masked"
 		reason := "older than masking window"
+		epochStatus := "previously_masked"
 		toolName := strings.TrimSpace(original[i].Name)
 		switch original[i].Role {
 		case MessageRoleAssistant:
@@ -280,11 +364,31 @@ func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original,
 		default:
 			action = "masked"
 		}
+		if trigger != "" && original[i].Turn > 0 && original[i].Turn >= previousBoundary && original[i].Turn < s.epochMaskBoundary {
+			epochStatus = "newly_masked"
+			newlyMaskedTurns[original[i].Turn] = struct{}{}
+		}
 		notes := []string{fmt.Sprintf("message_index=%d", i)}
 		if original[i].ToolCallID != "" {
 			notes = append(notes, "tool_call_id="+original[i].ToolCallID)
 		}
-		emitEvent(s.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, notes...))
+		emitEvent(s.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, s.epochMaskBoundary, s.epochStartTurn, 0, trigger, epochStatus, notes...))
+	}
+	if trigger != "" {
+		emitEvent(s.events, output.NewContextMaskingEvent(
+			turn,
+			"",
+			"advance",
+			"epoch boundary advanced",
+			window,
+			s.epochMaskBoundary,
+			s.epochStartTurn,
+			len(newlyMaskedTurns),
+			trigger,
+			"advance",
+			fmt.Sprintf("previous_boundary=%d", previousBoundary),
+			fmt.Sprintf("previous_start_turn=%d", previousStartTurn),
+		))
 	}
 }
 

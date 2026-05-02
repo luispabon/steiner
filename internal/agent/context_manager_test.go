@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,6 +202,76 @@ func TestSmartContextManagerPreAssembly(t *testing.T) {
 	}
 }
 
+func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *testing.T) {
+	cm := &SmartContextManager{maskingWindowTurns: 5}
+	state := RunState{TurnCount: 12}
+
+	got, err := cm.PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.TurnCount != state.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
+	}
+	if got, want := cm.epochStartTurn, 12; got != want {
+		t.Fatalf("epochStartTurn = %d, want %d", got, want)
+	}
+	if got, want := cm.epochMaskBoundary, 7; got != want {
+		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
+	}
+}
+
+func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
+	cm := &SmartContextManager{maskingWindowTurns: 5, epochStartTurn: 5}
+	first := RunState{
+		TurnCount:    9,
+		Conversation: epochTestConversation(10),
+	}
+	first.Lineage = newConversationLineage(first.Conversation)
+
+	gotFirst, err := cm.PreAssembly(context.Background(), first)
+	if err != nil {
+		t.Fatalf("first PreAssembly error: %v", err)
+	}
+	if got, want := cm.epochMaskBoundary, 5; got != want {
+		t.Fatalf("epochMaskBoundary after advance = %d, want %d", got, want)
+	}
+	if got, want := cm.epochStartTurn, 10; got != want {
+		t.Fatalf("epochStartTurn after advance = %d, want %d", got, want)
+	}
+
+	second := RunState{
+		TurnCount:    10,
+		Conversation: epochTestConversation(11),
+	}
+	second.Lineage = newConversationLineage(second.Conversation)
+
+	gotSecond, err := cm.PreAssembly(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second PreAssembly error: %v", err)
+	}
+	if got, want := cm.epochMaskBoundary, 5; got != want {
+		t.Fatalf("epochMaskBoundary after steady turn = %d, want %d", got, want)
+	}
+	if got, want := cm.epochStartTurn, 10; got != want {
+		t.Fatalf("epochStartTurn after steady turn = %d, want %d", got, want)
+	}
+
+	firstMasked := maskedPrefixByTurn(gotFirst.Conversation, 5)
+	secondMasked := maskedPrefixByTurn(gotSecond.Conversation, 5)
+	if len(firstMasked) != len(secondMasked) {
+		t.Fatalf("masked prefix len = %d, want %d", len(firstMasked), len(secondMasked))
+	}
+	for i := range firstMasked {
+		if firstMasked[i].Role != secondMasked[i].Role || firstMasked[i].Content != secondMasked[i].Content {
+			t.Fatalf("masked prefix message %d = %#v, want %#v", i, firstMasked[i], secondMasked[i])
+		}
+	}
+	if !strings.Contains(firstMasked[1].Content, "[turn 1]") {
+		t.Fatalf("first epoch assistant content = %q, want turn prefix", firstMasked[1].Content)
+	}
+}
+
 func TestNewContextManager(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -260,6 +331,33 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	if cm.scratchpad.Decisions != "chose X" {
 		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
 	}
+}
+
+func epochTestConversation(turns int) []Message {
+	messages := make([]Message, 0, turns*2)
+	for turn := 1; turn <= turns; turn++ {
+		messages = append(messages, Message{
+			Role:    MessageRoleUser,
+			Content: fmt.Sprintf("user %d", turn),
+			Turn:    turn,
+		})
+		messages = append(messages, Message{
+			Role:    MessageRoleAssistant,
+			Content: fmt.Sprintf("assistant %d", turn),
+			Turn:    turn,
+		})
+	}
+	return messages
+}
+
+func maskedPrefixByTurn(messages []Message, boundary int) []Message {
+	out := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Turn > 0 && message.Turn < boundary {
+			out = append(out, message)
+		}
+	}
+	return out
 }
 
 func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {

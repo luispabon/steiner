@@ -220,3 +220,43 @@ func TestMaskConversationScratchpadToolResultDropped(t *testing.T) {
 		t.Fatalf("scratchpad tool result content = %q, want empty string", got[5].Content)
 	}
 }
+
+func TestMaskConversationBeforeTurnKeepsMaskedPrefixStable(t *testing.T) {
+	base := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "u1", Turn: 1},
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: "turn 1 answer",
+			Turn:    1,
+			ToolCalls: []provider.ToolCall{
+				{ID: "c1", Name: "read", Arguments: map[string]any{"path": "a.go"}},
+			},
+		},
+		{Role: provider.MessageRoleTool, ToolCallID: "c1", Name: "read", Content: "file body", Turn: 1},
+		{Role: provider.MessageRoleUser, Content: "u2", Turn: 2},
+		{Role: provider.MessageRoleAssistant, Content: "turn 2 answer", Turn: 2},
+		{Role: provider.MessageRoleTool, Name: "bash", Content: "bash body", Turn: 2},
+		{Role: provider.MessageRoleUser, Content: "u3", Turn: 3},
+		{Role: provider.MessageRoleAssistant, Content: "turn 3 answer", Turn: 3},
+	}
+	extended := append(cloneProviderMessages(base), provider.Message{Role: provider.MessageRoleUser, Content: "u4", Turn: 4})
+	extended = append(extended, provider.Message{Role: provider.MessageRoleAssistant, Content: "turn 4 answer", Turn: 4})
+
+	gotBase := MaskConversationBeforeTurn(base, 3)
+	gotExtended := MaskConversationBeforeTurn(extended, 3)
+
+	for i := 0; i < len(gotBase); i++ {
+		if gotBase[i].Content != gotExtended[i].Content {
+			t.Fatalf("masked prefix message %d content = %q, want %q", i, gotBase[i].Content, gotExtended[i].Content)
+		}
+		if gotBase[i].Role != gotExtended[i].Role {
+			t.Fatalf("masked prefix message %d role = %q, want %q", i, gotBase[i].Role, gotExtended[i].Role)
+		}
+	}
+	if gotBase[1].Content == base[1].Content {
+		t.Fatalf("turn 1 assistant content = %q, want masked", gotBase[1].Content)
+	}
+	if gotBase[7].Content != base[7].Content {
+		t.Fatalf("turn 3 assistant content = %q, want unmasked", gotBase[7].Content)
+	}
+}

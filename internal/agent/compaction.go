@@ -172,8 +172,18 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 		(*compactionCount)++
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, outcome.Fit, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
 	}
+	resetEpochForContextManager(req.ContextManager, turn)
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
+}
+
+func resetEpochForContextManager(cm ContextManager, turn int) {
+	type epochResetter interface {
+		ResetEpoch(turn int)
+	}
+	if resetter, ok := cm.(epochResetter); ok {
+		resetter.ResetEpoch(turn)
+	}
 }
 
 func compactorForRequest(req RunRequest) Compactor {
