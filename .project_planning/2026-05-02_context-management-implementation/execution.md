@@ -106,21 +106,21 @@
   - can_run_in_parallel: `false`
   - suggested_model: `cheap-good`
 - `stage-2-step-1`
-  - status: `running`
+  - status: `implemented`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
   - can_run_in_parallel: `true`
   - suggested_model: `cheap-good`
 - `stage-3-step-1`
-  - status: `running`
+  - status: `implemented`
   - depends_on:
     - `stage-1-step-1`
   - parallel_group: `post-stage-1`
   - can_run_in_parallel: `true`
   - suggested_model: `cheap-good`
 - `stage-3-step-2`
-  - status: `pending`
+  - status: `ready`
   - depends_on:
     - `stage-3-step-1`
   - parallel_group: none
@@ -135,6 +135,8 @@
 - `2026-05-02`: reviewed `stage-1-step-1` output against the step contract, merged temporary branch `cl/2026-05-02_context-management-implementation-stage-1-step-1`, closed the sub-agent, removed worktree `/tmp/steiner-stage-1-step-1`, and deleted the merged temporary branch
 - `2026-05-02`: recorded executor deviation for model selection on `stage-1-step-1`; inherited runtime was used instead of the cheapest likely-safe worker tier
 - `2026-05-02`: marked `stage-2-step-1` and `stage-3-step-1` as `running` for parallel isolated execution after `stage-1-step-1` implementation
+- `2026-05-02`: reviewed and merged `stage-2-step-1`, closed its sub-agent, removed worktree `/tmp/steiner-stage-2-step-1`, and deleted temporary branch `cl/2026-05-02_context-management-implementation-stage-2-step-1`
+- `2026-05-02`: reviewed `stage-3-step-1`, accepted necessary scope extensions for config plumbing, runtime tool gating, and compatibility wiring, merged it with one conflict in `internal/agent/context_manager.go`, reran focused verification, closed its sub-agent, removed worktree `/tmp/steiner-stage-3-step-1`, and deleted temporary branch `cl/2026-05-02_context-management-implementation-stage-3-step-1`
 
 ## Sub-Agents
 - completed:
@@ -152,21 +154,24 @@
   - execution_mode: `parallel`
   - branch: `cl/2026-05-02_context-management-implementation-stage-2-step-1`
   - worktree: `/tmp/steiner-stage-2-step-1`
-  - status: `provisioning`
+  - status: `closed after merge`
+  - commit: `e7f7cb3edb3b01739eaa14766eb00ef3e380ca33`
+  - commit_message: `Implement epoch-based context masking`
   - step_id: `stage-3-step-1`
   - model: `gpt-5.4-mini`
   - tier_vs_current: `cheaper`
   - execution_mode: `parallel`
   - branch: `cl/2026-05-02_context-management-implementation-stage-3-step-1`
   - worktree: `/tmp/steiner-stage-3-step-1`
-  - status: `provisioning`
+  - status: `closed after merge`
+  - commit: `a84cc76`
+  - commit_message: `Implement scaffolded scratchpad mode`
 
 ## Temporary Branches And Worktrees
 - merged and cleaned up:
   - step_id: `stage-1-step-1`
   - branch: `cl/2026-05-02_context-management-implementation-stage-1-step-1`
   - worktree: `/tmp/steiner-stage-1-step-1`
-- pending provisioning:
   - step_id: `stage-2-step-1`
   - branch: `cl/2026-05-02_context-management-implementation-stage-2-step-1`
   - worktree: `/tmp/steiner-stage-2-step-1`
@@ -182,6 +187,27 @@
   - `go test ./internal/agent -run TestRecordMutationForContextManager`
   - `go test ./internal/agent -run TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite`
   - result: `passed`
+- `stage-2-step-1` sub-agent verification
+  - `gofmt -w internal/agent/context_manager.go internal/agent/context_manager_test.go internal/agent/context_management_integration_test.go internal/agent/compaction.go internal/agent/compaction_test.go internal/prompt/masking.go internal/prompt/masking_test.go internal/output/debug.go internal/output/stream_test.go`
+  - `go test ./internal/prompt -run TestMask`
+  - `go test ./internal/agent -run TestContext`
+  - `go test ./internal/agent -run TestCompaction`
+  - result: `passed`
+- `stage-3-step-1` sub-agent verification
+  - `go test ./internal/config -run Test`
+  - `go test ./internal/agent -run TestScratchpad`
+  - `go test ./internal/agent -run TestContext`
+  - `go test ./cmd/steiner -run TestRuntimeRegistryIncludesCoreToolsByDefault`
+  - `go test ./internal/tool/builtin -run TestScratchpad`
+  - result: `passed`
+- `stage-3-step-1` post-merge reconciliation verification
+  - `gofmt -w cmd/steiner/main_test.go cmd/steiner/runner.go cmd/steiner/tools.go internal/agent/compaction.go internal/agent/context_management_integration_test.go internal/agent/context_manager.go internal/agent/context_manager_test.go internal/agent/file_tracker.go internal/agent/message_convert.go internal/agent/runner_test.go internal/agent/scratchpad.go internal/agent/scratchpad_test.go internal/agent/turn_progression.go internal/config/config.go internal/config/config_test.go internal/config/defaults.go internal/config/patch.go internal/config/validate.go internal/config/validate_test.go internal/tool/builtin/scratchpad.go internal/tool/builtin/scratchpad_test.go`
+  - `go test ./internal/prompt -run TestMask`
+  - `go test ./internal/config -run Test`
+  - `go test ./internal/tool/builtin -run TestScratchpad`
+  - `go test ./cmd/steiner -run TestRuntimeRegistryIncludesCoreToolsByDefault`
+  - `go test ./internal/agent -run 'Test(Scratchpad|Context|Compaction)'`
+  - result: `passed`
 
 ## Fix Plans
 - none yet
@@ -190,7 +216,9 @@
 - not started
 
 ## Merge Conflicts
-- none
+- `stage-3-step-1`
+  - file: `internal/agent/context_manager.go`
+  - resolution: combined epoch-masking state and reset hooks from stage 2 with scratchpad-mode state, scaffold heuristics, and observe-tool-result plumbing from stage 3
 
 ## Blockers And Deviations
 - executor deviation:
