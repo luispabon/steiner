@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -257,6 +259,56 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	}
 	if cm.scratchpad.Decisions != "chose X" {
 		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
+	}
+}
+
+func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	var events []output.Event
+	cm := &SmartContextManager{}
+	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+
+	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
+	if got := cm.IngestToolResult(1, "read", content); got != content {
+		t.Fatalf("first read = %q, want full content", got)
+	}
+	cm.RecordMutation("note.txt")
+	if got := cm.IngestToolResult(2, "read", content); got != content {
+		t.Fatalf("second read after generation bump = %q, want full content", got)
+	}
+
+	var mismatch output.ContextDiagnosticsEvent
+	found := false
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok || payload.Kind != "file_annotation" || payload.Turn != 2 {
+			continue
+		}
+		mismatch = payload
+		found = true
+	}
+	if !found {
+		t.Fatal("missing file annotation diagnostic for second read")
+	}
+	if got, want := mismatch.Reason, "generation changed"; got != want {
+		t.Fatalf("diagnostic reason = %q, want %q", got, want)
+	}
+	if !containsString(mismatch.Notes, "mtime_unchanged") {
+		t.Fatalf("diagnostic notes = %v, want mtime_unchanged", mismatch.Notes)
 	}
 }
 

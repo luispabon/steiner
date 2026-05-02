@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -44,6 +43,9 @@ func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 
 // OnTurnComplete is a no-op for the naive manager.
 func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
+
+// RecordMutation is a no-op for the naive manager.
+func (n *NaiveContextManager) RecordMutation(_ string) {}
 
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
@@ -145,17 +147,18 @@ func (s *SmartContextManager) IngestToolResult(turn int, toolName, content strin
 		return `{"ok":true}`
 	}
 	if toolName == "read" {
-		result, ok := parseReadResult(shaped)
-		var previous trackedFileRead
-		var hadPrevious bool
-		if ok && strings.TrimSpace(result.Path) != "" && s.fileTracker.reads != nil {
-			previous, hadPrevious = s.fileTracker.reads[strings.TrimSpace(result.Path)]
-		}
-		next := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
-		s.emitFileAnnotationDiagnostics(turn, result, previous, hadPrevious, shaped, next)
+		result, _ := parseReadResult(shaped)
+		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
+		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 		return next
 	}
 	return shaped
+}
+
+// RecordMutation bumps the in-memory file generation for a successful
+// steiner-originated mutation.
+func (s *SmartContextManager) RecordMutation(path string) {
+	s.fileTracker.BumpGeneration(path)
 }
 
 // SetEventSink installs the sink used for context-management diagnostics.
@@ -224,7 +227,7 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	return next
 }
 
-func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, previous trackedFileRead, hadPrevious bool, original, shaped string) {
+func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, observation fileObservation, original, shaped string) {
 	if s.events == nil {
 		return
 	}
@@ -232,34 +235,24 @@ func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result rea
 		return
 	}
 
-	action := "full"
-	reason := "first read"
-	if strings.TrimSpace(shaped) != strings.TrimSpace(original) {
-		action = "annotated"
-		if hadPrevious {
-			reason = fmt.Sprintf("unchanged since turn %d", previous.LastTurn)
-		} else {
-			reason = "unchanged reread"
-		}
-	} else if !s.annotationsEnabled() {
-		reason = "annotations disabled"
-	} else if hadPrevious {
-		info, err := os.Stat(strings.TrimSpace(result.Path))
-		if err == nil && !previous.ModTime.Equal(info.ModTime()) {
-			reason = "modified file"
-		} else if hadPrevious {
-			reason = "served full content"
-		}
-	}
-
 	notes := []string{fmt.Sprintf("range=%s", result.rangeSummary())}
 	if strings.TrimSpace(original) != strings.TrimSpace(shaped) {
 		notes = append(notes, "annotation produced")
 	}
-	if previous.Path != "" {
-		notes = append(notes, fmt.Sprintf("previous_turn=%d", previous.LastTurn))
+	notes = append(notes, observation.Notes...)
+
+	previousTurn := 0
+	if observation.HadPrevious {
+		previousTurn = observation.PreviousRead.LastTurn
 	}
-	emitEvent(s.events, output.NewFileAnnotationEvent(turn, strings.TrimSpace(result.Path), action, reason, previous.LastTurn, notes...))
+	emitEvent(s.events, output.NewFileAnnotationEvent(
+		turn,
+		strings.TrimSpace(result.Path),
+		observation.Action,
+		observation.Reason,
+		previousTurn,
+		notes...,
+	))
 }
 
 func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original, masked []Message) {
