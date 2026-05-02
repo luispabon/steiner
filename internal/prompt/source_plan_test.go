@@ -84,7 +84,7 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "retained conversation", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
-			Scratchpad: "<scratchpad>\ngoal: ship masking\n</scratchpad>",
+			Scratchpad: "[Current task state]\ngoal: ship masking\nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: ",
 		},
 		ScratchpadEnabled: true,
 		Conversation: []provider.Message{

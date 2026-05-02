@@ -234,21 +234,26 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 }
 
-func TestRunnerSmartContextManagerStripsAndReinjectsScratchpad(t *testing.T) {
+func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
+	// Scratchpad state is now captured exclusively via tool call results.
+	// The assistant content is preserved unchanged; the rendered scratchpad
+	// is injected into the context state for the next turn.
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					Content: "working\n<scratchpad>\n" +
-						"goal: ship scratchpad\n" +
-						"plan: parse and inject\n" +
-						"step: call read\n" +
-						"next: inspect response\n" +
-						"open: none\n" +
-						"</scratchpad>",
+					Role:    provider.MessageRoleAssistant,
+					Content: "working",
 					ToolCalls: []provider.ToolCall{
-						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+						{ID: "call_sp", Name: "scratchpad", Arguments: map[string]any{
+							"goal":      "ship scratchpad",
+							"plan":      "parse and inject",
+							"step":      "call scratchpad tool",
+							"decisions": "use tool result path",
+							"files":     "none",
+							"open":      "none",
+							"next":      "inspect response",
+						}},
 					},
 				},
 				FinishReason: "tool_calls",
@@ -266,28 +271,47 @@ func TestRunnerSmartContextManagerStripsAndReinjectsScratchpad(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName == "scratchpad" {
+				goal, _ := input["goal"].(string)
+				plan, _ := input["plan"].(string)
+				step, _ := input["step"].(string)
+				decisions, _ := input["decisions"].(string)
+				files, _ := input["files"].(string)
+				open, _ := input["open"].(string)
+				next, _ := input["next"].(string)
+				return tool.ExecutionResult{
+					Value: map[string]string{
+						"status":    "ok",
+						"goal":      goal,
+						"plan":      plan,
+						"step":      step,
+						"decisions": decisions,
+						"files":     files,
+						"open":      open,
+						"next":      next,
+					},
+				}, nil
+			}
 			return tool.ExecutionResult{
 				Value: map[string]any{
-					"path":        "note.txt",
-					"start_line":  1,
-					"end_line":    1,
-					"total_lines": 1,
-					"output":      "hello\n",
+					"path": "note.txt", "start_line": 1, "end_line": 1,
+					"total_lines": 1, "output": "hello\n",
 				},
 			}, nil
 		},
 	}
 
+	cm := &SmartContextManager{}
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
-		ContextManager: &SmartContextManager{},
+		ContextManager: cm,
 		Prompt: prompt.AssemblyOptions{
 			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "use scratchpad"}},
 			ScratchpadEnabled: true,
 		},
-		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
+		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "scratchpad", Description: "scratchpad", Parameters: map[string]any{"type": "object"}}}},
 		Model:     "test-model",
 		MaxTokens: intPtr(64),
 		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
@@ -295,31 +319,21 @@ func TestRunnerSmartContextManagerStripsAndReinjectsScratchpad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
+	// Assistant content is preserved unchanged (no XML stripping).
 	if got := state.Conversation[1].Content; got != "working" {
-		t.Fatalf("assistant content = %q, want scratchpad stripped", got)
+		t.Fatalf("assistant content = %q, want working", got)
 	}
 	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
+	// Scratchpad state is captured in context manager.
+	if got := cm.scratchpad.Goal; got != "ship scratchpad" {
+		t.Fatalf("scratchpad goal = %q, want ship scratchpad", got)
+	}
+	// Second request should include the rendered scratchpad state via context.
 	second := providerStub.requests[1]
-	scratchpadIndex := -1
-	assistantIndex := -1
-	for i, message := range second.Messages {
-		if strings.Contains(message.Content, "<scratchpad>") {
-			scratchpadIndex = i
-		}
-		if message.Role == provider.MessageRoleAssistant && message.Content == "working" {
-			assistantIndex = i
-		}
-	}
-	if scratchpadIndex < 0 {
-		t.Fatalf("second request missing scratchpad block: %+v", second.Messages)
-	}
-	if assistantIndex < 0 {
-		t.Fatalf("second request missing stripped assistant content: %+v", second.Messages)
-	}
-	if scratchpadIndex >= assistantIndex {
-		t.Fatalf("scratchpad block index = %d, want before assistant conversation index %d", scratchpadIndex, assistantIndex)
+	if !messageContentsContain(second.Messages, "goal: ship scratchpad") {
+		t.Fatalf("second request missing scratchpad state: %+v", second.Messages)
 	}
 }
 

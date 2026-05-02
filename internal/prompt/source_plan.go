@@ -304,7 +304,7 @@ func scratchpadBlock(state DurableContextState, enabled bool) (ContextBlock, boo
 	}
 	content := strings.TrimSpace(state.Scratchpad)
 	if content == "" {
-		content = strings.TrimSpace("<scratchpad>\ngoal: \nplan: \nstep: \nnext: \nopen: \n</scratchpad>")
+		content = "[Current task state]\ngoal: \nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: "
 	}
 	return ContextBlock{
 		Source:   ContextSourceScratchpad,

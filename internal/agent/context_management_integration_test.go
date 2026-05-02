@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,20 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+// scratchpadToolResult builds a JSON scratchpad tool result for use in fake executor responses.
+func scratchpadToolResult(goal, plan, step, decisions, files, open, next string) map[string]any {
+	return map[string]any{
+		"status":    "ok",
+		"goal":      goal,
+		"plan":      plan,
+		"step":      step,
+		"decisions": decisions,
+		"files":     files,
+		"open":      open,
+		"next":      next,
+	}
+}
 
 func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	dir := t.TempDir()
@@ -34,15 +49,18 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		responses: []provider.ChatResponse{
 			{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					Content: "turn 1 answer\nmore detail\n<scratchpad>\n" +
-						"goal: inspect note\n" +
-						"plan: reread file\n" +
-						"step: read first pass\n" +
-						"next: reread note\n" +
-						"open: none\n" +
-						"</scratchpad>",
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 1 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
+						{ID: "call_sp1", Name: "scratchpad", Arguments: map[string]any{
+							"goal":      "inspect note",
+							"plan":      "reread file",
+							"step":      "read first pass",
+							"decisions": "decided to read file first",
+							"files":     "note.txt (read)",
+							"open":      "none",
+							"next":      "reread note",
+						}},
 						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
 					},
 				},
@@ -51,12 +69,18 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 			},
 			{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					Content: "turn 2 answer\nmore detail\n<scratchpad>\n" +
-						"step: compare reread\n" +
-						"next: finish\n" +
-						"</scratchpad>",
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 2 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
+						{ID: "call_sp2", Name: "scratchpad", Arguments: map[string]any{
+							"goal":      "inspect note",
+							"plan":      "reread file",
+							"step":      "compare reread",
+							"decisions": "file unchanged",
+							"files":     "note.txt (read)",
+							"open":      "none",
+							"next":      "finish",
+						}},
 						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
 					},
 				},
@@ -74,7 +98,19 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(context.Context, string, map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName == "scratchpad" {
+				goal, _ := input["goal"].(string)
+				plan, _ := input["plan"].(string)
+				step, _ := input["step"].(string)
+				decisions, _ := input["decisions"].(string)
+				files, _ := input["files"].(string)
+				open, _ := input["open"].(string)
+				next, _ := input["next"].(string)
+				return tool.ExecutionResult{
+					Value: scratchpadToolResult(goal, plan, step, decisions, files, open, next),
+				}, nil
+			}
 			return tool.ExecutionResult{
 				Value: map[string]any{
 					"path":        "note.txt",
@@ -119,6 +155,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 
+	// Scratchpad state injected into second request via context state.
 	secondRequest := providerStub.requests[1].Messages
 	if !messageContentsContain(secondRequest, "goal: inspect note") {
 		t.Fatalf("second request missing carried scratchpad goal: %#v", secondRequest)
@@ -137,9 +174,6 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	if !messageContentsContain(thirdRequest, "turn 1 answer") {
 		t.Fatalf("third request missing trimmed older assistant content: %#v", thirdRequest)
 	}
-	if messageContentsContain(thirdRequest, "turn 1 answer\n<scratchpad>") {
-		t.Fatalf("third request still contains raw turn 1 scratchpad: %#v", thirdRequest)
-	}
 	if !messageContentsContain(thirdRequest, "older tool result masked") {
 		t.Fatalf("third request missing masked older tool result: %#v", thirdRequest)
 	}
@@ -154,7 +188,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		}
 	}
 
-	var sawScratchpadParsed, sawScratchpadFailed, sawAnnotated, sawMasked, sawTrimmed bool
+	var sawScratchpadParsed, sawAnnotated, sawMasked, sawTrimmed bool
 	for _, event := range events {
 		if event.Type != output.EventTypeContextDiagnostics {
 			continue
@@ -169,11 +203,6 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 				sawScratchpadParsed = true
 				if strings.TrimSpace(payload.SummaryPreview) == "" {
 					t.Fatalf("scratchpad payload = %#v, want summary preview", payload)
-				}
-			} else {
-				sawScratchpadFailed = true
-				if strings.TrimSpace(payload.Reason) == "" {
-					t.Fatalf("scratchpad payload = %#v, want failure reason", payload)
 				}
 			}
 		case "file_annotation":
@@ -194,9 +223,6 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	}
 	if !sawScratchpadParsed {
 		t.Fatal("missing parsed scratchpad diagnostics")
-	}
-	if !sawScratchpadFailed {
-		t.Fatal("missing failed scratchpad diagnostic")
 	}
 	if !sawAnnotated {
 		t.Fatal("missing unchanged reread annotation diagnostic")
@@ -229,14 +255,8 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 		responses: []provider.ChatResponse{
 			{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					Content: "turn 1 answer\nmore detail\n<scratchpad>\n" +
-						"goal: inspect note\n" +
-						"plan: reread file\n" +
-						"step: read first pass\n" +
-						"next: reread note\n" +
-						"open: none\n" +
-						"</scratchpad>",
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 1 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
 					},
@@ -246,11 +266,8 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 			},
 			{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					Content: "turn 2 answer\nmore detail\n<scratchpad>\n" +
-						"step: compare reread\n" +
-						"next: finish\n" +
-						"</scratchpad>",
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 2 answer\nmore detail",
 					ToolCalls: []provider.ToolCall{
 						{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
 					},
@@ -307,20 +324,29 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 	if !messageContentsContain(providerStub.requests[1].Messages, "turn 1 answer\nmore detail") {
-		t.Fatalf("naive second request missing raw scratchpad content: %#v", providerStub.requests[1].Messages)
+		t.Fatalf("naive second request missing raw content: %#v", providerStub.requests[1].Messages)
 	}
 	if messageContentsContain(providerStub.requests[2].Messages, "older tool result masked") {
 		t.Fatalf("naive third request contains masked tool result: %#v", providerStub.requests[2].Messages)
 	}
-	if !messageContentsContain(providerStub.requests[2].Messages, "turn 1 answer\nmore detail\n<scratchpad>") {
+	if !messageContentsContain(providerStub.requests[2].Messages, "turn 1 answer\nmore detail") {
 		t.Fatalf("naive third request missing raw older assistant content: %#v", providerStub.requests[2].Messages)
 	}
 
-	if !strings.Contains(state.Conversation[1].Content, "<scratchpad>") {
-		t.Fatalf("naive assistant content = %q, want raw scratchpad retained", state.Conversation[1].Content)
+	if got := state.Conversation[1].Content; got != "turn 1 answer\nmore detail" {
+		t.Fatalf("naive assistant content = %q, want unchanged", got)
 	}
-	if strings.Contains(state.Conversation[2].Content, "file unchanged since turn 1") {
-		t.Fatalf("naive tool result = %q, want no file annotation", state.Conversation[2].Content)
+
+	// Read tool results should not be annotated by naive manager.
+	var readResultContent string
+	for _, msg := range state.Conversation {
+		if msg.Role == MessageRoleTool && msg.Name == "read" {
+			readResultContent = msg.Content
+			break
+		}
+	}
+	if strings.Contains(readResultContent, "file unchanged since turn 1") {
+		t.Fatalf("naive tool result = %q, want no file annotation", readResultContent)
 	}
 
 	kinds := contextDiagnosticKinds(events)
@@ -344,4 +370,14 @@ func contextDiagnosticKinds(events []output.Event) []string {
 		kinds = append(kinds, payload.Kind)
 	}
 	return kinds
+}
+
+// mustMarshalJSON marshals v or fatally fails the test.
+func mustMarshalJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return string(b)
 }

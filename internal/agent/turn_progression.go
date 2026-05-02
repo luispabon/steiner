@@ -80,6 +80,9 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
 	if len(response.Message.ToolCalls) == 0 {
+		if in.Request.ContextManager != nil {
+			in.Request.ContextManager.OnTurnComplete(turn, false)
+		}
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 		state.StopReason = StopReasonComplete
 		emitStop(in.Request.Events, state, nil)
@@ -99,11 +102,16 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
 //   - TurnFinished event emission after all tools
+//   - OnTurnComplete notification for scratchpad tracking
 func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
 	state := in.State
 	turn := state.TurnCount
+	scratchpadCalled := false
 
 	for _, call := range response.Message.ToolCalls {
+		if call.Name == "scratchpad" {
+			scratchpadCalled = true
+		}
 		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
 		emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
 
@@ -140,6 +148,9 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 		}})
 	}
 
+	if in.Request.ContextManager != nil {
+		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)
+	}
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}

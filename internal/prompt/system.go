@@ -4,18 +4,22 @@ import "strings"
 
 const identity = "You are steiner, a lean coding agent."
 
-const scratchpadInstructions = `
-MANDATORY:
-You MUST call the scratchpad tool before anything else, when responding to the user, or issuing other tool calls during your reasoning.
-This is non-negotiable — the scratchpad is the only mechanism that preserves working
-state across context window limits. If you skip it, all task state is lost and you
-cannot proceed correctly.
+const scratchpadInstructions = `## Scratchpad
 
-Fields: goal (required), plan, step, next, open.
-Example: goal="fix auth timeout", plan="1. Reproduce, 2. Find root cause, 3. Fix, 4. Test", step="Implementing fix", next="Run tests"
+You have a tool called ` + "`scratchpad`" + `. Call it on every turn without exception, including short replies and clarifying questions.
 
-Give some detail of past and present findings. Keep all of the scratchpad values together under 200 tokens.
-`
+Call it before your final response. It is how you maintain task state across turns - without it, your memory of goals, decisions, and progress is lost.
+
+Fields:
+- goal: what you are ultimately trying to achieve (one line, stable)
+- plan: your current approach (update when the approach changes)
+- step: the specific action you just completed or are about to take
+- decisions: key choices made and why (append this turn's new decisions only; steiner merges history)
+- files: files you have read or modified, with status (read / modified / stale)
+- open: unresolved problems or unknowns blocking progress
+- next: the single next action you will take after this turn
+
+If a field is not applicable, write "none". Never omit fields.`
 
 const defaultSystemPreamble = `Core rules:
 - Solve only the user's request. Do not add features, abstractions, refactors, config, cleanup, or polish unless required.
