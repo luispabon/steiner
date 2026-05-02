@@ -76,6 +76,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	}
 
 	assistant := fromProviderMessage(response.Message)
+	assistant.Turn = turn
 	state.Conversation = append(state.Conversation, assistant)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
@@ -139,12 +140,14 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 			Content:    toolContent,
 			ToolCallID: call.ID,
 			Name:       call.Name,
+			Turn:       turn,
 		})
 		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
 			Role:       MessageRoleTool,
 			Content:    toolContent,
 			ToolCallID: call.ID,
 			Name:       call.Name,
+			Turn:       turn,
 		}})
 	}
 

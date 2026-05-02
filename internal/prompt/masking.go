@@ -40,7 +40,7 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 			assistantTurn++
 			currentToolCalls = cloneProviderToolCalls(cloned.ToolCalls)
 			if assistantTurn <= cutoffTurn {
-				cloned.Content = maskAssistantContent(cloned.Content)
+				cloned.Content = maskAssistantMessage(cloned)
 			}
 		case provider.MessageRoleTool:
 			if assistantTurn <= cutoffTurn {
@@ -52,8 +52,8 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 	return out
 }
 
-func maskAssistantContent(content string) string {
-	content = strings.TrimSpace(content)
+func maskAssistantMessage(message provider.Message) string {
+	content := strings.TrimSpace(message.Content)
 	if content == "" {
 		return ""
 	}
@@ -61,7 +61,11 @@ func maskAssistantContent(content string) string {
 	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
 		line = content[:idx]
 	}
-	return strings.TrimSpace(line)
+	line = strings.TrimSpace(line)
+	if message.Turn > 0 {
+		return fmt.Sprintf("[turn %d] %s", message.Turn, line)
+	}
+	return line
 }
 
 func maskToolResult(message provider.Message, toolCalls []provider.ToolCall) string {
@@ -73,11 +77,22 @@ func maskToolResult(message provider.Message, toolCalls []provider.ToolCall) str
 		name = "tool"
 	}
 
-	parts := []string{fmt.Sprintf("[older tool result masked: %s", name)}
+	var prefix string
+	if message.Turn > 0 {
+		prefix = fmt.Sprintf("[tool result from turn %d masked: %s", message.Turn, name)
+	} else {
+		prefix = fmt.Sprintf("[older tool result masked: %s", name)
+	}
+
+	parts := []string{prefix}
 	if args != "" {
 		parts = append(parts, "args="+args)
 	}
-	parts = append(parts, "]")
+	if message.Turn > 0 {
+		parts = append(parts, "- re-read if needed]")
+	} else {
+		parts = append(parts, "]")
+	}
 	return strings.Join(parts, " ")
 }
 

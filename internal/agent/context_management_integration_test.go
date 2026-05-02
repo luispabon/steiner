@@ -174,7 +174,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	if !messageContentsContain(thirdRequest, "turn 1 answer") {
 		t.Fatalf("third request missing trimmed older assistant content: %#v", thirdRequest)
 	}
-	if !messageContentsContain(thirdRequest, "older tool result masked") {
+	if !messageContentsContain(thirdRequest, "tool result") || !messageContentsContain(thirdRequest, "masked") {
 		t.Fatalf("third request missing masked older tool result: %#v", thirdRequest)
 	}
 	if !messageContentsContain(thirdRequest, "file unchanged since turn 1") {
