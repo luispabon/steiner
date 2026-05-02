@@ -119,11 +119,19 @@
   - parallel_group: `post-stage-1`
   - can_run_in_parallel: `true`
   - suggested_model: `cheap-good`
+- `stage-3-step-2`
+  - status: `pending`
+  - depends_on:
+    - `stage-3-step-1`
+  - parallel_group: none
+  - can_run_in_parallel: `false`
+  - suggested_model: `cheap-good`
 
 ## Execution Timeline
 - `2026-05-02`: validated planning folder, confirmed required planner inputs, confirmed execution branch exists, and confirmed clean startup state before executor initialization
 - `2026-05-02`: loaded stage 1 local code context covering `FileTracker`, `SmartContextManager`, write/edit execution flow, and file-annotation diagnostics before first sub-agent dispatch
 - `2026-05-02`: marked `stage-1-step-1` as `running` and prepared isolated execution handoff
+- `2026-05-02`: corrected step graph after fuller plan load to include dependent `stage-3-step-2`
 
 ## Sub-Agents
 - pending dispatch:
