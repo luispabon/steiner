@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"sort"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -45,17 +45,25 @@ func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 // OnTurnComplete is a no-op for the naive manager.
 func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
 
+// RecordMutation is a no-op for the naive manager.
+func (n *NaiveContextManager) RecordMutation(_ string) {}
+
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
 type SmartContextManager struct {
-	maskingWindowTurns int
-	readAnnotations    bool
-	configApplied      bool
-	compactionStrategy config.CompactionStrategy
-	events             output.EventSink
-	fileTracker        FileTracker
-	scratchpad         Scratchpad
-	scratchpadFailures int
+	maskingWindowTurns      int
+	readAnnotations         bool
+	configApplied           bool
+	compactionStrategy      config.CompactionStrategy
+	scratchpadMode          config.ScratchpadMode
+	events                  output.EventSink
+	fileTracker             FileTracker
+	scratchpad              Scratchpad
+	scratchpadFailures      int
+	epochMaskBoundary       int
+	epochStartTurn          int
+	contextPressureTrigger  func(currentTurn int, state RunState) bool
+	lastScaffoldFingerprint string
 	// cachedPreamble holds the system preamble built once per session.
 	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
 	// so building the string once prevents unnecessary allocations and keeps
@@ -92,6 +100,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 	next := state.Clone()
 	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
 	next.Lineage = newConversationLineage(next.Conversation)
+	s.initializeEpochFromTurnCount(next.TurnCount)
 	return next, nil
 }
 
@@ -103,9 +112,17 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	if len(conversation) == 0 {
 		conversation = next.Conversation
 	}
+	s.initializeEpochFromTurnCount(next.TurnCount)
+	currentTurn := next.TurnCount + 1
+	previousBoundary := s.epochMaskBoundary
+	previousStartTurn := s.epochStartTurn
+	trigger := ""
+	if s.shouldAdvanceEpoch(currentTurn, next) {
+		trigger = s.advanceEpoch(currentTurn)
+	}
 	window := s.maskingWindow()
-	masked := fromProviderMessages(prompt.MaskConversation(toProviderMessages(conversation), window))
-	s.emitMaskingDiagnostics(next.TurnCount+1, window, conversation, masked)
+	masked := fromProviderMessages(prompt.MaskConversationBeforeTurn(toProviderMessages(conversation), s.epochMaskBoundary))
+	s.emitMaskingDiagnostics(currentTurn, window, previousBoundary, previousStartTurn, trigger, conversation, masked)
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
 	return next, nil
@@ -121,6 +138,9 @@ func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (st
 // OnTurnComplete tracks whether the scratchpad tool was called this turn and
 // emits a warning event when three consecutive turns have been missed.
 func (s *SmartContextManager) OnTurnComplete(turnIndex int, scratchpadCalled bool) {
+	if s.scratchpadMode != config.ScratchpadModeHybrid {
+		return
+	}
 	if scratchpadCalled {
 		s.scratchpadFailures = 0
 		return
@@ -135,27 +155,29 @@ func (s *SmartContextManager) OnTurnComplete(turnIndex int, scratchpadCalled boo
 // IngestToolResult shapes a newly produced tool result before it enters the
 // active conversation history.
 func (s *SmartContextManager) IngestToolResult(turn int, toolName, content string) string {
-	shaped := tool.ShapeIngestedToolResult(toolName, content)
-	if toolName == "scratchpad" {
-		if next, ok := parseScratchpadToolResult(shaped, s.scratchpad); ok {
-			s.scratchpad = next
-			s.scratchpadFailures = 0
-			emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
-		}
-		return `{"ok":true}`
-	}
-	if toolName == "read" {
-		result, ok := parseReadResult(shaped)
-		var previous trackedFileRead
-		var hadPrevious bool
-		if ok && strings.TrimSpace(result.Path) != "" && s.fileTracker.reads != nil {
-			previous, hadPrevious = s.fileTracker.reads[strings.TrimSpace(result.Path)]
-		}
-		next := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
-		s.emitFileAnnotationDiagnostics(turn, result, previous, hadPrevious, shaped, next)
-		return next
-	}
-	return shaped
+	return s.observeToolResult(turn, toolName, nil, content)
+}
+
+// RecordMutation bumps the in-memory file generation for a successful
+// steiner-originated mutation.
+func (s *SmartContextManager) RecordMutation(path string) {
+	s.fileTracker.BumpGeneration(path)
+}
+
+// ResetEpoch resets the current masking epoch after compaction so retained
+// conversation starts from a clean boundary.
+func (s *SmartContextManager) ResetEpoch(turn int) {
+	s.resetEpoch(turn, "compaction")
+}
+
+// RecordCompaction appends a scaffold-managed compaction fact.
+func (s *SmartContextManager) RecordCompaction(turn int) {
+	s.appendDecisionFact(fmt.Sprintf("compaction occurred at turn %d", turn))
+}
+
+// ObserveToolResult records heuristic context derived from a tool result.
+func (s *SmartContextManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
+	return s.observeToolResult(turn, toolName, input, content)
 }
 
 // SetEventSink installs the sink used for context-management diagnostics.
@@ -167,11 +189,14 @@ func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
 // mode. An unrecognised mode falls back to NaiveContextManager.
 func NewContextManager(mode string, cfg ...config.ContextManagementConfig) ContextManager {
 	if mode == "smart" {
-		manager := &SmartContextManager{}
+		manager := &SmartContextManager{scratchpadMode: config.ScratchpadModeScaffoldOnly}
 		if len(cfg) > 0 {
 			manager.maskingWindowTurns = cfg[0].MaskingWindowTurns
 			manager.readAnnotations = cfg[0].ReadAnnotations
 			manager.compactionStrategy = cfg[0].CompactionStrategy
+			if cfg[0].ScratchpadMode != "" {
+				manager.scratchpadMode = cfg[0].ScratchpadMode
+			}
 			manager.configApplied = true
 		}
 		return manager
@@ -201,11 +226,250 @@ func (s *SmartContextManager) normalizeIngestedMessage(turn int, message Message
 	return message
 }
 
+func (s *SmartContextManager) syncScaffoldState(state RunState, next *ContextState) {
+	if next == nil {
+		return
+	}
+	s.scratchpad.SessionState = compactSessionState(next.TurnCount, next.CompactionCount)
+	s.scratchpad.TrackedFiles = s.fileTracker.Summaries(5)
+	s.scratchpad.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
+}
+
+func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
+	shaped := tool.ShapeIngestedToolResult(toolName, content)
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "scratchpad":
+		next, warnings, ok := parseScratchpadToolResult(shaped, s.scratchpad)
+		if ok {
+			s.scratchpad = next
+			s.scratchpad.LastAction = "scratchpad updated"
+			s.scratchpadFailures = 0
+			emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+			if len(warnings) > 0 {
+				emitEvent(s.events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+					Kind:     "scratchpad",
+					Scope:    "assistant",
+					Turn:     turn,
+					Severity: "warning",
+					Action:   "compatibility",
+					Reason:   "legacy scratchpad fields ignored",
+					Notes:    warnings,
+				}))
+			}
+		}
+		return `{"ok":true}`
+	case "read":
+		result, _ := parseReadResult(shaped)
+		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
+		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
+		s.observeReadHeuristics(turn, result, observation, next)
+		return next
+	case "edit", "write":
+		s.observeMutationHeuristics(turn, toolName, input, shaped)
+		return shaped
+	case "bash":
+		s.observeBashHeuristics(turn, input, shaped)
+		return shaped
+	default:
+		s.observeGenericToolHeuristics(turn, toolName, shaped)
+		return shaped
+	}
+}
+
+func (s *SmartContextManager) observeReadHeuristics(turn int, result readResult, observation fileObservation, content string) {
+	path := strings.TrimSpace(result.Path)
+	if path == "" {
+		return
+	}
+	s.updateWorkingFile(path, turn, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
+	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
+		s.appendDecisionFact(fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))
+	}
+}
+
+func (s *SmartContextManager) observeMutationHeuristics(turn int, toolName string, input map[string]any, content string) {
+	var result struct {
+		Path   string `json:"path"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return
+	}
+	path := strings.TrimSpace(result.Path)
+	if path == "" && input != nil {
+		if rawPath, ok := input["path"].(string); ok {
+			path = strings.TrimSpace(rawPath)
+		}
+	}
+	if path != "" {
+		s.updateWorkingFile(path, turn, toolName, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
+	}
+	if toolName == "edit" {
+		s.appendDecisionFact(fmt.Sprintf("edited %s: %s", path, summarizeTextPreview(result.Output, 96)))
+	}
+}
+
+func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]any, content string) {
+	var result struct {
+		ExitCode  int    `json:"exit_code"`
+		Truncated bool   `json:"truncated"`
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return
+	}
+
+	command := ""
+	if input != nil {
+		command, _ = input["command"].(string)
+	}
+	command = strings.TrimSpace(command)
+	preview := summarizeTextPreview(result.Output, 96)
+	if preview == "" {
+		preview = strings.TrimSpace(result.Message)
+	}
+	if preview == "" {
+		preview = fmt.Sprintf("exit_code=%d", result.ExitCode)
+	}
+
+	if isTestCommand(command) {
+		status := "failed"
+		if result.ExitCode == 0 {
+			status = "passed"
+		}
+		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, summarizeTextPreview(command, 80)))
+	}
+	s.scratchpad.LastAction = fmt.Sprintf("bash: %s", preview)
+}
+
+func (s *SmartContextManager) observeGenericToolHeuristics(turn int, toolName string, content string) {
+	s.scratchpad.LastAction = fmt.Sprintf("%s: %s", strings.TrimSpace(toolName), summarizeTextPreview(content, 80))
+	_ = turn
+}
+
+func (s *SmartContextManager) updateWorkingFile(path string, turn int, toolName, lastAction string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	if current := strings.TrimSpace(s.scratchpad.WorkingFile); current != "" && current != path {
+		s.appendDecisionFact(fmt.Sprintf("switched from %s to %s", current, path))
+	}
+	s.scratchpad.WorkingFile = path
+	s.scratchpad.LastAction = lastAction
+	if strings.TrimSpace(toolName) != "" {
+		s.scratchpad.LastAction = lastAction
+	}
+	_ = turn
+}
+
+func (s *SmartContextManager) appendDecisionFact(fact string) {
+	fact = strings.TrimSpace(fact)
+	if fact == "" || strings.EqualFold(fact, "none") {
+		return
+	}
+	combined := strings.TrimSpace(s.scratchpad.Decisions)
+	if combined != "" {
+		combined += "\n" + fact
+	} else {
+		combined = fact
+	}
+	for len(combined) > decisionsMaxBytes {
+		idx := strings.Index(combined, "\n")
+		if idx < 0 {
+			combined = combined[len(combined)-decisionsMaxBytes:]
+			break
+		}
+		combined = strings.TrimSpace(combined[idx+1:])
+	}
+	s.scratchpad.Decisions = combined
+}
+
+func toolVerb(toolName string) string {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "edit":
+		return "edited"
+	case "write":
+		return "wrote"
+	default:
+		return "updated"
+	}
+}
+
+func isTestCommand(command string) bool {
+	command = strings.ToLower(strings.TrimSpace(command))
+	if command == "" {
+		return false
+	}
+	switch {
+	case strings.Contains(command, "go test"),
+		strings.Contains(command, "pytest"),
+		strings.Contains(command, "cargo test"),
+		strings.Contains(command, "npm test"),
+		strings.Contains(command, "pnpm test"),
+		strings.Contains(command, "yarn test"),
+		strings.Contains(command, "bun test"),
+		strings.Contains(command, "make test"):
+		return true
+	}
+	if strings.HasPrefix(command, "test ") || strings.Contains(command, " test ") {
+		return true
+	}
+	return false
+}
+
 func (s *SmartContextManager) maskingWindow() int {
 	if s.maskingWindowTurns <= 0 {
 		return 5
 	}
 	return s.maskingWindowTurns
+}
+
+func (s *SmartContextManager) initializeEpochFromTurnCount(turnCount int) {
+	if turnCount <= 0 {
+		return
+	}
+	if s.epochStartTurn > 0 || s.epochMaskBoundary > 0 {
+		return
+	}
+	window := s.maskingWindow()
+	s.epochStartTurn = turnCount
+	s.epochMaskBoundary = turnCount - window
+	if s.epochMaskBoundary < 0 {
+		s.epochMaskBoundary = 0
+	}
+}
+
+func (s *SmartContextManager) shouldAdvanceEpoch(currentTurn int, state RunState) bool {
+	window := s.maskingWindow()
+	if currentTurn-s.epochStartTurn >= window {
+		return true
+	}
+	if s.contextPressureTrigger == nil {
+		return false
+	}
+	return s.contextPressureTrigger(currentTurn, state)
+}
+
+func (s *SmartContextManager) advanceEpoch(currentTurn int) string {
+	window := s.maskingWindow()
+	trigger := "turn_count"
+	if s.contextPressureTrigger != nil && currentTurn-s.epochStartTurn < window {
+		trigger = "context_pressure"
+	}
+	s.epochMaskBoundary = currentTurn - window
+	if s.epochMaskBoundary < 0 {
+		s.epochMaskBoundary = 0
+	}
+	s.epochStartTurn = currentTurn
+	return trigger
+}
+
+func (s *SmartContextManager) resetEpoch(turn int, trigger string) {
+	s.epochMaskBoundary = 0
+	s.epochStartTurn = turn
+	s.emitEpochResetDiagnostic(turn, trigger)
 }
 
 func (s *SmartContextManager) annotationsEnabled() bool {
@@ -218,13 +482,50 @@ func (s *SmartContextManager) annotationsEnabled() bool {
 func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	next := state.Context.Clone()
 	next.TurnCount = state.TurnCount
+	s.syncScaffoldState(state, &next)
 	next.Scratchpad = s.scratchpad.Render()
 	next.FileTrackerSummary = s.fileTracker.Summaries(5)
 	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
 	return next
 }
 
-func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, previous trackedFileRead, hadPrevious bool, original, shaped string) {
+func (s *SmartContextManager) scaffoldPromptState() string {
+	return s.scratchpad.Render()
+}
+
+func (s *SmartContextManager) shouldRunScaffoldInference(state RunState, compactionCount int) bool {
+	if s.scratchpadMode != config.ScratchpadModeScaffoldOnly {
+		return false
+	}
+	fingerprint := s.scaffoldFingerprint(state, compactionCount)
+	if fingerprint == s.lastScaffoldFingerprint {
+		return false
+	}
+	s.lastScaffoldFingerprint = fingerprint
+	return true
+}
+
+func (s *SmartContextManager) applyScaffoldInference(turn int, content string) (bool, string) {
+	next, parsed, note := parseScaffoldInferenceResult(content, s.scratchpad)
+	if !parsed {
+		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), 0, note))
+		return false, note
+	}
+	s.scratchpad = next
+	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+	return true, ""
+}
+
+func (s *SmartContextManager) scaffoldFingerprint(state RunState, compactionCount int) string {
+	toolSummary := ""
+	if recent := summarizeRecentToolCalls(state.Lineage.FullMessages(), 1); len(recent) > 0 {
+		toolSummary = recent[0]
+	}
+	workingFile := strings.TrimSpace(s.scratchpad.WorkingFile)
+	return fmt.Sprintf("compaction=%d|working=%s|tool=%s", compactionCount, workingFile, toolSummary)
+}
+
+func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, observation fileObservation, original, shaped string) {
 	if s.events == nil {
 		return
 	}
@@ -232,46 +533,56 @@ func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result rea
 		return
 	}
 
-	action := "full"
-	reason := "first read"
-	if strings.TrimSpace(shaped) != strings.TrimSpace(original) {
-		action = "annotated"
-		if hadPrevious {
-			reason = fmt.Sprintf("unchanged since turn %d", previous.LastTurn)
-		} else {
-			reason = "unchanged reread"
-		}
-	} else if !s.annotationsEnabled() {
-		reason = "annotations disabled"
-	} else if hadPrevious {
-		info, err := os.Stat(strings.TrimSpace(result.Path))
-		if err == nil && !previous.ModTime.Equal(info.ModTime()) {
-			reason = "modified file"
-		} else if hadPrevious {
-			reason = "served full content"
-		}
-	}
-
 	notes := []string{fmt.Sprintf("range=%s", result.rangeSummary())}
 	if strings.TrimSpace(original) != strings.TrimSpace(shaped) {
 		notes = append(notes, "annotation produced")
 	}
-	if previous.Path != "" {
-		notes = append(notes, fmt.Sprintf("previous_turn=%d", previous.LastTurn))
+	notes = append(notes, observation.Notes...)
+
+	previousTurn := 0
+	if observation.HadPrevious {
+		previousTurn = observation.PreviousRead.LastTurn
 	}
-	emitEvent(s.events, output.NewFileAnnotationEvent(turn, strings.TrimSpace(result.Path), action, reason, previous.LastTurn, notes...))
+	emitEvent(s.events, output.NewFileAnnotationEvent(
+		turn,
+		strings.TrimSpace(result.Path),
+		observation.Action,
+		observation.Reason,
+		previousTurn,
+		notes...,
+	))
 }
 
-func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original, masked []Message) {
+func (s *SmartContextManager) emitEpochResetDiagnostic(turn int, trigger string) {
+	if s.events == nil {
+		return
+	}
+	emitEvent(s.events, output.NewContextMaskingEvent(
+		turn,
+		"",
+		"reset",
+		"epoch boundary reset",
+		s.maskingWindow(),
+		s.epochMaskBoundary,
+		s.epochStartTurn,
+		0,
+		trigger,
+		"reset",
+	))
+}
+
+func (s *SmartContextManager) emitMaskingDiagnostics(turn, window, previousBoundary, previousStartTurn int, trigger string, original, masked []Message) {
 	if s.events == nil || len(original) == 0 || len(original) != len(masked) {
 		return
 	}
+	newlyMaskedTurns := map[int]struct{}{}
 	for i := range original {
 		if strings.TrimSpace(original[i].Content) == strings.TrimSpace(masked[i].Content) {
 			continue
 		}
 		action := "masked"
 		reason := "older than masking window"
+		epochStatus := "previously_masked"
 		toolName := strings.TrimSpace(original[i].Name)
 		switch original[i].Role {
 		case MessageRoleAssistant:
@@ -287,20 +598,40 @@ func (s *SmartContextManager) emitMaskingDiagnostics(turn, window int, original,
 		default:
 			action = "masked"
 		}
+		if trigger != "" && original[i].Turn > 0 && original[i].Turn >= previousBoundary && original[i].Turn < s.epochMaskBoundary {
+			epochStatus = "newly_masked"
+			newlyMaskedTurns[original[i].Turn] = struct{}{}
+		}
 		notes := []string{fmt.Sprintf("message_index=%d", i)}
 		if original[i].ToolCallID != "" {
 			notes = append(notes, "tool_call_id="+original[i].ToolCallID)
 		}
-		emitEvent(s.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, notes...))
+		emitEvent(s.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, s.epochMaskBoundary, s.epochStartTurn, 0, trigger, epochStatus, notes...))
+	}
+	if trigger != "" {
+		emitEvent(s.events, output.NewContextMaskingEvent(
+			turn,
+			"",
+			"advance",
+			"epoch boundary advanced",
+			window,
+			s.epochMaskBoundary,
+			s.epochStartTurn,
+			len(newlyMaskedTurns),
+			trigger,
+			"advance",
+			fmt.Sprintf("previous_boundary=%d", previousBoundary),
+			fmt.Sprintf("previous_start_turn=%d", previousStartTurn),
+		))
 	}
 }
 
-func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolName, content string) string {
+func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolName string, input map[string]any, content string) string {
 	type toolResultIngestor interface {
-		IngestToolResult(turn int, toolName, content string) string
+		ObserveToolResult(turn int, toolName string, input map[string]any, content string) string
 	}
 	if ingestor, ok := cm.(toolResultIngestor); ok {
-		return ingestor.IngestToolResult(turn, toolName, content)
+		return ingestor.ObserveToolResult(turn, toolName, input, content)
 	}
 	return content
 }
@@ -361,52 +692,102 @@ func summarizeTextValue(value any) string {
 
 const decisionsMaxBytes = 2000
 
-func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
-	var fields map[string]string
-	if err := json.Unmarshal([]byte(content), &fields); err != nil {
-		return previous, false
+func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, []string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return previous, nil, false
 	}
+
 	next := previous
-	if v, ok := fields["goal"]; ok && v != "" {
-		next.Goal = v
+	warnings := scratchpadCompatibilityWarnings(raw)
+
+	if v, ok := decodeScratchpadString(raw, "intent"); ok {
+		next.Intent = v
 	}
-	if v, ok := fields["plan"]; ok {
-		next.Plan = v
-	}
-	if v, ok := fields["step"]; ok {
-		next.Step = v
-	}
-	if v, ok := fields["next"]; ok {
-		next.Next = v
-	}
-	if v, ok := fields["open"]; ok {
+	if v, ok := decodeScratchpadString(raw, "open"); ok {
 		next.Open = v
 	}
-	if v, ok := fields["files"]; ok {
-		next.Files = v
+	if v, ok := decodeScratchpadString(raw, "next"); ok {
+		next.Next = v
 	}
-	// decisions: steiner-managed concatenation with oldest-first eviction at byte cap.
-	if v, ok := fields["decisions"]; ok {
-		newDecisions := strings.TrimSpace(v)
-		if newDecisions != "" && strings.ToLower(newDecisions) != "none" {
-			combined := strings.TrimSpace(previous.Decisions)
-			if combined != "" {
-				combined = combined + "\n" + newDecisions
-			} else {
-				combined = newDecisions
-			}
-			// Evict oldest entries (from the start) until under cap.
-			for len(combined) > decisionsMaxBytes {
-				idx := strings.Index(combined, "\n")
-				if idx < 0 {
-					// Single entry exceeds cap; truncate from start.
-					combined = combined[len(combined)-decisionsMaxBytes:]
-					break
-				}
-				combined = combined[idx+1:]
-			}
-			next.Decisions = combined
+	if v, ok := decodeScratchpadString(raw, "decisions"); ok {
+		next.Decisions = appendDecisionFactText(previous.Decisions, v)
+	}
+
+	return next, warnings, true
+}
+
+func parseScaffoldInferenceResult(content string, previous Scratchpad) (Scratchpad, bool, string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return previous, false, "invalid scaffold inference JSON: " + err.Error()
+	}
+
+	next := previous
+	if v, ok := decodeScratchpadString(raw, "intent"); ok {
+		next.Intent = v
+	}
+	if v, ok := decodeScratchpadString(raw, "next"); ok {
+		next.Next = v
+	}
+	return next, true, ""
+}
+
+func decodeScratchpadString(raw map[string]json.RawMessage, key string) (string, bool) {
+	value, ok := raw[key]
+	if !ok {
+		return "", false
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return "", false
+	}
+	return text, true
+}
+
+func scratchpadCompatibilityWarnings(raw map[string]json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	allowed := map[string]struct{}{
+		"status":    {},
+		"intent":    {},
+		"decisions": {},
+		"open":      {},
+		"next":      {},
+	}
+	legacy := make([]string, 0, 4)
+	for key := range raw {
+		if _, ok := allowed[key]; ok {
+			continue
 		}
+		legacy = append(legacy, key)
 	}
-	return next, true
+	if len(legacy) == 0 {
+		return nil
+	}
+	sort.Strings(legacy)
+	return []string{"ignored legacy fields: " + strings.Join(legacy, ", ")}
+}
+
+func appendDecisionFactText(existing, fact string) string {
+	fact = strings.TrimSpace(fact)
+	if fact == "" || strings.EqualFold(fact, "none") {
+		return strings.TrimSpace(existing)
+	}
+	combined := strings.TrimSpace(existing)
+	if combined != "" {
+		combined += "\n" + fact
+	} else {
+		combined = fact
+	}
+	for len(combined) > decisionsMaxBytes {
+		idx := strings.Index(combined, "\n")
+		if idx < 0 {
+			combined = combined[len(combined)-decisionsMaxBytes:]
+			break
+		}
+		combined = strings.TrimSpace(combined[idx+1:])
+	}
+	return combined
 }

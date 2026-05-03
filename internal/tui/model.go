@@ -181,6 +181,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
+	m.content.showInternalScaffoldInference = cfg.ShowInternalScaffoldInference
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = newActivityState(m.styles)
@@ -330,7 +331,7 @@ func (m Model) View() string {
 	if tray := m.renderApprovalTray(contentWidth); tray != "" {
 		mainComponents = append(mainComponents, tray)
 	}
-	mainComponents = append(mainComponents, inputView, activityView, statusView)
+	mainComponents = append(mainComponents, activityView, inputView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
 

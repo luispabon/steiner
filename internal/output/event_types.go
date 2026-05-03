@@ -202,14 +202,23 @@ type AssistantMessageEvent struct {
 	Content string `json:"content,omitempty"`
 }
 
+type ChunkSource string
+
+const (
+	ChunkSourceAssistant         ChunkSource = "assistant"
+	ChunkSourceScaffoldInference ChunkSource = "scaffold_inference"
+)
+
 type AssistantChunkEvent struct {
-	Turn    int    `json:"turn,omitempty"`
-	Content string `json:"content,omitempty"`
+	Turn    int         `json:"turn,omitempty"`
+	Content string      `json:"content,omitempty"`
+	Source  ChunkSource `json:"source,omitempty"`
 }
 
 type ThinkingChunkEvent struct {
-	Turn    int    `json:"turn,omitempty"`
-	Content string `json:"content,omitempty"`
+	Turn    int         `json:"turn,omitempty"`
+	Content string      `json:"content,omitempty"`
+	Source  ChunkSource `json:"source,omitempty"`
 }
 
 type DelegationStartedEvent struct {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -170,10 +171,23 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	*state = outcome.State
 	if compactionCount != nil {
 		(*compactionCount)++
+		if recorder, ok := req.ContextManager.(interface{ RecordCompaction(turn int) }); ok {
+			recorder.RecordCompaction(turn)
+		}
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, outcome.Fit, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
 	}
+	resetEpochForContextManager(req.ContextManager, turn)
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
+}
+
+func resetEpochForContextManager(cm ContextManager, turn int) {
+	type epochResetter interface {
+		ResetEpoch(turn int)
+	}
+	if resetter, ok := cm.(epochResetter); ok {
+		resetter.ResetEpoch(turn)
+	}
 }
 
 func compactorForRequest(req RunRequest) Compactor {
@@ -374,7 +388,7 @@ func truncateCompactionMessages(messages []Message, limit int) []Message {
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, true)
+	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, true, output.ChunkSourceAssistant)
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {

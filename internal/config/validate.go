@@ -128,6 +128,9 @@ func validate(cfg Config) error {
 			problems = append(problems, err.Error())
 		}
 	}
+	if err := validateScratchpadMode("context_management.scratchpad_mode", cfg.ContextManagement.ScratchpadMode); err != nil {
+		problems = append(problems, err.Error())
+	}
 	if cfg.ContextManagement.MaskingWindowTurns <= 0 {
 		problems = append(problems, "context_management.masking_window_turns must be at least 1")
 	}
@@ -156,6 +159,18 @@ func validateCompactionStrategy(path string, strategy CompactionStrategy) error 
 		return nil
 	default:
 		return fmt.Errorf("%s %q is not supported", path, strategy)
+	}
+}
+
+func validateScratchpadMode(path string, mode ScratchpadMode) error {
+	switch mode {
+	case ScratchpadModeScaffoldOnly, ScratchpadModeHybrid:
+		return nil
+	default:
+		if mode == "" {
+			return fmt.Errorf("%s is required", path)
+		}
+		return fmt.Errorf("%s %q is not supported", path, mode)
 	}
 }
 

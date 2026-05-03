@@ -10,6 +10,7 @@ func stringPtr(v string) *string                   { return &v }
 func boolPtr(v bool) *bool                         { return &v }
 func approvalModePtr(v ApprovalMode) *ApprovalMode { return &v }
 func durationPtr(v Duration) *Duration             { return &v }
+func debugPatchPtr(v debugPatch) *debugPatch       { return &v }
 
 func stringSlicePtr(v ...string) *[]string {
 	s := append([]string(nil), v...)
@@ -872,6 +873,18 @@ func TestApplyPatch(t *testing.T) {
 		want  Config
 	}{
 		{
+			name: "applies debug visibility flag",
+			cfg: Config{
+				Debug: DebugConfig{ShowInternalScaffoldInference: false},
+			},
+			patch: configPatch{
+				Debug: debugPatchPtr(debugPatch{ShowInternalScaffoldInference: boolPtr(true)}),
+			},
+			want: Config{
+				Debug: DebugConfig{ShowInternalScaffoldInference: true},
+			},
+		},
+		{
 			name: "nil sections do nothing",
 			cfg: Config{
 				Model: ModelConfig{Type: "openai_compat", Model: "default", BaseURL: "http://localhost:11434/v1", MaxCompletionTokens: 4096, ContextSize: 16384},
@@ -1047,6 +1060,7 @@ func TestApplyPatch(t *testing.T) {
 				ProjectContext: &projectContextPatch{MaxTokens: intPtr(2000), ExtraFiles: stringSlicePtr("docs.md")},
 				Paths:          &pathsPatch{ProjectRootOnly: boolPtr(true)},
 				Logging:        &loggingPatch{Level: stringPtr("info"), File: stringPtr("steiner.log")},
+				Debug:          debugPatchPtr(debugPatch{ShowInternalScaffoldInference: boolPtr(true)}),
 			},
 			want: Config{
 				Scheduler: SchedulerConfig{Parallelism: 2},
@@ -1060,6 +1074,7 @@ func TestApplyPatch(t *testing.T) {
 				},
 				Paths:   PathsConfig{ProjectRootOnly: true},
 				Logging: LoggingConfig{Level: "info", File: "steiner.log"},
+				Debug:   DebugConfig{ShowInternalScaffoldInference: true},
 			},
 		},
 	}

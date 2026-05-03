@@ -74,7 +74,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
-		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.Mode == config.ContextModeSmart,
+		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.ScratchpadMode == config.ScratchpadModeHybrid,
 		Conversation:              toProviderConversation(conversation),
 	}
 
@@ -118,6 +118,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		},
 		Events:             events,
 		ContextManager:     ctxManager,
+		Thinking:           selected.Thinking,
 		StreamingPreferred: r.streamingPreferred,
 	})
 	reason := string(state.StopReason)

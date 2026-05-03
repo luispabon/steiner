@@ -138,6 +138,27 @@ models:
       # Max size of the generated summary during compaction.
       summary_max_tokens: 1024
 
+    # Thinking configuration for extended reasoning.
+    thinking:
+      # Master switch; when false, thinking params are never injected.
+      enabled: true
+
+      # Apply thinking to scaffold inference calls.
+      enabled_scaffolding_inference: false
+
+      # Marker to include in a message to suppress thinking for that request only.
+      # When found in the last user message, the marker is stripped and thinking
+      # is suppressed for that turn.
+      disable_marker: "<|think_off|>"
+
+      # Parameters merged into the API request when thinking is active.
+      # Supports scalar and nested map values. Takes precedence over extra_params
+      # on key collision.
+      params:
+        thinking:
+          type: enabled
+          budget_tokens: 10000
+
 # Global loop and tool execution limits.
 limits:
   # Maximum number of agent turns; 0 means no turn cap.

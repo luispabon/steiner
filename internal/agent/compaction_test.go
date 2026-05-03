@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -345,6 +346,90 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 	}
 	if !messageContentsContain(toProviderMessages(outcome.State.Conversation), "turn 3 assistant") {
 		t.Fatal("turn 3 assistant missing, want recent turns preserved")
+	}
+}
+
+func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
+	var events []output.Event
+	cm := &SmartContextManager{
+		maskingWindowTurns: 5,
+		compactionStrategy: config.CompactionStrategyDrop,
+		epochMaskBoundary:  7,
+		epochStartTurn:     12,
+	}
+	state := RunState{
+		TurnCount: 12,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+		}),
+	}
+
+	var skipped = map[string]bool{}
+	var compactionCount int
+	sink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
+	cm.SetEventSink(sink)
+	req := RunRequest{
+		ContextManager: cm,
+		Model:          "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 256,
+			SafetyMarginTokens:  0,
+			SummaryMaxTokens:    128,
+		},
+		Events: sink,
+	}
+
+	compacted, err := new(Runner).compactConversationForBudget(context.Background(), req, &state, 13, skipped, &compactionCount)
+	if err != nil {
+		t.Fatalf("compactConversationForBudget() error = %v", err)
+	}
+	if !compacted {
+		t.Fatal("compactConversationForBudget() = false, want true")
+	}
+	if got, want := cm.epochMaskBoundary, 0; got != want {
+		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
+	}
+	if got, want := cm.epochStartTurn, 13; got != want {
+		t.Fatalf("epochStartTurn = %d, want %d", got, want)
+	}
+
+	foundReset := false
+	for _, event := range events {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok || payload.Kind != "masking" || payload.Action != "reset" {
+			continue
+		}
+		foundReset = true
+		if payload.EpochStatus != "reset" {
+			t.Fatalf("epoch reset status = %q, want reset", payload.EpochStatus)
+		}
+		if payload.EpochStartTurn != 13 {
+			t.Fatalf("epoch reset start turn = %d, want 13", payload.EpochStartTurn)
+		}
+	}
+	if !foundReset {
+		t.Fatal("missing epoch reset diagnostic")
 	}
 }
 

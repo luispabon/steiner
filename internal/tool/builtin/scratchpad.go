@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -10,11 +11,8 @@ import (
 
 // ScratchpadInput holds the fields the model can write to the scratchpad.
 type ScratchpadInput struct {
-	Goal      string `json:"goal"`
-	Plan      string `json:"plan"`
-	Step      string `json:"step"`
+	Intent    string `json:"intent"`
 	Decisions string `json:"decisions"`
-	Files     string `json:"files"`
 	Open      string `json:"open"`
 	Next      string `json:"next"`
 }
@@ -24,15 +22,12 @@ func ScratchpadSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"goal":      map[string]any{"type": "string", "description": "Current task goal (one line, stable)"},
-			"plan":      map[string]any{"type": "string", "description": "High-level plan to achieve goal"},
-			"step":      map[string]any{"type": "string", "description": "The specific action just completed or about to take"},
-			"decisions": map[string]any{"type": "string", "description": "Key choices made this turn and why (append only; steiner merges history)"},
-			"files":     map[string]any{"type": "string", "description": "Files read or modified with status (read / modified / stale)"},
-			"open":      map[string]any{"type": "string", "description": "Unresolved problems or unknowns blocking progress"},
-			"next":      map[string]any{"type": "string", "description": "The single next action to take after this turn"},
+			"intent":    map[string]any{"type": "string", "description": "What is being done and why"},
+			"decisions": map[string]any{"type": "string", "description": "Key decisions made so far (append only; steiner merges history)"},
+			"open":      map[string]any{"type": "string", "description": "Unresolved questions or risks"},
+			"next":      map[string]any{"type": "string", "description": "Planned next action"},
 		},
-		"required":             []string{"goal", "plan", "step", "decisions", "files", "open", "next"},
+		"required":             []string{"intent", "decisions", "open", "next"},
 		"additionalProperties": false,
 	}
 }
@@ -41,27 +36,78 @@ func ScratchpadSchema() map[string]any {
 func NewScratchpadTool(_ Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "scratchpad",
-		Description:     "Record your current working state. Call on every turn without exception to track goal, plan, progress, decisions, and open questions. This state persists across context compaction.",
+		Description:     "Record your current working state. Call on every turn without exception to track intent, decisions, open questions, and next action. This state persists across context compaction.",
 		ParameterSchema: ScratchpadSchema(),
 		Approval:        config.ApprovalModeAuto,
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
-			in, err := decodeInput[ScratchpadInput](input)
+			in, err := decodeScratchpadInput(input)
 			if err != nil {
 				return nil, fmt.Errorf("scratchpad: %w", err)
 			}
-			if in.Goal == "" {
-				return nil, fmt.Errorf("scratchpad: goal is required")
-			}
 			return map[string]string{
 				"status":    "ok",
-				"goal":      in.Goal,
-				"plan":      in.Plan,
-				"step":      in.Step,
+				"intent":    in.Intent,
 				"decisions": in.Decisions,
-				"files":     in.Files,
 				"open":      in.Open,
 				"next":      in.Next,
 			}, nil
 		},
 	}
+}
+
+func decodeScratchpadInput(raw map[string]any) (ScratchpadInput, error) {
+	input := ScratchpadInput{}
+	if raw == nil {
+		return input, fmt.Errorf("input is required")
+	}
+
+	input.Intent = stringField(raw, "intent")
+	input.Decisions = stringField(raw, "decisions")
+	input.Open = stringField(raw, "open")
+	input.Next = stringField(raw, "next")
+
+	if strings.TrimSpace(input.Intent) == "" {
+		input.Intent = strings.TrimSpace(strings.Join(nonEmptyStrings([]string{
+			stringField(raw, "goal"),
+			stringField(raw, "plan"),
+			stringField(raw, "step"),
+		}), " "))
+	}
+
+	if strings.TrimSpace(input.Intent) == "" {
+		return input, fmt.Errorf("intent is required")
+	}
+	if strings.TrimSpace(input.Decisions) == "" {
+		input.Decisions = stringField(raw, "decisions")
+	}
+	if strings.TrimSpace(input.Open) == "" {
+		input.Open = stringField(raw, "open")
+	}
+	if strings.TrimSpace(input.Next) == "" {
+		input.Next = stringField(raw, "next")
+	}
+	return input, nil
+}
+
+func stringField(raw map[string]any, key string) string {
+	value, ok := raw[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func nonEmptyStrings(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

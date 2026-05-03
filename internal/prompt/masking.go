@@ -59,6 +59,43 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 	return out
 }
 
+// MaskConversationBeforeTurn returns a copy of messages with older assistant
+// prose and tool results compacted while preserving the suffix at and after the
+// supplied turn boundary.
+func MaskConversationBeforeTurn(messages []provider.Message, boundaryTurn int) []provider.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	if boundaryTurn <= 0 {
+		return cloneProviderMessages(messages)
+	}
+
+	out := make([]provider.Message, 0, len(messages))
+	assistantTurn := 0
+	var currentToolCalls []provider.ToolCall
+	for _, message := range messages {
+		cloned := cloneProviderMessage(message)
+		switch cloned.Role {
+		case provider.MessageRoleAssistant:
+			assistantTurn++
+			currentToolCalls = cloneProviderToolCalls(cloned.ToolCalls)
+			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
+				cloned.Content = maskAssistantMessage(cloned)
+			}
+		case provider.MessageRoleTool:
+			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
+				if toolResultName(cloned, currentToolCalls) == "scratchpad" {
+					cloned.Content = ""
+				} else {
+					cloned.Content = maskToolResult(cloned, currentToolCalls)
+				}
+			}
+		}
+		out = append(out, cloned)
+	}
+	return out
+}
+
 func maskAssistantMessage(message provider.Message) string {
 	content := strings.TrimSpace(message.Content)
 	if content == "" {
@@ -109,6 +146,16 @@ func toolResultName(message provider.Message, toolCalls []provider.ToolCall) str
 		name = strings.TrimSpace(message.Name)
 	}
 	return name
+}
+
+func turnForMasking(message provider.Message, assistantTurn int) int {
+	if message.Turn > 0 {
+		return message.Turn
+	}
+	if assistantTurn > 0 {
+		return assistantTurn
+	}
+	return 0
 }
 
 func toolCallMetadata(message provider.Message, toolCalls []provider.ToolCall) (string, string) {

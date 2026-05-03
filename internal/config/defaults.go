@@ -12,6 +12,10 @@ func defaultConfig() Config {
 			SafetyMarginTokens: 8192,
 			SummaryMaxTokens:   4096,
 		},
+		Thinking: ThinkingConfig{
+			Enabled:                  true,
+			EnabledScaffoldInference: false,
+		},
 	}
 	return Config{
 		Scheduler: SchedulerConfig{
@@ -61,11 +65,15 @@ func defaultConfig() Config {
 			Level: "info",
 			File:  "~/.local/share/steiner/steiner.log",
 		},
+		Debug: DebugConfig{
+			ShowInternalScaffoldInference: false,
+		},
 		ContextManagement: ContextManagementConfig{
 			Mode:               ContextModeNaive,
 			CompactionStrategy: CompactionStrategyDrop,
 			MaskingWindowTurns: 5,
 			ReadAnnotations:    true,
+			ScratchpadMode:     ScratchpadModeScaffoldOnly,
 		},
 	}
 }

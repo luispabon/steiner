@@ -30,6 +30,17 @@ const (
 	CompactionStrategyHybrid CompactionStrategy = "hybrid"
 )
 
+// ScratchpadMode controls how the scratchpad state is maintained.
+type ScratchpadMode string
+
+const (
+	// ScratchpadModeScaffoldOnly uses steiner-managed scaffold state only.
+	ScratchpadModeScaffoldOnly ScratchpadMode = "scaffold_only"
+	// ScratchpadModeHybrid enables the model-written scratchpad tool in addition
+	// to the steiner-managed scaffold state.
+	ScratchpadModeHybrid ScratchpadMode = "hybrid"
+)
+
 // ContextManagementConfig holds settings for the active context management
 // feature.
 type ContextManagementConfig struct {
@@ -37,6 +48,7 @@ type ContextManagementConfig struct {
 	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
 	MaskingWindowTurns int                `yaml:"masking_window_turns"`
 	ReadAnnotations    bool               `yaml:"read_annotations"`
+	ScratchpadMode     ScratchpadMode     `yaml:"scratchpad_mode"`
 }
 
 // Config is the complete application configuration.
@@ -51,11 +63,28 @@ type Config struct {
 	ProjectContext    ProjectContextConfig    `yaml:"project_context"`
 	Paths             PathsConfig             `yaml:"paths"`
 	Logging           LoggingConfig           `yaml:"logging"`
+	Debug             DebugConfig             `yaml:"debug"`
 	ContextManagement ContextManagementConfig `yaml:"context_management"`
 }
 
 type SchedulerConfig struct {
 	Parallelism int `yaml:"parallelism"`
+}
+
+// ThinkingConfig controls thinking behaviour for a model.
+type ThinkingConfig struct {
+	// Enabled is the master switch. When false, Params are never injected.
+	Enabled bool `yaml:"enabled"`
+	// EnabledScaffoldInference applies thinking to scaffold inference calls.
+	EnabledScaffoldInference bool `yaml:"enabled_scaffolding_inference"`
+	// DisableMarker, if non-empty, is scanned in the latest user message each
+	// turn. When found, the marker is stripped before sending to the API and
+	// thinking is suppressed for that request only.
+	DisableMarker string `yaml:"disable_marker"`
+	// Params are merged into ExtraParams when thinking is active. Supports
+	// scalar and nested map values. Takes precedence over ExtraParams on key
+	// collision.
+	Params map[string]any `yaml:"params"`
 }
 
 // ModelConfig configures a model provider instance.
@@ -69,6 +98,7 @@ type ModelConfig struct {
 	ContextSize         int              `yaml:"context_size"`
 	Compaction          CompactionConfig `yaml:"compaction"`
 	Prompts             ModelPrompts     `yaml:"prompts"`
+	Thinking            ThinkingConfig   `yaml:"thinking"`
 }
 
 // ModelPrompts contains per-model prompt overrides. These override the
@@ -142,6 +172,10 @@ type LoggingConfig struct {
 	Level         string `yaml:"level"`
 	File          string `yaml:"file"`
 	ThinkingChunk bool   `yaml:"thinking_chunk"`
+}
+
+type DebugConfig struct {
+	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
 }
 
 // SwitchModelConfigByAlias looks up a model config by alias and updates cfg.Model

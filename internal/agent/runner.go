@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -29,6 +30,7 @@ type RunRequest struct {
 	Limits         Limits
 	Events         output.EventSink
 	ContextManager ContextManager
+	Thinking       config.ThinkingConfig
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a

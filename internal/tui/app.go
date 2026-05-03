@@ -26,19 +26,20 @@ type ApprovalSubmission struct {
 }
 
 type Config struct {
-	Model           string
-	ModelNames      []string
-	ModelContexts   map[string]int
-	ModelBaseURLs   map[string]string
-	ProviderBaseURL string
-	HomeDir         string
-	WorkingDir      string
-	MaxTurns        int
-	SkillNames      []string
-	Theme           string
-	AccentPreset    string
-	ShowThinking    bool
-	Controller      interactive.Controller
+	Model                         string
+	ModelNames                    []string
+	ModelContexts                 map[string]int
+	ModelBaseURLs                 map[string]string
+	ProviderBaseURL               string
+	HomeDir                       string
+	WorkingDir                    string
+	MaxTurns                      int
+	SkillNames                    []string
+	Theme                         string
+	AccentPreset                  string
+	ShowThinking                  bool
+	ShowInternalScaffoldInference bool
+	Controller                    interactive.Controller
 }
 
 type App struct {

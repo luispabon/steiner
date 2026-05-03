@@ -13,6 +13,7 @@ type configPatch struct {
 	ProjectContext    *projectContextPatch    `yaml:"project_context"`
 	Paths             *pathsPatch             `yaml:"paths"`
 	Logging           *loggingPatch           `yaml:"logging"`
+	Debug             *debugPatch             `yaml:"debug"`
 	ContextManagement *contextManagementPatch `yaml:"context_management"`
 }
 
@@ -21,10 +22,18 @@ type contextManagementPatch struct {
 	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
 	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
 	ReadAnnotations    *bool               `yaml:"read_annotations"`
+	ScratchpadMode     *ScratchpadMode     `yaml:"scratchpad_mode"`
 }
 
 type schedulerPatch struct {
 	Parallelism *int `yaml:"parallelism"`
+}
+
+type thinkingConfigPatch struct {
+	Enabled                  *bool           `yaml:"enabled"`
+	EnabledScaffoldInference *bool           `yaml:"enabled_scaffolding_inference"`
+	DisableMarker            *string         `yaml:"disable_marker"`
+	Params                   *map[string]any `yaml:"params"`
 }
 
 type modelPatch struct {
@@ -37,6 +46,7 @@ type modelPatch struct {
 	ContextSize         *int               `yaml:"context_size"`
 	Compaction          *compactionPatch   `yaml:"compaction"`
 	Prompts             *modelPromptsPatch `yaml:"prompts"`
+	Thinking            *thinkingConfigPatch `yaml:"thinking"`
 }
 
 type modelPromptsPatch struct {
@@ -102,6 +112,10 @@ type loggingPatch struct {
 	ThinkingChunk *bool   `yaml:"thinking_chunk"`
 }
 
+type debugPatch struct {
+	ShowInternalScaffoldInference *bool `yaml:"show_internal_scaffold_inference"`
+}
+
 // applyPatch applies a config patch to the config.
 func applyPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
@@ -153,6 +167,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 	if patch.Logging != nil {
 		applyLoggingPatch(&cfg.Logging, patch.Logging)
 	}
+	if patch.Debug != nil {
+		applyDebugPatch(&cfg.Debug, patch.Debug)
+	}
 	if patch.ContextManagement != nil {
 		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
 	}
@@ -191,6 +208,21 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	}
 	if patch.Prompts != nil {
 		applyModelPromptsPatch(&dst.Prompts, patch.Prompts)
+	}
+	if patch.Thinking != nil {
+		tp := patch.Thinking
+		if tp.Enabled != nil {
+			dst.Thinking.Enabled = *tp.Enabled
+		}
+		if tp.EnabledScaffoldInference != nil {
+			dst.Thinking.EnabledScaffoldInference = *tp.EnabledScaffoldInference
+		}
+		if tp.DisableMarker != nil {
+			dst.Thinking.DisableMarker = *tp.DisableMarker
+		}
+		if tp.Params != nil {
+			dst.Thinking.Params = copyStringAnyMap(*tp.Params)
+		}
 	}
 }
 
@@ -339,6 +371,12 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 }
 
+func applyDebugPatch(dst *DebugConfig, patch *debugPatch) {
+	if patch.ShowInternalScaffoldInference != nil {
+		dst.ShowInternalScaffoldInference = *patch.ShowInternalScaffoldInference
+	}
+}
+
 func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {
 	if patch.Mode != nil {
 		dst.Mode = *patch.Mode
@@ -351,5 +389,8 @@ func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextMan
 	}
 	if patch.ReadAnnotations != nil {
 		dst.ReadAnnotations = *patch.ReadAnnotations
+	}
+	if patch.ScratchpadMode != nil {
+		dst.ScratchpadMode = *patch.ScratchpadMode
 	}
 }

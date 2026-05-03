@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -96,6 +97,66 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	return base
 }
 
+func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantContent string) provider.ChatRequest {
+	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false).Content
+	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
+	chatReq := provider.ChatRequest{
+		Model:       req.Model,
+		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
+		ExtraParams: req.ExtraParams,
+		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
+	}
+	cfg := req.Thinking
+	cfg.Enabled = cfg.Enabled && cfg.EnabledScaffoldInference
+	return applyThinking(cfg, chatReq)
+}
+
+func scaffoldInferenceUserPrompt(scaffoldState, assistantContent string) string {
+	parts := []string{
+		"[Current scaffold state]",
+		strings.TrimSpace(scaffoldState),
+		"[Last assistant response]",
+		truncateScaffoldInferenceText(assistantContent, 200),
+		"Respond with ONLY a JSON object:",
+		`{"intent":"what is being done and why","next":"planned next action"}`,
+	}
+	return strings.Join(filterEmptyStrings(parts), "\n\n")
+}
+
+func truncateScaffoldInferenceText(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "(empty)"
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	words := strings.Fields(text)
+	if len(words) <= limit {
+		return text
+	}
+	return strings.Join(words[:limit], " ") + " ..."
+}
+
+func scaffoldInferenceMaxTokens(budget prompt.ModelTokenBudget) *int {
+	maxTokens := 150
+	if budget.MaxCompletionTokens > 0 && budget.MaxCompletionTokens < maxTokens {
+		maxTokens = budget.MaxCompletionTokens
+	}
+	return &maxTokens
+}
+
+func filterEmptyStrings(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered
+}
+
 func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provider.Message, bool) {
 	hasSubstantiveContent := strings.TrimSpace(state.Scratchpad) != "" ||
 		len(state.ActiveConstraints) > 0 ||
@@ -152,7 +213,7 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 	if scratchpad != "" {
 		parts = append(parts, scratchpad)
 	} else {
-		parts = append(parts, "goal: \nplan: \nstep: \ndecisions: \nfiles: \nopen: \nnext: ")
+		parts = append(parts, "intent: \ndecisions: \nopen: \nnext: ")
 	}
 
 	return provider.Message{
@@ -201,4 +262,68 @@ func LastAssistantMessage(msgs []Message) (Message, bool) {
 		}
 	}
 	return Message{}, false
+}
+
+// hasThinkingMarker reports whether the last user message contains marker.
+func hasThinkingMarker(messages []provider.Message, marker string) bool {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != provider.MessageRoleUser {
+			continue
+		}
+		return strings.Contains(messages[i].Content, marker)
+	}
+	return false
+}
+
+// appendThinkingMarker returns a copy of messages with marker appended to the
+// last user message. If there is no user message, messages is returned as-is.
+func appendThinkingMarker(messages []provider.Message, marker string) []provider.Message {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != provider.MessageRoleUser {
+			continue
+		}
+		out := make([]provider.Message, len(messages))
+		copy(out, messages)
+		out[i].Content = out[i].Content + " " + marker
+		return out
+	}
+	return messages
+}
+
+// mergeThinkingParams returns a new map with base merged first, then params on
+// top (params wins on collision).
+func mergeThinkingParams(base, params map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(params))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range params {
+		out[k] = v
+	}
+	return out
+}
+
+// applyThinking returns req with thinking params injected or suppressed
+// according to cfg. When thinking is disabled and a disable marker is
+// configured, the marker is appended to the last user message so the model
+// knows not to think.
+func applyThinking(cfg config.ThinkingConfig, req provider.ChatRequest) provider.ChatRequest {
+	if cfg.DisableMarker != "" {
+		markerPresent := hasThinkingMarker(req.Messages, cfg.DisableMarker)
+		if !cfg.Enabled {
+			if !markerPresent {
+				req.Messages = appendThinkingMarker(req.Messages, cfg.DisableMarker)
+			}
+			return req
+		}
+		if markerPresent {
+			return req
+		}
+	} else if !cfg.Enabled {
+		return req
+	}
+	if len(cfg.Params) > 0 {
+		req.ExtraParams = mergeThinkingParams(req.ExtraParams, cfg.Params)
+	}
+	return req
 }

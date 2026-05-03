@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -199,6 +202,76 @@ func TestSmartContextManagerPreAssembly(t *testing.T) {
 	}
 }
 
+func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *testing.T) {
+	cm := &SmartContextManager{maskingWindowTurns: 5}
+	state := RunState{TurnCount: 12}
+
+	got, err := cm.PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.TurnCount != state.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
+	}
+	if got, want := cm.epochStartTurn, 12; got != want {
+		t.Fatalf("epochStartTurn = %d, want %d", got, want)
+	}
+	if got, want := cm.epochMaskBoundary, 7; got != want {
+		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
+	}
+}
+
+func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
+	cm := &SmartContextManager{maskingWindowTurns: 5, epochStartTurn: 5}
+	first := RunState{
+		TurnCount:    9,
+		Conversation: epochTestConversation(10),
+	}
+	first.Lineage = newConversationLineage(first.Conversation)
+
+	gotFirst, err := cm.PreAssembly(context.Background(), first)
+	if err != nil {
+		t.Fatalf("first PreAssembly error: %v", err)
+	}
+	if got, want := cm.epochMaskBoundary, 5; got != want {
+		t.Fatalf("epochMaskBoundary after advance = %d, want %d", got, want)
+	}
+	if got, want := cm.epochStartTurn, 10; got != want {
+		t.Fatalf("epochStartTurn after advance = %d, want %d", got, want)
+	}
+
+	second := RunState{
+		TurnCount:    10,
+		Conversation: epochTestConversation(11),
+	}
+	second.Lineage = newConversationLineage(second.Conversation)
+
+	gotSecond, err := cm.PreAssembly(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second PreAssembly error: %v", err)
+	}
+	if got, want := cm.epochMaskBoundary, 5; got != want {
+		t.Fatalf("epochMaskBoundary after steady turn = %d, want %d", got, want)
+	}
+	if got, want := cm.epochStartTurn, 10; got != want {
+		t.Fatalf("epochStartTurn after steady turn = %d, want %d", got, want)
+	}
+
+	firstMasked := maskedPrefixByTurn(gotFirst.Conversation, 5)
+	secondMasked := maskedPrefixByTurn(gotSecond.Conversation, 5)
+	if len(firstMasked) != len(secondMasked) {
+		t.Fatalf("masked prefix len = %d, want %d", len(firstMasked), len(secondMasked))
+	}
+	for i := range firstMasked {
+		if firstMasked[i].Role != secondMasked[i].Role || firstMasked[i].Content != secondMasked[i].Content {
+			t.Fatalf("masked prefix message %d = %#v, want %#v", i, firstMasked[i], secondMasked[i])
+		}
+	}
+	if !strings.Contains(firstMasked[1].Content, "[turn 1]") {
+		t.Fatalf("first epoch assistant content = %q, want turn prefix", firstMasked[1].Content)
+	}
+}
+
 func TestNewContextManager(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -242,26 +315,185 @@ func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
 	}
 }
 
+func TestNewContextManagerAppliesScratchpadMode(t *testing.T) {
+	m, ok := NewContextManager("smart", config.ContextManagementConfig{
+		ScratchpadMode: config.ScratchpadModeHybrid,
+	}).(*SmartContextManager)
+	if !ok {
+		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
+	}
+	if got, want := m.scratchpadMode, config.ScratchpadModeHybrid; got != want {
+		t.Fatalf("scratchpadMode = %q, want %q", got, want)
+	}
+}
+
 func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	t.Parallel()
 	cm := &SmartContextManager{}
-	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
+	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","intent":"fix bug","decisions":"chose X","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
-	if cm.scratchpad.Goal != "fix bug" {
-		t.Fatalf("Goal = %q, want fix bug", cm.scratchpad.Goal)
-	}
-	if cm.scratchpad.Plan != "read code" {
-		t.Fatalf("Plan = %q, want read code", cm.scratchpad.Plan)
+	if cm.scratchpad.Intent != "fix bug" {
+		t.Fatalf("Intent = %q, want fix bug", cm.scratchpad.Intent)
 	}
 	if cm.scratchpad.Decisions != "chose X" {
 		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
 	}
 }
 
+func TestIngestToolResultWarnsOnLegacyScratchpadFields(t *testing.T) {
+	var events []output.Event
+	cm := &SmartContextManager{}
+	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+
+	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
+	if result != `{"ok":true}` {
+		t.Fatalf("result = %q, want compact ack", result)
+	}
+	var sawWarning bool
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok || payload.Kind != "scratchpad" || payload.Severity != "warning" {
+			continue
+		}
+		sawWarning = true
+		if !containsString(payload.Notes, "ignored legacy fields: files, goal, plan, step") && !containsString(payload.Notes, "ignored legacy fields: goal, plan, step, files") {
+			t.Fatalf("warning notes = %v, want legacy fields note", payload.Notes)
+		}
+	}
+	if !sawWarning {
+		t.Fatal("missing legacy scratchpad warning diagnostic")
+	}
+}
+
+func TestHeuristicDecisionsAppendWithoutModelScratchpadInput(t *testing.T) {
+	cm := &SmartContextManager{}
+
+	if got := cm.ObserveToolResult(1, "edit", map[string]any{"path": "note.txt"}, `{"path":"note.txt","output":"updated line"}`); got != `{"path":"note.txt","output":"updated line"}` {
+		t.Fatalf("ObserveToolResult(edit) = %q, want passthrough JSON", got)
+	}
+	cm.RecordCompaction(2)
+
+	if !strings.Contains(cm.scratchpad.Decisions, "edited note.txt") {
+		t.Fatalf("Decisions = %q, want edit heuristic", cm.scratchpad.Decisions)
+	}
+	if !strings.Contains(cm.scratchpad.Decisions, "compaction occurred at turn 2") {
+		t.Fatalf("Decisions = %q, want compaction heuristic", cm.scratchpad.Decisions)
+	}
+}
+
+func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(first, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write first file: %v", err)
+	}
+	if err := os.WriteFile(second, []byte("two\n"), 0o644); err != nil {
+		t.Fatalf("write second file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	cm := &SmartContextManager{}
+	_ = cm.ObserveToolResult(1, "read", nil, `{"path":"first.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`)
+	_ = cm.ObserveToolResult(2, "read", nil, `{"path":"second.txt","start_line":1,"end_line":1,"total_lines":1,"output":"two\n"}`)
+
+	if cm.scratchpad.WorkingFile != "second.txt" {
+		t.Fatalf("WorkingFile = %q, want second.txt", cm.scratchpad.WorkingFile)
+	}
+	if !strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
+		t.Fatalf("Decisions = %q, want file-switch heuristic", cm.scratchpad.Decisions)
+	}
+}
+
+func epochTestConversation(turns int) []Message {
+	messages := make([]Message, 0, turns*2)
+	for turn := 1; turn <= turns; turn++ {
+		messages = append(messages, Message{
+			Role:    MessageRoleUser,
+			Content: fmt.Sprintf("user %d", turn),
+			Turn:    turn,
+		})
+		messages = append(messages, Message{
+			Role:    MessageRoleAssistant,
+			Content: fmt.Sprintf("assistant %d", turn),
+			Turn:    turn,
+		})
+	}
+	return messages
+}
+
+func maskedPrefixByTurn(messages []Message, boundary int) []Message {
+	out := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Turn > 0 && message.Turn < boundary {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	var events []output.Event
+	cm := &SmartContextManager{}
+	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+
+	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
+	if got := cm.IngestToolResult(1, "read", content); got != content {
+		t.Fatalf("first read = %q, want full content", got)
+	}
+	cm.RecordMutation("note.txt")
+	if got := cm.IngestToolResult(2, "read", content); got != content {
+		t.Fatalf("second read after generation bump = %q, want full content", got)
+	}
+
+	var mismatch output.ContextDiagnosticsEvent
+	found := false
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		if !ok || payload.Kind != "file_annotation" || payload.Turn != 2 {
+			continue
+		}
+		mismatch = payload
+		found = true
+	}
+	if !found {
+		t.Fatal("missing file annotation diagnostic for second read")
+	}
+	if got, want := mismatch.Reason, "generation changed"; got != want {
+		t.Fatalf("diagnostic reason = %q, want %q", got, want)
+	}
+	if !containsString(mismatch.Notes, "mtime_unchanged") {
+		t.Fatalf("diagnostic notes = %v, want mtime_unchanged", mismatch.Notes)
+	}
+}
+
 func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
-	cm := &SmartContextManager{scratchpadFailures: 2}
+	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid, scratchpadFailures: 2}
 	cm.OnTurnComplete(1, true)
 	if cm.scratchpadFailures != 0 {
 		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpadFailures)
@@ -269,7 +501,7 @@ func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
 }
 
 func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid}
 	cm.OnTurnComplete(1, false)
 	if cm.scratchpadFailures != 1 {
 		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpadFailures)
@@ -282,7 +514,7 @@ func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
 
 func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
 	var events []output.Event
-	cm := &SmartContextManager{}
+	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid}
 	cm.SetEventSink(output.SinkFunc(func(e output.Event) { events = append(events, e) }))
 
 	cm.OnTurnComplete(1, false)
@@ -313,33 +545,36 @@ func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
 		{
 			name:          "first decision appended",
 			previous:      Scratchpad{},
-			content:       `{"goal":"g","decisions":"chose A"}`,
+			content:       `{"intent":"g","decisions":"chose A","open":"","next":"n"}`,
 			wantDecisions: "chose A",
 		},
 		{
 			name:          "subsequent decision concatenated",
 			previous:      Scratchpad{Decisions: "chose A"},
-			content:       `{"goal":"g","decisions":"chose B"}`,
+			content:       `{"intent":"g","decisions":"chose B","open":"","next":"n"}`,
 			wantDecisions: "chose A\nchose B",
 		},
 		{
 			name:          "none skips append",
 			previous:      Scratchpad{Decisions: "chose A"},
-			content:       `{"goal":"g","decisions":"none"}`,
+			content:       `{"intent":"g","decisions":"none","open":"","next":"n"}`,
 			wantDecisions: "chose A",
 		},
 		{
 			name:          "empty skips append",
 			previous:      Scratchpad{Decisions: "chose A"},
-			content:       `{"goal":"g","decisions":""}`,
+			content:       `{"intent":"g","decisions":"","open":"","next":"n"}`,
 			wantDecisions: "chose A",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := parseScratchpadToolResult(tc.content, tc.previous)
+			got, warnings, ok := parseScratchpadToolResult(tc.content, tc.previous)
 			if !ok {
 				t.Fatal("parseScratchpadToolResult() = false, want true")
+			}
+			if len(warnings) != 0 {
+				t.Fatalf("warnings = %v, want none", warnings)
 			}
 			if got.Decisions != tc.wantDecisions {
 				t.Errorf("Decisions = %q, want %q", got.Decisions, tc.wantDecisions)
@@ -352,10 +587,13 @@ func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
 	// Fill previous decisions close to cap, then add more to trigger eviction.
 	old := strings.Repeat("x", 1990)
 	previous := Scratchpad{Decisions: old}
-	content := `{"goal":"g","decisions":"new entry"}`
-	got, ok := parseScratchpadToolResult(content, previous)
+	content := `{"intent":"g","decisions":"new entry","open":"","next":"n"}`
+	got, warnings, ok := parseScratchpadToolResult(content, previous)
 	if !ok {
 		t.Fatal("parseScratchpadToolResult() = false, want true")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
 	}
 	if len(got.Decisions) > decisionsMaxBytes {
 		t.Errorf("Decisions len = %d, want <= %d", len(got.Decisions), decisionsMaxBytes)

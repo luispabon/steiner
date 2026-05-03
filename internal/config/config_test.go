@@ -28,6 +28,20 @@ func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigScratchpadModeDefaultsToScaffoldOnly(t *testing.T) {
+	cfg := defaultConfig()
+	if got, want := cfg.ContextManagement.ScratchpadMode, ScratchpadModeScaffoldOnly; got != want {
+		t.Fatalf("context_management.scratchpad_mode = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultConfigShowInternalScaffoldInferenceDefaultsToFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Debug.ShowInternalScaffoldInference {
+		t.Fatal("default debug.show_internal_scaffold_inference = true, want false")
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 
