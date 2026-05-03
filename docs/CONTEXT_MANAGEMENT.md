@@ -118,16 +118,38 @@ steiner tracks two values on `SmartContextManager`:
 - `epochMaskBoundary` — the turn index below which all turns are masked
 - `epochStartTurn` — the turn at which the current epoch began
 
+**Epoch initialization** (on first call to PostIngestion or PreAssembly, in `initializeEpochFromTurnCount()` at line 429):
+- Only initializes if `turnCount > 0` and both `epochStartTurn` and `epochMaskBoundary` are still zero (first run guard)
+- Sets `epochStartTurn = turnCount` (current conversation turn count)
+- Sets `epochMaskBoundary = turnCount - maskingWindow` (clamped to minimum of 0)
+- Example: loading a conversation with 12 prior turns and `maskingWindow=5` sets boundary to turn 7, meaning turns 1-6 are already masked at session start
+
 Between epoch advances, the masking boundary is frozen. The masked prefix of the conversation is byte-identical across turns, producing full KV cache hits from the system prompt through the entire masked section. The only cache miss each turn is the new content appended at the tail (new verbatim turns, updated scratchpad, current user message).
 
-**Epoch advance triggers** (either fires):
-1. **Turn count**: K turns have elapsed since `epochStartTurn` (default K = `masking_window_turns`)
-2. **Context pressure**: estimated token usage exceeds a soft threshold (default: 80% of context window minus safety margin)
+**Epoch advance triggers** (either condition fires):
 
-On epoch advance:
-1. `epochMaskBoundary` jumps to `currentTurn - M` (where M = `masking_window_turns`)
-2. `epochStartTurn` resets to `currentTurn`
-3. All newly eligible turns are masked in one batch
+1. **Turn count** (primary, always active):
+   - Fires when: `currentTurn - epochStartTurn >= maskingWindow`
+   - Example: if `maskingWindow=5` and epoch started at turn 5, the epoch advances when currentTurn reaches 10 (after 5 turns have elapsed)
+   - Condition checked in `shouldAdvanceEpoch()` (line 446 in context_manager.go)
+   - Trigger reason reported as `"turn_count"` in masking diagnostics
+
+2. **Context pressure** (secondary, currently unimplemented):
+   - Intended to trigger early epoch advances when estimated token usage approaches the context window limit
+   - Placeholder mechanism: `contextPressureTrigger` function field on `SmartContextManager` is checked but never assigned (always nil)
+   - When implemented, would fire when: estimated prompt tokens exceed a soft threshold (proposed: 80% of context window minus safety margin)
+   - Would trigger `advanceEpoch()` even if turn count threshold hasn't been reached
+   - Would report as `"context_pressure"` in masking diagnostics (see line 459 in context_manager.go)
+
+**On epoch advance** (executed in `advanceEpoch()` at line 455):
+1. Calculate new masking window: `newBoundary = currentTurn - maskingWindow` (clamped to minimum of 0)
+2. Set `epochMaskBoundary = newBoundary` (all turns before this index become masked)
+3. Set `epochStartTurn = currentTurn` (epoch clock resets)
+4. All newly eligible turns (those between previous and new boundary) are masked in one batch
+5. `PreAssembly()` emits a masking diagnostic event with:
+   - `epochStatus = "advance"` 
+   - `trigger` = either `"turn_count"` or `"context_pressure"` (whichever condition fired)
+   - Count of newly masked turns in this batch
 
 This produces one cache-invalidating mutation per epoch instead of one per turn.
 
@@ -154,12 +176,19 @@ Scratchpad tool results are special-cased during masking: their content is alway
 
 **Interaction with retain_turns:** After compaction (drop strategy), 3 turns are retained. With M=5, the oldest retained turn begins masking 2 turns after compaction. This is intentional — the scratchpad carries orientation across the transition. If the model typically needs more turns to complete a sub-task post-compaction, increase `masking_window_turns` rather than hardcoding a higher `retain_turns`.
 
+**Masking state tracking:**
+- `previousBoundary` is captured before epoch advance so `PreAssembly()` can detect "newly masked" vs "previously masked" turns
+- A turn is "newly masked" if: `trigger != "" AND turn > 0 AND turn >= previousBoundary AND turn < epochMaskBoundary`
+- This distinction is reported in masking diagnostics (`epochStatus = "newly_masked"` vs `"previously_masked"`)
+- Newly masked turns are counted in the advance event to show how many turns transitioned from visible to masked in this batch
+
 Invariants:
 - Tool calls and their results are atomic. If a tool call is present, either its full result or its masked placeholder is also present. They are never separated.
 - Only the tool result body is replaced. The tool name and a summary of arguments are preserved in the placeholder so the model retains orientation.
 - Assistant prose older than `epochMaskBoundary` is trimmed to its first line (with a `[turn N]` prefix). It is never dropped entirely — at minimum the first line is preserved.
 - Masking operates on a copy. The stored conversation history is never modified.
 - The masked section is byte-stable between epoch advances. No mid-epoch mutations.
+- Epoch boundary only moves forward (never backward). `epochMaskBoundary` and `epochStartTurn` are monotonically increasing.
 
 ### File read annotation
 
