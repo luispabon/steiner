@@ -39,6 +39,15 @@ type MutationResult struct {
 	Output string `json:"output"`
 }
 
+// ApplyPatchResult is the result from an apply_patch tool call.
+type ApplyPatchResult struct {
+	Path         string `json:"path"`
+	HunksApplied int    `json:"hunks_applied"`
+	HunksFailed  int    `json:"hunks_failed,omitempty"`
+	DryRun       bool   `json:"dry_run,omitempty"`
+	Output       string `json:"output"`
+}
+
 // diveText flattens a Dive ToolResult into a single text string by combining
 // the Display field and all Content[].Text fields.
 func diveText(res *dive.ToolResult) string {

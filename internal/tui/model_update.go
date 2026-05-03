@@ -47,6 +47,10 @@ func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	m.sidebar.scratchpadIntent = ""
+	m.sidebar.scratchpadDecisions = ""
+	m.sidebar.scratchpadOpen = ""
+	m.sidebar.scratchpadNext = ""
 	if m.sidebar.contextBudget > 0 {
 		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 	} else {

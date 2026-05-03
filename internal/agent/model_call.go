@@ -136,12 +136,11 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 }
 
 func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) (int, error) {
-	if count := provider.UsageTokenCount(usage); count > 0 {
+	if count := provider.UsageCompletionTokenCount(usage); count > 0 {
 		return count, nil
 	}
-	estimate, err := provider.EstimateChatRequestTokens(ctx, request)
-	if err != nil {
-		return 0, fmt.Errorf("estimate chat request tokens: %w", err)
-	}
-	return estimate, nil
+	// When no completion token data is available, return 0 instead of estimating
+	// the full request. Accumulating input/prompt tokens across turns would cause
+	// the session to hit MaxTokens prematurely as the conversation grows.
+	return 0, nil
 }

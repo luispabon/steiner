@@ -52,7 +52,7 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 				preview.Fields = append(preview.Fields, previewTextField("contents", contents, 128))
 			}
 		}
-	case "edit":
+	case "edit", "apply_patch":
 		if path := stringInput(input["path"]); path != "" {
 			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
 		}
