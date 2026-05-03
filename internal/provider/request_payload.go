@@ -53,3 +53,16 @@ func normalizedTokenCount(usage *UsageStats) int {
 	}
 	return 0
 }
+
+// UsageCompletionTokenCount returns the completion/output token count from usage
+// stats. This is the number of tokens the model generated, excluding the input
+// prompt. Returns 0 when unavailable.
+func UsageCompletionTokenCount(usage *UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	if usage.CompletionTokens > 0 {
+		return usage.CompletionTokens
+	}
+	return 0
+}

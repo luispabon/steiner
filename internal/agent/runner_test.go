@@ -33,7 +33,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 7},
+				Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
 			},
 			{
 				Message: provider.Message{
@@ -41,7 +41,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -154,7 +154,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 7},
+				Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
 			},
 			{
 				Message: provider.Message{
@@ -162,7 +162,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -261,7 +261,7 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -269,7 +269,7 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -366,7 +366,7 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 7},
+				Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
 			},
 			{
 				Message: provider.Message{
@@ -374,7 +374,7 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -459,7 +459,7 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 					},
 					Done:         true,
 					FinishReason: "stop",
-					Usage:        &provider.UsageStats{TotalTokens: 2},
+					Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 				}
 			}()
 			return chunks, nil
@@ -543,12 +543,8 @@ func TestRunnerFallsBackToEstimatorWhenUsageIsMissing(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 
-	estimated, err := provider.EstimateChatRequestTokens(context.Background(), providerStub.requests[0])
-	if err != nil {
-		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
-	}
-	if got, want := state.TokenCount, estimated; got != want {
-		t.Fatalf("TokenCount = %d, want %d", got, want)
+	if got, want := state.TokenCount, 0; got != want {
+		t.Fatalf("TokenCount = %d, want %d (no usage stats reported, only completion tokens count)", got, want)
 	}
 }
 
@@ -561,7 +557,7 @@ func TestRunnerPrefersReportedUsageOverFallbackEstimate(t *testing.T) {
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 1},
+				Usage:        &provider.UsageStats{TotalTokens: 1, CompletionTokens: 1},
 			},
 		},
 	}
@@ -652,7 +648,7 @@ func TestRunnerStopsAtMaxTokens(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 		},
 	}

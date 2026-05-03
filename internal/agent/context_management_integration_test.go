@@ -70,7 +70,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -87,7 +87,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -104,7 +104,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -112,7 +112,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 					Content: "turn 4 answer",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -288,7 +288,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -296,7 +296,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 					Content: mustMarshalJSON(t, map[string]any{"intent": "inspect note", "next": "reread note"}),
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 			{
 				Message: provider.Message{
@@ -307,7 +307,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -315,7 +315,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 					Content: "turn 3 answer",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 		},
 	}
@@ -389,7 +389,7 @@ func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 					Content: "post-compaction answer",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 4},
+				Usage:        &provider.UsageStats{TotalTokens: 4, CompletionTokens: 4},
 			},
 			{
 				Message: provider.Message{
@@ -397,7 +397,7 @@ func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 					Content: mustMarshalJSON(t, map[string]any{"intent": "resume work", "next": "continue"}),
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 		},
 	}
@@ -490,7 +490,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -498,7 +498,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 					Content: mustMarshalJSON(t, map[string]any{"intent": "inspect note", "next": "reread note"}),
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 			{
 				Message: provider.Message{
@@ -509,7 +509,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -517,7 +517,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 					Content: "not json",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 			{
 				Message: provider.Message{
@@ -525,7 +525,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 					Content: "turn 3 answer",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 		},
 	}
@@ -617,7 +617,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -627,7 +627,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -637,7 +637,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -647,7 +647,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -655,7 +655,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 					Content: "done",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}
@@ -778,7 +778,7 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -789,7 +789,7 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 			{
 				Message: provider.Message{
@@ -797,7 +797,7 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 					Content: "turn 3 answer",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3},
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
 			},
 		},
 	}

@@ -589,6 +589,7 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 							},
 						},
 						FinishReason: "tool_calls",
+						Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
 					},
 					{
 						Message: provider.Message{
@@ -630,8 +631,8 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	if !strings.Contains(got, `approval: turn=0 accepted tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} message=approved`) {
 		t.Fatalf("stdout = %q, want approval acceptance with normalized args", got)
 	}
-	if !strings.Contains(got, "status: stopped at turn 1: reached the max token limit") {
-		t.Fatalf("stdout = %q, want explicit max token stop after approval flow", got)
+	if !strings.Contains(got, "run complete after 2 turns") {
+		t.Fatalf("stdout = %q, want run completion after approval flow", got)
 	}
 }
 

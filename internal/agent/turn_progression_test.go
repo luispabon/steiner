@@ -311,7 +311,7 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 					Content: "hello",
 				},
 				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 2},
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 			},
 		},
 	}
@@ -388,7 +388,7 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 		},
 	}
@@ -548,7 +548,7 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 		},
 	}
@@ -636,7 +636,7 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 					},
 				},
 				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 5},
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 			},
 		},
 	}
