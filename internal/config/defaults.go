@@ -12,6 +12,10 @@ func defaultConfig() Config {
 			SafetyMarginTokens: 8192,
 			SummaryMaxTokens:   4096,
 		},
+		Thinking: ThinkingConfig{
+			Enabled:                  true,
+			EnabledScaffoldInference: false,
+		},
 	}
 	return Config{
 		Scheduler: SchedulerConfig{

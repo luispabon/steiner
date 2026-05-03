@@ -118,6 +118,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		},
 		Events:             events,
 		ContextManager:     ctxManager,
+		Thinking:           selected.Thinking,
 		StreamingPreferred: r.streamingPreferred,
 	})
 	reason := string(state.StopReason)

@@ -306,6 +306,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		ExtraParams: in.Request.ExtraParams,
 		MaxTokens:   in.Request.MaxTokens,
 	}
+	chatRequest = applyThinking(in.Request.Thinking, chatRequest)
 
 	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {

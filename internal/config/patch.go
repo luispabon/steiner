@@ -29,6 +29,13 @@ type schedulerPatch struct {
 	Parallelism *int `yaml:"parallelism"`
 }
 
+type thinkingConfigPatch struct {
+	Enabled                  *bool           `yaml:"enabled"`
+	EnabledScaffoldInference *bool           `yaml:"enabled_scaffolding_inference"`
+	DisableMarker            *string         `yaml:"disable_marker"`
+	Params                   *map[string]any `yaml:"params"`
+}
+
 type modelPatch struct {
 	Type                *string            `yaml:"type"`
 	BaseURL             *string            `yaml:"base_url"`
@@ -39,6 +46,7 @@ type modelPatch struct {
 	ContextSize         *int               `yaml:"context_size"`
 	Compaction          *compactionPatch   `yaml:"compaction"`
 	Prompts             *modelPromptsPatch `yaml:"prompts"`
+	Thinking            *thinkingConfigPatch `yaml:"thinking"`
 }
 
 type modelPromptsPatch struct {
@@ -200,6 +208,21 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	}
 	if patch.Prompts != nil {
 		applyModelPromptsPatch(&dst.Prompts, patch.Prompts)
+	}
+	if patch.Thinking != nil {
+		tp := patch.Thinking
+		if tp.Enabled != nil {
+			dst.Thinking.Enabled = *tp.Enabled
+		}
+		if tp.EnabledScaffoldInference != nil {
+			dst.Thinking.EnabledScaffoldInference = *tp.EnabledScaffoldInference
+		}
+		if tp.DisableMarker != nil {
+			dst.Thinking.DisableMarker = *tp.DisableMarker
+		}
+		if tp.Params != nil {
+			dst.Thinking.Params = copyStringAnyMap(*tp.Params)
+		}
 	}
 }
 

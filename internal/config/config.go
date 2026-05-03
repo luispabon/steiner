@@ -71,6 +71,22 @@ type SchedulerConfig struct {
 	Parallelism int `yaml:"parallelism"`
 }
 
+// ThinkingConfig controls thinking behaviour for a model.
+type ThinkingConfig struct {
+	// Enabled is the master switch. When false, Params are never injected.
+	Enabled bool `yaml:"enabled"`
+	// EnabledScaffoldInference applies thinking to scaffold inference calls.
+	EnabledScaffoldInference bool `yaml:"enabled_scaffolding_inference"`
+	// DisableMarker, if non-empty, is scanned in the latest user message each
+	// turn. When found, the marker is stripped before sending to the API and
+	// thinking is suppressed for that request only.
+	DisableMarker string `yaml:"disable_marker"`
+	// Params are merged into ExtraParams when thinking is active. Supports
+	// scalar and nested map values. Takes precedence over ExtraParams on key
+	// collision.
+	Params map[string]any `yaml:"params"`
+}
+
 // ModelConfig configures a model provider instance.
 type ModelConfig struct {
 	Type                string           `yaml:"type"`
@@ -82,6 +98,7 @@ type ModelConfig struct {
 	ContextSize         int              `yaml:"context_size"`
 	Compaction          CompactionConfig `yaml:"compaction"`
 	Prompts             ModelPrompts     `yaml:"prompts"`
+	Thinking            ThinkingConfig   `yaml:"thinking"`
 }
 
 // ModelPrompts contains per-model prompt overrides. These override the
