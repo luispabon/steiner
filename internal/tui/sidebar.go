@@ -160,10 +160,10 @@ func (s sidebarState) workdirSummary(width int) string {
 }
 
 func (s sidebarState) brandRow(width int) string {
-	mark := s.styles.AccentBg.Render("s")
+	mark := s.styles.AccentBg.Padding(0, 1).Render("s")
 	name := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
 	ver := s.styles.FgMute.Render("0.1.4")
-	leftVisible := 1 + 1 + len("steiner") // mark + space + name
+	leftVisible := lipgloss.Width(mark) + 1 + len("steiner") // mark + space + name
 	verVisible := lipgloss.Width(ver)
 	pad := width - leftVisible - verVisible
 	if pad < 1 {
@@ -174,6 +174,7 @@ func (s sidebarState) brandRow(width int) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(s.styles.AccentColor).
+		Background(lipgloss.Color(theme.Bg)).
 		Padding(0, 1, 0, 0).
 		Render(content)
 }
