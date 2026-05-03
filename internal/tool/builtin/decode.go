@@ -99,6 +99,36 @@ func setField(fv reflect.Value, raw any) error {
 		return nil
 	}
 
+	if fv.Kind() == reflect.Slice {
+		rawSlice, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("expected array for slice field, got %T", raw)
+		}
+		elemType := fv.Type().Elem()
+		slice := reflect.MakeSlice(fv.Type(), 0, len(rawSlice))
+		for i, item := range rawSlice {
+			elem := reflect.New(elemType).Elem()
+			if elemType.Kind() == reflect.Struct {
+				itemMap, ok := item.(map[string]any)
+				if !ok {
+					return fmt.Errorf("expected object for slice element %d, got %T", i, item)
+				}
+				nested, err := decodeReflect(elemType, itemMap)
+				if err != nil {
+					return fmt.Errorf("element %d: %w", i, err)
+				}
+				elem = nested
+			} else {
+				if err := setField(elem, item); err != nil {
+					return fmt.Errorf("element %d: %w", i, err)
+				}
+			}
+			slice = reflect.Append(slice, elem)
+		}
+		fv.Set(slice)
+		return nil
+	}
+
 	switch fv.Kind() {
 	case reflect.String:
 		switch rv.Kind() {

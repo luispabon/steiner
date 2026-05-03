@@ -101,7 +101,7 @@ func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (ma
 			return nil, err
 		}
 		normalized["path"] = resolved
-	case "write", "edit":
+	case "write", "edit", "apply_patch":
 		path := stringInput(normalized["path"])
 		resolved, err := p.ResolvePath(path, true)
 		if err != nil {

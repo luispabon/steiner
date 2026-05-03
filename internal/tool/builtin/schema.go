@@ -123,3 +123,30 @@ func BashSchema() map[string]any {
 		"additionalProperties": false,
 	}
 }
+
+// ApplyPatchSchema returns the JSON schema for the apply_patch tool.
+func ApplyPatchSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{"type": "string", "description": "Absolute or workspace-relative path to the file to patch"},
+			"hunks": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"old": map[string]any{"type": "string", "description": "Exact text to find (must match uniquely)"},
+						"new": map[string]any{"type": "string", "description": "Replacement text"},
+					},
+					"required":             []string{"old", "new"},
+					"additionalProperties": false,
+				},
+				"description": "List of hunks (old/new pairs) to apply. Hunks are sorted by position automatically.",
+			},
+			"dry_run":         map[string]any{"type": "boolean", "description": "If true, preview changes without writing", "default": false},
+			"fuzzy_threshold": map[string]any{"type": "number", "description": "Future: fuzzy match threshold for slightly mismatched old text", "default": 1.0},
+		},
+		"required":             []string{"path", "hunks"},
+		"additionalProperties": false,
+	}
+}

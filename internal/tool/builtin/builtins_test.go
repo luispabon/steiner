@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 9 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 9 {
-			t.Fatalf("Builtins returned %d tools, want 9", len(tools))
+	t.Run("all 10 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 10 {
+			t.Fatalf("Builtins returned %d tools, want 10", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash", "display_file", "scratchpad"}
+		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -66,6 +66,7 @@ func TestBuiltins(t *testing.T) {
 			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
 			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
+			&ApplyPatchResult{Path: "test.txt", HunksApplied: 3, Output: "@@ -1,3 +1,4 @@\n-old\n+new\n"},
 		}
 		for i, r := range results {
 			data, err := json.Marshal(r)
@@ -96,8 +97,9 @@ func TestBuiltins(t *testing.T) {
 				_, isMutation := errResult.(*MutationResult)
 				_, isBash := errResult.(*BashResult)
 				_, isDisplayFile := errResult.(*DisplayFileResult)
+				_, isApplyPatch := errResult.(*ApplyPatchResult)
 
-				hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile
+				hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch
 				if !hasResult {
 					t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 				}
