@@ -22,7 +22,7 @@ func (m *Model) applyEvent(event output.Event) {
 		return
 	}
 
-	if event.Type != output.EventTypeHistoryLoaded {
+	if event.Type != output.EventTypeHistoryLoaded && event.Type != output.EventTypeScratchpadUpdated {
 		m.content.AppendEvent(event)
 	}
 
@@ -130,6 +130,11 @@ func (m *Model) applyEvent(event output.Event) {
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
+	case output.ScratchpadUpdatedEvent:
+		m.sidebar.scratchpadIntent = payload.Intent
+		m.sidebar.scratchpadDecisions = payload.Decisions
+		m.sidebar.scratchpadOpen = payload.Open
+		m.sidebar.scratchpadNext = payload.Next
 	}
 
 	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {

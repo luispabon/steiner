@@ -38,6 +38,11 @@ type sidebarState struct {
 	workingDir    string
 	styles        theme.Styles
 	tickCount     int
+
+	scratchpadIntent    string
+	scratchpadDecisions string
+	scratchpadOpen      string
+	scratchpadNext      string
 }
 
 func newSidebarState() sidebarState {
@@ -106,6 +111,27 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	static = append(static, s.tokenBarLine(width))
 	static = append(static, s.tokenUsageLine(width))
 	static = append(static, s.compactDotLine())
+
+	// Scratchpad card — always shown; placeholder when empty
+	static = append(static, "")
+	static = append(static, cardLabel("scratchpad", s.styles))
+	anyField := s.scratchpadIntent != "" || s.scratchpadNext != "" || s.scratchpadOpen != "" || s.scratchpadDecisions != ""
+	if !anyField {
+		static = append(static, s.styles.FgMute.Render("no active task"))
+	} else {
+		if s.scratchpadIntent != "" {
+			static = append(static, cardFieldWrapped("Intent", s.styles.FgDim, s.scratchpadIntent, width, s.styles)...)
+		}
+		if s.scratchpadDecisions != "" {
+			static = append(static, cardFieldWrapped("Decided", s.styles.FgDim, s.scratchpadDecisions, width, s.styles)...)
+		}
+		if s.scratchpadOpen != "" {
+			static = append(static, cardFieldWrapped("Open", s.styles.FgDim, s.scratchpadOpen, width, s.styles)...)
+		}
+		if s.scratchpadNext != "" {
+			static = append(static, cardFieldWrapped("Next", s.styles.FgDim, s.scratchpadNext, width, s.styles)...)
+		}
+	}
 
 	// Repository card
 	static = append(static, "")
@@ -186,6 +212,68 @@ func cardLabel(label string, styles theme.Styles) string {
 func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
 	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
 	return keyStr + valStyle.Render(value)
+}
+
+// cardFieldWrapped renders a card field with up to 2 word-wrapped lines.
+// width is the full inner width; the value column is width-7.
+func cardFieldWrapped(key string, valStyle lipgloss.Style, value string, width int, styles theme.Styles) []string {
+	valWidth := max(1, width-7)
+	wrapped := wrapWords(strings.TrimSpace(value), valWidth, 2)
+	if len(wrapped) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(wrapped))
+	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
+	indent := strings.Repeat(" ", 7)
+	for i, line := range wrapped {
+		if i == 0 {
+			out = append(out, keyStr+valStyle.Render(line))
+		} else {
+			out = append(out, indent+valStyle.Render(line))
+		}
+	}
+	return out
+}
+
+// wrapWords splits text into at most maxLines lines of at most width runes each,
+// breaking at word boundaries. The last line is truncated with "…" if needed.
+func wrapWords(text string, width, maxLines int) []string {
+	if width <= 0 || maxLines <= 0 || text == "" {
+		return nil
+	}
+	words := strings.Fields(text)
+	var lines []string
+	current := ""
+	for _, word := range words {
+		if len(lines) >= maxLines {
+			break
+		}
+		switch {
+		case current == "":
+			current = word
+		case len(current)+1+len(word) <= width:
+			current += " " + word
+		default:
+			lines = append(lines, current)
+			current = word
+		}
+	}
+	if current != "" && len(lines) < maxLines {
+		lines = append(lines, current)
+	}
+	// Truncate the last line if it exceeds width.
+	if n := len(lines); n > 0 {
+		last := lines[n-1]
+		runes := []rune(last)
+		if len(runes) > width {
+			if width > 1 {
+				lines[n-1] = string(runes[:width-1]) + "…"
+			} else {
+				lines[n-1] = string(runes[:width])
+			}
+		}
+	}
+	return lines
 }
 
 func stripProviderURL(url string) string {

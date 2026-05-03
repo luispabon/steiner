@@ -392,6 +392,16 @@ func NewDisplayFileEvent(payload DisplayFilePayload) Event {
 	}
 }
 
+// NewScratchpadUpdatedEvent creates a scratchpad_updated event carrying
+// the current task state fields for the sidebar to display.
+func NewScratchpadUpdatedEvent(e ScratchpadUpdatedEvent) Event {
+	return Event{
+		Type:      EventTypeScratchpadUpdated,
+		Timestamp: time.Now().UTC(),
+		Payload:   e,
+	}
+}
+
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 	return Event{

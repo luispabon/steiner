@@ -245,6 +245,12 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 			s.scratchpad.LastAction = "scratchpad updated"
 			s.scratchpadFailures = 0
 			emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+			emitEvent(s.events, output.NewScratchpadUpdatedEvent(output.ScratchpadUpdatedEvent{
+				Intent:    s.scratchpad.Intent,
+				Decisions: s.scratchpad.Decisions,
+				Open:      s.scratchpad.Open,
+				Next:      s.scratchpad.Next,
+			}))
 			if len(warnings) > 0 {
 				emitEvent(s.events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 					Kind:     "scratchpad",
@@ -513,6 +519,12 @@ func (s *SmartContextManager) applyScaffoldInference(turn int, content string) (
 	}
 	s.scratchpad = next
 	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
+	emitEvent(s.events, output.NewScratchpadUpdatedEvent(output.ScratchpadUpdatedEvent{
+		Intent:    s.scratchpad.Intent,
+		Decisions: s.scratchpad.Decisions,
+		Open:      s.scratchpad.Open,
+		Next:      s.scratchpad.Next,
+	}))
 	return true, ""
 }
 
