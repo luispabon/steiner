@@ -312,6 +312,7 @@ func (m Model) View() string {
 			PaddingRight(2)
 	}
 	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
+	viewportView = theme.WithBg(viewportView, lipgloss.Color(theme.BgElev))
 
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
@@ -321,8 +322,10 @@ func (m Model) View() string {
 	// Horizontal divider: 1-row line of border-soft between transcript and bottom area.
 	// Lives inside the main column only — sidebar's vertical divider crosses uninterrupted.
 	hDivider := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
 		Foreground(lipgloss.Color(theme.BorderSoft)).
 		Render(strings.Repeat("─", contentWidth))
+	hDivider = theme.WithBg(hDivider, lipgloss.Color(theme.BgElev))
 
 	inputView := m.renderInputView(contentWidth)
 	activityView := m.renderActivityRow(contentWidth)
@@ -335,6 +338,10 @@ func (m Model) View() string {
 	mainComponents = append(mainComponents, activityView, inputView, statusView)
 
 	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
+	mainColumn = lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
+		Height(m.height).
+		Render(mainColumn)
 
 	var base string
 	if sidebarVisible {

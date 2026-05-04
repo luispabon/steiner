@@ -43,7 +43,11 @@ func (m *Model) syncViewport() {
 	}
 	m.contentTopPad = pad
 	if pad > 0 {
-		rendered = strings.Repeat("\n", pad) + rendered
+		padLine := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BgElev)).
+			Width(m.viewport.Width).
+			Render("")
+		rendered = strings.Repeat(padLine+"\n", pad) + rendered
 	}
 	m.viewport.SetContent(rendered)
 	if m.autoScroll {

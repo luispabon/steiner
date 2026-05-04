@@ -154,20 +154,23 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 	}
 	td := segment.thinkData
 	style := b.thinkingTextStyle(td.source)
+	var result string
 	if td.collapsed {
 		runes := []rune(td.preview)
 		if len(runes) > 60 {
 			runes = runes[:60]
 		}
-		return style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+		result = style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+	} else {
+		var sb strings.Builder
+		sb.WriteString(style.Render("▾ Thinking") + "\n")
+		bar := style.Render("▎")
+		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+			sb.WriteString(bar + " " + style.Render(line) + "\n")
+		}
+		result = sb.String()
 	}
-	var sb strings.Builder
-	sb.WriteString(style.Render("▾ Thinking") + "\n")
-	bar := style.Render("▎")
-	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
-		sb.WriteString(bar + " " + style.Render(line) + "\n")
-	}
-	return sb.String()
+	return theme.WithBg(result, lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) thinkingTextStyle(source output.ChunkSource) lipgloss.Style {
@@ -181,18 +184,18 @@ func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width 
 	if segment.approvalData == nil {
 		return ""
 	}
-	return b.renderApprovalPill(segment.approvalData, width)
+	return theme.WithBg(b.renderApprovalPill(segment.approvalData, width), lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) renderCompactionBannerSegment(segment contentSegment, width int) string {
 	if segment.compactionData == nil {
 		return ""
 	}
-	return b.renderCompactionBanner(segment.compactionData, width)
+	return theme.WithBg(b.renderCompactionBanner(segment.compactionData, width), lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) renderInterruptedSegment() string {
-	return b.styles.FgMute.Render("interrupted") + "\n\n"
+	return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
@@ -205,7 +208,7 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.AssistantProse.Render("assistant> " + block)
 	}
-	return rendered
+	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 }
 
 func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {
@@ -253,7 +256,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 		cursor = "█"
 	}
 	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
-	return b.styles.AssistantProse.Render(wrapped) + "\n"
+	return theme.WithBg(b.styles.AssistantProse.Render(wrapped)+"\n", lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) streamingIndicatorView() string {
@@ -273,7 +276,7 @@ func (b *contentBuffer) streamingIndicatorView() string {
 			dots[i] = b.styles.FgMute.Render("·")
 		}
 	}
-	return strings.Join(dots, "  ") + "  " + b.styles.FgMute.Render(label) + "\n"
+	return theme.WithBg(strings.Join(dots, "  ")+"  "+b.styles.FgMute.Render(label)+"\n", lipgloss.Color(theme.BgElev))
 }
 
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
