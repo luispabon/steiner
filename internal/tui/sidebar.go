@@ -81,6 +81,10 @@ func (s sidebarState) View(width, height int) string {
 	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
 }
 
+func (s sidebarState) styledWithBg(baseStyle lipgloss.Style, text string) string {
+	return baseStyle.Copy().Background(lipgloss.Color(theme.Black)).Render(text)
+}
+
 func (s sidebarState) lines(width, innerHeight int) []string {
 	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
@@ -89,8 +93,8 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 
 	// Brand row: mark · name · version right-aligned; gap then divider
 	static = append(static, s.brandRow(width-3))
-	static = append(static, "")
-	static = append(static, s.styles.FgMute.Render(strings.Repeat("─", max(0, width))))
+	static = append(static, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
+	static = append(static, s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width))))
 
 	// Model card
 	static = append(static, "")
@@ -117,7 +121,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	static = append(static, cardLabel("scratchpad", s.styles))
 	anyField := s.scratchpadIntent != "" || s.scratchpadNext != "" || s.scratchpadOpen != "" || s.scratchpadDecisions != ""
 	if !anyField {
-		static = append(static, s.styles.FgMute.Render("no active task"))
+		static = append(static, s.styledWithBg(s.styles.FgMute, "no active task"))
 	} else {
 		if s.scratchpadIntent != "" {
 			static = append(static, cardFieldWrapped("Intent", s.styles.FgDim, s.scratchpadIntent, width, s.styles)...)
@@ -171,7 +175,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	}
 	if overflow {
 		remaining := len(sorted) - displayCount
-		lines = append(lines, s.styles.FgMute.Render(fmt.Sprintf("↓ %d more", remaining)))
+		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("↓ %d more", remaining)))
 	}
 
 	return lines
@@ -187,8 +191,10 @@ func (s sidebarState) workdirSummary(width int) string {
 
 func (s sidebarState) brandRow(width int) string {
 	mark := s.styles.AccentBg.Padding(0, 1).Render("s")
-	name := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("steiner")
-	ver := s.styles.FgMute.Render("0.1.4")
+	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(theme.Black))
+	name := nameStyle.Render("steiner")
+	verStyle := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black))
+	ver := verStyle.Render("0.1.4")
 	leftVisible := lipgloss.Width(mark) + 1 + len("steiner") // mark + space + name
 	verVisible := lipgloss.Width(ver)
 	pad := width - leftVisible - verVisible
@@ -196,22 +202,29 @@ func (s sidebarState) brandRow(width int) string {
 		pad = 1
 	}
 
-	content := mark + " " + name + strings.Repeat(" ", pad) + ver
-	return lipgloss.NewStyle().
+	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	content := mark + spaceBgStyle.Render(" ") + name + spaceBgStyle.Render(strings.Repeat(" ", pad)) + ver
+	box := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(s.styles.AccentColor).
-		Background(lipgloss.Color(theme.Bg)).
+		Background(lipgloss.Color(theme.Black)).
 		Padding(0, 1, 0, 0).
 		Render(content)
+
+	boxWidth := lipgloss.Width(box)
+	rightPad := max(0, width-boxWidth)
+	return box + spaceBgStyle.Render(strings.Repeat(" ", rightPad))
 }
 
 func cardLabel(label string, styles theme.Styles) string {
-	return styles.CardLabel.Render(strings.ToUpper(label))
+	return styles.CardLabel.Copy().Background(lipgloss.Color(theme.Black)).Render(strings.ToUpper(label))
 }
 
 func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
-	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
-	return keyStr + valStyle.Render(value)
+	keyStyle := styles.FgFaint.Copy().Background(lipgloss.Color(theme.Black))
+	valStyleWithBg := valStyle.Copy().Background(lipgloss.Color(theme.Black))
+	keyStr := keyStyle.Render(fmt.Sprintf("%-7s", key))
+	return keyStr + valStyleWithBg.Render(value)
 }
 
 // cardFieldWrapped renders a card field with up to 2 word-wrapped lines.
@@ -223,13 +236,16 @@ func cardFieldWrapped(key string, valStyle lipgloss.Style, value string, width i
 		return nil
 	}
 	out := make([]string, 0, len(wrapped))
-	keyStr := styles.FgFaint.Render(fmt.Sprintf("%-7s", key))
-	indent := strings.Repeat(" ", 7)
+	keyStyle := styles.FgFaint.Copy().Background(lipgloss.Color(theme.Black))
+	valStyleWithBg := valStyle.Copy().Background(lipgloss.Color(theme.Black))
+	keyStr := keyStyle.Render(fmt.Sprintf("%-7s", key))
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	indent := bgStyle.Render(strings.Repeat(" ", 7))
 	for i, line := range wrapped {
 		if i == 0 {
-			out = append(out, keyStr+valStyle.Render(line))
+			out = append(out, keyStr+valStyleWithBg.Render(line))
 		} else {
-			out = append(out, indent+valStyle.Render(line))
+			out = append(out, indent+valStyleWithBg.Render(line))
 		}
 	}
 	return out
@@ -307,8 +323,10 @@ func (s sidebarState) tokenBarLine(width int) string {
 		}
 	}
 
-	bar := barStyle.Render(strings.Repeat("█", filled)) +
-		lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", barWidth-filled))
+	barWithBg := barStyle.Copy().Background(lipgloss.Color(theme.Black))
+	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	bar := barWithBg.Render(strings.Repeat("█", filled)) +
+		emptyWithBg.Render(strings.Repeat(" ", barWidth-filled))
 	return bar
 }
 
@@ -320,7 +338,7 @@ func (s sidebarState) tokenUsageLine(width int) string {
 	if pad < 1 {
 		pad = 1
 	}
-	return s.styles.FgDim.Render(usageStr + strings.Repeat(" ", pad) + pctStr)
+	return s.styledWithBg(s.styles.FgDim, usageStr+strings.Repeat(" ", pad)+pctStr)
 }
 
 func (s sidebarState) compactDotLine() string {
@@ -331,10 +349,11 @@ func (s sidebarState) compactDotLine() string {
 		if s.tickCount%2 == 0 {
 			dot = "○"
 		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render(dot) +
-			s.styles.FgDim.Render(" compacting…")
+		dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
+		return dotStyle.Render(dot) +
+			s.styledWithBg(s.styles.FgDim, " compacting…")
 	}
-	return s.styles.FgFaint.Render("●") + s.styles.FgDim.Render(" auto @ 90%")
+	return s.styledWithBg(s.styles.FgFaint, "●") + s.styledWithBg(s.styles.FgDim, " auto @ 90%")
 }
 
 func (s sidebarState) branchLine(width int) string {
@@ -349,7 +368,9 @@ func (s sidebarState) branchLine(width int) string {
 	branchText := fitText(branch, maxBranch)
 	line := cardField("branch", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)), branchText, s.styles)
 	if s.dirty {
-		line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Render("●")
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
+		spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+		line += spaceBgStyle.Render(" ") + warnStyle.Render("●")
 	}
 	return line
 }
@@ -372,14 +393,15 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 	}
 
 	statsText := ""
+	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
 	if file.Added > 0 {
-		statsText += s.styles.Added.Render(fmt.Sprintf("+%d", file.Added))
+		statsText += s.styledWithBg(s.styles.Added, fmt.Sprintf("+%d", file.Added))
 	}
 	if file.Deleted > 0 {
 		if statsText != "" {
-			statsText += " "
+			statsText += spaceBgStyle.Render(" ")
 		}
-		statsText += s.styles.Removed.Render(fmt.Sprintf("-%d", file.Deleted))
+		statsText += s.styledWithBg(s.styles.Removed, fmt.Sprintf("-%d", file.Deleted))
 	}
 
 	statsLen := 0
@@ -396,10 +418,11 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 	pathWidth := max(1, width-3-statsLen-1) // glyph(1) + space(1) + ... + space(1) + stats
 	path := fitTextMiddle(file.Path, pathWidth)
 
-	line := glyphStyle.Render(glyph) + " " + s.styles.FgDim.Render(path)
+	glyphWithBg := glyphStyle.Copy().Background(lipgloss.Color(theme.Black))
+	line := glyphWithBg.Render(glyph) + spaceBgStyle.Render(" ") + s.styledWithBg(s.styles.FgDim, path)
 	if statsText != "" {
 		padding := max(1, width-2-lipgloss.Width(path)-statsLen)
-		line += strings.Repeat(" ", padding) + statsText
+		line += spaceBgStyle.Render(strings.Repeat(" ", padding)) + statsText
 	}
 	return line
 }

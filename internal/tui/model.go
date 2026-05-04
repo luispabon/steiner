@@ -306,6 +306,7 @@ func (m Model) View() string {
 	paneStyle := m.styles.ContentPane
 	if scrollbar != "" {
 		paneStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BgElev)).
 			PaddingTop(1).
 			PaddingLeft(3).
 			PaddingRight(2)
