@@ -158,11 +158,12 @@ func (m *Model) renderContextOverlay() string {
 		s.contextDivider(),
 		footer,
 	)
-
 	boxStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.BorderSoft)).
 		Padding(1, 2)
 
-	return boxStyle.Width(contextOverlayWidth).Render(full)
+	box := boxStyle.Width(contextOverlayWidth).Render(full)
+	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }

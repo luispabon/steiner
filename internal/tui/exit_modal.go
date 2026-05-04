@@ -88,7 +88,8 @@ func (m *Model) renderExitModal() string {
 		divider,
 		footer,
 	)
-	return m.styles.PaletteOverlay.Width(innerWidth).Padding(0, 1).Render(content)
+	box := m.styles.PaletteOverlay.Width(innerWidth).Padding(0, 1).Render(content)
+	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }
 
 func (m *Model) renderExitModalButton(label string, selected bool) string {

@@ -133,7 +133,7 @@ func (f fileListOverlay) View() string {
 		Padding(1, 1).
 		Render(body)
 
-	return box
+	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }
 
 func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {

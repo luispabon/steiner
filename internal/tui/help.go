@@ -92,6 +92,7 @@ func renderHelp(styles theme.Styles, width int) string {
 	}
 
 	panel := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(styles.Border.GetForeground()).
 		Foreground(styles.ContentPane.GetForeground()).
@@ -99,5 +100,5 @@ func renderHelp(styles theme.Styles, width int) string {
 		Padding(1, 2).
 		Render(sb.String())
 
-	return panel
+	return theme.WithBg(panel, lipgloss.Color(theme.BgElev))
 }

@@ -161,7 +161,7 @@ func (p paletteModel) View() string {
 		Padding(1, 1).
 		Render(body)
 
-	return box
+	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }
 
 func (p *paletteModel) filter() {
