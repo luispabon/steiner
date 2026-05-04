@@ -23,7 +23,7 @@ type BashResult struct {
 func NewBashTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "bash",
-		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd when needed. Output may be truncated.",
+		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
 		ParameterSchema: BashSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[BashInput](input)
