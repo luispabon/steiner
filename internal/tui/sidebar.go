@@ -91,8 +91,8 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	// Build all static lines first so we can compute overflow budget.
 	var static []string
 
-	// Brand row: mark · name · version right-aligned; gap then divider
-	static = append(static, s.brandRow(width-3))
+	// Brand: 3-line block logo on the left; "steiner 0.1.4" on the third line
+	static = append(static, s.brandSection(width-3)...)
 	static = append(static, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
 	static = append(static, s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width))))
 
@@ -189,31 +189,31 @@ func (s sidebarState) workdirSummary(width int) string {
 	return homeRelativePath(filepath.Clean(value), strings.TrimSpace(s.homeDir))
 }
 
-func (s sidebarState) brandRow(width int) string {
-	mark := s.styles.AccentBg.Padding(0, 1).Render("s")
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(theme.Black))
-	name := nameStyle.Render("steiner")
-	verStyle := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black))
-	ver := verStyle.Render("0.1.4")
-	leftVisible := lipgloss.Width(mark) + 1 + len("steiner") // mark + space + name
-	verVisible := lipgloss.Width(ver)
-	pad := width - leftVisible - verVisible
-	if pad < 1 {
-		pad = 1
+// brandSection renders a 3-line block-art logo plus version string on the
+// third line. width is the available inner width.
+func (s sidebarState) brandSection(width int) []string {
+	// Three lines of Unicode block-art logo.
+	logo := []string{
+		"▄▖▗   ▘",
+		"▚ ▜▘█▌▌▛▌█▌▛▘",
+		"▄▌▐▖▙▖▌▌▌▙▖▌",
+	}
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	out := make([]string, 0, 3)
+	for _, line := range logo {
+		out = append(out, bg.Render(line))
 	}
 
-	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
-	content := mark + spaceBgStyle.Render(" ") + name + spaceBgStyle.Render(strings.Repeat(" ", pad)) + ver
-	box := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(s.styles.AccentColor).
-		Background(lipgloss.Color(theme.Black)).
-		Padding(0, 1, 0, 0).
-		Render(content)
+	// Append version on the third line after the logo characters.
+	ver := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black)).Render("0.1.4")
+	third := out[2] + bg.Render(" ") + ver
+	thirdWidth := lipgloss.Width(third)
+	if pad := width - thirdWidth; pad > 0 {
+		third += bg.Render(strings.Repeat(" ", pad))
+	}
+	out[2] = third
 
-	boxWidth := lipgloss.Width(box)
-	rightPad := max(0, width-boxWidth)
-	return box + spaceBgStyle.Render(strings.Repeat(" ", rightPad))
+	return out
 }
 
 func cardLabel(label string, styles theme.Styles) string {
