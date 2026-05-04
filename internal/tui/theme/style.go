@@ -36,9 +36,28 @@ func WithBg(s string, bg lipgloss.Color) string {
 		line = strings.ReplaceAll(line, reset, resetBg)
 		line = strings.ReplaceAll(line, "\x1b[49m", bgReset)
 		if line == "" {
-			lines[i] = bgSeq + reset
+			lines[i] = bgSeq + " " + reset
 		} else {
 			lines[i] = bgSeq + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// PadLines pads every line in s to the given width by appending spaces
+// rendered with the specified background color. Lines already at or
+// beyond the target width are left unchanged.
+func PadLines(s string, width int, bg lipgloss.Color) string {
+	if width < 1 {
+		return s
+	}
+	bgStyle := lipgloss.NewStyle().Background(bg)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w < width {
+			pad := bgStyle.Render(strings.Repeat(" ", width-w))
+			lines[i] = line + pad
 		}
 	}
 	return strings.Join(lines, "\n")

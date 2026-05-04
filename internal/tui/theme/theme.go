@@ -169,6 +169,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 
 		Scrollbar: lipgloss.NewStyle().
+			Background(lipgloss.Color(BgElev)).
 			Foreground(lipgloss.Color(BorderSoft)),
 
 		InputFocusBorder: lipgloss.NewStyle().

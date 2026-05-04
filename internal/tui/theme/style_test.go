@@ -52,12 +52,13 @@ func TestWithBg_emptyLine(t *testing.T) {
 	if len(lines) != 3 {
 		t.Errorf("expected 3 lines, got %d", len(lines))
 	}
-	// Empty line should have ANSI escape prefix
+	// Empty line should have ANSI escape prefix and background active
 	if !strings.HasPrefix(lines[1], "\x1b[") {
 		t.Errorf("empty line (index 1) should start with ANSI escape, got %q", lines[1])
 	}
-	if !strings.Contains(lines[1], "\x1b[0m") {
-		t.Errorf("empty line should contain reset, got %q", lines[1])
+	// Empty line should contain at least one bg escape
+	if !strings.Contains(lines[1], "\x1b[48;2;") {
+		t.Errorf("empty line should contain bg escape, got %q", lines[1])
 	}
 	// Non-empty lines should contain their original text
 	if !strings.Contains(lines[0], "a") {

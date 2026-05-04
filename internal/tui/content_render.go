@@ -34,7 +34,22 @@ func (b *contentBuffer) String(width int) string {
 		parts = append(parts, preview)
 	}
 
-	return strings.Join(parts, "")
+	result := strings.Join(parts, "")
+	return b.fillEmptyLines(result, width)
+}
+
+func (b *contentBuffer) fillEmptyLines(s string, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) == 0 {
+			lines[i] = bgLine
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
@@ -56,13 +71,13 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	case segmentUserMarkdown:
 		return b.renderUserMarkdownSegment(segment, width)
 	case segmentThinkingBlock:
-		return b.renderThinkingBlockSegment(segment)
+		return theme.WithBg(b.renderThinkingBlockSegment(segment), lipgloss.Color(theme.BgElev))
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		return b.renderCompactionBannerSegment(segment, width)
+		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
 	case segmentInterrupted:
-		return b.renderInterruptedSegment()
+		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
 	default:
 		return b.renderDefaultSegment(segment)
 	}
@@ -170,7 +185,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 		}
 		result = sb.String()
 	}
-	return theme.WithBg(result, lipgloss.Color(theme.BgElev))
+	return result
 }
 
 func (b *contentBuffer) thinkingTextStyle(source output.ChunkSource) lipgloss.Style {
@@ -184,18 +199,18 @@ func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width 
 	if segment.approvalData == nil {
 		return ""
 	}
-	return theme.WithBg(b.renderApprovalPill(segment.approvalData, width), lipgloss.Color(theme.BgElev))
+	return b.renderApprovalPill(segment.approvalData, width)
 }
 
 func (b *contentBuffer) renderCompactionBannerSegment(segment contentSegment, width int) string {
 	if segment.compactionData == nil {
 		return ""
 	}
-	return theme.WithBg(b.renderCompactionBanner(segment.compactionData, width), lipgloss.Color(theme.BgElev))
+	return b.renderCompactionBanner(segment.compactionData, width)
 }
 
 func (b *contentBuffer) renderInterruptedSegment() string {
-	return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", lipgloss.Color(theme.BgElev))
+	return b.styles.FgMute.Render("interrupted") + "\n\n"
 }
 
 func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
@@ -256,7 +271,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 		cursor = "█"
 	}
 	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
-	return theme.WithBg(b.styles.AssistantProse.Render(wrapped)+"\n", lipgloss.Color(theme.BgElev))
+	return b.styles.AssistantProse.Render(wrapped) + "\n"
 }
 
 func (b *contentBuffer) streamingIndicatorView() string {
@@ -276,7 +291,7 @@ func (b *contentBuffer) streamingIndicatorView() string {
 			dots[i] = b.styles.FgMute.Render("·")
 		}
 	}
-	return theme.WithBg(strings.Join(dots, "  ")+"  "+b.styles.FgMute.Render(label)+"\n", lipgloss.Color(theme.BgElev))
+	return strings.Join(dots, "  ") + "  " + b.styles.FgMute.Render(label) + "\n"
 }
 
 func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {

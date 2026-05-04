@@ -154,6 +154,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	if metaStr != "" {
 		header = header + strings.Repeat(" ", gap) + metaStr
 	}
+	header = theme.WithBg(header, lipgloss.Color(theme.BgElev))
 
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
@@ -162,26 +163,26 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		BorderForeground(lipgloss.Color(tagBgColor))
 
 	if tc.collapsed {
-		boxWidth := width
+		boxWidth := width - 2
 		if boxWidth < 1 {
 			boxWidth = 1
 		}
 
-		return theme.WithBg(boxStyle.Width(boxWidth).Render(header)+"\n", lipgloss.Color(theme.BgElev))
+		return boxStyle.Width(boxWidth).Render(header) + "\n"
 	}
 	// Expanded: wrap both header + body in single box
 	bodyContent := b.renderToolBody(tc, width, tagBgColor)
 
 	// Combine for box rendering
-	fullContent := header + "\n" + bodyContent
+	fullContent := theme.WithBg(header+"\n"+bodyContent, lipgloss.Color(theme.BgElev))
 
-	// Box dimensions - .Width() sets total width including borders and padding
-	boxWidth := width
+	// Box dimensions - lipgloss border adds 2 columns
+	boxWidth := width - 2
 	if boxWidth < 1 {
 		boxWidth = 1
 	}
 
-	return theme.WithBg(boxStyle.Width(boxWidth).Render(fullContent)+"\n", lipgloss.Color(theme.BgElev))
+	return boxStyle.Width(boxWidth).Render(fullContent) + "\n"
 }
 
 func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {
