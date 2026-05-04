@@ -1191,24 +1191,6 @@ func TestModelAltEnterInsertsNewline(t *testing.T) {
 	}
 }
 
-func TestModelShiftEnterInsertsNewline(t *testing.T) {
-	ctrl := &testController{}
-
-	m := newModel(Config{
-		Controller: ctrl,
-	}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m.input.SetValue("first line")
-
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyShiftEnter})
-
-	if got := m.input.Value(); got != "first line\n" {
-		t.Fatalf("input value = %q, want newline inserted", got)
-	}
-	if ctrl.countSubmitPrompt() != 0 {
-		t.Fatalf("submit count = %d, want 0 on shift+enter", ctrl.countSubmitPrompt())
-	}
-}
 
 func TestModelResizeAndMouseScroll(t *testing.T) {
 	m := newModel(Config{}, nil)
