@@ -199,9 +199,14 @@ func (s sidebarState) brandSection(width int) []string {
 		"▄▌▐▖▙▖▌▌▌▙▖▌",
 	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	accentFg := s.styles.Accent.Copy().Background(lipgloss.Color(theme.Black))
 	out := make([]string, 0, 3)
-	for _, line := range logo {
-		out = append(out, bg.Render(line))
+	for i, line := range logo {
+		if i < 2 {
+			out = append(out, accentFg.Render(line))
+		} else {
+			out = append(out, bg.Render(line))
+		}
 	}
 
 	// Append version on the third line after the logo characters.
