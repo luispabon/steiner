@@ -78,6 +78,10 @@ type contentSegment struct {
 	toolData       *toolCallSegment      // non-nil only for segmentToolCall
 	approvalData   *approvalPillData     // non-nil only for segmentApprovalPill
 	compactionData *compactionBannerData // non-nil only for segmentCompactionBanner
+	// render cache
+	cachedRender      string
+	cachedRenderWidth int
+	renderDirty       bool
 }
 
 type contentBuffer struct {
@@ -182,6 +186,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				mode:    payload.Mode,
 				preview: payload.Preview,
 			},
+			renderDirty: true,
 		}
 		b.segments = append(b.segments, seg)
 	} else {
@@ -197,6 +202,7 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 			if !b.segments[i].approvalData.resolved {
 				b.segments[i].approvalData.resolved = true
 				b.segments[i].approvalData.accepted = accepted
+				b.segments[i].renderDirty = true
 				return
 			}
 		}
@@ -230,8 +236,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			tc.bodyKind = previewBodyKind(tc.tool, tc.preview)
 		}
 		b.segments = append(b.segments, contentSegment{
-			kind:     segmentToolCall,
-			toolData: tc,
+			kind:        segmentToolCall,
+			toolData:    tc,
+			renderDirty: true,
 		})
 	} else {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
@@ -254,6 +261,7 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 					if td.hasError {
 						td.meta = "❌"
 					}
+					b.segments[i].renderDirty = true
 					if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
 						td.preview = payload.Preview
 					} else {
@@ -287,6 +295,7 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 				collapsed:      false,
 				displayPreview: &preview,
 			},
+			renderDirty: true,
 		})
 		b.collapseState[idx] = false
 		return
@@ -364,6 +373,7 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 		if last.kind == segmentCompactionBanner && last.compactionData != nil && !last.compactionData.finished {
 			replacement := data
 			last.compactionData = &replacement
+			last.renderDirty = true
 			return
 		}
 	}
@@ -371,16 +381,13 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	b.segments = append(b.segments, contentSegment{
 		kind:           segmentCompactionBanner,
 		compactionData: &replacement,
+		renderDirty:    true,
 	})
 }
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
-		kind := segmentUser
-		if isMarkdownLikeUserContent(payload.Content) {
-			kind = segmentUserMarkdown
-		}
-		b.segments = append(b.segments, contentSegment{kind: kind, text: payload.Content})
+		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, renderDirty: true})
 		if len(b.segments)-1 >= 0 {
 			b.collapseState[len(b.segments)-1] = false
 		}
@@ -392,16 +399,12 @@ func (b *contentBuffer) AppendLine(line string) {
 	b.appendLine(line)
 }
 
-// AppendUser appends a submitted user prompt. Markdown-like content is
-// rendered with glamour; plain text uses the simple block style.
+// AppendUser appends a submitted user prompt. Content is rendered with
+// glamour markdown formatting; plain text is rendered by glamour as-is.
 func (b *contentBuffer) AppendUser(text string) {
 	b.finishStreaming()
 	idx := len(b.segments)
-	kind := segmentUser
-	if isMarkdownLikeUserContent(text) {
-		kind = segmentUserMarkdown
-	}
-	b.segments = append(b.segments, contentSegment{kind: kind, text: text})
+	b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: text, renderDirty: true})
 	b.collapseState[idx] = false
 }
 
@@ -417,7 +420,7 @@ func (b *contentBuffer) Clear() {
 
 func (b *contentBuffer) AppendInterrupted() {
 	b.finishStreaming()
-	b.segments = append(b.segments, contentSegment{kind: segmentInterrupted})
+	b.segments = append(b.segments, contentSegment{kind: segmentInterrupted, renderDirty: true})
 }
 
 func (b *contentBuffer) finishStreaming() {
@@ -463,6 +466,13 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 		} else {
 			td.preview = td.body
 		}
+		// Find and mark the segment as dirty
+		for i := len(b.segments) - 1; i >= 0; i-- {
+			if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
+				b.segments[i].renderDirty = true
+				break
+			}
+		}
 	} else {
 		runes := []rune(text)
 		preview := string(runes)
@@ -479,6 +489,7 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 				body:      text,
 				source:    source,
 			},
+			renderDirty: true,
 		})
 		b.collapseState[idx] = false
 	}
@@ -490,6 +501,7 @@ func (b *contentBuffer) finalizeThinkingBlock() {
 		td.collapsed = true
 		if idx := len(b.segments) - 1; idx >= 0 {
 			b.collapseState[idx] = true
+			b.segments[idx].renderDirty = true
 		}
 	}
 }

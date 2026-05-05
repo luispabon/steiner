@@ -95,12 +95,12 @@ func (b *contentBuffer) appendLine(line string) {
 	if shouldSuppressLine(line) {
 		return
 	}
-	b.segments = append(b.segments, contentSegment{kind: segmentPlain, text: line})
+	b.segments = append(b.segments, contentSegment{kind: segmentPlain, text: line, renderDirty: true})
 }
 
 func (b *contentBuffer) appendStyled(line string, kind contentSegmentKind) {
 	if shouldSuppressLine(line) {
 		return
 	}
-	b.segments = append(b.segments, contentSegment{kind: kind, text: line})
+	b.segments = append(b.segments, contentSegment{kind: kind, text: line, renderDirty: true})
 }

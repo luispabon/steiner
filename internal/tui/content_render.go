@@ -19,12 +19,27 @@ var previewSyntaxStyle = chromastyles.Get("github-dark")
 func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
-	for i, segment := range b.segments {
-		if segment.kind == segmentThinkingBlock && !b.showThinking {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentThinkingBlock && !b.showThinking {
 			b.segmentHeights[i] = 0
 			continue
 		}
-		rendered := b.renderSegment(segment, width)
+		// Force re-render for animating segments
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			seg.renderDirty = true
+		}
+		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
+			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n")
+			if seg.cachedRender != "" {
+				parts = append(parts, seg.cachedRender)
+			}
+			continue
+		}
+		rendered := b.renderSegment(*seg, width)
+		seg.cachedRender = rendered
+		seg.cachedRenderWidth = width
+		seg.renderDirty = false
 		b.segmentHeights[i] = strings.Count(rendered, "\n")
 		if rendered != "" {
 			parts = append(parts, rendered)
@@ -88,7 +103,7 @@ func (b *contentBuffer) renderToolCallSegment(segment contentSegment, width int)
 }
 
 func (b *contentBuffer) renderAssistantMarkdownSegment(segment contentSegment, width int) string {
-	rendered := b.renderMarkdown(segment.text, width)
+	rendered := b.renderMarkdown(segment.text, true, width)
 	if strings.TrimSpace(rendered) != "" {
 		return strings.TrimRight(rendered, "\n") + "\n\n"
 	}
@@ -146,17 +161,42 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	if contentWidth < 2 {
 		contentWidth = 2
 	}
-	bar := b.styles.UserBar.Render("┃")
-	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
 
-	rendered := b.renderMarkdown(segment.text, contentWidth-2)
+	userBgHex := lipgloss.Color(theme.UserSoft)
+
+	// Bar ┃ with UserSoft background so terminal default (black) doesn't
+	// show through. Build from a lipgloss style with both foreground (UserBar)
+	// and background (UserSoft) set.
+	barStyle := lipgloss.NewStyle().
+		Foreground(b.styles.UserBar.GetForeground()).
+		Background(userBgHex)
+	bar := barStyle.Render("┃")
+	padStyle := lipgloss.NewStyle().
+		Width(contentWidth + 1).
+		Background(userBgHex)
+	pad := padStyle.Render(barStyle.Render("┃"))
+
+	rendered, err := renderMarkdownBlock(segment.text, contentWidth-2, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
+	if err != nil {
+		b.lastRenderErr = fmt.Errorf("render user markdown: %w", err)
+		return b.renderUserSegment(segment, width)
+	}
+	// Trim trailing then leading newlines so glamour's paragraph spacing
+	// doesn't create empty lines at the start of the bubble.
 	rendered = strings.TrimRight(rendered, "\n")
+	rendered = strings.TrimLeft(rendered, "\n")
 
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
 	for _, line := range strings.Split(rendered, "\n") {
-		content := b.styles.UserBg.Width(contentWidth).Render(" " + line)
-		sb.WriteString(bar + content + "\n")
+		if line == "" {
+			continue
+		}
+		// Wrap with UserSoft background so glamour's ANSI resets don't
+		// kill the background mid-line, then pad to width.
+		wrapped := theme.WithBg(line, userBgHex)
+		padded := theme.PadLines(wrapped, contentWidth, userBgHex)
+		sb.WriteString(bar + padded + "\n")
 	}
 	sb.WriteString(pad + "\n")
 	sb.WriteString("\n")
@@ -217,11 +257,15 @@ func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
 	return b.styles.AssistantProse.Render(segment.text) + "\n"
 }
 
-func (b *contentBuffer) renderMarkdown(block string, width int) string {
+func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int) string {
+	label := "user"
+	if isAssistant {
+		label = "assistant"
+	}
 	rendered, err := renderMarkdownBlock(block, width, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
-		return b.styles.AssistantProse.Render("assistant> " + block)
+		return b.styles.UserBg.Render(label + "> " + block)
 	}
 	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 }

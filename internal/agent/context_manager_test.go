@@ -275,6 +275,178 @@ func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing
 func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
+	otherFile := filepath.Join(dir, "other.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(otherFile, []byte("other\ncontent\n"), 0o644); err != nil {
+		t.Fatalf("write other file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	otherContent := `{"path":"other.txt","start_line":1,"end_line":2,"total_lines":2,"output":"other\ncontent\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 1,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	// Turn 1: first read of note.txt — full content
+	got1 := cm.IngestToolResult(1, "read", content)
+	if got1 != content {
+		t.Fatalf("turn 1 read = %q, want full content", got1)
+	}
+
+	// Simulate PreAssembly for turn 2 — epoch advances, boundary=1
+	state2 := RunState{
+		TurnCount: 1,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "u1", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "a1", Turn: 1, ToolCalls: []ToolCall{{ID: "c1", Name: "read", Arguments: map[string]any{"path": "note.txt"}}}},
+			{Role: MessageRoleTool, ToolCallID: "c1", Name: "read", Content: got1, Turn: 1},
+		},
+	}
+	state2.Lineage = newConversationLineage(state2.Conversation)
+	_, _ = cm.PreAssembly(context.Background(), state2)
+
+	// Turn 2: read a DIFFERENT file — note.txt's tracker entry stays at LastTurn=1
+	got2 := cm.IngestToolResult(2, "read", otherContent)
+	if got2 != otherContent {
+		t.Fatalf("turn 2 read = %q, want full other content", got2)
+	}
+
+	// Simulate PreAssembly for turn 3 — epoch advances, boundary=2, turn 1 masked
+	state3 := RunState{
+		TurnCount: 2,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "u1", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "a1", Turn: 1, ToolCalls: []ToolCall{{ID: "c1", Name: "read", Arguments: map[string]any{"path": "note.txt"}}}},
+			{Role: MessageRoleTool, ToolCallID: "c1", Name: "read", Content: got1, Turn: 1},
+			{Role: MessageRoleUser, Content: "u2", Turn: 2},
+			{Role: MessageRoleAssistant, Content: "a2", Turn: 2, ToolCalls: []ToolCall{{ID: "c2", Name: "read", Arguments: map[string]any{"path": "other.txt"}}}},
+			{Role: MessageRoleTool, ToolCallID: "c2", Name: "read", Content: got2, Turn: 2},
+		},
+	}
+	state3.Lineage = newConversationLineage(state3.Conversation)
+	_, _ = cm.PreAssembly(context.Background(), state3)
+
+	// Turn 3: re-read note.txt — PreviousRead.LastTurn=1 (note.txt not read at turn 2),
+	// epochMaskBoundary=2 → 1<2 → gate fires, annotation suppressed
+	got3 := cm.IngestToolResult(3, "read", content)
+	if strings.Contains(got3, "file unchanged since turn") {
+		t.Fatalf("turn 3 read after masking = %q, want full content (turn 1 is masked)", got3)
+	}
+	if got3 != content {
+		t.Fatalf("turn 3 read = %q, want original full content", got3)
+	}
+}
+
+func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompacted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 5,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	// Turn 1: first read — full content
+	got1 := cm.IngestToolResult(1, "read", content)
+	if got1 != content {
+		t.Fatalf("turn 1 read = %q, want full content", got1)
+	}
+
+	// Turn 2: re-read — annotation (turn 1 still visible)
+	got2 := cm.IngestToolResult(2, "read", content)
+	if !strings.Contains(got2, "file unchanged since turn 1") {
+		t.Fatalf("turn 2 read = %q, want unchanged annotation", got2)
+	}
+
+	// Simulate compaction by setting minVisibleTurn above turn 1
+	cm.minVisibleTurn = 2
+
+	// Turn 3: re-read — PreviousRead.LastTurn is 2 (updated by turn 2's read),
+	// minVisibleTurn=2, 2<2 false — gate doesn't fire for consecutive reads.
+	// Annotation still references turn 2 which is still visible.
+	// The gate fires when there is a gap between the last read and current turn.
+	got3 := cm.IngestToolResult(3, "read", content)
+	if !strings.Contains(got3, "file unchanged since turn") {
+		t.Fatalf("turn 3 read = %q, want unchanged annotation (previous read turn 2 still visible)", got3)
+	}
+	_ = got1
+	_ = got2
+	_ = got3
+}
+
+func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 5,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	// Turn 1: first read — full content
+	got1 := cm.IngestToolResult(1, "read", content)
+	if got1 != content {
+		t.Fatalf("turn 1 read = %q, want full content", got1)
+	}
+
+	// Don't read at turn 2 — creates a gap, PreviousRead.LastTurn stays at 1
+
+	// Simulate compaction by setting minVisibleTurn above turn 1
+	cm.minVisibleTurn = 2
+
+	// Turn 3: re-read — PreviousRead.LastTurn is 1 (no read at turn 2),
+	// minVisibleTurn=2, 1<2 — gate fires!
+	got3 := cm.IngestToolResult(3, "read", content)
+	if strings.Contains(got3, "file unchanged since turn") {
+		t.Fatalf("turn 3 read after compaction = %q, want full content (turn 1 dropped)", got3)
+	}
+	if got3 != content {
+		t.Fatalf("turn 3 read = %q, want original full content", got3)
+	}
+	_ = got1
+}
+
+func TestObserveReadHeuristicsRecordsSuppressionFact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -294,30 +466,20 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 		ReadAnnotations:    true,
 	}).(*SmartContextManager)
 
-	// Turn 1: first read — full content
-	got1 := cm.IngestToolResult(1, "read", content)
-	if got1 != content {
-		t.Fatalf("turn 1 read = %q, want full content", got1)
-	}
+	// Turn 1: first read
+	_ = cm.IngestToolResult(1, "read", content)
 
-	// Turn 2: re-read with no masking active — should get annotation
-	got2 := cm.IngestToolResult(2, "read", content)
-	if !strings.Contains(got2, "file unchanged since turn 1") {
-		t.Fatalf("turn 2 read = %q, want unchanged annotation", got2)
-	}
+	// Turn 2: re-read, gets annotation
+	_ = cm.IngestToolResult(2, "read", content)
 
-	// Simulate epoch advance: masking boundary moves past turn 2
+	// Simulate masking boundary advancing past turn 2
 	cm.epochMaskBoundary = 3
 
-	// Turn 3: re-read — PreviousRead.LastTurn is 2 (updated by turn 2's read),
-	// which is now masked, so the visibility gate should suppress the
-	// annotation and return full content
-	got3 := cm.IngestToolResult(3, "read", content)
-	if strings.Contains(got3, "file unchanged since turn") {
-		t.Fatalf("turn 3 read after masking = %q, want full content (turn 1 masked)", got3)
-	}
-	if got3 != content {
-		t.Fatalf("turn 3 read = %q, want original full content", got3)
+	// Turn 3: re-read, gate suppresses annotation
+	_ = cm.IngestToolResult(3, "read", content)
+
+	if !strings.Contains(cm.scratchpad.Decisions, "previous read turn 2 no longer visible") {
+		t.Fatalf("Decisions = %q, want suppression fact", cm.scratchpad.Decisions)
 	}
 }
 

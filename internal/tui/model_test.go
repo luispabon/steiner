@@ -670,6 +670,8 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 
 	writeRepoFile(t, repo, "tracked.txt", "one\ntwo\n")
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "write", "call_1", `{"path":"tracked.txt"}`, nil)})
+	m.git.Refresh(context.Background())
+	m = updateModel(t, m, gitRefreshDoneMsg{})
 
 	if !m.sidebar.dirty {
 		t.Fatal("sidebar.dirty = false after tool event, want true")
@@ -683,6 +685,8 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 
 	writeRepoFile(t, repo, "turn.txt", "draft\n")
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "stop", "reply", nil)})
+	m.git.Refresh(context.Background())
+	m = updateModel(t, m, gitRefreshDoneMsg{})
 
 	if got, want := len(m.sidebar.modifiedFiles), 2; got != want {
 		t.Fatalf("len(sidebar.modifiedFiles) after turn event = %d, want %d", got, want)
@@ -1190,7 +1194,6 @@ func TestModelAltEnterInsertsNewline(t *testing.T) {
 		t.Fatalf("submit count = %d, want 0 on modified enter", ctrl.countSubmitPrompt())
 	}
 }
-
 
 func TestModelResizeAndMouseScroll(t *testing.T) {
 	m := newModel(Config{}, nil)

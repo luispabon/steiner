@@ -51,17 +51,22 @@ func (n *NaiveContextManager) RecordMutation(_ string) {}
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
 type SmartContextManager struct {
-	maskingWindowTurns      int
-	readAnnotations         bool
-	configApplied           bool
-	compactionStrategy      config.CompactionStrategy
-	scratchpadMode          config.ScratchpadMode
-	events                  output.EventSink
-	fileTracker             FileTracker
-	scratchpad              Scratchpad
-	scratchpadFailures      int
-	epochMaskBoundary       int
-	epochStartTurn          int
+	maskingWindowTurns int
+	readAnnotations    bool
+	configApplied      bool
+	compactionStrategy config.CompactionStrategy
+	scratchpadMode     config.ScratchpadMode
+	events             output.EventSink
+	fileTracker        FileTracker
+	scratchpad         Scratchpad
+	scratchpadFailures int
+	epochMaskBoundary  int
+	epochStartTurn     int
+	// minVisibleTurn tracks the lowest turn number whose messages are still
+	// fully visible to the model (not masked, not compacted away). Updated
+	// during PostIngestion and PreAssembly. Used alongside epochMaskBoundary
+	// to gate file read annotations.
+	minVisibleTurn          int
 	contextPressureTrigger  func(currentTurn int, state RunState) bool
 	lastScaffoldFingerprint string
 	// cachedPreamble holds the system preamble built once per session.
@@ -100,6 +105,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 	next := state.Clone()
 	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
 	next.Lineage = newConversationLineage(next.Conversation)
+	s.minVisibleTurn = minTurnInMessages(next.Conversation)
 	s.initializeEpochFromTurnCount(next.TurnCount)
 	return next, nil
 }
@@ -125,6 +131,7 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	s.emitMaskingDiagnostics(currentTurn, window, previousBoundary, previousStartTurn, trigger, conversation, masked)
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
+	s.minVisibleTurn = minTurnInMessages(masked)
 	return next, nil
 }
 
@@ -267,11 +274,18 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 	case "read":
 		result, _ := parseReadResult(shaped)
 		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
-		if observation.Action == "annotated" && observation.PreviousRead.LastTurn > 0 &&
-			s.epochMaskBoundary > 0 && observation.PreviousRead.LastTurn < s.epochMaskBoundary {
-			next = shaped
-			observation.Action = "full"
-			observation.Reason = "previous read no longer visible"
+		// Visibility gate: if the original read turn is no longer visible to
+		// the model (masked or compacted away), suppress the annotation and
+		// return full content so the model isn't confused by a dangling
+		// turn reference.
+		if observation.Action == "annotated" && observation.PreviousRead.LastTurn > 0 {
+			dropped := s.minVisibleTurn > 0 && observation.PreviousRead.LastTurn < s.minVisibleTurn
+			masked := s.epochMaskBoundary > 0 && observation.PreviousRead.LastTurn < s.epochMaskBoundary
+			if dropped || masked {
+				next = shaped
+				observation.Action = "full"
+				observation.Reason = "previous read no longer visible in context"
+			}
 		}
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 		s.observeReadHeuristics(turn, result, observation, next)
@@ -296,6 +310,9 @@ func (s *SmartContextManager) observeReadHeuristics(turn int, result readResult,
 	s.updateWorkingFile(path, turn, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
 	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
 		s.appendDecisionFact(fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))
+	}
+	if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
+		s.appendDecisionFact(fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
 	}
 }
 
@@ -707,6 +724,20 @@ func summarizeTextValue(value any) string {
 		return text
 	}
 	return text[:40] + "..."
+}
+
+// minTurnInMessages returns the smallest positive Turn value across all
+// messages, or 0 if no messages have a Turn set.
+func minTurnInMessages(messages []Message) int {
+	minTurn := 0
+	for _, m := range messages {
+		if m.Turn > 0 {
+			if minTurn == 0 || m.Turn < minTurn {
+				minTurn = m.Turn
+			}
+		}
+	}
+	return minTurn
 }
 
 const decisionsMaxBytes = 2000

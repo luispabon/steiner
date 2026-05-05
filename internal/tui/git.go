@@ -9,9 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 var getWorkingDir = os.Getwd
+
+type gitRefreshDoneMsg struct{}
+
+func gitRefreshCmd(gs *gitState) tea.Cmd {
+	return func() tea.Msg {
+		gs.Refresh(context.Background())
+		return gitRefreshDoneMsg{}
+	}
+}
 
 type gitSnapshot struct {
 	repoRoot      string

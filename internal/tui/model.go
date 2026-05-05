@@ -95,6 +95,8 @@ type Model struct {
 	ctxInfoReservedTokens        int
 	ctxInfoSafetyTokens          int
 	interruptPending             bool
+	contentDirty                 bool
+	syncDebounceSeq              int
 }
 
 func newModel(cfg Config, external <-chan tea.Msg) Model {
