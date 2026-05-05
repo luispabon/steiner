@@ -22,8 +22,10 @@ func DefaultPrefs() Prefs {
 	}
 }
 
+var userHomeDir = os.UserHomeDir
+
 func configDir() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := userHomeDir()
 	if err != nil {
 		return "", err
 	}

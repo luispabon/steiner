@@ -24,6 +24,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "steiner-cmd-test")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create temp dir for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmp)
+	code := m.Run()
+	os.Setenv("HOME", oldHome)
+	os.RemoveAll(tmp)
+	os.Exit(code)
+}
+
 func TestVersionCommandPrintsVersion(t *testing.T) {
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
