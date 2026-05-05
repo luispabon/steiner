@@ -57,7 +57,6 @@ func (m *Model) applyEvent(event output.Event) {
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
-		m.status.turn = payload.Turn
 		m.sidebar.currentTurn = payload.Turn
 		if payload.Model != "" {
 			m.status.model = payload.Model

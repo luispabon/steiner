@@ -386,7 +386,6 @@ func (m Model) View() string {
 func (m *Model) syncSidebar() {
 	m.sidebar.model = strings.TrimSpace(m.status.model)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
-	m.sidebar.currentTurn = m.status.turn
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
@@ -505,7 +504,6 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	m.ctxInfoReservedTokens = payload.ReservedTokens
 	m.ctxInfoSafetyTokens = payload.SafetyMarginTokens
 	if payload.Turn > 0 {
-		m.status.turn = payload.Turn
 		m.sidebar.currentTurn = payload.Turn
 	}
 	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, payload.ContextTokens)
