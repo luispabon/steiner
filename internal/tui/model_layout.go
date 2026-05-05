@@ -115,11 +115,13 @@ func (m *Model) handleLeftClick(termY int) {
 			case segmentToolCall:
 				if seg.toolData != nil {
 					seg.toolData.collapsed = !seg.toolData.collapsed
+					seg.renderDirty = true
 					m.syncViewport()
 				}
 			case segmentThinkingBlock:
 				if seg.thinkData != nil {
 					seg.thinkData.collapsed = !seg.thinkData.collapsed
+					seg.renderDirty = true
 					m.syncViewport()
 				}
 			}
