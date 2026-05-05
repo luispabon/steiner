@@ -36,6 +36,9 @@ func (m *Model) syncViewport() {
 	if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
 		rendered = header + rendered
 	}
+	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
+
 	contentLines := strings.Count(rendered, "\n")
 	pad := m.viewport.Height - contentLines
 	if pad < 0 {
@@ -43,7 +46,10 @@ func (m *Model) syncViewport() {
 	}
 	m.contentTopPad = pad
 	if pad > 0 {
-		rendered = strings.Repeat("\n", pad) + rendered
+		padLine := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BgElev)).
+			Render(strings.Repeat(" ", m.viewport.Width))
+		rendered = strings.Repeat(padLine+"\n", pad) + rendered
 	}
 	m.viewport.SetContent(rendered)
 	if m.autoScroll {
@@ -147,13 +153,14 @@ func (m *Model) renderScrollbar() string {
 	}
 
 	style := m.styles.Scrollbar
+	trackStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev))
 	var sb strings.Builder
 	sb.Grow(vh * 2)
 	for i := 0; i < vh; i++ {
 		if i >= thumbPos && i < thumbPos+thumbH {
 			sb.WriteString(style.Render("▕"))
 		} else {
-			sb.WriteString(" ")
+			sb.WriteString(trackStyle.Render(" "))
 		}
 		if i < vh-1 {
 			sb.WriteString("\n")

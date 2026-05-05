@@ -181,7 +181,7 @@ func (f filePickerOverlay) View() string {
 	lines = append(lines, f.Divider(), f.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return f.Render(overlayStyles{box: f.styles.PaletteOverlay}, body)
+	return theme.WithBg(f.Render(overlayStyles{box: f.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
 }
 
 func (f *filePickerOverlay) scrollIntoView() {

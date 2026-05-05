@@ -34,7 +34,22 @@ func (b *contentBuffer) String(width int) string {
 		parts = append(parts, preview)
 	}
 
-	return strings.Join(parts, "")
+	result := strings.Join(parts, "")
+	return b.fillEmptyLines(result, width)
+}
+
+func (b *contentBuffer) fillEmptyLines(s string, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) == 0 {
+			lines[i] = bgLine
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
@@ -56,13 +71,13 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	case segmentUserMarkdown:
 		return b.renderUserMarkdownSegment(segment, width)
 	case segmentThinkingBlock:
-		return b.renderThinkingBlockSegment(segment)
+		return theme.WithBg(b.renderThinkingBlockSegment(segment), lipgloss.Color(theme.BgElev))
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		return b.renderCompactionBannerSegment(segment, width)
+		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
 	case segmentInterrupted:
-		return b.renderInterruptedSegment()
+		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
 	default:
 		return b.renderDefaultSegment(segment)
 	}
@@ -154,20 +169,23 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 	}
 	td := segment.thinkData
 	style := b.thinkingTextStyle(td.source)
+	var result string
 	if td.collapsed {
 		runes := []rune(td.preview)
 		if len(runes) > 60 {
 			runes = runes[:60]
 		}
-		return style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+		result = style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
+	} else {
+		var sb strings.Builder
+		sb.WriteString(style.Render("▾ Thinking") + "\n")
+		bar := style.Render("▎")
+		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+			sb.WriteString(bar + " " + style.Render(line) + "\n")
+		}
+		result = sb.String()
 	}
-	var sb strings.Builder
-	sb.WriteString(style.Render("▾ Thinking") + "\n")
-	bar := style.Render("▎")
-	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
-		sb.WriteString(bar + " " + style.Render(line) + "\n")
-	}
-	return sb.String()
+	return result
 }
 
 func (b *contentBuffer) thinkingTextStyle(source output.ChunkSource) lipgloss.Style {
@@ -205,7 +223,7 @@ func (b *contentBuffer) renderMarkdown(block string, width int) string {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.AssistantProse.Render("assistant> " + block)
 	}
-	return rendered
+	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 }
 
 func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {

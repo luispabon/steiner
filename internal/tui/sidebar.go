@@ -78,7 +78,10 @@ func (s sidebarState) View(width, height int) string {
 	}
 	lines := s.lines(innerWidth, innerHeight)
 	body := strings.Join(lines, "\n")
-	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
+	return theme.WithBg(
+		s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body),
+		lipgloss.Color(theme.Black),
+	)
 }
 
 func (s sidebarState) styledWithBg(baseStyle lipgloss.Style, text string) string {
@@ -153,6 +156,11 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 
 	// Sort files: status priority (M→A→D→U) then alphabetically
 	sorted := sortedModifiedFiles(s.modifiedFiles)
+
+	// Ensure static content does not exceed innerHeight.
+	if len(static) > innerHeight {
+		static = static[:innerHeight]
+	}
 
 	// Compute rows available for the file list
 	availForFiles := innerHeight - len(static)

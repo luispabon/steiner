@@ -57,8 +57,9 @@ func Load() (Prefs, error) {
 	return p, nil
 }
 
-// Save writes prefs to ~/.config/steiner/prefs.yaml.
-// Creates the config dir if absent.
+// Save writes prefs to ~/.config/steiner/prefs.yaml atomically.
+// Creates the config dir if absent. Uses a temp file + rename to
+// prevent concurrent Load calls from reading a partial or empty file.
 func Save(p Prefs) error {
 	dir, err := configDir()
 	if err != nil {
@@ -72,5 +73,34 @@ func Save(p Prefs) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Write to a temp file in the same directory, then rename atomically.
+	tmp, err := os.CreateTemp(dir, "prefs.yaml.*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	// Sync the directory so the rename is durable on ext4/XFS.
+	dirf, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirf.Close()
+	return dirf.Sync()
 }
