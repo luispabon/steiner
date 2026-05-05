@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,14 @@ import (
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+type syncDebounceFiredMsg struct{ seq int }
+
+func syncDebounceCmd(seq int) tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return syncDebounceFiredMsg{seq: seq}
+	})
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -32,6 +41,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRuntimeEventMsg(msg)
 	case bridgeClosedMsg:
 		return m.handleBridgeClosedMsg(msg)
+	case gitRefreshDoneMsg:
+		m.syncSidebar()
+		return m, nil
+	case syncDebounceFiredMsg:
+		if msg.seq == m.syncDebounceSeq && m.contentDirty {
+			m.syncViewport()
+			m.contentDirty = false
+		}
+		return m, nil
 	case tea.MouseMsg:
 		return m.handleMouseMsg(msg)
 	case tea.KeyMsg:
@@ -72,6 +90,11 @@ func (m Model) handlePaletteToggleThinkingMsg(msg paletteToggleThinkingMsg) (tea
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
 	}
+	for i := range m.content.segments {
+		if m.content.segments[i].kind == segmentThinkingBlock {
+			m.content.segments[i].renderDirty = true
+		}
+	}
 	m.syncViewport()
 	return m, nil
 }
@@ -110,6 +133,9 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
 	}
+	for i := range m.content.segments {
+		m.content.segments[i].renderDirty = true
+	}
 	m.syncViewport()
 	return m, nil
 }
@@ -128,7 +154,10 @@ func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.lastRenderErr != nil {
 		m.content.lastRenderErr = nil
 	}
-	m.syncViewport()
+	if m.contentDirty || m.content.streaming || m.compacting {
+		m.syncViewport()
+		m.contentDirty = false
+	}
 	return m, tickCmd()
 }
 
@@ -149,11 +178,15 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
-	m.applyEvent(msg.Event)
-	if m.external != nil {
-		return m, waitForExternalMsg(m.external)
+	eventCmd := m.applyEvent(msg.Event)
+	var cmds []tea.Cmd
+	if eventCmd != nil {
+		cmds = append(cmds, eventCmd)
 	}
-	return m, nil
+	if m.external != nil {
+		cmds = append(cmds, waitForExternalMsg(m.external))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handleBridgeClosedMsg(msg bridgeClosedMsg) (tea.Model, tea.Cmd) {

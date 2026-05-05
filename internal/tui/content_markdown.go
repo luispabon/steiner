@@ -122,10 +122,10 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 		return
 	}
 	if isMarkdownLikeBlock(block) {
-		b.segments = append(b.segments, contentSegment{kind: segmentAssistantMarkdown, text: block})
+		b.segments = append(b.segments, contentSegment{kind: segmentAssistantMarkdown, text: block, renderDirty: true})
 		return
 	}
-	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block})
+	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block, renderDirty: true})
 }
 
 // isMarkdownLikeUserContent returns true when text is likely to benefit from

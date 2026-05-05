@@ -1,16 +1,16 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func (m *Model) applyEvent(event output.Event) {
+func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if m.shouldSuppressInterruptedRunEvent(event) {
-		return
+		return nil
 	}
 
 	// Context report events open the overlay instead of going into the transcript.
@@ -19,7 +19,7 @@ func (m *Model) applyEvent(event output.Event) {
 			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
 		}
 		m.syncViewport()
-		return
+		return nil
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded && event.Type != output.EventTypeScratchpadUpdated {
@@ -35,7 +35,7 @@ func (m *Model) applyEvent(event output.Event) {
 		}
 		m.fileHistory = payload.Prompts
 		m.fileHistoryIdx = -1
-		return
+		return nil
 	case output.RunStartedEvent:
 		m.interruptPending = false
 		m.compacting = false
@@ -136,14 +136,18 @@ func (m *Model) applyEvent(event output.Event) {
 		m.sidebar.scratchpadNext = payload.Next
 	}
 
+	var cmds []tea.Cmd
 	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
-		m.git.Refresh(context.Background())
+		cmds = append(cmds, gitRefreshCmd(m.git))
 	}
 	m.syncInputChrome()
 	m.syncSidebar()
 	if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
-		m.syncViewport()
+		m.contentDirty = true
+		m.syncDebounceSeq++
+		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {

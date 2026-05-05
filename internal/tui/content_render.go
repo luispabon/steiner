@@ -19,12 +19,27 @@ var previewSyntaxStyle = chromastyles.Get("github-dark")
 func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
-	for i, segment := range b.segments {
-		if segment.kind == segmentThinkingBlock && !b.showThinking {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentThinkingBlock && !b.showThinking {
 			b.segmentHeights[i] = 0
 			continue
 		}
-		rendered := b.renderSegment(segment, width)
+		// Force re-render for animating segments
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			seg.renderDirty = true
+		}
+		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
+			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n")
+			if seg.cachedRender != "" {
+				parts = append(parts, seg.cachedRender)
+			}
+			continue
+		}
+		rendered := b.renderSegment(*seg, width)
+		seg.cachedRender = rendered
+		seg.cachedRenderWidth = width
+		seg.renderDirty = false
 		b.segmentHeights[i] = strings.Count(rendered, "\n")
 		if rendered != "" {
 			parts = append(parts, rendered)
