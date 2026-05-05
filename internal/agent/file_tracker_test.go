@@ -113,6 +113,51 @@ func TestFileTrackerFallsBackToFullContentWhenGenerationChangesWithoutMtimeChang
 	}
 }
 
+func TestFileTrackerPruneBeforeTurn(t *testing.T) {
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.txt")
+	pathB := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(pathA, []byte("aaa\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(pathB, []byte("bbb\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	tracker := FileTracker{}
+	contentA := `{"path":"a.txt","start_line":1,"end_line":1,"total_lines":1,"output":"aaa\n"}`
+	contentB := `{"path":"b.txt","start_line":1,"end_line":1,"total_lines":1,"output":"bbb\n"}`
+
+	tracker.ObserveRead(1, contentA, true)
+	tracker.ObserveRead(3, contentB, true)
+
+	tracker.PruneBeforeTurn(2)
+
+	// a.txt was read at turn 1 (< 2), should be pruned — next read is full
+	gotA, obsA := tracker.ObserveRead(4, contentA, true)
+	if obsA.Reason != "first read" {
+		t.Fatalf("pruned file observation = %q, want first read", obsA.Reason)
+	}
+	if gotA != contentA {
+		t.Fatalf("pruned file read = %q, want full content", gotA)
+	}
+
+	// b.txt was read at turn 3 (>= 2), should survive — next read is annotated
+	_, obsB := tracker.ObserveRead(4, contentB, true)
+	if obsB.Action != "annotated" {
+		t.Fatalf("surviving file observation = %q, want annotated", obsB.Action)
+	}
+}
+
 func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")

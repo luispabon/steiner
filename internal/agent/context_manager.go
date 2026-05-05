@@ -267,6 +267,12 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 	case "read":
 		result, _ := parseReadResult(shaped)
 		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
+		if observation.Action == "annotated" && observation.PreviousRead.LastTurn > 0 &&
+			s.epochMaskBoundary > 0 && observation.PreviousRead.LastTurn < s.epochMaskBoundary {
+			next = shaped
+			observation.Action = "full"
+			observation.Reason = "previous read no longer visible"
+		}
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 		s.observeReadHeuristics(turn, result, observation, next)
 		return next
@@ -473,6 +479,7 @@ func (s *SmartContextManager) advanceEpoch(currentTurn int) string {
 }
 
 func (s *SmartContextManager) resetEpoch(turn int, trigger string) {
+	s.fileTracker.PruneBeforeTurn(turn)
 	s.epochMaskBoundary = 0
 	s.epochStartTurn = turn
 	s.emitEpochResetDiagnostic(turn, trigger)
