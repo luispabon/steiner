@@ -125,6 +125,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.accentPreset = msg.preset
 	m.styles = theme.BuildStyles(accentHex)
 	m.content.styles = m.styles
+	m.content.setGlamourStyleSheet(accentHex)
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = m.activity.withStyles(m.styles)

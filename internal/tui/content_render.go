@@ -794,6 +794,14 @@ func (b *contentBuffer) baseTextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 }
 
+// setGlamourStyleSheet rebuilds the glamour stylesheet and invalidates the cached
+// renderer so the next markdown render picks up the new accent colour.
+func (b *contentBuffer) setGlamourStyleSheet(accentHex string) {
+	b.glamourStyleSheet = theme.BuildGlamourStyleSheet(accentHex)
+	b.renderer = nil
+	b.renderWidth = 0
+}
+
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
 	const indent = "   "
 	innerWidth := width - len(indent)

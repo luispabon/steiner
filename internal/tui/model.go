@@ -182,7 +182,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 
 	// Set styles on content and sidebar
 	m.content.styles = m.styles
-	m.content.glamourStyleSheet = m.activeTheme.GlamourStyleSheet()
+	m.content.setGlamourStyleSheet(accentHex)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
 	m.content.showInternalScaffoldInference = cfg.ShowInternalScaffoldInference
