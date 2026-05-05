@@ -50,8 +50,9 @@ func NewEditTool(env Env) tool.ToolDef {
 			}
 
 			return &MutationResult{
-				Path:   relDisplayPath(env.WorkDir, absPath),
-				Output: diveText(diveResult),
+				Path:    relDisplayPath(env.WorkDir, absPath),
+				Output:  diveText(diveResult),
+				Mutated: true,
 			}, nil
 		},
 	}

@@ -33,13 +33,20 @@ func writeTargetExistedBefore(toolName string, input map[string]any) *bool {
 	return nil
 }
 
-func recordMutationForContextManager(cm ContextManager, toolName string, input map[string]any) {
+type mutated interface {
+	WasMutated() bool
+}
+
+func recordMutationForContextManager(cm ContextManager, toolName string, input map[string]any, result any) {
 	if cm == nil {
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "write", "write_file", "edit":
 	default:
+		return
+	}
+	if m, ok := result.(mutated); ok && !m.WasMutated() {
 		return
 	}
 	path, ok := input["path"].(string)
