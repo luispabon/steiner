@@ -208,11 +208,13 @@ When the model requests a file that was recently read and is unmodified since, s
 
 This is the most aggressive option. The model can always re-read if it needs the content.
 
-**Modification detection** uses two checks (both must pass for the annotation to be served):
-1. Filesystem mtime has not changed since the last read
-2. Write generation counter has not incremented since the last read
+**Modification detection** uses three checks (all must pass for the annotation to be served):
 
-The generation counter closes a race condition where steiner writes a file and the model re-reads it within the same second — mtime granularity on Linux is 1 second, so the mtime may not have changed despite the content being different. The generation counter is bumped synchronously in the write/edit tool handlers before the tool result is returned, so it is always current.
+1. **Filesystem mtime unchanged** — the file's modification time has not changed since the last read.
+2. **Write generation unchanged** — the in-memory generation counter for this path has not been incremented by a steiner-initiated write or edit.
+3. **Original read still visible** — the turn containing the original read has not been masked by epoch-based masking or dropped by compaction. If masked or dropped, full content is returned instead.
+
+The generation counter is only bumped when a write or edit tool **actually modifies a file**. If the edit fails (e.g., old_string not found), the generation is not bumped and the read cache remains valid. The generation counter is bumped synchronously in the write/edit tool handlers before the tool result is returned, so it is always current.
 
 Invalidation:
 - External modifications (user editing outside steiner) change the file's mtime, which invalidates the tracking. The next read serves full content.
