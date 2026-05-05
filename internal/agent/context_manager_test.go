@@ -272,6 +272,48 @@ func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing
 	}
 }
 
+func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 1,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	// Turn 1: first read — full content
+	got1 := cm.IngestToolResult(1, "read", content)
+	if got1 != content {
+		t.Fatalf("turn 1 read = %q, want full content", got1)
+	}
+
+	// Simulate epoch advance: masking boundary moves past turn 1
+	cm.epochMaskBoundary = 2
+
+	// Turn 3: re-read — PreviousRead.LastTurn is 1, which is now masked,
+	// so the visibility gate should suppress the annotation and return full content
+	got3 := cm.IngestToolResult(3, "read", content)
+	if strings.Contains(got3, "file unchanged since turn") {
+		t.Fatalf("turn 3 read after masking = %q, want full content (turn 1 masked)", got3)
+	}
+	if got3 != content {
+		t.Fatalf("turn 3 read = %q, want original full content", got3)
+	}
+}
+
 func TestNewContextManager(t *testing.T) {
 	tests := []struct {
 		name     string
