@@ -125,7 +125,6 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 		b.segments = append(b.segments, contentSegment{kind: segmentAssistantMarkdown, text: block, renderDirty: true})
 		return
 	}
-
 	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block, renderDirty: true})
 }
 
