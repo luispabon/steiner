@@ -394,43 +394,6 @@ func TestStreamingScaffoldInferencePreviewHardWrapsLongJSON(t *testing.T) {
 	}
 }
 
-func TestIsMarkdownLikeUserContent(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want bool
-	}{
-		// Should trigger glamour
-		{"fenced code block", "Here is code:\n```go\nfmt.Println()\n```", true},
-		{"heading at start", "# My Heading\nsome text", true},
-		{"heading after newline", "Intro\n# Section\ntext", true},
-		{"unordered list multiline", "Items:\n- foo\n- bar", true},
-		{"leading list multiline", "- step one\n- step two", true},
-		{"block quote", "> This is a quote\nmore text", true},
-		{"ordered list continuation", "1. first\n2. second", true},
-		{"tilde fence", "~~~sh\necho hi\n~~~", true},
-
-		// Should NOT trigger glamour
-		{"plain sentence", "Hello, how are you?", false},
-		{"single backtick inline", "use `var` here", false},
-		{"bold in plain sentence", "use **this** approach", false},
-		{"lone dash not list", "- just one item without newline", false},
-		{"empty string", "", false},
-		{"whitespace only", "   \n  ", false},
-		{"plain multiline", "line one\nline two\nline three", false},
-		{"question mark", "What do you think?", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isMarkdownLikeUserContent(tt.text)
-			if got != tt.want {
-				t.Errorf("isMarkdownLikeUserContent(%q) = %v, want %v", tt.text, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -438,9 +401,9 @@ func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 		wantKind contentSegmentKind
 	}{
 		{
-			name:     "plain text stays segmentUser",
+			name:     "plain text is also segmentUserMarkdown",
 			text:     "Just a normal question",
-			wantKind: segmentUser,
+			wantKind: segmentUserMarkdown,
 		},
 		{
 			name:     "markdown heading becomes segmentUserMarkdown",

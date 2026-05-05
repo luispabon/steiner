@@ -125,43 +125,8 @@ func (b *contentBuffer) appendMarkdownBlock(block string) {
 		b.segments = append(b.segments, contentSegment{kind: segmentAssistantMarkdown, text: block, renderDirty: true})
 		return
 	}
-	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block, renderDirty: true})
-}
 
-// isMarkdownLikeUserContent returns true when text is likely to benefit from
-// glamour rendering. The heuristics are intentionally conservative so that
-// plain conversational text is never accidentally rendered as markdown.
-func isMarkdownLikeUserContent(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return false
-	}
-	// Fenced code block
-	if strings.Contains(trimmed, "```") || strings.Contains(trimmed, "~~~") {
-		return true
-	}
-	// ATX heading at start of text or after a newline
-	if strings.HasPrefix(trimmed, "#") || strings.Contains(trimmed, "\n#") {
-		return true
-	}
-	// Unordered list item: requires newline before bullet (not a lone "- foo")
-	if strings.Contains(trimmed, "\n- ") || strings.Contains(trimmed, "\n* ") || strings.Contains(trimmed, "\n+ ") {
-		return true
-	}
-	// Leading list item spanning the whole input
-	if (strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ")) &&
-		strings.ContainsRune(trimmed, '\n') {
-		return true
-	}
-	// Block quote
-	if strings.HasPrefix(trimmed, "> ") || strings.Contains(trimmed, "\n> ") {
-		return true
-	}
-	// Ordered list with continuation
-	if strings.Contains(trimmed, "\n1. ") || strings.HasPrefix(trimmed, "1. ") {
-		return true
-	}
-	return false
+	b.segments = append(b.segments, contentSegment{kind: segmentAssistantProse, text: block, renderDirty: true})
 }
 
 func isMarkdownLikeBlock(block string) bool {
