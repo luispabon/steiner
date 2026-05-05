@@ -14,6 +14,9 @@ func TestDefaultPrefs(t *testing.T) {
 	if !p.ShowThinking {
 		t.Errorf("DefaultPrefs().ShowThinking = %v, want %v", p.ShowThinking, true)
 	}
+	if p.SidebarPosition != "left" {
+		t.Errorf("DefaultPrefs().SidebarPosition = %q, want %q", p.SidebarPosition, "left")
+	}
 }
 
 func TestLoadDefaultsWhenFileMissing(t *testing.T) {

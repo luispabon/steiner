@@ -80,6 +80,7 @@ type Model struct {
 	showThinking                 bool
 	compacting                   bool
 	accentPreset                 string
+	sidebarPosition              string
 	palette                      paletteModel
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
@@ -147,23 +148,24 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:       external,
-		autoScroll:     true,
-		skillNames:     append([]string(nil), cfg.SkillNames...),
-		enabledSkills:  enabledSkills,
-		modelNames:     append([]string(nil), cfg.ModelNames...),
-		modelContexts:  cloneModelContexts(cfg.ModelContexts),
-		modelBaseURLs:  cloneModelBaseURLs(cfg.ModelBaseURLs),
-		controller:     cfg.Controller,
-		activeTheme:    t,
-		styles:         theme.BuildStyles(accentHex),
-		inputHistory:   []string{},
-		historyIdx:     0,
-		historyDraft:   "",
-		fileHistory:    []string{},
-		fileHistoryIdx: -1,
-		showThinking:   cfg.ShowThinking,
-		accentPreset:   cfg.AccentPreset,
+		external:        external,
+		autoScroll:      true,
+		skillNames:      append([]string(nil), cfg.SkillNames...),
+		enabledSkills:   enabledSkills,
+		modelNames:      append([]string(nil), cfg.ModelNames...),
+		modelContexts:   cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:   cloneModelBaseURLs(cfg.ModelBaseURLs),
+		controller:      cfg.Controller,
+		activeTheme:     t,
+		styles:          theme.BuildStyles(accentHex),
+		inputHistory:    []string{},
+		historyIdx:      0,
+		historyDraft:    "",
+		fileHistory:     []string{},
+		fileHistoryIdx:  -1,
+		showThinking:    cfg.ShowThinking,
+		accentPreset:    cfg.AccentPreset,
+		sidebarPosition: cfg.SidebarPosition,
 	}
 	m.status.model = strings.TrimSpace(cfg.Model)
 	m.sidebar.model = strings.TrimSpace(cfg.Model)
@@ -349,11 +351,19 @@ func (m Model) View() string {
 			Width(1).
 			Height(m.height).
 			Render("")
-		base = lipgloss.JoinHorizontal(lipgloss.Top,
-			mainColumn,
-			vDivider,
-			m.sidebar.View(m.width, m.height),
-		)
+		if m.sidebarPosition == "right" {
+			base = lipgloss.JoinHorizontal(lipgloss.Top,
+				mainColumn,
+				vDivider,
+				m.sidebar.View(m.width, m.height),
+			)
+		} else {
+			base = lipgloss.JoinHorizontal(lipgloss.Top,
+				m.sidebar.View(m.width, m.height),
+				vDivider,
+				mainColumn,
+			)
+		}
 	} else {
 		base = mainColumn
 	}
