@@ -108,7 +108,14 @@ func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int)
 	baseLines := strings.Split(base, "\n")
 	olLines := strings.Split(overlay, "\n")
 
-	startY := len(baseLines) - len(olLines) - inputHeight - 1
+	// Use terminal height rather than base string height so overlays are
+	// positioned correctly even when the base overflows (e.g. sidebar content
+	// taller than the terminal).
+	height := o.height
+	if height < 1 {
+		height = len(baseLines)
+	}
+	startY := height - len(olLines) - inputHeight - 1
 	if startY < 0 {
 		startY = 0
 	}
