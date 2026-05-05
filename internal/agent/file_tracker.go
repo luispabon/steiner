@@ -189,6 +189,16 @@ func (t *FileTracker) Summaries(limit int) []string {
 	return out
 }
 
+// PruneBeforeTurn removes all tracked read entries whose LastTurn is strictly
+// less than the given turn. Called after compaction drops old turns.
+func (t *FileTracker) PruneBeforeTurn(turn int) {
+	for key, entry := range t.reads {
+		if entry.LastTurn < turn {
+			delete(t.reads, key)
+		}
+	}
+}
+
 func (t *FileTracker) BumpGeneration(path string) bool {
 	canonicalPath, ok := normalizeTrackedPath(path)
 	if !ok {
