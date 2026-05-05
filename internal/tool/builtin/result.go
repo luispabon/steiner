@@ -35,8 +35,9 @@ type GrepResult struct {
 
 // MutationResult is the result from a write or edit tool call.
 type MutationResult struct {
-	Path   string `json:"path"`
-	Output string `json:"output"`
+	Path    string `json:"path"`
+	Output  string `json:"output"`
+	Mutated bool   `json:"mutated"`
 }
 
 // ApplyPatchResult is the result from an apply_patch tool call.
