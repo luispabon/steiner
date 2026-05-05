@@ -59,13 +59,6 @@ func (s statusState) view(width int) string {
 		parts = append(parts, label+val)
 	}
 
-	// Segment 7: mode (static, infrequently changing)
-	if s.mode != "" {
-		label := s.styles.FgMute.Render("mode ")
-		val := s.styles.FgDim.Render(s.mode)
-		parts = append(parts, label+val)
-	}
-
 	// Segment 8: transient action hints (very end)
 	if s.approvalActive {
 		parts = append(parts, s.styles.KeyChip.Render("tab")+" choice")
