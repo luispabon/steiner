@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 
@@ -43,9 +44,12 @@ func NewEditTool(env Env) tool.ToolDef {
 			}
 
 			if diveResult.IsError {
+				output := diveText(diveResult)
+				output = strings.ReplaceAll(output, "\\n", "↵")
+				output = strings.ReplaceAll(output, "\\t", "→")
 				return &MutationResult{
 					Path:   relDisplayPath(env.WorkDir, absPath),
-					Output: diveText(diveResult),
+					Output: output,
 				}, nil
 			}
 

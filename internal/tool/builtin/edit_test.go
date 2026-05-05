@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -84,6 +85,34 @@ func TestEditTool(t *testing.T) {
 		}
 		if result.Output == "" {
 			t.Error("expected error message in Output for ambiguous old_string")
+		}
+	})
+
+	t.Run("error message uses visible markers not escaped newlines", func(t *testing.T) {
+		content := "line one\nline two\nline three\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "escape_test.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write test file: %v", err)
+		}
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":       "escape_test.txt",
+			"old_string": "line one\nNOT HERE\nline three",
+			"new_string": "replaced",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*MutationResult)
+		if !ok {
+			t.Fatalf("result type = %T, want *MutationResult", resultI)
+		}
+		if strings.Contains(result.Output, "\\n") {
+			t.Errorf("error output contains escaped newline (\\n), should use ↵: %s", result.Output)
+		}
+		if !strings.Contains(result.Output, "↵") {
+			t.Errorf("error output missing ↵ marker: %s", result.Output)
+		}
+		if result.Mutated {
+			t.Error("failed edit should have Mutated = false")
 		}
 	})
 
