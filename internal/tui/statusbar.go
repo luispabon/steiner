@@ -71,10 +71,6 @@ func (s statusState) view(width int) string {
 		parts = append(parts, s.styles.KeyChip.Render("tab")+" choice")
 		parts = append(parts, s.styles.KeyChip.Render("⏎")+" confirm")
 		parts = append(parts, s.styles.KeyChip.Render("esc")+" deny")
-	} else if s.streaming {
-		chip := s.styles.KeyChip.Render("esc")
-		label := s.styles.Accent.Render("interrupt")
-		parts = append(parts, chip+" "+label)
 	}
 
 	text := strings.Join(parts, sep)
