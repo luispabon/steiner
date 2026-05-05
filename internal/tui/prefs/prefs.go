@@ -8,15 +8,17 @@ import (
 )
 
 type Prefs struct {
-	Accent       string `yaml:"accent"`
-	ShowThinking bool   `yaml:"show_thinking"`
+	Accent          string `yaml:"accent"`
+	ShowThinking    bool   `yaml:"show_thinking"`
+	SidebarPosition string `yaml:"sidebar_position"`
 }
 
 // DefaultPrefs returns the default TUI preferences.
 func DefaultPrefs() Prefs {
 	return Prefs{
-		Accent:       "amber",
-		ShowThinking: true,
+		Accent:          "amber",
+		ShowThinking:    true,
+		SidebarPosition: "left",
 	}
 }
 

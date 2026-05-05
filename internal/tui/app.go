@@ -39,6 +39,7 @@ type Config struct {
 	AccentPreset                  string
 	ShowThinking                  bool
 	ShowInternalScaffoldInference bool
+	SidebarPosition               string
 	Controller                    interactive.Controller
 }
 
@@ -60,6 +61,9 @@ func NewApp(cfg Config) *App {
 	// ShowThinking defaults to true; only override if prefs explicitly sets false
 	if !cfg.ShowThinking {
 		cfg.ShowThinking = p.ShowThinking
+	}
+	if cfg.SidebarPosition == "" {
+		cfg.SidebarPosition = p.SidebarPosition
 	}
 	return &App{
 		cfg:    cfg,
