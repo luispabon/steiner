@@ -300,11 +300,18 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 		t.Fatalf("turn 1 read = %q, want full content", got1)
 	}
 
-	// Simulate epoch advance: masking boundary moves past turn 1
-	cm.epochMaskBoundary = 2
+	// Turn 2: re-read with no masking active — should get annotation
+	got2 := cm.IngestToolResult(2, "read", content)
+	if !strings.Contains(got2, "file unchanged since turn 1") {
+		t.Fatalf("turn 2 read = %q, want unchanged annotation", got2)
+	}
 
-	// Turn 3: re-read — PreviousRead.LastTurn is 1, which is now masked,
-	// so the visibility gate should suppress the annotation and return full content
+	// Simulate epoch advance: masking boundary moves past turn 2
+	cm.epochMaskBoundary = 3
+
+	// Turn 3: re-read — PreviousRead.LastTurn is 2 (updated by turn 2's read),
+	// which is now masked, so the visibility gate should suppress the
+	// annotation and return full content
 	got3 := cm.IngestToolResult(3, "read", content)
 	if strings.Contains(got3, "file unchanged since turn") {
 		t.Fatalf("turn 3 read after masking = %q, want full content (turn 1 masked)", got3)
