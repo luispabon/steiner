@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -113,6 +113,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 // PreAssembly applies non-destructive prompt-time masking on a copy of state.
 func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (RunState, error) {
 	next := state.Clone()
+	s.resetTaskStateIfNeeded(&next)
 	next.Context = s.enrichContextState(next)
 	conversation := next.Lineage.SummaryPrefixStrippedMessages()
 	if len(conversation) == 0 {
@@ -247,15 +248,14 @@ func (s *SmartContextManager) syncScaffoldState(state RunState, next *ContextSta
 		return
 	}
 	s.scratchpad.SessionState = compactSessionState(next.TurnCount, next.CompactionCount)
-	s.scratchpad.TrackedFiles = s.fileTracker.Summaries(5)
-	s.scratchpad.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
+	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 3)
 }
 
 func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "scratchpad":
-		next, warnings, ok := parseScratchpadToolResult(shaped, s.scratchpad)
+		next, ok := parseScratchpadToolResult(shaped, s.scratchpad)
 		if ok {
 			s.scratchpad = next
 			s.scratchpad.LastAction = "scratchpad updated"
@@ -267,17 +267,6 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 				Open:      s.scratchpad.Open,
 				Next:      s.scratchpad.Next,
 			}))
-			if len(warnings) > 0 {
-				emitEvent(s.events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-					Kind:     "scratchpad",
-					Scope:    "assistant",
-					Turn:     turn,
-					Severity: "warning",
-					Action:   "compatibility",
-					Reason:   "legacy scratchpad fields ignored",
-					Notes:    warnings,
-				}))
-			}
 		}
 		return `{"ok":true}`
 	case "read":
@@ -304,7 +293,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 		s.observeReadHeuristics(turn, result, observation, next)
 		return next
-	case "edit", "write":
+	case "edit", "write", "apply_patch":
 		s.observeMutationHeuristics(turn, toolName, input, shaped)
 		return shaped
 	case "bash":
@@ -317,7 +306,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 }
 
 func (s *SmartContextManager) observeReadHeuristics(turn int, result readResult, observation fileObservation, content string) {
-	path := strings.TrimSpace(result.Path)
+	path := sanitizeScratchpadPath(result.Path)
 	if path == "" {
 		return
 	}
@@ -338,10 +327,10 @@ func (s *SmartContextManager) observeMutationHeuristics(turn int, toolName strin
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return
 	}
-	path := strings.TrimSpace(result.Path)
+	path := sanitizeScratchpadPath(result.Path)
 	if path == "" && input != nil {
 		if rawPath, ok := input["path"].(string); ok {
-			path = strings.TrimSpace(rawPath)
+			path = sanitizeScratchpadPath(rawPath)
 		}
 	}
 	if path != "" {
@@ -368,6 +357,11 @@ func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]a
 		command, _ = input["command"].(string)
 	}
 	command = strings.TrimSpace(command)
+	cwd := ""
+	if input != nil {
+		cwd, _ = input["cwd"].(string)
+	}
+	command = summarizeBashCommand(command, cwd)
 	preview := summarizeTextPreview(result.Output, 96)
 	if preview == "" {
 		preview = strings.TrimSpace(result.Message)
@@ -381,7 +375,7 @@ func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]a
 		if result.ExitCode == 0 {
 			status = "passed"
 		}
-		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, summarizeTextPreview(command, 80)))
+		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, command))
 	}
 	s.scratchpad.LastAction = fmt.Sprintf("bash: %s", preview)
 }
@@ -396,10 +390,7 @@ func (s *SmartContextManager) updateWorkingFile(path string, turn int, toolName,
 	if path == "" {
 		return
 	}
-	if current := strings.TrimSpace(s.scratchpad.WorkingFile); current != "" && current != path {
-		s.appendDecisionFact(fmt.Sprintf("switched from %s to %s", current, path))
-	}
-	s.scratchpad.WorkingFile = path
+	s.scratchpad.WorkingFile = sanitizeScratchpadPath(path)
 	s.scratchpad.LastAction = lastAction
 	if strings.TrimSpace(toolName) != "" {
 		s.scratchpad.LastAction = lastAction
@@ -435,6 +426,8 @@ func toolVerb(toolName string) string {
 		return "edited"
 	case "write":
 		return "wrote"
+	case "apply_patch":
+		return "patched"
 	default:
 		return "updated"
 	}
@@ -528,8 +521,6 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	next.TurnCount = state.TurnCount
 	s.syncScaffoldState(state, &next)
 	next.Scratchpad = s.scratchpad.Render()
-	next.FileTrackerSummary = s.fileTracker.Summaries(5)
-	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
 	return next
 }
 
@@ -708,7 +699,12 @@ func summarizeRecentToolCalls(messages []Message, limit int) []string {
 		}
 		for j := len(message.ToolCalls) - 1; j >= 0 && len(out) < limit; j-- {
 			call := message.ToolCalls[j]
-			out = append(out, call.Name+" "+summarizeCallArguments(call.Arguments))
+			summary := summarizeCallArguments(call.Name, call.Arguments)
+			if summary == "" {
+				out = append(out, strings.TrimSpace(call.Name))
+				continue
+			}
+			out = append(out, strings.TrimSpace(call.Name)+" "+summary)
 		}
 	}
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
@@ -717,19 +713,53 @@ func summarizeRecentToolCalls(messages []Message, limit int) []string {
 	return out
 }
 
-func summarizeCallArguments(arguments map[string]any) string {
+func summarizeCallArguments(toolName string, arguments map[string]any) string {
 	if len(arguments) == 0 {
 		return ""
 	}
+	root := summarizeSummaryRoot(arguments)
 	parts := make([]string, 0, 3)
-	for _, key := range []string{"path", "pattern", "command", "offset", "limit"} {
+	for _, key := range []string{"cwd", "path", "pattern", "command", "offset", "limit"} {
 		value, ok := arguments[key]
 		if !ok {
 			continue
 		}
-		parts = append(parts, key+"="+summarizeTextValue(value))
+		summary := summarizeCallArgumentValue(toolName, key, value, root)
+		if summary == "" {
+			continue
+		}
+		parts = append(parts, key+"="+summary)
 	}
 	return strings.TrimSpace(strings.Join(parts, ", "))
+}
+
+func summarizeSummaryRoot(arguments map[string]any) string {
+	if arguments == nil {
+		return ""
+	}
+	cwd, _ := arguments["cwd"].(string)
+	cwd = strings.TrimSpace(cwd)
+	if filepath.IsAbs(cwd) {
+		return cwd
+	}
+	return ""
+}
+
+func summarizeCallArgumentValue(toolName, key string, value any, root string) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	switch key {
+	case "cwd", "path":
+		return sanitizeScratchpadPathWithRoot(text, root)
+	case "command":
+		if strings.EqualFold(strings.TrimSpace(toolName), "bash") {
+			return summarizeBashCommand(text, root)
+		}
+		return summarizeTextValue(text)
+	case "offset", "limit":
+		return summarizeTextValue(text)
+	default:
+		return summarizeTextValue(text)
+	}
 }
 
 func summarizeTextValue(value any) string {
@@ -738,6 +768,72 @@ func summarizeTextValue(value any) string {
 		return text
 	}
 	return text[:40] + "..."
+}
+
+func summarizeBashCommand(command, root string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.Join(strings.Fields(command), " ")
+	command = stripLeadingCdWrapper(command)
+	command = redactRootPrefix(command, root)
+	command = strings.TrimSpace(strings.Join(strings.Fields(command), " "))
+	if len(command) <= 80 {
+		return command
+	}
+	return command[:80] + "..."
+}
+
+func stripLeadingCdWrapper(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "cd ") {
+		return command
+	}
+	for _, sep := range []string{" && ", " ; ", " || "} {
+		if idx := strings.Index(trimmed, sep); idx >= 0 {
+			return strings.TrimSpace(trimmed[idx+len(sep):])
+		}
+	}
+	return command
+}
+
+func redactRootPrefix(text, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" || text == "" {
+		return text
+	}
+	root = filepath.Clean(root)
+	if text == root {
+		return "."
+	}
+	text = strings.ReplaceAll(text, root+string(filepath.Separator), "")
+	return strings.ReplaceAll(text, root, "")
+}
+
+func sanitizeScratchpadPath(path string) string {
+	return sanitizeScratchpadPathWithRoot(path, "")
+}
+
+func sanitizeScratchpadPathWithRoot(path, root string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	root = strings.TrimSpace(root)
+	if root != "" {
+		root = filepath.Clean(root)
+		if path == root {
+			return "."
+		}
+		if trimmed := strings.TrimPrefix(path, root+string(filepath.Separator)); trimmed != path {
+			return trimmed
+		}
+	}
+	return filepath.Base(path)
 }
 
 // minTurnInMessages returns the smallest positive Turn value across all
@@ -755,30 +851,37 @@ func minTurnInMessages(messages []Message) int {
 }
 
 const decisionsMaxBytes = 2000
+const decisionsMaxLines = 24
 
-func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, []string, bool) {
+func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return previous, nil, false
+		return previous, false
 	}
 
 	next := previous
-	warnings := scratchpadCompatibilityWarnings(raw)
 
 	if v, ok := decodeScratchpadString(raw, "intent"); ok {
 		next.Intent = v
-	}
-	if v, ok := decodeScratchpadString(raw, "open"); ok {
-		next.Open = v
-	}
-	if v, ok := decodeScratchpadString(raw, "next"); ok {
-		next.Next = v
+	} else {
+		return previous, false
 	}
 	if v, ok := decodeScratchpadString(raw, "decisions"); ok {
 		next.Decisions = appendDecisionFactText(previous.Decisions, v)
+	} else {
+		return previous, false
 	}
-
-	return next, warnings, true
+	if v, ok := decodeScratchpadString(raw, "open"); ok {
+		next.Open = v
+	} else {
+		return previous, false
+	}
+	if v, ok := decodeScratchpadString(raw, "next"); ok {
+		next.Next = v
+	} else {
+		return previous, false
+	}
+	return next, true
 }
 
 func parseScaffoldInferenceResult(content string, previous Scratchpad) (Scratchpad, bool, string) {
@@ -809,49 +912,106 @@ func decodeScratchpadString(raw map[string]json.RawMessage, key string) (string,
 	return text, true
 }
 
-func scratchpadCompatibilityWarnings(raw map[string]json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	allowed := map[string]struct{}{
-		"status":    {},
-		"intent":    {},
-		"decisions": {},
-		"open":      {},
-		"next":      {},
-	}
-	legacy := make([]string, 0, 4)
-	for key := range raw {
-		if _, ok := allowed[key]; ok {
-			continue
-		}
-		legacy = append(legacy, key)
-	}
-	if len(legacy) == 0 {
-		return nil
-	}
-	sort.Strings(legacy)
-	return []string{"ignored legacy fields: " + strings.Join(legacy, ", ")}
-}
-
 func appendDecisionFactText(existing, fact string) string {
 	fact = strings.TrimSpace(fact)
 	if fact == "" || strings.EqualFold(fact, "none") {
 		return strings.TrimSpace(existing)
 	}
-	combined := strings.TrimSpace(existing)
-	if combined != "" {
-		combined += "\n" + fact
-	} else {
-		combined = fact
+	lines := splitDecisionFacts(existing)
+	lines = append(lines, fact)
+	lines = boundDecisionFacts(lines)
+	return strings.Join(lines, "\n")
+}
+
+func splitDecisionFacts(existing string) []string {
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return nil
 	}
-	for len(combined) > decisionsMaxBytes {
-		idx := strings.Index(combined, "\n")
-		if idx < 0 {
-			combined = combined[len(combined)-decisionsMaxBytes:]
+	parts := strings.Split(existing, "\n")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func boundDecisionFacts(lines []string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	for len(out) > decisionsMaxLines {
+		out = out[1:]
+	}
+	for len(out) > 0 && len(strings.Join(out, "\n")) > decisionsMaxBytes {
+		if len(out) == 1 {
+			line := out[0]
+			if len(line) > decisionsMaxBytes {
+				out[0] = line[len(line)-decisionsMaxBytes:]
+			}
 			break
 		}
-		combined = strings.TrimSpace(combined[idx+1:])
+		out = out[1:]
 	}
-	return combined
+	return out
+}
+
+func (s *SmartContextManager) resetTaskStateIfNeeded(state *RunState) {
+	if state == nil {
+		return
+	}
+	message, ok := latestUserMessage(state.Lineage.FullMessages())
+	if !ok && len(state.Conversation) > 0 {
+		message, ok = latestUserMessage(state.Conversation)
+	}
+	if !ok || !shouldResetTaskState(message.Content) {
+		return
+	}
+
+	s.scratchpad.Intent = ""
+	s.scratchpad.Decisions = ""
+	s.scratchpad.Open = ""
+	s.scratchpad.Next = ""
+	s.scratchpad.WorkingFile = ""
+	s.scratchpad.LastAction = ""
+	s.scratchpadFailures = 0
+
+	state.Context.ActiveFocus = nil
+	state.Context.UnresolvedWork = nil
+	state.Context.FileTrackerSummary = nil
+	state.Context.RecentToolCalls = nil
+}
+
+func latestUserMessage(messages []Message) (Message, bool) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == MessageRoleUser {
+			return messages[i], true
+		}
+	}
+	return Message{}, false
+}
+
+func shouldResetTaskState(content string) bool {
+	switch normalizeDirectiveText(content) {
+	case "commit changes", "run tests", "review this", "stop":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeDirectiveText(content string) string {
+	content = strings.ToLower(strings.TrimSpace(content))
+	content = strings.TrimRight(content, ".!?")
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "please ")
+	return strings.TrimSpace(content)
 }

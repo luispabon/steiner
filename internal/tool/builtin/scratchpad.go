@@ -3,13 +3,12 @@ package builtin
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ScratchpadInput holds the fields the model can write to the scratchpad.
+// ScratchpadInput holds the four fields the model can write to the scratchpad.
 type ScratchpadInput struct {
 	Intent    string `json:"intent"`
 	Decisions string `json:"decisions"`
@@ -61,53 +60,33 @@ func decodeScratchpadInput(raw map[string]any) (ScratchpadInput, error) {
 		return input, fmt.Errorf("input is required")
 	}
 
-	input.Intent = stringField(raw, "intent")
-	input.Decisions = stringField(raw, "decisions")
-	input.Open = stringField(raw, "open")
-	input.Next = stringField(raw, "next")
-
-	if strings.TrimSpace(input.Intent) == "" {
-		input.Intent = strings.TrimSpace(strings.Join(nonEmptyStrings([]string{
-			stringField(raw, "goal"),
-			stringField(raw, "plan"),
-			stringField(raw, "step"),
-		}), " "))
-	}
-
-	if strings.TrimSpace(input.Intent) == "" {
+	var ok bool
+	if input.Intent, ok = requiredStringField(raw, "intent"); !ok {
 		return input, fmt.Errorf("intent is required")
 	}
-	if strings.TrimSpace(input.Decisions) == "" {
-		input.Decisions = stringField(raw, "decisions")
+	if input.Decisions, ok = requiredStringField(raw, "decisions"); !ok {
+		return input, fmt.Errorf("decisions is required")
 	}
-	if strings.TrimSpace(input.Open) == "" {
-		input.Open = stringField(raw, "open")
+	if input.Open, ok = requiredStringField(raw, "open"); !ok {
+		return input, fmt.Errorf("open is required")
 	}
-	if strings.TrimSpace(input.Next) == "" {
-		input.Next = stringField(raw, "next")
+	if input.Next, ok = requiredStringField(raw, "next"); !ok {
+		return input, fmt.Errorf("next is required")
+	}
+	if input.Intent == "" {
+		return input, fmt.Errorf("intent is required")
 	}
 	return input, nil
 }
 
-func stringField(raw map[string]any, key string) string {
+func requiredStringField(raw map[string]any, key string) (string, bool) {
 	value, ok := raw[key]
 	if !ok || value == nil {
-		return ""
+		return "", false
 	}
-	switch v := value.(type) {
-	case string:
-		return v
-	default:
-		return fmt.Sprint(v)
+	text, ok := value.(string)
+	if !ok {
+		return "", false
 	}
-}
-
-func nonEmptyStrings(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if trimmed := strings.TrimSpace(item); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
+	return text, true
 }

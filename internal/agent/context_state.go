@@ -78,12 +78,6 @@ func (s ContextState) Render() string {
 	if s.TurnCount > 0 || s.CompactionCount > 0 {
 		parts = append(parts, compactSessionState(s.TurnCount, s.CompactionCount))
 	}
-	if len(s.FileTrackerSummary) > 0 {
-		parts = append(parts, "tracked files: "+strings.Join(s.FileTrackerSummary, "; "))
-	}
-	if len(s.RecentToolCalls) > 0 {
-		parts = append(parts, "recent tool calls: "+strings.Join(s.RecentToolCalls, "; "))
-	}
 	return strings.Join(parts, "\n")
 }
 

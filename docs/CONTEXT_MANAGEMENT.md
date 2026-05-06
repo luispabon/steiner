@@ -66,7 +66,7 @@ Phase 2: Prompt Assembly (when building the next model request)
           ▼
     scaffold state updated from tool call outcomes
     [hybrid mode] scratchpad tool result processed, decisions appended
-    [scaffold_only mode] intent extracted via cheap second-pass on pivot turns
+    [scaffold_only mode] intent extracted via a cheap second-pass when scaffold state changes materially
           │
           ▼
     OnTurnComplete fires
@@ -198,7 +198,7 @@ File reads are the dominant source of context consumption (67-76% of total token
 - Turn number when last read
 - Byte/line range (offset + limit)
 - Modification timestamp at time of read
-- Write generation counter (incremented on every steiner-initiated write or edit to this path)
+- Write generation counter (incremented on every successful steiner-initiated `write`, `edit`, or `apply_patch` to this path)
 
 When the model requests a file that was recently read and is unmodified since, steiner replaces the tool result with a short annotation:
 
@@ -211,14 +211,14 @@ This is the most aggressive option. The model can always re-read if it needs the
 **Modification detection** uses three checks (all must pass for the annotation to be served):
 
 1. **Filesystem mtime unchanged** — the file's modification time has not changed since the last read.
-2. **Write generation unchanged** — the in-memory generation counter for this path has not been incremented by a steiner-initiated write or edit.
+2. **Write generation unchanged** — the in-memory generation counter for this path has not been incremented by a successful steiner-initiated `write`, `edit`, or `apply_patch`.
 3. **Original read still visible** — the turn containing the original read has not been masked by epoch-based masking or dropped by compaction. If masked or dropped, full content is returned instead.
 
-The generation counter is only bumped when a write or edit tool **actually modifies a file**. If the edit fails (e.g., old_string not found), the generation is not bumped and the read cache remains valid. The generation counter is bumped synchronously in the write/edit tool handlers before the tool result is returned, so it is always current.
+The generation counter is only bumped when a write-like tool **actually modifies a file**. That currently includes `write`, `edit`, and `apply_patch`. If the mutation fails (for example, an `edit` no-match or an `apply_patch` hunk failure), the generation is not bumped and the read cache remains valid. The generation counter is bumped synchronously before the tool result is returned, so it is always current.
 
 Invalidation:
 - External modifications (user editing outside steiner) change the file's mtime, which invalidates the tracking. The next read serves full content.
-- File writes and edits by steiner's own tools increment the generation counter and invalidate tracking for that path.
+- File writes, edits, and successful `apply_patch` calls by steiner increment the generation counter and invalidate tracking for that path.
 - File tracking state (including generation counters) persists across compaction (it lives in Go, not in conversation history).
 
 ### Prompt zone stability
@@ -241,63 +241,75 @@ steiner supports two scratchpad modes, configured via `scratchpad_mode`:
 
 ### scaffold_only mode (default)
 
-The scratchpad consists entirely of scaffold-managed state. The model is not asked to call any scratchpad tool and the scratchpad tool is not registered. No scratchpad instructions are included in the system prompt.
+The prompt-facing scratchpad is a small synthetic user message built from scaffold-managed state plus the four canonical task fields. The model is not asked to call any scratchpad tool and the scratchpad tool is not registered. No scratchpad instructions are included in the system prompt.
 
-**Scaffold state (~200-300 tokens)** — maintained by Go code, always accurate:
-- Files the model has read (path, turn, modification status) — from FileTracker
-- Current turn number and compaction count
-- Recent tool call summary (what was run, which turn)
-- Last action: the tool call the model just made, plus a truncated summary of the result (success/fail, line count, error snippet)
-- Working file: the most recently read or edited path (from FileTracker)
-- Momentum signal: iterating (same file, similar tool calls) or pivoting (new file, different tool type) — simple state machine over the last 2-3 tool calls
+The rendered scratchpad currently looks like:
 
-**Intent fields (~100-200 tokens)** — populated by a cheap second-pass inference on pivot turns only:
+```text
+[Current task state]
+session state: turn=N compactions=M
+working file: <repo-relative or sanitized path>
+last action: <bounded summary>
+intent: ...
+decisions: ...
+open: ...
+next: ...
+```
+
+Prompt-facing scaffold fields:
+- `session state` — current turn count and compaction count
+- `working file` — the most recent active file, sanitized to repo-relative or basename form
+- `last action` — a bounded summary of the most recent meaningful tool outcome
+
+Model-facing task fields:
 
 | Field | Description |
 |-------|-------------|
-| `intent` | What the model is doing and why (merges goal/plan/step) |
-| `next` | Planned next action |
+| `intent` | What is being worked on right now |
+| `decisions` | Bounded fact log of useful decisions and observations |
+| `open` | Unresolved problems or unknowns |
+| `next` | The next action to take |
 
-A **pivot turn** is detected heuristically when any of:
-- The model switches to a different file (different path from the previous turn's primary file)
-- The model changes tool type category (e.g. read -> edit, grep -> bash)
-- The turn immediately follows compaction
+In `scaffold_only` mode, steiner still runs a cheap second-pass inference to refresh `intent` and `next`, but it does **not** rely on old legacy fields and it does **not** trigger on every turn. The inference runs only when a scaffold fingerprint changes materially. The fingerprint is currently:
+- compaction count
+- working file
+- a one-entry sanitized recent tool-call summary
 
-On non-pivot turns, the previous intent fields are carried forward unchanged.
-
-The second-pass inference uses a minimal context: scaffold state (~200 tokens) + the model's last response truncated to ~200 tokens + a focused prompt requesting JSON output. Max tokens capped at 150. Total input is ~600-800 tokens — sub-second on local inference. The prompt:
+The second-pass inference uses a minimal context: the current scaffold prompt state plus the last assistant response, with a JSON-only prompt asking for:
 
 ```
 Given the current scaffold state and the model's last action, respond with ONLY a JSON object:
 {"intent": "what is being done and why", "next": "planned next action"}
 ```
 
-**Decisions field** — fully scaffold-managed via heuristic extraction from tool call outcomes:
-- File edits: "edited {path}: {summary}" (from edit tool result)
-- Test outcomes: "tests {passed|failed}: {summary}" (from bash tool result when command contains test/go test/pytest etc.)
-- File switches: "switched from {old} to {new}" (from FileTracker)
-- Compaction: "compaction occurred at turn {N}" (from compaction event)
+`decisions` is scaffold-managed and bounded. It is appended from tool outcomes and trimmed oldest-first to stay within a byte cap. Current examples include:
+- read annotations and visibility fallbacks
+- successful `edit` summaries
+- test command outcomes from sanitized `bash` summaries
+- compaction facts
 
-Stored with a 2000-byte cap, oldest-first eviction. Appended by steiner, never written by the model.
+Notably, the old durable `switched from X to Y` file-switch heuristic has been removed.
 
-**Total scratchpad size in scaffold_only mode: ~300-500 tokens.**
+Task reset behaviour is deterministic in `scaffold_only` mode. Before prompt assembly, short redirect commands such as `commit changes`, `run tests`, `review this`, or `stop` clear stale `intent`, `open`, `next`, `working file`, and stale decisions when they no longer describe the active task. `session state` is preserved.
+
+The prompt-facing scratchpad no longer renders tracked file lists or raw recent tool-call sections. Those signals may still exist in Go state for heuristics and diagnostics, but they are deliberately omitted from the injected prompt block.
 
 ### hybrid mode (for 30B+ models)
 
-Adds the model-written scratchpad layer on top of scaffold state. Use when model compliance with tool calls is reliable enough to justify the additional prompt space and system prompt complexity.
+Adds model-written updates for the four canonical task fields on top of the same scaffold-managed state. Use when model compliance with tool calls is reliable enough to justify the additional prompt space and system prompt complexity.
 
-The scaffold state is identical to scaffold_only mode. The model is additionally instructed to call the `scratchpad` tool on every turn. The tool takes four fields:
+The model is additionally instructed to call the `scratchpad` tool on every turn. The tool takes exactly four fields:
 
 | Field | Owner | Description |
 |-------|-------|-------------|
-| `intent` | model | What is being done and why (replaces the second-pass inference) |
-| `decisions` | steiner-managed | Key decisions made so far; model writes only this turn's new decisions; steiner appends to history (2000-byte cap, oldest-first eviction). Never overwritten by the model. |
+| `intent` | model | What is being done and why (replaces scaffold inference for this field) |
+| `decisions` | model + scaffold | The model may update it directly; scaffold-managed facts are still appended and bounded |
 | `open` | model | Unresolved questions or risks |
 | `next` | model | Planned next action |
 
-steiner processes the tool result via `IngestToolResult`, stores state separately from conversation history, and injects the latest version as a synthetic user-role message on the next turn.
+Legacy-only payloads are rejected. The old `goal`, `plan`, `step`, and `files` compatibility path has been removed from the tool schema and parser.
 
-**Total scratchpad size in hybrid mode: ~400-600 tokens.**
+steiner processes the tool result via `IngestToolResult`, stores state separately from conversation history, and injects the latest version as a synthetic user-role message on the next turn. The scratchpad tool result itself is acknowledged with `{"ok":true}` and its historical content is masked out of old transcript turns.
 
 ### Failure handling (hybrid mode only)
 
@@ -308,7 +320,7 @@ Failure is defined as: the model did not call the `scratchpad` tool this turn. `
 
 The system never crashes or loses state because of a missing scratchpad call. The scaffold state provides the factual safety net regardless of model cooperation.
 
-In scaffold_only mode, there is no miss tracking because the model is never asked to call the tool.
+In scaffold_only mode, there is no miss tracking because the model is never asked to call the tool; updates come from scaffold inference plus tool-result heuristics.
 
 ## Compaction
 
@@ -419,7 +431,7 @@ models:
 
 Notes on configuration fields:
 
-- **`scratchpad_mode`**: `scaffold_only` (default) uses only scaffold-managed state with cheap second-pass inference on pivot turns. `hybrid` adds model-written scratchpad fields. Use `hybrid` for 30B+ models with reliable tool-call compliance.
+- **`scratchpad_mode`**: `scaffold_only` (default) uses scaffold-managed state plus a cheap second-pass inference for `intent` and `next` when scaffold state materially changes. `hybrid` adds model-written scratchpad fields and enables the `scratchpad` tool. Use `hybrid` for 30B+ models with reliable tool-call compliance.
 - **No `threshold`**: compaction fires when the prompt exceeds the context window (after applying safety margin); there is no configurable fill-ratio.
 - **No `retain_turns`**: the drop strategy keeps the last 3 turns (hardcoded).
 - **`safety_margin_tokens`** lives under `compaction`, not under `context_management`, and defaults to 8192 (not 2048).
@@ -433,7 +445,7 @@ Smart mode emits structured events through the existing EventSink:
 - **ContextMaskingEvent**: which turn and tool call was masked, why; includes epoch advance notifications
 - **FileAnnotationEvent**: file path, whether annotation or full content was served, why (including generation counter mismatches)
 - **CompactionEvent**: strategy used, token count before/after, turns dropped, epoch state reset
-- **ScratchpadEvent**: scratchpad content after each model response; in hybrid mode, whether the scratchpad tool was called this turn (fired via `OnTurnComplete`); in scaffold_only mode, whether a pivot-turn second-pass inference was triggered
+- **ScratchpadEvent**: scratchpad content after scaffold inference or scratchpad tool processing; in hybrid mode it also reflects scratchpad-tool misses surfaced by `OnTurnComplete`
 - **TokenBudgetEvent**: aggregate prompt token counts each turn (estimated prompt, reserved completion, safety margin, context size, total). No per-category breakdown is emitted.
 - **EpochEvent**: epoch advance trigger (turn count or context pressure), new boundary, turns masked in this batch
 
@@ -451,7 +463,7 @@ For small local models, summarization has additional problems: it fills the enti
 
 Research on structured output from small models (arXiv:2408.11061, arXiv:2510.03847) shows 82% average compliance for 8B models with high variance, format drift over long sessions, and field omission under token pressure. In practice, small models (7B-14B) frequently skip the scratchpad tool call — they focus on the task and omit the housekeeping step.
 
-The scaffold_only approach accepts this reality: small models are good at using tools to do work, bad at metacognition. Instead of asking the model to introspect and self-report, steiner observes the model's actions and infers orientation from behaviour. The scaffold state is deterministic, always correct, and costs zero model tokens to maintain. Intent fields are populated by a cheap second-pass inference only on pivot turns (~15-20% of turns), keeping amortised cost negligible.
+The scaffold_only approach accepts this reality: small models are good at using tools to do work, bad at metacognition. Instead of asking the model to introspect and self-report on every turn, steiner observes the model's actions, maintains deterministic scaffold state, and refreshes `intent`/`next` only when the scaffold fingerprint changes materially. That keeps the scratchpad factual while avoiding unnecessary extra model calls.
 
 The hybrid mode is available for 30B+ models where tool-call compliance is reliable enough that model-written intent adds genuine value over scaffold-inferred intent.
 

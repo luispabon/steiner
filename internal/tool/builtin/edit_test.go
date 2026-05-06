@@ -71,8 +71,40 @@ func TestEditTool(t *testing.T) {
 		if got, want := string(data), "hello world\n"; got != want {
 			t.Fatalf("file content = %q, want %q", got, want)
 		}
-		if got, want := result.Output, "edit: no match for old_string"; got != want {
-			t.Fatalf("Output = %q, want %q", got, want)
+		if !strings.Contains(result.Output, "edit: no match for old_string") {
+			t.Fatalf("Output = %q, want no-match prefix", result.Output)
+		}
+		if !strings.Contains(result.Output, "no nearby exact anchor found") {
+			t.Fatalf("Output = %q, want anchor diagnostic", result.Output)
+		}
+		if !strings.Contains(result.Output, "suggestion: reread a slightly wider region") {
+			t.Fatalf("Output = %q, want reread suggestion", result.Output)
+		}
+	})
+
+	t.Run("whitespace_only_mismatch", func(t *testing.T) {
+		result, data := run(t, "whitespace.txt", []byte("alpha beta\n"), map[string]any{
+			"path":       "whitespace.txt",
+			"old_string": "alpha   beta",
+			"new_string": "replaced",
+		})
+		if result.Mutated {
+			t.Fatal("Mutated = true, want false")
+		}
+		if got, want := string(data), "alpha beta\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+		if !strings.Contains(result.Output, "normalized whitespace match exists") {
+			t.Fatalf("Output = %q, want whitespace diagnostic", result.Output)
+		}
+		if !strings.Contains(result.Output, "nearest anchor at line 1") {
+			t.Fatalf("Output = %q, want anchor diagnostic", result.Output)
+		}
+		if !strings.Contains(result.Output, "context:") {
+			t.Fatalf("Output = %q, want context preview", result.Output)
+		}
+		if !strings.Contains(result.Output, "suggestion: reread a slightly wider region around the target text") {
+			t.Fatalf("Output = %q, want reread suggestion", result.Output)
 		}
 	})
 

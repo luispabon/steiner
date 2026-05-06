@@ -732,28 +732,15 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	}
 }
 
-func TestIngestToolResultWarnsOnLegacyScratchpadFields(t *testing.T) {
-	var events []output.Event
-	cm := &SmartContextManager{}
-	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+func TestIngestToolResultLeavesScratchpadUnchangedOnLegacyOnlyPayload(t *testing.T) {
+	cm := &SmartContextManager{scratchpad: Scratchpad{Intent: "keep"}}
 
 	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
-	var sawWarning bool
-	for _, event := range events {
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok || payload.Kind != "scratchpad" || payload.Severity != "warning" {
-			continue
-		}
-		sawWarning = true
-		if !containsString(payload.Notes, "ignored legacy fields: files, goal, plan, step") && !containsString(payload.Notes, "ignored legacy fields: goal, plan, step, files") {
-			t.Fatalf("warning notes = %v, want legacy fields note", payload.Notes)
-		}
-	}
-	if !sawWarning {
-		t.Fatal("missing legacy scratchpad warning diagnostic")
+	if cm.scratchpad.Intent != "keep" {
+		t.Fatalf("Intent = %q, want unchanged scratchpad on rejected legacy payload", cm.scratchpad.Intent)
 	}
 }
 
@@ -770,6 +757,56 @@ func TestHeuristicDecisionsAppendWithoutModelScratchpadInput(t *testing.T) {
 	}
 	if !strings.Contains(cm.scratchpad.Decisions, "compaction occurred at turn 2") {
 		t.Fatalf("Decisions = %q, want compaction heuristic", cm.scratchpad.Decisions)
+	}
+}
+
+func TestHeuristicDecisionsSanitizeBashCommandSummary(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	cm := &SmartContextManager{}
+
+	got := cm.ObserveToolResult(1, "bash", map[string]any{
+		"cwd":     cwd,
+		"command": "cd " + cwd + " && go test ./internal/agent",
+	}, `{"exit_code":0,"output":"ok\n"}`)
+	if got != `{"exit_code":0,"output":"ok\n"}` {
+		t.Fatalf("ObserveToolResult(bash) = %q, want passthrough JSON", got)
+	}
+	if strings.Contains(cm.scratchpad.Decisions, cwd) {
+		t.Fatalf("Decisions = %q, want no absolute cwd", cm.scratchpad.Decisions)
+	}
+	if !strings.Contains(cm.scratchpad.Decisions, "tests passed: go test ./internal/agent") {
+		t.Fatalf("Decisions = %q, want sanitized bash summary", cm.scratchpad.Decisions)
+	}
+}
+
+func TestSummarizeRecentToolCallsSanitizesAbsolutePaths(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	got := summarizeRecentToolCalls([]Message{
+		{
+			Role: MessageRoleAssistant,
+			ToolCalls: []ToolCall{
+				{
+					Name: "bash",
+					Arguments: map[string]any{
+						"cwd":     cwd,
+						"command": "cd " + cwd + " && go test ./...",
+					},
+				},
+			},
+		},
+	}, 1)
+	if len(got) != 1 {
+		t.Fatalf("summarizeRecentToolCalls() len = %d, want 1", len(got))
+	}
+	if strings.Contains(got[0], cwd) {
+		t.Fatalf("summary = %q, want no absolute cwd", got[0])
+	}
+	if !strings.Contains(got[0], "go test ./...") {
+		t.Fatalf("summary = %q, want sanitized command fragment", got[0])
 	}
 }
 
@@ -800,9 +837,85 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	if cm.scratchpad.WorkingFile != "second.txt" {
 		t.Fatalf("WorkingFile = %q, want second.txt", cm.scratchpad.WorkingFile)
 	}
-	if !strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
-		t.Fatalf("Decisions = %q, want file-switch heuristic", cm.scratchpad.Decisions)
+	if strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
+		t.Fatalf("Decisions = %q, want no durable file-switch heuristic", cm.scratchpad.Decisions)
 	}
+	if !strings.Contains(cm.scratchpad.LastAction, "read second.txt") {
+		t.Fatalf("LastAction = %q, want read working-file update", cm.scratchpad.LastAction)
+	}
+}
+
+func TestObserveToolResultTracksApplyPatchMutationHeuristics(t *testing.T) {
+	cm := &SmartContextManager{}
+	got := cm.ObserveToolResult(4, "apply_patch", map[string]any{"path": "note.txt"}, `{"path":"note.txt","output":"patched 1 hunk"}`)
+	if got != `{"path":"note.txt","output":"patched 1 hunk"}` {
+		t.Fatalf("ObserveToolResult(apply_patch) = %q, want passthrough JSON", got)
+	}
+	if cm.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("WorkingFile = %q, want note.txt", cm.scratchpad.WorkingFile)
+	}
+	if !strings.Contains(cm.scratchpad.LastAction, "patched note.txt") {
+		t.Fatalf("LastAction = %q, want apply_patch working-file update", cm.scratchpad.LastAction)
+	}
+}
+
+func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	firstRegion := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
+	secondRegion := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
+
+	t.Run("successful apply_patch bumps file generation for later reads", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+			t.Fatalf("first read = %q, want full content", got)
+		}
+		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
+			Path:         "note.txt",
+			HunksApplied: 1,
+			Output:       "patched one hunk",
+		})
+
+		gotSame := cm.IngestToolResult(2, "read", firstRegion)
+		if strings.Contains(gotSame, "file unchanged since turn 1") {
+			t.Fatalf("same-region reread = %q, want no stale annotation", gotSame)
+		}
+		gotDifferent := cm.IngestToolResult(3, "read", secondRegion)
+		if strings.Contains(gotDifferent, "file unchanged since turn") {
+			t.Fatalf("different-region reread = %q, want no stale annotation", gotDifferent)
+		}
+	})
+
+	t.Run("failed apply_patch leaves generation unchanged", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+			t.Fatalf("first read = %q, want full content", got)
+		}
+		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
+			Path:         "note.txt",
+			HunksApplied: 1,
+			HunksFailed:  1,
+			Output:       "hunk 0: no match for old text",
+		})
+
+		got := cm.IngestToolResult(2, "read", firstRegion)
+		if !strings.Contains(got, "file unchanged since turn 1") {
+			t.Fatalf("failed-patch reread = %q, want unchanged annotation preserved", got)
+		}
+	})
 }
 
 func epochTestConversation(turns int) []Message {
@@ -959,12 +1072,9 @@ func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, warnings, ok := parseScratchpadToolResult(tc.content, tc.previous)
+			got, ok := parseScratchpadToolResult(tc.content, tc.previous)
 			if !ok {
 				t.Fatal("parseScratchpadToolResult() = false, want true")
-			}
-			if len(warnings) != 0 {
-				t.Fatalf("warnings = %v, want none", warnings)
 			}
 			if got.Decisions != tc.wantDecisions {
 				t.Errorf("Decisions = %q, want %q", got.Decisions, tc.wantDecisions)
@@ -978,18 +1088,114 @@ func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
 	old := strings.Repeat("x", 1990)
 	previous := Scratchpad{Decisions: old}
 	content := `{"intent":"g","decisions":"new entry","open":"","next":"n"}`
-	got, warnings, ok := parseScratchpadToolResult(content, previous)
+	got, ok := parseScratchpadToolResult(content, previous)
 	if !ok {
 		t.Fatal("parseScratchpadToolResult() = false, want true")
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
 	}
 	if len(got.Decisions) > decisionsMaxBytes {
 		t.Errorf("Decisions len = %d, want <= %d", len(got.Decisions), decisionsMaxBytes)
 	}
 	if !strings.Contains(got.Decisions, "new entry") {
 		t.Errorf("Decisions = %q, want to contain newest entry", got.Decisions)
+	}
+}
+
+func TestParseScratchpadToolResultDecisionsLineCapEviction(t *testing.T) {
+	lines := make([]string, 0, decisionsMaxLines+4)
+	for i := 0; i < decisionsMaxLines+4; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d", i))
+	}
+	previous := Scratchpad{Decisions: strings.Join(lines[:decisionsMaxLines], "\n")}
+	got, ok := parseScratchpadToolResult(`{"intent":"g","decisions":"line-new","open":"","next":"n"}`, previous)
+	if !ok {
+		t.Fatal("parseScratchpadToolResult() = false, want true")
+	}
+	if len(strings.Split(got.Decisions, "\n")) > decisionsMaxLines {
+		t.Fatalf("Decisions lines = %d, want <= %d", len(strings.Split(got.Decisions, "\n")), decisionsMaxLines)
+	}
+	if strings.Contains(got.Decisions, "line-00") {
+		t.Fatalf("Decisions = %q, want oldest entry evicted first", got.Decisions)
+	}
+	if !strings.Contains(got.Decisions, "line-new") {
+		t.Fatalf("Decisions = %q, want newest entry preserved", got.Decisions)
+	}
+}
+
+func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
+	previous := Scratchpad{Intent: "keep"}
+	got, ok := parseScratchpadToolResult(`{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","files":"foo.go (read)"}`, previous)
+	if ok {
+		t.Fatalf("parseScratchpadToolResult() = true, want false; got=%+v", got)
+	}
+	if got.Intent != "keep" {
+		t.Fatalf("parseScratchpadToolResult() changed state on legacy payload: %+v", got)
+	}
+}
+
+func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
+	cm := &SmartContextManager{
+		scratchpad: Scratchpad{
+			Intent:       "inspect note",
+			Decisions:    "old decision",
+			Open:         "why is it stale?",
+			Next:         "re-read note",
+			WorkingFile:  "note.txt",
+			LastAction:   "read note.txt",
+			SessionState: "session state: turn=3 compactions=1",
+		},
+	}
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "continue"},
+			{Role: MessageRoleUser, Content: "commit changes"},
+		},
+		Context: ContextState{
+			ActiveFocus:        &ActiveFocus{Text: "inspect note"},
+			UnresolvedWork:     []UnresolvedWorkItem{{Text: "re-read note"}},
+			FileTrackerSummary: []string{"note.txt"},
+			RecentToolCalls:    []string{"read path=note.txt"},
+		},
+	}
+
+	cm.resetTaskStateIfNeeded(&state)
+
+	if cm.scratchpad.Intent != "" || cm.scratchpad.Decisions != "" || cm.scratchpad.Open != "" || cm.scratchpad.Next != "" {
+		t.Fatalf("scratchpad not cleared: %+v", cm.scratchpad)
+	}
+	if cm.scratchpad.WorkingFile != "" || cm.scratchpad.LastAction != "" {
+		t.Fatalf("working fields not cleared: %+v", cm.scratchpad)
+	}
+	if state.Context.ActiveFocus != nil {
+		t.Fatal("ActiveFocus = non-nil, want cleared")
+	}
+	if len(state.Context.UnresolvedWork) != 0 {
+		t.Fatalf("UnresolvedWork = %v, want cleared", state.Context.UnresolvedWork)
+	}
+	if len(state.Context.FileTrackerSummary) != 0 || len(state.Context.RecentToolCalls) != 0 {
+		t.Fatalf("scaffold summaries not cleared: %+v", state.Context)
+	}
+}
+
+func TestResetTaskStateIfNeededIgnoresContinuations(t *testing.T) {
+	cm := &SmartContextManager{
+		scratchpad: Scratchpad{
+			Intent:      "keep",
+			WorkingFile: "note.txt",
+		},
+	}
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "please keep going"},
+		},
+	}
+
+	cm.resetTaskStateIfNeeded(&state)
+
+	if cm.scratchpad.Intent != "keep" || cm.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("scratchpad changed on continuation: %+v", cm.scratchpad)
+	}
+	if state.Context.ActiveFocus != nil || len(state.Context.UnresolvedWork) != 0 {
+		t.Fatalf("context changed on continuation: %+v", state.Context)
 	}
 }
 

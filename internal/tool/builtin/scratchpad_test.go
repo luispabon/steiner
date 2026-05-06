@@ -37,31 +37,21 @@ func TestScratchpadToolReturnsAllFields(t *testing.T) {
 	}
 }
 
-func TestScratchpadToolAcceptsLegacyFields(t *testing.T) {
+func TestScratchpadToolRejectsLegacyOnlyPayloads(t *testing.T) {
 	t.Parallel()
 	def := NewScratchpadTool(Env{})
-	result, err := def.Handler(context.Background(), map[string]any{
-		"goal":      "fix auth bug",
-		"plan":      "read auth.go, find issue, fix",
-		"step":      "reading auth.go",
-		"decisions": "chose context deadline",
-		"files":     "auth.go (read)",
-		"open":      "none",
-		"next":      "check token validation",
+	_, err := def.Handler(context.Background(), map[string]any{
+		"goal":  "fix auth bug",
+		"plan":  "read auth.go, find issue, fix",
+		"step":  "reading auth.go",
+		"files": "auth.go (read)",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	m, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("result type = %T, want map[string]string", result)
-	}
-	if m["intent"] == "" {
-		t.Fatal("intent = empty, want synthesized value")
+	if err == nil {
+		t.Fatal("expected error for legacy-only payload")
 	}
 }
 
-func TestScratchpadToolRequiresIntentOrLegacyFields(t *testing.T) {
+func TestScratchpadToolRequiresIntent(t *testing.T) {
 	t.Parallel()
 	def := NewScratchpadTool(Env{})
 	_, err := def.Handler(context.Background(), map[string]any{
