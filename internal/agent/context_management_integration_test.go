@@ -261,6 +261,72 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "commit result",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+			},
+		},
+	}
+	manager := NewContextManager("smart", config.ContextManagementConfig{
+		ScratchpadMode: config.ScratchpadModeHybrid,
+	}).(*SmartContextManager)
+	manager.scratchpad = Scratchpad{
+		Intent:       "inspect note",
+		Decisions:    "old decision",
+		Open:         "why does it fail?",
+		Next:         "read note again",
+		WorkingFile:  "note.txt",
+		LastAction:   "read note.txt",
+		SessionState: "session state: turn=8 compactions=2",
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       &fakeExecutor{},
+		ContextManager: manager,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "commit changes", Turn: 7}},
+		},
+		Model: "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+		},
+		Limits: Limits{MaxTurns: 1, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	request := providerStub.requests[0].Messages
+	if !messageContentsContain(request, "session state: turn=7 compactions=0") {
+		t.Fatalf("request missing session state: %#v", request)
+	}
+	for _, forbidden := range []string{"inspect note", "old decision", "why does it fail?", "read note again", "working file: note.txt", "last action: read note.txt"} {
+		if messageContentsContain(request, forbidden) {
+			t.Fatalf("request still contains stale task state %q: %#v", forbidden, request)
+		}
+	}
+	if got := manager.scratchpad.Intent; got != "" {
+		t.Fatalf("scratchpad intent = %q, want cleared", got)
+	}
+	if got := manager.scratchpad.WorkingFile; got != "" {
+		t.Fatalf("scratchpad working file = %q, want cleared", got)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+}
+
 func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")

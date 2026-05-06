@@ -7,15 +7,13 @@ import (
 
 func TestScratchpadRenderContainsAllFields(t *testing.T) {
 	s := Scratchpad{
-		Intent:          "fix auth timeout",
-		Decisions:       "use context deadline; avoid global state",
-		Open:            "why does it only fail under load?",
-		Next:            "add test reproducing timeout",
-		WorkingFile:     "internal/auth/handler.go",
-		LastAction:      "edited internal/auth/handler.go: tightened timeout handling",
-		SessionState:    "session state: turn=4 compactions=1",
-		TrackedFiles:    []string{"README.md lines 1-40/120"},
-		RecentToolCalls: []string{"read path=README.md"},
+		Intent:       "fix auth timeout",
+		Decisions:    "use context deadline; avoid global state",
+		Open:         "why does it only fail under load?",
+		Next:         "add test reproducing timeout",
+		WorkingFile:  "internal/auth/handler.go",
+		LastAction:   "edited internal/auth/handler.go: tightened timeout handling",
+		SessionState: "session state: turn=4 compactions=1",
 	}
 	got := s.Render()
 
@@ -26,8 +24,6 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 		{"session", "session state: turn=4 compactions=1"},
 		{"working file", "working file: internal/auth/handler.go"},
 		{"last action", "last action: edited internal/auth/handler.go: tightened timeout handling"},
-		{"tracked files", "tracked files:\n- README.md lines 1-40/120"},
-		{"recent tool calls", "recent tool calls:\n- read path=README.md"},
 		{"intent", "intent: fix auth timeout"},
 		{"decisions", "decisions: use context deadline; avoid global state"},
 		{"open", "open: why does it only fail under load?"},
@@ -45,18 +41,16 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 
 func TestScratchpadRenderFieldOrder(t *testing.T) {
 	s := Scratchpad{
-		Intent:          "i",
-		Decisions:       "d",
-		Open:            "o",
-		Next:            "n",
-		SessionState:    "session state: turn=1 compactions=0",
-		WorkingFile:     "f",
-		LastAction:      "a",
-		TrackedFiles:    []string{"tracked.txt"},
-		RecentToolCalls: []string{"tool call"},
+		Intent:       "i",
+		Decisions:    "d",
+		Open:         "o",
+		Next:         "n",
+		SessionState: "session state: turn=1 compactions=0",
+		WorkingFile:  "f",
+		LastAction:   "a",
 	}
 	got := s.Render()
-	order := []string{"session state:", "working file:", "last action:", "tracked files:", "recent tool calls:", "intent:", "decisions:", "open:", "next:"}
+	order := []string{"session state:", "working file:", "last action:", "intent:", "decisions:", "open:", "next:"}
 	prev := 0
 	for _, field := range order {
 		idx := strings.Index(got, field)

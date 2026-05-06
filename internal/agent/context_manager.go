@@ -112,6 +112,7 @@ func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (
 // PreAssembly applies non-destructive prompt-time masking on a copy of state.
 func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (RunState, error) {
 	next := state.Clone()
+	s.resetTaskStateIfNeeded(&next)
 	next.Context = s.enrichContextState(next)
 	conversation := next.Lineage.SummaryPrefixStrippedMessages()
 	if len(conversation) == 0 {
@@ -246,8 +247,6 @@ func (s *SmartContextManager) syncScaffoldState(state RunState, next *ContextSta
 		return
 	}
 	s.scratchpad.SessionState = compactSessionState(next.TurnCount, next.CompactionCount)
-	s.scratchpad.TrackedFiles = s.fileTracker.Summaries(5)
-	s.scratchpad.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
 }
 
 func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
@@ -384,9 +383,6 @@ func (s *SmartContextManager) updateWorkingFile(path string, turn int, toolName,
 	if path == "" {
 		return
 	}
-	if current := strings.TrimSpace(s.scratchpad.WorkingFile); current != "" && current != path {
-		s.appendDecisionFact(fmt.Sprintf("switched from %s to %s", current, path))
-	}
 	s.scratchpad.WorkingFile = path
 	s.scratchpad.LastAction = lastAction
 	if strings.TrimSpace(toolName) != "" {
@@ -516,8 +512,6 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	next.TurnCount = state.TurnCount
 	s.syncScaffoldState(state, &next)
 	next.Scratchpad = s.scratchpad.Render()
-	next.FileTrackerSummary = s.fileTracker.Summaries(5)
-	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 5)
 	return next
 }
 
@@ -743,6 +737,7 @@ func minTurnInMessages(messages []Message) int {
 }
 
 const decisionsMaxBytes = 2000
+const decisionsMaxLines = 24
 
 func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
 	var raw map[string]json.RawMessage
@@ -808,19 +803,101 @@ func appendDecisionFactText(existing, fact string) string {
 	if fact == "" || strings.EqualFold(fact, "none") {
 		return strings.TrimSpace(existing)
 	}
-	combined := strings.TrimSpace(existing)
-	if combined != "" {
-		combined += "\n" + fact
-	} else {
-		combined = fact
+	lines := splitDecisionFacts(existing)
+	lines = append(lines, fact)
+	lines = boundDecisionFacts(lines)
+	return strings.Join(lines, "\n")
+}
+
+func splitDecisionFacts(existing string) []string {
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return nil
 	}
-	for len(combined) > decisionsMaxBytes {
-		idx := strings.Index(combined, "\n")
-		if idx < 0 {
-			combined = combined[len(combined)-decisionsMaxBytes:]
+	parts := strings.Split(existing, "\n")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func boundDecisionFacts(lines []string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	for len(out) > decisionsMaxLines {
+		out = out[1:]
+	}
+	for len(out) > 0 && len(strings.Join(out, "\n")) > decisionsMaxBytes {
+		if len(out) == 1 {
+			line := out[0]
+			if len(line) > decisionsMaxBytes {
+				out[0] = line[len(line)-decisionsMaxBytes:]
+			}
 			break
 		}
-		combined = strings.TrimSpace(combined[idx+1:])
+		out = out[1:]
 	}
-	return combined
+	return out
+}
+
+func (s *SmartContextManager) resetTaskStateIfNeeded(state *RunState) {
+	if state == nil {
+		return
+	}
+	message, ok := latestUserMessage(state.Lineage.FullMessages())
+	if !ok && len(state.Conversation) > 0 {
+		message, ok = latestUserMessage(state.Conversation)
+	}
+	if !ok || !shouldResetTaskState(message.Content) {
+		return
+	}
+
+	s.scratchpad.Intent = ""
+	s.scratchpad.Decisions = ""
+	s.scratchpad.Open = ""
+	s.scratchpad.Next = ""
+	s.scratchpad.WorkingFile = ""
+	s.scratchpad.LastAction = ""
+	s.scratchpadFailures = 0
+
+	state.Context.ActiveFocus = nil
+	state.Context.UnresolvedWork = nil
+	state.Context.FileTrackerSummary = nil
+	state.Context.RecentToolCalls = nil
+}
+
+func latestUserMessage(messages []Message) (Message, bool) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == MessageRoleUser {
+			return messages[i], true
+		}
+	}
+	return Message{}, false
+}
+
+func shouldResetTaskState(content string) bool {
+	switch normalizeDirectiveText(content) {
+	case "commit changes", "run tests", "review this", "stop":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeDirectiveText(content string) string {
+	content = strings.ToLower(strings.TrimSpace(content))
+	content = strings.TrimRight(content, ".!?")
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "please ")
+	return strings.TrimSpace(content)
 }
