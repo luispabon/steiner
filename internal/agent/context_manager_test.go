@@ -221,6 +221,51 @@ func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *te
 	}
 }
 
+func TestSmartContextManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	state := RunState{
+		TurnCount: 4,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "u1", Turn: 2},
+			{Role: MessageRoleAssistant, Content: "a1", Turn: 2},
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 2},
+			{Role: MessageRoleUser, Content: "u2", Turn: 4},
+			{Role: MessageRoleAssistant, Content: "a2", Turn: 4},
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 4},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	got, err := (&SmartContextManager{}).PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Conversation[2].Turn != 2 || got.Conversation[5].Turn != 4 {
+		t.Fatalf("turns were rewritten: %#v", got.Conversation)
+	}
+	if got.Conversation[2].Content != content {
+		t.Fatalf("first loaded read = %q, want full content", got.Conversation[2].Content)
+	}
+	if !strings.Contains(got.Conversation[5].Content, "file unchanged since turn 2") {
+		t.Fatalf("second loaded read = %q, want annotation anchored to its own prior turn", got.Conversation[5].Content)
+	}
+}
+
 func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
 	cm := &SmartContextManager{maskingWindowTurns: 5, epochStartTurn: 5}
 	first := RunState{
@@ -442,6 +487,45 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *tes
 		t.Fatalf("turn 3 read = %q, want original full content", got3)
 	}
 	_ = got1
+}
+
+func TestIngestToolResultSuppressesTurnZeroPlaceholderAnnotations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 1,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	got1 := cm.IngestToolResult(0, "read", content)
+	if got1 != content {
+		t.Fatalf("turn 0 read = %q, want full content", got1)
+	}
+
+	cm.minVisibleTurn = 1
+	cm.epochMaskBoundary = 1
+
+	got2 := cm.IngestToolResult(2, "read", content)
+	if got2 != content {
+		t.Fatalf("turn 2 reread after turn 0 placeholder = %q, want full content", got2)
+	}
+	if strings.Contains(got2, "file unchanged since turn 0") {
+		t.Fatalf("turn 2 reread = %q, want no turn 0 annotation", got2)
+	}
 }
 
 func TestObserveReadHeuristicsRecordsSuppressionFact(t *testing.T) {
