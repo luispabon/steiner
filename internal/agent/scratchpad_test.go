@@ -23,7 +23,6 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 		label string
 		want  string
 	}{
-		{"header", "[Current task state]"},
 		{"session", "session state: turn=4 compactions=1"},
 		{"working file", "working file: internal/auth/handler.go"},
 		{"last action", "last action: edited internal/auth/handler.go: tightened timeout handling"},
@@ -39,19 +38,25 @@ func TestScratchpadRenderContainsAllFields(t *testing.T) {
 			t.Errorf("Render() missing %s: %q not in %q", c.label, c.want, got)
 		}
 	}
+	if !strings.Contains(got, "[Current task state]") {
+		t.Fatalf("Render() missing top-level header: %q", got)
+	}
 }
 
 func TestScratchpadRenderFieldOrder(t *testing.T) {
 	s := Scratchpad{
-		Intent:      "i",
-		Decisions:   "d",
-		Open:        "o",
-		Next:        "n",
-		WorkingFile: "f",
-		LastAction:  "a",
+		Intent:          "i",
+		Decisions:       "d",
+		Open:            "o",
+		Next:            "n",
+		SessionState:    "session state: turn=1 compactions=0",
+		WorkingFile:     "f",
+		LastAction:      "a",
+		TrackedFiles:    []string{"tracked.txt"},
+		RecentToolCalls: []string{"tool call"},
 	}
 	got := s.Render()
-	order := []string{"working file:", "last action:", "intent:", "decisions:", "open:", "next:"}
+	order := []string{"session state:", "working file:", "last action:", "tracked files:", "recent tool calls:", "intent:", "decisions:", "open:", "next:"}
 	prev := 0
 	for _, field := range order {
 		idx := strings.Index(got, field)
@@ -74,7 +79,7 @@ func TestScratchpadRenderEmptyFields(t *testing.T) {
 	s := Scratchpad{Intent: "only intent set"}
 	got := s.Render()
 	if !strings.Contains(got, "[Current task state]") {
-		t.Errorf("Render() missing header")
+		t.Fatalf("Render() missing top-level header: %q", got)
 	}
 	if !strings.Contains(got, "intent: only intent set") {
 		t.Errorf("Render() missing intent")
