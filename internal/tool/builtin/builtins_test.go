@@ -66,7 +66,12 @@ func TestBuiltins(t *testing.T) {
 			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
 			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
-			&ApplyPatchResult{Path: "test.txt", HunksApplied: 3, Output: "@@ -1,3 +1,4 @@\n-old\n+new\n"},
+			&ApplyPatchResult{
+				Paths:        []string{"test.txt"},
+				Moved:        []MoveResult{{From: "old.txt", To: "new.txt"}},
+				HunksApplied: 3,
+				Output:       "Success.\nUpdated the following files:\nM test.txt",
+			},
 		}
 		for i, r := range results {
 			data, err := json.Marshal(r)
