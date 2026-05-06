@@ -1,0 +1,255 @@
+stages:
+  - id: stage-1
+    objective: Add JSON tags to agent lineage types and create the internal/session package
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: >
+          Add JSON struct tags to ConversationGeneration and ConversationLineage in
+          internal/agent/state.go so the lineage serializes correctly with encoding/json.
+          agent.Message already has tags; this change is additive and non-breaking.
+        scope: internal/agent/state.go only
+        files:
+          - internal/agent/state.go
+          - internal/agent/state_test.go
+        constraints:
+          - Add json tags only; do not change field names, types, or methods
+          - Tags must use snake_case keys consistent with existing Message tags
+          - ConversationGeneration fields: id, summary_prefix, messages
+          - ConversationLineage fields: generations, next_generation_id
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/agent/state.go with json tags on ConversationGeneration and ConversationLineage
+        acceptance:
+          - go build ./internal/agent/... passes
+          - go test ./internal/agent/... passes
+          - encoding/json round-trip of a ConversationLineage with multiple generations preserves all fields
+        handoff: >
+          JSON tags added to ConversationGeneration and ConversationLineage. Stage 1 step 2
+          can now implement the session package using these types directly.
+        verification:
+          - gofmt -w internal/agent/state.go
+          - go vet ./internal/agent/...
+          - go test ./internal/agent/...
+
+      - id: stage-1-step-2
+        objective: >
+          Create internal/session package with Session model, Store, atomic JSON writes,
+          and 25-session eviction. No dependency on TUI, CLI, or interactive packages.
+        scope: internal/session/ (new package, all files)
+        files:
+          - internal/session/session.go
+          - internal/session/store.go
+          - internal/session/store_test.go
+        constraints:
+          - Session struct fields: ID string, CreatedAt/UpdatedAt time.Time, Title string (≤80 chars), Model string, Lineage agent.ConversationLineage
+          - IndexEntry struct fields: ID, CreatedAt, UpdatedAt, Title, Model (no Lineage)
+          - Store struct wraps a directory path and a sync.Mutex
+          - Store.Save(s Session) error — write tmp file then os.Rename (atomic); update index; evict oldest beyond 25
+          - Store.Load(id string) (Session, error) — read and decode <id>.json
+          - Store.List() ([]IndexEntry, error) — read index.json; return sorted newest-first
+          - Store.Delete(id string) error — remove session file and index entry
+          - Index file: sessions/index.json, array of IndexEntry, newest-first ordering
+          - Session files: sessions/<uuid>.json
+          - Title generation helper: TitleFromPrompt(prompt string) string — truncate to 80 chars, collapse whitespace
+          - NewStore(dir string) (*Store, error) — creates dir if absent (os.MkdirAll)
+          - All file writes use tmp file in same dir + os.Rename
+          - Keep symbols unexported unless cross-package use requires export
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/session/session.go — Session, IndexEntry types
+          - internal/session/store.go — Store with Save, Load, List, Delete
+          - internal/session/store_test.go — table-driven tests covering save/load/list/eviction/atomic-write
+        acceptance:
+          - go build ./internal/session/... passes
+          - go test ./internal/session/... passes
+          - Save + Load round-trip preserves Lineage with multiple generations
+          - After 26 saves, List returns exactly 25 entries (oldest evicted)
+          - Concurrent saves do not corrupt index (mutex coverage)
+        handoff: >
+          internal/session package complete with Store API. Stage 2 wires this into
+          the interactive session lifecycle.
+        verification:
+          - gofmt -w internal/session/
+          - go vet ./internal/session/...
+          - go test ./internal/session/...
+
+  - id: stage-2
+    objective: Wire session persistence into the interactive session lifecycle
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: >
+          Add SessionStore dependency and session lifecycle to internal/interactive.
+          On session start: generate UUID (crypto/rand or google/uuid — check go.mod for
+          existing uuid dep; if absent use crypto/rand + fmt.Sprintf hex), derive title
+          from first user prompt, create initial session record.
+          After each completed agent run (runner returns without error): call Store.Save
+          with updated lineage from the run result.
+          Add LoadSession action and RequestSessionPicker action to actions.go.
+          Handle LoadSession in session.go: replace active conversation with loaded lineage
+          (follow ClearConversation pattern but seed state from lineage instead of wiping).
+        scope: internal/interactive/
+        files:
+          - internal/interactive/actions.go
+          - internal/interactive/deps.go
+          - internal/interactive/session.go
+          - internal/interactive/run_flow.go
+          - internal/interactive/session_test.go
+          - internal/interactive/wiring.go
+        constraints:
+          - SessionStore field in deps.go is an interface, not *session.Store directly,
+            to keep internal/interactive free of a hard import on internal/session if possible;
+            define a minimal SessionSaver interface { Save(session.Session) error; Load(string) (session.Session, error); List() ([]session.IndexEntry, error) }
+            OR import internal/session directly if the interface would be awkward — use judgment
+          - Session UUID: check go.mod for existing uuid library; if none, generate with crypto/rand
+          - Session title set on first SubmitPrompt, not on session init
+          - Store.Save called only after a successful (non-error) run result
+          - LoadSession replaces s.conversation and s.lineage; emit a context report event confirming the load
+          - RequestSessionPicker is a no-op at the interactive layer (handled by TUI); include it in actions.go for completeness
+          - Do not break existing interactive tests
+        depends_on:
+          - stage-1-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Updated internal/interactive/actions.go with LoadSession, RequestSessionPicker
+          - Updated internal/interactive/deps.go with SessionStore interface/field
+          - Updated internal/interactive/session.go with UUID generation, title, save-after-run, LoadSession handler
+          - Updated internal/interactive/run_flow.go if needed to expose lineage from run result
+          - Updated or new tests in internal/interactive/session_test.go
+        acceptance:
+          - go build ./internal/interactive/... passes
+          - go test ./internal/interactive/... passes
+          - After a run completes, a session file exists on disk with correct title and lineage
+          - LoadSession replaces conversation; subsequent run uses the restored messages
+        handoff: >
+          Session persistence wired into interactive lifecycle. Stage 3 adds CLI flag
+          and exit hint. Stage 4 adds TUI overlay (can proceed in parallel after this step).
+        verification:
+          - gofmt -w internal/interactive/
+          - go vet ./internal/interactive/...
+          - go test ./internal/interactive/...
+
+  - id: stage-3
+    objective: Add --resume CLI flag, session listing, and exit hint
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: >
+          Add --resume string flag to cliFlags with cobra NoOptDefVal so that:
+            steiner --resume          → value is "" → list sessions to stdout, exit 0
+            steiner --resume <uuid>   → load session from store, inject lineage as initial conversation
+          Wire session store construction into buildRuntime (path: ~/.config/steiner/sessions/).
+          Pass initial lineage through to runInteractiveMode.
+          On clean interactive session exit, print resume hint to stderr:
+            "Resume this session: steiner --resume <uuid>"
+          Session store instantiated in buildRuntime alongside historyWriter; store path
+          follows filepath.Join(homeDir, ".config", "steiner", "sessions").
+        scope: cmd/steiner/
+        files:
+          - cmd/steiner/main.go
+          - cmd/steiner/runtime.go
+          - cmd/steiner/interactive.go
+          - cmd/steiner/flags.go
+        constraints:
+          - --resume flag registered with cmd.Flags().StringVar + cmd.Flag("resume").NoOptDefVal = ""
+          - When --resume="" (flag present, no value): call store.List(), print table to stdout
+            (columns: index, title, model, updated_at relative, id), exit 0
+          - When --resume=<uuid>: call store.Load(uuid), extract Lineage, pass to session as initial lineage
+          - Resume hint printed only on clean exit (no error), after interactive session ends
+          - Resume hint goes to stderr (does not pollute stdout event stream in --exec mode)
+          - --exec mode: --resume unsupported; print error and exit 1 if combined
+          - Session store passed to interactive.Session deps alongside historyWriter
+          - Do not break existing CLI tests
+        depends_on:
+          - stage-2-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Updated cmd/steiner/ files with --resume flag, store wiring, listing, exit hint
+        acceptance:
+          - steiner --resume lists sessions (or "no sessions" if empty) and exits 0
+          - steiner --resume <valid-uuid> starts with restored conversation
+          - steiner --resume <invalid-uuid> exits with clear error
+          - Exit hint printed on clean exit
+          - go test ./cmd/steiner/... passes
+        handoff: >
+          CLI resume fully functional. Stage 4 adds in-TUI /resume overlay.
+        verification:
+          - gofmt -w cmd/steiner/
+          - go vet ./cmd/steiner/...
+          - go test ./cmd/steiner/...
+
+  - id: stage-4
+    objective: Add /resume TUI overlay (interactive session picker)
+    parallel: false
+    steps:
+      - id: stage-4-step-1
+        objective: >
+          Implement sessionPickerOverlay in internal/tui/session_picker.go following the
+          filePickerOverlay + OverlayShell pattern exactly.
+          Wire /resume slash command into input.go and model_update.go.
+          Pass session store (as a read-only interface) to the TUI App/Model so the overlay
+          can call List() and Load().
+          On session selection, dispatch LoadSession action to the interactive controller.
+        scope: internal/tui/ and minor wiring in internal/tui/app.go, internal/tui/model.go
+        files:
+          - internal/tui/session_picker.go
+          - internal/tui/session_picker_test.go
+          - internal/tui/input.go
+          - internal/tui/input_test.go
+          - internal/tui/model.go
+          - internal/tui/model_update.go
+          - internal/tui/app.go
+          - internal/tui/help.go
+        constraints:
+          - sessionPickerOverlay embeds OverlayShell; follows filePickerOverlay patterns (value types, immutable update, tea.Cmd returns)
+          - maxDisplay = 8 entries visible; keyboard nav with arrow keys, Enter to confirm, Esc to cancel
+          - Each row shows: title (truncated to fit), model, relative updated_at (e.g. "2h ago"), session ID suffix (last 8 chars)
+          - Search box filters on title case-insensitively
+          - Session store interface for TUI: SessionLister { List() ([]session.IndexEntry, error); Load(id string) (session.Session, error) }
+            defined in internal/tui (not imported from internal/session to keep TUI dependency surface narrow) OR import internal/session directly — use judgment
+          - /resume added to base slash command candidates in input.go
+          - parseInput("/resume", ...) returns RequestSessionPicker action
+          - Model stores sessionPickerOverlay as a field; opens it when RequestSessionPicker received
+          - On confirmed selection: call controller.Handle(ctx, interactive.LoadSession{Lineage: loaded.Lineage})
+          - Help text updated: {"/resume", "resume a previous session"}
+          - If store is nil (non-interactive or no store configured), /resume shows "no session store configured" event and returns
+          - Do not break existing TUI tests
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/tui/session_picker.go — sessionPickerOverlay implementation
+          - internal/tui/session_picker_test.go — overlay open/close/search/nav/selection tests
+          - Updated internal/tui/input.go — /resume in candidates + parseInput case
+          - Updated internal/tui/model.go — sessionPickerOverlay field, store field
+          - Updated internal/tui/model_update.go — handle overlay messages, dispatch LoadSession
+          - Updated internal/tui/app.go — pass session store to model
+          - Updated internal/tui/help.go — /resume help entry
+        acceptance:
+          - /resume opens overlay showing session list
+          - Typing filters entries
+          - Enter on selected entry loads session and closes overlay
+          - Esc closes overlay without action
+          - go test ./internal/tui/... passes
+        handoff: >
+          All four stages complete. Run full verification suite before PR.
+        verification:
+          - gofmt -w internal/tui/
+          - go vet ./internal/tui/...
+          - go test ./internal/tui/...
+          - go test ./...
+          - go build ./...
