@@ -99,6 +99,9 @@ func TestApplyPatchTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *ApplyPatchResult", resultI)
 		}
+		if res.HunksApplied != 0 {
+			t.Errorf("HunksApplied = %d, want 0 on no match", res.HunksApplied)
+		}
 		if res.HunksFailed != 1 {
 			t.Errorf("HunksFailed = %d, want 1", res.HunksFailed)
 		}

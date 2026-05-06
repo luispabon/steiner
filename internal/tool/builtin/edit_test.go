@@ -103,6 +103,9 @@ func TestEditTool(t *testing.T) {
 		if !strings.Contains(result.Output, "context:") {
 			t.Fatalf("Output = %q, want context preview", result.Output)
 		}
+		if !strings.Contains(result.Output, "suggestion: reread a slightly wider region around the target text") {
+			t.Fatalf("Output = %q, want reread suggestion", result.Output)
+		}
 	})
 
 	t.Run("ambiguous match with replace_all false", func(t *testing.T) {
