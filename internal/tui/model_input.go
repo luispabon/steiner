@@ -54,6 +54,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.listFiles {
 		return m.executeListFilesAction(action.listFilesPath)
 	}
+	if action.requestSessionPicker {
+		return m.executeRequestSessionPickerAction()
+	}
 	if action.submit != "" {
 		return m.executeSubmitAction(value, action.submit)
 	}
@@ -254,6 +257,28 @@ func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
+	if m.sessionStore == nil {
+		m.content.AppendLine("status: no session store configured")
+		m.input.Reset()
+		m.syncViewport()
+		return m, nil
+	}
+
+	entries, err := m.sessionStore.List()
+	if err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: failed to list sessions: %v", err))
+		m.input.Reset()
+		m.syncViewport()
+		return m, nil
+	}
+
+	m.sessionPicker = m.sessionPicker.Open(entries)
+	m.input.Reset()
+	m.syncInputChrome()
 	return m, nil
 }
 

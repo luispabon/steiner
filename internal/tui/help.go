@@ -56,6 +56,7 @@ func renderHelp(styles theme.Styles, width int) string {
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
 				{"/context", "inspect last request"},
+				{"/resume", "resume a previous session"},
 				{"/accent <preset>", "switch accent color"},
 				{"/thinking", "toggle thinking blocks"},
 				{"/exit", "quit"},
