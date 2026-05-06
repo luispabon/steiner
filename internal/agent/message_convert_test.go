@@ -444,6 +444,66 @@ func TestBuildScratchpadMessage_EmptyScratchpadStillComplete(t *testing.T) {
 	}
 }
 
+func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) {
+	resumedScratchpad := Scratchpad{
+		Intent:          "resume stage 3 work",
+		Decisions:       "keep context compact",
+		Open:            "verify the turn-preserved session",
+		Next:            "run the regression suite",
+		WorkingFile:     "internal/agent/context_manager.go",
+		LastAction:      "edited internal/agent/context_manager.go: tightened masking",
+		SessionState:    "session state: turn=7 compactions=2",
+		TrackedFiles:    []string{"README.md lines 1-40/120"},
+		RecentToolCalls: []string{"read path=README.md"},
+	}.Render()
+
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello", Turn: 7},
+			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello", Turn: 7},
+			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
+		}),
+		Context: ContextState{
+			TurnCount:          7,
+			CompactionCount:    2,
+			Scratchpad:         resumedScratchpad,
+			FileTrackerSummary: []string{"README.md lines 1-40/120"},
+			RecentToolCalls:    []string{"read path=README.md"},
+		},
+	}
+
+	got := assemblyOptions(prompt.AssemblyOptions{}, state)
+	if len(got.Conversation) != 3 {
+		t.Fatalf("conversation len = %d, want 3", len(got.Conversation))
+	}
+
+	scratchpadMsg := got.Conversation[2]
+	if scratchpadMsg.Role != provider.MessageRoleUser {
+		t.Fatalf("scratchpad role = %s, want user", scratchpadMsg.Role)
+	}
+
+	content := scratchpadMsg.Content
+	for _, want := range []string{
+		"[Current task state]",
+		"session state: turn=7 compactions=2",
+		"working file: internal/agent/context_manager.go",
+		"last action: edited internal/agent/context_manager.go: tightened masking",
+		"tracked files: README.md lines 1-40/120",
+		"recent tool calls: read path=README.md",
+		"intent: resume stage 3 work",
+		"decisions: keep context compact",
+		"open: verify the turn-preserved session",
+		"next: run the regression suite",
+	} {
+		if count := strings.Count(content, want); count != 1 {
+			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
+		}
+	}
+}
+
 func TestMessageConvert_ToPromptContext(t *testing.T) {
 	t.Run("empty state produces empty slice", func(t *testing.T) {
 		state := ContextState{}
