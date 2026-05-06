@@ -266,6 +266,12 @@ func buildBashPreview(arguments map[string]any, result string) ToolPreview {
 }
 
 func buildApplyPatchPreview(result string) ToolPreview {
+	// Always return ToolPreviewKindPatch so bodyKind is set even before the
+	// tool finishes (start-time call has an empty result string).
+	preview := ToolPreview{Kind: ToolPreviewKindPatch}
+	if strings.TrimSpace(result) == "" {
+		return preview
+	}
 	var payload struct {
 		Added    []string `json:"added"`
 		Modified []string `json:"modified"`
@@ -278,22 +284,19 @@ func buildApplyPatchPreview(result string) ToolPreview {
 		HunksFailed  int `json:"hunks_failed"`
 	}
 	if err := json.Unmarshal([]byte(result), &payload); err != nil {
-		return plainToolPreview()
+		return preview
 	}
-
 	moved := make([]ToolPreviewPatchMove, 0, len(payload.Moved))
 	for _, m := range payload.Moved {
 		moved = append(moved, ToolPreviewPatchMove{From: m.From, To: m.To})
 	}
-	return ToolPreview{
-		Kind:          ToolPreviewKindPatch,
-		PatchAdded:    payload.Added,
-		PatchModified: payload.Modified,
-		PatchDeleted:  payload.Deleted,
-		PatchMoved:    moved,
-		HunksApplied:  payload.HunksApplied,
-		HunksFailed:   payload.HunksFailed,
-	}
+	preview.PatchAdded = payload.Added
+	preview.PatchModified = payload.Modified
+	preview.PatchDeleted = payload.Deleted
+	preview.PatchMoved = moved
+	preview.HunksApplied = payload.HunksApplied
+	preview.HunksFailed = payload.HunksFailed
+	return preview
 }
 
 func rawStringArg(arguments map[string]any, key string) string {

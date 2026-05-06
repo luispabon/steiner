@@ -456,9 +456,9 @@ func TestBuildApplyPatchPreview(t *testing.T) {
 			},
 		},
 		{
-			name:   "invalid json falls back to plain",
+			name:   "invalid json still returns patch kind",
 			result: `not json`,
-			want:   ToolPreview{Kind: ToolPreviewKindPlain},
+			want:   ToolPreview{Kind: ToolPreviewKindPatch},
 		},
 	}
 	for _, tt := range tests {

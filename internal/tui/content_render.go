@@ -402,26 +402,51 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 }
 
 func (b *contentBuffer) buildPatchLines(tc *toolCallSegment) []string {
-	p := tc.preview
-	total := len(p.PatchAdded) + len(p.PatchModified) + len(p.PatchDeleted) + len(p.PatchMoved)
-	if total == 0 {
+	patch, _ := tc.rawArgs["patch"].(string)
+	if strings.TrimSpace(patch) == "" {
 		return b.buildPlainLines(tc)
 	}
-	lines := make([]string, 0, total+1)
-	for _, path := range p.PatchAdded {
-		lines = append(lines, b.styles.Added.Render("A")+" "+path)
+
+	addedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffAddedBg)).
+		Foreground(lipgloss.Color(theme.Added))
+	removedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffRemovedBg)).
+		Foreground(lipgloss.Color(theme.Removed))
+
+	rawLines := strings.Split(strings.TrimRight(patch, "\n"), "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		switch {
+		case strings.HasPrefix(line, "*** Add File:"):
+			lines = append(lines, b.styles.Added.Render(line))
+		case strings.HasPrefix(line, "*** Delete File:"):
+			lines = append(lines, b.styles.Removed.Render(line))
+		case strings.HasPrefix(line, "*** Update File:"):
+			lines = append(lines, b.styles.FgDim.Render(line))
+		case line == "*** Begin Patch" || line == "*** End Patch":
+			lines = append(lines, b.styles.FgFaint.Render(line))
+		case strings.HasPrefix(line, "@@"):
+			lines = append(lines, b.styles.FgFaint.Render(line))
+		case strings.HasPrefix(line, "+"):
+			lines = append(lines, addedBg.Render(line))
+		case strings.HasPrefix(line, "-"):
+			lines = append(lines, removedBg.Render(line))
+		default:
+			lines = append(lines, b.styles.FgDim.Render(line))
+		}
 	}
-	for _, path := range p.PatchModified {
-		lines = append(lines, b.styles.FgDim.Render("M")+" "+path)
-	}
-	for _, path := range p.PatchDeleted {
-		lines = append(lines, b.styles.Removed.Render("D")+" "+path)
-	}
-	for _, mv := range p.PatchMoved {
-		lines = append(lines, b.styles.FgDim.Render("R")+" "+mv.From+" → "+mv.To)
-	}
-	if p.HunksFailed > 0 {
-		lines = append(lines, b.styles.Removed.Render(fmt.Sprintf("%d failed", p.HunksFailed)))
+
+	p := tc.preview
+	if p.HunksApplied > 0 || p.HunksFailed > 0 {
+		applied := b.styles.Added.Render(fmt.Sprintf("%d applied", p.HunksApplied))
+		failed := b.styles.Removed.Render(fmt.Sprintf("%d failed", p.HunksFailed))
+		lines = append(lines, b.styles.FgFaint.Render("─────"))
+		if p.HunksFailed > 0 {
+			lines = append(lines, applied+" · "+failed)
+		} else {
+			lines = append(lines, applied)
+		}
 	}
 	return lines
 }

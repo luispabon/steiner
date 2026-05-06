@@ -229,6 +229,17 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 			width += lipgloss.Width(diffMeta)
 		}
 	}
+	if tc.bodyKind == "patch" && (tc.preview.HunksApplied > 0 || tc.preview.HunksFailed > 0) {
+		patchMeta := b.styles.Added.Render(fmt.Sprintf("%d applied", tc.preview.HunksApplied))
+		if tc.preview.HunksFailed > 0 {
+			patchMeta += " " + b.styles.Removed.Render(fmt.Sprintf("%d failed", tc.preview.HunksFailed))
+		}
+		if len(parts) > 0 {
+			width++
+		}
+		parts = append(parts, patchMeta)
+		width += lipgloss.Width(patchMeta)
+	}
 	if tc.meta != "" {
 		styled := tc.meta
 		if tc.hasError {
