@@ -133,7 +133,7 @@ func ApplyPatchSchema() map[string]any {
 		"properties": map[string]any{
 			"patch": map[string]any{
 				"type":        "string",
-				"description": "Use apply_patch for all file mutations. The patch must begin with \"*** Begin Patch\" and end with \"*** End Patch\".",
+				"description": "Codex-style patch document. Must begin with \"*** Begin Patch\" and end with \"*** End Patch\". File paths must be relative to the workspace root.",
 			},
 			"dry_run": map[string]any{
 				"type":        "boolean",

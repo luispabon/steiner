@@ -48,40 +48,7 @@ Verification:
 Final response:
 - Summarize what changed.
 - List verification performed and results.
-- Mention any assumptions, skipped checks, or unrelated issues noticed.
-
-Tool guidance:
-- Use glob to find files by name.
-- Use grep to find code by content.
-- Use grep output_mode="files_with_matches" before reading many files.
-- Use read with offset and limit instead of loading whole large files.
-- Use apply_patch for all file mutations.
-
-Patch format:
-
-*** Begin Patch
-*** Add File: path/to/file
-+new file content
-*** Update File: path/to/file
-@@ optional context
- context line
--old line
-+new line
-*** Delete File: path/to/file
-*** End Patch
-
-Rules:
-- Every patch must start with "*** Begin Patch" and end with "*** End Patch".
-- Every file operation must start with "*** Add File:", "*** Update File:", or "*** Delete File:".
-- New file contents must be prefixed with "+".
-- Update hunks use lines prefixed with " " for context, "-" for removals, and "+" for additions.
-- Use at least 3 lines of context around edits by default.
-- Use "@@ function_or_type_name" when the surrounding lines may not uniquely identify the edit.
-- Use multiple "@@" chunks if needed to reach the right repeated block.
-- File paths must be relative to the workspace.
-- Do not use bash, sed, perl, python, cat, tee, or shell redirection for ad-hoc file edits.
-- Use bash only when a command is more reliable than file tools.
-- Paginate large read/grep/glob/ls outputs with offset.`
+- Mention any assumptions, skipped checks, or unrelated issues noticed.`
 
 func SystemPreamble(override string, scratchpadEnabled bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)

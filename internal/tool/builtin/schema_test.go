@@ -250,8 +250,8 @@ func TestApplyPatchSchema(t *testing.T) {
 		if m["type"] != "string" {
 			t.Error("patch.type should be string")
 		}
-		if desc, _ := m["description"].(string); !strings.Contains(desc, "Use apply_patch for all file mutations.") || !strings.Contains(desc, "*** Begin Patch") || !strings.Contains(desc, "*** End Patch") {
-			t.Fatalf("patch.description = %q, want apply_patch patch-format guidance", desc)
+		if desc, _ := m["description"].(string); !strings.Contains(desc, "*** Begin Patch") || !strings.Contains(desc, "*** End Patch") {
+			t.Fatalf("patch.description = %q, want patch-format guidance", desc)
 		}
 	} else {
 		t.Fatal("missing patch property")

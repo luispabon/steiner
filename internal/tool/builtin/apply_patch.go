@@ -20,7 +20,7 @@ type ApplyPatchInput struct {
 func NewApplyPatchTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "apply_patch",
-		Description:     "Use apply_patch for all file mutations. Provide a Codex-style patch document that begins with \"*** Begin Patch\" and ends with \"*** End Patch\".",
+		Description:     "Apply one or more file mutations atomically. Use apply_patch for all file edits — never use bash, sed, or cat for ad-hoc file changes.\n\nPatch format:\n*** Begin Patch\n*** Add File: path/to/new/file\n+line content\n*** Update File: path/to/existing/file\n@@ optional_anchor\n context line\n-removed line\n+new line\n*** Delete File: path/to/file\n*** End Patch\n\nRules: paths relative to workspace root; every new-file line prefixed with \"+\"; 3+ context lines around updates; use \"@@ func_name\" anchors for ambiguous locations; multiple @@ chunks allowed per file.",
 		ParameterSchema: ApplyPatchSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ApplyPatchInput](input)

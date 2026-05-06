@@ -26,24 +26,17 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 	}
 }
 
-func TestSystemPreambleMutationGuidanceUsesApplyPatch(t *testing.T) {
+func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
 	content := SystemPreamble("", true).Content
-	for _, want := range []string{
-		"- Use apply_patch for all file mutations.",
+	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
+	for _, forbidden := range []string{
+		"Tool guidance:",
 		"Patch format:",
 		"*** Begin Patch",
-		"*** Add File: path/to/file",
-		"*** Update File: path/to/file",
-		"*** Delete File: path/to/file",
-		"- Do not use bash, sed, perl, python, cat, tee, or shell redirection for ad-hoc file edits.",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("system preamble missing %q in %q", want, content)
-		}
-	}
-	for _, forbidden := range []string{
+		"*** End Patch",
+		"Use apply_patch for all file mutations.",
 		"Use edit for targeted modifications.",
 		"Use write only for new files or intentional full rewrites.",
 		"old_string",
