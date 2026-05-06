@@ -53,6 +53,7 @@ func renderHelp(styles theme.Styles, width int) string {
 			bindings: []binding{
 				{"ctrl+b", "toggle sidebar"},
 				{"ctrl+p", "command palette"},
+				{"ctrl+s", "show scratchpad"},
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
 				{"/context", "inspect last request"},

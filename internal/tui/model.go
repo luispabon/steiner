@@ -93,6 +93,7 @@ type Model struct {
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
 	contextOverlay               contextOverlayState
+	scratchpadOverlay            scratchpadOverlayState
 	exitModal                    exitModalState
 	sessionStore                 SessionLister
 	sessionHealthCompactionCount int
@@ -404,6 +405,11 @@ func (m Model) View() string {
 
 	if m.contextOverlay.open {
 		overlay := m.renderContextOverlay()
+		return composeCenteredOverlay(base, overlay, m.width, m.height)
+	}
+
+	if m.scratchpadOverlay.IsOpen() {
+		overlay := m.scratchpadOverlay.renderScratchpadOverlay()
 		return composeCenteredOverlay(base, overlay, m.width, m.height)
 	}
 
