@@ -676,6 +676,44 @@ func TestCommitOneUnknownKindReturnsError(t *testing.T) {
 	}
 }
 
+func TestCommitOneMoveCleansUpDestinationWhenSourceRemoveFails(t *testing.T) {
+	t.Parallel()
+
+	fsys := newFakeFS(map[string]fakeFile{
+		"move/source.txt": {data: []byte("old\n"), mode: 0o600},
+	})
+	fsys.failRemove["move/source.txt"] = errors.New("source remove failed")
+
+	err := commitOne(PlannedChange{
+		Kind:       ChangeMove,
+		Path:       "move/source.txt",
+		MovePath:   "move/dest.txt",
+		NewContent: []byte("new\n"),
+		OldContent: []byte("old\n"),
+		Mode:       0o600,
+	}, fsys)
+	if err == nil {
+		t.Fatal("commitOne() error = nil, want source removal failure")
+	}
+
+	if _, ok := fsys.files["move/dest.txt"]; ok {
+		t.Fatal("commitOne() destination still present, want cleaned up")
+	}
+	if _, ok := fsys.files["move/source.txt"]; !ok {
+		t.Fatal("commitOne() source missing, want source to remain")
+	}
+
+	wantOps := []string{
+		"mkdir:move",
+		"write:move/dest.txt",
+		"remove:move/source.txt",
+		"remove:move/dest.txt",
+	}
+	if got := fsys.ops; !slicesEqual(got, wantOps) {
+		t.Fatalf("commitOne() ops = %#v, want %#v", got, wantOps)
+	}
+}
+
 type fakeFile struct {
 	data []byte
 	mode fs.FileMode

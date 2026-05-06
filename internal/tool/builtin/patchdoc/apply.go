@@ -288,7 +288,13 @@ func commitOne(ch PlannedChange, fsys FS) error {
 		if err := fsys.WriteFile(ch.MovePath, ch.NewContent, ch.Mode); err != nil {
 			return err
 		}
-		return fsys.Remove(ch.Path)
+		if err := fsys.Remove(ch.Path); err != nil {
+			if cleanupErr := fsys.Remove(ch.MovePath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return errors.Join(err, cleanupErr)
+			}
+			return err
+		}
+		return nil
 	case ChangeDelete:
 		return fsys.Remove(ch.Path)
 	default:
