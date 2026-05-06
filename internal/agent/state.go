@@ -23,9 +23,9 @@ const (
 // active lineage, while Messages holds the raw messages that were added in this
 // generation after the summary prefix was established.
 type ConversationGeneration struct {
-	ID            int
-	SummaryPrefix []Message
-	Messages      []Message
+	ID            int       `json:"id"`
+	SummaryPrefix []Message `json:"summary_prefix"`
+	Messages      []Message `json:"messages"`
 }
 
 func newConversationGeneration(id int, summaryPrefix, messages []Message) ConversationGeneration {
@@ -65,8 +65,8 @@ type ConversationCandidate struct {
 }
 
 type ConversationLineage struct {
-	Generations      []ConversationGeneration
-	NextGenerationID int
+	Generations      []ConversationGeneration `json:"generations"`
+	NextGenerationID int                      `json:"next_generation_id"`
 }
 
 func newConversationLineage(messages []Message) ConversationLineage {
