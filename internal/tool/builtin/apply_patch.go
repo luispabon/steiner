@@ -77,6 +77,7 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 
 			// Build positions for sorting. We sort hunks by their position in
 			// the *original* content so the LLM can provide them in any order.
+			contentStr := string(content)
 			type hunkPos struct {
 				index int
 				pos   int
@@ -84,21 +85,21 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 			}
 			positions := make([]hunkPos, 0, len(in.Hunks))
 			for i, h := range in.Hunks {
-				idx := strings.Index(string(content), h.Old)
+				idx := strings.Index(contentStr, h.Old)
 				if idx < 0 {
 					return &ApplyPatchResult{
 						Path:         relDisplayPath(env.WorkDir, absPath),
 						HunksApplied: 0,
 						HunksFailed:  len(in.Hunks),
-						Output:       fmt.Sprintf("hunk %d: no match for old text (length %d)", i, len(h.Old)),
+						Output:       buildNoMatchDiagnostics(fmt.Sprintf("hunk %d", i), "old text", content, h.Old),
 					}, nil
 				}
-				if strings.Count(string(content), h.Old) > 1 {
+				if strings.Count(contentStr, h.Old) > 1 {
 					return &ApplyPatchResult{
 						Path:         relDisplayPath(env.WorkDir, absPath),
 						HunksApplied: 0,
 						HunksFailed:  len(in.Hunks),
-						Output:       fmt.Sprintf("hunk %d: ambiguous match for old text (found %d occurrences)", i, strings.Count(string(content), h.Old)),
+						Output:       buildAmbiguousDiagnostics(fmt.Sprintf("hunk %d", i), "old text", content, h.Old, strings.Count(contentStr, h.Old)),
 					}, nil
 				}
 				positions = append(positions, hunkPos{index: i, pos: idx, hunk: h})
@@ -134,7 +135,7 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 						Path:         relDisplayPath(env.WorkDir, absPath),
 						HunksApplied: hunksApplied,
 						HunksFailed:  len(in.Hunks) - hunksApplied,
-						Output:       fmt.Sprintf("hunk %d: no match for old text after applying previous hunks (length %d)", hp.index, len(hp.hunk.Old)),
+						Output:       buildNoMatchDiagnostics(fmt.Sprintf("hunk %d", hp.index), "old text after applying previous hunks", []byte(patched), hp.hunk.Old),
 					}, nil
 				}
 				if strings.Count(patched, hp.hunk.Old) > 1 {
@@ -142,7 +143,7 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 						Path:         relDisplayPath(env.WorkDir, absPath),
 						HunksApplied: hunksApplied,
 						HunksFailed:  len(in.Hunks) - hunksApplied,
-						Output:       fmt.Sprintf("hunk %d: ambiguous match for old text after applying previous hunks (found %d occurrences)", hp.index, strings.Count(patched, hp.hunk.Old)),
+						Output:       buildAmbiguousDiagnostics(fmt.Sprintf("hunk %d", hp.index), "old text after applying previous hunks", []byte(patched), hp.hunk.Old, strings.Count(patched, hp.hunk.Old)),
 					}, nil
 				}
 

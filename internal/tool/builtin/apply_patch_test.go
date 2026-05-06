@@ -89,7 +89,7 @@ func TestApplyPatchTool(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
 			"path": "nomatch.txt",
 			"hunks": []any{
-				map[string]any{"old": "nonexistent", "new": "replaced"},
+				map[string]any{"old": "hello   world", "new": "replaced"},
 			},
 		})
 		if err != nil {
@@ -102,8 +102,17 @@ func TestApplyPatchTool(t *testing.T) {
 		if res.HunksFailed != 1 {
 			t.Errorf("HunksFailed = %d, want 1", res.HunksFailed)
 		}
-		if !strings.Contains(res.Output, "no match") {
-			t.Errorf("Output does not contain 'no match': %q", res.Output)
+		if !strings.Contains(res.Output, "hunk 0: no match for old text") {
+			t.Errorf("Output does not contain hunk label: %q", res.Output)
+		}
+		if !strings.Contains(res.Output, "normalized whitespace match exists") {
+			t.Errorf("Output does not contain whitespace diagnostic: %q", res.Output)
+		}
+		if !strings.Contains(res.Output, "nearest anchor at line 1") {
+			t.Errorf("Output does not contain anchor diagnostic: %q", res.Output)
+		}
+		if !strings.Contains(res.Output, "context:") {
+			t.Errorf("Output does not contain context preview: %q", res.Output)
 		}
 	})
 
@@ -130,6 +139,12 @@ func TestApplyPatchTool(t *testing.T) {
 		}
 		if !strings.Contains(res.Output, "ambiguous") {
 			t.Errorf("Output does not contain 'ambiguous': %q", res.Output)
+		}
+		if !strings.Contains(res.Output, "closest occurrence") {
+			t.Errorf("Output does not contain occurrence preview: %q", res.Output)
+		}
+		if !strings.Contains(res.Output, "context:") {
+			t.Errorf("Output does not contain context preview: %q", res.Output)
 		}
 	})
 
