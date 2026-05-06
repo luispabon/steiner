@@ -216,9 +216,12 @@ func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
 				count++
 			})
 
-			sess := interactive.NewSession(interactive.Dependencies{
+			sess, err := interactive.NewSession(interactive.Dependencies{
 				BaseEvents: output.NoopSink{},
 			})
+			if err != nil {
+				t.Fatalf("NewSession failed: %v", err)
+			}
 			sess.DisplaySink().Set(tuiSink)
 
 			events := tt.wire(sess, tuiSink)
