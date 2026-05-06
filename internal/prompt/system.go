@@ -8,14 +8,11 @@ const scratchpadInstructions = `## Scratchpad
 
 You have a tool called ` + "`scratchpad`" + `. Call it on every turn without exception, including short replies and clarifying questions.
 
-Call it before your final response. It is how you maintain task state across turns - without it, your memory of goals, decisions, and progress is lost.
+Call it before your final response. It is how you maintain task state across turns.
 
 Fields:
-- goal: what you are ultimately trying to achieve (one line, stable)
-- plan: your current approach (update when the approach changes)
-- step: the specific action you just completed or are about to take
-- decisions: key choices made and why (append this turn's new decisions only; steiner merges history)
-- files: files you have read or modified, with status (read / modified / stale)
+- intent: what you are trying to achieve right now
+- decisions: key choices made and why
 - open: unresolved problems or unknowns blocking progress
 - next: the single next action you will take after this turn
 

@@ -706,6 +706,30 @@ func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
 	}
 }
 
+func TestBuildPlainLinesRendersCurrentScratchpadFields(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+	lines := buffer.buildPlainLines(&toolCallSegment{
+		tool: "scratchpad",
+		rawArgs: map[string]any{
+			"intent":    "inspect note",
+			"decisions": "keep it simple",
+			"open":      "none",
+			"next":      "read file",
+		},
+	})
+	got := stripANSI(strings.Join(lines, "\n"))
+	for _, want := range []string{"Intent: inspect note", "Decisions: keep it simple", "Open: none", "Next: read file"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered scratchpad args %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "goal:") || strings.Contains(got, "plan:") || strings.Contains(got, "step:") || strings.Contains(got, "files:") {
+		t.Fatalf("rendered scratchpad args still contain legacy fields: %q", got)
+	}
+}
+
 func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
 	useTrueColor(t)
 

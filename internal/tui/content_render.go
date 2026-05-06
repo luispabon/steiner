@@ -379,10 +379,10 @@ func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	var lines []string
 
-	// For scratchpad, show the argument fields (goal/plan/step/etc.)
-	// instead of the tool result JSON.
+	// For scratchpad, show the current four-field model instead of the tool
+	// result JSON.
 	if tc.tool == "scratchpad" && len(tc.rawArgs) > 0 {
-		for _, key := range []string{"goal", "plan", "step", "next", "open"} {
+		for _, key := range []string{"intent", "decisions", "open", "next"} {
 			if val, ok := tc.rawArgs[key]; ok {
 				if s, ok := val.(string); ok && s != "" {
 					label := strings.ToUpper(key[:1]) + key[1:] + ": " + s
