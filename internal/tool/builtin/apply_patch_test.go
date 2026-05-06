@@ -129,7 +129,7 @@ func TestApplyPatchToolDryRunAddDoesNotWriteFile(t *testing.T) {
 	}
 }
 
-func TestApplyPatchToolAddWritesFileAndReturnsSummary(t *testing.T) {
+func TestApplyPatchToolAddWritesNestedFileAndReturnsSummary(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -138,7 +138,7 @@ func TestApplyPatchToolAddWritesFileAndReturnsSummary(t *testing.T) {
 	result, err := toolDef.Handler(context.Background(), map[string]any{
 		"patch": strings.Join([]string{
 			"*** Begin Patch",
-			"*** Add File: note.txt",
+			"*** Add File: nested/note.txt",
 			"+hello",
 			"*** End Patch",
 		}, "\n"),
@@ -157,14 +157,17 @@ func TestApplyPatchToolAddWritesFileAndReturnsSummary(t *testing.T) {
 	if got.HunksFailed != 0 {
 		t.Fatalf("HunksFailed = %d, want 0", got.HunksFailed)
 	}
-	if len(got.Added) != 1 || got.Added[0] != "note.txt" {
-		t.Fatalf("Added = %#v, want [note.txt]", got.Added)
+	if len(got.Added) != 1 || got.Added[0] != "nested/note.txt" {
+		t.Fatalf("Added = %#v, want [nested/note.txt]", got.Added)
 	}
-	if got.Output != "Success.\nUpdated the following files:\nA note.txt" {
+	if len(got.Paths) != 1 || got.Paths[0] != "nested/note.txt" {
+		t.Fatalf("Paths = %#v, want [nested/note.txt]", got.Paths)
+	}
+	if got.Output != "Success.\nUpdated the following files:\nA nested/note.txt" {
 		t.Fatalf("Output = %q, want add summary", got.Output)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "note.txt"))
+	data, err := os.ReadFile(filepath.Join(root, "nested", "note.txt"))
 	if err != nil {
 		t.Fatalf("os.ReadFile() error = %v", err)
 	}

@@ -15,28 +15,13 @@ func TestParsePatch(t *testing.T) {
 		want  *Patch
 	}{
 		{
-			name:  "empty patch",
-			input: "\n*** Begin Patch\n*** End Patch\n",
-			want:  &Patch{},
-		},
-		{
-			name: "add delete and update",
+			name: "parse add file",
 			input: strings.Join([]string{
 				"*** Begin Patch",
 				"*** Add File: notes.txt",
 				"+hello",
 				"world",
 				"++literal",
-				"*** Delete File: old.txt",
-				"*** Update File: src.txt",
-				"*** Move to: dst.txt",
-				"@@ base",
-				" shared",
-				"-old",
-				"+new",
-				"@@",
-				" blank",
-				"*** End of File",
 				"*** End Patch",
 			}, "\n"),
 			want: &Patch{
@@ -45,12 +30,37 @@ func TestParsePatch(t *testing.T) {
 						PathValue: "notes.txt",
 						Contents:  "hello\nworld\n+literal\n",
 					},
-					DeleteFile{
-						PathValue: "old.txt",
-					},
+				},
+			},
+		},
+		{
+			name: "parse delete file",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Delete File: old.txt",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					DeleteFile{PathValue: "old.txt"},
+				},
+			},
+		},
+		{
+			name: "parse update file",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@ base",
+				" shared",
+				"-old",
+				"+new",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
 					UpdateFile{
 						PathValue: "src.txt",
-						MovePath:  "dst.txt",
 						Chunks: []UpdateFileChunk{
 							{
 								HasContext:    true,
@@ -58,14 +68,252 @@ func TestParsePatch(t *testing.T) {
 								OldLines:      []string{"shared", "old"},
 								NewLines:      []string{"shared", "new"},
 							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse update with move",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"*** Move to: dst.txt",
+				"@@",
+				" shared",
+				"-old",
+				"+new",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						MovePath:  "dst.txt",
+						Chunks: []UpdateFileChunk{
 							{
-								HasContext: true,
-								OldLines:   []string{"blank"},
-								NewLines:   []string{"blank"},
-								EndOfFile:  true,
+								OldLines: []string{"shared", "old"},
+								NewLines: []string{"shared", "new"},
 							},
 						},
 					},
+				},
+			},
+		},
+		{
+			name: "parse multiple operations",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Add File: notes.txt",
+				"+hello",
+				"*** Delete File: old.txt",
+				"*** Update File: src.txt",
+				"@@ first",
+				" shared",
+				"-old",
+				"+new",
+				"@@ second",
+				" keep",
+				"-gone",
+				"+stay",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					AddFile{PathValue: "notes.txt", Contents: "hello\n"},
+					DeleteFile{PathValue: "old.txt"},
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								HasContext:    true,
+								ChangeContext: "first",
+								OldLines:      []string{"shared", "old"},
+								NewLines:      []string{"shared", "new"},
+							},
+							{
+								HasContext:    true,
+								ChangeContext: "second",
+								OldLines:      []string{"keep", "gone"},
+								NewLines:      []string{"keep", "stay"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse empty context marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@",
+				" shared",
+				"-old",
+				"+new",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								HasContext: false,
+								OldLines:   []string{"shared", "old"},
+								NewLines:   []string{"shared", "new"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse context marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@ function",
+				" shared",
+				"-old",
+				"+new",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								HasContext:    true,
+								ChangeContext: "function",
+								OldLines:      []string{"shared", "old"},
+								NewLines:      []string{"shared", "new"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse first update chunk without context marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"-old",
+				"+new",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								OldLines: []string{"old"},
+								NewLines: []string{"new"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse subsequent update chunk requiring context marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"-old",
+				"+new",
+				"@@ second",
+				" keep",
+				"-gone",
+				"+stay",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								OldLines: []string{"old"},
+								NewLines: []string{"new"},
+							},
+							{
+								HasContext:    true,
+								ChangeContext: "second",
+								OldLines:      []string{"keep", "gone"},
+								NewLines:      []string{"keep", "stay"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse empty line as empty context line",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@",
+				"",
+				"*** End of File",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								OldLines:  []string{""},
+								NewLines:  []string{""},
+								EndOfFile: true,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "parse eof marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@",
+				" shared",
+				"-old",
+				"+new",
+				"*** End of File",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					UpdateFile{
+						PathValue: "src.txt",
+						Chunks: []UpdateFileChunk{
+							{
+								OldLines:   []string{"shared", "old"},
+								NewLines:   []string{"shared", "new"},
+								EndOfFile:  true,
+								HasContext: false,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "empty add file allowed",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Add File: empty.txt",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					AddFile{PathValue: "empty.txt", Contents: ""},
 				},
 			},
 		},
@@ -101,23 +349,42 @@ func TestParsePatchErrors(t *testing.T) {
 			wantErr: "patch must begin with",
 		},
 		{
-			name: "unexpected top-level line",
+			name: "missing end marker",
 			input: strings.Join([]string{
 				"*** Begin Patch",
-				"bogus",
-				"*** End Patch",
+				"*** Add File: note.txt",
+				"+hello",
 			}, "\n"),
-			wantErr: `unexpected top-level marker "bogus"`,
+			wantErr: `expected "*** End Patch"`,
 		},
 		{
-			name: "update chunk missing context",
+			name: "unknown hunk header",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Rename File: note.txt",
+				"*** End Patch",
+			}, "\n"),
+			wantErr: `unexpected top-level marker "*** Rename File: note.txt"`,
+		},
+		{
+			name: "update file with no chunks",
 			input: strings.Join([]string{
 				"*** Begin Patch",
 				"*** Update File: src.txt",
-				" line",
 				"*** End Patch",
 			}, "\n"),
-			wantErr: `expected update chunk context marker`,
+			wantErr: `update file "src.txt" has no chunks`,
+		},
+		{
+			name: "unexpected hunk line",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@",
+				"?bogus",
+				"*** End Patch",
+			}, "\n"),
+			wantErr: `unexpected line in update chunk: "?bogus"`,
 		},
 		{
 			name: "update chunk without body",
