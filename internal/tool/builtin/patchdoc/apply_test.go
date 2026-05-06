@@ -184,3 +184,74 @@ func TestComputeReplacementsInsertionBeforeTrailingEmpty(t *testing.T) {
 		t.Fatalf("computeReplacements() old len = %d, want 0", replacements[0].OldLen)
 	}
 }
+
+func TestApplyPatchDryRunWithNoHunks(t *testing.T) {
+	t.Parallel()
+
+	got, err := ApplyPatch(t.TempDir(), Patch{}, true, OSFS{})
+	if err != nil {
+		t.Fatalf("ApplyPatch() error = %v", err)
+	}
+	if !got.DryRun {
+		t.Fatal("ApplyPatch() DryRun = false, want true")
+	}
+	if len(got.Added) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+		t.Fatalf("ApplyPatch() result = %#v, want empty result", got)
+	}
+}
+
+func TestApplyPatchDuplicateTargetsBeforePlanning(t *testing.T) {
+	t.Parallel()
+
+	_, err := ApplyPatch(t.TempDir(), Patch{
+		Hunks: []Hunk{
+			AddFile{PathValue: "same.txt"},
+			UpdateFile{PathValue: "other.txt", MovePath: "same.txt"},
+		},
+	}, true, OSFS{})
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want duplicate target error")
+	}
+	if !strings.Contains(err.Error(), "duplicate affected path") {
+		t.Fatalf("ApplyPatch() error = %v, want duplicate target validation error", err)
+	}
+	if strings.Contains(err.Error(), "planning not implemented") {
+		t.Fatalf("ApplyPatch() error = %v, want validation before planning", err)
+	}
+}
+
+func TestApplyPatchNilFSDefaultsToOSFSInDryRun(t *testing.T) {
+	t.Parallel()
+
+	got, err := ApplyPatch(t.TempDir(), Patch{}, true, nil)
+	if err != nil {
+		t.Fatalf("ApplyPatch() error = %v", err)
+	}
+	if !got.DryRun {
+		t.Fatal("ApplyPatch() DryRun = false, want true")
+	}
+}
+
+func TestBuildApplyResult(t *testing.T) {
+	t.Parallel()
+
+	got := buildApplyResult([]PlannedChange{
+		{Kind: ChangeAdd, RelPath: "added.txt"},
+		{Kind: ChangeUpdate, RelPath: "updated.txt"},
+		{Kind: ChangeDelete, RelPath: "deleted.txt"},
+		{Kind: ChangeMove, RelPath: "from.txt", MoveRelPath: "to.txt"},
+	})
+
+	if len(got.Added) != 1 || got.Added[0] != "added.txt" {
+		t.Fatalf("buildApplyResult() Added = %#v, want [added.txt]", got.Added)
+	}
+	if len(got.Modified) != 1 || got.Modified[0] != "updated.txt" {
+		t.Fatalf("buildApplyResult() Modified = %#v, want [updated.txt]", got.Modified)
+	}
+	if len(got.Deleted) != 1 || got.Deleted[0] != "deleted.txt" {
+		t.Fatalf("buildApplyResult() Deleted = %#v, want [deleted.txt]", got.Deleted)
+	}
+	if len(got.Moved) != 1 || got.Moved[0].From != "from.txt" || got.Moved[0].To != "to.txt" {
+		t.Fatalf("buildApplyResult() Moved = %#v, want [{from.txt to.txt}]", got.Moved)
+	}
+}
