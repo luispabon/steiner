@@ -69,6 +69,15 @@ func TestDeriveNewContents(t *testing.T) {
 			want: "one\ndeux\nthree\n",
 		},
 		{
+			name:     "replace block",
+			original: "alpha\nbeta\ngamma\n",
+			path:     "block.txt",
+			chunks: []UpdateFileChunk{
+				{OldLines: []string{"alpha", "beta"}, NewLines: []string{"ALPHA", "BETA"}},
+			},
+			want: "ALPHA\nBETA\ngamma\n",
+		},
+		{
 			name:     "insertion when old lines empty",
 			original: "alpha\n",
 			path:     "insert.txt",
@@ -76,6 +85,15 @@ func TestDeriveNewContents(t *testing.T) {
 				{NewLines: []string{"beta"}},
 			},
 			want: "alpha\nbeta\n",
+		},
+		{
+			name:     "insert at eof",
+			original: "",
+			path:     "insert-eof.txt",
+			chunks: []UpdateFileChunk{
+				{NewLines: []string{"beta"}},
+			},
+			want: "beta\n",
 		},
 		{
 			name:     "multiple replacements without index drift",
@@ -98,13 +116,22 @@ func TestDeriveNewContents(t *testing.T) {
 			want: "anchor\nLEFT\nanchor\nRIGHT\n",
 		},
 		{
-			name:     "eof constrained match",
+			name:     "missing context fails",
+			original: "anchor\nleft\n",
+			path:     "missing-context.txt",
+			chunks: []UpdateFileChunk{
+				{HasContext: true, ChangeContext: "missing", OldLines: []string{"left"}, NewLines: []string{"LEFT"}},
+			},
+			wantErr: "failed to find context \"missing\" in missing-context.txt",
+		},
+		{
+			name:     "replace eof block",
 			original: "top\nneedle\nbottom\nneedle\n",
 			path:     "eof.txt",
 			chunks: []UpdateFileChunk{
-				{OldLines: []string{"needle"}, NewLines: []string{"EOF"}, EndOfFile: true},
+				{OldLines: []string{"bottom", "needle"}, NewLines: []string{"BOTTOM", "EOF"}, EndOfFile: true},
 			},
-			want: "top\nneedle\nbottom\nEOF\n",
+			want: "top\nneedle\nBOTTOM\nEOF\n",
 		},
 		{
 			name:     "trailing empty old new retry",
@@ -324,6 +351,18 @@ func TestPlanDeleteFileRecordsOldContentAndMode(t *testing.T) {
 	}
 }
 
+func TestPlanDeleteFileFailsWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	_, err := planDeleteFile(t.TempDir(), DeleteFile{PathValue: "missing.txt"}, OSFS{})
+	if err == nil {
+		t.Fatal("planDeleteFile() error = nil, want missing file error")
+	}
+	if !strings.Contains(err.Error(), "delete file failed") {
+		t.Fatalf("planDeleteFile() error = %v, want missing file validation error", err)
+	}
+}
+
 func TestPlanUpdateFileRejectsBinary(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +410,23 @@ func TestPlanUpdateFileDerivesContentAndPreservesMode(t *testing.T) {
 	}
 	if got.Mode != 0o640 {
 		t.Fatalf("planUpdateFile() Mode = %v, want %v", got.Mode, 0o640)
+	}
+}
+
+func TestPlanUpdateFileFailsWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	_, err := planUpdateFile(t.TempDir(), UpdateFile{
+		PathValue: "missing.txt",
+		Chunks: []UpdateFileChunk{
+			{OldLines: []string{"old"}, NewLines: []string{"new"}},
+		},
+	}, OSFS{})
+	if err == nil {
+		t.Fatal("planUpdateFile() error = nil, want missing file error")
+	}
+	if !strings.Contains(err.Error(), "update file failed") {
+		t.Fatalf("planUpdateFile() error = %v, want missing file validation error", err)
 	}
 }
 
@@ -654,7 +710,7 @@ func TestApplyPatchNonDryRunCommitsChanges(t *testing.T) {
 					{OldLines: []string{"old"}, NewLines: []string{"new"}},
 				},
 			},
-			AddFile{PathValue: "add.txt", Contents: "added\n"},
+			AddFile{PathValue: "nested/add.txt", Contents: "added\n"},
 			UpdateFile{
 				PathValue: "move.txt",
 				MovePath:  "moved.txt",
@@ -671,10 +727,13 @@ func TestApplyPatchNonDryRunCommitsChanges(t *testing.T) {
 		t.Fatal("ApplyPatch() DryRun = true, want false")
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "add.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "nested")); err != nil {
+		t.Fatalf("os.Stat(add dir) error = %v, want directory created", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "nested", "add.txt")); err != nil {
 		t.Fatalf("os.Stat(add) error = %v", err)
 	}
-	if data, err := os.ReadFile(filepath.Join(root, "add.txt")); err != nil || string(data) != "added\n" {
+	if data, err := os.ReadFile(filepath.Join(root, "nested", "add.txt")); err != nil || string(data) != "added\n" {
 		t.Fatalf("os.ReadFile(add) = %q, %v, want %q", string(data), err, "added\n")
 	}
 	if data, err := os.ReadFile(filepath.Join(root, "update.txt")); err != nil || string(data) != "new\n" {

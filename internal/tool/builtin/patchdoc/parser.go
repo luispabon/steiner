@@ -123,17 +123,25 @@ func (p *parser) parseUpdateFile() (Hunk, error) {
 		p.pos++
 	}
 
+	for p.pos < len(p.lines)-1 && p.lines[p.pos] == "" {
+		p.pos++
+	}
+
 	if p.pos >= len(p.lines)-1 || isTopLevelMarker(p.lines[p.pos]) {
 		return nil, p.errorf("update file %q has no chunks", path)
 	}
 
 	chunks := make([]UpdateFileChunk, 0, 1)
 	for p.pos < len(p.lines)-1 {
+		if p.lines[p.pos] == "" {
+			p.pos++
+			continue
+		}
 		if isTopLevelMarker(p.lines[p.pos]) {
 			break
 		}
 
-		chunk, err := p.parseUpdateChunk()
+		chunk, err := p.parseUpdateChunk(len(chunks) == 0)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +162,7 @@ func (p *parser) parseUpdateFile() (Hunk, error) {
 	}, nil
 }
 
-func (p *parser) parseUpdateChunk() (UpdateFileChunk, error) {
+func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, error) {
 	if p.pos >= len(p.lines)-1 {
 		return UpdateFileChunk{}, p.errorf("unexpected end of patch")
 	}
@@ -163,14 +171,16 @@ func (p *parser) parseUpdateChunk() (UpdateFileChunk, error) {
 	chunk := UpdateFileChunk{}
 	switch {
 	case line == emptyChangeContextMarker:
-		chunk.HasContext = true
+		p.pos++
 	case strings.HasPrefix(line, changeContextMarker):
 		chunk.HasContext = true
 		chunk.ChangeContext = strings.TrimPrefix(line, changeContextMarker)
+		p.pos++
 	default:
-		return UpdateFileChunk{}, p.errorf("expected update chunk context marker, got %q", line)
+		if !allowMissingContext {
+			return UpdateFileChunk{}, p.errorf("expected update chunk context marker, got %q", line)
+		}
 	}
-	p.pos++
 
 	bodyLines := 0
 	for p.pos < len(p.lines) {

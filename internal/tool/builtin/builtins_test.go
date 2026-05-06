@@ -46,6 +46,19 @@ func TestBuiltins(t *testing.T) {
 		}
 	})
 
+	t.Run("write and edit are not builtin tools", func(t *testing.T) {
+		names := make(map[string]bool)
+		for _, td := range tools {
+			names[td.Name] = true
+		}
+		if names["write"] {
+			t.Error("builtin tool 'write' should not be registered")
+		}
+		if names["edit"] {
+			t.Error("builtin tool 'edit' should not be registered")
+		}
+	})
+
 	t.Run("builtin tools do not hardcode approval defaults", func(t *testing.T) {
 		alwaysAuto := map[string]bool{"scratchpad": true}
 		for _, td := range tools {
