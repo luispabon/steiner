@@ -15,12 +15,19 @@ const (
 	ToolPreviewKindLSList    = "ls_list"
 	ToolPreviewKindGrep      = "grep"
 	ToolPreviewKindBash      = "bash"
+	ToolPreviewKindPatch     = "patch"
 	ToolPreviewKindPlain     = "plain"
 )
 
 type ToolPreviewListEntry struct {
 	Path  string
 	IsDir bool
+}
+
+// ToolPreviewPatchMove describes a renamed file in a patch result.
+type ToolPreviewPatchMove struct {
+	From string
+	To   string
 }
 
 type ToolPreviewGrepMatch struct {
@@ -35,24 +42,30 @@ type ToolPreviewGrepFile struct {
 }
 
 type ToolPreview struct {
-	Kind       string
-	Path       string
-	Language   string
-	Before     string
-	After      string
-	Contents   string
-	Created    bool
-	Command    string
-	Output     string
-	Message    string
-	ExitCode   int
-	Truncated  bool
-	HasMore    bool
-	Returned   int
-	NextOffset int
-	OutputMode string
-	Entries    []ToolPreviewListEntry
-	GrepFiles  []ToolPreviewGrepFile
+	Kind          string
+	Path          string
+	Language      string
+	Before        string
+	After         string
+	Contents      string
+	Created       bool
+	Command       string
+	Output        string
+	Message       string
+	ExitCode      int
+	Truncated     bool
+	HasMore       bool
+	Returned      int
+	NextOffset    int
+	OutputMode    string
+	Entries       []ToolPreviewListEntry
+	GrepFiles     []ToolPreviewGrepFile
+	PatchAdded    []string
+	PatchModified []string
+	PatchDeleted  []string
+	PatchMoved    []ToolPreviewPatchMove
+	HunksApplied  int
+	HunksFailed   int
 }
 
 func BuildToolPreview(tool string, arguments map[string]any, result string, writeTargetExistedBefore *bool) ToolPreview {
@@ -118,6 +131,8 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 		return buildGrepPreview(arguments, result)
 	case "bash":
 		return buildBashPreview(arguments, result)
+	case "apply_patch":
+		return buildApplyPatchPreview(result)
 	default:
 		return plainToolPreview()
 	}
@@ -247,6 +262,37 @@ func buildBashPreview(arguments map[string]any, result string) ToolPreview {
 		Truncated: payload.Truncated,
 		Output:    payload.Output,
 		Message:   payload.Message,
+	}
+}
+
+func buildApplyPatchPreview(result string) ToolPreview {
+	var payload struct {
+		Added    []string `json:"added"`
+		Modified []string `json:"modified"`
+		Deleted  []string `json:"deleted"`
+		Moved    []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"moved"`
+		HunksApplied int `json:"hunks_applied"`
+		HunksFailed  int `json:"hunks_failed"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		return plainToolPreview()
+	}
+
+	moved := make([]ToolPreviewPatchMove, 0, len(payload.Moved))
+	for _, m := range payload.Moved {
+		moved = append(moved, ToolPreviewPatchMove{From: m.From, To: m.To})
+	}
+	return ToolPreview{
+		Kind:          ToolPreviewKindPatch,
+		PatchAdded:    payload.Added,
+		PatchModified: payload.Modified,
+		PatchDeleted:  payload.Deleted,
+		PatchMoved:    moved,
+		HunksApplied:  payload.HunksApplied,
+		HunksFailed:   payload.HunksFailed,
 	}
 }
 

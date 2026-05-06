@@ -412,3 +412,61 @@ func TestBuildToolPreview(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildApplyPatchPreview(t *testing.T) {
+	tests := []struct {
+		name   string
+		result string
+		want   ToolPreview
+	}{
+		{
+			name:   "add and modify",
+			result: `{"added":["new.go"],"modified":["existing.go"],"deleted":null,"moved":null,"hunks_applied":2,"hunks_failed":0,"output":"Success."}`,
+			want: ToolPreview{
+				Kind:          ToolPreviewKindPatch,
+				PatchAdded:    []string{"new.go"},
+				PatchModified: []string{"existing.go"},
+				PatchDeleted:  nil,
+				PatchMoved:    []ToolPreviewPatchMove{},
+				HunksApplied:  2,
+				HunksFailed:   0,
+			},
+		},
+		{
+			name:   "delete only",
+			result: `{"added":null,"modified":null,"deleted":["old.go"],"moved":null,"hunks_applied":1,"hunks_failed":0,"output":"Success."}`,
+			want: ToolPreview{
+				Kind:          ToolPreviewKindPatch,
+				PatchAdded:    nil,
+				PatchModified: nil,
+				PatchDeleted:  []string{"old.go"},
+				PatchMoved:    []ToolPreviewPatchMove{},
+				HunksApplied:  1,
+				HunksFailed:   0,
+			},
+		},
+		{
+			name:   "move file",
+			result: `{"added":null,"modified":null,"deleted":null,"moved":[{"from":"a.go","to":"b.go"}],"hunks_applied":1,"hunks_failed":0,"output":"Success."}`,
+			want: ToolPreview{
+				Kind:         ToolPreviewKindPatch,
+				PatchMoved:   []ToolPreviewPatchMove{{From: "a.go", To: "b.go"}},
+				HunksApplied: 1,
+				HunksFailed:  0,
+			},
+		},
+		{
+			name:   "invalid json falls back to plain",
+			result: `not json`,
+			want:   ToolPreview{Kind: ToolPreviewKindPlain},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildApplyPatchPreview(tt.result)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("buildApplyPatchPreview() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}

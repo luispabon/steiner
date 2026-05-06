@@ -401,6 +401,31 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	return lines
 }
 
+func (b *contentBuffer) buildPatchLines(tc *toolCallSegment) []string {
+	p := tc.preview
+	total := len(p.PatchAdded) + len(p.PatchModified) + len(p.PatchDeleted) + len(p.PatchMoved)
+	if total == 0 {
+		return b.buildPlainLines(tc)
+	}
+	lines := make([]string, 0, total+1)
+	for _, path := range p.PatchAdded {
+		lines = append(lines, b.styles.Added.Render("A")+" "+path)
+	}
+	for _, path := range p.PatchModified {
+		lines = append(lines, b.styles.FgDim.Render("M")+" "+path)
+	}
+	for _, path := range p.PatchDeleted {
+		lines = append(lines, b.styles.Removed.Render("D")+" "+path)
+	}
+	for _, mv := range p.PatchMoved {
+		lines = append(lines, b.styles.FgDim.Render("R")+" "+mv.From+" → "+mv.To)
+	}
+	if p.HunksFailed > 0 {
+		lines = append(lines, b.styles.Removed.Render(fmt.Sprintf("%d failed", p.HunksFailed)))
+	}
+	return lines
+}
+
 func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
 	return b.buildListLines(tc.preview.Path, "glob results", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
 }
