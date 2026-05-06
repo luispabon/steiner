@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 10 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 10 {
-			t.Fatalf("Builtins returned %d tools, want 10", len(tools))
+	t.Run("all 8 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 8 {
+			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
+		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)

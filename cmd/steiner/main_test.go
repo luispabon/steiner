@@ -316,7 +316,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 	}
 
 	got := registry.Names()
-	want := []string{"apply_patch", "bash", "display_file", "edit", "glob", "grep", "ls", "read", "write"}
+	want := []string{"apply_patch", "bash", "display_file", "glob", "grep", "ls", "read"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registry names = %v, want %v", got, want)
 	}
