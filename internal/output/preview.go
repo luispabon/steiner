@@ -47,6 +47,7 @@ type ToolPreview struct {
 	Message    string
 	ExitCode   int
 	Truncated  bool
+	HasMore    bool
 	Returned   int
 	NextOffset int
 	OutputMode string
@@ -187,6 +188,8 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
 		Matches    int    `json:"matches"`
 		Returned   int    `json:"returned"`
+		Truncated  bool   `json:"truncated,omitempty"`
+		HasMore    bool   `json:"has_more,omitempty"`
 		NextOffset int    `json:"next_offset,omitempty"`
 		Output     string `json:"output"`
 	}
@@ -206,6 +209,8 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	preview := ToolPreview{
 		Kind:       ToolPreviewKindGrep,
 		Path:       path,
+		Truncated:  payload.Truncated,
+		HasMore:    payload.HasMore,
 		Returned:   payload.Returned,
 		NextOffset: payload.NextOffset,
 		OutputMode: mode,

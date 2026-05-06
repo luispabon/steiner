@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -42,9 +43,9 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 
 	t.Run("preserves all standard roles", func(t *testing.T) {
 		msgs := []Message{
-			{Role: MessageRoleUser, Content: "hello"},
-			{Role: MessageRoleAssistant, Content: "hi"},
-			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1"},
+			{Role: MessageRoleUser, Content: "hello", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "hi", Turn: 2},
+			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1", Turn: 3},
 		}
 		result := toProviderMessages(msgs)
 		if len(result) != 3 {
@@ -61,6 +62,9 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 		}
 		if result[2].ToolCallID != "call_1" {
 			t.Errorf("expected ToolCallID call_1, got %s", result[2].ToolCallID)
+		}
+		if result[0].Turn != 1 || result[1].Turn != 2 || result[2].Turn != 3 {
+			t.Fatalf("turns not preserved: %#v", result)
 		}
 	})
 
@@ -127,9 +131,9 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 
 	t.Run("reverses toProviderMessages", func(t *testing.T) {
 		original := []Message{
-			{Role: MessageRoleUser, Content: "hello"},
-			{Role: MessageRoleAssistant, Content: "world", Name: "bot"},
-			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1"},
+			{Role: MessageRoleUser, Content: "hello", Turn: 4},
+			{Role: MessageRoleAssistant, Content: "world", Name: "bot", Turn: 5},
+			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1", Turn: 6},
 		}
 		result := fromProviderMessages(toProviderMessages(original))
 		if len(result) != 3 {
@@ -143,6 +147,9 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 		}
 		if result[2].Role != MessageRoleTool || result[2].Content != "result" || result[2].ToolCallID != "t_1" {
 			t.Errorf("third message mismatch: %+v", result[2])
+		}
+		if result[0].Turn != 4 || result[1].Turn != 5 || result[2].Turn != 6 {
+			t.Fatalf("turns not preserved: %#v", result)
 		}
 	})
 
@@ -368,6 +375,133 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 			t.Errorf("expected /skills, got %s", result.SkillsRoot)
 		}
 	})
+}
+
+func TestBuildScratchpadMessage_RendersHeaderOnce(t *testing.T) {
+	state := ContextState{
+		ActiveConstraints: []ActiveConstraint{{Text: "do not regress"}},
+		UnresolvedWork:    []UnresolvedWorkItem{{Text: "finish stage 3"}},
+		ActiveFocus:       &ActiveFocus{Text: "dedupe header"},
+		RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "body", Source: "compactor", Turn: 4}},
+		FileTrackerSummary: []string{
+			"README.md lines 1-40/120",
+		},
+		RecentToolCalls: []string{
+			"read path=README.md",
+		},
+		TurnCount:       4,
+		CompactionCount: 1,
+		Scratchpad: Scratchpad{
+			SessionState:    "session state: turn=4 compactions=1",
+			WorkingFile:     "internal/auth/handler.go",
+			LastAction:      "edited internal/auth/handler.go: tightened timeout handling",
+			TrackedFiles:    []string{"README.md lines 1-40/120"},
+			RecentToolCalls: []string{"read path=README.md"},
+			Intent:          "fix auth timeout",
+			Decisions:       "use context deadline; avoid global state",
+			Open:            "why does it only fail under load?",
+			Next:            "add test reproducing timeout",
+		}.Render(),
+	}
+
+	got, ok := buildScratchpadMessage(state, true)
+	if !ok {
+		t.Fatal("buildScratchpadMessage() = false, want true")
+	}
+
+	content := got.Content
+	for _, want := range []string{
+		"[Current task state]",
+		"session state: turn=4 compactions=1",
+		"working file: internal/auth/handler.go",
+		"last action: edited internal/auth/handler.go: tightened timeout handling",
+		"tracked files: README.md lines 1-40/120",
+		"recent tool calls: read path=README.md",
+		"intent: fix auth timeout",
+		"decisions: use context deadline; avoid global state",
+		"open: why does it only fail under load?",
+		"next: add test reproducing timeout",
+	} {
+		if count := strings.Count(content, want); count != 1 {
+			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
+		}
+	}
+}
+
+func TestBuildScratchpadMessage_EmptyScratchpadStillComplete(t *testing.T) {
+	got, ok := buildScratchpadMessage(ContextState{TurnCount: 1}, true)
+	if !ok {
+		t.Fatal("buildScratchpadMessage() = false, want true")
+	}
+	content := got.Content
+	if strings.Count(content, "[Current task state]") != 1 {
+		t.Fatalf("expected one current-task-state header, got %q", content)
+	}
+	for _, want := range []string{"intent: ", "decisions: ", "open: ", "next: "} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("missing %q in %q", want, content)
+		}
+	}
+}
+
+func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) {
+	resumedScratchpad := Scratchpad{
+		Intent:          "resume stage 3 work",
+		Decisions:       "keep context compact",
+		Open:            "verify the turn-preserved session",
+		Next:            "run the regression suite",
+		WorkingFile:     "internal/agent/context_manager.go",
+		LastAction:      "edited internal/agent/context_manager.go: tightened masking",
+		SessionState:    "session state: turn=7 compactions=2",
+		TrackedFiles:    []string{"README.md lines 1-40/120"},
+		RecentToolCalls: []string{"read path=README.md"},
+	}.Render()
+
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello", Turn: 7},
+			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello", Turn: 7},
+			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
+		}),
+		Context: ContextState{
+			TurnCount:          7,
+			CompactionCount:    2,
+			Scratchpad:         resumedScratchpad,
+			FileTrackerSummary: []string{"README.md lines 1-40/120"},
+			RecentToolCalls:    []string{"read path=README.md"},
+		},
+	}
+
+	got := assemblyOptions(prompt.AssemblyOptions{}, state)
+	if len(got.Conversation) != 3 {
+		t.Fatalf("conversation len = %d, want 3", len(got.Conversation))
+	}
+
+	scratchpadMsg := got.Conversation[2]
+	if scratchpadMsg.Role != provider.MessageRoleUser {
+		t.Fatalf("scratchpad role = %s, want user", scratchpadMsg.Role)
+	}
+
+	content := scratchpadMsg.Content
+	for _, want := range []string{
+		"[Current task state]",
+		"session state: turn=7 compactions=2",
+		"working file: internal/agent/context_manager.go",
+		"last action: edited internal/agent/context_manager.go: tightened masking",
+		"tracked files: README.md lines 1-40/120",
+		"recent tool calls: read path=README.md",
+		"intent: resume stage 3 work",
+		"decisions: keep context compact",
+		"open: verify the turn-preserved session",
+		"next: run the regression suite",
+	} {
+		if count := strings.Count(content, want); count != 1 {
+			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
+		}
+	}
 }
 
 func TestMessageConvert_ToPromptContext(t *testing.T) {

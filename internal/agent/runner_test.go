@@ -16,6 +16,46 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+func TestInitialConversationTurnCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []Message
+		want     int
+	}{
+		{
+			name:     "empty conversation",
+			messages: nil,
+			want:     0,
+		},
+		{
+			name: "uses highest positive turn",
+			messages: []Message{
+				{Role: MessageRoleUser, Turn: 1},
+				{Role: MessageRoleAssistant, Turn: 4},
+				{Role: MessageRoleTool, Turn: 3},
+				{Role: MessageRoleTool, Turn: 0},
+				{Role: MessageRoleAssistant, Turn: -2},
+			},
+			want: 4,
+		},
+		{
+			name: "ignores non-positive turns",
+			messages: []Message{
+				{Role: MessageRoleUser, Turn: 0},
+				{Role: MessageRoleAssistant, Turn: -1},
+			},
+			want: 0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := initialConversationTurnCount(tc.messages); got != tc.want {
+				t.Fatalf("initialConversationTurnCount() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

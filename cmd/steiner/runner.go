@@ -163,6 +163,7 @@ func toProviderConversation(messages []agent.Message) []provider.Message {
 			Content:    message.Content,
 			Name:       message.Name,
 			ToolCallID: message.ToolCallID,
+			Turn:       message.Turn,
 		}
 		if len(message.ToolCalls) > 0 {
 			wire.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
