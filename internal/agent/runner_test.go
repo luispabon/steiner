@@ -373,6 +373,22 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 	if !messageContentsContain(second.Messages, "intent: ship scratchpad") {
 		t.Fatalf("second request missing scratchpad state: %+v", second.Messages)
 	}
+	joined := strings.Builder{}
+	for i, message := range second.Messages {
+		if i > 0 {
+			joined.WriteString("\n\n")
+		}
+		joined.WriteString(message.Content)
+	}
+	content := joined.String()
+	if got := strings.Count(content, "[Current task state]"); got != 1 {
+		t.Fatalf("scratchpad block count = %d, want 1 in %q", got, content)
+	}
+	for _, forbidden := range []string{"goal:", "plan:", "step:", "files:"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("scratchpad content contains legacy field %q: %q", forbidden, content)
+		}
+	}
 }
 
 func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing.T) {
@@ -1394,5 +1410,41 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	}
 	if got, want := budgetCount, 3; got != want {
 		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
+	}
+}
+
+func TestRunnerSmartContextManagerSanitizesRecentToolCallSummaries(t *testing.T) {
+	cwd := t.TempDir()
+
+	cm := &SmartContextManager{}
+	state := RunState{
+		TurnCount: 1,
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "run tests", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "running tests", Turn: 1, ToolCalls: []ToolCall{
+				{
+					ID:   "call_1",
+					Name: "bash",
+					Arguments: map[string]any{
+						"cwd":     cwd,
+						"command": "cd " + cwd + " && go test ./internal/agent",
+					},
+				},
+			}},
+		}),
+	}
+
+	got, err := cm.PreAssembly(context.Background(), state)
+	if err != nil {
+		t.Fatalf("PreAssembly() error = %v", err)
+	}
+	if len(got.Context.RecentToolCalls) != 1 {
+		t.Fatalf("recent tool calls = %v, want 1 summary", got.Context.RecentToolCalls)
+	}
+	if strings.Contains(got.Context.RecentToolCalls[0], cwd) {
+		t.Fatalf("recent tool call summary = %q, want no absolute cwd", got.Context.RecentToolCalls[0])
+	}
+	if !strings.Contains(got.Context.RecentToolCalls[0], "go test ./internal/agent") {
+		t.Fatalf("recent tool call summary = %q, want sanitized command fragment", got.Context.RecentToolCalls[0])
 	}
 }

@@ -15,8 +15,8 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 		"- open: unresolved problems or unknowns blocking progress",
 		"- next: the single next action you will take after this turn",
 	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("system preamble missing %q in %q", want, content)
+		if got := strings.Count(content, want); got != 1 {
+			t.Fatalf("system preamble count for %q = %d, want 1 in %q", want, got, content)
 		}
 	}
 	for _, forbidden := range []string{"goal:", "plan:", "step:", "files:"} {

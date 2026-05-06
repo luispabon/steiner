@@ -299,7 +299,7 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
 		},
-		Limits: Limits{MaxTurns: 1, MaxTokens: 100},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 100},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -308,10 +308,20 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 	request := providerStub.requests[0].Messages
+	joined := strings.Builder{}
+	for i, message := range request {
+		if i > 0 {
+			joined.WriteString("\n\n")
+		}
+		joined.WriteString(message.Content)
+	}
+	if got := strings.Count(joined.String(), "[Current task state]"); got != 1 {
+		t.Fatalf("scratchpad block count = %d, want 1 in %#v", got, request)
+	}
 	if !messageContentsContain(request, "session state: turn=7 compactions=0") {
 		t.Fatalf("request missing session state: %#v", request)
 	}
-	for _, forbidden := range []string{"inspect note", "old decision", "why does it fail?", "read note again", "working file: note.txt", "last action: read note.txt"} {
+	for _, forbidden := range []string{"inspect note", "old decision", "why does it fail?", "read note again", "working file: note.txt", "last action: read note.txt", "goal:", "plan:", "step:", "files:"} {
 		if messageContentsContain(request, forbidden) {
 			t.Fatalf("request still contains stale task state %q: %#v", forbidden, request)
 		}

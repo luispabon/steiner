@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+type mutationOK struct{}
+
+func (mutationOK) WasMutated() bool { return true }
+
 func TestFileTrackerAnnotatesUnchangedReread(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -234,5 +238,47 @@ func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	got = manager.IngestToolResult(3, "read", content)
 	if !strings.Contains(got, "file unchanged since turn 2") {
 		t.Fatalf("third manager read = %q, want annotation", got)
+	}
+}
+
+func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+
+	tests := []string{"edit", "write", "apply_patch"}
+	for _, toolName := range tests {
+		t.Run(toolName, func(t *testing.T) {
+			cm := &SmartContextManager{}
+			if got, obs := cm.fileTracker.ObserveRead(1, content, true); got != content || obs.Reason != "first read" {
+				t.Fatalf("first read = %q, reason = %q, want full content / first read", got, obs.Reason)
+			}
+
+			recordMutationForContextManager(cm, toolName, map[string]any{"path": "note.txt"}, mutationOK{})
+			if len(cm.fileTracker.generations) != 1 {
+				t.Fatalf("generation entries = %d, want 1 after %s", len(cm.fileTracker.generations), toolName)
+			}
+
+			got, obs := cm.fileTracker.ObserveRead(2, content, true)
+			if strings.Contains(got, "file unchanged since turn") {
+				t.Fatalf("mutated reread = %q, want full content", got)
+			}
+			if obs.Reason != "generation changed" {
+				t.Fatalf("observation reason = %q, want generation changed", obs.Reason)
+			}
+		})
 	}
 }
