@@ -795,6 +795,79 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	}
 }
 
+func TestObserveToolResultTracksApplyPatchMutationHeuristics(t *testing.T) {
+	cm := &SmartContextManager{}
+	got := cm.ObserveToolResult(4, "apply_patch", map[string]any{"path": "note.txt"}, `{"path":"note.txt","output":"patched 1 hunk"}`)
+	if got != `{"path":"note.txt","output":"patched 1 hunk"}` {
+		t.Fatalf("ObserveToolResult(apply_patch) = %q, want passthrough JSON", got)
+	}
+	if cm.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("WorkingFile = %q, want note.txt", cm.scratchpad.WorkingFile)
+	}
+	if !strings.Contains(cm.scratchpad.LastAction, "patched note.txt") {
+		t.Fatalf("LastAction = %q, want apply_patch working-file update", cm.scratchpad.LastAction)
+	}
+}
+
+func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	firstRegion := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
+	secondRegion := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
+
+	t.Run("successful apply_patch bumps file generation for later reads", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+			t.Fatalf("first read = %q, want full content", got)
+		}
+		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
+			Path:         "note.txt",
+			HunksApplied: 1,
+			Output:       "patched one hunk",
+		})
+
+		gotSame := cm.IngestToolResult(2, "read", firstRegion)
+		if strings.Contains(gotSame, "file unchanged since turn 1") {
+			t.Fatalf("same-region reread = %q, want no stale annotation", gotSame)
+		}
+		gotDifferent := cm.IngestToolResult(3, "read", secondRegion)
+		if strings.Contains(gotDifferent, "file unchanged since turn") {
+			t.Fatalf("different-region reread = %q, want no stale annotation", gotDifferent)
+		}
+	})
+
+	t.Run("failed apply_patch leaves generation unchanged", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+			t.Fatalf("first read = %q, want full content", got)
+		}
+		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
+			Path:         "note.txt",
+			HunksApplied: 1,
+			HunksFailed:  1,
+			Output:       "hunk 0: no match for old text",
+		})
+
+		got := cm.IngestToolResult(2, "read", firstRegion)
+		if !strings.Contains(got, "file unchanged since turn 1") {
+			t.Fatalf("failed-patch reread = %q, want unchanged annotation preserved", got)
+		}
+	})
+}
+
 func epochTestConversation(turns int) []Message {
 	messages := make([]Message, 0, turns*2)
 	for turn := 1; turn <= turns; turn++ {

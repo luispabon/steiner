@@ -56,6 +56,11 @@ type ApplyPatchResult struct {
 	Output       string `json:"output"`
 }
 
+// WasMutated reports whether apply_patch actually modified the file.
+func (r *ApplyPatchResult) WasMutated() bool {
+	return r != nil && !r.DryRun && r.HunksApplied > 0 && r.HunksFailed == 0
+}
+
 // diveText flattens a Dive ToolResult into a single text string by combining
 // the Display field and all Content[].Text fields.
 func diveText(res *dive.ToolResult) string {

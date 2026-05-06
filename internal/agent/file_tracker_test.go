@@ -113,6 +113,50 @@ func TestFileTrackerFallsBackToFullContentWhenGenerationChangesWithoutMtimeChang
 	}
 }
 
+func TestFileTrackerBumpGenerationIsFileWide(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	tracker := FileTracker{}
+	first := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
+	second := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
+
+	if got, observation := tracker.ObserveRead(1, first, true); got != first || observation.Reason != "first read" {
+		t.Fatalf("first read = %q, reason = %q, want first read", got, observation.Reason)
+	}
+	if ok := tracker.BumpGeneration("note.txt"); !ok {
+		t.Fatal("BumpGeneration() = false, want true")
+	}
+
+	got, observation := tracker.ObserveRead(2, second, true)
+	if strings.Contains(got, "file unchanged since turn") {
+		t.Fatalf("different-range reread = %q, want full content", got)
+	}
+	if got, want := observation.Reason, "range changed"; got != want {
+		t.Fatalf("observation reason = %q, want %q", got, want)
+	}
+
+	canonicalPath, ok := normalizeTrackedPath("note.txt")
+	if !ok {
+		t.Fatal("normalizeTrackedPath() = false, want true")
+	}
+	if got, want := tracker.reads[canonicalPath].Generation, uint64(1); got != want {
+		t.Fatalf("tracked generation = %d, want %d", got, want)
+	}
+}
+
 func TestFileTrackerPruneBeforeTurn(t *testing.T) {
 	dir := t.TempDir()
 	pathA := filepath.Join(dir, "a.txt")

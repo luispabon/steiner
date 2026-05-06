@@ -207,6 +207,8 @@ func (t *FileTracker) BumpGeneration(path string) bool {
 	if t.generations == nil {
 		t.generations = make(map[string]uint64)
 	}
+	// Generation is tracked per file, not per read range, so any successful
+	// mutation invalidates stale annotations for every region of the file.
 	t.generations[canonicalPath]++
 	return true
 }

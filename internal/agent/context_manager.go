@@ -291,7 +291,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 		s.observeReadHeuristics(turn, result, observation, next)
 		return next
-	case "edit", "write":
+	case "edit", "write", "apply_patch":
 		s.observeMutationHeuristics(turn, toolName, input, shaped)
 		return shaped
 	case "bash":
@@ -419,6 +419,8 @@ func toolVerb(toolName string) string {
 		return "edited"
 	case "write":
 		return "wrote"
+	case "apply_patch":
+		return "patched"
 	default:
 		return "updated"
 	}
