@@ -18,13 +18,6 @@ type Scratchpad struct {
 	SessionState    string
 	TrackedFiles    []string
 	RecentToolCalls []string
-
-	// Legacy fields are retained for compatibility while the rest of the code
-	// base migrates to the reduced scratchpad schema.
-	Goal  string
-	Plan  string
-	Step  string
-	Files string
 }
 
 // Render returns the scratchpad as a plain-text block for injection as a
@@ -57,24 +50,9 @@ func (s Scratchpad) Render() string {
 			}
 		}
 	}
-
-	intent := strings.TrimSpace(s.Intent)
-	if intent == "" {
-		intent = strings.TrimSpace(strings.Join(nonEmptyStrings([]string{s.Goal, s.Plan, s.Step}), " "))
-	}
-	lines = append(lines, "intent: "+intent)
+	lines = append(lines, "intent: "+strings.TrimSpace(s.Intent))
 	lines = append(lines, "decisions: "+strings.TrimSpace(s.Decisions))
 	lines = append(lines, "open: "+strings.TrimSpace(s.Open))
 	lines = append(lines, "next: "+strings.TrimSpace(s.Next))
 	return strings.Join(lines, "\n")
-}
-
-func nonEmptyStrings(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if trimmed := strings.TrimSpace(item); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
 }

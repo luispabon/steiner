@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -255,7 +254,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "scratchpad":
-		next, warnings, ok := parseScratchpadToolResult(shaped, s.scratchpad)
+		next, ok := parseScratchpadToolResult(shaped, s.scratchpad)
 		if ok {
 			s.scratchpad = next
 			s.scratchpad.LastAction = "scratchpad updated"
@@ -267,17 +266,6 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 				Open:      s.scratchpad.Open,
 				Next:      s.scratchpad.Next,
 			}))
-			if len(warnings) > 0 {
-				emitEvent(s.events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-					Kind:     "scratchpad",
-					Scope:    "assistant",
-					Turn:     turn,
-					Severity: "warning",
-					Action:   "compatibility",
-					Reason:   "legacy scratchpad fields ignored",
-					Notes:    warnings,
-				}))
-			}
 		}
 		return `{"ok":true}`
 	case "read":
@@ -756,29 +744,35 @@ func minTurnInMessages(messages []Message) int {
 
 const decisionsMaxBytes = 2000
 
-func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, []string, bool) {
+func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return previous, nil, false
+		return previous, false
 	}
 
 	next := previous
-	warnings := scratchpadCompatibilityWarnings(raw)
 
 	if v, ok := decodeScratchpadString(raw, "intent"); ok {
 		next.Intent = v
-	}
-	if v, ok := decodeScratchpadString(raw, "open"); ok {
-		next.Open = v
-	}
-	if v, ok := decodeScratchpadString(raw, "next"); ok {
-		next.Next = v
+	} else {
+		return previous, false
 	}
 	if v, ok := decodeScratchpadString(raw, "decisions"); ok {
 		next.Decisions = appendDecisionFactText(previous.Decisions, v)
+	} else {
+		return previous, false
 	}
-
-	return next, warnings, true
+	if v, ok := decodeScratchpadString(raw, "open"); ok {
+		next.Open = v
+	} else {
+		return previous, false
+	}
+	if v, ok := decodeScratchpadString(raw, "next"); ok {
+		next.Next = v
+	} else {
+		return previous, false
+	}
+	return next, true
 }
 
 func parseScaffoldInferenceResult(content string, previous Scratchpad) (Scratchpad, bool, string) {
@@ -807,31 +801,6 @@ func decodeScratchpadString(raw map[string]json.RawMessage, key string) (string,
 		return "", false
 	}
 	return text, true
-}
-
-func scratchpadCompatibilityWarnings(raw map[string]json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	allowed := map[string]struct{}{
-		"status":    {},
-		"intent":    {},
-		"decisions": {},
-		"open":      {},
-		"next":      {},
-	}
-	legacy := make([]string, 0, 4)
-	for key := range raw {
-		if _, ok := allowed[key]; ok {
-			continue
-		}
-		legacy = append(legacy, key)
-	}
-	if len(legacy) == 0 {
-		return nil
-	}
-	sort.Strings(legacy)
-	return []string{"ignored legacy fields: " + strings.Join(legacy, ", ")}
 }
 
 func appendDecisionFactText(existing, fact string) string {

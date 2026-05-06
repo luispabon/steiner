@@ -732,28 +732,15 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	}
 }
 
-func TestIngestToolResultWarnsOnLegacyScratchpadFields(t *testing.T) {
-	var events []output.Event
-	cm := &SmartContextManager{}
-	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+func TestIngestToolResultLeavesScratchpadUnchangedOnLegacyOnlyPayload(t *testing.T) {
+	cm := &SmartContextManager{scratchpad: Scratchpad{Intent: "keep"}}
 
 	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
-	var sawWarning bool
-	for _, event := range events {
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok || payload.Kind != "scratchpad" || payload.Severity != "warning" {
-			continue
-		}
-		sawWarning = true
-		if !containsString(payload.Notes, "ignored legacy fields: files, goal, plan, step") && !containsString(payload.Notes, "ignored legacy fields: goal, plan, step, files") {
-			t.Fatalf("warning notes = %v, want legacy fields note", payload.Notes)
-		}
-	}
-	if !sawWarning {
-		t.Fatal("missing legacy scratchpad warning diagnostic")
+	if cm.scratchpad.Intent != "keep" {
+		t.Fatalf("Intent = %q, want unchanged scratchpad on rejected legacy payload", cm.scratchpad.Intent)
 	}
 }
 
@@ -959,12 +946,9 @@ func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, warnings, ok := parseScratchpadToolResult(tc.content, tc.previous)
+			got, ok := parseScratchpadToolResult(tc.content, tc.previous)
 			if !ok {
 				t.Fatal("parseScratchpadToolResult() = false, want true")
-			}
-			if len(warnings) != 0 {
-				t.Fatalf("warnings = %v, want none", warnings)
 			}
 			if got.Decisions != tc.wantDecisions {
 				t.Errorf("Decisions = %q, want %q", got.Decisions, tc.wantDecisions)
@@ -978,18 +962,26 @@ func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
 	old := strings.Repeat("x", 1990)
 	previous := Scratchpad{Decisions: old}
 	content := `{"intent":"g","decisions":"new entry","open":"","next":"n"}`
-	got, warnings, ok := parseScratchpadToolResult(content, previous)
+	got, ok := parseScratchpadToolResult(content, previous)
 	if !ok {
 		t.Fatal("parseScratchpadToolResult() = false, want true")
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
 	}
 	if len(got.Decisions) > decisionsMaxBytes {
 		t.Errorf("Decisions len = %d, want <= %d", len(got.Decisions), decisionsMaxBytes)
 	}
 	if !strings.Contains(got.Decisions, "new entry") {
 		t.Errorf("Decisions = %q, want to contain newest entry", got.Decisions)
+	}
+}
+
+func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
+	previous := Scratchpad{Intent: "keep"}
+	got, ok := parseScratchpadToolResult(`{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","files":"foo.go (read)"}`, previous)
+	if ok {
+		t.Fatalf("parseScratchpadToolResult() = true, want false; got=%+v", got)
+	}
+	if got.Intent != "keep" {
+		t.Fatalf("parseScratchpadToolResult() changed state on legacy payload: %+v", got)
 	}
 }
 
