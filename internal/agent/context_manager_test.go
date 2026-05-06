@@ -760,6 +760,56 @@ func TestHeuristicDecisionsAppendWithoutModelScratchpadInput(t *testing.T) {
 	}
 }
 
+func TestHeuristicDecisionsSanitizeBashCommandSummary(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	cm := &SmartContextManager{}
+
+	got := cm.ObserveToolResult(1, "bash", map[string]any{
+		"cwd":     cwd,
+		"command": "cd " + cwd + " && go test ./internal/agent",
+	}, `{"exit_code":0,"output":"ok\n"}`)
+	if got != `{"exit_code":0,"output":"ok\n"}` {
+		t.Fatalf("ObserveToolResult(bash) = %q, want passthrough JSON", got)
+	}
+	if strings.Contains(cm.scratchpad.Decisions, cwd) {
+		t.Fatalf("Decisions = %q, want no absolute cwd", cm.scratchpad.Decisions)
+	}
+	if !strings.Contains(cm.scratchpad.Decisions, "tests passed: go test ./internal/agent") {
+		t.Fatalf("Decisions = %q, want sanitized bash summary", cm.scratchpad.Decisions)
+	}
+}
+
+func TestSummarizeRecentToolCallsSanitizesAbsolutePaths(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	got := summarizeRecentToolCalls([]Message{
+		{
+			Role: MessageRoleAssistant,
+			ToolCalls: []ToolCall{
+				{
+					Name: "bash",
+					Arguments: map[string]any{
+						"cwd":     cwd,
+						"command": "cd " + cwd + " && go test ./...",
+					},
+				},
+			},
+		},
+	}, 1)
+	if len(got) != 1 {
+		t.Fatalf("summarizeRecentToolCalls() len = %d, want 1", len(got))
+	}
+	if strings.Contains(got[0], cwd) {
+		t.Fatalf("summary = %q, want no absolute cwd", got[0])
+	}
+	if !strings.Contains(got[0], "go test ./...") {
+		t.Fatalf("summary = %q, want sanitized command fragment", got[0])
+	}
+}
+
 func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first.txt")

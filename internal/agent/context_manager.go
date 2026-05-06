@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -247,6 +248,7 @@ func (s *SmartContextManager) syncScaffoldState(state RunState, next *ContextSta
 		return
 	}
 	s.scratchpad.SessionState = compactSessionState(next.TurnCount, next.CompactionCount)
+	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 3)
 }
 
 func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
@@ -304,7 +306,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 }
 
 func (s *SmartContextManager) observeReadHeuristics(turn int, result readResult, observation fileObservation, content string) {
-	path := strings.TrimSpace(result.Path)
+	path := sanitizeScratchpadPath(result.Path)
 	if path == "" {
 		return
 	}
@@ -325,10 +327,10 @@ func (s *SmartContextManager) observeMutationHeuristics(turn int, toolName strin
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return
 	}
-	path := strings.TrimSpace(result.Path)
+	path := sanitizeScratchpadPath(result.Path)
 	if path == "" && input != nil {
 		if rawPath, ok := input["path"].(string); ok {
-			path = strings.TrimSpace(rawPath)
+			path = sanitizeScratchpadPath(rawPath)
 		}
 	}
 	if path != "" {
@@ -355,6 +357,11 @@ func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]a
 		command, _ = input["command"].(string)
 	}
 	command = strings.TrimSpace(command)
+	cwd := ""
+	if input != nil {
+		cwd, _ = input["cwd"].(string)
+	}
+	command = summarizeBashCommand(command, cwd)
 	preview := summarizeTextPreview(result.Output, 96)
 	if preview == "" {
 		preview = strings.TrimSpace(result.Message)
@@ -368,7 +375,7 @@ func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]a
 		if result.ExitCode == 0 {
 			status = "passed"
 		}
-		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, summarizeTextPreview(command, 80)))
+		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, command))
 	}
 	s.scratchpad.LastAction = fmt.Sprintf("bash: %s", preview)
 }
@@ -383,7 +390,7 @@ func (s *SmartContextManager) updateWorkingFile(path string, turn int, toolName,
 	if path == "" {
 		return
 	}
-	s.scratchpad.WorkingFile = path
+	s.scratchpad.WorkingFile = sanitizeScratchpadPath(path)
 	s.scratchpad.LastAction = lastAction
 	if strings.TrimSpace(toolName) != "" {
 		s.scratchpad.LastAction = lastAction
@@ -692,7 +699,12 @@ func summarizeRecentToolCalls(messages []Message, limit int) []string {
 		}
 		for j := len(message.ToolCalls) - 1; j >= 0 && len(out) < limit; j-- {
 			call := message.ToolCalls[j]
-			out = append(out, call.Name+" "+summarizeCallArguments(call.Arguments))
+			summary := summarizeCallArguments(call.Name, call.Arguments)
+			if summary == "" {
+				out = append(out, strings.TrimSpace(call.Name))
+				continue
+			}
+			out = append(out, strings.TrimSpace(call.Name)+" "+summary)
 		}
 	}
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
@@ -701,19 +713,53 @@ func summarizeRecentToolCalls(messages []Message, limit int) []string {
 	return out
 }
 
-func summarizeCallArguments(arguments map[string]any) string {
+func summarizeCallArguments(toolName string, arguments map[string]any) string {
 	if len(arguments) == 0 {
 		return ""
 	}
+	root := summarizeSummaryRoot(arguments)
 	parts := make([]string, 0, 3)
-	for _, key := range []string{"path", "pattern", "command", "offset", "limit"} {
+	for _, key := range []string{"cwd", "path", "pattern", "command", "offset", "limit"} {
 		value, ok := arguments[key]
 		if !ok {
 			continue
 		}
-		parts = append(parts, key+"="+summarizeTextValue(value))
+		summary := summarizeCallArgumentValue(toolName, key, value, root)
+		if summary == "" {
+			continue
+		}
+		parts = append(parts, key+"="+summary)
 	}
 	return strings.TrimSpace(strings.Join(parts, ", "))
+}
+
+func summarizeSummaryRoot(arguments map[string]any) string {
+	if arguments == nil {
+		return ""
+	}
+	cwd, _ := arguments["cwd"].(string)
+	cwd = strings.TrimSpace(cwd)
+	if filepath.IsAbs(cwd) {
+		return cwd
+	}
+	return ""
+}
+
+func summarizeCallArgumentValue(toolName, key string, value any, root string) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	switch key {
+	case "cwd", "path":
+		return sanitizeScratchpadPathWithRoot(text, root)
+	case "command":
+		if strings.EqualFold(strings.TrimSpace(toolName), "bash") {
+			return summarizeBashCommand(text, root)
+		}
+		return summarizeTextValue(text)
+	case "offset", "limit":
+		return summarizeTextValue(text)
+	default:
+		return summarizeTextValue(text)
+	}
 }
 
 func summarizeTextValue(value any) string {
@@ -722,6 +768,72 @@ func summarizeTextValue(value any) string {
 		return text
 	}
 	return text[:40] + "..."
+}
+
+func summarizeBashCommand(command, root string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.Join(strings.Fields(command), " ")
+	command = stripLeadingCdWrapper(command)
+	command = redactRootPrefix(command, root)
+	command = strings.TrimSpace(strings.Join(strings.Fields(command), " "))
+	if len(command) <= 80 {
+		return command
+	}
+	return command[:80] + "..."
+}
+
+func stripLeadingCdWrapper(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "cd ") {
+		return command
+	}
+	for _, sep := range []string{" && ", " ; ", " || "} {
+		if idx := strings.Index(trimmed, sep); idx >= 0 {
+			return strings.TrimSpace(trimmed[idx+len(sep):])
+		}
+	}
+	return command
+}
+
+func redactRootPrefix(text, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" || text == "" {
+		return text
+	}
+	root = filepath.Clean(root)
+	if text == root {
+		return "."
+	}
+	text = strings.ReplaceAll(text, root+string(filepath.Separator), "")
+	return strings.ReplaceAll(text, root, "")
+}
+
+func sanitizeScratchpadPath(path string) string {
+	return sanitizeScratchpadPathWithRoot(path, "")
+}
+
+func sanitizeScratchpadPathWithRoot(path, root string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	root = strings.TrimSpace(root)
+	if root != "" {
+		root = filepath.Clean(root)
+		if path == root {
+			return "."
+		}
+		if trimmed := strings.TrimPrefix(path, root+string(filepath.Separator)); trimmed != path {
+			return trimmed
+		}
+	}
+	return filepath.Base(path)
 }
 
 // minTurnInMessages returns the smallest positive Turn value across all
