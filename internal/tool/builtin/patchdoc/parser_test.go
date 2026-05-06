@@ -317,6 +317,44 @@ func TestParsePatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "add file with triple asterisk content",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Add File: poem.txt",
+				"+first line",
+				"+*** stars ***",
+				"+last line",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					AddFile{
+						PathValue: "poem.txt",
+						Contents:  "first line\n*** stars ***\nlast line\n",
+					},
+				},
+			},
+		},
+		{
+			name: "add file with markdown HR",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Add File: readme.txt",
+				"+before",
+				"+***",
+				"+after",
+				"*** End Patch",
+			}, "\n"),
+			want: &Patch{
+				Hunks: []Hunk{
+					AddFile{
+						PathValue: "readme.txt",
+						Contents:  "before\n***\nafter\n",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
