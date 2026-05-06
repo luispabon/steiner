@@ -65,36 +65,46 @@ Not a correctness bug on the root command. Minor deviation that widens the flag'
 
 ## Fix Plan
 
-No blocking findings. No fix plan required.
+User-approved fix plan (post initial review pass):
+1. NB-3: Change `--resume` from `PersistentFlags()` to `Flags()` in `cmd/steiner/commands.go`
+2. NB-2: Add `TestFormatRelativeTime`, `TestResumeWithExecRejected` to `cmd/steiner/commands_test.go`
+3. NB-1: Add `TestSessionIDNonEmpty`, `TestSessionTitleEmptyInitially`, `TestLoadSessionReplacesConversation` + `mockSessionStore` to `internal/interactive/session_test.go`
 
 ## Fixes Applied
 
-None.
+Review-fix sub-agent (haiku) dispatched in isolated worktree `../steiner-review-fix-1` on branch `review-fix/session-tests`. Commit `8520ffd`. Merged into feature branch via merge commit. Worktree and temp branch cleaned up.
+
+Changes:
+- `cmd/steiner/commands.go` line 56: `PersistentFlags()` → `Flags()` for `--resume`
+- `cmd/steiner/commands_test.go`: +72 lines — `TestFormatRelativeTime` (table-driven, 6 cases), `TestResumeWithExecRejected`
+- `internal/interactive/session_test.go`: +120 lines — `mockSessionStore`, `TestSessionIDNonEmpty`, `TestSessionTitleEmptyInitially`, `TestLoadSessionReplacesConversation`
 
 ## Verification
 
-Ran full verification suite post-review:
-
+Initial review pass:
 ```
-go build ./...        → pass (no output)
-go vet ./...          → pass (no output)
+go build ./...        → pass
+go vet ./...          → pass
 go test ./...         → 17 packages pass
 ```
 
-Packages: cmd/glamour-test, cmd/steiner, internal/agent, internal/config, internal/delegation, internal/history, internal/interactive, internal/output, internal/prompt, internal/provider, internal/session, internal/skill, internal/tool, internal/tool/builtin, internal/tui, internal/tui/prefs, internal/tui/theme.
+Post reviewer-fix pass (targeted):
+```
+go build ./...                                → pass
+go vet ./cmd/steiner/... ./internal/interactive/...  → pass
+go test ./cmd/steiner/... ./internal/interactive/... → pass (cmd/steiner 3.1s, internal/interactive 0.049s)
+```
 
 ## Final Status
 
 **`pass_with_notes`**
 
-All plan stages implemented correctly. All tests pass. Build and vet clean. Manual verification confirmed end-to-end resume behavior. Non-blocking gaps are missing unit test coverage for new session persistence behaviors and one minor flag-scope deviation. No blocking issues.
-
-Reviewer fix loop: not required.
+All plan stages implemented correctly. All tests pass including new reviewer-added tests. Build and vet clean. NB-1, NB-2, NB-3 resolved. INFO-1 (0-based listing index) is informational only, no action required.
 
 ## Finaliser Handoff
 
 - Review status: `pass_with_notes`
 - All blocking findings: none
+- Non-blocking findings NB-1, NB-2, NB-3: resolved
 - `review.md`: up to date
-- Feature branch working tree: clean
-- Passing `review.md` update: to be committed before handoff
+- Feature branch working tree: clean after merge commit
