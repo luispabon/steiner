@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 )
 
 // compile-time interface checks.
@@ -771,4 +772,123 @@ func TestSessionAccessorsNonNil(t *testing.T) {
 	if s.ApprovalCoordinator() == nil {
 		t.Error("ApprovalCoordinator() returned nil")
 	}
+}
+
+func TestSessionIDNonEmpty(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+	id := s.SessionID()
+	if id == "" {
+		t.Fatal("SessionID() returned empty string")
+	}
+	if len(id) != 32 {
+		t.Fatalf("SessionID() length = %d, want 32", len(id))
+	}
+}
+
+func TestSessionTitleEmptyInitially(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+	title := s.SessionTitle()
+	if title != "" {
+		t.Fatalf("SessionTitle() = %q, want empty string", title)
+	}
+}
+
+// mockSessionStore is a minimal mock sessionStore for testing.
+type mockSessionStore struct {
+	savedSessions  map[string]session.Session
+	loadedSessions map[string]session.Session
+}
+
+func newMockSessionStore() *mockSessionStore {
+	return &mockSessionStore{
+		savedSessions:  make(map[string]session.Session),
+		loadedSessions: make(map[string]session.Session),
+	}
+}
+
+func (m *mockSessionStore) Save(s session.Session) error {
+	m.savedSessions[s.ID] = s
+	return nil
+}
+
+func (m *mockSessionStore) Load(id string) (session.Session, error) {
+	if s, ok := m.loadedSessions[id]; ok {
+		return s, nil
+	}
+	return session.Session{}, fmt.Errorf("session not found: %s", id)
+}
+
+func (m *mockSessionStore) List() ([]session.IndexEntry, error) {
+	return nil, nil
+}
+
+func TestLoadSessionReplacesConversation(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	mockStore := newMockSessionStore()
+
+	// Create a mock session with some lineage
+	mockSession := session.Session{
+		ID:    "test-session-id",
+		Title: "Test Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "previous message"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+	mockStore.loadedSessions["test-session-id"] = mockSession
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		SessionStore: mockStore,
+	})
+
+	// Verify session starts with empty conversation
+	if len(s.Conversation()) != 0 {
+		t.Fatalf("initial conversation length = %d, want 0", len(s.Conversation()))
+	}
+
+	// Load the session
+	err := s.Handle(context.Background(), LoadSession{SessionID: "test-session-id"})
+	if err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	// Verify conversation was replaced
+	conv := s.Conversation()
+	if len(conv) != 1 {
+		t.Fatalf("conversation length after load = %d, want 1", len(conv))
+	}
+	if conv[0].Content != "previous message" {
+		t.Fatalf("first message = %q, want %q", conv[0].Content, "previous message")
+	}
+
+	// Verify session title was updated
+	if got := s.SessionTitle(); got != "Test Session" {
+		t.Fatalf("SessionTitle() = %q, want %q", got, "Test Session")
+	}
+
+	// Verify events were emitted for the loaded message
+	var foundUserInputEvent bool
+	for _, event := range events {
+		if event.Type == output.EventTypeUserInput {
+			foundUserInputEvent = true
+			break
+		}
+	}
+	if !foundUserInputEvent {
+		t.Fatalf("events = %#v, want UserInput event", events)
+	}
+}
+
+func (m *mockSessionStore) setLoadSession(sess session.Session) {
+	m.loadedSessions[sess.ID] = sess
 }
