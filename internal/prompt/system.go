@@ -23,6 +23,7 @@ If a field is not applicable, write "none". Never omit fields.`
 
 const defaultSystemPreamble = `Core rules:
 - Solve only the user's request. Do not add features, abstractions, refactors, config, cleanup, or polish unless required.
+- The codebase's root folder is the current folder
 - Prefer the smallest correct change. Every changed line must trace to the task.
 - Match existing project style even if you dislike it.
 - Do not silently guess. If ambiguity materially changes the implementation, ask. Otherwise state the assumption and continue.
