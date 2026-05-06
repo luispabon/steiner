@@ -11,6 +11,8 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
+	builtin "github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 func TestNaiveContextManagerPostIngestion(t *testing.T) {
@@ -487,6 +489,99 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *tes
 		t.Fatalf("turn 3 read = %q, want original full content", got3)
 	}
 	_ = got1
+}
+
+func TestIngestToolResultAfterMaskingSupportsExactEditFollowUp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	original := "alpha\nbeta\ncharlie\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	readResult := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"alpha\nbeta\ncharlie\n"}`
+	cm := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 1,
+		ReadAnnotations:    true,
+	}).(*SmartContextManager)
+
+	if got := cm.IngestToolResult(1, "read", readResult); got != readResult {
+		t.Fatalf("turn 1 read = %q, want full content", got)
+	}
+
+	state2 := RunState{
+		TurnCount: 1,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "u1", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "a1", Turn: 1},
+		},
+	}
+	state2.Lineage = newConversationLineage(state2.Conversation)
+	if _, err := cm.PreAssembly(context.Background(), state2); err != nil {
+		t.Fatalf("turn 2 preassembly: %v", err)
+	}
+
+	state3 := RunState{
+		TurnCount: 2,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "u1", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "a1", Turn: 1},
+			{Role: MessageRoleUser, Content: "u2", Turn: 2},
+			{Role: MessageRoleAssistant, Content: "a2", Turn: 2},
+		},
+	}
+	state3.Lineage = newConversationLineage(state3.Conversation)
+	if _, err := cm.PreAssembly(context.Background(), state3); err != nil {
+		t.Fatalf("turn 3 preassembly: %v", err)
+	}
+
+	got3 := cm.IngestToolResult(3, "read", readResult)
+	if strings.Contains(got3, "file unchanged since turn") {
+		t.Fatalf("turn 3 read = %q, want no stale annotation", got3)
+	}
+
+	var reread builtin.ReadResult
+	if err := json.Unmarshal([]byte(got3), &reread); err != nil {
+		t.Fatalf("unmarshal reread result: %v", err)
+	}
+	if reread.Output != original {
+		t.Fatalf("reread output = %q, want full original content", reread.Output)
+	}
+
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	editTool := builtin.NewEditTool(builtin.Env{WorkDir: dir, PathPolicy: &policy})
+	resultI, err := editTool.Handler(context.Background(), map[string]any{
+		"path":       "note.txt",
+		"old_string": reread.Output,
+		"new_string": "alpha\nbeta updated\ncharlie\n",
+	})
+	if err != nil {
+		t.Fatalf("edit handler error: %v", err)
+	}
+	mutated, ok := resultI.(*builtin.MutationResult)
+	if !ok {
+		t.Fatalf("edit result type = %T, want *MutationResult", resultI)
+	}
+	if !mutated.Mutated {
+		t.Fatalf("edit mutated = false, want true; output=%q", mutated.Output)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if got, want := string(data), "alpha\nbeta updated\ncharlie\n"; got != want {
+		t.Fatalf("edited file = %q, want %q", got, want)
+	}
 }
 
 func TestIngestToolResultSuppressesTurnZeroPlaceholderAnnotations(t *testing.T) {

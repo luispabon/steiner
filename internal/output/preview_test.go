@@ -346,6 +346,37 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 		},
 		{
+			name: "grep content with multiple files and blank separators",
+			tool: "grep",
+			args: map[string]any{
+				"path":        "src",
+				"output_mode": "content",
+			},
+			result: `{"matches":3,"returned":3,"output":"## src/main.go\n10: alpha\n11: beta\n\n## src/helper.go\n2: helper\n"}`,
+			want: ToolPreview{
+				Kind:       ToolPreviewKindGrep,
+				Path:       "src",
+				Returned:   3,
+				OutputMode: "content",
+				Output:     "## src/main.go\n10: alpha\n11: beta\n\n## src/helper.go\n2: helper\n",
+				GrepFiles: []ToolPreviewGrepFile{
+					{
+						Path: "src/main.go",
+						Matches: []ToolPreviewGrepMatch{
+							{LineNumber: 10, Text: "alpha"},
+							{LineNumber: 11, Text: "beta"},
+						},
+					},
+					{
+						Path: "src/helper.go",
+						Matches: []ToolPreviewGrepMatch{
+							{LineNumber: 2, Text: "helper"},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "bash result",
 			tool: "bash",
 			args: map[string]any{
