@@ -174,6 +174,10 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
+	if m.scratchpadOverlay.IsOpen() {
+		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
+	}
 	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
@@ -234,6 +238,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSessionPickerKey(msg)
 	}
 
+	// If scratchpad overlay is open, route keys to it.
+	if m.scratchpadOverlay.IsOpen() {
+		return m.handleScratchpadOverlayKey(msg)
+	}
+
 	if m.approval.active {
 		return m.handleApprovalKey(msg)
 	}
@@ -249,6 +258,23 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Interrupt the active conversation before any other key routing.
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
 		return m.executeInterruptAction()
+	}
+
+	// Check scratchpad toggle BEFORE the active conversation guard
+	// so it works during streaming and tool runs.
+	if !m.scratchpadOverlay.IsOpen() {
+		// Ctrl+S opens the scratchpad overlay.
+		if msg.Type == tea.KeyCtrlS {
+			m.scratchpadOverlay = m.scratchpadOverlay.openScratchpadOverlay(
+				m.width, m.height,
+				m.sidebar.scratchpadIntent,
+				m.sidebar.scratchpadDecisions,
+				m.sidebar.scratchpadOpen,
+				m.sidebar.scratchpadNext,
+				m.styles,
+			)
+			return m, nil
+		}
 	}
 
 	// While a run is active, only approval interaction may pass through.
@@ -370,6 +396,27 @@ func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPgDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.scratchpadOverlay = m.scratchpadOverlay.closeScratchpadOverlay()
+		return m, nil
+	case tea.KeyUp:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(1)
+		return m, nil
+	case tea.KeyDown:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(1)
+		return m, nil
+	case tea.KeyPgUp:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(scratchpadMaxLines)
+		return m, nil
+	case tea.KeyPgDown:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(scratchpadMaxLines)
 		return m, nil
 	}
 	return m, nil
