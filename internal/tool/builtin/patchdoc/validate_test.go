@@ -173,6 +173,14 @@ func TestValidateDuplicateTargets(t *testing.T) {
 			},
 			wantErr: "duplicate affected path",
 		},
+		{
+			name: "move destination collides with another source",
+			hunks: []Hunk{
+				UpdateFile{PathValue: "dst.txt", MovePath: "other.txt"},
+				UpdateFile{PathValue: "src.txt", MovePath: "dst.txt"},
+			},
+			wantErr: "collides with source path",
+		},
 	}
 
 	for _, tt := range tests {

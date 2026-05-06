@@ -112,20 +112,33 @@ func validateDuplicateTargets(hunks []Hunk) error {
 
 	for i, hunk := range hunks {
 		source := hunk.Path()
-		target := hunk.AffectedPath()
-		if update, ok := hunk.(UpdateFile); ok && update.MovePath != "" && source == target {
-			return fmt.Errorf("move destination equals source %q", source)
-		}
 
 		if prev, ok := sources[source]; ok {
 			return fmt.Errorf("duplicate source path %q in hunks %d and %d", source, prev+1, i+1)
 		}
 		sources[source] = i
 
+		target := hunk.AffectedPath()
 		if prev, ok := affected[target]; ok {
 			return fmt.Errorf("duplicate affected path %q in hunks %d and %d", target, prev+1, i+1)
 		}
 		affected[target] = i
+	}
+
+	for i, hunk := range hunks {
+		update, ok := hunk.(UpdateFile)
+		if !ok || update.MovePath == "" {
+			continue
+		}
+
+		source := hunk.Path()
+		target := hunk.AffectedPath()
+		if source == target {
+			return fmt.Errorf("move destination equals source %q", source)
+		}
+		if prev, ok := sources[target]; ok {
+			return fmt.Errorf("move destination %q collides with source path in hunks %d and %d", target, prev+1, i+1)
+		}
 	}
 
 	return nil
