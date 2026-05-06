@@ -6,8 +6,6 @@ import "github.com/luispabon/steiner/internal/tool"
 func Builtins(env Env) []tool.ToolDef {
 	return []tool.ToolDef{
 		NewReadTool(env),
-		NewWriteTool(env),
-		NewEditTool(env),
 		NewGlobTool(env),
 		NewGrepTool(env),
 		NewLSTool(env),
