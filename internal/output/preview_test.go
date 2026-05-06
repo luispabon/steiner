@@ -319,6 +319,33 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 		},
 		{
+			name: "grep content metadata",
+			tool: "grep",
+			args: map[string]any{
+				"path":        "src",
+				"output_mode": "content",
+			},
+			result: `{"matches":1,"returned":1,"truncated":true,"has_more":true,"next_offset":5,"output":"## src/main.go\n12: hello\n"}`,
+			want: ToolPreview{
+				Kind:       ToolPreviewKindGrep,
+				Path:       "src",
+				Truncated:  true,
+				HasMore:    true,
+				Returned:   1,
+				NextOffset: 5,
+				OutputMode: "content",
+				Output:     "## src/main.go\n12: hello\n",
+				GrepFiles: []ToolPreviewGrepFile{
+					{
+						Path: "src/main.go",
+						Matches: []ToolPreviewGrepMatch{
+							{LineNumber: 12, Text: "hello"},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "bash result",
 			tool: "bash",
 			args: map[string]any{

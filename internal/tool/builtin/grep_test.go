@@ -301,18 +301,24 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 		t.Fatalf("write multiline file: %v", err)
 	}
 
-	matches, err := grepSearch(context.Background(), tmpDir, "alpha\\nbeta", false, true, "", "", nil, 10)
+	matches, err := grepSearch(context.Background(), tmpDir, "multiline.txt", "alpha\\nbeta", false, true, "", "", nil)
 	if err != nil {
 		t.Fatalf("grepSearch returned error: %v", err)
 	}
-	if len(matches) != 2 {
-		t.Fatalf("len(matches) = %d, want 2", len(matches))
+	if len(matches) != 1 {
+		t.Fatalf("len(matches) = %d, want 1", len(matches))
 	}
-	if matches[0].file != "multiline.txt" || matches[0].lineNumber != 1 || matches[0].line != "alpha" {
-		t.Fatalf("first match = %#v, want multiline.txt line 1 alpha", matches[0])
+	if matches[0].file != "multiline.txt" {
+		t.Fatalf("file = %q, want multiline.txt", matches[0].file)
 	}
-	if matches[1].file != "multiline.txt" || matches[1].lineNumber != 2 || matches[1].line != "beta" {
-		t.Fatalf("second match = %#v, want multiline.txt line 2 beta", matches[1])
+	if len(matches[0].matches) != 2 {
+		t.Fatalf("len(matches[0].matches) = %d, want 2", len(matches[0].matches))
+	}
+	if matches[0].matches[0].file != "multiline.txt" || matches[0].matches[0].lineNumber != 1 || matches[0].matches[0].line != "alpha" {
+		t.Fatalf("first match = %#v, want multiline.txt line 1 alpha", matches[0].matches[0])
+	}
+	if matches[0].matches[1].file != "multiline.txt" || matches[0].matches[1].lineNumber != 2 || matches[0].matches[1].line != "beta" {
+		t.Fatalf("second match = %#v, want multiline.txt line 2 beta", matches[0].matches[1])
 	}
 }
 
@@ -338,7 +344,7 @@ func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), tmpDir, "needle", false, false, "", "", nil, 10)
+		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil)
 		if err == nil {
 			t.Fatal("expected read error, got nil")
 		}
@@ -371,7 +377,7 @@ func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), tmpDir, "needle", false, false, "", "", nil, 10)
+		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil)
 		if err == nil {
 			t.Fatal("expected traversal error, got nil")
 		}
@@ -380,6 +386,166 @@ func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
 		}
 		if !errors.Is(err, os.ErrPermission) {
 			t.Fatalf("error = %v, want permission error", err)
+		}
+	})
+}
+
+func TestGrepTool_PaginationAndMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	files := map[string]string{
+		"alpha.txt":   "line 1\nmatch alpha\nline 3\nmatch beta\nline 5\nmatch gamma\nline 7\n",
+		"bravo.txt":   "match bravo\nline 2\n",
+		"charlie.txt": "line 1\nmatch charlie\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	toolDef := NewGrepTool(env)
+	ctx := context.Background()
+
+	t.Run("content pagination honors offset and context", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":             "alpha.txt",
+			"pattern":          "match",
+			"output_mode":      "content",
+			"context":          1,
+			"head_limit":       1,
+			"offset":           1,
+			"line_numbers":     true,
+			"case_insensitive": false,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.Returned != 1 {
+			t.Fatalf("Returned = %d, want 1", result.Returned)
+		}
+		if result.Matches != 1 {
+			t.Fatalf("Matches = %d, want 1", result.Matches)
+		}
+		if !result.HasMore {
+			t.Fatal("HasMore = false, want true")
+		}
+		if !result.Truncated {
+			t.Fatal("Truncated = false, want true")
+		}
+		if result.NextOffset != 2 {
+			t.Fatalf("NextOffset = %d, want 2", result.NextOffset)
+		}
+		if !strings.Contains(result.Output, "3: line 3") || !strings.Contains(result.Output, "4: match beta") || !strings.Contains(result.Output, "5: line 5") {
+			t.Fatalf("Output = %q, want merged context around the second match", result.Output)
+		}
+		if strings.Count(result.Output, "4: match beta") != 1 {
+			t.Fatalf("Output = %q, want one rendered match line", result.Output)
+		}
+	})
+
+	t.Run("content windows merge without repetition", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        "alpha.txt",
+			"pattern":     "match",
+			"output_mode": "content",
+			"context":     1,
+			"head_limit":  2,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result := resultI.(GrepResult)
+		if strings.Count(result.Output, "4: match beta") != 1 {
+			t.Fatalf("Output = %q, want merged windows with one beta line", result.Output)
+		}
+		if strings.Count(result.Output, "5: line 5") != 1 {
+			t.Fatalf("Output = %q, want merged windows without duplicate context", result.Output)
+		}
+	})
+
+	t.Run("files_with_matches paginates distinct files", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "match",
+			"output_mode": "files_with_matches",
+			"head_limit":  1,
+			"offset":      1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result := resultI.(GrepResult)
+		if result.Returned != 1 {
+			t.Fatalf("Returned = %d, want 1", result.Returned)
+		}
+		if result.Matches != 1 {
+			t.Fatalf("Matches = %d, want 1", result.Matches)
+		}
+		if !result.HasMore {
+			t.Fatal("HasMore = false, want true")
+		}
+		if !result.Truncated {
+			t.Fatal("Truncated = false, want true")
+		}
+		if result.NextOffset != 2 {
+			t.Fatalf("NextOffset = %d, want 2", result.NextOffset)
+		}
+		if strings.Contains(result.Output, "alpha.txt") {
+			t.Fatalf("Output = %q, want offset to skip alpha.txt", result.Output)
+		}
+		if !strings.Contains(result.Output, "bravo.txt") {
+			t.Fatalf("Output = %q, want bravo.txt", result.Output)
+		}
+	})
+
+	t.Run("count mode paginates per file", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "match",
+			"output_mode": "count",
+			"head_limit":  1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result := resultI.(GrepResult)
+		if result.Returned != 1 {
+			t.Fatalf("Returned = %d, want 1", result.Returned)
+		}
+		if result.Matches != 3 {
+			t.Fatalf("Matches = %d, want 3 for alpha.txt", result.Matches)
+		}
+		if !result.HasMore {
+			t.Fatal("HasMore = false, want true")
+		}
+		if !result.Truncated {
+			t.Fatal("Truncated = false, want true")
+		}
+		if result.NextOffset != 1 {
+			t.Fatalf("NextOffset = %d, want 1", result.NextOffset)
+		}
+		if !strings.Contains(result.Output, "alpha.txt:3") {
+			t.Fatalf("Output = %q, want alpha count row", result.Output)
+		}
+	})
+
+	t.Run("single file path search preserves the file name", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        "bravo.txt",
+			"pattern":     "match",
+			"output_mode": "files_with_matches",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result := resultI.(GrepResult)
+		if strings.TrimSpace(result.Output) != "bravo.txt" {
+			t.Fatalf("Output = %q, want bravo.txt", result.Output)
 		}
 	})
 }

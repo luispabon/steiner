@@ -29,6 +29,8 @@ type ReadResult struct {
 type GrepResult struct {
 	Matches    int    `json:"matches"`
 	Returned   int    `json:"returned"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	HasMore    bool   `json:"has_more,omitempty"`
 	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
 }
