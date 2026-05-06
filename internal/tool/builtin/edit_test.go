@@ -18,128 +18,161 @@ func TestEditTool(t *testing.T) {
 	toolDef := NewEditTool(env)
 	ctx := context.Background()
 
-	t.Run("replaces one exact match", func(t *testing.T) {
-		content := "hello world\nfoo bar\nbaz qux\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte(content), 0o644); err != nil {
+	run := func(t *testing.T, fileName string, content []byte, input map[string]any) (*MutationResult, []byte) {
+		t.Helper()
+		fullPath := filepath.Join(tmpDir, fileName)
+		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
 			t.Fatalf("write test file: %v", err)
 		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"path":       "test.txt",
-			"old_string": "foo bar",
-			"new_string": "replaced",
-		})
+		resultI, err := toolDef.Handler(ctx, input)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
-		}
-		_, ok := resultI.(*MutationResult)
-		if !ok {
-			t.Fatalf("result type = %T, want *MutationResult", resultI)
-		}
-		data, err := os.ReadFile(filepath.Join(tmpDir, "test.txt"))
-		if err != nil {
-			t.Fatalf("read edited file: %v", err)
-		}
-		if string(data) != "hello world\nreplaced\nbaz qux\n" {
-			t.Errorf("file content = %q, want %q", string(data), "hello world\nreplaced\nbaz qux\n")
-		}
-	})
-
-	t.Run("fails on missing old_string", func(t *testing.T) {
-		content := "hello world\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "missing.txt"), []byte(content), 0o644); err != nil {
-			t.Fatalf("write test file: %v", err)
-		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"path":       "missing.txt",
-			"old_string": "nonexistent text",
-			"new_string": "replaced",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v (may indicate Go-level error from dive)", err)
 		}
 		result, ok := resultI.(*MutationResult)
 		if !ok {
 			t.Fatalf("result type = %T, want *MutationResult", resultI)
 		}
-		if result.Output == "" {
-			t.Error("expected error message in Output for missing old_string")
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			t.Fatalf("read test file: %v", err)
+		}
+		return result, data
+	}
+
+	t.Run("single exact replacement", func(t *testing.T) {
+		result, data := run(t, "single.txt", []byte("hello world\nfoo bar\nbaz qux\n"), map[string]any{
+			"path":       "single.txt",
+			"old_string": "foo bar",
+			"new_string": "replaced",
+		})
+		if !result.Mutated {
+			t.Fatal("Mutated = false, want true")
+		}
+		if result.Path != "single.txt" {
+			t.Fatalf("Path = %q, want %q", result.Path, "single.txt")
+		}
+		if got, want := string(data), "hello world\nreplaced\nbaz qux\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+		if got, want := result.Output, "edit: replaced 1 occurrence"; got != want {
+			t.Fatalf("Output = %q, want %q", got, want)
 		}
 	})
 
-	t.Run("fails on ambiguous old_string when replace_all is false", func(t *testing.T) {
-		content := "hello\nhello\nworld\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "ambiguous.txt"), []byte(content), 0o644); err != nil {
-			t.Fatalf("write test file: %v", err)
+	t.Run("no match", func(t *testing.T) {
+		result, data := run(t, "nomatch.txt", []byte("hello world\n"), map[string]any{
+			"path":       "nomatch.txt",
+			"old_string": "nonexistent text",
+			"new_string": "replaced",
+		})
+		if result.Mutated {
+			t.Fatal("Mutated = true, want false")
 		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		if got, want := string(data), "hello world\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+		if got, want := result.Output, "edit: no match for old_string"; got != want {
+			t.Fatalf("Output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("ambiguous match with replace_all false", func(t *testing.T) {
+		result, data := run(t, "ambiguous.txt", []byte("hello\nhello\nworld\n"), map[string]any{
 			"path":       "ambiguous.txt",
 			"old_string": "hello",
 			"new_string": "hi",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v (may indicate Go-level error from dive)", err)
-		}
-		result, ok := resultI.(*MutationResult)
-		if !ok {
-			t.Fatalf("result type = %T, want *MutationResult", resultI)
-		}
-		if result.Output == "" {
-			t.Error("expected error message in Output for ambiguous old_string")
-		}
-	})
-
-	t.Run("error message uses visible markers not escaped newlines", func(t *testing.T) {
-		content := "line one\nline two\nline three\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "escape_test.txt"), []byte(content), 0o644); err != nil {
-			t.Fatalf("write test file: %v", err)
-		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"path":       "escape_test.txt",
-			"old_string": "line one\nNOT HERE\nline three",
-			"new_string": "replaced",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*MutationResult)
-		if !ok {
-			t.Fatalf("result type = %T, want *MutationResult", resultI)
-		}
-		if strings.Contains(result.Output, "\\n") {
-			t.Errorf("error output contains escaped newline (\\n), should use ↵: %s", result.Output)
-		}
-		if !strings.Contains(result.Output, "↵") {
-			t.Errorf("error output missing ↵ marker: %s", result.Output)
-		}
 		if result.Mutated {
-			t.Error("failed edit should have Mutated = false")
+			t.Fatal("Mutated = true, want false")
+		}
+		if got, want := string(data), "hello\nhello\nworld\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+		if !strings.Contains(result.Output, "ambiguous match for old_string") {
+			t.Fatalf("Output = %q, want ambiguous match message", result.Output)
+		}
+		if !strings.Contains(result.Output, "2 occurrences") {
+			t.Fatalf("Output = %q, want occurrence count", result.Output)
 		}
 	})
 
-	t.Run("succeeds on ambiguous old_string when replace_all is true", func(t *testing.T) {
-		content := "hello\nhello\nworld\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "replace_all.txt"), []byte(content), 0o644); err != nil {
-			t.Fatalf("write test file: %v", err)
-		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+	t.Run("ambiguous match with replace_all true", func(t *testing.T) {
+		result, data := run(t, "replace_all.txt", []byte("hello\nhello\nworld\n"), map[string]any{
 			"path":        "replace_all.txt",
 			"old_string":  "hello",
 			"new_string":  "hi",
 			"replace_all": true,
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if !result.Mutated {
+			t.Fatal("Mutated = false, want true")
 		}
-		_, ok := resultI.(*MutationResult)
-		if !ok {
-			t.Fatalf("result type = %T, want *MutationResult", resultI)
+		if got, want := string(data), "hi\nhi\nworld\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
 		}
-		data, err := os.ReadFile(filepath.Join(tmpDir, "replace_all.txt"))
-		if err != nil {
-			t.Fatalf("read edited file: %v", err)
+		if got, want := result.Output, "edit: replaced 2 occurrences"; got != want {
+			t.Fatalf("Output = %q, want %q", got, want)
 		}
-		if string(data) != "hi\nhi\nworld\n" {
-			t.Errorf("file content = %q, want %q", string(data), "hi\nhi\nworld\n")
+	})
+
+	t.Run("trailing eof hunk ending in braces", func(t *testing.T) {
+		result, data := run(t, "trailing.txt", []byte("func main() {\n\tprintln(\"hi\")\n}\n"), map[string]any{
+			"path":       "trailing.txt",
+			"old_string": "}\n",
+			"new_string": "}\n\n// done\n",
+		})
+		if !result.Mutated {
+			t.Fatal("Mutated = false, want true")
+		}
+		if got, want := string(data), "func main() {\n\tprintln(\"hi\")\n}\n\n// done\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no final newline file", func(t *testing.T) {
+		result, data := run(t, "nonewline.txt", []byte("alpha\nbeta"), map[string]any{
+			"path":       "nonewline.txt",
+			"old_string": "beta",
+			"new_string": "gamma",
+		})
+		if !result.Mutated {
+			t.Fatal("Mutated = false, want true")
+		}
+		if got, want := string(data), "alpha\ngamma"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("binary file rejection", func(t *testing.T) {
+		result, data := run(t, "binary.bin", []byte{'a', 0, 'b', 'c'}, map[string]any{
+			"path":       "binary.bin",
+			"old_string": "a",
+			"new_string": "z",
+		})
+		if result.Mutated {
+			t.Fatal("Mutated = true, want false")
+		}
+		if !strings.Contains(result.Output, "binary") {
+			t.Fatalf("Output = %q, want binary rejection", result.Output)
+		}
+		if got, want := string(data), string([]byte{'a', 0, 'b', 'c'}); got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty old_string rejection", func(t *testing.T) {
+		result, data := run(t, "emptyold.txt", []byte("hello world\n"), map[string]any{
+			"path":       "emptyold.txt",
+			"old_string": "",
+			"new_string": "replaced",
+		})
+		if result.Mutated {
+			t.Fatal("Mutated = true, want false")
+		}
+		if got, want := result.Output, "edit: old_string is empty"; got != want {
+			t.Fatalf("Output = %q, want %q", got, want)
+		}
+		if got, want := string(data), "hello world\n"; got != want {
+			t.Fatalf("file content = %q, want %q", got, want)
 		}
 	})
 }
