@@ -215,3 +215,49 @@ func TestBashSchema(t *testing.T) {
 		t.Errorf("required = %v, want [command]", req)
 	}
 }
+
+func TestApplyPatchSchema(t *testing.T) {
+	s := ApplyPatchSchema()
+	if got := schemaType(s); got != "object" {
+		t.Errorf("type = %q, want %q", got, "object")
+	}
+	if schemaAdditionalProperties(s) {
+		t.Error("additionalProperties should be false")
+	}
+	req := schemaRequired(s)
+	if len(req) != 1 || req[0] != "patch" {
+		t.Errorf("required = %v, want [patch]", req)
+	}
+	props := schemaProperties(s)
+	if props == nil {
+		t.Fatal("properties is nil")
+	}
+	if len(props) != 2 {
+		t.Fatalf("properties len = %d, want 2", len(props))
+	}
+	if _, ok := props["path"]; ok {
+		t.Fatal("unexpected path property")
+	}
+	if _, ok := props["hunks"]; ok {
+		t.Fatal("unexpected hunks property")
+	}
+	if _, ok := props["fuzzy_threshold"]; ok {
+		t.Fatal("unexpected fuzzy_threshold property")
+	}
+	if p, ok := props["patch"]; ok {
+		m, _ := p.(map[string]any)
+		if m["type"] != "string" {
+			t.Error("patch.type should be string")
+		}
+	} else {
+		t.Fatal("missing patch property")
+	}
+	if p, ok := props["dry_run"]; ok {
+		m, _ := p.(map[string]any)
+		if m["type"] != "boolean" {
+			t.Error("dry_run.type should be boolean")
+		}
+	} else {
+		t.Fatal("missing dry_run property")
+	}
+}
