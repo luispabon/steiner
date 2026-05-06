@@ -1,18 +1,16 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strings"
-
-	"github.com/deepnoodle-ai/dive/toolkit"
+	"os"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewEditTool creates a ToolDef for the edit tool backed by Dive's EditTool.
+// NewEditTool creates a ToolDef for the edit tool.
 func NewEditTool(env Env) tool.ToolDef {
-	editTool := toolkit.NewEditTool()
 	return tool.ToolDef{
 		Name:            "edit",
 		Description:     "Replace exact text in one file. Use read first and include enough surrounding context in old_string to make the match unique. Fails if old_string is absent or ambiguous unless replace_all is true.",
@@ -33,29 +31,64 @@ func NewEditTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("edit: %w", err)
 			}
 
-			diveResult, err := editTool.Call(ctx, &toolkit.EditInput{
-				FilePath:   absPath,
-				OldString:  in.OldString,
-				NewString:  in.NewString,
-				ReplaceAll: in.ReplaceAll,
-			})
+			content, err := os.ReadFile(absPath)
 			if err != nil {
 				return nil, fmt.Errorf("edit: %w", err)
 			}
 
-			if diveResult.IsError {
-				output := diveText(diveResult)
-				output = strings.ReplaceAll(output, "\\n", "↵")
-				output = strings.ReplaceAll(output, "\\t", "→")
+			if isBinary(content) {
 				return &MutationResult{
 					Path:   relDisplayPath(env.WorkDir, absPath),
-					Output: output,
+					Output: "edit: file appears to be binary",
 				}, nil
+			}
+
+			if in.OldString == "" {
+				return &MutationResult{
+					Path:   relDisplayPath(env.WorkDir, absPath),
+					Output: "edit: old_string is empty",
+				}, nil
+			}
+
+			oldBytes := []byte(in.OldString)
+			newBytes := []byte(in.NewString)
+			matchCount := bytes.Count(content, oldBytes)
+
+			switch {
+			case matchCount == 0:
+				return &MutationResult{
+					Path:   relDisplayPath(env.WorkDir, absPath),
+					Output: "edit: no match for old_string",
+				}, nil
+			case matchCount > 1 && !in.ReplaceAll:
+				return &MutationResult{
+					Path:   relDisplayPath(env.WorkDir, absPath),
+					Output: fmt.Sprintf("edit: ambiguous match for old_string (found %d occurrences)", matchCount),
+				}, nil
+			}
+
+			replaced := content
+			if in.ReplaceAll {
+				replaced = bytes.ReplaceAll(content, oldBytes, newBytes)
+			} else {
+				replaced = bytes.Replace(content, oldBytes, newBytes, 1)
+			}
+
+			if err := os.WriteFile(absPath, replaced, 0o644); err != nil {
+				return nil, fmt.Errorf("edit: write %q: %w", in.Path, err)
+			}
+
+			output := "edit: replaced 1 occurrence"
+			if in.ReplaceAll {
+				output = fmt.Sprintf("edit: replaced %d occurrence", matchCount)
+				if matchCount != 1 {
+					output = fmt.Sprintf("edit: replaced %d occurrences", matchCount)
+				}
 			}
 
 			return &MutationResult{
 				Path:    relDisplayPath(env.WorkDir, absPath),
-				Output:  diveText(diveResult),
+				Output:  output,
 				Mutated: true,
 			}, nil
 		},
