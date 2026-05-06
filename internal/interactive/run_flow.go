@@ -6,13 +6,16 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 )
 
 // submitPrompt handles a user-submitted prompt during an interactive session.
 // It appends the user message, starts a cancellable model run, records history
-// on success, and emits stop/error and history events consistently.
+// on success, updates session lineage and title, and saves the session.
+// Emits stop/error and history events consistently.
 func (s *Session) submitPrompt(ctx context.Context, text string) {
 	s.mu.Lock()
+	isFirstPrompt := len(s.conversation) == 0
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 	s.mu.Unlock()
 
@@ -21,13 +24,37 @@ func (s *Session) submitPrompt(ctx context.Context, text string) {
 		if err != nil {
 			return err
 		}
-		s.SetConversation(result)
+		s.mu.Lock()
+		s.conversation = result
+		s.lineage = agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result)},
+			},
+			NextGenerationID: 2,
+		}
+		s.mu.Unlock()
 		return nil
 	})
 
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
 		return
+	}
+
+	if isFirstPrompt && s.deps.SessionStore != nil {
+		s.mu.Lock()
+		s.sessionTitle = session.TitleFromPrompt(text)
+		s.mu.Unlock()
+	}
+
+	if s.deps.SessionStore != nil {
+		if err := s.saveSession(); err != nil {
+			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("save session: %v", err)},
+			}))
+		}
 	}
 
 	if s.deps.HistoryWriter != nil {
@@ -49,6 +76,16 @@ func (s *Session) submitPrompt(ctx context.Context, text string) {
 		}
 		s.events.Emit(output.NewHistoryLoadedEvent(prompts))
 	}
+}
+
+// cloneMessages returns a deep copy of a message slice.
+func cloneMessages(messages []agent.Message) []agent.Message {
+	if messages == nil {
+		return nil
+	}
+	out := make([]agent.Message, len(messages))
+	copy(out, messages)
+	return out
 }
 
 // runWithInterruptOwnership executes a run function with a cancellable context

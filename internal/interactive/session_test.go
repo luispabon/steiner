@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 )
 
 // compile-time interface checks.
@@ -24,13 +25,27 @@ var (
 	_ Action = SwitchModel{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
+	_ Action = LoadSession{}
+	_ Action = RequestSessionPicker{}
 )
+
+// testNewSession is a helper that creates a new session and fails the test if it returns an error.
+func testNewSession(t *testing.T, deps Dependencies) *Session {
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	return s
+}
 
 func TestNewSession(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	if s == nil {
-		t.Fatal("NewSession returned nil")
+		t.Fatal("NewSession returned nil session")
 	}
 	if s.events == nil {
 		t.Error("expected non-nil event sink")
@@ -50,15 +65,21 @@ func TestNewSession(t *testing.T) {
 	if s.approvalCoordinator == nil {
 		t.Error("expected non-nil approval coordinator")
 	}
+	if s.sessionID == "" {
+		t.Error("expected non-empty session ID")
+	}
 }
 
 func TestNewSessionWithSkillNames(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		SkillNames: []string{"go-code-audit", "slop-detector"},
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	if s == nil {
-		t.Fatal("NewSession returned nil")
+		t.Fatal("NewSession returned nil session")
 	}
 	names := s.Skills().Snapshot()
 	if got, want := len(names), 2; got != want {
@@ -211,7 +232,7 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 
 func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Model: config.ModelConfig{Model: "gpt-4"},
 			Models: map[string]config.ModelConfig{
@@ -245,7 +266,7 @@ func TestSessionHandleNoop(t *testing.T) {
 
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			return conversation, nil
 		}),
@@ -268,7 +289,7 @@ func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			called = true
 			return conversation, nil
@@ -284,7 +305,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			return []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
@@ -303,7 +324,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -335,7 +356,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
 	recorded := ""
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -380,7 +401,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	t.Parallel()
 	block := make(chan struct{})
 	cancelled := false
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			close(block)
 			<-ctx.Done()
@@ -404,7 +425,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 func TestInterruptActiveRunCancelsRun(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	s.runController.Set(cancel)
 
 	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
@@ -420,7 +441,7 @@ func TestInterruptActiveRunCancelsRun(t *testing.T) {
 
 func TestClearConversationClearsConversation(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
@@ -460,7 +481,7 @@ func (w *recordingHistoryWriter) Load() ([]string, error) {
 
 func TestSessionRunReturnsOnCancel(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -471,7 +492,7 @@ func TestSessionRunReturnsOnCancel(t *testing.T) {
 
 func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	ctx := context.Background()
 
 	done := make(chan error, 1)
@@ -494,7 +515,7 @@ func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
 func TestSessionRunLoadsHistory(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -532,7 +553,7 @@ func TestSessionRunLoadsHistory(t *testing.T) {
 func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -569,7 +590,7 @@ func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
 func TestSessionRunLoadsEmptyHistory(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -606,7 +627,7 @@ func TestSessionRunLoadsEmptyHistory(t *testing.T) {
 
 func TestSessionConversationAccessors(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("initial conversation = %v, want nil", got)
 	}
@@ -621,7 +642,7 @@ func TestSessionConversationAccessors(t *testing.T) {
 func TestSwitchModelSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -660,7 +681,7 @@ func TestSwitchModelSuccess(t *testing.T) {
 func TestSwitchModelFailure(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -694,7 +715,7 @@ func TestSwitchModelFailure(t *testing.T) {
 
 func TestCurrentModelConfig(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Model: config.ModelConfig{Model: "test-model", BaseURL: "http://example/v1"},
 		},
@@ -710,7 +731,7 @@ func TestCurrentModelConfig(t *testing.T) {
 
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		SkillNames: []string{"review", "test"},
 	})
 
@@ -732,7 +753,7 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 
 func TestSessionAccessorsNonNil(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	if s.EventSink() == nil {
 		t.Error("EventSink() returned nil")
 	}
@@ -751,4 +772,123 @@ func TestSessionAccessorsNonNil(t *testing.T) {
 	if s.ApprovalCoordinator() == nil {
 		t.Error("ApprovalCoordinator() returned nil")
 	}
+}
+
+func TestSessionIDNonEmpty(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+	id := s.SessionID()
+	if id == "" {
+		t.Fatal("SessionID() returned empty string")
+	}
+	if len(id) != 32 {
+		t.Fatalf("SessionID() length = %d, want 32", len(id))
+	}
+}
+
+func TestSessionTitleEmptyInitially(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+	title := s.SessionTitle()
+	if title != "" {
+		t.Fatalf("SessionTitle() = %q, want empty string", title)
+	}
+}
+
+// mockSessionStore is a minimal mock sessionStore for testing.
+type mockSessionStore struct {
+	savedSessions  map[string]session.Session
+	loadedSessions map[string]session.Session
+}
+
+func newMockSessionStore() *mockSessionStore {
+	return &mockSessionStore{
+		savedSessions:  make(map[string]session.Session),
+		loadedSessions: make(map[string]session.Session),
+	}
+}
+
+func (m *mockSessionStore) Save(s session.Session) error {
+	m.savedSessions[s.ID] = s
+	return nil
+}
+
+func (m *mockSessionStore) Load(id string) (session.Session, error) {
+	if s, ok := m.loadedSessions[id]; ok {
+		return s, nil
+	}
+	return session.Session{}, fmt.Errorf("session not found: %s", id)
+}
+
+func (m *mockSessionStore) List() ([]session.IndexEntry, error) {
+	return nil, nil
+}
+
+func TestLoadSessionReplacesConversation(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	mockStore := newMockSessionStore()
+
+	// Create a mock session with some lineage
+	mockSession := session.Session{
+		ID:    "test-session-id",
+		Title: "Test Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "previous message"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+	mockStore.loadedSessions["test-session-id"] = mockSession
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		SessionStore: mockStore,
+	})
+
+	// Verify session starts with empty conversation
+	if len(s.Conversation()) != 0 {
+		t.Fatalf("initial conversation length = %d, want 0", len(s.Conversation()))
+	}
+
+	// Load the session
+	err := s.Handle(context.Background(), LoadSession{SessionID: "test-session-id"})
+	if err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	// Verify conversation was replaced
+	conv := s.Conversation()
+	if len(conv) != 1 {
+		t.Fatalf("conversation length after load = %d, want 1", len(conv))
+	}
+	if conv[0].Content != "previous message" {
+		t.Fatalf("first message = %q, want %q", conv[0].Content, "previous message")
+	}
+
+	// Verify session title was updated
+	if got := s.SessionTitle(); got != "Test Session" {
+		t.Fatalf("SessionTitle() = %q, want %q", got, "Test Session")
+	}
+
+	// Verify events were emitted for the loaded message
+	var foundUserInputEvent bool
+	for _, event := range events {
+		if event.Type == output.EventTypeUserInput {
+			foundUserInputEvent = true
+			break
+		}
+	}
+	if !foundUserInputEvent {
+		t.Fatalf("events = %#v, want UserInput event", events)
+	}
+}
+
+func (m *mockSessionStore) setLoadSession(sess session.Session) {
+	m.loadedSessions[sess.ID] = sess
 }

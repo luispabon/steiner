@@ -16,8 +16,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+// SessionLister is the interface for querying and loading sessions.
+type SessionLister interface {
+	List() ([]session.IndexEntry, error)
+	Load(id string) (session.Session, error)
+}
 
 type approvalState struct {
 	active         bool
@@ -84,8 +91,10 @@ type Model struct {
 	palette                      paletteModel
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
+	sessionPicker                sessionPickerOverlay
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
+	sessionStore                 SessionLister
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string
@@ -207,6 +216,11 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height
+
+	m.sessionPicker = newSessionPickerOverlay(m.styles)
+	m.sessionPicker.width = m.width
+	m.sessionPicker.height = m.height
+	m.sessionStore = cfg.SessionStore
 
 	return m
 }
@@ -381,6 +395,11 @@ func (m Model) View() string {
 	if m.filePicker.open {
 		overlay := m.filePicker.View()
 		base = m.filePicker.PlaceBottomAnchored(base, overlay, m.inputChromeHeight(contentWidth)+m.activityRowHeight(contentWidth))
+	}
+
+	if m.sessionPicker.open {
+		overlay := m.sessionPicker.View()
+		base = m.sessionPicker.PlaceBottomAnchored(base, overlay, m.inputChromeHeight(contentWidth)+m.activityRowHeight(contentWidth))
 	}
 
 	if m.contextOverlay.open {

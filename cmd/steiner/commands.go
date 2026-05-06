@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -18,6 +22,19 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.resume != "" && flags.resume != strings.TrimSpace(flags.resume) {
+				flags.resume = strings.TrimSpace(flags.resume)
+			}
+			resumeSet := cmd.Flags().Changed("resume")
+			if resumeSet && flags.resume == "" {
+				return runListSessions(cmd, flags)
+			}
+			if resumeSet && flags.resume != "" {
+				if flags.exec {
+					return fmt.Errorf("--resume unsupported with --exec mode")
+				}
+				return runInteractiveMode(cmd, flags)
+			}
 			if flags.exec {
 				return runExecMode(cmd, flags, args)
 			}
@@ -36,6 +53,8 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().StringVar(&flags.contextMode, "context-mode", "", "context management mode: naive or smart (overrides config)")
+	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
+	rootCmd.Flag("resume").NoOptDefVal = ""
 
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newConfigCommand(flags))
@@ -131,5 +150,70 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	stream.Printf("%s:\n", heading)
 	for _, name := range names {
 		stream.Printf("  %s\n", name)
+	}
+}
+
+func runListSessions(cmd *cobra.Command, flags *cliFlags) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+
+	sessionPath := filepath.Join(homeDir, ".config", "steiner", "sessions")
+	store, err := session.NewStore(sessionPath)
+	if err != nil {
+		return fmt.Errorf("load session store: %w", err)
+	}
+
+	entries, err := store.List()
+	if err != nil {
+		return fmt.Errorf("list sessions: %w", err)
+	}
+
+	out := output.NewStream(cmd.OutOrStdout())
+	if len(entries) == 0 {
+		out.Printf("no sessions\n")
+		return nil
+	}
+
+	out.Printf("%-4s %-80s %-20s %-12s %s\n", "#", "Title", "Model", "Updated", "ID")
+	for i, entry := range entries {
+		title := entry.Title
+		if len(title) > 80 {
+			title = title[:77] + "..."
+		}
+		relTime := formatRelativeTime(entry.UpdatedAt)
+		out.Printf("%-4d %-80s %-20s %-12s %s\n", i, title, entry.Model, relTime, entry.ID)
+	}
+
+	return nil
+}
+
+func formatRelativeTime(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	if diff < 0 {
+		return "in future"
+	}
+
+	const (
+		minute = 60 * time.Second
+		hour   = 60 * minute
+		day    = 24 * hour
+		week   = 7 * day
+	)
+
+	switch {
+	case diff < minute:
+		return "just now"
+	case diff < hour:
+		return fmt.Sprintf("%dm ago", int(diff/minute))
+	case diff < day:
+		return fmt.Sprintf("%dh ago", int(diff/hour))
+	case diff < week:
+		return fmt.Sprintf("%dd ago", int(diff/day))
+	default:
+		return t.Format("Jan 2, 2006")
 	}
 }

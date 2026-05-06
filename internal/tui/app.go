@@ -41,6 +41,7 @@ type Config struct {
 	ShowInternalScaffoldInference bool
 	SidebarPosition               string
 	Controller                    interactive.Controller
+	SessionStore                  SessionLister
 }
 
 type App struct {

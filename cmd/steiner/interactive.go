@@ -55,11 +55,15 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		ProviderFactory: rt.providerFactory,
 		HomeDir:         rt.homeDir,
 		WorkDir:         rt.workDir,
+		SessionStore:    rt.sessionStore,
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
 	}
-	sess := interactive.NewSession(sessDeps)
+	sess, err := interactive.NewSession(sessDeps)
+	if err != nil {
+		return err
+	}
 
 	// Build interactive registry using session's display sink.
 	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true)
@@ -74,7 +78,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		return err
 	}
 
-	tuiApp := tui.NewApp(tui.Config{
+	tuiCfg := tui.Config{
 		Model:                         rt.cfg.Model.Model,
 		ModelNames:                    modelAliasNames(rt.cfg),
 		ModelContexts:                 modelContextSizes(rt.cfg),
@@ -86,7 +90,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		SkillNames:                    rt.skillNames,
 		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
 		Controller:                    sess,
-	})
+	}
+	if rt.sessionStore != nil {
+		tuiCfg.SessionStore = rt.sessionStore
+	}
+	tuiApp := tui.NewApp(tuiCfg)
 
 	// Attach TUI sink to session event bus before creating the runner,
 	// so the runner's copy of the runtime picks up the multi-sink events.
@@ -126,11 +134,28 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		stop()
 	}()
 
+	if flags.resume != "" {
+		if err := sess.LoadSessionByID(cmd.Context(), flags.resume); err != nil {
+			quitTeaProgram(p)
+			wg.Wait()
+			clearTerminalScreen(cmd.OutOrStdout())
+			closeRuntime(&rt)
+			return err
+		}
+	}
+
 	err = sess.Run(ctx)
 
 	quitTeaProgram(p)
 	wg.Wait()
 	clearTerminalScreen(cmd.OutOrStdout())
+
+	if err == nil {
+		if sess.SessionTitle() != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
+		}
+	}
+
 	closeRuntime(&rt)
 	return err
 }

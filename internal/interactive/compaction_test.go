@@ -11,11 +11,14 @@ import (
 
 func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	ctrl := s.ActiveRunController()
 
 	result, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
@@ -85,17 +88,20 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 
 func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	ctrl := s.ActiveRunController()
 
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+	_, compactErr := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
 		return nil, errors.New("boom")
 	})
-	if err == nil {
+	if compactErr == nil {
 		t.Fatal("runManualCompaction() error = nil, want non-nil")
 	}
 	if ctrl.HasCancel() {
@@ -129,11 +135,14 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 
 func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	ctrl := s.ActiveRunController()
 
 	started := make(chan struct{})
@@ -144,14 +153,14 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 		close(done)
 	}()
 
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+	_, compactErr := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
 	<-done
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("runManualCompaction() error = %v, want context.Canceled", err)
+	if !errors.Is(compactErr, context.Canceled) {
+		t.Fatalf("runManualCompaction() error = %v, want context.Canceled", compactErr)
 	}
 	if ctrl.HasCancel() {
 		t.Fatal("expected controller to be cleared after cancelled compaction")

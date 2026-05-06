@@ -32,6 +32,16 @@ func TestBuildCompletionCandidatesIncludesContext(t *testing.T) {
 	}
 }
 
+func TestParseInputHandlesResumeCommand(t *testing.T) {
+	action := parseInput("/resume", nil)
+	if !action.requestSessionPicker {
+		t.Fatal("requestSessionPicker = false, want true")
+	}
+	if action.submit != "" {
+		t.Fatalf("submit = %q, want empty", action.submit)
+	}
+}
+
 func TestParseInputHandlesListFiles(t *testing.T) {
 	t.Run("no path defaults to working directory", func(t *testing.T) {
 		action := parseInput("/ls", nil)
