@@ -43,11 +43,19 @@
 - `go vet ./...`: pass
 - `go test ./...`: 17 packages all ok
 
+### Manual verification fixes (post executor handoff)
+- BUG: `tui.Config` missing `SessionStore` — `/resume` showed "no session store configured"; fixed nil-safe wiring in `cmd/steiner/interactive.go`
+- BUG: `loadSession` emitted `ContextReportEvent` (opened overlay) using empty snapshot store — showed "No request recorded yet"; replaced with per-message `UserInputEvent`/`AssistantMessageEvent` replay so history renders in chat
+- BUG: exit hint shown on empty sessions — `SessionID()` always non-empty; fixed to check `SessionTitle() != ""`; added `SessionTitle()` method
+- EXIT HINT: added top/bottom margins and two-line format
+- All fixes committed at `5b52269`
+- Re-verification: `go build ./...` + `go test ./...` pass; 17 packages ok
+
 ### Executor handoff state
-- All 5 steps: complete
+- All 5 steps: complete + post-manual fixes applied
 - Branch `cl/2026-05-06_session-persistence-resume` clean, all changes committed
 - Automated verification: PASSING
-- Manual verification: pending
+- Manual verification: COMPLETE (user approved)
 
 ### stage-3-step-1 (complete)
 - Sub-agent: haiku (cheaper than runtime)
