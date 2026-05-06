@@ -1,6 +1,8 @@
 package patchdoc
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -125,24 +127,106 @@ func planChange(root string, hunk Hunk, fsys FS) (PlannedChange, error) {
 }
 
 func planAddFile(root string, hunk AddFile, fsys FS) (PlannedChange, error) {
-	_ = root
-	_ = hunk
-	_ = fsys
-	return PlannedChange{}, fmt.Errorf("planning not implemented for add file")
+	abs, rel, err := ValidatePatchPath(root, hunk.PathValue)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+	if _, err := fsys.Stat(abs); err == nil {
+		return PlannedChange{}, fmt.Errorf("add file failed: %s already exists", rel)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return PlannedChange{}, err
+	}
+
+	return PlannedChange{
+		Kind:       ChangeAdd,
+		Path:       abs,
+		RelPath:    rel,
+		NewContent: []byte(hunk.Contents),
+		Mode:       0o644,
+	}, nil
 }
 
 func planDeleteFile(root string, hunk DeleteFile, fsys FS) (PlannedChange, error) {
-	_ = root
-	_ = hunk
-	_ = fsys
-	return PlannedChange{}, fmt.Errorf("planning not implemented for delete file")
+	abs, rel, err := ValidatePatchPath(root, hunk.PathValue)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+	info, err := fsys.Stat(abs)
+	if err != nil {
+		return PlannedChange{}, fmt.Errorf("delete file failed: %s: %w", rel, err)
+	}
+	if info.IsDir() {
+		return PlannedChange{}, fmt.Errorf("delete file failed: %s is a directory", rel)
+	}
+
+	oldContent, err := fsys.ReadFile(abs)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+
+	return PlannedChange{
+		Kind:       ChangeDelete,
+		Path:       abs,
+		RelPath:    rel,
+		OldContent: oldContent,
+		Mode:       info.Mode(),
+	}, nil
 }
 
 func planUpdateFile(root string, hunk UpdateFile, fsys FS) (PlannedChange, error) {
-	_ = root
-	_ = hunk
-	_ = fsys
-	return PlannedChange{}, fmt.Errorf("planning not implemented for update file")
+	abs, rel, err := ValidatePatchPath(root, hunk.PathValue)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+	info, err := fsys.Stat(abs)
+	if err != nil {
+		return PlannedChange{}, fmt.Errorf("update file failed: %s: %w", rel, err)
+	}
+	if info.IsDir() {
+		return PlannedChange{}, fmt.Errorf("update file failed: %s is a directory", rel)
+	}
+
+	oldBytes, err := fsys.ReadFile(abs)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+	if isBinary(oldBytes) {
+		return PlannedChange{}, fmt.Errorf("update file failed: %s appears to be binary", rel)
+	}
+
+	newText, err := DeriveNewContents(string(oldBytes), rel, hunk.Chunks)
+	if err != nil {
+		return PlannedChange{}, err
+	}
+
+	change := PlannedChange{
+		Kind:       ChangeUpdate,
+		Path:       abs,
+		RelPath:    rel,
+		OldContent: oldBytes,
+		NewContent: []byte(newText),
+		Mode:       info.Mode(),
+	}
+
+	if hunk.MovePath != "" {
+		destAbs, destRel, err := ValidatePatchPath(root, hunk.MovePath)
+		if err != nil {
+			return PlannedChange{}, err
+		}
+		if destAbs == abs {
+			return PlannedChange{}, fmt.Errorf("move failed: source and destination are the same: %s", rel)
+		}
+		if _, err := fsys.Stat(destAbs); err == nil {
+			return PlannedChange{}, fmt.Errorf("move failed: destination already exists: %s", destRel)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return PlannedChange{}, err
+		}
+		change.Kind = ChangeMove
+		change.MovePath = destAbs
+		change.MoveRelPath = destRel
+	}
+
+	return change, nil
 }
 
 func buildApplyResult(planned []PlannedChange) ApplyResult {
@@ -170,6 +254,10 @@ func commitPlannedChanges(root string, planned []PlannedChange, fsys FS) error {
 	_ = planned
 	_ = fsys
 	return fmt.Errorf("commit not implemented")
+}
+
+func isBinary(data []byte) bool {
+	return bytes.Contains(data, []byte{0})
 }
 
 func DeriveNewContents(original string, path string, chunks []UpdateFileChunk) (string, error) {
