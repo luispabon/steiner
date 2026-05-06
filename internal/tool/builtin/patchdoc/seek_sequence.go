@@ -3,6 +3,8 @@ package patchdoc
 import (
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // SeekSequence attempts to find pattern within lines beginning at or after start.
@@ -57,21 +59,95 @@ func trimRightSpace(s string) string {
 }
 
 func normaliseForPatchMatch(s string) string {
+	s = norm.NFC.String(s)
 	s = strings.TrimSpace(s)
 	var b strings.Builder
 	for _, r := range s {
 		switch r {
-		case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212':
+		case '‐', '‑', '‒', '–', '—', '―', '−':
 			b.WriteRune('-')
-		case '\u2018', '\u2019', '\u201A', '\u201B':
+		case '‘', '’', '‚', '‛':
 			b.WriteRune('\'')
-		case '\u201C', '\u201D', '\u201E', '\u201F':
+		case '“', '”', '„', '‟':
 			b.WriteRune('"')
-		case '\u00A0', '\u2002', '\u2003', '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000':
+		case ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '　':
 			b.WriteRune(' ')
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+func levenshtein(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	la, lb := len(ra), len(rb)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			if ra[i-1] == rb[j-1] {
+				curr[j] = prev[j-1]
+			} else {
+				curr[j] = 1 + min(prev[j], min(curr[j-1], prev[j-1]))
+			}
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+// ClosestMatch holds the result of a closest-line search.
+type ClosestMatch struct {
+	LineIndex int
+	Content   string
+	Distance  int
+}
+
+// FindClosestLine searches lines[max(0,searchStart-window):min(len,searchStart+window)]
+// for the line with the lowest Levenshtein distance to normaliseForPatchMatch(target).
+// Returns (match, true) only if distance < len([]rune(target))/2.
+func FindClosestLine(lines []string, target string, searchStart int, window int) (ClosestMatch, bool) {
+	normTarget := normaliseForPatchMatch(target)
+	runeLen := len([]rune(normTarget))
+	if runeLen == 0 {
+		return ClosestMatch{}, false
+	}
+	threshold := runeLen / 2
+	if threshold == 0 {
+		threshold = 1
+	}
+
+	lo := searchStart - window
+	if lo < 0 {
+		lo = 0
+	}
+	hi := searchStart + window
+	if hi > len(lines) {
+		hi = len(lines)
+	}
+
+	best := ClosestMatch{Distance: runeLen + 1}
+	found := false
+	for i := lo; i < hi; i++ {
+		d := levenshtein(normaliseForPatchMatch(lines[i]), normTarget)
+		if d < best.Distance {
+			best = ClosestMatch{LineIndex: i, Content: lines[i], Distance: d}
+			found = true
+		}
+	}
+	if !found || best.Distance >= threshold {
+		return ClosestMatch{}, false
+	}
+	return best, true
 }
