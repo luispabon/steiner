@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -177,10 +176,6 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 	var parts []string
 	parts = append(parts, "[Current task state]")
 
-	if state.TurnCount > 0 || state.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("session: turn=%d compactions=%d", state.TurnCount, state.CompactionCount))
-	}
-
 	if len(state.ActiveConstraints) > 0 {
 		lines := []string{"active constraints:"}
 		for _, c := range state.ActiveConstraints {
@@ -201,15 +196,11 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
 	}
 
-	if len(state.FileTrackerSummary) > 0 {
-		parts = append(parts, "tracked files:\n- "+strings.Join(state.FileTrackerSummary, "\n- "))
+	if contextState := strings.TrimSpace(state.Render()); contextState != "" {
+		parts = append(parts, contextState)
 	}
 
-	if len(state.RecentToolCalls) > 0 {
-		parts = append(parts, "recent tool calls:\n- "+strings.Join(state.RecentToolCalls, "\n- "))
-	}
-
-	scratchpad := strings.TrimSpace(state.Scratchpad)
+	scratchpad := strings.TrimSpace(strings.Join(scratchpadFieldLines(state.Scratchpad), "\n"))
 	if scratchpad != "" {
 		parts = append(parts, scratchpad)
 	} else {
@@ -220,6 +211,47 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 		Role:    provider.MessageRoleUser,
 		Content: strings.Join(parts, "\n\n"),
 	}, true
+}
+
+func scratchpadFieldLines(rendered string) []string {
+	rendered = strings.TrimSpace(rendered)
+	if rendered == "" {
+		return nil
+	}
+
+	lines := strings.Split(rendered, "\n")
+	out := make([]string, 0, len(lines))
+	skippingTrackedFiles := false
+	skippingRecentToolCalls := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == "[Current task state]" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "session state:"):
+			continue
+		case trimmed == "tracked files:":
+			skippingTrackedFiles = true
+			skippingRecentToolCalls = false
+			continue
+		case trimmed == "recent tool calls:":
+			skippingRecentToolCalls = true
+			skippingTrackedFiles = false
+			continue
+		}
+		if skippingTrackedFiles && strings.HasPrefix(trimmed, "- ") {
+			continue
+		}
+		if skippingRecentToolCalls && strings.HasPrefix(trimmed, "- ") {
+			continue
+		}
+		skippingTrackedFiles = false
+		skippingRecentToolCalls = false
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func toPromptContext(state ContextState) prompt.DurableContextState {
