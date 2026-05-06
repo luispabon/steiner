@@ -38,6 +38,27 @@ type grepMatch struct {
 	line       string
 }
 
+type grepFileResult struct {
+	file    string
+	lines   []string
+	matches []grepMatch
+}
+
+type grepContentSelection struct {
+	file       string
+	lineNumber int
+}
+
+type grepCountRow struct {
+	file  string
+	count int
+}
+
+type grepWindow struct {
+	start int
+	end   int
+}
+
 var grepTypeToExt = map[string][]string{
 	"go":     {".go"},
 	"ts":     {".ts", ".tsx"},
@@ -62,7 +83,7 @@ var grepTypeToExt = map[string][]string{
 	"sh":     {".sh", ".bash"},
 }
 
-func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder, limit int) ([]grepMatch, error) {
+func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
 	p := pattern
 	if caseInsens {
 		p = "(?i)" + p
@@ -88,7 +109,46 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 		exts = grepTypeToExt[fileType]
 	}
 
-	var matches []grepMatch
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("stat root: %w", err)
+	}
+
+	if !rootInfo.IsDir() {
+		relPath := filepath.ToSlash(filepath.Clean(displayPath))
+		if relPath == "." || relPath == "" {
+			relPath = filepath.Base(root)
+		}
+		if excluder != nil && excluder.ShouldExclude(relPath) {
+			return nil, nil
+		}
+		if filterGlob != nil && !filterGlob.Match(relPath) {
+			return nil, nil
+		}
+		if exts != nil {
+			ext := filepath.Ext(root)
+			found := false
+			for _, e := range exts {
+				if strings.EqualFold(ext, e) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, nil
+			}
+		}
+		file, hasMatches, err := grepSearchFile(ctx, root, relPath, re, multiline)
+		if err != nil {
+			return nil, err
+		}
+		if !hasMatches {
+			return nil, nil
+		}
+		return []grepFileResult{file}, nil
+	}
+
+	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -136,81 +196,13 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 			}
 		}
 
-		content, err := os.ReadFile(path)
+		file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", relPath, err)
+			return err
 		}
-
-		checkLen := 512
-		if len(content) < checkLen {
-			checkLen = len(content)
+		if hasMatches {
+			results = append(results, file)
 		}
-		if bytes.Contains(content[:checkLen], []byte{0}) {
-			return nil
-		}
-
-		contentText := string(content)
-		lines := strings.Split(contentText, "\n")
-		if multiline {
-			lineStarts := make([]int, len(lines))
-			offset := 0
-			for i, line := range lines {
-				lineStarts[i] = offset
-				offset += len(line)
-				if i < len(lines)-1 {
-					offset++
-				}
-			}
-
-			lineMatched := make([]bool, len(lines))
-			matchIndexes := re.FindAllStringIndex(contentText, -1)
-			for _, matchIndex := range matchIndexes {
-				matchStart := matchIndex[0]
-				matchEnd := matchIndex[1]
-				if matchEnd == matchStart {
-					matchEnd++
-				}
-				for i, line := range lines {
-					lineStart := lineStarts[i]
-					lineEnd := lineStart + len(line)
-					if i < len(lines)-1 {
-						lineEnd++
-					}
-					if lineStart < matchEnd && matchStart < lineEnd {
-						lineMatched[i] = true
-					}
-				}
-			}
-
-			for i, matched := range lineMatched {
-				if !matched {
-					continue
-				}
-				matches = append(matches, grepMatch{
-					file:       relPath,
-					lineNumber: i + 1,
-					line:       strings.TrimRight(lines[i], "\r"),
-				})
-				if len(matches) >= limit {
-					return filepath.SkipAll
-				}
-			}
-			return nil
-		}
-
-		for i, line := range lines {
-			if re.MatchString(line) {
-				matches = append(matches, grepMatch{
-					file:       relPath,
-					lineNumber: i + 1,
-					line:       strings.TrimRight(line, "\r"),
-				})
-				if len(matches) >= limit {
-					return filepath.SkipAll
-				}
-			}
-		}
-
 		return nil
 	})
 
@@ -218,71 +210,300 @@ func grepSearch(ctx context.Context, root, pattern string, caseInsens, multiline
 		return nil, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	return matches, nil
+	return results, nil
 }
 
-func formatGrepOutput(matches []grepMatch, mode string, showLines bool) string {
-	if len(matches) == 0 {
-		return "No matches found"
+func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool) (grepFileResult, bool, error) {
+	select {
+	case <-ctx.Done():
+		return grepFileResult{}, false, ctx.Err()
+	default:
 	}
 
-	var b strings.Builder
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return grepFileResult{}, false, fmt.Errorf("read %s: %w", relPath, err)
+	}
 
-	switch mode {
-	case "files_with_matches":
-		seen := make(map[string]bool)
-		var files []string
-		for _, m := range matches {
-			if !seen[m.file] {
-				seen[m.file] = true
-				files = append(files, m.file)
+	checkLen := 512
+	if len(content) < checkLen {
+		checkLen = len(content)
+	}
+	if bytes.Contains(content[:checkLen], []byte{0}) {
+		return grepFileResult{}, false, nil
+	}
+
+	contentText := string(content)
+	lines := strings.Split(contentText, "\n")
+	matches := make([]grepMatch, 0)
+
+	if multiline {
+		lineStarts := make([]int, len(lines))
+		offset := 0
+		for i, line := range lines {
+			lineStarts[i] = offset
+			offset += len(line)
+			if i < len(lines)-1 {
+				offset++
 			}
 		}
-		sort.Strings(files)
-		for _, f := range files {
-			b.WriteString(f)
-			b.WriteString("\n")
+
+		lineMatched := make([]bool, len(lines))
+		matchIndexes := re.FindAllStringIndex(contentText, -1)
+		for _, matchIndex := range matchIndexes {
+			matchStart := matchIndex[0]
+			matchEnd := matchIndex[1]
+			if matchEnd == matchStart {
+				matchEnd++
+			}
+			for i, line := range lines {
+				lineStart := lineStarts[i]
+				lineEnd := lineStart + len(line)
+				if i < len(lines)-1 {
+					lineEnd++
+				}
+				if lineStart < matchEnd && matchStart < lineEnd {
+					lineMatched[i] = true
+				}
+			}
 		}
 
+		for i, matched := range lineMatched {
+			if !matched {
+				continue
+			}
+			matches = append(matches, grepMatch{
+				file:       relPath,
+				lineNumber: i + 1,
+				line:       strings.TrimRight(lines[i], "\r"),
+			})
+		}
+	} else {
+		for i, line := range lines {
+			if re.MatchString(line) {
+				matches = append(matches, grepMatch{
+					file:       relPath,
+					lineNumber: i + 1,
+					line:       strings.TrimRight(line, "\r"),
+				})
+			}
+		}
+	}
+
+	if len(matches) == 0 {
+		return grepFileResult{}, false, nil
+	}
+
+	return grepFileResult{
+		file:    relPath,
+		lines:   lines,
+		matches: matches,
+	}, true, nil
+}
+
+func buildGrepResult(files []grepFileResult, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
+	switch mode {
+	case "files_with_matches":
+		rows := grepFilesWithMatches(files)
+		page := paginateGrepRows(rows, offset, headLimit)
+		output := renderGrepFilesWithMatches(page)
+		return buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
 	case "count":
-		counts := make(map[string]int)
-		for _, m := range matches {
-			counts[m.file]++
+		rows := grepCountRows(files)
+		page := paginateGrepRows(rows, offset, headLimit)
+		output := renderGrepCountRows(page)
+		compat := 0
+		for _, row := range page {
+			compat += row.count
 		}
-		var files []string
-		for f := range counts {
-			files = append(files, f)
-		}
-		sort.Strings(files)
-		for _, f := range files {
-			b.WriteString(fmt.Sprintf("%s:%d\n", f, counts[f]))
-		}
-
+		return buildGrepResultFromPage(len(rows), len(page), compat, offset, output)
 	case "content":
 		fallthrough
 	default:
-		byFile := make(map[string][]grepMatch)
-		var files []string
-		for _, m := range matches {
-			if _, ok := byFile[m.file]; !ok {
-				files = append(files, m.file)
-			}
-			byFile[m.file] = append(byFile[m.file], m)
-		}
-		sort.Strings(files)
+		rows := grepContentSelections(files)
+		page := paginateGrepRows(rows, offset, headLimit)
+		output := renderGrepContent(files, page, showLines, beforeContext, afterContext)
+		return buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
+	}
+}
 
-		for _, f := range files {
-			b.WriteString(fmt.Sprintf("## %s\n", f))
-			for _, m := range byFile[f] {
+func buildGrepResultFromPage(total, returned, compatMatches, offset int, output string) GrepResult {
+	hasMore := offset+returned < total
+	truncated := total > 0 && (offset > 0 || hasMore)
+	nextOffset := 0
+	if hasMore {
+		nextOffset = offset + returned
+	}
+	if total == 0 {
+		output = "No matches found"
+	}
+	return GrepResult{
+		Matches:    compatMatches,
+		Returned:   returned,
+		Truncated:  truncated,
+		HasMore:    hasMore,
+		NextOffset: nextOffset,
+		Output:     output,
+	}
+}
+
+func grepFilesWithMatches(files []grepFileResult) []string {
+	rows := make([]string, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, file.file)
+	}
+	return rows
+}
+
+func grepCountRows(files []grepFileResult) []grepCountRow {
+	rows := make([]grepCountRow, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, grepCountRow{
+			file:  file.file,
+			count: len(file.matches),
+		})
+	}
+	return rows
+}
+
+func grepContentSelections(files []grepFileResult) []grepContentSelection {
+	rows := make([]grepContentSelection, 0)
+	for _, file := range files {
+		for _, match := range file.matches {
+			rows = append(rows, grepContentSelection{
+				file:       file.file,
+				lineNumber: match.lineNumber,
+			})
+		}
+	}
+	return rows
+}
+
+func paginateGrepRows[T any](rows []T, offset, limit int) []T {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		return nil
+	}
+	if offset >= len(rows) {
+		return nil
+	}
+	end := offset + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	return rows[offset:end]
+}
+
+func renderGrepFilesWithMatches(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(files, "\n"))
+}
+
+func renderGrepCountRows(rows []grepCountRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, row := range rows {
+		b.WriteString(fmt.Sprintf("%s:%d\n", row.file, row.count))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderGrepContent(files []grepFileResult, selected []grepContentSelection, showLines bool, beforeContext, afterContext int) string {
+	if len(selected) == 0 {
+		return ""
+	}
+
+	filesByName := make(map[string]grepFileResult, len(files))
+	for _, file := range files {
+		filesByName[file.file] = file
+	}
+
+	fileOrder := make([]string, 0)
+	selectedByFile := make(map[string][]int)
+	for _, sel := range selected {
+		if _, ok := selectedByFile[sel.file]; !ok {
+			fileOrder = append(fileOrder, sel.file)
+		}
+		selectedByFile[sel.file] = append(selectedByFile[sel.file], sel.lineNumber)
+	}
+
+	var b strings.Builder
+	for fileIndex, fileName := range fileOrder {
+		file, ok := filesByName[fileName]
+		if !ok {
+			continue
+		}
+
+		windows := mergeGrepWindows(selectedByFile[fileName], len(file.lines), beforeContext, afterContext)
+		if len(windows) == 0 {
+			continue
+		}
+
+		b.WriteString(fmt.Sprintf("## %s\n", file.file))
+		for windowIndex, window := range windows {
+			for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
+				line := ""
+				if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
+					line = strings.TrimRight(file.lines[lineNumber-1], "\r")
+				}
 				if showLines {
-					b.WriteString(fmt.Sprintf("%d: %s\n", m.lineNumber, m.line))
+					b.WriteString(fmt.Sprintf("%d: %s\n", lineNumber, line))
 				} else {
-					b.WriteString(fmt.Sprintf("%s\n", m.line))
+					b.WriteString(fmt.Sprintf("%s\n", line))
 				}
 			}
+			if windowIndex < len(windows)-1 {
+				b.WriteString("\n")
+			}
+		}
+		if fileIndex < len(fileOrder)-1 {
 			b.WriteString("\n")
 		}
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+func mergeGrepWindows(lineNumbers []int, totalLines, beforeContext, afterContext int) []grepWindow {
+	if len(lineNumbers) == 0 || totalLines == 0 {
+		return nil
+	}
+
+	sortedNumbers := append([]int(nil), lineNumbers...)
+	sort.Ints(sortedNumbers)
+
+	windows := make([]grepWindow, 0, len(sortedNumbers))
+	for _, lineNumber := range sortedNumbers {
+		start := lineNumber - beforeContext
+		if start < 1 {
+			start = 1
+		}
+		end := lineNumber + afterContext
+		if end > totalLines {
+			end = totalLines
+		}
+
+		if len(windows) == 0 {
+			windows = append(windows, grepWindow{start: start, end: end})
+			continue
+		}
+
+		last := &windows[len(windows)-1]
+		if start <= last.end+1 {
+			if end > last.end {
+				last.end = end
+			}
+			continue
+		}
+
+		windows = append(windows, grepWindow{start: start, end: end})
+	}
+
+	return windows
 }
