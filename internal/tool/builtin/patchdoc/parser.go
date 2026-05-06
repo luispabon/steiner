@@ -234,7 +234,24 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 }
 
 func isTopLevelMarker(line string) bool {
-	return strings.HasPrefix(line, "***")
+	switch {
+	case strings.HasPrefix(line, addFileMarkerPrefix):
+		return true
+	case strings.HasPrefix(line, deleteFileMarkerPrefix):
+		return true
+	case strings.HasPrefix(line, updateFileMarkerPrefix):
+		return true
+	case strings.HasPrefix(line, moveToMarkerPrefix):
+		return true
+	case line == beginMarker:
+		return true
+	case line == endMarker:
+		return true
+	case line == eofMarker:
+		return true
+	default:
+		return false
+	}
 }
 
 func firstRuneString(line string) string {
