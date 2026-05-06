@@ -2,9 +2,12 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin/patchdoc"
 )
 
 // ApplyPatchInput is the typed input for the apply_patch tool.
@@ -24,10 +27,30 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 			if err != nil {
 				return nil, fmt.Errorf("apply_patch: %w", err)
 			}
-			_ = env
-			_ = ctx
-			_ = in
-			return nil, fmt.Errorf("apply_patch: parser not implemented")
+
+			if strings.TrimSpace(in.Patch) == "" {
+				return nil, errors.New("apply_patch: patch is required")
+			}
+
+			parsed, err := patchdoc.Parse(in.Patch)
+			if err != nil {
+				return &ApplyPatchResult{
+					DryRun:      in.DryRun,
+					HunksFailed: 1,
+					Output:      err.Error(),
+				}, nil
+			}
+
+			result, err := patchdoc.ApplyPatch(env.WorkDir, *parsed, in.DryRun, patchdoc.OSFS{})
+			if err != nil {
+				return &ApplyPatchResult{
+					DryRun:      in.DryRun,
+					HunksFailed: 1,
+					Output:      err.Error(),
+				}, nil
+			}
+
+			return newApplyPatchResult(result), nil
 		},
 	}
 }
