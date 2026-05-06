@@ -6,7 +6,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-const version = "dev"
+var version = "dev"
 
 var newScheduler = provider.NewScheduler
 var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {

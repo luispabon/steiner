@@ -40,6 +40,7 @@ type Config struct {
 	ShowThinking                  bool
 	ShowInternalScaffoldInference bool
 	SidebarPosition               string
+	Version                       string
 	Controller                    interactive.Controller
 	SessionStore                  SessionLister
 }

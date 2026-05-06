@@ -50,8 +50,8 @@ func TestVersionCommandPrintsVersion(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.HasPrefix(got, "steiner ") {
-		t.Fatalf("version output = %q, want version prefix", got)
+	if !strings.HasPrefix(got, "Steiner v") {
+		t.Fatalf("version output = %q, want Steiner v prefix", got)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())

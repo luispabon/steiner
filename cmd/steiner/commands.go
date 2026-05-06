@@ -19,6 +19,7 @@ func newRootCommand() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:          "steiner",
+		Version:      version,
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -70,7 +71,7 @@ func newVersionCommand() *cobra.Command {
 		Short: "Print the steiner version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "steiner %s\n", version)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Steiner v%s\n", version)
 			return err
 		},
 	}

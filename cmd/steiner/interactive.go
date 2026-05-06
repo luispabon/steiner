@@ -87,6 +87,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		HomeDir:                       rt.homeDir,
 		WorkingDir:                    rt.workDir,
 		MaxTurns:                      0,
+		Version:                       version,
 		SkillNames:                    rt.skillNames,
 		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
 		Controller:                    sess,

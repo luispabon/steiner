@@ -22,6 +22,7 @@ const (
 type sidebarState struct {
 	expanded      bool
 	model         string
+	version       string
 	quant         string
 	provider      string
 	homeDir       string
@@ -218,7 +219,7 @@ func (s sidebarState) brandSection(width int) []string {
 	}
 
 	// Append version on the third line after the logo characters.
-	ver := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black)).Render("0.1.4")
+	ver := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black)).Render(s.version)
 	third := out[2] + bg.Render(" ") + ver
 	thirdWidth := lipgloss.Width(third)
 	if pad := width - thirdWidth; pad > 0 {
