@@ -1,9 +1,48 @@
 package patchdoc
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestOSFS(t *testing.T) {
+	t.Parallel()
+
+	fs := OSFS{}
+	root := t.TempDir()
+	path := filepath.Join(root, "file.txt")
+
+	if err := fs.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatalf("OSFS.MkdirAll() error = %v", err)
+	}
+	if err := fs.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("OSFS.WriteFile() error = %v", err)
+	}
+
+	info, err := fs.Stat(path)
+	if err != nil {
+		t.Fatalf("OSFS.Stat() error = %v", err)
+	}
+	if info.Name() != "file.txt" {
+		t.Fatalf("OSFS.Stat() name = %q, want %q", info.Name(), "file.txt")
+	}
+
+	data, err := fs.ReadFile(path)
+	if err != nil {
+		t.Fatalf("OSFS.ReadFile() error = %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("OSFS.ReadFile() = %q, want %q", string(data), "hello")
+	}
+
+	if err := fs.Remove(path); err != nil {
+		t.Fatalf("OSFS.Remove() error = %v", err)
+	}
+	if _, err := fs.Stat(path); err == nil {
+		t.Fatalf("OSFS.Stat() error = nil, want file missing")
+	}
+}
 
 func TestDeriveNewContents(t *testing.T) {
 	t.Parallel()

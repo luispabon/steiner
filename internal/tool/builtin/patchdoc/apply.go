@@ -2,9 +2,41 @@ package patchdoc
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 	"sort"
 	"strings"
 )
+
+type FS interface {
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm fs.FileMode) error
+	Remove(name string) error
+	MkdirAll(path string, perm fs.FileMode) error
+	Stat(name string) (fs.FileInfo, error)
+}
+
+type OSFS struct{}
+
+func (OSFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (OSFS) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+
+func (OSFS) Remove(name string) error {
+	return os.Remove(name)
+}
+
+func (OSFS) MkdirAll(path string, perm fs.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (OSFS) Stat(name string) (fs.FileInfo, error) {
+	return os.Stat(name)
+}
 
 func DeriveNewContents(original string, path string, chunks []UpdateFileChunk) (string, error) {
 	originalLines := splitCodexLines(original)
