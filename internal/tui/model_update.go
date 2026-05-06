@@ -169,6 +169,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.palette.height = msg.Height
 	m.fileList.width = msg.Width
 	m.fileList.height = msg.Height
+	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
 	if m.contextOverlay.open {
 		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
@@ -226,6 +227,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If file picker is open, route keys to it
 	if m.filePicker.open {
 		return m.handleFilePickerKey(msg)
+	}
+
+	// If session picker is open, route keys to it
+	if m.sessionPicker.open {
+		return m.handleSessionPickerKey(msg)
 	}
 
 	if m.approval.active {
@@ -445,4 +451,25 @@ func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.sessionPicker = m.sessionPicker.Close()
+		return m, nil
+	case tea.KeyEnter:
+		if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
+			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
+			m.sessionPicker = m.sessionPicker.Close()
+			if m.controller != nil {
+				_ = m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID})
+			}
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+		return m, cmd
+	}
 }
