@@ -443,7 +443,25 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 	sort.SliceStable(replacements, func(i, j int) bool {
 		return replacements[i].Start < replacements[j].Start
 	})
+	if err := validateNoOverlap(replacements, path); err != nil {
+		return nil, err
+	}
 	return replacements, nil
+}
+
+// validateNoOverlap returns an error if any two consecutive sorted replacements overlap.
+func validateNoOverlap(replacements []replacement, path string) error {
+	for i := 1; i < len(replacements); i++ {
+		prev := replacements[i-1]
+		curr := replacements[i]
+		if prev.Start+prev.OldLen > curr.Start {
+			return fmt.Errorf(
+				"overlapping chunks in %s: lines %d-%d overlap with lines %d-%d",
+				path, prev.Start+1, prev.Start+prev.OldLen, curr.Start+1, curr.Start+curr.OldLen,
+			)
+		}
+	}
+	return nil
 }
 
 func applyReplacements(lines []string, replacements []replacement) []string {

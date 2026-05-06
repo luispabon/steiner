@@ -970,3 +970,35 @@ func slicesEqual[T comparable](got, want []T) bool {
 	}
 	return true
 }
+
+func TestComputeReplacementsRejectsOverlap(t *testing.T) {
+	// validateNoOverlap is called by computeReplacements after sort.
+	// Build overlapping replacements directly since sequential SeekSequence
+	// cannot produce them naturally (lineIndex advances forward-only).
+	overlapping := []replacement{
+		{Start: 1, OldLen: 3, NewLines: []string{"X"}}, // covers lines 1-3
+		{Start: 2, OldLen: 2, NewLines: []string{"Y"}}, // starts at line 2 — overlaps
+	}
+	err := validateNoOverlap(overlapping, "test.go")
+	if err == nil {
+		t.Fatal("expected error for overlapping chunks, got nil")
+	}
+	if !strings.Contains(err.Error(), "overlap") {
+		t.Fatalf("error %q should mention overlap", err.Error())
+	}
+}
+
+func TestComputeReplacementsAdjacentIsOK(t *testing.T) {
+	lines := []string{"a", "b", "c", "d", "e"}
+	chunks := []UpdateFileChunk{
+		{OldLines: []string{"b"}, NewLines: []string{"X"}},
+		{OldLines: []string{"c"}, NewLines: []string{"Y"}},
+	}
+	replacements, err := computeReplacements(lines, "test.go", chunks)
+	if err != nil {
+		t.Fatalf("unexpected error for adjacent chunks: %v", err)
+	}
+	if len(replacements) != 2 {
+		t.Fatalf("expected 2 replacements, got %d", len(replacements))
+	}
+}
