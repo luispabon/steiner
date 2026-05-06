@@ -3,7 +3,7 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes      = 2048
+	defaultPreambleBudgetBytes      = 4096
 	defaultGlobalAgentsBudgetBytes  = 2048
 	defaultProjectAgentsBudgetBytes = 8192
 	defaultSkillBudgetBytes         = 2048
