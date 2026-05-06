@@ -840,8 +840,8 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	if strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
 		t.Fatalf("Decisions = %q, want no durable file-switch heuristic", cm.scratchpad.Decisions)
 	}
-	if !strings.Contains(cm.scratchpad.LastAction, "updated") {
-		t.Fatalf("LastAction = %q, want working-file update", cm.scratchpad.LastAction)
+	if !strings.Contains(cm.scratchpad.LastAction, "read second.txt") {
+		t.Fatalf("LastAction = %q, want read working-file update", cm.scratchpad.LastAction)
 	}
 }
 
