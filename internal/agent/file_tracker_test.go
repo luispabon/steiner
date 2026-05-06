@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 type mutationOK struct{}
@@ -66,7 +65,6 @@ func TestFileTrackerFallsBackToFullContentWhenFileChanges(t *testing.T) {
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
 	tracker := FileTracker{}
 	_, _ = tracker.ObserveRead(1, content, true)
-	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatalf("rewrite file: %v", err)
 	}
@@ -238,6 +236,38 @@ func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	got = manager.IngestToolResult(3, "read", content)
 	if !strings.Contains(got, "file unchanged since turn 2") {
 		t.Fatalf("third manager read = %q, want annotation", got)
+	}
+}
+
+func TestFileTrackerDetectsBashMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"original\n"}`
+	tracker := FileTracker{}
+	tracker.ObserveRead(1, content, true)
+
+	// Simulate bash mutation (no generation bump)
+	if err := os.WriteFile(path, []byte("mutated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-read with different content in JSON
+	content2 := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"mutated\n"}`
+	got, obs := tracker.ObserveRead(2, content2, true)
+	if strings.Contains(got, "file unchanged since turn") {
+		t.Fatalf("bash-mutated reread = %q, want full content (not annotation)", got)
+	}
+	if obs.Reason != "modified file" {
+		t.Fatalf("observation reason = %q, want modified file", obs.Reason)
 	}
 }
 
