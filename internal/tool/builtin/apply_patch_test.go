@@ -53,6 +53,36 @@ func TestApplyPatchToolEmptyPatchReturnsGoError(t *testing.T) {
 	}
 }
 
+func TestApplyPatchToolEmptyDocumentReturnsFailureResult(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	result, err := NewApplyPatchTool(Env{WorkDir: root}).Handler(context.Background(), map[string]any{
+		"patch": strings.Join([]string{
+			"*** Begin Patch",
+			"*** End Patch",
+		}, "\n"),
+		"dry_run": true,
+	})
+	if err != nil {
+		t.Fatalf("Handler() error = %v, want failure result", err)
+	}
+
+	got, ok := result.(*ApplyPatchResult)
+	if !ok {
+		t.Fatalf("Handler() result type = %T, want *ApplyPatchResult", result)
+	}
+	if !got.DryRun {
+		t.Fatal("DryRun = false, want true")
+	}
+	if got.HunksFailed != 1 {
+		t.Fatalf("HunksFailed = %d, want 1", got.HunksFailed)
+	}
+	if !strings.Contains(got.Output, "patch contains no file operations") {
+		t.Fatalf("Output = %q, want empty patch error", got.Output)
+	}
+}
+
 func TestApplyPatchToolMalformedPatchReturnsFailureResult(t *testing.T) {
 	t.Parallel()
 
@@ -86,6 +116,39 @@ func TestApplyPatchToolMalformedPatchReturnsFailureResult(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "note.txt")); !os.IsNotExist(err) {
 		t.Fatalf("file mutation = %v, want no file written", err)
+	}
+}
+
+func TestApplyPatchToolHeredocWrappedPatchReturnsFailureResult(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	toolDef := NewApplyPatchTool(Env{WorkDir: root})
+
+	result, err := toolDef.Handler(context.Background(), map[string]any{
+		"patch": strings.Join([]string{
+			"cat <<'EOF'",
+			"*** Begin Patch",
+			"*** Add File: note.txt",
+			"+hello",
+			"*** End Patch",
+			"EOF",
+		}, "\n"),
+		"dry_run": true,
+	})
+	if err != nil {
+		t.Fatalf("Handler() error = %v, want failure result", err)
+	}
+
+	got, ok := result.(*ApplyPatchResult)
+	if !ok {
+		t.Fatalf("Handler() result type = %T, want *ApplyPatchResult", result)
+	}
+	if got.HunksFailed != 1 {
+		t.Fatalf("HunksFailed = %d, want 1", got.HunksFailed)
+	}
+	if !strings.Contains(got.Output, `expected "*** Begin Patch"`) {
+		t.Fatalf("Output = %q, want malformed patch error", got.Output)
 	}
 }
 
