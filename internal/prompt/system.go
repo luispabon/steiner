@@ -56,8 +56,11 @@ func SystemPreamble(override string, scratchpadEnabled bool) ContextBlock {
 		content = override
 	}
 	if scratchpadEnabled {
-		content = identity + "\n\n" + scratchpadInstructions + "\n\n" + content
+		content = scratchpadInstructions + "\n\n" + content
 	}
+
+	content = identity + "\n\n" + content
+
 	return ContextBlock{
 		Source:   ContextSourcePreamble,
 		Content:  content,

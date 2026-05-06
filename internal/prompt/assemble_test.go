@@ -57,7 +57,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		}
 	}
 
-	if got, want := len(assembly.Messages), 7; got != want {
+	if got, want := len(assembly.Messages), 5; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
@@ -65,14 +65,20 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		t.Fatalf("message[0].role = %q, want system", got)
 	}
 
-	globalRules := messageIndexByContent(t, assembly.Messages, "global rules")
-	projectRules := messageIndexByContent(t, assembly.Messages, "project rules")
+	sysMsg := assembly.Messages[0].Content
+	if !strings.Contains(sysMsg, "global rules") {
+		t.Fatalf("system message missing global rules: %q", sysMsg)
+	}
+	if !strings.Contains(sysMsg, "project rules") {
+		t.Fatalf("system message missing project rules: %q", sysMsg)
+	}
+
 	readme := messageIndexByNameContains(t, assembly.Messages, "README.md")
 	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
 	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
 
-	if !(globalRules < projectRules && projectRules < readme && readme < conversation && conversation < toolSummary) {
-		t.Fatalf("message order = global:%d project:%d readme:%d conversation:%d tool_summary:%d", globalRules, projectRules, readme, conversation, toolSummary)
+	if !(0 < readme && readme < conversation && conversation < toolSummary) {
+		t.Fatalf("message order = readme:%d conversation:%d tool_summary:%d", readme, conversation, toolSummary)
 	}
 }
 
@@ -197,11 +203,62 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("agent block bytes = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Messages[0].Content, "syste"; got != want {
-		t.Fatalf("preamble message content = %q, want %q", got, want)
+	if got, want := len(assembly.Messages), 1; got != want {
+		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
-	if got, want := assembly.Messages[1].Content, "glob"; got != want {
-		t.Fatalf("agent message content = %q, want %q", got, want)
+
+	wantContent := "syste\n\nglob"
+	if got := assembly.Messages[0].Content; got != wantContent {
+		t.Fatalf("merged system message content = %q, want %q", got, wantContent)
+	}
+}
+
+func TestAssembleMergesConsecutiveSystemMessages(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	projectRoot := t.TempDir()
+
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global agents")
+	mustWrite(t, projectRoot, "AGENTS.md", "project agents")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir:     homeDir,
+		ProjectRoot: projectRoot,
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	if got, want := len(assembly.Messages), 1; got != want {
+		t.Fatalf("len(messages) = %d, want %d", got, want)
+	}
+
+	msg := assembly.Messages[0]
+	if got, want := msg.Role, provider.MessageRoleSystem; got != want {
+		t.Fatalf("message role = %q, want %q", got, want)
+	}
+
+	parts := strings.Split(msg.Content, "\n\n")
+	if len(parts) < 2 {
+		t.Fatalf("expected at least 2 system parts separated by \\n\\n, got %d parts: %q", len(parts), msg.Content)
+	}
+
+	foundGlobal := false
+	foundProject := false
+	for _, part := range parts {
+		if strings.Contains(part, "global agents") {
+			foundGlobal = true
+		}
+		if strings.Contains(part, "project agents") {
+			foundProject = true
+		}
+	}
+	if !foundGlobal {
+		t.Fatalf("merged system message missing global agents content: %q", msg.Content)
+	}
+	if !foundProject {
+		t.Fatalf("merged system message missing project agents content: %q", msg.Content)
 	}
 }
 

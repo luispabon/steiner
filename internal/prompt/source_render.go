@@ -45,8 +45,15 @@ func (s *assemblyState) renderBlocks() {
 		}
 		s.blocks = append(s.blocks, block)
 		msg := blockMessage(block)
-		if msg.Role == provider.MessageRoleUser && len(s.messages) > 0 && s.messages[len(s.messages)-1].Role == provider.MessageRoleUser {
-			s.messages[len(s.messages)-1].Content += "\n" + msg.Content
+		if len(s.messages) > 0 && s.messages[len(s.messages)-1].Role == msg.Role {
+			switch msg.Role {
+			case provider.MessageRoleSystem:
+				s.messages[len(s.messages)-1].Content += "\n\n" + msg.Content
+			case provider.MessageRoleUser:
+				s.messages[len(s.messages)-1].Content += "\n" + msg.Content
+			default:
+				s.messages = append(s.messages, msg)
+			}
 		} else {
 			s.messages = append(s.messages, msg)
 		}
