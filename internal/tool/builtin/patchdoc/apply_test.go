@@ -507,6 +507,106 @@ func TestApplyPatchDryRunWithRealHunksPlansWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestApplyPatchDryRunUpdateMissingExpectedOldLinesReturnsErrorAndDoesNotWrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "update.txt")
+	fsys := newFakeFS(map[string]fakeFile{
+		path: {data: []byte("alpha\n"), mode: 0o640},
+	})
+
+	_, err := ApplyPatch(root, Patch{
+		Hunks: []Hunk{
+			UpdateFile{
+				PathValue: "update.txt",
+				Chunks: []UpdateFileChunk{
+					{OldLines: []string{"missing"}, NewLines: []string{"new"}},
+				},
+			},
+		},
+	}, true, fsys)
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want missing expected lines error")
+	}
+	if !strings.Contains(err.Error(), "failed to find expected lines") {
+		t.Fatalf("ApplyPatch() error = %v, want missing expected lines validation error", err)
+	}
+	if len(fsys.ops) != 0 {
+		t.Fatalf("ApplyPatch() ops = %#v, want no writes in dry-run failure", fsys.ops)
+	}
+	if data, ok := fsys.files[path]; !ok || string(data.data) != "alpha\n" {
+		t.Fatalf("ApplyPatch() file = %#v, want unchanged source content", data)
+	}
+}
+
+func TestApplyPatchDryRunAddExistingTargetReturnsErrorAndDoesNotWrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "exists.txt")
+	fsys := newFakeFS(map[string]fakeFile{
+		path: {data: []byte("present\n"), mode: 0o644},
+	})
+
+	_, err := ApplyPatch(root, Patch{
+		Hunks: []Hunk{
+			AddFile{PathValue: "exists.txt", Contents: "new\n"},
+		},
+	}, true, fsys)
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want existing target error")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("ApplyPatch() error = %v, want existing target validation error", err)
+	}
+	if len(fsys.ops) != 0 {
+		t.Fatalf("ApplyPatch() ops = %#v, want no writes in dry-run failure", fsys.ops)
+	}
+	if data, ok := fsys.files[path]; !ok || string(data.data) != "present\n" {
+		t.Fatalf("ApplyPatch() file = %#v, want unchanged target content", data)
+	}
+}
+
+func TestApplyPatchDryRunMoveExistingDestinationReturnsErrorAndDoesNotWrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "source.txt")
+	destPath := filepath.Join(root, "dest.txt")
+	fsys := newFakeFS(map[string]fakeFile{
+		sourcePath: {data: []byte("move\n"), mode: 0o600},
+		destPath:   {data: []byte("present\n"), mode: 0o644},
+	})
+
+	_, err := ApplyPatch(root, Patch{
+		Hunks: []Hunk{
+			UpdateFile{
+				PathValue: "source.txt",
+				MovePath:  "dest.txt",
+				Chunks: []UpdateFileChunk{
+					{OldLines: []string{"move"}, NewLines: []string{"move"}},
+				},
+			},
+		},
+	}, true, fsys)
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want existing destination error")
+	}
+	if !strings.Contains(err.Error(), "destination already exists") {
+		t.Fatalf("ApplyPatch() error = %v, want existing destination validation error", err)
+	}
+	if len(fsys.ops) != 0 {
+		t.Fatalf("ApplyPatch() ops = %#v, want no writes in dry-run failure", fsys.ops)
+	}
+	if data, ok := fsys.files[sourcePath]; !ok || string(data.data) != "move\n" {
+		t.Fatalf("ApplyPatch() source = %#v, want unchanged source content", data)
+	}
+	if data, ok := fsys.files[destPath]; !ok || string(data.data) != "present\n" {
+		t.Fatalf("ApplyPatch() dest = %#v, want unchanged destination content", data)
+	}
+}
+
 func TestBuildApplyResult(t *testing.T) {
 	t.Parallel()
 
