@@ -53,7 +53,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().StringVar(&flags.contextMode, "context-mode", "", "context management mode: naive or smart (overrides config)")
-	rootCmd.PersistentFlags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
+	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
 	rootCmd.Flag("resume").NoOptDefVal = ""
 
 	rootCmd.AddCommand(newVersionCommand())

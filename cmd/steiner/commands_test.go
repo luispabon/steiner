@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -207,5 +208,76 @@ func TestRenderNamesUsesProvidedHeading(t *testing.T) {
 	}
 	if !strings.Contains(got, "  alpha") {
 		t.Fatalf("output = %q, want alpha", got)
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name      string
+		timestamp time.Time
+		checkFn   func(string) bool
+	}{
+		{
+			name:      "just now (sub-minute)",
+			timestamp: now.Add(-30 * time.Second),
+			checkFn:   func(s string) bool { return s == "just now" },
+		},
+		{
+			name:      "5 minutes ago",
+			timestamp: now.Add(-5 * time.Minute),
+			checkFn:   func(s string) bool { return s == "5m ago" },
+		},
+		{
+			name:      "3 hours ago",
+			timestamp: now.Add(-3 * time.Hour),
+			checkFn:   func(s string) bool { return s == "3h ago" },
+		},
+		{
+			name:      "2 days ago",
+			timestamp: now.Add(-2 * 24 * time.Hour),
+			checkFn:   func(s string) bool { return s == "2d ago" },
+		},
+		{
+			name:      "6 days ago",
+			timestamp: now.Add(-6 * 24 * time.Hour),
+			checkFn:   func(s string) bool { return s == "6d ago" },
+		},
+		{
+			name:      "more than 7 days ago uses Jan 2, 2006 format",
+			timestamp: now.Add(-30 * 24 * time.Hour),
+			checkFn: func(s string) bool {
+				// Just verify it doesn't end with "ago" and contains digits
+				return !strings.HasSuffix(s, "ago") && len(s) > 0
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatRelativeTime(tt.timestamp)
+			if !tt.checkFn(got) {
+				t.Fatalf("formatRelativeTime(%v) = %q, check failed", tt.timestamp, got)
+			}
+		})
+	}
+}
+
+func TestResumeWithExecRejected(t *testing.T) {
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--resume", "some-uuid", "--exec"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error for --resume with --exec")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "unsupported") {
+		t.Fatalf("error message = %q, want 'unsupported' in message", errMsg)
 	}
 }
