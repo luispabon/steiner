@@ -42,7 +42,7 @@ func recordMutationForContextManager(cm ContextManager, toolName string, input m
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "write", "write_file", "edit":
+	case "write", "write_file", "edit", "apply_patch":
 	default:
 		return
 	}

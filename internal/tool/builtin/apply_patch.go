@@ -180,6 +180,8 @@ func NewApplyPatchTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("apply_patch: write %q: %w", in.Path, err)
 			}
 
+			// Successful writes return a mutation-bearing result so the agent can
+			// invalidate stale file reads and refresh scratchpad state.
 			return &ApplyPatchResult{
 				Path:         relDisplayPath(env.WorkDir, absPath),
 				HunksApplied: hunksApplied,

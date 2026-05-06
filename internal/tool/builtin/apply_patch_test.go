@@ -415,3 +415,53 @@ func TestApplyPatchTool(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyPatchResultWasMutated(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *ApplyPatchResult
+		want   bool
+	}{
+		{
+			name: "successful patch",
+			result: &ApplyPatchResult{
+				Path:         "note.txt",
+				HunksApplied: 1,
+			},
+			want: true,
+		},
+		{
+			name: "dry run",
+			result: &ApplyPatchResult{
+				Path:         "note.txt",
+				HunksApplied: 1,
+				DryRun:       true,
+			},
+			want: false,
+		},
+		{
+			name: "failed patch",
+			result: &ApplyPatchResult{
+				Path:         "note.txt",
+				HunksApplied: 1,
+				HunksFailed:  1,
+			},
+			want: false,
+		},
+		{
+			name: "no hunks applied",
+			result: &ApplyPatchResult{
+				Path: "note.txt",
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.result.WasMutated(); got != tc.want {
+				t.Fatalf("WasMutated() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

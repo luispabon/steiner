@@ -67,11 +67,26 @@ func TestRecordMutationForContextManager(t *testing.T) {
 		}
 	}
 
+	recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &successMutation{})
+	for _, generation := range cm.fileTracker.generations {
+		if generation != 3 {
+			t.Fatalf("generation after apply_patch = %d, want 3", generation)
+		}
+	}
+
 	t.Run("edit with failed mutation does not bump generation", func(t *testing.T) {
 		cm := &SmartContextManager{}
 		recordMutationForContextManager(cm, "edit", map[string]any{"path": "note.txt"}, &failedMutation{})
 		if got := len(cm.fileTracker.generations); got != 0 {
 			t.Fatalf("generation entries after failed edit = %d, want 0", got)
+		}
+	})
+
+	t.Run("apply_patch with failed mutation does not bump generation", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &failedMutation{})
+		if got := len(cm.fileTracker.generations); got != 0 {
+			t.Fatalf("generation entries after failed apply_patch = %d, want 0", got)
 		}
 	})
 }
