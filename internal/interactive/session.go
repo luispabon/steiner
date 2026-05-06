@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -297,5 +298,35 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
 		}
 	}
+
+
+	// Emit a context-diagnostics event so the TUI can populate the sidebar
+	// token bar and the status bar with the model's context budget.
+	var promptTokens int
+	for _, msg := range msgs {
+		t, err := provider.EstimateMessageTokens(ctx, s.deps.Config.Model.Model, provider.Message{
+			Role:       provider.MessageRole(msg.Role),
+			Content:    msg.Content,
+		})
+		if err != nil {
+			_ = err
+			promptTokens += 4
+		} else {
+			promptTokens += t
+		}
+	}
+	turnCount := promptTokens / 2
+	if turnCount < 1 {
+		turnCount = 1
+	}
+	s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:           "session_loaded",
+		ContextTokens:  s.deps.Config.Model.ContextSize,
+		PromptTokens:   promptTokens,
+		ReservedTokens: 0,
+		TotalTokens:    promptTokens,
+		Turn:           turnCount,
+	}))
+
 	return nil
 }
