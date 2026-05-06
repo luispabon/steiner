@@ -402,6 +402,9 @@ func TestBuildScratchpadMessage_RendersHeaderOnce(t *testing.T) {
 	}
 
 	content := got.Content
+	if strings.Contains(content, "/home/") {
+		t.Fatalf("content = %q, want no absolute workspace roots", content)
+	}
 	for _, want := range []string{
 		"[Current task state]",
 		"session state: turn=4 compactions=1",
