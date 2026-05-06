@@ -156,6 +156,14 @@ func (s *Session) SessionID() string {
 	return s.sessionID
 }
 
+// SessionTitle returns the current session's title, which is empty until
+// the first prompt is submitted or a saved session is loaded.
+func (s *Session) SessionTitle() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionTitle
+}
+
 // LoadSessionByID loads a saved session with the given ID, replacing the current
 // conversation with the restored lineage.
 func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
@@ -275,8 +283,19 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
 	s.sessionTitle = sess.Title
+	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 
-	s.emitContextReport(ctx)
+	for _, msg := range msgs {
+		if msg.Content == "" {
+			continue
+		}
+		switch msg.Role {
+		case agent.MessageRoleUser:
+			s.events.Emit(output.NewUserInputEvent(msg.Content, "resume"))
+		case agent.MessageRoleAssistant:
+			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
+		}
+	}
 	return nil
 }

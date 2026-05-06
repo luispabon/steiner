@@ -78,7 +78,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		return err
 	}
 
-	tuiApp := tui.NewApp(tui.Config{
+	tuiCfg := tui.Config{
 		Model:                         rt.cfg.Model.Model,
 		ModelNames:                    modelAliasNames(rt.cfg),
 		ModelContexts:                 modelContextSizes(rt.cfg),
@@ -90,7 +90,11 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		SkillNames:                    rt.skillNames,
 		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
 		Controller:                    sess,
-	})
+	}
+	if rt.sessionStore != nil {
+		tuiCfg.SessionStore = rt.sessionStore
+	}
+	tuiApp := tui.NewApp(tuiCfg)
 
 	// Attach TUI sink to session event bus before creating the runner,
 	// so the runner's copy of the runtime picks up the multi-sink events.
@@ -147,9 +151,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	clearTerminalScreen(cmd.OutOrStdout())
 
 	if err == nil {
-		sessionID := sess.SessionID()
-		if sessionID != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Resume this session: steiner --resume %s\n", sessionID)
+		if sess.SessionTitle() != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
 		}
 	}
 
