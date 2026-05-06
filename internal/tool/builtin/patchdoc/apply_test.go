@@ -220,13 +220,13 @@ func TestApplyPatchDryRunWithNoHunks(t *testing.T) {
 	t.Parallel()
 
 	got, err := ApplyPatch(t.TempDir(), Patch{}, true, OSFS{})
-	if err != nil {
-		t.Fatalf("ApplyPatch() error = %v", err)
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want empty patch error")
 	}
-	if !got.DryRun {
-		t.Fatal("ApplyPatch() DryRun = false, want true")
+	if err.Error() != "patch contains no file operations" {
+		t.Fatalf("ApplyPatch() error = %v, want empty patch error", err)
 	}
-	if len(got.Added) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+	if got.DryRun || len(got.Added) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
 		t.Fatalf("ApplyPatch() result = %#v, want empty result", got)
 	}
 }
@@ -255,11 +255,14 @@ func TestApplyPatchNilFSDefaultsToOSFSInDryRun(t *testing.T) {
 	t.Parallel()
 
 	got, err := ApplyPatch(t.TempDir(), Patch{}, true, nil)
-	if err != nil {
-		t.Fatalf("ApplyPatch() error = %v", err)
+	if err == nil {
+		t.Fatal("ApplyPatch() error = nil, want empty patch error")
 	}
-	if !got.DryRun {
-		t.Fatal("ApplyPatch() DryRun = false, want true")
+	if err.Error() != "patch contains no file operations" {
+		t.Fatalf("ApplyPatch() error = %v, want empty patch error", err)
+	}
+	if got.DryRun || len(got.Added) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+		t.Fatalf("ApplyPatch() result = %#v, want empty result", got)
 	}
 }
 

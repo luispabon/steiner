@@ -87,6 +87,9 @@ func ApplyPatch(root string, patch Patch, dryRun bool, fsys FS) (ApplyResult, er
 	if fsys == nil {
 		fsys = OSFS{}
 	}
+	if len(patch.Hunks) == 0 {
+		return ApplyResult{}, fmt.Errorf("patch contains no file operations")
+	}
 
 	if err := validateDuplicateTargets(patch.Hunks); err != nil {
 		return ApplyResult{}, err

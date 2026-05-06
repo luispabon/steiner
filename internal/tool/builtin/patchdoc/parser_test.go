@@ -358,6 +358,18 @@ func TestParsePatchErrors(t *testing.T) {
 			wantErr: `expected "*** End Patch"`,
 		},
 		{
+			name: "heredoc wrapper is malformed",
+			input: strings.Join([]string{
+				"cat <<'EOF'",
+				"*** Begin Patch",
+				"*** Add File: note.txt",
+				"+hello",
+				"*** End Patch",
+				"EOF",
+			}, "\n"),
+			wantErr: `expected "*** Begin Patch"`,
+		},
+		{
 			name: "unknown hunk header",
 			input: strings.Join([]string{
 				"*** Begin Patch",
