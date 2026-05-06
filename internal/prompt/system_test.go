@@ -25,3 +25,33 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 		}
 	}
 }
+
+func TestSystemPreambleMutationGuidanceUsesApplyPatch(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", true).Content
+	for _, want := range []string{
+		"- Use apply_patch for all file mutations.",
+		"Patch format:",
+		"*** Begin Patch",
+		"*** Add File: path/to/file",
+		"*** Update File: path/to/file",
+		"*** Delete File: path/to/file",
+		"- Do not use bash, sed, perl, python, cat, tee, or shell redirection for ad-hoc file edits.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("system preamble missing %q in %q", want, content)
+		}
+	}
+	for _, forbidden := range []string{
+		"Use edit for targeted modifications.",
+		"Use write only for new files or intentional full rewrites.",
+		"old_string",
+		"new_string",
+		"path+hunks",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("system preamble still contains %q in %q", forbidden, content)
+		}
+	}
+}

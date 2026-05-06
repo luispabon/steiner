@@ -14,7 +14,7 @@ import (
 func NewEditTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "edit",
-		Description:     "Replace exact text in one file. Use read first and include enough surrounding context in old_string to make the match unique. Fails if old_string is absent or ambiguous unless replace_all is true.",
+		Description:     "Replace exact text in one file. Fails if old_string is absent or ambiguous unless replace_all is true.",
 		ParameterSchema: EditSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[EditInput](input)

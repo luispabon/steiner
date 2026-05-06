@@ -17,7 +17,7 @@ func NewWriteTool(env Env) tool.ToolDef {
 	})
 	return tool.ToolDef{
 		Name:            "write",
-		Description:     "Create or overwrite a whole file. For modifying existing files, prefer edit unless a full rewrite is intentional.",
+		Description:     "Create or overwrite a whole file.",
 		ParameterSchema: WriteSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[WriteInput](input)
