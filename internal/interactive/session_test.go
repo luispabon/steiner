@@ -24,13 +24,27 @@ var (
 	_ Action = SwitchModel{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
+	_ Action = LoadSession{}
+	_ Action = RequestSessionPicker{}
 )
+
+// testNewSession is a helper that creates a new session and fails the test if it returns an error.
+func testNewSession(t *testing.T, deps Dependencies) *Session {
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	return s
+}
 
 func TestNewSession(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	if s == nil {
-		t.Fatal("NewSession returned nil")
+		t.Fatal("NewSession returned nil session")
 	}
 	if s.events == nil {
 		t.Error("expected non-nil event sink")
@@ -50,15 +64,21 @@ func TestNewSession(t *testing.T) {
 	if s.approvalCoordinator == nil {
 		t.Error("expected non-nil approval coordinator")
 	}
+	if s.sessionID == "" {
+		t.Error("expected non-empty session ID")
+	}
 }
 
 func TestNewSessionWithSkillNames(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		SkillNames: []string{"go-code-audit", "slop-detector"},
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	if s == nil {
-		t.Fatal("NewSession returned nil")
+		t.Fatal("NewSession returned nil session")
 	}
 	names := s.Skills().Snapshot()
 	if got, want := len(names), 2; got != want {
@@ -211,7 +231,7 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 
 func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Model: config.ModelConfig{Model: "gpt-4"},
 			Models: map[string]config.ModelConfig{
@@ -245,7 +265,7 @@ func TestSessionHandleNoop(t *testing.T) {
 
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			return conversation, nil
 		}),
@@ -268,7 +288,7 @@ func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			called = true
 			return conversation, nil
@@ -284,7 +304,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			return []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
@@ -303,7 +323,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -335,7 +355,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
 	recorded := ""
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -380,7 +400,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	t.Parallel()
 	block := make(chan struct{})
 	cancelled := false
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
 			close(block)
 			<-ctx.Done()
@@ -404,7 +424,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 func TestInterruptActiveRunCancelsRun(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	s.runController.Set(cancel)
 
 	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
@@ -420,7 +440,7 @@ func TestInterruptActiveRunCancelsRun(t *testing.T) {
 
 func TestClearConversationClearsConversation(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
@@ -460,7 +480,7 @@ func (w *recordingHistoryWriter) Load() ([]string, error) {
 
 func TestSessionRunReturnsOnCancel(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -471,7 +491,7 @@ func TestSessionRunReturnsOnCancel(t *testing.T) {
 
 func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	ctx := context.Background()
 
 	done := make(chan error, 1)
@@ -494,7 +514,7 @@ func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
 func TestSessionRunLoadsHistory(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -532,7 +552,7 @@ func TestSessionRunLoadsHistory(t *testing.T) {
 func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -569,7 +589,7 @@ func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
 func TestSessionRunLoadsEmptyHistory(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -606,7 +626,7 @@ func TestSessionRunLoadsEmptyHistory(t *testing.T) {
 
 func TestSessionConversationAccessors(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("initial conversation = %v, want nil", got)
 	}
@@ -621,7 +641,7 @@ func TestSessionConversationAccessors(t *testing.T) {
 func TestSwitchModelSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -660,7 +680,7 @@ func TestSwitchModelSuccess(t *testing.T) {
 func TestSwitchModelFailure(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -694,7 +714,7 @@ func TestSwitchModelFailure(t *testing.T) {
 
 func TestCurrentModelConfig(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Model: config.ModelConfig{Model: "test-model", BaseURL: "http://example/v1"},
 		},
@@ -710,7 +730,7 @@ func TestCurrentModelConfig(t *testing.T) {
 
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{
+	s := testNewSession(t, Dependencies{
 		SkillNames: []string{"review", "test"},
 	})
 
@@ -732,7 +752,7 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 
 func TestSessionAccessorsNonNil(t *testing.T) {
 	t.Parallel()
-	s := NewSession(Dependencies{})
+	s := testNewSession(t, Dependencies{})
 	if s.EventSink() == nil {
 		t.Error("EventSink() returned nil")
 	}

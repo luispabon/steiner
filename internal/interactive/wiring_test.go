@@ -12,7 +12,10 @@ import (
 )
 
 func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
-	s := NewSession(Dependencies{})
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	snaps := s.SnapshotStore()
 
 	_, ok := snaps.Snapshot()
@@ -36,7 +39,10 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 }
 
 func TestSessionSnapshotSinkIgnoresNonAPIRequestEvents(t *testing.T) {
-	s := NewSession(Dependencies{})
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	snaps := s.SnapshotStore()
 
 	s.EventSink().Emit(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
@@ -53,7 +59,10 @@ func TestSessionApproverReturnsNonNil(t *testing.T) {
 		events = append(events, event)
 	})
 
-	s := NewSession(Dependencies{})
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	responder := s.Approver(sink)
 
 	if responder == nil {

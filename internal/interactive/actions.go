@@ -79,3 +79,15 @@ func (ClearConversation) isInteractiveAction() {}
 type TriggerManualCompaction struct{}
 
 func (TriggerManualCompaction) isInteractiveAction() {}
+
+// LoadSession represents a user request to load a previously saved session
+// into the current interactive session, replacing the current conversation.
+type LoadSession struct{ SessionID string }
+
+func (LoadSession) isInteractiveAction() {}
+
+// RequestSessionPicker represents a user request to select and load a saved
+// session. The TUI interprets this and emits the LoadSession action.
+type RequestSessionPicker struct{}
+
+func (RequestSessionPicker) isInteractiveAction() {}

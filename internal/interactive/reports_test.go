@@ -41,18 +41,21 @@ func TestBuildConfigReportFormatsResolvedYAML(t *testing.T) {
 func TestRequestContextReportWithSnapshot(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 	s.snapshots.Store(output.RequestContextSnapshot{
 		Model: "test-model",
 	})
 
-	err := s.Handle(context.Background(), RequestContextReport{})
-	if err != nil {
-		t.Fatalf("Handle(RequestContextReport) = %v, want nil", err)
+	handleErr := s.Handle(context.Background(), RequestContextReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
 	}
 
 	if len(events) < 1 {
@@ -73,15 +76,18 @@ func TestRequestContextReportWithSnapshot(t *testing.T) {
 func TestRequestContextReportNoSnapshot(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
-
-	err := s.Handle(context.Background(), RequestContextReport{})
 	if err != nil {
-		t.Fatalf("Handle(RequestContextReport) = %v, want nil", err)
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	handleErr := s.Handle(context.Background(), RequestContextReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
 	}
 
 	if len(events) < 1 {
@@ -99,11 +105,14 @@ func TestRequestContextReportNoSnapshot(t *testing.T) {
 func TestRequestContextReportBuildError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
 
 	s.snapshots.Store(output.RequestContextSnapshot{
 		Model: "test-model",
@@ -115,9 +124,9 @@ func TestRequestContextReportBuildError(t *testing.T) {
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := s.Handle(cancelledCtx, RequestContextReport{})
-	if err != nil {
-		t.Fatalf("Handle(RequestContextReport) = %v, want nil", err)
+	handleErr := s.Handle(cancelledCtx, RequestContextReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
 	}
 
 	if len(events) < 1 {
@@ -135,7 +144,7 @@ func TestRequestContextReportBuildError(t *testing.T) {
 func TestRequestConfigReportSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
@@ -146,10 +155,13 @@ func TestRequestConfigReportSuccess(t *testing.T) {
 			},
 		},
 	})
-
-	err := s.Handle(context.Background(), RequestConfigReport{})
 	if err != nil {
-		t.Fatalf("Handle(RequestConfigReport) = %v, want nil", err)
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	handleErr := s.Handle(context.Background(), RequestConfigReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestConfigReport) = %v, want nil", handleErr)
 	}
 
 	if len(events) < 1 {
@@ -170,15 +182,18 @@ func TestRequestConfigReportSuccess(t *testing.T) {
 func TestRequestConfigReportWithZeroConfig(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
-	s := NewSession(Dependencies{
+	s, err := NewSession(Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
 	})
-
-	err := s.Handle(context.Background(), RequestConfigReport{})
 	if err != nil {
-		t.Fatalf("Handle(RequestConfigReport) = %v, want nil", err)
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	handleErr := s.Handle(context.Background(), RequestConfigReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestConfigReport) = %v, want nil", handleErr)
 	}
 
 	if len(events) < 1 {
