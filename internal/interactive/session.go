@@ -149,6 +149,19 @@ func (s *Session) SetRunner(runner runExecutor) {
 	s.deps.Runner = runner
 }
 
+// SessionID returns the current session's unique identifier.
+func (s *Session) SessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionID
+}
+
+// LoadSessionByID loads a saved session with the given ID, replacing the current
+// conversation with the restored lineage.
+func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
+	return s.loadSession(ctx, sessionID)
+}
+
 // Handle processes an interactive action. Handles SubmitPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,

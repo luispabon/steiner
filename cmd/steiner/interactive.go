@@ -55,11 +55,15 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		ProviderFactory: rt.providerFactory,
 		HomeDir:         rt.homeDir,
 		WorkDir:         rt.workDir,
+		SessionStore:    rt.sessionStore,
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
 	}
-	sess := interactive.NewSession(sessDeps)
+	sess, err := interactive.NewSession(sessDeps)
+	if err != nil {
+		return err
+	}
 
 	// Build interactive registry using session's display sink.
 	interactiveRegistry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true)
@@ -126,11 +130,29 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		stop()
 	}()
 
+	if flags.resume != "" {
+		if err := sess.LoadSessionByID(cmd.Context(), flags.resume); err != nil {
+			quitTeaProgram(p)
+			wg.Wait()
+			clearTerminalScreen(cmd.OutOrStdout())
+			closeRuntime(&rt)
+			return err
+		}
+	}
+
 	err = sess.Run(ctx)
 
 	quitTeaProgram(p)
 	wg.Wait()
 	clearTerminalScreen(cmd.OutOrStdout())
+
+	if err == nil {
+		sessionID := sess.SessionID()
+		if sessionID != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Resume this session: steiner --resume %s\n", sessionID)
+		}
+	}
+
 	closeRuntime(&rt)
 	return err
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
@@ -30,6 +31,7 @@ type cliFlags struct {
 	maxTurns        int
 	enableStreaming bool
 	contextMode     string
+	resume          string
 }
 
 type cliRuntime struct {
@@ -49,6 +51,7 @@ type cliRuntime struct {
 	approvalIn      *bufio.Reader
 	closeFn         func() error
 	historyWriter   *history.Writer
+	sessionStore    *session.Store
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -141,6 +144,12 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 
+	sessionPath := filepath.Join(homeDir, ".config", "steiner", "sessions")
+	sessionStore, err := session.NewStore(sessionPath)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+
 	sharedInput := bufio.NewReader(cmd.InOrStdin())
 	approvalInput, approvalClose := openApprovalInput(cmd.InOrStdin())
 	closeFn = joinClosers(closeFn, approvalClose)
@@ -161,6 +170,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		approvalIn:      approvalInput,
 		closeFn:         closeFn,
 		historyWriter:   historyWriter,
+		sessionStore:    sessionStore,
 	}, nil
 }
 
