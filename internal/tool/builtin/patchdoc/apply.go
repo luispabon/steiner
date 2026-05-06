@@ -399,7 +399,12 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 		if chunk.HasContext {
 			idx, ok := SeekSequence(originalLines, []string{chunk.ChangeContext}, lineIndex, false)
 			if !ok {
-				return nil, fmt.Errorf("failed to find context %q in %s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward", chunk.ChangeContext, path)
+				hint := ""
+				if closest, found := FindClosestLine(originalLines, chunk.ChangeContext, lineIndex, 20); found {
+					hint = fmt.Sprintf("; closest match at line %d: %q (edit distance %d)",
+						closest.LineIndex+1, closest.Content, closest.Distance)
+				}
+				return nil, fmt.Errorf("failed to find context %q in %s%s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward", chunk.ChangeContext, path, hint)
 			}
 			lineIndex = idx + 1
 		}
@@ -429,7 +434,18 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 			startIdx, ok = SeekSequence(originalLines, pattern, lineIndex, chunk.EndOfFile)
 		}
 		if !ok {
-			return nil, fmt.Errorf("failed to find expected lines in %s:\n%s", path, strings.Join(chunk.OldLines, "\n"))
+			hint := ""
+			firstLine := ""
+			if len(chunk.OldLines) > 0 {
+				firstLine = chunk.OldLines[0]
+			}
+			if firstLine != "" {
+				if closest, found := FindClosestLine(originalLines, firstLine, lineIndex, 20); found {
+					hint = fmt.Sprintf("\nclosest match at line %d: %q (edit distance %d)",
+						closest.LineIndex+1, closest.Content, closest.Distance)
+				}
+			}
+			return nil, fmt.Errorf("failed to find expected lines in %s:\n%s%s", path, strings.Join(chunk.OldLines, "\n"), hint)
 		}
 
 		replacements = append(replacements, replacement{

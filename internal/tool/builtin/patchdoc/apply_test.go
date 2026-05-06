@@ -1002,3 +1002,40 @@ func TestComputeReplacementsAdjacentIsOK(t *testing.T) {
 		t.Fatalf("expected 2 replacements, got %d", len(replacements))
 	}
 }
+
+func TestFindClosestLineUnicodeMismatch(t *testing.T) {
+	// Source has en-dash, target has em-dash — normaliseForPatchMatch maps both to '-',
+	// so they should match with distance 0 (perfect match after normalization).
+	lines := []string{"foo", "some – text", "bar"}
+	target := "some — text"
+	match, ok := FindClosestLine(lines, target, 0, 10)
+	if !ok {
+		t.Fatal("expected a closest match, got none")
+	}
+	if match.LineIndex != 1 {
+		t.Fatalf("closest match line = %d, want 1", match.LineIndex)
+	}
+}
+
+func TestFindClosestLineNoReasonableMatch(t *testing.T) {
+	lines := []string{"completely", "different", "content"}
+	target := "xyzzy plugh"
+	_, ok := FindClosestLine(lines, target, 0, 10)
+	if ok {
+		t.Fatal("expected no match for vastly different lines")
+	}
+}
+
+func TestSeekSequenceNFCNormalization(t *testing.T) {
+	// decomposed e + combining acute accent in source, precomposed é in pattern
+	decomposed := "café"
+	composed := "café"
+	lines := []string{decomposed}
+	idx, ok := SeekSequence(lines, []string{composed}, 0, false)
+	if !ok {
+		t.Fatal("SeekSequence should match decomposed source with composed pattern via NFC normalization")
+	}
+	if idx != 0 {
+		t.Fatalf("match index = %d, want 0", idx)
+	}
+}
