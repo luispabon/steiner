@@ -295,8 +295,8 @@ func TestApplyPatchToolInvalidApplyReturnsFailureResult(t *testing.T) {
 		"patch": strings.Join([]string{
 			"*** Begin Patch",
 			"*** Update File: note.txt",
-			"@@",
-			"-missing",
+			"@@ missing",
+			"-world",
 			"+present",
 			"*** End Patch",
 		}, "\n"),
@@ -314,6 +314,9 @@ func TestApplyPatchToolInvalidApplyReturnsFailureResult(t *testing.T) {
 	}
 	if got.Output == "" {
 		t.Fatal("Output = empty, want apply error text")
+	}
+	if !strings.Contains(got.Output, "@@ anchors must match a literal source line") {
+		t.Fatalf("Output = %q, want literal anchor hint", got.Output)
 	}
 
 	data, err := os.ReadFile(path)

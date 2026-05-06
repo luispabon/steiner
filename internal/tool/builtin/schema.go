@@ -133,7 +133,7 @@ func ApplyPatchSchema() map[string]any {
 		"properties": map[string]any{
 			"patch": map[string]any{
 				"type":        "string",
-				"description": "Codex-style patch document. Must begin with \"*** Begin Patch\" and end with \"*** End Patch\". File paths must be relative to the workspace root.",
+				"description": "Codex-style patch document. Must begin with \"*** Begin Patch\" and end with \"*** End Patch\". File paths must be relative to the workspace root. Update hunk body lines must start with \" \" for context, \"+\" for additions, or \"-\" for removals. Text after @@ is matched literally against a source line; bare @@ is valid when no literal anchor is needed. Use enough context to identify the location.",
 			},
 			"dry_run": map[string]any{
 				"type":        "boolean",

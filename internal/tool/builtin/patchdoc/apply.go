@@ -399,7 +399,7 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 		if chunk.HasContext {
 			idx, ok := SeekSequence(originalLines, []string{chunk.ChangeContext}, lineIndex, false)
 			if !ok {
-				return nil, fmt.Errorf("failed to find context %q in %s", chunk.ChangeContext, path)
+				return nil, fmt.Errorf("failed to find context %q in %s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward", chunk.ChangeContext, path)
 			}
 			lineIndex = idx + 1
 		}

@@ -376,7 +376,16 @@ func TestParsePatchErrors(t *testing.T) {
 				"*** Rename File: note.txt",
 				"*** End Patch",
 			}, "\n"),
-			wantErr: `unexpected top-level marker "*** Rename File: note.txt"`,
+			wantErr: `supported markers are "*** Add File:", "*** Update File:", and "*** Delete File:"`,
+		},
+		{
+			name: "unsupported write file marker",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Write File: note.txt",
+				"*** End Patch",
+			}, "\n"),
+			wantErr: `supported markers are "*** Add File:", "*** Update File:", and "*** Delete File:"`,
 		},
 		{
 			name: "update file with no chunks",
@@ -388,6 +397,17 @@ func TestParsePatchErrors(t *testing.T) {
 			wantErr: `update file "src.txt" has no chunks`,
 		},
 		{
+			name: "unexpected raw heading in update hunk",
+			input: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: src.txt",
+				"@@",
+				"# heading",
+				"*** End Patch",
+			}, "\n"),
+			wantErr: `prefix raw "#" lines with a leading space`,
+		},
+		{
 			name: "unexpected hunk line",
 			input: strings.Join([]string{
 				"*** Begin Patch",
@@ -396,7 +416,7 @@ func TestParsePatchErrors(t *testing.T) {
 				"?bogus",
 				"*** End Patch",
 			}, "\n"),
-			wantErr: `unexpected line in update chunk: "?bogus"`,
+			wantErr: `prefix raw "?" lines with a leading space`,
 		},
 		{
 			name: "update chunk without body",

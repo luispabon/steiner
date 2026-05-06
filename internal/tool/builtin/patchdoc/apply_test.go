@@ -122,7 +122,7 @@ func TestDeriveNewContents(t *testing.T) {
 			chunks: []UpdateFileChunk{
 				{HasContext: true, ChangeContext: "missing", OldLines: []string{"left"}, NewLines: []string{"LEFT"}},
 			},
-			wantErr: "failed to find context \"missing\" in missing-context.txt",
+			wantErr: "failed to find context \"missing\" in missing-context.txt; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
 		},
 		{
 			name:     "replace eof block",

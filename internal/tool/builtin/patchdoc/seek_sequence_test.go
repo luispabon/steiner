@@ -91,3 +91,15 @@ func TestSeekSequenceExactWinsBeforeLooserMatch(t *testing.T) {
 		t.Fatalf("SeekSequence() = (%d,%v), want (2,true)", got, ok)
 	}
 }
+
+func TestSeekSequenceLiteralApostrophe(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{"alpha", "user's setting", "omega"}
+	pattern := []string{"user's setting"}
+
+	got, ok := SeekSequence(lines, pattern, 0, false)
+	if !ok || got != 1 {
+		t.Fatalf("SeekSequence() = (%d,%v), want (1,true)", got, ok)
+	}
+}

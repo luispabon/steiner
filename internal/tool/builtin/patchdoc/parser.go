@@ -74,7 +74,7 @@ func (p *parser) parseHunk() (Hunk, error) {
 	case strings.HasPrefix(line, updateFileMarkerPrefix):
 		return p.parseUpdateFile()
 	default:
-		return nil, p.errorf("unexpected top-level marker %q", line)
+		return nil, p.errorf("unexpected top-level marker %q; supported markers are %q, %q, and %q", line, strings.TrimSpace(addFileMarkerPrefix), strings.TrimSpace(updateFileMarkerPrefix), strings.TrimSpace(deleteFileMarkerPrefix))
 	}
 }
 
@@ -219,7 +219,7 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 		case strings.HasPrefix(line, "-"):
 			chunk.OldLines = append(chunk.OldLines, line[1:])
 		default:
-			return UpdateFileChunk{}, p.errorf("unexpected line in update chunk: %q", line)
+			return UpdateFileChunk{}, p.errorf("unexpected line in update chunk: %q; update hunk body lines must start with %q for context, %q for additions, or %q for removals; prefix raw %q lines with a leading space", line, " ", "+", "-", firstRuneString(line))
 		}
 
 		bodyLines++
@@ -235,6 +235,13 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 
 func isTopLevelMarker(line string) bool {
 	return strings.HasPrefix(line, "***")
+}
+
+func firstRuneString(line string) string {
+	for _, r := range line {
+		return string(r)
+	}
+	return ""
 }
 
 type parseErr struct {
