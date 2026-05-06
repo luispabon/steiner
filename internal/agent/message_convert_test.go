@@ -42,9 +42,9 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 
 	t.Run("preserves all standard roles", func(t *testing.T) {
 		msgs := []Message{
-			{Role: MessageRoleUser, Content: "hello"},
-			{Role: MessageRoleAssistant, Content: "hi"},
-			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1"},
+			{Role: MessageRoleUser, Content: "hello", Turn: 1},
+			{Role: MessageRoleAssistant, Content: "hi", Turn: 2},
+			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1", Turn: 3},
 		}
 		result := toProviderMessages(msgs)
 		if len(result) != 3 {
@@ -61,6 +61,9 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 		}
 		if result[2].ToolCallID != "call_1" {
 			t.Errorf("expected ToolCallID call_1, got %s", result[2].ToolCallID)
+		}
+		if result[0].Turn != 1 || result[1].Turn != 2 || result[2].Turn != 3 {
+			t.Fatalf("turns not preserved: %#v", result)
 		}
 	})
 
@@ -127,9 +130,9 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 
 	t.Run("reverses toProviderMessages", func(t *testing.T) {
 		original := []Message{
-			{Role: MessageRoleUser, Content: "hello"},
-			{Role: MessageRoleAssistant, Content: "world", Name: "bot"},
-			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1"},
+			{Role: MessageRoleUser, Content: "hello", Turn: 4},
+			{Role: MessageRoleAssistant, Content: "world", Name: "bot", Turn: 5},
+			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1", Turn: 6},
 		}
 		result := fromProviderMessages(toProviderMessages(original))
 		if len(result) != 3 {
@@ -143,6 +146,9 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 		}
 		if result[2].Role != MessageRoleTool || result[2].Content != "result" || result[2].ToolCallID != "t_1" {
 			t.Errorf("third message mismatch: %+v", result[2])
+		}
+		if result[0].Turn != 4 || result[1].Turn != 5 || result[2].Turn != 6 {
+			t.Fatalf("turns not preserved: %#v", result)
 		}
 	})
 

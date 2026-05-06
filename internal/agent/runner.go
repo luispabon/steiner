@@ -56,6 +56,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		Lineage:      newConversationLineage(conversation),
 		Context:      fromPromptContext(req.Prompt.ContextState),
 	}
+	state.TurnCount = initialConversationTurnCount(conversation)
 	if req.Provider == nil {
 		state.StopReason = StopReasonError
 		return state, fmt.Errorf("provider is required")
@@ -130,6 +131,16 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 	}
+}
+
+func initialConversationTurnCount(messages []Message) int {
+	maxTurn := 0
+	for _, message := range messages {
+		if message.Turn > maxTurn {
+			maxTurn = message.Turn
+		}
+	}
+	return maxTurn
 }
 
 func formatToolError(err error) string {

@@ -229,7 +229,16 @@ func (s *SmartContextManager) normalizeIngestedMessage(turn int, message Message
 	if strings.TrimSpace(message.Content) == "" {
 		return message
 	}
-	message.Content = s.IngestToolResult(turn, message.Name, message.Content)
+	// Loaded tool history should keep each message's recorded turn so distinct
+	// reads do not collapse onto one shared session turn.
+	messageTurn := message.Turn
+	if messageTurn <= 0 {
+		messageTurn = turn
+	}
+	if messageTurn <= 0 {
+		return message
+	}
+	message.Content = s.IngestToolResult(messageTurn, message.Name, message.Content)
 	return message
 }
 
@@ -274,17 +283,22 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 	case "read":
 		result, _ := parseReadResult(shaped)
 		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
-		// Visibility gate: if the original read turn is no longer visible to
-		// the model (masked or compacted away), suppress the annotation and
-		// return full content so the model isn't confused by a dangling
-		// turn reference.
-		if observation.Action == "annotated" && observation.PreviousRead.LastTurn > 0 {
-			dropped := s.minVisibleTurn > 0 && observation.PreviousRead.LastTurn < s.minVisibleTurn
-			masked := s.epochMaskBoundary > 0 && observation.PreviousRead.LastTurn < s.epochMaskBoundary
-			if dropped || masked {
+		// Visibility gate: if the original read turn is no longer safely
+		// referenceable, suppress the annotation and return full content so the
+		// model isn't confused by a dangling turn reference.
+		if observation.Action == "annotated" {
+			if observation.PreviousRead.LastTurn <= 0 {
 				next = shaped
 				observation.Action = "full"
-				observation.Reason = "previous read no longer visible in context"
+				observation.Reason = "previous read turn not safely referenceable"
+			} else {
+				dropped := s.minVisibleTurn > 0 && observation.PreviousRead.LastTurn < s.minVisibleTurn
+				masked := s.epochMaskBoundary > 0 && observation.PreviousRead.LastTurn < s.epochMaskBoundary
+				if dropped || masked {
+					next = shaped
+					observation.Action = "full"
+					observation.Reason = "previous read no longer visible in context"
+				}
 			}
 		}
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
