@@ -20,7 +20,7 @@ type ApplyPatchInput struct {
 func NewApplyPatchTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "apply_patch",
-		Description:     "Apply a Codex-style patch document to create, update, delete, or move files. Use this for file mutations. The patch must begin with \"*** Begin Patch\" and end with \"*** End Patch\".",
+		Description:     "Use apply_patch for all file mutations. Provide a Codex-style patch document that begins with \"*** Begin Patch\" and ends with \"*** End Patch\".",
 		ParameterSchema: ApplyPatchSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ApplyPatchInput](input)
