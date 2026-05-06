@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -281,5 +282,62 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	}
 	if got, want := withContext.Lineage.FullMessages()[0].Content, "keep working"; got != want {
 		t.Fatalf("WithContext lineage content = %q, want %q", got, want)
+	}
+}
+
+func TestConversationLineageJSONRoundTrip(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "gen1 user"},
+				{Role: MessageRoleAssistant, Content: "gen1 assistant"},
+			}),
+			newConversationGeneration(2,
+				[]Message{{Role: MessageRoleSummary, Content: "summary for gen2"}},
+				[]Message{
+					{Role: MessageRoleUser, Content: "gen2 user"},
+					{Role: MessageRoleAssistant, Content: "gen2 assistant"},
+				},
+			),
+		},
+		NextGenerationID: 3,
+	}
+
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got, want := len(restored.Generations), 2; got != want {
+		t.Fatalf("restored generation count = %d, want %d", got, want)
+	}
+	if got, want := restored.Generations[0].ID, 1; got != want {
+		t.Fatalf("restored generation[0] id = %d, want %d", got, want)
+	}
+	if got, want := len(restored.Generations[0].Messages), 2; got != want {
+		t.Fatalf("restored generation[0] messages len = %d, want %d", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Content, "gen1 user"; got != want {
+		t.Fatalf("restored generation[0] message[0] = %q, want %q", got, want)
+	}
+	if got, want := restored.Generations[1].ID, 2; got != want {
+		t.Fatalf("restored generation[1] id = %d, want %d", got, want)
+	}
+	if got, want := len(restored.Generations[1].SummaryPrefix), 1; got != want {
+		t.Fatalf("restored generation[1] summary prefix len = %d, want %d", got, want)
+	}
+	if got, want := restored.Generations[1].SummaryPrefix[0].Content, "summary for gen2"; got != want {
+		t.Fatalf("restored generation[1] summary = %q, want %q", got, want)
+	}
+	if got, want := len(restored.Generations[1].Messages), 2; got != want {
+		t.Fatalf("restored generation[1] messages len = %d, want %d", got, want)
+	}
+	if got, want := restored.NextGenerationID, 3; got != want {
+		t.Fatalf("restored next generation id = %d, want %d", got, want)
 	}
 }
