@@ -13,11 +13,9 @@ type Scratchpad struct {
 	Open      string
 	Next      string
 
-	WorkingFile     string
-	LastAction      string
-	SessionState    string
-	TrackedFiles    []string
-	RecentToolCalls []string
+	WorkingFile  string
+	LastAction   string
+	SessionState string
 }
 
 // Render returns the scratchpad as a plain-text block for injection as a
@@ -33,22 +31,6 @@ func (s Scratchpad) Render() string {
 	}
 	if lastAction := strings.TrimSpace(s.LastAction); lastAction != "" {
 		lines = append(lines, "last action: "+lastAction)
-	}
-	if len(s.TrackedFiles) > 0 {
-		lines = append(lines, "tracked files:")
-		for _, item := range s.TrackedFiles {
-			if trimmed := strings.TrimSpace(item); trimmed != "" {
-				lines = append(lines, "- "+trimmed)
-			}
-		}
-	}
-	if len(s.RecentToolCalls) > 0 {
-		lines = append(lines, "recent tool calls:")
-		for _, item := range s.RecentToolCalls {
-			if trimmed := strings.TrimSpace(item); trimmed != "" {
-				lines = append(lines, "- "+trimmed)
-			}
-		}
 	}
 	lines = append(lines, "intent: "+strings.TrimSpace(s.Intent))
 	lines = append(lines, "decisions: "+strings.TrimSpace(s.Decisions))

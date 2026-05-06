@@ -383,24 +383,16 @@ func TestBuildScratchpadMessage_RendersHeaderOnce(t *testing.T) {
 		UnresolvedWork:    []UnresolvedWorkItem{{Text: "finish stage 3"}},
 		ActiveFocus:       &ActiveFocus{Text: "dedupe header"},
 		RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "body", Source: "compactor", Turn: 4}},
-		FileTrackerSummary: []string{
-			"README.md lines 1-40/120",
-		},
-		RecentToolCalls: []string{
-			"read path=README.md",
-		},
-		TurnCount:       4,
-		CompactionCount: 1,
+		TurnCount:         4,
+		CompactionCount:   1,
 		Scratchpad: Scratchpad{
-			SessionState:    "session state: turn=4 compactions=1",
-			WorkingFile:     "internal/auth/handler.go",
-			LastAction:      "edited internal/auth/handler.go: tightened timeout handling",
-			TrackedFiles:    []string{"README.md lines 1-40/120"},
-			RecentToolCalls: []string{"read path=README.md"},
-			Intent:          "fix auth timeout",
-			Decisions:       "use context deadline; avoid global state",
-			Open:            "why does it only fail under load?",
-			Next:            "add test reproducing timeout",
+			SessionState: "session state: turn=4 compactions=1",
+			WorkingFile:  "internal/auth/handler.go",
+			LastAction:   "edited internal/auth/handler.go: tightened timeout handling",
+			Intent:       "fix auth timeout",
+			Decisions:    "use context deadline; avoid global state",
+			Open:         "why does it only fail under load?",
+			Next:         "add test reproducing timeout",
 		}.Render(),
 	}
 
@@ -415,8 +407,6 @@ func TestBuildScratchpadMessage_RendersHeaderOnce(t *testing.T) {
 		"session state: turn=4 compactions=1",
 		"working file: internal/auth/handler.go",
 		"last action: edited internal/auth/handler.go: tightened timeout handling",
-		"tracked files: README.md lines 1-40/120",
-		"recent tool calls: read path=README.md",
 		"intent: fix auth timeout",
 		"decisions: use context deadline; avoid global state",
 		"open: why does it only fail under load?",
@@ -446,15 +436,13 @@ func TestBuildScratchpadMessage_EmptyScratchpadStillComplete(t *testing.T) {
 
 func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) {
 	resumedScratchpad := Scratchpad{
-		Intent:          "resume stage 3 work",
-		Decisions:       "keep context compact",
-		Open:            "verify the turn-preserved session",
-		Next:            "run the regression suite",
-		WorkingFile:     "internal/agent/context_manager.go",
-		LastAction:      "edited internal/agent/context_manager.go: tightened masking",
-		SessionState:    "session state: turn=7 compactions=2",
-		TrackedFiles:    []string{"README.md lines 1-40/120"},
-		RecentToolCalls: []string{"read path=README.md"},
+		Intent:       "resume stage 3 work",
+		Decisions:    "keep context compact",
+		Open:         "verify the turn-preserved session",
+		Next:         "run the regression suite",
+		WorkingFile:  "internal/agent/context_manager.go",
+		LastAction:   "edited internal/agent/context_manager.go: tightened masking",
+		SessionState: "session state: turn=7 compactions=2",
 	}.Render()
 
 	state := RunState{
@@ -467,11 +455,9 @@ func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) 
 			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
 		}),
 		Context: ContextState{
-			TurnCount:          7,
-			CompactionCount:    2,
-			Scratchpad:         resumedScratchpad,
-			FileTrackerSummary: []string{"README.md lines 1-40/120"},
-			RecentToolCalls:    []string{"read path=README.md"},
+			TurnCount:       7,
+			CompactionCount: 2,
+			Scratchpad:      resumedScratchpad,
 		},
 	}
 
@@ -491,8 +477,6 @@ func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) 
 		"session state: turn=7 compactions=2",
 		"working file: internal/agent/context_manager.go",
 		"last action: edited internal/agent/context_manager.go: tightened masking",
-		"tracked files: README.md lines 1-40/120",
-		"recent tool calls: read path=README.md",
 		"intent: resume stage 3 work",
 		"decisions: keep context compact",
 		"open: verify the turn-preserved session",

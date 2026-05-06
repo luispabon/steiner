@@ -787,8 +787,11 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	if cm.scratchpad.WorkingFile != "second.txt" {
 		t.Fatalf("WorkingFile = %q, want second.txt", cm.scratchpad.WorkingFile)
 	}
-	if !strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
-		t.Fatalf("Decisions = %q, want file-switch heuristic", cm.scratchpad.Decisions)
+	if strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
+		t.Fatalf("Decisions = %q, want no durable file-switch heuristic", cm.scratchpad.Decisions)
+	}
+	if !strings.Contains(cm.scratchpad.LastAction, "updated") {
+		t.Fatalf("LastAction = %q, want working-file update", cm.scratchpad.LastAction)
 	}
 }
 
@@ -974,6 +977,27 @@ func TestParseScratchpadToolResultDecisionsByteCapEviction(t *testing.T) {
 	}
 }
 
+func TestParseScratchpadToolResultDecisionsLineCapEviction(t *testing.T) {
+	lines := make([]string, 0, decisionsMaxLines+4)
+	for i := 0; i < decisionsMaxLines+4; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d", i))
+	}
+	previous := Scratchpad{Decisions: strings.Join(lines[:decisionsMaxLines], "\n")}
+	got, ok := parseScratchpadToolResult(`{"intent":"g","decisions":"line-new","open":"","next":"n"}`, previous)
+	if !ok {
+		t.Fatal("parseScratchpadToolResult() = false, want true")
+	}
+	if len(strings.Split(got.Decisions, "\n")) > decisionsMaxLines {
+		t.Fatalf("Decisions lines = %d, want <= %d", len(strings.Split(got.Decisions, "\n")), decisionsMaxLines)
+	}
+	if strings.Contains(got.Decisions, "line-00") {
+		t.Fatalf("Decisions = %q, want oldest entry evicted first", got.Decisions)
+	}
+	if !strings.Contains(got.Decisions, "line-new") {
+		t.Fatalf("Decisions = %q, want newest entry preserved", got.Decisions)
+	}
+}
+
 func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
 	previous := Scratchpad{Intent: "keep"}
 	got, ok := parseScratchpadToolResult(`{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","files":"foo.go (read)"}`, previous)
@@ -982,6 +1006,73 @@ func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
 	}
 	if got.Intent != "keep" {
 		t.Fatalf("parseScratchpadToolResult() changed state on legacy payload: %+v", got)
+	}
+}
+
+func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
+	cm := &SmartContextManager{
+		scratchpad: Scratchpad{
+			Intent:       "inspect note",
+			Decisions:    "old decision",
+			Open:         "why is it stale?",
+			Next:         "re-read note",
+			WorkingFile:  "note.txt",
+			LastAction:   "read note.txt",
+			SessionState: "session state: turn=3 compactions=1",
+		},
+	}
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "continue"},
+			{Role: MessageRoleUser, Content: "commit changes"},
+		},
+		Context: ContextState{
+			ActiveFocus:        &ActiveFocus{Text: "inspect note"},
+			UnresolvedWork:     []UnresolvedWorkItem{{Text: "re-read note"}},
+			FileTrackerSummary: []string{"note.txt"},
+			RecentToolCalls:    []string{"read path=note.txt"},
+		},
+	}
+
+	cm.resetTaskStateIfNeeded(&state)
+
+	if cm.scratchpad.Intent != "" || cm.scratchpad.Decisions != "" || cm.scratchpad.Open != "" || cm.scratchpad.Next != "" {
+		t.Fatalf("scratchpad not cleared: %+v", cm.scratchpad)
+	}
+	if cm.scratchpad.WorkingFile != "" || cm.scratchpad.LastAction != "" {
+		t.Fatalf("working fields not cleared: %+v", cm.scratchpad)
+	}
+	if state.Context.ActiveFocus != nil {
+		t.Fatal("ActiveFocus = non-nil, want cleared")
+	}
+	if len(state.Context.UnresolvedWork) != 0 {
+		t.Fatalf("UnresolvedWork = %v, want cleared", state.Context.UnresolvedWork)
+	}
+	if len(state.Context.FileTrackerSummary) != 0 || len(state.Context.RecentToolCalls) != 0 {
+		t.Fatalf("scaffold summaries not cleared: %+v", state.Context)
+	}
+}
+
+func TestResetTaskStateIfNeededIgnoresContinuations(t *testing.T) {
+	cm := &SmartContextManager{
+		scratchpad: Scratchpad{
+			Intent:      "keep",
+			WorkingFile: "note.txt",
+		},
+	}
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "please keep going"},
+		},
+	}
+
+	cm.resetTaskStateIfNeeded(&state)
+
+	if cm.scratchpad.Intent != "keep" || cm.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("scratchpad changed on continuation: %+v", cm.scratchpad)
+	}
+	if state.Context.ActiveFocus != nil || len(state.Context.UnresolvedWork) != 0 {
+		t.Fatalf("context changed on continuation: %+v", state.Context)
 	}
 }
 

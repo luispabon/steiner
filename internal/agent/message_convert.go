@@ -160,9 +160,7 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 	hasSubstantiveContent := strings.TrimSpace(state.Scratchpad) != "" ||
 		len(state.ActiveConstraints) > 0 ||
 		len(state.UnresolvedWork) > 0 ||
-		state.ActiveFocus != nil ||
-		len(state.FileTrackerSummary) > 0 ||
-		len(state.RecentToolCalls) > 0
+		state.ActiveFocus != nil
 
 	if !scratchpadEnabled && !hasSubstantiveContent {
 		return provider.Message{}, false
@@ -221,8 +219,6 @@ func scratchpadFieldLines(rendered string) []string {
 
 	lines := strings.Split(rendered, "\n")
 	out := make([]string, 0, len(lines))
-	skippingTrackedFiles := false
-	skippingRecentToolCalls := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -232,23 +228,7 @@ func scratchpadFieldLines(rendered string) []string {
 		switch {
 		case strings.HasPrefix(trimmed, "session state:"):
 			continue
-		case trimmed == "tracked files:":
-			skippingTrackedFiles = true
-			skippingRecentToolCalls = false
-			continue
-		case trimmed == "recent tool calls:":
-			skippingRecentToolCalls = true
-			skippingTrackedFiles = false
-			continue
 		}
-		if skippingTrackedFiles && strings.HasPrefix(trimmed, "- ") {
-			continue
-		}
-		if skippingRecentToolCalls && strings.HasPrefix(trimmed, "- ") {
-			continue
-		}
-		skippingTrackedFiles = false
-		skippingRecentToolCalls = false
 		out = append(out, trimmed)
 	}
 	return out
