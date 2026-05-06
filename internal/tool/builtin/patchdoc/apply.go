@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -251,9 +252,104 @@ func buildApplyResult(planned []PlannedChange) ApplyResult {
 
 func commitPlannedChanges(root string, planned []PlannedChange, fsys FS) error {
 	_ = root
-	_ = planned
-	_ = fsys
-	return fmt.Errorf("commit not implemented")
+	return commitChanges(planned, fsys)
+}
+
+func commitChanges(changes []PlannedChange, fsys FS) error {
+	ordered := append([]PlannedChange(nil), changes...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return changeKindOrder(ordered[i].Kind) < changeKindOrder(ordered[j].Kind)
+	})
+
+	committed := make([]PlannedChange, 0, len(ordered))
+	for _, ch := range ordered {
+		if err := commitOne(ch, fsys); err != nil {
+			return errors.Join(err, rollbackChanges(committed, fsys))
+		}
+		committed = append(committed, ch)
+	}
+
+	return nil
+}
+
+func commitOne(ch PlannedChange, fsys FS) error {
+	switch ch.Kind {
+	case ChangeAdd:
+		if err := fsys.MkdirAll(filepath.Dir(ch.Path), 0o755); err != nil {
+			return err
+		}
+		return fsys.WriteFile(ch.Path, ch.NewContent, ch.Mode)
+	case ChangeUpdate:
+		return fsys.WriteFile(ch.Path, ch.NewContent, ch.Mode)
+	case ChangeMove:
+		if err := fsys.MkdirAll(filepath.Dir(ch.MovePath), 0o755); err != nil {
+			return err
+		}
+		if err := fsys.WriteFile(ch.MovePath, ch.NewContent, ch.Mode); err != nil {
+			return err
+		}
+		if err := fsys.Remove(ch.Path); err != nil {
+			if cleanupErr := fsys.Remove(ch.MovePath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return errors.Join(err, cleanupErr)
+			}
+			return err
+		}
+		return nil
+	case ChangeDelete:
+		return fsys.Remove(ch.Path)
+	default:
+		return fmt.Errorf("unknown change kind %q", ch.Kind)
+	}
+}
+
+func rollbackChanges(committed []PlannedChange, fsys FS) error {
+	errs := make([]error, 0)
+	for i := len(committed) - 1; i >= 0; i-- {
+		ch := committed[i]
+		switch ch.Kind {
+		case ChangeAdd:
+			if err := fsys.Remove(ch.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		case ChangeUpdate:
+			if err := fsys.WriteFile(ch.Path, ch.OldContent, ch.Mode); err != nil {
+				errs = append(errs, err)
+			}
+		case ChangeMove:
+			if err := fsys.Remove(ch.MovePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+			if err := fsys.WriteFile(ch.Path, ch.OldContent, ch.Mode); err != nil {
+				errs = append(errs, err)
+			}
+		case ChangeDelete:
+			if err := fsys.MkdirAll(filepath.Dir(ch.Path), 0o755); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := fsys.WriteFile(ch.Path, ch.OldContent, ch.Mode); err != nil {
+				errs = append(errs, err)
+			}
+		default:
+			errs = append(errs, fmt.Errorf("unknown change kind %q", ch.Kind))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func changeKindOrder(kind PlannedChangeKind) int {
+	switch kind {
+	case ChangeAdd:
+		return 0
+	case ChangeUpdate:
+		return 1
+	case ChangeMove:
+		return 2
+	case ChangeDelete:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func isBinary(data []byte) bool {

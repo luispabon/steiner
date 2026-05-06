@@ -1,10 +1,13 @@
 package patchdoc
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOSFS(t *testing.T) {
@@ -526,4 +529,282 @@ func TestBuildApplyResult(t *testing.T) {
 	if len(got.Moved) != 1 || got.Moved[0].From != "from.txt" || got.Moved[0].To != "to.txt" {
 		t.Fatalf("buildApplyResult() Moved = %#v, want [{from.txt to.txt}]", got.Moved)
 	}
+}
+
+func TestApplyPatchNonDryRunCommitsChanges(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "delete.txt"), []byte("delete\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(delete) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "update.txt"), []byte("old\n"), 0o640); err != nil {
+		t.Fatalf("os.WriteFile(update) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "move.txt"), []byte("move\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(move) error = %v", err)
+	}
+
+	got, err := ApplyPatch(root, Patch{
+		Hunks: []Hunk{
+			DeleteFile{PathValue: "delete.txt"},
+			UpdateFile{
+				PathValue: "update.txt",
+				Chunks: []UpdateFileChunk{
+					{OldLines: []string{"old"}, NewLines: []string{"new"}},
+				},
+			},
+			AddFile{PathValue: "add.txt", Contents: "added\n"},
+			UpdateFile{
+				PathValue: "move.txt",
+				MovePath:  "moved.txt",
+				Chunks: []UpdateFileChunk{
+					{OldLines: []string{"move"}, NewLines: []string{"moved"}},
+				},
+			},
+		},
+	}, false, OSFS{})
+	if err != nil {
+		t.Fatalf("ApplyPatch() error = %v", err)
+	}
+	if got.DryRun {
+		t.Fatal("ApplyPatch() DryRun = true, want false")
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "add.txt")); err != nil {
+		t.Fatalf("os.Stat(add) error = %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "add.txt")); err != nil || string(data) != "added\n" {
+		t.Fatalf("os.ReadFile(add) = %q, %v, want %q", string(data), err, "added\n")
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "update.txt")); err != nil || string(data) != "new\n" {
+		t.Fatalf("os.ReadFile(update) = %q, %v, want %q", string(data), err, "new\n")
+	}
+	if _, err := os.Stat(filepath.Join(root, "delete.txt")); !os.IsNotExist(err) {
+		t.Fatalf("os.Stat(delete) error = %v, want file removed", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "move.txt")); !os.IsNotExist(err) {
+		t.Fatalf("os.Stat(move source) error = %v, want file removed", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "moved.txt")); err != nil || string(data) != "moved\n" {
+		t.Fatalf("os.ReadFile(move dest) = %q, %v, want %q", string(data), err, "moved\n")
+	}
+}
+
+func TestCommitChangesOrdersKinds(t *testing.T) {
+	t.Parallel()
+
+	fsys := newFakeFS(map[string]fakeFile{
+		"updates/update.txt": {data: []byte("old\n"), mode: 0o640},
+		"moves/source.txt":   {data: []byte("move\n"), mode: 0o600},
+		"deletes/delete.txt": {data: []byte("gone\n"), mode: 0o644},
+	})
+
+	err := commitChanges([]PlannedChange{
+		{Kind: ChangeDelete, Path: "deletes/delete.txt"},
+		{Kind: ChangeMove, Path: "moves/source.txt", MovePath: "moves/dest.txt", NewContent: []byte("move-new\n"), OldContent: []byte("move\n"), Mode: 0o600},
+		{Kind: ChangeAdd, Path: "adds/add.txt", NewContent: []byte("add\n"), Mode: 0o644},
+		{Kind: ChangeUpdate, Path: "updates/update.txt", NewContent: []byte("new\n"), OldContent: []byte("old\n"), Mode: 0o640},
+	}, fsys)
+	if err != nil {
+		t.Fatalf("commitChanges() error = %v", err)
+	}
+
+	wantOps := []string{
+		"mkdir:adds",
+		"write:adds/add.txt",
+		"write:updates/update.txt",
+		"mkdir:moves",
+		"write:moves/dest.txt",
+		"remove:moves/source.txt",
+		"remove:deletes/delete.txt",
+	}
+	if got := fsys.ops; !slicesEqual(got, wantOps) {
+		t.Fatalf("commitChanges() ops = %#v, want %#v", got, wantOps)
+	}
+}
+
+func TestCommitChangesRollsBackCommittedChanges(t *testing.T) {
+	t.Parallel()
+
+	fsys := newFakeFS(map[string]fakeFile{
+		"updates/update.txt": {data: []byte("old\n"), mode: 0o640},
+		"moves/source.txt":   {data: []byte("move\n"), mode: 0o600},
+	})
+	fsys.failWrite["moves/dest.txt"] = errors.New("boom")
+
+	err := commitChanges([]PlannedChange{
+		{Kind: ChangeMove, Path: "moves/source.txt", MovePath: "moves/dest.txt", NewContent: []byte("move-new\n"), OldContent: []byte("move\n"), Mode: 0o600},
+		{Kind: ChangeUpdate, Path: "updates/update.txt", NewContent: []byte("new\n"), OldContent: []byte("old\n"), Mode: 0o640},
+		{Kind: ChangeAdd, Path: "adds/add.txt", NewContent: []byte("add\n"), Mode: 0o644},
+	}, fsys)
+	if err == nil {
+		t.Fatal("commitChanges() error = nil, want failure")
+	}
+
+	if data, ok := fsys.files["updates/update.txt"]; !ok || string(data.data) != "old\n" {
+		t.Fatalf("rollback update content = %#v, want old content", data)
+	}
+	if _, ok := fsys.files["adds/add.txt"]; ok {
+		t.Fatal("rollback add file still present, want removed")
+	}
+	if data, ok := fsys.files["moves/source.txt"]; !ok || string(data.data) != "move\n" {
+		t.Fatalf("rollback move source = %#v, want original content", data)
+	}
+	if _, ok := fsys.files["moves/dest.txt"]; ok {
+		t.Fatal("rollback move destination still present, want removed")
+	}
+
+	if len(fsys.ops) < 2 {
+		t.Fatalf("commitChanges() ops = %#v, want rollback ops", fsys.ops)
+	}
+	wantTail := []string{"write:updates/update.txt", "remove:adds/add.txt"}
+	if gotTail := fsys.ops[len(fsys.ops)-2:]; !slicesEqual(gotTail, wantTail) {
+		t.Fatalf("commitChanges() rollback ops = %#v, want %#v", gotTail, wantTail)
+	}
+}
+
+func TestCommitOneUnknownKindReturnsError(t *testing.T) {
+	t.Parallel()
+
+	err := commitOne(PlannedChange{Kind: "bogus"}, newFakeFS(nil))
+	if err == nil {
+		t.Fatal("commitOne() error = nil, want unknown kind error")
+	}
+	if want := `unknown change kind "bogus"`; err.Error() != want {
+		t.Fatalf("commitOne() error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestCommitOneMoveCleansUpDestinationWhenSourceRemoveFails(t *testing.T) {
+	t.Parallel()
+
+	fsys := newFakeFS(map[string]fakeFile{
+		"move/source.txt": {data: []byte("old\n"), mode: 0o600},
+	})
+	fsys.failRemove["move/source.txt"] = errors.New("source remove failed")
+
+	err := commitOne(PlannedChange{
+		Kind:       ChangeMove,
+		Path:       "move/source.txt",
+		MovePath:   "move/dest.txt",
+		NewContent: []byte("new\n"),
+		OldContent: []byte("old\n"),
+		Mode:       0o600,
+	}, fsys)
+	if err == nil {
+		t.Fatal("commitOne() error = nil, want source removal failure")
+	}
+
+	if _, ok := fsys.files["move/dest.txt"]; ok {
+		t.Fatal("commitOne() destination still present, want cleaned up")
+	}
+	if _, ok := fsys.files["move/source.txt"]; !ok {
+		t.Fatal("commitOne() source missing, want source to remain")
+	}
+
+	wantOps := []string{
+		"mkdir:move",
+		"write:move/dest.txt",
+		"remove:move/source.txt",
+		"remove:move/dest.txt",
+	}
+	if got := fsys.ops; !slicesEqual(got, wantOps) {
+		t.Fatalf("commitOne() ops = %#v, want %#v", got, wantOps)
+	}
+}
+
+type fakeFile struct {
+	data []byte
+	mode fs.FileMode
+}
+
+type fakeFS struct {
+	files        map[string]fakeFile
+	ops          []string
+	failWrite    map[string]error
+	failRemove   map[string]error
+	failMkdirAll map[string]error
+}
+
+func newFakeFS(files map[string]fakeFile) *fakeFS {
+	if files == nil {
+		files = map[string]fakeFile{}
+	}
+	return &fakeFS{
+		files:        files,
+		failWrite:    map[string]error{},
+		failRemove:   map[string]error{},
+		failMkdirAll: map[string]error{},
+	}
+}
+
+func (f *fakeFS) ReadFile(name string) ([]byte, error) {
+	file, ok := f.files[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return append([]byte(nil), file.data...), nil
+}
+
+func (f *fakeFS) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	f.ops = append(f.ops, "write:"+name)
+	if err, ok := f.failWrite[name]; ok {
+		return err
+	}
+	f.files[name] = fakeFile{data: append([]byte(nil), data...), mode: perm}
+	return nil
+}
+
+func (f *fakeFS) Remove(name string) error {
+	f.ops = append(f.ops, "remove:"+name)
+	if err, ok := f.failRemove[name]; ok {
+		return err
+	}
+	if _, ok := f.files[name]; !ok {
+		return os.ErrNotExist
+	}
+	delete(f.files, name)
+	return nil
+}
+
+func (f *fakeFS) MkdirAll(path string, perm fs.FileMode) error {
+	f.ops = append(f.ops, "mkdir:"+path)
+	if err, ok := f.failMkdirAll[path]; ok {
+		return err
+	}
+	return nil
+}
+
+func (f *fakeFS) Stat(name string) (fs.FileInfo, error) {
+	file, ok := f.files[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return fakeFileInfo{name: filepath.Base(name), size: int64(len(file.data)), mode: file.mode}, nil
+}
+
+type fakeFileInfo struct {
+	name string
+	size int64
+	mode fs.FileMode
+}
+
+func (f fakeFileInfo) Name() string       { return f.name }
+func (f fakeFileInfo) Size() int64        { return f.size }
+func (f fakeFileInfo) Mode() fs.FileMode  { return f.mode }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return false }
+func (f fakeFileInfo) Sys() any           { return nil }
+
+func slicesEqual[T comparable](got, want []T) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
