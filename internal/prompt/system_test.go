@@ -25,3 +25,26 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 		}
 	}
 }
+
+func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", true).Content
+	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
+	for _, forbidden := range []string{
+		"Tool guidance:",
+		"Patch format:",
+		"*** Begin Patch",
+		"*** End Patch",
+		"Use apply_patch for all file mutations.",
+		"Use edit for targeted modifications.",
+		"Use write only for new files or intentional full rewrites.",
+		"old_string",
+		"new_string",
+		"path+hunks",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("system preamble still contains %q in %q", forbidden, content)
+		}
+	}
+}

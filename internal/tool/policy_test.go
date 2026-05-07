@@ -417,6 +417,21 @@ func TestPolicy_PreviewToolInput_BlocksOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestPolicy_ValidateToolInput_ApplyPatch(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+
+	patchDoc := "*** Begin Patch\n*** Add File: foo.go\n+package main\n*** End Patch"
+	normalized, err := policy.ValidateToolInput("apply_patch", map[string]any{
+		"patch": patchDoc,
+	})
+	if err != nil {
+		t.Fatalf("ValidateToolInput(apply_patch) error = %v", err)
+	}
+	if got := normalized["patch"]; got != patchDoc {
+		t.Fatalf("patch = %v, want %q", got, patchDoc)
+	}
+}
+
 func TestPolicy_PreviewToolInput_BlocksNonWritable(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{
 		ProjectRootOnly: true,

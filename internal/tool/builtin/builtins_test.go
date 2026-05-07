@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 10 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 10 {
-			t.Fatalf("Builtins returned %d tools, want 10", len(tools))
+	t.Run("all 8 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 8 {
+			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "write", "edit", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
+		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -43,6 +43,19 @@ func TestBuiltins(t *testing.T) {
 		}
 		if names["list"] {
 			t.Error("old tool name 'list' is still registered")
+		}
+	})
+
+	t.Run("write and edit are not builtin tools", func(t *testing.T) {
+		names := make(map[string]bool)
+		for _, td := range tools {
+			names[td.Name] = true
+		}
+		if names["write"] {
+			t.Error("builtin tool 'write' should not be registered")
+		}
+		if names["edit"] {
+			t.Error("builtin tool 'edit' should not be registered")
 		}
 	})
 
@@ -66,7 +79,12 @@ func TestBuiltins(t *testing.T) {
 			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
 			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
-			&ApplyPatchResult{Path: "test.txt", HunksApplied: 3, Output: "@@ -1,3 +1,4 @@\n-old\n+new\n"},
+			&ApplyPatchResult{
+				Paths:        []string{"test.txt"},
+				Moved:        []MoveResult{{From: "old.txt", To: "new.txt"}},
+				HunksApplied: 3,
+				Output:       "Success.\nUpdated the following files:\nM test.txt",
+			},
 		}
 		for i, r := range results {
 			data, err := json.Marshal(r)

@@ -884,7 +884,7 @@ func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) 
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
-			Path:         "note.txt",
+			Paths:        []string{"note.txt"},
 			HunksApplied: 1,
 			Output:       "patched one hunk",
 		})
@@ -905,7 +905,7 @@ func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) 
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
-			Path:         "note.txt",
+			Paths:        []string{"note.txt"},
 			HunksApplied: 1,
 			HunksFailed:  1,
 			Output:       "hunk 0: no match for old text",

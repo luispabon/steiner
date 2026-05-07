@@ -15,6 +15,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if args == nil {
 		return tool
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "apply_patch") {
+		return summarizePatchArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -36,6 +39,30 @@ func summarizeArgs(tool string, args map[string]any) string {
 	return tool
 }
 
+// summarizePatchArgs extracts the first affected file path from a patch document.
+func summarizePatchArgs(args map[string]any) string {
+	patch, _ := args["patch"].(string)
+	var first string
+	var count int
+	for _, line := range strings.Split(patch, "\n") {
+		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: "} {
+			if strings.HasPrefix(line, prefix) {
+				count++
+				if first == "" {
+					first = strings.TrimSpace(strings.TrimPrefix(line, prefix))
+				}
+			}
+		}
+	}
+	if first == "" {
+		return "apply_patch"
+	}
+	if count > 1 {
+		return fmt.Sprintf("%s (+%d more)", first, count-1)
+	}
+	return first
+}
+
 // previewBodyKind determines how to render the tool body using structured preview data first.
 func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch preview.Kind {
@@ -51,6 +78,8 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 		return "grep"
 	case output.ToolPreviewKindBash:
 		return "bash"
+	case output.ToolPreviewKindPatch:
+		return "patch"
 	case output.ToolPreviewKindPlain:
 		if strings.EqualFold(strings.TrimSpace(tool), "bash") {
 			return "bash"
@@ -87,7 +116,7 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagBash
 	case "read", "read_file":
 		return b.styles.ToolTagRead
-	case "write", "write_file", "edit":
+	case "write", "write_file", "edit", "apply_patch":
 		return b.styles.ToolTagWrite
 	case "grep":
 		return b.styles.ToolTagGrep
@@ -107,7 +136,7 @@ func (b *contentBuffer) toolTagBgHex(tool string) string {
 		return theme.AccentAmber
 	case "read", "read_file":
 		return theme.ToolCyan
-	case "write", "write_file", "edit":
+	case "write", "write_file", "edit", "apply_patch":
 		return theme.ToolGrn
 	case "grep":
 		return theme.ToolMag
@@ -200,6 +229,17 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 			width += lipgloss.Width(diffMeta)
 		}
 	}
+	if tc.bodyKind == "patch" && (tc.preview.HunksApplied > 0 || tc.preview.HunksFailed > 0) {
+		patchMeta := b.styles.Added.Render(fmt.Sprintf("%d applied", tc.preview.HunksApplied))
+		if tc.preview.HunksFailed > 0 {
+			patchMeta += " " + b.styles.Removed.Render(fmt.Sprintf("%d failed", tc.preview.HunksFailed))
+		}
+		if len(parts) > 0 {
+			width++
+		}
+		parts = append(parts, patchMeta)
+		width += lipgloss.Width(patchMeta)
+	}
 	if tc.meta != "" {
 		styled := tc.meta
 		if tc.hasError {
@@ -238,6 +278,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColo
 		lines = b.buildDiffPreviewLines(tc, rowWidth-2)
 	case "file":
 		lines = b.buildFilePreviewLines(tc, rowWidth-2)
+	case "patch":
+		lines = b.buildPatchLines(tc)
 	default:
 		lines = b.buildPlainLines(tc)
 	}

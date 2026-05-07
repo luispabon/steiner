@@ -3,22 +3,22 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 type trackedFileRead struct {
-	Path       string
-	Canonical  string
-	StartLine  int
-	EndLine    int
-	TotalLines int
-	LastTurn   int
-	ModTime    time.Time
-	Generation uint64
+	Path        string
+	Canonical   string
+	StartLine   int
+	EndLine     int
+	TotalLines  int
+	LastTurn    int
+	ContentHash uint64
+	Generation  uint64
 }
 
 type readResult struct {
@@ -56,8 +56,11 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 	if !ok {
 		return content, fileObservation{}
 	}
-	info, err := os.Stat(canonicalPath)
-	if err != nil {
+	if _, err := os.Stat(canonicalPath); err != nil {
+		return content, fileObservation{}
+	}
+	hash, ok := hashFileContent(canonicalPath)
+	if !ok {
 		return content, fileObservation{}
 	}
 	if t.reads == nil {
@@ -68,14 +71,14 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 	}
 
 	next := trackedFileRead{
-		Path:       path,
-		Canonical:  canonicalPath,
-		StartLine:  result.StartLine,
-		EndLine:    result.EndLine,
-		TotalLines: result.TotalLines,
-		LastTurn:   turn,
-		ModTime:    info.ModTime(),
-		Generation: t.generations[canonicalPath],
+		Path:        path,
+		Canonical:   canonicalPath,
+		StartLine:   result.StartLine,
+		EndLine:     result.EndLine,
+		TotalLines:  result.TotalLines,
+		LastTurn:    turn,
+		ContentHash: hash,
+		Generation:  t.generations[canonicalPath],
 	}
 	previous, ok := t.reads[canonicalPath]
 	t.reads[canonicalPath] = next
@@ -97,18 +100,8 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 	observation.Reason = "range changed"
 	if previous.StartLine == next.StartLine && previous.EndLine == next.EndLine && previous.TotalLines == next.TotalLines {
 		observation.Reason = "modified file"
-		if previous.ModTime.Equal(next.ModTime) {
+		if previous.Generation != next.Generation {
 			observation.Reason = "generation changed"
-			if previous.Generation == next.Generation {
-				observation.Action = "annotated"
-				observation.Reason = fmt.Sprintf("unchanged since turn %d", previous.LastTurn)
-				result.Output = fileUnchangedAnnotation(previous)
-				data, err := json.Marshal(result)
-				if err != nil {
-					return content, observation
-				}
-				return string(data), observation
-			}
 			observation.Notes = append(observation.Notes,
 				fmt.Sprintf("previous_generation=%d", previous.Generation),
 				fmt.Sprintf("current_generation=%d", next.Generation),
@@ -116,14 +109,28 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 			)
 			return content, observation
 		}
-	}
-	if observation.Reason == "modified file" {
-		observation.Notes = append(observation.Notes,
-			fmt.Sprintf("previous_mtime=%s", previous.ModTime.UTC().Format(time.RFC3339Nano)),
-			fmt.Sprintf("current_mtime=%s", next.ModTime.UTC().Format(time.RFC3339Nano)),
-		)
+		if previous.ContentHash == next.ContentHash {
+			observation.Action = "annotated"
+			observation.Reason = fmt.Sprintf("unchanged since turn %d", previous.LastTurn)
+			result.Output = fileUnchangedAnnotation(previous)
+			data, err := json.Marshal(result)
+			if err != nil {
+				return content, observation
+			}
+			return string(data), observation
+		}
 	}
 	return content, observation
+}
+
+func hashFileContent(path string) (uint64, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	h := fnv.New64a()
+	h.Write(data)
+	return h.Sum64(), true
 }
 
 func parseReadResult(content string) (readResult, bool) {

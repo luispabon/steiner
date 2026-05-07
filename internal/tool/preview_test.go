@@ -7,6 +7,28 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+func TestBuildApprovalPreview_ApplyPatch(t *testing.T) {
+	t.Parallel()
+
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+	preview := buildApprovalPreview("apply_patch", map[string]any{
+		"patch": "*** Begin Patch\n*** Add File: foo.go\n+package main\n*** End Patch",
+	}, policy)
+
+	if preview.Tool != "apply_patch" {
+		t.Fatalf("Tool = %q, want apply_patch", preview.Tool)
+	}
+	if len(preview.Fields) != 1 {
+		t.Fatalf("Fields len = %d, want 1", len(preview.Fields))
+	}
+	if preview.Fields[0].Name != "patch" {
+		t.Fatalf("Fields[0].Name = %q, want patch", preview.Fields[0].Name)
+	}
+	if !strings.Contains(preview.Fields[0].Value, "*** Begin Patch") {
+		t.Fatalf("Fields[0].Value = %q, want patch content", preview.Fields[0].Value)
+	}
+}
+
 func TestApprovalPreviewSanitizesWorkspaceRoots(t *testing.T) {
 	t.Parallel()
 
