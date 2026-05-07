@@ -43,7 +43,7 @@ docs/                    Product/design docs and implementation notes
 ## Work loop
 
 1. Inspect nearby code, call sites, and the smallest relevant tests before editing.
-2. Prefer `edit` over `write` for in-place changes.
+2. Prefer `apply_patch` for file mutations; fall back to `edit` for single exact replacements.
 3. Keep changes minimal and package boundaries intact.
 4. Ensure comprehensive unit and functional tests are written for any new functionality
 5. Run `gofmt -w <files>` after Go edits.
@@ -89,12 +89,15 @@ Go version: `1.25`.
 Steiner exposes these built-in tools, all backed by Dive:
 
 - `read` — read files with offset/limit pagination
+- `apply_patch` — apply one or more file mutations atomically (add, update, delete files)
 - `write` — overwrite whole files
 - `edit` — exact string replacement
 - `glob` — find files by pattern
 - `grep` — search file contents with context
 - `ls` — list directories
 - `bash` — run shell commands
+- `scratchpad` — record working state (intent, decisions, next action); persists across compaction
+- `display_file` — show a file in the TUI overlay without adding contents to conversation
 
 Steiner owns the schemas and result formats. Dive implements the behavior.
 
