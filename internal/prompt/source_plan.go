@@ -2,7 +2,7 @@ package prompt
 
 import (
 	"context"
-	"path/filepath"
+	// "path/filepath"
 
 	"github.com/luispabon/steiner/internal/skill"
 )
@@ -143,9 +143,9 @@ func agentPaths(opts AssemblyOptions) (string, string) {
 		globalAgentsPath = DefaultGlobalAgentsPath(opts.HomeDir)
 	}
 	projectAgentsPath := opts.ProjectAgentsPath
-	if projectAgentsPath == "" && opts.ProjectRoot != "" {
-		projectAgentsPath = filepath.Join(opts.ProjectRoot, "AGENTS.md")
-	}
+	// if projectAgentsPath == "" && opts.ProjectRoot != "" {
+	// 	projectAgentsPath = filepath.Join(opts.ProjectRoot, "AGENTS.md")
+	// }
 	return globalAgentsPath, projectAgentsPath
 }
 
