@@ -376,6 +376,23 @@ func TestDelegationToggleOutput(t *testing.T) {
 	}
 }
 
+func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+	longOutput := strings.Repeat("x", 650) + "tail marker"
+
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("long-agent", "done", 1, 50, longOutput))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "tail marker") {
+		t.Fatalf("expanded delegation output was truncated: %q", rendered)
+	}
+}
+
 func TestDelegationBlockRendering(t *testing.T) {
 	tests := []struct {
 		name    string

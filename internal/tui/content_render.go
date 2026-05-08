@@ -296,12 +296,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment) string {
 			if dd.collapsed {
 				rendered += muted.Render("  [output hidden — ctrl+x to expand]") + "\n"
 			} else {
-				out := dd.output
-				runes := []rune(out)
-				if len(runes) > 500 {
-					out = string(runes[:500]) + "…"
-				}
-				rendered += muted.Render("  "+out) + "\n"
+				rendered += muted.Render("  "+dd.output) + "\n"
 			}
 		}
 		return rendered
