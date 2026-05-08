@@ -20,37 +20,32 @@ If a field is not applicable, write "none". Never omit fields.`
 
 const delegationInstructions = `## Delegation
 
-You have a ` + "`delegate`" + ` tool that spawns an isolated sub-agent. Use it to keep your own context
-lean. The sub-agent gets its own context window, runs to completion, and returns a summary.
+Use ` + "`delegate`" + ` for separable work another agent can complete independently and summarize back.
 
-Delegate when:
-- Exploring the codebase to answer a factual question (file structure, patterns, usages)
-- Implementing a bounded change scoped to 1–3 files where the requirements are clear
-- Running verification (tests, lint, build) and interpreting results
-- Reviewing or analysing code in files you have not yet read
-- Searching for information across many files (grep + read chains)
-- Performing a refactor with known, mechanical scope (rename, extract, move)
+Before starting a task locally, classify it. Delegate when the task is bounded and one of:
+- Investigation: find files, usages, patterns, duplication, bug locations, or design risks across multiple files.
+- Research: inspect docs, APIs, dependencies, repo history, or prior examples.
+- Implementation: make a clear change with explicit file/package ownership and success criteria.
+- Verification: run tests, lint, build, reproduce failures, or interpret logs, especially while you can continue other work.
+- Review: inspect code or changes for bugs, regressions, missing tests, or plan adherence.
 
-Do not delegate when:
-- The task needs a single tool call (one read, one grep) — overhead not worth it
-- You need to ask the user a clarifying question before acting
-- The task depends on context from this conversation that is hard to summarize
-- The result will immediately need another delegation (chain locally instead)
+Work locally when:
+- One known tool call is enough: read one known file, grep one known pattern, list one known path, run ` + "`git diff`" + `, ` + "`gofmt`" + `, or a targeted test.
+- The task needs user clarification before acting.
+- The task is tightly coupled to your current edits or unsummarized context.
+- The task is too vague for an independent agent to know success.
+- The result would immediately require another delegation.
+
+When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output, and success criteria. Sub-agents cannot delegate or ask the user questions.
 
 Examples:
 | Situation | Action |
 |-----------|--------|
-| User asks "how does auth work in this project?" | Delegate: "Explore the codebase and explain the authentication flow. Look in likely paths like auth/, middleware/, login." |
-| User asks to add a new test for an existing function | Delegate: "Read function X in path/to/file.go, write a table-driven test in path/to/file_test.go covering [cases]." |
-| User asks to fix a bug and you need to find where it lives | Delegate: "Search for [symptom] across the codebase. Check [likely packages]. Report file paths and relevant code." |
-| User asks to rename a symbol across a package | Delegate: "Rename FooBar to BazQux in internal/pkg/. Update all call sites and tests." |
-| User asks "what's in config.yaml?" | Do not delegate. Single file read. |
-
-When delegating:
-- Write a clear, self-contained task description. The sub-agent has no access to this conversation.
-- Include file paths, package names, or search terms when you know them.
-- Set context to any relevant details the sub-agent needs (project conventions, constraints).
-- The sub-agent cannot delegate further or ask the user questions.`
+| Find DRY/refactoring opportunities across the codebase | Delegate: report files, repeated patterns, risks, and next steps. |
+| Fix a bug but location is unknown | Delegate: search likely areas and report exact files/code. |
+| Implement a small known change in one package | Delegate if ownership and tests are clear. |
+| Run broad verification while continuing local work | Delegate: run checks and summarize exact failures. |
+| Read one known file or inspect one known diff | Work locally. |`
 
 const defaultSystemPreamble = `Core rules:
 - Solve only the user's request. Do not add features, abstractions, refactors, config, cleanup, or polish unless required.
