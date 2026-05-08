@@ -868,6 +868,14 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 						Preview:   strings.Repeat("hello", 4),
 					},
 				},
+				Retention: &tool.ToolRetention{
+					Kind:       tool.RetentionKindDelegateSummary,
+					Summary:    "child summary",
+					AgentID:    "child-1",
+					Status:     "complete",
+					TurnCount:  1,
+					TokenCount: 4,
+				},
 			}, nil
 		},
 	}
@@ -891,6 +899,9 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	}
 	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
+	}
+	if strings.Contains(providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, "child summary") {
+		t.Fatal("tool message content leaked retention summary")
 	}
 }
 

@@ -59,7 +59,7 @@ func (noopSink) Emit(output.Event) {}
 func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	cfg := config.SubAgentConfig{Enabled: true}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp")
+	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", nil, config.ThinkingConfig{})
 
 	found := false
 	for _, n := range reg.Names() {
@@ -83,7 +83,7 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	cfg := config.SubAgentConfig{Enabled: false}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp")
+	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", nil, config.ThinkingConfig{})
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
@@ -95,7 +95,7 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
 	cfg := config.SubAgentConfig{Enabled: false}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp")
+	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", nil, config.ThinkingConfig{})
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
 	}

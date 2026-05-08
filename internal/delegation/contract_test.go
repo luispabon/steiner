@@ -44,7 +44,6 @@ func TestDelegationResultFields(t *testing.T) {
 		AgentID:    "agent-123",
 		Status:     StatusComplete,
 		Output:     "test output",
-		Summary:    "test summary",
 		TurnCount:  5,
 		TokenCount: 1000,
 		Error:      "",
@@ -59,8 +58,8 @@ func TestDelegationResultFields(t *testing.T) {
 	if result.Output != "test output" {
 		t.Errorf("expected Output=%q, got %q", "test output", result.Output)
 	}
-	if result.Summary != "test summary" {
-		t.Errorf("expected Summary=%q, got %q", "test summary", result.Summary)
+	if result.Summary != "" {
+		t.Errorf("expected Summary to remain hidden, got %q", result.Summary)
 	}
 	if result.TurnCount != 5 {
 		t.Errorf("expected TurnCount=5, got %d", result.TurnCount)

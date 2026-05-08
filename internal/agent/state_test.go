@@ -2,7 +2,10 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestConversationGenerationViewsArePrefixAware(t *testing.T) {
@@ -339,5 +342,74 @@ func TestConversationLineageJSONRoundTrip(t *testing.T) {
 	}
 	if got, want := restored.NextGenerationID, 3; got != want {
 		t.Fatalf("restored next generation id = %d, want %d", got, want)
+	}
+}
+
+func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
+	original := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{
+					Role:    MessageRoleTool,
+					Content: "visible output",
+					Retention: &tool.ToolRetention{
+						Kind:    tool.RetentionKindDelegateSummary,
+						Summary: "retained summary",
+						AgentID: "child-1",
+					},
+				},
+			}),
+		},
+		NextGenerationID: 2,
+	}
+
+	cloned := original.Clone()
+	if cloned.Generations[0].Messages[0].Retention == nil {
+		t.Fatal("cloned retention = nil, want copied metadata")
+	}
+	if cloned.Generations[0].Messages[0].Retention.Summary != "retained summary" {
+		t.Fatalf("cloned retention summary = %q, want retained summary", cloned.Generations[0].Messages[0].Retention.Summary)
+	}
+	cloned.Generations[0].Messages[0].Retention.Summary = "changed"
+	if original.Generations[0].Messages[0].Retention.Summary != "retained summary" {
+		t.Fatal("original retention mutated through clone")
+	}
+}
+
+func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{
+					Role:    MessageRoleTool,
+					Content: "visible output",
+					Retention: &tool.ToolRetention{
+						Kind:    tool.RetentionKindDelegateSummary,
+						Summary: "hidden summary",
+						AgentID: "child-1",
+					},
+				},
+			}),
+		},
+		NextGenerationID: 2,
+	}
+
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+	if string(data) == "" {
+		t.Fatal("marshal produced empty output")
+	}
+	if strings.Contains(string(data), "hidden summary") {
+		t.Fatalf("retention metadata leaked into JSON: %s", string(data))
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+	if restored.Generations[0].Messages[0].Retention != nil {
+		t.Fatalf("restored retention = %#v, want nil", restored.Generations[0].Messages[0].Retention)
 	}
 }

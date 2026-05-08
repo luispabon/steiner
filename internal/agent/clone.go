@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func cloneMessages(messages []Message) []Message {
@@ -14,6 +15,7 @@ func cloneMessages(messages []Message) []Message {
 	copy(out, messages)
 	for i := range out {
 		out[i].ToolCalls = cloneToolCalls(out[i].ToolCalls)
+		out[i].Retention = cloneToolRetention(out[i].Retention)
 	}
 	return out
 }
@@ -80,4 +82,12 @@ func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
 		out[i].Arguments = cloneInput(out[i].Arguments)
 	}
 	return out
+}
+
+func cloneToolRetention(retention *tool.ToolRetention) *tool.ToolRetention {
+	if retention == nil {
+		return nil
+	}
+	cloned := *retention
+	return &cloned
 }

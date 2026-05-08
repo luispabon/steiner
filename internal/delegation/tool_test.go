@@ -116,13 +116,13 @@ func TestToolHandler_EmptyTask(t *testing.T) {
 }
 
 func TestToolHandler_ParsesMaxTurns(t *testing.T) {
-	var got agent.Limits
+	var got []agent.Limits
 	deps := DelegateHandlerDeps{
 		SubAgentCfg: config.SubAgentConfig{MaxTurns: 15},
 		Provider:    stubProvider{},
 		ParentReg:   tool.NewRegistry(),
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			got = req.Limits
+			got = append(got, req.Limits)
 			return successRunState(), nil
 		}},
 		Events:  noopEventSink{},
@@ -137,11 +137,14 @@ func TestToolHandler_ParsesMaxTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.MaxTurns != 5 {
-		t.Errorf("MaxTurns=%d, want 5", got.MaxTurns)
+	if len(got) == 0 {
+		t.Fatal("runner was not called")
 	}
-	if got.MaxTokens != 100000 {
-		t.Errorf("MaxTokens=%d, want 100000 (default)", got.MaxTokens)
+	if got[0].MaxTurns != 5 {
+		t.Errorf("MaxTurns=%d, want 5", got[0].MaxTurns)
+	}
+	if got[0].MaxTokens != 100000 {
+		t.Errorf("MaxTokens=%d, want 100000 (default)", got[0].MaxTokens)
 	}
 }
 
@@ -191,13 +194,13 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 }
 
 func TestToolHandler_AppliesLimitOverrides(t *testing.T) {
-	var got agent.Limits
+	var got []agent.Limits
 	deps := DelegateHandlerDeps{
 		SubAgentCfg: config.SubAgentConfig{MaxTurns: 15, MaxTokens: 100000},
 		Provider:    stubProvider{},
 		ParentReg:   tool.NewRegistry(),
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			got = req.Limits
+			got = append(got, req.Limits)
 			return successRunState(), nil
 		}},
 		Events:  noopEventSink{},
@@ -212,11 +215,14 @@ func TestToolHandler_AppliesLimitOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.MaxTurns != 5 {
-		t.Errorf("MaxTurns=%d, want 5 (tighter override from 15)", got.MaxTurns)
+	if len(got) == 0 {
+		t.Fatal("runner was not called")
 	}
-	if got.MaxTokens != 100000 {
-		t.Errorf("MaxTokens=%d, want 100000 (no override)", got.MaxTokens)
+	if got[0].MaxTurns != 5 {
+		t.Errorf("MaxTurns=%d, want 5 (tighter override from 15)", got[0].MaxTurns)
+	}
+	if got[0].MaxTokens != 100000 {
+		t.Errorf("MaxTokens=%d, want 100000 (no override)", got[0].MaxTokens)
 	}
 }
 
@@ -240,9 +246,13 @@ func TestToolHandler_UniqueAgentID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		r, ok := result.(DelegationResult)
+		execResult, ok := result.(tool.ExecutionResult)
 		if !ok {
-			t.Fatalf("call %d: result type=%T, want DelegationResult", i, result)
+			t.Fatalf("call %d: result type=%T, want tool.ExecutionResult", i, result)
+		}
+		r, ok := execResult.Value.(DelegationResult)
+		if !ok {
+			t.Fatalf("call %d: result.Value type=%T, want DelegationResult", i, execResult.Value)
 		}
 		ids[i] = r.AgentID
 	}

@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -99,17 +100,33 @@ func TestBasicDelegationResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.AgentID != "agent-1" {
-		t.Errorf("AgentID: got %q, want %q", result.AgentID, "agent-1")
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
 	}
-	if result.Status != StatusComplete {
-		t.Errorf("Status: got %q, want %q", result.Status, StatusComplete)
+	if typedResult.AgentID != "agent-1" {
+		t.Errorf("AgentID: got %q, want %q", typedResult.AgentID, "agent-1")
 	}
-	if result.Output != "done" {
-		t.Errorf("Output: got %q, want %q", result.Output, "done")
+	if typedResult.Status != StatusComplete {
+		t.Errorf("Status: got %q, want %q", typedResult.Status, StatusComplete)
 	}
-	if result.TurnCount != 1 {
-		t.Errorf("TurnCount: got %d, want 1", result.TurnCount)
+	if typedResult.Output != "done" {
+		t.Errorf("Output: got %q, want %q", typedResult.Output, "done")
+	}
+	if typedResult.Summary != "" {
+		t.Fatalf("Summary = %q, want hidden summary metadata only", typedResult.Summary)
+	}
+	if typedResult.TurnCount != 1 {
+		t.Errorf("TurnCount: got %d, want 1", typedResult.TurnCount)
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want delegate summary retention")
+	}
+	if result.Retention.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("result.Retention.Kind = %q, want %q", result.Retention.Kind, tool.RetentionKindDelegateSummary)
+	}
+	if result.Retention.Summary == "" {
+		t.Fatal("result.Retention.Summary = empty, want summary text")
 	}
 }
 
@@ -178,8 +195,11 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Summary != "short summary" {
-		t.Errorf("Summary: got %q, want %q", result.Summary, "short summary")
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want summary retention")
+	}
+	if result.Retention.Summary != "short summary" {
+		t.Errorf("Summary: got %q, want %q", result.Retention.Summary, "short summary")
 	}
 	if prov.callCount != 2 {
 		t.Errorf("callCount: got %d, want 2", prov.callCount)
@@ -194,7 +214,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 		if msg.Content == longContent {
 			sawOversizedAnswer = true
 		}
-		if strings.Contains(msg.Content, "approximately 100 tokens") {
+		if strings.Contains(msg.Content, "under 1000 characters") {
 			sawLimitInstruction = true
 		}
 	}
@@ -206,7 +226,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	}
 }
 
-func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
+func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	longContent := strings.Repeat("x", 5000)
 	overlongSummary := strings.Repeat("y", 5000)
 	prov := &fakeProvider{
@@ -236,11 +256,86 @@ func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(result.Output) > 100*4 {
-		t.Fatalf("Output length %d exceeds bound", len(result.Output))
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
 	}
-	if len(result.Summary) > 100*4 {
-		t.Fatalf("Summary length %d exceeds bound", len(result.Summary))
+	if typedResult.Output != longContent {
+		t.Fatalf("Output was overwritten: got %q, want full output", typedResult.Output)
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want retained summary")
+	}
+	if len(result.Retention.Summary) > 1000 {
+		t.Fatalf("Summary length %d exceeds retention cap", len(result.Retention.Summary))
+	}
+	if typedResult.Summary != "" {
+		t.Fatalf("Summary = %q, want hidden summary metadata only", typedResult.Summary)
+	}
+}
+
+type summaryFailRunner struct {
+	calls int
+}
+
+func (r *summaryFailRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+	r.calls++
+	if r.calls == 1 {
+		return agent.RunState{
+			TurnCount: 1,
+			Conversation: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: strings.Repeat("full-output ", 200)},
+			},
+		}, nil
+	}
+	return agent.RunState{}, fmt.Errorf("summary turn failed")
+}
+
+func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{Message: provider.Message{Content: strings.Repeat("full-output ", 200)}, FinishReason: "stop"},
+		},
+	}
+
+	spec := DelegationSpec{
+		Task:    "test task",
+		AgentID: "agent-8",
+		Limits: DelegationLimits{
+			MaxTurns:          5,
+			OutputLimitTokens: 100,
+		},
+	}
+
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+	runner := &summaryFailRunner{}
+
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if strings.TrimSpace(typedResult.Output) == "" {
+		t.Fatal("typedResult.Output = empty, want full visible output")
+	}
+	if runner.calls != 2 {
+		t.Fatalf("calls = %d, want 2", runner.calls)
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want fallback summary")
+	}
+	if result.Retention.Summary == "" {
+		t.Fatal("result.Retention.Summary = empty, want capped preview")
+	}
+	if len([]rune(result.Retention.Summary)) > 1000 {
+		t.Fatalf("result.Retention.Summary too long: %d runes", len([]rune(result.Retention.Summary)))
+	}
+	if strings.Contains(result.Retention.Summary, "summary turn failed") {
+		t.Fatalf("retention summary leaked summary failure: %q", result.Retention.Summary)
 	}
 }
 
@@ -345,8 +440,12 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 	if time.Since(start) < spec.Limits.Timeout {
 		t.Fatalf("timeout path returned too quickly: %v", time.Since(start))
 	}
-	if len(result.Output) > 100*4 {
-		t.Fatalf("Output length %d exceeds bound after timeout path", len(result.Output))
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if len(typedResult.Output) != 5000 {
+		t.Fatalf("Output length %d, want full visible output", len(typedResult.Output))
 	}
 }
 
@@ -405,9 +504,13 @@ func TestEndToEndDelegation(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 
-	result, ok := raw.(DelegationResult)
+	execResult, ok := raw.(tool.ExecutionResult)
 	if !ok {
-		t.Fatalf("handler returned %T, want DelegationResult", raw)
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	result, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("handler result.Value type = %T, want DelegationResult", execResult.Value)
 	}
 	if result.Output != "child result" {
 		t.Errorf("Output: got %q, want %q", result.Output, "child result")
@@ -426,11 +529,11 @@ func TestEndToEndDelegation(t *testing.T) {
 	// The child ran its own isolated conversation; the parent only sees the
 	// DelegationResult value. Verify the child provider was called exactly once
 	// (no child internal leakage into the parent call count).
-	if childProv.callCount != 1 {
-		t.Errorf("child provider callCount: got %d, want 1", childProv.callCount)
+	if childProv.callCount != 2 {
+		t.Errorf("child provider callCount: got %d, want 2", childProv.callCount)
 	}
-	if len(childProv.requests) != 1 {
-		t.Fatalf("child provider requests: got %d, want 1", len(childProv.requests))
+	if len(childProv.requests) != 2 {
+		t.Fatalf("child provider requests: got %d, want 2", len(childProv.requests))
 	}
 	// Child conversation must not include any parent messages — the child
 	// request should only contain the system prompt and the task message.
@@ -544,9 +647,13 @@ func TestParentContextIsolation(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 
-	result, ok := raw.(DelegationResult)
+	execResult, ok := raw.(tool.ExecutionResult)
 	if !ok {
-		t.Fatalf("handler returned %T, want DelegationResult", raw)
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	result, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("handler result.Value type = %T, want DelegationResult", execResult.Value)
 	}
 	if result.Output != "child final answer" {
 		t.Errorf("Output: got %q, want %q", result.Output, "child final answer")
@@ -559,8 +666,8 @@ func TestParentContextIsolation(t *testing.T) {
 	// child ran in its own isolated conversation by checking that the second
 	// child provider call included a tool result message — evidence of internal
 	// multi-turn wiring — without that leaking to the parent.
-	if childProv.callCount != 2 {
-		t.Errorf("child provider callCount: got %d, want 2", childProv.callCount)
+	if childProv.callCount != 3 {
+		t.Errorf("child provider callCount: got %d, want 3", childProv.callCount)
 	}
 	secondReq := childProv.requests[1]
 	var sawToolResult bool

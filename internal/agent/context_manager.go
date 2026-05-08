@@ -128,7 +128,7 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 		trigger = s.advanceEpoch(currentTurn)
 	}
 	window := s.maskingWindow()
-	masked := fromProviderMessages(prompt.MaskConversationBeforeTurn(toProviderMessages(conversation), s.epochMaskBoundary))
+	masked := maskConversationBeforeTurn(conversation, s.epochMaskBoundary)
 	s.emitMaskingDiagnostics(currentTurn, window, previousBoundary, previousStartTurn, trigger, conversation, masked)
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)

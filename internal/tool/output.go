@@ -23,8 +23,9 @@ type ExecutionMetadata struct {
 }
 
 type ExecutionResult struct {
-	Value    any               `json:"value,omitempty"`
-	Metadata ExecutionMetadata `json:"metadata"`
+	Value     any               `json:"value,omitempty"`
+	Metadata  ExecutionMetadata `json:"metadata"`
+	Retention *ToolRetention    `json:"-"`
 }
 
 type boundedCapture struct {
