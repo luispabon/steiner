@@ -29,6 +29,9 @@ func (b *contentBuffer) String(width int) string {
 		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 			seg.renderDirty = true
 		}
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+			seg.renderDirty = true
+		}
 		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
 			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n")
 			if seg.cachedRender != "" {
@@ -93,6 +96,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
 	case segmentInterrupted:
 		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
+	case segmentDelegation:
+		return b.renderDelegationSegment(segment)
 	default:
 		return b.renderDefaultSegment(segment)
 	}
@@ -251,6 +256,51 @@ func (b *contentBuffer) renderCompactionBannerSegment(segment contentSegment, wi
 
 func (b *contentBuffer) renderInterruptedSegment() string {
 	return b.styles.FgMute.Render("interrupted") + "\n\n"
+}
+
+// renderDelegationSegment renders a delegation block in one of three states:
+// active (spinner + elapsed), complete (compact result), or failed (error style).
+func (b *contentBuffer) renderDelegationSegment(segment contentSegment) string {
+	dd := segment.delegData
+	if dd == nil {
+		return ""
+	}
+	muted := b.styles.FgMute
+	switch dd.status {
+	case "active":
+		frame := spinnerFrames[dd.spinnerFrame%len(spinnerFrames)]
+		elapsedStr := ""
+		if dd.startTime > 0 {
+			elapsedStr = " " + formatElapsed(dd.startTime, nanoNow())
+		}
+		header := muted.Render("⟩ delegate " + dd.agentID + elapsedStr + " " + frame)
+		if dd.taskPreview != "" {
+			return header + "\n" + muted.Render("  "+dd.taskPreview) + "\n"
+		}
+		return header + "\n"
+	case "complete":
+		meta := pluralTurns(dd.turnCount)
+		if dd.tokenCount > 0 {
+			meta += fmt.Sprintf(", %d tokens", dd.tokenCount)
+		}
+		if dd.elapsed != "" {
+			meta += ", " + dd.elapsed
+		}
+		status := dd.resultStatus
+		if status == "" {
+			status = "complete"
+		}
+		line := fmt.Sprintf("✓ delegate %s — %s (%s)", dd.agentID, status, meta)
+		return b.styles.SuccessStyle.Render(line) + "\n"
+	case "failed":
+		line := "✗ delegate " + dd.agentID + " — failed"
+		if dd.elapsed != "" {
+			line += " (" + dd.elapsed + ")"
+		}
+		return b.styles.ErrorStyle.Render(line) + "\n"
+	default:
+		return muted.Render("delegate "+dd.agentID) + "\n"
+	}
 }
 
 func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
