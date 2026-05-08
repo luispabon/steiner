@@ -78,9 +78,9 @@ type SmartContextManager struct {
 
 // CachedSystemPreamble returns the system preamble string, building it once
 // and caching it for the lifetime of the manager.
-func (s *SmartContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool) string {
+func (s *SmartContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string {
 	if s.cachedPreamble == "" {
-		s.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled).Content
+		s.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled).Content
 	}
 	return s.cachedPreamble
 }

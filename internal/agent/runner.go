@@ -86,11 +86,12 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
 	if preambler, ok := req.ContextManager.(interface {
-		CachedSystemPreamble(override string, scratchpadEnabled bool) string
+		CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string
 	}); ok {
 		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
 			basePrompt.PromptOverrides.System,
 			basePrompt.ScratchpadEnabled,
+			basePrompt.DelegationEnabled,
 		)
 	}
 	compactionHistory := map[string]bool{}
