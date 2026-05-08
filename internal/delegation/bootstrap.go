@@ -37,7 +37,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		return agent.RunRequest{}, DelegationLimits{}, fmt.Errorf("build child prompt: %w", err)
 	}
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, delegateToolName)
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName)
 	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts)
 	return req, limits, nil
 }

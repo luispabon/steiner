@@ -95,6 +95,18 @@ func cloneToolDef(def ToolDef) ToolDef {
 	return def
 }
 
+// Clone returns a deep copy of the registry. Mutating the clone does not affect the original.
+func (r *Registry) Clone() *Registry {
+	if r == nil {
+		return NewRegistry()
+	}
+	clone := &Registry{defs: make(map[string]ToolDef, len(r.defs))}
+	for name, def := range r.defs {
+		clone.defs[name] = cloneToolDef(def)
+	}
+	return clone
+}
+
 // ToProviderSpecs converts the registry definitions to provider tool specs.
 // The schema maps are cloned to prevent external mutation.
 func (r *Registry) ToProviderSpecs() []provider.ToolSpec {

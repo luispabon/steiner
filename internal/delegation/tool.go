@@ -11,7 +11,8 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-const delegateToolName = "delegate"
+// DelegateToolName is the registered name of the delegate tool.
+const DelegateToolName = "delegate"
 
 func generateAgentID() string {
 	return fmt.Sprintf("child-%d", time.Now().UnixNano())
@@ -20,7 +21,7 @@ func generateAgentID() string {
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
 func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
-		Name:        delegateToolName,
+		Name:        DelegateToolName,
 		Description: "Spawn an isolated sub-agent to complete a task. Returns structured result. The sub-agent cannot itself delegate further.",
 		ParameterSchema: map[string]any{
 			"type": "object",

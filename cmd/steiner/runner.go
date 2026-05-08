@@ -9,6 +9,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -99,14 +100,15 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			}
 		}),
 	)
-	executor := tool.NewExecutor(r.runtime.registry, r.runtime.cfg, r.approver, r.runtime.workDir)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, prov, events, r.runtime.workDir)
+	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
 	maxTokens := selected.MaxCompletionTokens
 	ctxManager := agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement)
 	state, err := runner.Run(runCtx, agent.RunRequest{
 		Provider:    prov,
 		Executor:    executor,
-		Tools:       r.runtime.registry.ToProviderSpecs(),
+		Tools:       activeRegistry.ToProviderSpecs(),
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
 		Model:       selected.Model,
@@ -231,4 +233,24 @@ func (p loggingProvider) StreamChatCompletion(ctx context.Context, req provider.
 
 func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
+}
+
+// buildActiveRegistry returns the registry to use for a run. When sub-agent
+// delegation is enabled the base registry is cloned and the delegate tool is
+// registered into the clone so that the base registry stays clean.
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string) *tool.Registry {
+	if !subAgentCfg.Enabled {
+		return base
+	}
+	cloned := base.Clone()
+	handler := delegation.NewDelegateHandler(delegation.DelegateHandlerDeps{
+		Provider:    prov,
+		ParentReg:   base,
+		SubAgentCfg: subAgentCfg,
+		Events:      events,
+		Runner:      agent.NewRunner(),
+		WorkDir:     workDir,
+	})
+	cloned.Register(delegation.DelegateToolDef(handler))
+	return cloned
 }
