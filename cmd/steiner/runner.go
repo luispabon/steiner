@@ -76,6 +76,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.ScratchpadMode == config.ScratchpadModeHybrid,
+		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		Conversation:              toProviderConversation(conversation),
 	}
 

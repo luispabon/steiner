@@ -8,7 +8,7 @@ import (
 func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true).Content
+	content := SystemPreamble("", true, false).Content
 	for _, want := range []string{
 		"- intent: what you are trying to achieve right now",
 		"- decisions: key choices made and why",
@@ -29,7 +29,7 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true).Content
+	content := SystemPreamble("", true, false).Content
 	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
 	for _, forbidden := range []string{
 		"Tool guidance:",
