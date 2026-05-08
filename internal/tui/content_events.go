@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/glamour"
@@ -28,6 +29,7 @@ const (
 	segmentApprovalPill
 	segmentCompactionBanner
 	segmentInterrupted
+	segmentDelegation
 )
 
 type thinkingBlockData struct {
@@ -71,18 +73,40 @@ type compactionBannerData struct {
 	msgCount int     // number of messages compacted (for finished summary)
 }
 
+// delegationDisplayState tracks in-flight or finished delegation state for rendering.
+type delegationDisplayState struct {
+	agentID      string
+	taskPreview  string // truncated to ~80 chars
+	startTime    int64  // unix nano, set on DelegationStarted
+	elapsed      string // formatted elapsed, set on Complete/Failed
+	spinnerFrame int    // index into spinnerFrames
+	status       string // "active" | "complete" | "failed"
+	// result fields (Complete)
+	resultStatus string
+	turnCount    int
+	tokenCount   int
+	// failure field
+	errMsg string
+	// output visibility
+	collapsed bool
+}
+
 type contentSegment struct {
 	kind           contentSegmentKind
 	text           string
-	thinkData      *thinkingBlockData    // non-nil only for segmentThinkingBlock
-	toolData       *toolCallSegment      // non-nil only for segmentToolCall
-	approvalData   *approvalPillData     // non-nil only for segmentApprovalPill
-	compactionData *compactionBannerData // non-nil only for segmentCompactionBanner
+	thinkData      *thinkingBlockData      // non-nil only for segmentThinkingBlock
+	toolData       *toolCallSegment        // non-nil only for segmentToolCall
+	approvalData   *approvalPillData       // non-nil only for segmentApprovalPill
+	compactionData *compactionBannerData   // non-nil only for segmentCompactionBanner
+	delegData      *delegationDisplayState // non-nil only for segmentDelegation
 	// render cache
 	cachedRender      string
 	cachedRenderWidth int
 	renderDirty       bool
 }
+
+// spinnerFrames is the braille spinner sequence used for active delegations.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type contentBuffer struct {
 	segments                      []contentSegment
@@ -103,6 +127,8 @@ type contentBuffer struct {
 	streamingSource               output.ChunkSource
 	tickCount                     int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr                 error // captures the last render error for logging
+	// delegation tracking
+	activeDelegations map[string]int // agentID → segment index (for in-flight delegations)
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
@@ -212,7 +238,151 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 
 func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	b.finishStreaming()
+	if b.activeDelegations == nil {
+		b.activeDelegations = make(map[string]int)
+	}
+	switch event.Type {
+	case output.EventTypeDelegationStarted:
+		if payload, ok := event.Payload.(output.DelegationStartedEvent); ok {
+			preview := payload.TaskPreview
+			if len([]rune(preview)) > 80 {
+				runes := []rune(preview)
+				preview = string(runes[:77]) + "..."
+			}
+			dd := &delegationDisplayState{
+				agentID:     payload.AgentID,
+				taskPreview: preview,
+				startTime:   nanoNow(),
+				status:      "active",
+				collapsed:   true,
+			}
+			seg := contentSegment{
+				kind:        segmentDelegation,
+				delegData:   dd,
+				renderDirty: true,
+			}
+			idx := len(b.segments)
+			b.segments = append(b.segments, seg)
+			b.activeDelegations[payload.AgentID] = idx
+			return
+		}
+	case output.EventTypeDelegationComplete:
+		if payload, ok := event.Payload.(output.DelegationCompleteEvent); ok {
+			if idx, active := b.activeDelegations[payload.AgentID]; active {
+				dd := b.segments[idx].delegData
+				if dd != nil {
+					dd.status = "complete"
+					dd.resultStatus = payload.Status
+					dd.turnCount = payload.TurnCount
+					dd.tokenCount = payload.TokenCount
+					dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+				}
+				b.segments[idx].renderDirty = true
+				delete(b.activeDelegations, payload.AgentID)
+				return
+			}
+			// fallback: no active segment found, append new
+			dd := &delegationDisplayState{
+				agentID:      payload.AgentID,
+				status:       "complete",
+				resultStatus: payload.Status,
+				turnCount:    payload.TurnCount,
+				tokenCount:   payload.TokenCount,
+				collapsed:    true,
+			}
+			b.segments = append(b.segments, contentSegment{
+				kind:        segmentDelegation,
+				delegData:   dd,
+				renderDirty: true,
+			})
+			return
+		}
+	case output.EventTypeDelegationFailed:
+		if payload, ok := event.Payload.(output.DelegationFailedEvent); ok {
+			if idx, active := b.activeDelegations[payload.AgentID]; active {
+				dd := b.segments[idx].delegData
+				if dd != nil {
+					dd.status = "failed"
+					dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+					// errMsg intentionally not stored to avoid leaking details
+				}
+				b.segments[idx].renderDirty = true
+				delete(b.activeDelegations, payload.AgentID)
+				return
+			}
+			// fallback
+			dd := &delegationDisplayState{
+				agentID:   payload.AgentID,
+				status:    "failed",
+				collapsed: true,
+			}
+			b.segments = append(b.segments, contentSegment{
+				kind:        segmentDelegation,
+				delegData:   dd,
+				renderDirty: true,
+			})
+			return
+		}
+	}
+	// default fallback
 	b.appendStyled(formatDelegationEvent(event), segmentPlain)
+}
+
+// HasActiveDelegations reports whether any delegations are still in flight.
+func (b *contentBuffer) HasActiveDelegations() bool {
+	return len(b.activeDelegations) > 0
+}
+
+// AdvanceDelegationSpinners increments the spinner frame for all active delegation segments
+// and marks them dirty for re-render.
+func (b *contentBuffer) AdvanceDelegationSpinners() {
+	for _, idx := range b.activeDelegations {
+		if idx < len(b.segments) {
+			dd := b.segments[idx].delegData
+			if dd != nil {
+				dd.spinnerFrame = (dd.spinnerFrame + 1) % len(spinnerFrames)
+			}
+			b.segments[idx].renderDirty = true
+		}
+	}
+}
+
+// ToggleLastDelegationOutput toggles collapsed state on the most recently added delegation segment.
+func (b *contentBuffer) ToggleLastDelegationOutput() {
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		if b.segments[i].kind == segmentDelegation && b.segments[i].delegData != nil {
+			b.segments[i].delegData.collapsed = !b.segments[i].delegData.collapsed
+			b.segments[i].renderDirty = true
+			return
+		}
+	}
+}
+
+// timeNow is a variable so tests can override wall-clock time.
+var timeNow = time.Now
+
+// nanoNow returns the current Unix nanosecond timestamp.
+var nanoNow = func() int64 {
+	return timeNow().UnixNano()
+}
+
+// formatElapsed formats elapsed time from startNano to endNano as a human-friendly string.
+func formatElapsed(startNano, endNano int64) string {
+	ns := endNano - startNano
+	if ns < 0 {
+		ns = 0
+	}
+	ms := ns / 1_000_000
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	s := ms / 1000
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	m := s / 60
+	rem := s % 60
+	return fmt.Sprintf("%dm%ds", m, rem)
 }
 
 func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
