@@ -31,17 +31,19 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 // Registries and prompt must be provided pre-built; the caller (typically
 // BuildChildRun) is responsible for registry and prompt assembly.
-func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions) agent.RunRequest {
+func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, extraParams map[string]any, thinking config.ThinkingConfig) agent.RunRequest {
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
 
 	req := agent.RunRequest{
-		Provider: prov,
-		Executor: tool.NewExecutor(execReg, childCfg, nil, workDir),
-		Tools:    visibleReg.ToProviderSpecs(),
-		Model:    spec.Model,
-		Limits:   baseLimits,
-		Events:   events,
-		Prompt:   promptOpts,
+		Provider:    prov,
+		Executor:    tool.NewExecutor(execReg, childCfg, nil, workDir),
+		Tools:       visibleReg.ToProviderSpecs(),
+		Model:       spec.Model,
+		Limits:      baseLimits,
+		Events:      events,
+		Prompt:      promptOpts,
+		ExtraParams: extraParams,
+		Thinking:    thinking,
 	}
 
 	return req

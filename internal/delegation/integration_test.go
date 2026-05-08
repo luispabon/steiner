@@ -92,7 +92,7 @@ func TestBasicDelegationResult(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -124,7 +124,7 @@ func TestDelegationEvents(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	runner := agent.NewRunner()
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -170,7 +170,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -228,7 +228,7 @@ func TestOversizedOutputReturnedOutputIsBounded(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
@@ -264,7 +264,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 
 	spec := makeSpec("agent-6", 1000)
 	visibleReg, execReg := buildChildRegistries(parentReg, "delegate")
-	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	if len(req.Tools) != 1 {
 		t.Fatalf("Tools length = %d, want 1", len(req.Tools))
@@ -329,7 +329,7 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 	}
 
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 	runner := &blockingRunner{}
 	start := time.Now()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
@@ -468,7 +468,7 @@ func TestNestingPrevention(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, childProv, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec))
+	req := buildChildRunRequest("/tmp/work", spec, childProv, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	runner := agent.NewRunner()
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)

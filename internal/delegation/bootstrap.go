@@ -19,6 +19,8 @@ type BootstrapDeps struct {
 	SubAgentCfg config.SubAgentConfig
 	Events      output.EventSink
 	WorkDir     string
+	ExtraParams map[string]any
+	Thinking    config.ThinkingConfig
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -38,7 +40,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	}
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.Thinking)
 	return req, limits, nil
 }
 

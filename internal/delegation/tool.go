@@ -48,6 +48,8 @@ type DelegateHandlerDeps struct {
 	Events      output.EventSink
 	Runner      AgentRunner
 	WorkDir     string
+	ExtraParams map[string]any
+	Thinking    config.ThinkingConfig
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -85,6 +87,8 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			SubAgentCfg: deps.SubAgentCfg,
 			Events:      deps.Events,
 			WorkDir:     deps.WorkDir,
+			ExtraParams: deps.ExtraParams,
+			Thinking:    deps.Thinking,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
