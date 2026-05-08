@@ -235,6 +235,7 @@ type DelegationCompleteEvent struct {
 	Status     string `json:"status"`
 	TurnCount  int    `json:"turn_count"`
 	TokenCount int    `json:"token_count"`
+	Output     string `json:"output,omitempty"`
 }
 
 type DelegationFailedEvent struct {

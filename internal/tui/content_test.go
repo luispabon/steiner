@@ -49,7 +49,7 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 }
 
 func TestAppendEventDelegationComplete(t *testing.T) {
-	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000)
+	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, "")
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -136,7 +136,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		},
 		{
 			name:  "delegation_complete",
-			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100),
+			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100, ""),
 		},
 		{
 			name:  "delegation_failed",
@@ -193,7 +193,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 		},
 		{
 			name:      "complete",
-			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500),
+			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, ""),
 			wantMatch: "delegate: complete test-agent (2 turns)",
 		},
 		{
@@ -284,7 +284,7 @@ func TestDelegationLifecycle(t *testing.T) {
 	}
 
 	// Complete delegation.
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600, ""))
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after complete, want false")
 	}
@@ -338,9 +338,10 @@ func TestDelegationToggleOutput(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50, "result text"))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
@@ -351,16 +352,27 @@ func TestDelegationToggleOutput(t *testing.T) {
 		t.Error("delegation should be collapsed by default")
 	}
 
-	// Toggle once → expanded.
+	// Toggle once → expanded; output text should appear.
 	buffer.ToggleLastDelegationOutput()
 	if dd.collapsed {
 		t.Error("delegation should be expanded after first toggle")
 	}
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "result text") {
+		t.Errorf("rendered output missing 'result text' in expanded state: %q", rendered)
+	}
 
-	// Toggle again → collapsed.
+	// Toggle again → collapsed; output text hidden, hint shown.
 	buffer.ToggleLastDelegationOutput()
 	if !dd.collapsed {
 		t.Error("delegation should be collapsed after second toggle")
+	}
+	rendered = buffer.String(80)
+	if strings.Contains(rendered, "result text") {
+		t.Errorf("rendered output should not contain 'result text' in collapsed state: %q", rendered)
+	}
+	if !strings.Contains(rendered, "[output hidden") {
+		t.Errorf("rendered output missing '[output hidden' hint in collapsed state: %q", rendered)
 	}
 }
 
@@ -381,7 +393,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 		{
 			name: "complete_has_turns",
 			setup: func(b *contentBuffer) {
-				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300))
+				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300, ""))
 			},
 			checks: []string{"c-agent", "7 turns"},
 		},

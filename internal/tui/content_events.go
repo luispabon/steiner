@@ -87,7 +87,8 @@ type delegationDisplayState struct {
 	tokenCount   int
 	// failure field
 	errMsg string
-	// output visibility
+	// output text and visibility
+	output    string
 	collapsed bool
 }
 
@@ -276,6 +277,7 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 					dd.turnCount = payload.TurnCount
 					dd.tokenCount = payload.TokenCount
 					dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+					dd.output = payload.Output
 				}
 				b.segments[idx].renderDirty = true
 				delete(b.activeDelegations, payload.AgentID)
@@ -288,6 +290,7 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 				resultStatus: payload.Status,
 				turnCount:    payload.TurnCount,
 				tokenCount:   payload.TokenCount,
+				output:       payload.Output,
 				collapsed:    true,
 			}
 			b.segments = append(b.segments, contentSegment{
