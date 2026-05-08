@@ -291,7 +291,20 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment) string {
 			status = "complete"
 		}
 		line := fmt.Sprintf("✓ delegate %s — %s (%s)", dd.agentID, status, meta)
-		return b.styles.SuccessStyle.Render(line) + "\n"
+		rendered := b.styles.SuccessStyle.Render(line) + "\n"
+		if dd.output != "" {
+			if dd.collapsed {
+				rendered += muted.Render("  [output hidden — ctrl+x to expand]") + "\n"
+			} else {
+				out := dd.output
+				runes := []rune(out)
+				if len(runes) > 500 {
+					out = string(runes[:500]) + "…"
+				}
+				rendered += muted.Render("  "+out) + "\n"
+			}
+		}
+		return rendered
 	case "failed":
 		line := "✗ delegate " + dd.agentID + " — failed"
 		if dd.elapsed != "" {

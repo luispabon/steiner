@@ -103,7 +103,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 	// Emit delegation complete
 	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount))
+		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
 	}
 
 	return result, nil
