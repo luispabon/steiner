@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -112,6 +113,51 @@ func TestToolHandler_EmptyTask(t *testing.T) {
 	_, err = handler(context.Background(), map[string]any{"task": ""})
 	if err == nil {
 		t.Error("expected error for empty task string")
+	}
+}
+
+func TestToolHandler_ReturnsStructuredFailureResult(t *testing.T) {
+	deps := DelegateHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{},
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(),
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+			return agent.RunState{}, fmt.Errorf("child run exploded")
+		}},
+		Events:  noopEventSink{},
+		WorkDir: "/tmp/work",
+	}
+	handler := NewDelegateHandler(deps)
+
+	raw, err := handler(context.Background(), map[string]any{"task": "do something"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	execResult, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	result, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", execResult.Value)
+	}
+	if result.Status != StatusFailed {
+		t.Fatalf("Status = %q, want %q", result.Status, StatusFailed)
+	}
+	if result.Error != "child run exploded" {
+		t.Fatalf("Error = %q, want %q", result.Error, "child run exploded")
+	}
+	if result.Summary != "delegation failed: child run exploded" {
+		t.Fatalf("Summary = %q, want failure summary", result.Summary)
+	}
+	if execResult.Retention == nil {
+		t.Fatal("Retention = nil, want failure retention")
+	}
+	if execResult.Retention.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("Retention.Kind = %q, want %q", execResult.Retention.Kind, tool.RetentionKindDelegateSummary)
+	}
+	if execResult.Retention.Status != string(StatusFailed) {
+		t.Fatalf("Retention.Status = %q, want %q", execResult.Retention.Status, StatusFailed)
 	}
 }
 

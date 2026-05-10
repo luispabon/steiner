@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -63,15 +64,10 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
 	if err != nil {
-		result := DelegationResult{
-			AgentID: spec.AgentID,
-			Status:  StatusFailed,
-			Error:   err.Error(),
-		}
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
-		return tool.ExecutionResult{Value: result}, err
+		return failedDelegateExecution(spec, state, err), nil
 	}
 
 	for ext := 0; ext < maxDelegateExtensions; ext++ {
@@ -83,10 +79,14 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		}
 		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
 		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
-		state, err = runner.Run(childCtx, req)
-		if err != nil {
-			break
+		nextState, extensionErr := runner.Run(childCtx, req)
+		if extensionErr != nil {
+			if events != nil {
+				events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extensionErr.Error()))
+			}
+			return failedDelegateExecution(spec, state, extensionErr), nil
 		}
+		state = nextState
 	}
 
 	result := BuildResult(spec.AgentID, state, spec)
@@ -114,6 +114,47 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return executionResult, nil
+}
+
+func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error) tool.ExecutionResult {
+	status := StatusFailed
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		status = StatusCancelled
+	}
+
+	result := DelegationResult{
+		AgentID:    spec.AgentID,
+		Status:     status,
+		TurnCount:  state.TurnCount,
+		TokenCount: state.TokenCount,
+		Error:      err.Error(),
+	}
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
+		result.Output = msg.Content
+	}
+
+	summaryText := failedDelegateSummaryText(err, result.Output)
+	result.Summary = summaryText
+
+	return tool.ExecutionResult{
+		Value: result,
+		Retention: &tool.ToolRetention{
+			Kind:       tool.RetentionKindDelegateSummary,
+			Summary:    summaryText,
+			AgentID:    result.AgentID,
+			Status:     string(result.Status),
+			TurnCount:  result.TurnCount,
+			TokenCount: result.TokenCount,
+		},
+	}
+}
+
+func failedDelegateSummaryText(err error, previousOutput string) string {
+	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
+	if previousOutput = strings.TrimSpace(previousOutput); previousOutput != "" {
+		parts = append(parts, "previous output: "+cappedRetentionPreview(previousOutput))
+	}
+	return truncateUTF8(strings.Join(parts, "\n"), delegateRetentionSummaryMaxRunes)
 }
 
 func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) string {

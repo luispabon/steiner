@@ -52,6 +52,59 @@ func TestMaskConversationUsesRetainedDelegateSummary(t *testing.T) {
 	}
 }
 
+func TestMaskConversationUsesFailedDelegateRetainedSummary(t *testing.T) {
+	longFailure := "delegation failed: " + strings.Repeat("child failure detail ", 120)
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "u1"},
+		{
+			Role: MessageRoleAssistant,
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
+			},
+		},
+		{
+			Role:       MessageRoleTool,
+			ToolCallID: "call_1",
+			Name:       "delegate",
+			Content:    "full delegate output with paths and details",
+			Turn:       1,
+			Retention: &MessageRetention{
+				Kind:       "delegate_summary",
+				Summary:    longFailure,
+				AgentID:    "child-failure",
+				Status:     "failed",
+				TurnCount:  4,
+				TokenCount: 8120,
+			},
+		},
+		{Role: MessageRoleUser, Content: "u2"},
+		{Role: MessageRoleAssistant, Content: "middle answer"},
+		{Role: MessageRoleUser, Content: "u3"},
+		{Role: MessageRoleAssistant, Content: "recent answer"},
+	}
+
+	got := maskConversation(messages, 1)
+	if strings.Contains(got[2].Content, "(no retained summary available)") {
+		t.Fatalf("masked failed delegate content used generic placeholder: %q", got[2].Content)
+	}
+	if !strings.Contains(got[2].Content, "retained delegation summary") {
+		t.Fatalf("masked failed delegate content = %q, want retained summary block", got[2].Content)
+	}
+	if !strings.Contains(got[2].Content, "child-failure failed") {
+		t.Fatalf("masked failed delegate content = %q, want failed status", got[2].Content)
+	}
+	lines := strings.Split(got[2].Content, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("masked failed delegate content = %q, want retained summary line", got[2].Content)
+	}
+	if !strings.Contains(lines[1], "delegation failed:") {
+		t.Fatalf("retained summary line = %q, want failure summary", lines[1])
+	}
+	if gotLen := len([]rune(lines[1])); gotLen > len("Summary: ")+retainedSummaryMaxRunes {
+		t.Fatalf("retained summary line too long: %d runes", gotLen)
+	}
+}
+
 func TestMaskConversationBeforeTurnUsesRestoredRetainedDelegateSummary(t *testing.T) {
 	lineage := ConversationLineage{
 		Generations: []ConversationGeneration{
