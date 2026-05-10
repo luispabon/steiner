@@ -94,6 +94,9 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 
 		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
 		if err != nil {
+			if result != (tool.ExecutionResult{}) {
+				return result, nil
+			}
 			return nil, fmt.Errorf("delegate failed: %w", err)
 		}
 		return result, nil

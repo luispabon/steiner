@@ -57,6 +57,16 @@ func (c *collectingSink) Emit(e output.Event) {
 	c.events = append(c.events, e)
 }
 
+type failingRunner struct {
+	err   error
+	calls int
+}
+
+func (r *failingRunner) Run(context.Context, agent.RunRequest) (agent.RunState, error) {
+	r.calls++
+	return agent.RunState{}, r.err
+}
+
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	p, err := buildChildPrompt(spec)
@@ -163,6 +173,65 @@ func TestDelegationEvents(t *testing.T) {
 	}
 	if !hasComplete {
 		t.Error("expected at least one DelegationComplete event")
+	}
+}
+
+func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{Message: provider.Message{Content: "unused"}, FinishReason: "stop"},
+		},
+	}
+
+	spec := makeSpec("agent-failure", 1000)
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	sink := &collectingSink{}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+
+	runner := &failingRunner{err: fmt.Errorf("initial child run failed")}
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner.calls = %d, want 1", runner.calls)
+	}
+
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if typedResult.Status != StatusFailed {
+		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
+	}
+	if typedResult.Error != "initial child run failed" {
+		t.Fatalf("Error = %q, want %q", typedResult.Error, "initial child run failed")
+	}
+	if typedResult.Summary != "delegation failed: initial child run failed" {
+		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want failure retention")
+	}
+	if result.Retention.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("Retention.Kind = %q, want %q", result.Retention.Kind, tool.RetentionKindDelegateSummary)
+	}
+	if result.Retention.Status != string(StatusFailed) {
+		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusFailed)
+	}
+	if result.Retention.Summary != typedResult.Summary {
+		t.Fatalf("Retention.Summary = %q, want %q", result.Retention.Summary, typedResult.Summary)
+	}
+	var sawFailedEvent bool
+	for _, ev := range sink.events {
+		if ev.Type == output.EventTypeDelegationFailed {
+			sawFailedEvent = true
+			break
+		}
+	}
+	if !sawFailedEvent {
+		t.Fatal("expected delegation_failed event")
 	}
 }
 
@@ -982,7 +1051,7 @@ func TestExtensionEventEmitted(t *testing.T) {
 	t.Error("no DelegationExtension event emitted")
 }
 
-func TestExtensionErrorPreservesState(t *testing.T) {
+func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	spec := makeSpec("ext-agent-7", 10000)
 	sink := &collectingSink{}
 
@@ -1012,9 +1081,92 @@ func TestExtensionErrorPreservesState(t *testing.T) {
 	if !ok {
 		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
 	}
-	// Output should come from first state (last successful state before error)
-	if typedResult.Output != "" && typedResult.TurnCount != firstState.TurnCount {
-		t.Errorf("TurnCount = %d, want %d (from pre-error state)", typedResult.TurnCount, firstState.TurnCount)
+	if typedResult.Status != StatusFailed {
+		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
+	}
+	if typedResult.Error != "extension run failed" {
+		t.Fatalf("Error = %q, want %q", typedResult.Error, "extension run failed")
+	}
+	if typedResult.TurnCount != firstState.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d (from pre-error state)", typedResult.TurnCount, firstState.TurnCount)
+	}
+	if typedResult.Output != "" {
+		t.Fatalf("Output = %q, want preserved pre-error output", typedResult.Output)
+	}
+	if typedResult.Summary != "delegation failed: extension run failed" {
+		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want failure retention")
+	}
+	if result.Retention.Status != string(StatusFailed) {
+		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusFailed)
+	}
+	if !strings.Contains(result.Retention.Summary, "delegation failed: extension run failed") {
+		t.Fatalf("Retention.Summary = %q, want failure summary", result.Retention.Summary)
+	}
+
+	var sawFailedEvent, sawCompleteEvent bool
+	for _, ev := range sink.events {
+		switch ev.Type {
+		case output.EventTypeDelegationFailed:
+			sawFailedEvent = true
+		case output.EventTypeDelegationComplete:
+			sawCompleteEvent = true
+		}
+	}
+	if !sawFailedEvent {
+		t.Fatal("expected delegation_failed event")
+	}
+	if sawCompleteEvent {
+		t.Fatal("unexpected delegation_complete event after failure")
+	}
+}
+
+func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
+	spec := makeSpec("ext-agent-cancelled", 10000)
+	sink := &collectingSink{}
+
+	firstState := maxTurnsStateWithTools(3)
+	runner := &presetRunner{
+		states: []agent.RunState{
+			firstState,
+			{},
+		},
+		errors: []error{
+			nil,
+			context.Canceled,
+		},
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("SpawnDelegate returned error: %v", err)
+	}
+
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if typedResult.Status != StatusCancelled {
+		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusCancelled)
+	}
+	if typedResult.Error != context.Canceled.Error() {
+		t.Fatalf("Error = %q, want %q", typedResult.Error, context.Canceled.Error())
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want cancellation retention")
+	}
+	if result.Retention.Status != string(StatusCancelled) {
+		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusCancelled)
+	}
+	if !strings.Contains(result.Retention.Summary, "delegation failed:") {
+		t.Fatalf("Retention.Summary = %q, want cancellation summary", result.Retention.Summary)
 	}
 }
 
