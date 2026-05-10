@@ -2,10 +2,14 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +39,10 @@ type OpenAICompat struct {
 	retry      RetryConfig
 	httpClient *http.Client
 	scheduler  *Scheduler
+	sleep      func(context.Context, time.Duration) error
+	jitter     func(time.Duration) time.Duration
+	randMu     sync.Mutex
+	rand       *rand.Rand
 }
 
 // NewOpenAICompat creates a new OpenAI-compatible provider client.
@@ -56,14 +64,18 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	if client == nil {
 		client = defaultHTTPClient
 	}
-	return &OpenAICompat{
+	provider := &OpenAICompat{
 		baseURL:    parsed,
 		apiKey:     cfg.APIKey,
 		model:      cfg.Model,
 		retry:      cfg.Retry,
 		httpClient: client,
 		scheduler:  cfg.Scheduler,
-	}, nil
+		sleep:      defaultRetrySleep,
+		rand:       rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+	provider.jitter = provider.fullJitter
+	return provider, nil
 }
 
 func (p *OpenAICompat) SupportsUsageStats() bool {
@@ -79,17 +91,30 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	}
 	defer p.release()
 
-	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: false})
+	body, err := p.buildRequestPayload(request, false)
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	defer resp.Body.Close()
 
-	payload, err := p.decodeNonStreamResponse(resp)
+	var response ChatResponse
+	err = p.withRetry(ctx, func(attempt int) (bool, error) {
+		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, false)
+		if err != nil {
+			return false, err
+		}
+		defer resp.Body.Close()
+
+		payload, err := p.decodeNonStreamResponse(resp)
+		if err != nil {
+			return false, err
+		}
+		response, err = normalizeChatResponse(payload)
+		return false, err
+	}, p.classifyRetryError, nil)
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	return normalizeChatResponse(payload)
+	return response, nil
 }
 
 func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
@@ -131,11 +156,153 @@ func (p *OpenAICompat) release() {
 }
 
 func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
-	resp, err := p.executeRequest(ctx, requestExecutionInput{request: request, stream: true})
+	body, err := p.buildRequestPayload(request, true)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
-	return p.decodeStreamResponse(ctx, resp.Body, out)
+	return p.withRetry(ctx, func(attempt int) (bool, error) {
+		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, true)
+		if err != nil {
+			return false, err
+		}
+		defer resp.Body.Close()
+
+		attemptOut := make(chan ChatChunk)
+		errCh := make(chan error, 1)
+		go func() {
+			defer close(attemptOut)
+			errCh <- p.decodeStreamResponse(ctx, resp.Body, attemptOut)
+		}()
+
+		partialStream := false
+		for chunk := range attemptOut {
+			if chunkVisible(chunk) {
+				partialStream = true
+			}
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return partialStream, ctx.Err()
+			}
+		}
+		if err := <-errCh; err != nil {
+			return partialStream, err
+		}
+		return partialStream, nil
+	}, p.classifyRetryError, func(info retryAttemptInfo) {
+		if !info.PartialStream {
+			return
+		}
+		select {
+		case out <- ChatChunk{
+			RetryReset: true,
+			Diagnostic: retryWarningMessage(info),
+			Severity:   "warning",
+		}:
+		case <-ctx.Done():
+		}
+	})
+}
+
+func (p *OpenAICompat) buildAndExecuteHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
+	req, err := p.buildHTTPRequest(ctx, body, stream)
+	if err != nil {
+		return nil, err
+	}
+	return p.executeHTTP(ctx, req)
+}
+
+func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
+	if err == nil {
+		return retryDecision{}
+	}
+	if strings.HasPrefix(err.Error(), "decode chat completion response:") {
+		return retryDecision{}
+	}
+	if strings.HasPrefix(err.Error(), "decode tool call ") {
+		return retryDecision{}
+	}
+	errText := err.Error()
+	if errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(errText, "unexpected EOF") || strings.Contains(errText, "stream completed without a final chunk") {
+		return retryDecision{
+			retry:  true,
+			reason: errText,
+		}
+	}
+	if strings.HasPrefix(errText, "decode stream chunk:") && strings.Contains(errText, "unexpected end of JSON input") {
+		return retryDecision{
+			retry:  true,
+			reason: errText,
+		}
+	}
+	if httpErr := asHTTPError(err); httpErr != nil {
+		if !isRetryableHTTPStatus(httpErr.StatusCode) {
+			return retryDecision{}
+		}
+		delay, _ := retryAfterDelay(httpErr.Header, p.retry.RetryAfterMax)
+		return retryDecision{
+			retry:      true,
+			reason:     httpErr.Error(),
+			retryAfter: delay,
+		}
+	}
+	if !isRetryableTransportError(err) {
+		return retryDecision{}
+	}
+	return retryDecision{
+		retry:  true,
+		reason: err.Error(),
+	}
+}
+
+func chunkVisible(chunk ChatChunk) bool {
+	if chunk.Delta.Content != "" {
+		return true
+	}
+	if chunk.Thinking != "" {
+		return true
+	}
+	return len(chunk.Delta.ToolCalls) > 0
+}
+
+func retryWarningMessage(info retryAttemptInfo) string {
+	message := fmt.Sprintf("retrying attempt %d/%d", info.Attempt, info.MaxAttempts)
+	if info.Delay > 0 {
+		message = fmt.Sprintf("%s in %s", message, info.Delay)
+	}
+	if info.Reason != "" {
+		message = fmt.Sprintf("%s: %s", message, info.Reason)
+	}
+	return message
+}
+
+func defaultRetrySleep(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *OpenAICompat) fullJitter(cap time.Duration) time.Duration {
+	if cap <= 0 {
+		return 0
+	}
+	if p == nil || p.rand == nil {
+		return cap
+	}
+	max := int64(cap)
+	if max <= 0 {
+		return 0
+	}
+	p.randMu.Lock()
+	defer p.randMu.Unlock()
+	return time.Duration(p.rand.Int63n(max + 1))
 }
