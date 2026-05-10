@@ -175,10 +175,9 @@ func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 	})
 
 	var delays []time.Duration
-	provider.sleep = func(ctx context.Context, delay time.Duration) error { return nil }
-	provider.jitter = func(cap time.Duration) time.Duration {
-		delays = append(delays, cap)
-		return cap
+	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+		delays = append(delays, delay)
+		return nil
 	}
 
 	_, err := provider.ChatCompletion(context.Background(), ChatRequest{

@@ -220,14 +220,21 @@ func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
 	if strings.HasPrefix(err.Error(), "decode chat completion response:") {
 		return retryDecision{}
 	}
-	if strings.HasPrefix(err.Error(), "decode stream chunk:") {
-		errText := err.Error()
-		if !errors.Is(err, io.ErrUnexpectedEOF) && !strings.Contains(errText, "unexpected EOF") && !strings.Contains(errText, "unexpected end of JSON input") {
-			return retryDecision{}
-		}
-	}
 	if strings.HasPrefix(err.Error(), "decode tool call ") {
 		return retryDecision{}
+	}
+	errText := err.Error()
+	if errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(errText, "unexpected EOF") || strings.Contains(errText, "stream completed without a final chunk") {
+		return retryDecision{
+			retry:  true,
+			reason: errText,
+		}
+	}
+	if strings.HasPrefix(errText, "decode stream chunk:") && strings.Contains(errText, "unexpected end of JSON input") {
+		return retryDecision{
+			retry:  true,
+			reason: errText,
+		}
 	}
 	if httpErr := asHTTPError(err); httpErr != nil {
 		if !isRetryableHTTPStatus(httpErr.StatusCode) {
