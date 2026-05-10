@@ -49,6 +49,12 @@ models:
     model: test-model
     max_completion_tokens: 64
     context_size: 4096
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 16
       summary_max_tokens: 32

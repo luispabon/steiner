@@ -75,10 +75,12 @@ func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
 	if err != nil {
 		return fmt.Errorf("read error response body: %w", err)
 	}
-	if len(body) == 0 {
-		return fmt.Errorf("chat completions request failed: %s", resp.Status)
+	return &HTTPError{
+		StatusCode: resp.StatusCode,
+		Status:     resp.Status,
+		Body:       strings.TrimSpace(string(body)),
+		Header:     resp.Header.Clone(),
 	}
-	return fmt.Errorf("chat completions request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 }
 
 func (p *OpenAICompat) chatCompletionsURL() string {
