@@ -322,7 +322,7 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 func buildConversationRequest(req RunRequest, messages []Message) provider.ChatRequest {
 	return provider.ChatRequest{
 		Model:       req.Model,
-		Messages:    toProviderMessages(messages),
+		Messages:    ToProviderMessages(messages),
 		Tools:       cloneProviderTools(req.Tools),
 		ExtraParams: req.ExtraParams,
 		MaxTokens:   req.MaxTokens,
@@ -391,7 +391,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
-	source := toProviderMessages(candidate.Messages)
+	source := ToProviderMessages(candidate.Messages)
 	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction)
 	maxTokens := compactionMaxTokens(req.ModelBudget)
 	request := provider.ChatRequest{
