@@ -8,6 +8,13 @@ func defaultConfig() Config {
 		Model:               "qwen3-35b-a3b",
 		MaxCompletionTokens: 8192,
 		ContextSize:         32768,
+		Retry: RetryConfig{
+			Enabled:        true,
+			MaxAttempts:    3,
+			InitialBackoff: MustDuration("250ms"),
+			MaxBackoff:     MustDuration("5s"),
+			RetryAfterMax:  MustDuration("30s"),
+		},
 		Compaction: CompactionConfig{
 			SafetyMarginTokens: 8192,
 			SummaryMaxTokens:   4096,
@@ -43,8 +50,8 @@ func defaultConfig() Config {
 			Default: ApprovalModeAuto,
 		},
 		SubAgent: SubAgentConfig{
- 				Enabled:       true,
-				MaxTurns:      15,
+			Enabled:       true,
+			MaxTurns:      15,
 			MaxTokens:     100000,
 			AllowedTools:  []string{"read", "glob", "grep", "ls", "write", "edit", "bash"},
 			AllowNesting:  false,

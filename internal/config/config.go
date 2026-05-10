@@ -96,9 +96,18 @@ type ModelConfig struct {
 	ExtraParams         map[string]any   `yaml:"extra_params"`
 	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
 	ContextSize         int              `yaml:"context_size"`
+	Retry               RetryConfig      `yaml:"retry"`
 	Compaction          CompactionConfig `yaml:"compaction"`
 	Prompts             ModelPrompts     `yaml:"prompts"`
 	Thinking            ThinkingConfig   `yaml:"thinking"`
+}
+
+type RetryConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	MaxAttempts    int      `yaml:"max_attempts"`
+	InitialBackoff Duration `yaml:"initial_backoff"`
+	MaxBackoff     Duration `yaml:"max_backoff"`
+	RetryAfterMax  Duration `yaml:"retry_after_max"`
 }
 
 // ModelPrompts contains per-model prompt overrides. These override the
