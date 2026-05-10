@@ -8,7 +8,7 @@ import (
 func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true).Content
+	content := SystemPreamble("", true, false).Content
 	for _, want := range []string{
 		"- intent: what you are trying to achieve right now",
 		"- decisions: key choices made and why",
@@ -29,8 +29,9 @@ func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testin
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true).Content
+	content := SystemPreamble("", true, false).Content
 	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
+	// Note: delegation guidance (## Delegation block) is workflow strategy, not tool mechanics — it is intentionally absent from this test's assertions.
 	for _, forbidden := range []string{
 		"Tool guidance:",
 		"Patch format:",
@@ -46,5 +47,65 @@ func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("system preamble still contains %q in %q", forbidden, content)
 		}
+	}
+}
+
+func TestSystemPreambleDelegationInstructions(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", false, true).Content
+	for _, want := range []string{
+		"## Delegation",
+		"Use `delegate` for separable work another agent can complete independently and summarize back.",
+		"Before starting a task locally, classify it.",
+		"Investigation: find files, usages, patterns, duplication, bug locations, or design risks across multiple files.",
+		"Research: inspect docs, APIs, dependencies, repo history, or prior examples.",
+		"Implementation: make a clear change with explicit file/package ownership and success criteria.",
+		"Verification: run tests, lint, build, reproduce failures, or interpret logs, especially while you can continue other work.",
+		"Review: inspect code or changes for bugs, regressions, missing tests, or plan adherence.",
+		"One known tool call is enough: read one known file, grep one known pattern, list one known path, run `git diff`, `gofmt`, or a targeted test.",
+		"The task is too vague for an independent agent to know success.",
+		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
+		"success criteria.",
+		"Sub-agents cannot delegate or ask the user questions.",
+		"| Find DRY/refactoring opportunities across the codebase | Delegate: report files, repeated patterns, risks, and next steps. |",
+		"| Read one known file or inspect one known diff | Work locally. |",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("delegation preamble missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"Exploring the codebase to answer a factual question",
+		"Implementing a bounded change scoped to 1–3 files where the requirements are clear",
+		"Running verification (tests, lint, build) and interpreting results",
+		"Reviewing or analysing code in files you have not yet read",
+		"Searching for information across many files (grep + read chains)",
+		"Performing a refactor with known, mechanical scope",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
+		}
+	}
+}
+
+func TestSystemPreambleDelegationAbsentWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", false, false).Content
+	if strings.Contains(content, "## Delegation") {
+		t.Fatalf("delegation instructions present when delegationEnabled=false")
+	}
+}
+
+func TestSystemPreambleDelegationAndScratchpadCoexist(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", true, true).Content
+	if !strings.Contains(content, "## Scratchpad") {
+		t.Fatalf("scratchpad instructions missing when both enabled")
+	}
+	if !strings.Contains(content, "## Delegation") {
+		t.Fatalf("delegation instructions missing when both enabled")
 	}
 }

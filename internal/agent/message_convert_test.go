@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,10 +11,10 @@ import (
 
 func TestMessageConvert_ToProviderMessages(t *testing.T) {
 	t.Run("empty input returns nil", func(t *testing.T) {
-		if got := toProviderMessages(nil); got != nil {
+		if got := ToProviderMessages(nil); got != nil {
 			t.Errorf("expected nil for nil input, got %v", got)
 		}
-		if got := toProviderMessages([]Message{}); got != nil {
+		if got := ToProviderMessages([]Message{}); got != nil {
 			t.Errorf("expected nil for empty slice, got %v", got)
 		}
 	})
@@ -23,7 +24,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			{Role: MessageRoleSummary, Content: "summary content"},
 			{Role: MessageRoleUser, Content: "user content"},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 2 {
 			t.Fatalf("expected 2 messages, got %d", len(result))
 		}
@@ -47,7 +48,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			{Role: MessageRoleAssistant, Content: "hi", Turn: 2},
 			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1", Turn: 3},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(result))
 		}
@@ -86,7 +87,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 				},
 			},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(result))
 		}
@@ -129,13 +130,13 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 		}
 	})
 
-	t.Run("reverses toProviderMessages", func(t *testing.T) {
+	t.Run("reverses ToProviderMessages", func(t *testing.T) {
 		original := []Message{
 			{Role: MessageRoleUser, Content: "hello", Turn: 4},
 			{Role: MessageRoleAssistant, Content: "world", Name: "bot", Turn: 5},
 			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1", Turn: 6},
 		}
-		result := fromProviderMessages(toProviderMessages(original))
+		result := fromProviderMessages(ToProviderMessages(original))
 		if len(result) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(result))
 		}
@@ -233,6 +234,70 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 			t.Errorf("expected context-block, got %s", result.Role)
 		}
 	})
+
+	t.Run("retention does not copy to provider message", func(t *testing.T) {
+		msg := Message{
+			Role:    MessageRoleTool,
+			Content: "tool output",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: "retained",
+			},
+		}
+		result := toProviderMessage(msg)
+		if result.Content != "tool output" {
+			t.Fatalf("content = %q, want tool output", result.Content)
+		}
+	})
+
+	t.Run("retention summary does not reach provider fields", func(t *testing.T) {
+		marker := "hidden summary marker"
+		msg := Message{
+			Role:       MessageRoleTool,
+			Content:    "tool output",
+			Name:       "delegate",
+			ToolCallID: "call_1",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: marker,
+			},
+		}
+
+		result := toProviderMessage(msg)
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("marshal provider message: %v", err)
+		}
+		if strings.Contains(string(data), marker) {
+			t.Fatalf("provider message JSON = %s, want no retained marker", data)
+		}
+	})
+
+	t.Run("marker stays visible when content carries it", func(t *testing.T) {
+		marker := "hidden summary marker"
+		msg := Message{
+			Role:       MessageRoleTool,
+			Content:    marker,
+			Name:       "delegate",
+			ToolCallID: "call_1",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: marker,
+			},
+		}
+
+		result := toProviderMessage(msg)
+		if result.Content != marker {
+			t.Fatalf("content = %q, want marker", result.Content)
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("marshal provider message: %v", err)
+		}
+		if !strings.Contains(string(data), marker) {
+			t.Fatalf("provider message JSON = %s, want marker from content", data)
+		}
+	})
 }
 
 func TestMessageConvert_FromProviderMessage(t *testing.T) {
@@ -241,6 +306,14 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		result := fromProviderMessage(msg)
 		if result.Role != MessageRole("system") {
 			t.Errorf("expected system, got %s", result.Role)
+		}
+	})
+
+	t.Run("provider message does not create retention", func(t *testing.T) {
+		msg := provider.Message{Role: provider.MessageRoleTool, Content: "tool"}
+		result := fromProviderMessage(msg)
+		if result.Retention != nil {
+			t.Fatalf("retention = %#v, want nil", result.Retention)
 		}
 	})
 }

@@ -341,3 +341,84 @@ func TestConversationLineageJSONRoundTrip(t *testing.T) {
 		t.Fatalf("restored next generation id = %d, want %d", got, want)
 	}
 }
+
+func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
+	original := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{
+					Role:    MessageRoleTool,
+					Content: "visible output",
+					Retention: &MessageRetention{
+						Kind:    "delegate_summary",
+						Summary: "retained summary",
+						AgentID: "child-1",
+					},
+				},
+			}),
+		},
+		NextGenerationID: 2,
+	}
+
+	cloned := original.Clone()
+	if cloned.Generations[0].Messages[0].Retention == nil {
+		t.Fatal("cloned retention = nil, want copied metadata")
+	}
+	if cloned.Generations[0].Messages[0].Retention.Summary != "retained summary" {
+		t.Fatalf("cloned retention summary = %q, want retained summary", cloned.Generations[0].Messages[0].Retention.Summary)
+	}
+	cloned.Generations[0].Messages[0].Retention.Summary = "changed"
+	if original.Generations[0].Messages[0].Retention.Summary != "retained summary" {
+		t.Fatal("original retention mutated through clone")
+	}
+}
+
+func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{
+					Role:    MessageRoleTool,
+					Content: "visible output",
+					Retention: &MessageRetention{
+						Kind:       "delegate_summary",
+						Summary:    "hidden summary",
+						AgentID:    "child-1",
+						Status:     "complete",
+						TurnCount:  4,
+						TokenCount: 8120,
+					},
+				},
+			}),
+		},
+		NextGenerationID: 2,
+	}
+
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+	if string(data) == "" {
+		t.Fatal("marshal produced empty output")
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+	if restored.Generations[0].Messages[0].Retention == nil {
+		t.Fatal("restored retention = nil, want persisted metadata")
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.Summary, "hidden summary"; got != want {
+		t.Fatalf("restored retention summary = %q, want %q", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.Status, "complete"; got != want {
+		t.Fatalf("restored retention status = %q, want %q", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.TurnCount, 4; got != want {
+		t.Fatalf("restored retention turn count = %d, want %d", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.TokenCount, 8120; got != want {
+		t.Fatalf("restored retention token count = %d, want %d", got, want)
+	}
+}

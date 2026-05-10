@@ -20,6 +20,19 @@ type ToolDef struct {
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 }
 
+const RetentionKindDelegateSummary = "delegate_summary"
+
+// ToolRetention carries runtime-only metadata that can be preserved alongside a
+// tool result without being surfaced to providers.
+type ToolRetention struct {
+	Kind       string `json:"kind,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	AgentID    string `json:"agent_id,omitempty"`
+	Status     string `json:"status,omitempty"`
+	TurnCount  int    `json:"turn_count,omitempty"`
+	TokenCount int    `json:"token_count,omitempty"`
+}
+
 type JSONEnvelope struct {
 	OK     bool               `json:"ok"`
 	Result any                `json:"result,omitempty"`

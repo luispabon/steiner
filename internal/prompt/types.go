@@ -102,12 +102,13 @@ type AssemblyOptions struct {
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
 	ScratchpadEnabled         bool
+	DelegationEnabled         bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
 	// is used directly, bypassing SystemPreamble. Both inputs to SystemPreamble
-	// (PromptOverrides.System and ScratchpadEnabled) are session-constants, so
-	// caching once per session is safe.
+	// (PromptOverrides.System, ScratchpadEnabled, and DelegationEnabled) are
+	// session-constants, so caching once per session is safe.
 	CachedPreamble string
 }
 

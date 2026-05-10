@@ -10,7 +10,6 @@ func TestDelegationSpecFields(t *testing.T) {
 		Task:         "test task",
 		Context:      "test context",
 		SystemPrompt: "test prompt",
-		Model:        "test-model",
 		AgentID:      "agent-123",
 		Limits: DelegationLimits{
 			MaxTurns:          10,
@@ -28,9 +27,6 @@ func TestDelegationSpecFields(t *testing.T) {
 	if spec.SystemPrompt != "test prompt" {
 		t.Errorf("expected SystemPrompt=%q, got %q", "test prompt", spec.SystemPrompt)
 	}
-	if spec.Model != "test-model" {
-		t.Errorf("expected Model=%q, got %q", "test-model", spec.Model)
-	}
 	if spec.AgentID != "agent-123" {
 		t.Errorf("expected AgentID=%q, got %q", "agent-123", spec.AgentID)
 	}
@@ -44,7 +40,6 @@ func TestDelegationResultFields(t *testing.T) {
 		AgentID:    "agent-123",
 		Status:     StatusComplete,
 		Output:     "test output",
-		Summary:    "test summary",
 		TurnCount:  5,
 		TokenCount: 1000,
 		Error:      "",
@@ -59,8 +54,8 @@ func TestDelegationResultFields(t *testing.T) {
 	if result.Output != "test output" {
 		t.Errorf("expected Output=%q, got %q", "test output", result.Output)
 	}
-	if result.Summary != "test summary" {
-		t.Errorf("expected Summary=%q, got %q", "test summary", result.Summary)
+	if result.Summary != "" {
+		t.Errorf("expected Summary to remain hidden, got %q", result.Summary)
 	}
 	if result.TurnCount != 5 {
 		t.Errorf("expected TurnCount=5, got %d", result.TurnCount)

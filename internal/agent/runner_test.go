@@ -868,6 +868,14 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 						Preview:   strings.Repeat("hello", 4),
 					},
 				},
+				Retention: &tool.ToolRetention{
+					Kind:       tool.RetentionKindDelegateSummary,
+					Summary:    "child summary",
+					AgentID:    "child-1",
+					Status:     "complete",
+					TurnCount:  1,
+					TokenCount: 4,
+				},
 			}, nil
 		},
 	}
@@ -891,6 +899,96 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	}
 	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
+	}
+	if strings.Contains(providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, "child summary") {
+		t.Fatal("tool message content leaked retention summary")
+	}
+	if got := state.Conversation[2].Retention; got == nil {
+		t.Fatal("tool message retention = nil, want durable retained summary")
+	} else if got.Summary != "child summary" {
+		t.Fatalf("tool message retention summary = %q, want child summary", got.Summary)
+	}
+}
+
+func TestRunnerKeepsRecentDelegateRetentionVisibleWithoutLeakingSummary(t *testing.T) {
+	const fullOutput = "delegate produced a full result with paths and details"
+	const hiddenSummary = "hidden summary marker"
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_delegate", Name: "delegate", Arguments: map[string]any{"task": "inspect the repository and summarize the findings"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(context.Context, string, map[string]any) (any, error) {
+			return tool.ExecutionResult{
+				Value: map[string]any{
+					"output": fullOutput,
+				},
+				Retention: &tool.ToolRetention{
+					Kind:       tool.RetentionKindDelegateSummary,
+					Summary:    hiddenSummary,
+					AgentID:    "child-1",
+					Status:     "complete",
+					TurnCount:  1,
+					TokenCount: 8,
+				},
+			}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Tools: []provider.ToolSpec{
+			{
+				Type: "function",
+				Function: provider.ToolFunctionSpec{
+					Name:        "delegate",
+					Description: "Delegate work",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "delegate this task"}},
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 1000},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got := state.Conversation[2].Retention; got == nil {
+		t.Fatal("tool message retention = nil, want durable retained summary")
+	} else if got.Summary != hiddenSummary {
+		t.Fatalf("tool message retention summary = %q, want %q", got.Summary, hiddenSummary)
+	}
+
+	second := providerStub.requests[1]
+	if !messageContentsContain(second.Messages, fullOutput) {
+		t.Fatalf("second request missing full delegate output: %#v", second.Messages)
+	}
+	if messageContentsContain(second.Messages, hiddenSummary) {
+		t.Fatalf("second request leaked retained summary: %#v", second.Messages)
 	}
 }
 

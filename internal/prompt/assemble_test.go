@@ -183,7 +183,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Blocks[0].Content, "syste"; got != want {
+	if got, want := assembly.Blocks[0].Content, "You a"; got != want {
 		t.Fatalf("preamble block content = %q, want %q", got, want)
 	}
 	if !assembly.Blocks[0].Truncated {
@@ -207,7 +207,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
-	wantContent := "syste\n\nglob"
+	wantContent := "You a\n\nglob"
 	if got := assembly.Messages[0].Content; got != wantContent {
 		t.Fatalf("merged system message content = %q, want %q", got, wantContent)
 	}

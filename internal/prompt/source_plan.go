@@ -57,7 +57,7 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 						})
 						return nil
 					}
-					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled))
+					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled))
 					return nil
 				},
 			},

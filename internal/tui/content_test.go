@@ -26,26 +26,30 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 	}
 
 	seg := buffer.segments[0]
-	if seg.kind != segmentPlain {
-		t.Errorf("segment kind = %v, want segmentPlain", seg.kind)
+	if seg.kind != segmentDelegation {
+		t.Errorf("segment kind = %v, want segmentDelegation", seg.kind)
+	}
+
+	if seg.delegData == nil {
+		t.Fatal("delegData = nil, want delegation state")
 	}
 
 	// Verify no task content leakage
 	if strings.Contains(seg.text, "module X") {
-		t.Errorf("segment contains task content: %q", seg.text)
+		t.Errorf("segment text contains task content: %q", seg.text)
 	}
 
-	if !strings.Contains(seg.text, "delegate:") {
-		t.Errorf("segment missing 'delegate:' prefix: %q", seg.text)
+	if seg.delegData.agentID != "child-1" {
+		t.Errorf("delegData.agentID = %q, want %q", seg.delegData.agentID, "child-1")
 	}
 
-	if !strings.Contains(seg.text, "child-1") {
-		t.Errorf("segment missing agent ID: %q", seg.text)
+	if seg.delegData.status != "active" {
+		t.Errorf("delegData.status = %q, want %q", seg.delegData.status, "active")
 	}
 }
 
 func TestAppendEventDelegationComplete(t *testing.T) {
-	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000)
+	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, "")
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -59,24 +63,24 @@ func TestAppendEventDelegationComplete(t *testing.T) {
 	}
 
 	seg := buffer.segments[0]
-	if seg.kind != segmentPlain {
-		t.Errorf("segment kind = %v, want segmentPlain", seg.kind)
+	if seg.kind != segmentDelegation {
+		t.Errorf("segment kind = %v, want segmentDelegation", seg.kind)
 	}
 
-	if !strings.Contains(seg.text, "delegate:") {
-		t.Errorf("segment missing 'delegate:' prefix: %q", seg.text)
+	if seg.delegData == nil {
+		t.Fatal("delegData = nil, want delegation state")
 	}
 
-	if !strings.Contains(seg.text, "complete") {
-		t.Errorf("segment missing 'complete': %q", seg.text)
+	if seg.delegData.agentID != "child-2" {
+		t.Errorf("delegData.agentID = %q, want %q", seg.delegData.agentID, "child-2")
 	}
 
-	if !strings.Contains(seg.text, "child-2") {
-		t.Errorf("segment missing agent ID: %q", seg.text)
+	if seg.delegData.status != "complete" {
+		t.Errorf("delegData.status = %q, want %q", seg.delegData.status, "complete")
 	}
 
-	if !strings.Contains(seg.text, "5 turns") {
-		t.Errorf("segment missing turn count: %q", seg.text)
+	if seg.delegData.turnCount != 5 {
+		t.Errorf("delegData.turnCount = %d, want 5", seg.delegData.turnCount)
 	}
 }
 
@@ -95,29 +99,29 @@ func TestAppendEventDelegationFailed(t *testing.T) {
 	}
 
 	seg := buffer.segments[0]
-	if seg.kind != segmentPlain {
-		t.Errorf("segment kind = %v, want segmentPlain", seg.kind)
+	if seg.kind != segmentDelegation {
+		t.Errorf("segment kind = %v, want segmentDelegation", seg.kind)
 	}
 
-	if !strings.Contains(seg.text, "delegate:") {
-		t.Errorf("segment missing 'delegate:' prefix: %q", seg.text)
+	if seg.delegData == nil {
+		t.Fatal("delegData = nil, want delegation state")
 	}
 
-	if !strings.Contains(seg.text, "failed") {
-		t.Errorf("segment missing 'failed': %q", seg.text)
+	if seg.delegData.agentID != "child-3" {
+		t.Errorf("delegData.agentID = %q, want %q", seg.delegData.agentID, "child-3")
 	}
 
-	if !strings.Contains(seg.text, "child-3") {
-		t.Errorf("segment missing agent ID: %q", seg.text)
+	if seg.delegData.status != "failed" {
+		t.Errorf("delegData.status = %q, want %q", seg.delegData.status, "failed")
 	}
 
 	// Verify no task content or error details leak
 	if strings.Contains(seg.text, "build package") {
-		t.Errorf("segment contains task preview: %q", seg.text)
+		t.Errorf("segment text contains task preview: %q", seg.text)
 	}
 
 	if strings.Contains(seg.text, "compilation error") {
-		t.Errorf("segment contains error message: %q", seg.text)
+		t.Errorf("segment text contains error message: %q", seg.text)
 	}
 }
 
@@ -132,7 +136,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		},
 		{
 			name:  "delegation_complete",
-			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100),
+			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100, ""),
 		},
 		{
 			name:  "delegation_failed",
@@ -155,7 +159,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 
 			seg := buffer.segments[0]
 
-			// These secrets should never appear in rendered output
+			// These secrets should never appear in the segment text or delegData fields.
 			secrets := []string{
 				"secret task content here",
 				"error details",
@@ -164,7 +168,12 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 
 			for _, secret := range secrets {
 				if strings.Contains(seg.text, secret) {
-					t.Errorf("segment contains sensitive content: %q found in %q", secret, seg.text)
+					t.Errorf("segment.text contains sensitive content: %q found in %q", secret, seg.text)
+				}
+				if seg.delegData != nil {
+					if strings.Contains(seg.delegData.errMsg, secret) {
+						t.Errorf("delegData.errMsg contains sensitive content: %q", secret)
+					}
 				}
 			}
 		})
@@ -184,7 +193,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 		},
 		{
 			name:      "complete",
-			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500),
+			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, ""),
 			wantMatch: "delegate: complete test-agent (2 turns)",
 		},
 		{
@@ -199,6 +208,241 @@ func TestFormatDelegationEvent(t *testing.T) {
 			result := formatDelegationEvent(tt.event)
 			if result != tt.wantMatch {
 				t.Errorf("formatDelegationEvent = %q, want %q", result, tt.wantMatch)
+			}
+		})
+	}
+}
+
+func TestDelegationSpinnerAdvancement(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("spin-agent", "task"))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if dd.spinnerFrame != 0 {
+		t.Errorf("initial spinnerFrame = %d, want 0", dd.spinnerFrame)
+	}
+
+	buffer.AdvanceDelegationSpinners()
+	if dd.spinnerFrame != 1 {
+		t.Errorf("spinnerFrame after 1 advance = %d, want 1", dd.spinnerFrame)
+	}
+
+	// Advance through all frames and confirm wrap-around.
+	for i := 0; i < len(spinnerFrames)+1; i++ {
+		buffer.AdvanceDelegationSpinners()
+	}
+	// Frame should be within bounds.
+	if dd.spinnerFrame < 0 || dd.spinnerFrame >= len(spinnerFrames) {
+		t.Errorf("spinnerFrame out of range: %d", dd.spinnerFrame)
+	}
+}
+
+func TestDelegationElapsedTimeDisplay(t *testing.T) {
+	tests := []struct {
+		name      string
+		startNano int64
+		endNano   int64
+		want      string
+	}{
+		{"milliseconds", 0, 500_000_000, "500ms"},
+		{"seconds", 0, 5_000_000_000, "5s"},
+		{"minutes", 0, 90_000_000_000, "1m30s"},
+		{"zero", 0, 0, "0ms"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatElapsed(tt.startNano, tt.endNano)
+			if got != tt.want {
+				t.Errorf("formatElapsed(%d, %d) = %q, want %q", tt.startNano, tt.endNano, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDelegationLifecycle(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	// Start delegation.
+	buffer.AppendEvent(output.NewDelegationStartedEvent("life-agent", "do work"))
+	if !buffer.HasActiveDelegations() {
+		t.Fatal("HasActiveDelegations = false after started, want true")
+	}
+
+	// Complete delegation.
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600, ""))
+	if buffer.HasActiveDelegations() {
+		t.Fatal("HasActiveDelegations = true after complete, want false")
+	}
+
+	// Segment should be updated in place (still 1 segment).
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil after complete")
+	}
+	if dd.status != "complete" {
+		t.Errorf("status = %q, want complete", dd.status)
+	}
+	if dd.turnCount != 3 {
+		t.Errorf("turnCount = %d, want 3", dd.turnCount)
+	}
+}
+
+func TestDelegationFailedLifecycle(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("fail-agent", "risky task"))
+	buffer.AppendEvent(output.NewDelegationFailedEvent("fail-agent", "risky task", "boom"))
+
+	if buffer.HasActiveDelegations() {
+		t.Fatal("HasActiveDelegations = true after failed, want false")
+	}
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil after failed")
+	}
+	if dd.status != "failed" {
+		t.Errorf("status = %q, want failed", dd.status)
+	}
+	// Error message must not leak.
+	if dd.errMsg == "boom" {
+		t.Error("errMsg must not store raw error details")
+	}
+}
+
+func TestDelegationToggleOutput(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50, "result text"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	// Default: collapsed.
+	if !dd.collapsed {
+		t.Error("delegation should be collapsed by default")
+	}
+
+	// Toggle once → expanded; output text should appear.
+	buffer.ToggleLastDelegationOutput()
+	if dd.collapsed {
+		t.Error("delegation should be expanded after first toggle")
+	}
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "result text") {
+		t.Errorf("rendered output missing 'result text' in expanded state: %q", rendered)
+	}
+
+	// Toggle again → collapsed; output text hidden, hint shown.
+	buffer.ToggleLastDelegationOutput()
+	if !dd.collapsed {
+		t.Error("delegation should be collapsed after second toggle")
+	}
+	rendered = buffer.String(80)
+	if strings.Contains(rendered, "result text") {
+		t.Errorf("rendered output should not contain 'result text' in collapsed state: %q", rendered)
+	}
+	if !strings.Contains(rendered, "[output hidden") {
+		t.Errorf("rendered output missing '[output hidden' hint in collapsed state: %q", rendered)
+	}
+}
+
+func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+	longOutput := strings.Repeat("x", 650) + "tail marker"
+
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("long-agent", "done", 1, 50, longOutput))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "tail marker") {
+		t.Fatalf("expanded delegation output was truncated: %q", rendered)
+	}
+}
+
+func TestDelegationBlockRendering(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*contentBuffer)
+		checks  []string
+		nocheck []string
+	}{
+		{
+			name: "active_has_agent_id",
+			setup: func(b *contentBuffer) {
+				b.AppendEvent(output.NewDelegationStartedEvent("render-agent", "preview text"))
+			},
+			checks: []string{"render-agent", "preview text"},
+		},
+		{
+			name: "complete_has_turns",
+			setup: func(b *contentBuffer) {
+				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300, ""))
+			},
+			checks: []string{"c-agent", "7 turns"},
+		},
+		{
+			name: "failed_has_agent_id",
+			setup: func(b *contentBuffer) {
+				b.AppendEvent(output.NewDelegationStartedEvent("f-agent", "work"))
+				b.AppendEvent(output.NewDelegationFailedEvent("f-agent", "work", "err"))
+			},
+			checks:  []string{"f-agent"},
+			nocheck: []string{"err"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				segments:      make([]contentSegment, 0),
+				collapseState: make(map[int]bool),
+				styles:        theme.BuildStyles(theme.AccentAmber),
+			}
+			tt.setup(buffer)
+			rendered := buffer.String(80)
+			for _, want := range tt.checks {
+				if !strings.Contains(rendered, want) {
+					t.Errorf("rendered %q missing %q", rendered, want)
+				}
+			}
+			for _, nope := range tt.nocheck {
+				if strings.Contains(rendered, nope) {
+					t.Errorf("rendered %q should not contain %q", rendered, nope)
+				}
 			}
 		})
 	}

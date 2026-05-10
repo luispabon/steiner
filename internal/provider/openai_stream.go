@@ -130,6 +130,9 @@ func flushStreamState(ctx context.Context, out chan<- ChatChunk, state openAIStr
 	if state.sawContent {
 		message.Content = state.content.String()
 	}
+	if state.sawThinking {
+		message.ReasoningContent = state.thinking.String()
+	}
 	if state.sawToolCall {
 		toolCalls, err := finalizeToolCalls(state.toolCalls)
 		if err != nil {

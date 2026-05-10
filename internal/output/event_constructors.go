@@ -369,7 +369,7 @@ func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.
-func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event {
+func NewDelegationCompleteEvent(agentID, status string, turns, tokens int, output string) Event {
 	return Event{
 		Type:      EventTypeDelegationComplete,
 		Timestamp: time.Now().UTC(),
@@ -378,6 +378,7 @@ func NewDelegationCompleteEvent(agentID, status string, turns, tokens int) Event
 			Status:     status,
 			TurnCount:  turns,
 			TokenCount: tokens,
+			Output:     output,
 		},
 	}
 }
@@ -399,6 +400,20 @@ func NewScratchpadUpdatedEvent(e ScratchpadUpdatedEvent) Event {
 		Type:      EventTypeScratchpadUpdated,
 		Timestamp: time.Now().UTC(),
 		Payload:   e,
+	}
+}
+
+// NewDelegationExtensionEvent creates a delegation_extension event when the
+// delegate auto-extends past its original max_turns budget.
+func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) Event {
+	return Event{
+		Type:      EventTypeDelegationExtension,
+		Timestamp: time.Now().UTC(),
+		Payload: DelegationExtensionEvent{
+			AgentID:       agentID,
+			Extension:     extension,
+			MaxExtensions: maxExtensions,
+		},
 	}
 }
 

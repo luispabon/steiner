@@ -2,12 +2,14 @@ package delegation
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -97,12 +99,12 @@ func TestDeriveChildLimits(t *testing.T) {
 
 func TestBuildChildPrompt(t *testing.T) {
 	tests := []struct {
-		name           string
-		spec           DelegationSpec
-		wantFirstRole  provider.MessageRole
-		wantFirstText  string
-		wantSecondText string
-		wantLen        int
+		name          string
+		spec          DelegationSpec
+		wantFirstRole provider.MessageRole
+		wantFirstText string
+		wantSystem    string
+		wantLen       int
 	}{
 		{
 			name: "default system prompt with task only",
@@ -110,10 +112,10 @@ func TestBuildChildPrompt(t *testing.T) {
 				Task:    "do something",
 				AgentID: "test-1",
 			},
-			wantFirstRole:  provider.MessageRoleSystem,
-			wantFirstText:  "You are a sub-agent. Complete the task given to you.",
-			wantSecondText: "do something",
-			wantLen:        2,
+			wantFirstRole: provider.MessageRoleUser,
+			wantFirstText: "do something",
+			wantSystem:    "You are a sub-agent. Complete the task given to you.",
+			wantLen:       1,
 		},
 		{
 			name: "custom system prompt",
@@ -122,10 +124,10 @@ func TestBuildChildPrompt(t *testing.T) {
 				SystemPrompt: "Custom prompt",
 				AgentID:      "test-2",
 			},
-			wantFirstRole:  provider.MessageRoleSystem,
-			wantFirstText:  "Custom prompt",
-			wantSecondText: "do something",
-			wantLen:        2,
+			wantFirstRole: provider.MessageRoleUser,
+			wantFirstText: "do something",
+			wantSystem:    "Custom prompt",
+			wantLen:       1,
 		},
 		{
 			name: "task with context formats correctly",
@@ -134,10 +136,10 @@ func TestBuildChildPrompt(t *testing.T) {
 				Context: "relevant info",
 				AgentID: "test-3",
 			},
-			wantFirstRole:  provider.MessageRoleSystem,
-			wantFirstText:  "You are a sub-agent. Complete the task given to you.",
-			wantSecondText: "do something\n\nAdditional context:\nrelevant info",
-			wantLen:        2,
+			wantFirstRole: provider.MessageRoleUser,
+			wantFirstText: "do something\n\nAdditional context:\nrelevant info",
+			wantSystem:    "You are a sub-agent. Complete the task given to you.",
+			wantLen:       1,
 		},
 	}
 
@@ -150,6 +152,9 @@ func TestBuildChildPrompt(t *testing.T) {
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
+			if promptOpts.PromptOverrides.System != tt.wantSystem {
+				t.Errorf("PromptOverrides.System = %q, want %q", promptOpts.PromptOverrides.System, tt.wantSystem)
+			}
 			if len(promptOpts.Conversation) > 0 {
 				first := promptOpts.Conversation[0]
 				if first.Role != tt.wantFirstRole {
@@ -159,13 +164,47 @@ func TestBuildChildPrompt(t *testing.T) {
 					t.Errorf("Conversation[0].Content = %q, want %q", first.Content, tt.wantFirstText)
 				}
 			}
-			if tt.wantSecondText != "" && len(promptOpts.Conversation) > 1 {
-				second := promptOpts.Conversation[1]
-				if second.Content != tt.wantSecondText {
-					t.Errorf("Conversation[1].Content = %q, want %q", second.Content, tt.wantSecondText)
-				}
-			}
 		})
+	}
+}
+
+func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
+	t.Parallel()
+
+	promptOpts, err := buildChildPrompt(DelegationSpec{
+		Task:         "do something",
+		SystemPrompt: "Custom prompt",
+		AgentID:      "test-single-system",
+	})
+	if err != nil {
+		t.Fatalf("buildChildPrompt() error = %v", err)
+	}
+
+	assembly, err := prompt.Assemble(context.Background(), promptOpts)
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	var systemMessages int
+	for _, message := range assembly.Messages {
+		if message.Role == provider.MessageRoleSystem {
+			systemMessages++
+			if !strings.Contains(message.Content, "Custom prompt") {
+				t.Fatalf("system message missing child override: %q", message.Content)
+			}
+		}
+	}
+	if systemMessages != 1 {
+		t.Fatalf("system message count = %d, want 1; messages = %#v", systemMessages, assembly.Messages)
+	}
+	if len(assembly.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(assembly.Messages))
+	}
+	if assembly.Messages[1].Role != provider.MessageRoleUser {
+		t.Fatalf("message[1].Role = %q, want user", assembly.Messages[1].Role)
+	}
+	if assembly.Messages[1].Content != "do something" {
+		t.Fatalf("message[1].Content = %q, want task", assembly.Messages[1].Content)
 	}
 }
 
@@ -341,17 +380,17 @@ func TestBuildChildRun(t *testing.T) {
 				if req.Limits.MaxTokens != 100000 {
 					t.Errorf("MaxTokens=%d, want 100000", req.Limits.MaxTokens)
 				}
-				if len(req.Prompt.Conversation) != 2 {
-					t.Fatalf("Conversation length=%d, want 2", len(req.Prompt.Conversation))
+				if len(req.Prompt.Conversation) != 1 {
+					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
-				if req.Prompt.Conversation[0].Role != provider.MessageRoleSystem {
-					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleSystem)
+				if req.Prompt.PromptOverrides.System != "You are a sub-agent. Complete the task given to you." {
+					t.Errorf("PromptOverrides.System=%q, want default system prompt", req.Prompt.PromptOverrides.System)
 				}
-				if req.Prompt.Conversation[0].Content != "You are a sub-agent. Complete the task given to you." {
-					t.Errorf("Conversation[0].Content=%q, want default system prompt", req.Prompt.Conversation[0].Content)
+				if req.Prompt.Conversation[0].Role != provider.MessageRoleUser {
+					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleUser)
 				}
-				if req.Prompt.Conversation[1].Content != "do something" {
-					t.Errorf("Conversation[1].Content=%q, want 'do something'", req.Prompt.Conversation[1].Content)
+				if req.Prompt.Conversation[0].Content != "do something" {
+					t.Errorf("Conversation[0].Content=%q, want 'do something'", req.Prompt.Conversation[0].Content)
 				}
 				for _, ts := range req.Tools {
 					if ts.Function.Name == "delegate" {
@@ -386,24 +425,10 @@ func TestBuildChildRun(t *testing.T) {
 			},
 		},
 		{
-			name: "with model override",
-			spec: DelegationSpec{
-				Task:    "do something",
-				AgentID: "test-3",
-				Model:   "gpt-4",
-				Limits:  DelegationLimits{},
-			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
-				if req.Model != "gpt-4" {
-					t.Errorf("Model=%q, want 'gpt-4'", req.Model)
-				}
-			},
-		},
-		{
 			name: "with system prompt override",
 			spec: DelegationSpec{
 				Task:         "do something",
-				AgentID:      "test-4",
+				AgentID:      "test-3",
 				SystemPrompt: "custom",
 				Limits:       DelegationLimits{},
 			},
@@ -411,11 +436,8 @@ func TestBuildChildRun(t *testing.T) {
 				if len(req.Prompt.Conversation) < 1 {
 					t.Fatal("Conversation empty")
 				}
-				if req.Prompt.Conversation[0].Role != provider.MessageRoleSystem {
-					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleSystem)
-				}
-				if req.Prompt.Conversation[0].Content != "custom" {
-					t.Errorf("Conversation[0].Content=%q, want 'custom'", req.Prompt.Conversation[0].Content)
+				if req.Prompt.PromptOverrides.System != "custom" {
+					t.Errorf("PromptOverrides.System=%q, want 'custom'", req.Prompt.PromptOverrides.System)
 				}
 			},
 		},
@@ -423,17 +445,17 @@ func TestBuildChildRun(t *testing.T) {
 			name: "with context",
 			spec: DelegationSpec{
 				Task:    "do something",
-				AgentID: "test-5",
+				AgentID: "test-4",
 				Context: "extra",
 				Limits:  DelegationLimits{},
 			},
 			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
-				if len(req.Prompt.Conversation) < 2 {
-					t.Fatal("Conversation length < 2")
+				if len(req.Prompt.Conversation) != 1 {
+					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
 				want := "do something\n\nAdditional context:\nextra"
-				if req.Prompt.Conversation[1].Content != want {
-					t.Errorf("Conversation[1].Content=%q, want %q", req.Prompt.Conversation[1].Content, want)
+				if req.Prompt.Conversation[0].Content != want {
+					t.Errorf("Conversation[0].Content=%q, want %q", req.Prompt.Conversation[0].Content, want)
 				}
 			},
 		},

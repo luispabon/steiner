@@ -8,7 +8,8 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func toProviderMessages(messages []Message) []provider.Message {
+// ToProviderMessages converts a slice of agent Messages to provider Messages.
+func ToProviderMessages(messages []Message) []provider.Message {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -83,7 +84,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	}
 
 	scratchpadEnabled := base.ScratchpadEnabled || strings.TrimSpace(state.Context.Scratchpad) != ""
-	providerMsgs := toProviderMessages(conversation)
+	providerMsgs := ToProviderMessages(conversation)
 
 	if scratchpadMsg, ok := buildScratchpadMessage(state.Context, scratchpadEnabled); ok {
 		providerMsgs = append(providerMsgs, scratchpadMsg)
@@ -97,7 +98,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 }
 
 func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantContent string) provider.ChatRequest {
-	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false).Content
+	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false).Content
 	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
 	chatReq := provider.ChatRequest{
 		Model:       req.Model,

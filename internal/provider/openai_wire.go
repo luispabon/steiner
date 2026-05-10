@@ -91,8 +91,9 @@ type openAIChoice struct {
 
 func toOpenAIMessage(message Message) (openAIMessage, error) {
 	wire := openAIMessage{
-		Role: string(message.Role),
-		Name: message.Name,
+		Role:             string(message.Role),
+		Name:             message.Name,
+		ReasoningContent: message.ReasoningContent,
 	}
 	switch message.Role {
 	case MessageRoleAssistant, MessageRoleSystem, MessageRoleUser:
@@ -152,6 +153,9 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 	}
 	if content := stringOrEmpty(message.Content); content != "" {
 		out.Content = content
+	}
+	if message.ReasoningContent != "" {
+		out.ReasoningContent = message.ReasoningContent
 	}
 	if message.Name != "" {
 		out.Name = message.Name

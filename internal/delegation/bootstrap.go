@@ -19,6 +19,8 @@ type BootstrapDeps struct {
 	SubAgentCfg config.SubAgentConfig
 	Events      output.EventSink
 	WorkDir     string
+	ExtraParams map[string]any
+	Thinking    config.ThinkingConfig
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -37,8 +39,8 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		return agent.RunRequest{}, DelegationLimits{}, fmt.Errorf("build child prompt: %w", err)
 	}
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, delegateToolName)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts)
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.Thinking)
 	return req, limits, nil
 }
 
@@ -50,8 +52,9 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 	return ApplyOverrides(base, overrides)
 }
 
-// buildChildPrompt assembles the prompt.AssemblyOptions for a child agent,
-// including system prompt (from spec or default) and task with optional context.
+// buildChildPrompt assembles the prompt.AssemblyOptions for a child agent.
+// The child system prompt is supplied as the preamble override instead of a
+// conversation message so the assembled provider request has one system message.
 func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
@@ -63,19 +66,11 @@ func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
 	}
 
-	conversation := []provider.Message{
-		{Role: provider.MessageRoleUser, Content: taskContent},
-	}
-
-	if systemPrompt != "" {
-		conversation = append(
-			[]provider.Message{{Role: provider.MessageRoleSystem, Content: systemPrompt}},
-			conversation...,
-		)
-	}
-
 	return prompt.AssemblyOptions{
-		Conversation: conversation,
+		PromptOverrides: config.ModelPrompts{System: systemPrompt},
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: taskContent},
+		},
 	}, nil
 }
 

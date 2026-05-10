@@ -261,6 +261,143 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T) {
+	const fullDelegateOutput = "delegate output with full findings and repository details"
+	const hiddenSummary = "hidden summary marker"
+	largeTask := strings.Repeat("inspect the repository thoroughly and summarize the findings ", 12)
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 1 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_delegate", Name: "delegate", Arguments: map[string]any{"task": largeTask}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 2 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_2", Name: "bash", Arguments: map[string]any{"command": "echo turn 2"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 3 answer",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_3", Name: "bash", Arguments: map[string]any{"command": "echo turn 3"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "turn 4 answer",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			switch toolName {
+			case "delegate":
+				return tool.ExecutionResult{
+					Value: map[string]any{
+						"output": fullDelegateOutput,
+					},
+					Retention: &tool.ToolRetention{
+						Kind:       tool.RetentionKindDelegateSummary,
+						Summary:    hiddenSummary,
+						AgentID:    "child-1",
+						Status:     "complete",
+						TurnCount:  1,
+						TokenCount: 9,
+					},
+				}, nil
+			default:
+				return tool.ExecutionResult{
+					Value: map[string]any{
+						"output": toolName + " output",
+					},
+				}, nil
+			}
+		},
+	}
+
+	manager := NewContextManager("smart", config.ContextManagementConfig{
+		MaskingWindowTurns: 1,
+		ScratchpadMode:     config.ScratchpadModeHybrid,
+	})
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       providerStub,
+		Executor:       executor,
+		ContextManager: manager,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
+		},
+		Model:  "test-model",
+		Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := len(providerStub.requests), 4; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+
+	fourthRequest := providerStub.requests[3].Messages
+	if !messageContentsContain(fourthRequest, hiddenSummary) {
+		t.Fatalf("fourth request missing retained delegate summary: %#v", fourthRequest)
+	}
+	if messageContentsContain(fourthRequest, fullDelegateOutput) {
+		t.Fatalf("fourth request leaked full delegate output: %#v", fourthRequest)
+	}
+	if strings.Contains(mustMarshalJSON(t, fourthRequest), largeTask) {
+		t.Fatalf("fourth request leaked large delegate input: %#v", fourthRequest)
+	}
+
+	var sawDelegateCall, sawDelegateResult bool
+	for _, msg := range fourthRequest {
+		for _, call := range msg.ToolCalls {
+			if call.ID == "call_delegate" && call.Name == "delegate" {
+				sawDelegateCall = true
+			}
+		}
+		if msg.Role == provider.MessageRoleTool && msg.ToolCallID == "call_delegate" && msg.Name == "delegate" {
+			sawDelegateResult = true
+			if strings.Contains(msg.Content, fullDelegateOutput) {
+				t.Fatalf("delegate tool result leaked full output: %#v", msg)
+			}
+			if !strings.Contains(msg.Content, hiddenSummary) {
+				t.Fatalf("delegate tool result = %q, want retained summary", msg.Content)
+			}
+		}
+	}
+	if !sawDelegateCall {
+		t.Fatal("fourth request missing delegate tool call with original id/name")
+	}
+	if !sawDelegateResult {
+		t.Fatal("fourth request missing paired delegate tool result with matching tool_call_id")
+	}
+
+	if got := state.Conversation[2].Retention; got == nil {
+		t.Fatal("delegate retention = nil, want durable retained summary")
+	} else if got.Summary != hiddenSummary {
+		t.Fatalf("delegate retention summary = %q, want %q", got.Summary, hiddenSummary)
+	}
+}
+
 func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

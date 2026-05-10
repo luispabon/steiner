@@ -102,8 +102,7 @@ func (h hybridCompactor) Compact(ctx context.Context, req RunRequest, state RunS
 		window = 5
 	}
 
-	maskedProviderMessages := prompt.MaskConversation(toProviderMessages(candidate.Messages), window)
-	maskedMessages := fromProviderMessages(maskedProviderMessages)
+	maskedMessages := maskConversation(candidate.Messages, window)
 	nextLineage := state.Lineage.WithCurrentMessages(maskedMessages)
 	request := buildConversationRequest(req, nextLineage.FullMessages())
 	fit, err := req.ModelBudget.FitRequest(ctx, request)
@@ -209,7 +208,7 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 		return CompactionOutcome{}, err
 	}
 	if !fit.Fits {
-		maskedMessages := fromProviderMessages(prompt.MaskConversation(toProviderMessages(compactionCandidate.Messages), 1))
+		maskedMessages := maskConversation(compactionCandidate.Messages, 1)
 		if len(maskedMessages) > 0 {
 			maskedCandidate := compactionCandidate
 			maskedCandidate.Messages = maskedMessages
@@ -323,7 +322,7 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 func buildConversationRequest(req RunRequest, messages []Message) provider.ChatRequest {
 	return provider.ChatRequest{
 		Model:       req.Model,
-		Messages:    toProviderMessages(messages),
+		Messages:    ToProviderMessages(messages),
 		Tools:       cloneProviderTools(req.Tools),
 		ExtraParams: req.ExtraParams,
 		MaxTokens:   req.MaxTokens,
@@ -392,7 +391,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
-	source := toProviderMessages(candidate.Messages)
+	source := ToProviderMessages(candidate.Messages)
 	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction)
 	maxTokens := compactionMaxTokens(req.ModelBudget)
 	request := provider.ChatRequest{

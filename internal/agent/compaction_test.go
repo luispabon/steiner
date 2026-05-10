@@ -338,13 +338,13 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 	if got, want := outcome.State.Conversation[1].Content, "turn 2 user"; got != want {
 		t.Fatalf("conversation[1] = %q, want %q", got, want)
 	}
-	if messageContentsContain(toProviderMessages(outcome.State.Conversation), "turn 1 user") {
+	if messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 1 user") {
 		t.Fatal("turn 1 user was retained, want it dropped")
 	}
-	if !messageContentsContain(toProviderMessages(outcome.State.Conversation), "turn 2 result") {
+	if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 2 result") {
 		t.Fatal("turn 2 tool result missing, want turn pair preserved")
 	}
-	if !messageContentsContain(toProviderMessages(outcome.State.Conversation), "turn 3 assistant") {
+	if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 3 assistant") {
 		t.Fatal("turn 3 assistant missing, want recent turns preserved")
 	}
 }

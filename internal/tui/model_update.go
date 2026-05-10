@@ -155,7 +155,11 @@ func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.lastRenderErr != nil {
 		m.content.lastRenderErr = nil
 	}
-	if m.contentDirty || m.content.streaming || m.compacting {
+	// Advance delegation spinners when delegations are in flight.
+	if m.content.HasActiveDelegations() {
+		m.content.AdvanceDelegationSpinners()
+	}
+	if m.contentDirty || m.content.streaming || m.compacting || m.content.HasActiveDelegations() {
 		m.syncViewport()
 		m.contentDirty = false
 	}
@@ -308,6 +312,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlB:
 		m.sidebar.Toggle()
 		m.layout()
+		return m, nil
+	case tea.KeyCtrlX:
+		m.content.ToggleLastDelegationOutput()
+		m.syncViewport()
 		return m, nil
 	case tea.KeyTab:
 		return m.handleTabKey(msg)

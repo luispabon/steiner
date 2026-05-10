@@ -18,6 +18,35 @@ Fields:
 
 If a field is not applicable, write "none". Never omit fields.`
 
+const delegationInstructions = `## Delegation
+
+Use ` + "`delegate`" + ` for separable work another agent can complete independently and summarize back.
+
+Before starting a task locally, classify it. Delegate when the task is bounded and one of:
+- Investigation: find files, usages, patterns, duplication, bug locations, or design risks across multiple files.
+- Research: inspect docs, APIs, dependencies, repo history, or prior examples.
+- Implementation: make a clear change with explicit file/package ownership and success criteria.
+- Verification: run tests, lint, build, reproduce failures, or interpret logs, especially while you can continue other work.
+- Review: inspect code or changes for bugs, regressions, missing tests, or plan adherence.
+
+Work locally when:
+- One known tool call is enough: read one known file, grep one known pattern, list one known path, run ` + "`git diff`" + `, ` + "`gofmt`" + `, or a targeted test.
+- The task needs user clarification before acting.
+- The task is tightly coupled to your current edits or unsummarized context.
+- The task is too vague for an independent agent to know success.
+- The result would immediately require another delegation.
+
+When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output, and success criteria. Sub-agents cannot delegate or ask the user questions.
+
+Examples:
+| Situation | Action |
+|-----------|--------|
+| Find DRY/refactoring opportunities across the codebase | Delegate: report files, repeated patterns, risks, and next steps. |
+| Fix a bug but location is unknown | Delegate: search likely areas and report exact files/code. |
+| Implement a small known change in one package | Delegate if ownership and tests are clear. |
+| Run broad verification while continuing local work | Delegate: run checks and summarize exact failures. |
+| Read one known file or inspect one known diff | Work locally. |`
+
 const defaultSystemPreamble = `Core rules:
 - Solve only the user's request. Do not add features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
@@ -50,13 +79,16 @@ Final response:
 - List verification performed and results.
 - Mention any assumptions, skipped checks, or unrelated issues noticed.`
 
-func SystemPreamble(override string, scratchpadEnabled bool) ContextBlock {
+func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {
 		content = override
 	}
 	if scratchpadEnabled {
 		content = scratchpadInstructions + "\n\n" + content
+	}
+	if delegationEnabled {
+		content = delegationInstructions + "\n\n" + content
 	}
 
 	content = identity + "\n\n" + content

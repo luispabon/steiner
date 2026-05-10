@@ -27,12 +27,13 @@ type ToolCall struct {
 }
 
 type Message struct {
-	Role       MessageRole `json:"role"`
-	Content    string      `json:"content,omitempty"`
-	Name       string      `json:"name,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	Turn       int         `json:"turn,omitempty"`
+	Role             MessageRole `json:"role"`
+	Content          string      `json:"content,omitempty"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"`
+	Name             string      `json:"name,omitempty"`
+	ToolCallID       string      `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
+	Turn             int         `json:"turn,omitempty"`
 }
 
 type UsageStats struct {

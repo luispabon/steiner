@@ -11,7 +11,8 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-const delegateToolName = "delegate"
+// DelegateToolName is the registered name of the delegate tool.
+const DelegateToolName = "delegate"
 
 func generateAgentID() string {
 	return fmt.Sprintf("child-%d", time.Now().UnixNano())
@@ -20,7 +21,7 @@ func generateAgentID() string {
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
 func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
-		Name:        delegateToolName,
+		Name:        DelegateToolName,
 		Description: "Spawn an isolated sub-agent to complete a task. Returns structured result. The sub-agent cannot itself delegate further.",
 		ParameterSchema: map[string]any{
 			"type": "object",
@@ -28,7 +29,6 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 				"task":          map[string]any{"type": "string", "description": "Required. The task for the sub-agent."},
 				"context":       map[string]any{"type": "string", "description": "Optional additional context."},
 				"system_prompt": map[string]any{"type": "string", "description": "Optional system prompt override."},
-				"model":         map[string]any{"type": "string", "description": "Optional model override."},
 				"max_turns":     map[string]any{"type": "integer", "description": "Optional max turns (cannot exceed default limit)."},
 				"timeout":       map[string]any{"type": "string", "description": "Optional timeout duration string (e.g. '30s')."},
 			},
@@ -47,6 +47,8 @@ type DelegateHandlerDeps struct {
 	Events      output.EventSink
 	Runner      AgentRunner
 	WorkDir     string
+	ExtraParams map[string]any
+	Thinking    config.ThinkingConfig
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -59,7 +61,6 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 
 		contextStr, _ := input["context"].(string)
 		systemPrompt, _ := input["system_prompt"].(string)
-		model, _ := input["model"].(string)
 
 		var overrides DelegationLimits
 		if v, ok := input["max_turns"].(float64); ok {
@@ -74,8 +75,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
-			Model: model, AgentID: agentID,
-			Limits: overrides,
+			AgentID: agentID, Limits: overrides,
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
@@ -84,6 +84,8 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			SubAgentCfg: deps.SubAgentCfg,
 			Events:      deps.Events,
 			WorkDir:     deps.WorkDir,
+			ExtraParams: deps.ExtraParams,
+			Thinking:    deps.Thinking,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)

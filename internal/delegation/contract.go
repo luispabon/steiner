@@ -26,9 +26,6 @@ type DelegationSpec struct {
 	// SystemPrompt is an optional override of the system prompt.
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
-	// Model is an optional model override.
-	Model string `json:"model,omitempty"`
-
 	// Limits define resource constraints for the child execution.
 	Limits DelegationLimits `json:"limits"`
 
@@ -53,7 +50,9 @@ type DelegationResult struct {
 	// Output is the child's final answer or result.
 	Output string `json:"output"`
 
-	// Summary is a compact summary if output was oversized.
+	// Summary holds the retained delegate summary. When the delegate's Output is
+	// an intermediate fragment (e.g. from a tool-calling turn), this provides a
+	// useful condensed view of the delegate's findings.
 	Summary string `json:"summary,omitempty"`
 
 	// TurnCount is the number of turns the child executed.

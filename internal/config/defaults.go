@@ -43,8 +43,8 @@ func defaultConfig() Config {
 			Default: ApprovalModeAuto,
 		},
 		SubAgent: SubAgentConfig{
-			Enabled:       false,
-			MaxTurns:      15,
+ 				Enabled:       true,
+				MaxTurns:      15,
 			MaxTokens:     100000,
 			AllowedTools:  []string{"read", "glob", "grep", "ls", "write", "edit", "bash"},
 			AllowNesting:  false,

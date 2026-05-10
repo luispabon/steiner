@@ -127,31 +127,30 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 
 		var toolContent string
 		var preview output.ToolPreview
+		normalizedResult := ToolResultEnvelope{}
 		if err != nil {
 			toolContent = formatToolError(err)
 			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
 		} else {
 			recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments, result)
-			normalizedResult := normalizeToolResult(result)
+			normalizedResult = normalizeToolResult(result)
 			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
 			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}
-		state.Conversation = append(state.Conversation, Message{
+		toolMessage := Message{
 			Role:       MessageRoleTool,
 			Content:    toolContent,
 			ToolCallID: call.ID,
 			Name:       call.Name,
 			Turn:       turn,
-		})
-		state.Lineage = state.Lineage.WithAppendedMessages([]Message{{
-			Role:       MessageRoleTool,
-			Content:    toolContent,
-			ToolCallID: call.ID,
-			Name:       call.Name,
-			Turn:       turn,
-		}})
+		}
+		if err == nil {
+			toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
+		}
+		state.Conversation = append(state.Conversation, toolMessage)
+		state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	}
 
 	if in.Request.ContextManager != nil {
