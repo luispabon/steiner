@@ -94,6 +94,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	if summaryText == "" {
 		summaryText = cappedRetentionPreview(result.Output)
 	}
+	result.Summary = summaryText
 
 	executionResult := tool.ExecutionResult{
 		Value: result,
@@ -117,16 +118,15 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) string {
 	summaryReq := req
+	summaryReq.Events = nil
 	summaryReq.Limits.MaxTurns = 1
 	summaryReq.Tools = nil
 	summaryReq.Executor = summaryOnlyExecutor{}
-	summaryReq.Prompt.Conversation = append([]provider.Message(nil), req.Prompt.Conversation...)
-	if assistantMsg, ok := agent.LastAssistantMessage(state.Conversation); ok {
-		summaryReq.Prompt.Conversation = append(summaryReq.Prompt.Conversation, provider.Message{
-			Role:    provider.MessageRoleAssistant,
-			Content: assistantMsg.Content,
-		})
+	rawConv := agent.ToProviderMessages(state.Conversation)
+	for i := range rawConv {
+		rawConv[i].Turn = 0
 	}
+	summaryReq.Prompt.Conversation = rawConv
 	summaryReq.Prompt.Conversation = append(summaryReq.Prompt.Conversation, provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: "Summarize the assistant response you just gave for retention only. Keep it under 1000 characters. Include key findings, paths, decisions, risks, and the next action when relevant. Do not address the parent and do not add new instructions.",
