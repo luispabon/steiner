@@ -43,10 +43,10 @@ func maskConversation(messages []Message, windowTurns int) []Message {
 		switch cloned.Role {
 		case MessageRoleAssistant:
 			assistantTurn++
-			currentToolCalls = cloneToolCalls(cloned.ToolCalls)
 			if assistantTurn <= cutoffTurn {
-				cloned.Content = maskAssistantMessage(cloned)
+				cloned = maskAssistantForHistoricalContext(cloned)
 			}
+			currentToolCalls = cloneToolCalls(cloned.ToolCalls)
 		case MessageRoleTool:
 			if toolResultName(cloned, currentToolCalls) == "scratchpad" {
 				cloned.Content = ""
@@ -78,10 +78,10 @@ func maskConversationBeforeTurn(messages []Message, boundaryTurn int) []Message 
 		switch cloned.Role {
 		case MessageRoleAssistant:
 			assistantTurn++
-			currentToolCalls = cloneToolCalls(cloned.ToolCalls)
 			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
-				cloned.Content = maskAssistantMessage(cloned)
+				cloned = maskAssistantForHistoricalContext(cloned)
 			}
+			currentToolCalls = cloneToolCalls(cloned.ToolCalls)
 		case MessageRoleTool:
 			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
 				if toolResultName(cloned, currentToolCalls) == "scratchpad" {
@@ -96,7 +96,13 @@ func maskConversationBeforeTurn(messages []Message, boundaryTurn int) []Message 
 	return out
 }
 
-func maskAssistantMessage(message Message) string {
+func maskAssistantForHistoricalContext(message Message) Message {
+	message.Content = maskAssistantContent(message)
+	message.ToolCalls = maskHistoricalToolCalls(message)
+	return message
+}
+
+func maskAssistantContent(message Message) string {
 	content := strings.TrimSpace(message.Content)
 	if content == "" {
 		return ""
@@ -110,6 +116,30 @@ func maskAssistantMessage(message Message) string {
 		return fmt.Sprintf("[turn %d] %s", message.Turn, line)
 	}
 	return line
+}
+
+func maskHistoricalToolCalls(message Message) []ToolCall {
+	if len(message.ToolCalls) == 0 {
+		return nil
+	}
+
+	masked := cloneToolCalls(message.ToolCalls)
+	for i := range masked {
+		if masked[i].Name != "delegate" {
+			continue
+		}
+		turn := turnForMasking(message, 0)
+		if turn > 0 {
+			masked[i].Arguments = map[string]any{
+				"task": fmt.Sprintf("[masked historical delegate request from turn %d; see retained delegation summary in paired tool result]", turn),
+			}
+			continue
+		}
+		masked[i].Arguments = map[string]any{
+			"task": "[masked historical delegate request; see retained delegation summary in paired tool result]",
+		}
+	}
+	return masked
 }
 
 func maskToolResult(message Message, toolCalls []ToolCall) string {
