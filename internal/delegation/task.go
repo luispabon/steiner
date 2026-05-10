@@ -19,6 +19,19 @@ type AgentRunner interface {
 
 const delegateRetentionSummaryMaxRunes = 1000
 
+const maxDelegateExtensions = 5
+
+func delegateNeedsExtension(state agent.RunState) bool {
+	if state.StopReason != agent.StopReasonMaxTurns {
+		return false
+	}
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok {
+		return false
+	}
+	return len(msg.ToolCalls) > 0
+}
+
 func truncateTaskPreview(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -47,6 +60,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	// Run the child agent
+	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
 	if err != nil {
 		result := DelegationResult{
@@ -58,6 +72,21 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
 		return tool.ExecutionResult{Value: result}, err
+	}
+
+	for ext := 0; ext < maxDelegateExtensions; ext++ {
+		if !delegateNeedsExtension(state) {
+			break
+		}
+		if events != nil {
+			events.Emit(output.NewDelegationExtensionEvent(spec.AgentID, ext+1, maxDelegateExtensions))
+		}
+		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
+		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
+		state, err = runner.Run(childCtx, req)
+		if err != nil {
+			break
+		}
 	}
 
 	result := BuildResult(spec.AgentID, state, spec)

@@ -9,30 +9,31 @@ import (
 )
 
 const (
-	EventTypeModelCallStarted   = "model_call_started"
-	EventTypeModelCallFinished  = "model_call_finished"
-	EventTypeToolCallStarted    = "tool_call_started"
-	EventTypeToolCallFinished   = "tool_call_finished"
-	EventTypeApprovalRequested  = "approval_requested"
-	EventTypeApprovalAccepted   = "approval_accepted"
-	EventTypeApprovalDenied     = "approval_denied"
-	EventTypeStopReason         = "stop_reason"
-	EventTypeUserInput          = "user_input"
-	EventTypeAPIRequest         = "api_request"
-	EventTypeAPIResponse        = "api_response"
-	EventTypeRunStarted         = "run_started"
-	EventTypeRunFinished        = "run_finished"
-	EventTypeTurnStarted        = "turn_started"
-	EventTypeTurnFinished       = "turn_finished"
-	EventTypeAssistantMessage   = "assistant_message"
-	EventTypeAssistantChunk     = "assistant_chunk"
-	EventTypeThinkingChunk      = "thinking_chunk"
-	EventTypeContextReport      = "context_report"
-	EventTypeHistoryLoaded      = "history_loaded"
-	EventTypeContextDiagnostics = "context_diagnostics"
-	EventTypeDelegationStarted  = "delegation_started"
-	EventTypeDelegationComplete = "delegation_complete"
-	EventTypeDelegationFailed   = "delegation_failed"
+	EventTypeModelCallStarted    = "model_call_started"
+	EventTypeModelCallFinished   = "model_call_finished"
+	EventTypeToolCallStarted     = "tool_call_started"
+	EventTypeToolCallFinished    = "tool_call_finished"
+	EventTypeApprovalRequested   = "approval_requested"
+	EventTypeApprovalAccepted    = "approval_accepted"
+	EventTypeApprovalDenied      = "approval_denied"
+	EventTypeStopReason          = "stop_reason"
+	EventTypeUserInput           = "user_input"
+	EventTypeAPIRequest          = "api_request"
+	EventTypeAPIResponse         = "api_response"
+	EventTypeRunStarted          = "run_started"
+	EventTypeRunFinished         = "run_finished"
+	EventTypeTurnStarted         = "turn_started"
+	EventTypeTurnFinished        = "turn_finished"
+	EventTypeAssistantMessage    = "assistant_message"
+	EventTypeAssistantChunk      = "assistant_chunk"
+	EventTypeThinkingChunk       = "thinking_chunk"
+	EventTypeContextReport       = "context_report"
+	EventTypeHistoryLoaded       = "history_loaded"
+	EventTypeContextDiagnostics  = "context_diagnostics"
+	EventTypeDelegationStarted   = "delegation_started"
+	EventTypeDelegationComplete  = "delegation_complete"
+	EventTypeDelegationFailed    = "delegation_failed"
+	EventTypeDelegationExtension = "delegation_extension"
 
 	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
 	// file to the user. The event payload carries an explicit preview document so
@@ -242,6 +243,13 @@ type DelegationFailedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
 	Error       string `json:"error"`
+}
+
+// DelegationExtensionEvent is the payload for EventTypeDelegationExtension.
+type DelegationExtensionEvent struct {
+	AgentID       string `json:"agent_id"`
+	Extension     int    `json:"extension"`
+	MaxExtensions int    `json:"max_extensions"`
 }
 
 // HistoryLoadedEvent carries previously recorded prompt strings for display.

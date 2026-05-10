@@ -11,10 +11,10 @@ import (
 
 func TestMessageConvert_ToProviderMessages(t *testing.T) {
 	t.Run("empty input returns nil", func(t *testing.T) {
-		if got := toProviderMessages(nil); got != nil {
+		if got := ToProviderMessages(nil); got != nil {
 			t.Errorf("expected nil for nil input, got %v", got)
 		}
-		if got := toProviderMessages([]Message{}); got != nil {
+		if got := ToProviderMessages([]Message{}); got != nil {
 			t.Errorf("expected nil for empty slice, got %v", got)
 		}
 	})
@@ -24,7 +24,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			{Role: MessageRoleSummary, Content: "summary content"},
 			{Role: MessageRoleUser, Content: "user content"},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 2 {
 			t.Fatalf("expected 2 messages, got %d", len(result))
 		}
@@ -48,7 +48,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			{Role: MessageRoleAssistant, Content: "hi", Turn: 2},
 			{Role: MessageRoleTool, Content: "result", ToolCallID: "call_1", Turn: 3},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(result))
 		}
@@ -87,7 +87,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 				},
 			},
 		}
-		result := toProviderMessages(msgs)
+		result := ToProviderMessages(msgs)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 message, got %d", len(result))
 		}
@@ -130,13 +130,13 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 		}
 	})
 
-	t.Run("reverses toProviderMessages", func(t *testing.T) {
+	t.Run("reverses ToProviderMessages", func(t *testing.T) {
 		original := []Message{
 			{Role: MessageRoleUser, Content: "hello", Turn: 4},
 			{Role: MessageRoleAssistant, Content: "world", Name: "bot", Turn: 5},
 			{Role: MessageRoleTool, Content: "result", ToolCallID: "t_1", Turn: 6},
 		}
-		result := fromProviderMessages(toProviderMessages(original))
+		result := fromProviderMessages(ToProviderMessages(original))
 		if len(result) != 3 {
 			t.Fatalf("expected 3 messages, got %d", len(result))
 		}
