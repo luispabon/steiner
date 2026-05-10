@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -246,6 +247,55 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		result := toProviderMessage(msg)
 		if result.Content != "tool output" {
 			t.Fatalf("content = %q, want tool output", result.Content)
+		}
+	})
+
+	t.Run("retention summary does not reach provider fields", func(t *testing.T) {
+		marker := "hidden summary marker"
+		msg := Message{
+			Role:       MessageRoleTool,
+			Content:    "tool output",
+			Name:       "delegate",
+			ToolCallID: "call_1",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: marker,
+			},
+		}
+
+		result := toProviderMessage(msg)
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("marshal provider message: %v", err)
+		}
+		if strings.Contains(string(data), marker) {
+			t.Fatalf("provider message JSON = %s, want no retained marker", data)
+		}
+	})
+
+	t.Run("marker stays visible when content carries it", func(t *testing.T) {
+		marker := "hidden summary marker"
+		msg := Message{
+			Role:       MessageRoleTool,
+			Content:    marker,
+			Name:       "delegate",
+			ToolCallID: "call_1",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: marker,
+			},
+		}
+
+		result := toProviderMessage(msg)
+		if result.Content != marker {
+			t.Fatalf("content = %q, want marker", result.Content)
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("marshal provider message: %v", err)
+		}
+		if !strings.Contains(string(data), marker) {
+			t.Fatalf("provider message JSON = %s, want marker from content", data)
 		}
 	})
 }
