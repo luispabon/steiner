@@ -2,13 +2,13 @@
 
 ## Summary
 
-Steiner supports spawning isolated sub-agents via a built-in `delegate` tool. The parent agent calls `delegate` with a task description; steiner bootstraps a child agent loop with the same provider, an auto-approved subset of tools (minus `delegate` itself), and tighter resource limits. The child runs to completion, produces a summarised result, and returns structured output to the parent's conversation. Children cannot nest further, cannot prompt the user, and share no mutable state with the parent beyond the working directory filesystem.
+Steiner supports spawning isolated sub-agents via a built-in `delegate` tool. The parent agent calls `delegate` with a task description; steiner bootstraps a child agent loop with the same provider, the parent's base tool registry minus `delegate`, auto-approved child tool execution, and tighter resource limits. The child runs until it stops, produces a summarised result, and returns structured output to the parent's conversation. Children cannot delegate further, cannot trigger approval prompts, and share no mutable state with the parent beyond the working directory filesystem.
 
 Key design properties:
 
-- **Bounded**: children have hard turn/token/timeout limits derived from `SubAgentConfig` with tighten-only overrides.
+- **Bounded**: children have hard turn/token limits derived from `SubAgentConfig`; delegate tool calls may also provide a tighten-only timeout override.
 - **Isolated**: children receive only explicitly passed context (task + optional context string). No access to the parent's conversation history.
-- **Non-recursive**: the `delegate` tool is excluded from child registries; `AllowNesting` defaults to `false`.
+- **Non-recursive**: the `delegate` tool is always excluded from child registries.
 - **Auto-approved**: all child tool executions bypass the approval gate.
 - **Retention-aware**: delegate results are summarised and persisted as metadata that survives context masking/compaction in the parent.
 
@@ -89,7 +89,7 @@ cloned.Register(delegation.DelegateToolDef(handler))
 
 ### Approval mode
 
-The delegate tool itself is registered with `ApprovalModeAuto` — no user confirmation needed to spawn a child.
+The delegate tool itself is registered with `ApprovalModeAuto` — no user confirmation needed to spawn a child. Child execution tools are also forced to `ApprovalModeAuto`.
 
 ---
 
@@ -104,7 +104,8 @@ The delegate tool itself is registered with `ApprovalModeAuto` — no user confi
 Defaults (from `config.SubAgentConfig`):
 - `MaxTurns`: 15
 - `MaxTokens`: 100,000
-- `Timeout`: 0 (no timeout)
+
+`timeout` is not a `sub_agent` config field. It is accepted only as an optional `delegate` tool input and defaults to no timeout.
 
 ### 2. Build child prompt
 
@@ -118,10 +119,12 @@ The system prompt is passed via `PromptOverrides` so the provider sees exactly o
 
 Two registries are built from the parent:
 
-1. **Visible registry** — what the model can see and request (parent tools minus `delegate`)
+1. **Visible registry** — what the model can see and request (parent base registry tools minus `delegate`)
 2. **Execution registry** — same tools but with all approval modes forced to `ApprovalModeAuto`
 
 This ensures children cannot delegate further and never block on approval.
+
+Current implementation note: `sub_agent.allowed_tools` is parsed/defaulted in config but is not used when building these child registries.
 
 ### 4. Assemble RunRequest
 
@@ -129,8 +132,9 @@ The request includes:
 - The parent's provider instance (same model, same endpoint)
 - A `tool.NewExecutor` wrapping the execution registry with auto-approval config
 - `ExtraParams` and `Thinking` config propagated from the parent's model config
-- No `ContextManager` — children don't compact
-- No `Model` field — inherits from the active provider
+- No explicit `ContextManager` — `agent.Runner` installs `NaiveContextManager`
+- No `Model` field — child provider requests rely on the active provider instance
+- No child `ModelBudget` or response `MaxTokens` field
 
 ---
 
@@ -165,6 +169,8 @@ A delegate "needs extension" when:
 - Last assistant message has pending tool calls (i.e. it was interrupted mid-action)
 
 This prevents early termination when a delegate is actively working but hit its turn cap.
+
+`StopReasonMaxTurns` and `StopReasonMaxTokens` currently map to `StatusComplete`, so callers should treat `complete` as the child loop's terminal status, not a guarantee that the delegated task semantically succeeded.
 
 ---
 
@@ -248,8 +254,8 @@ This preserves the delegate's findings in a compact form even after the full out
 sub_agent:
   enabled: true          # master switch; adds delegate tool when true
   max_turns: 15          # default turn budget per child
-  max_tokens: 100000     # default token budget per child
-  allowed_tools:         # which tools children can use
+  max_tokens: 100000     # default tracked token budget per child
+  allowed_tools:         # parsed/defaulted but not currently enforced
     - read
     - glob
     - grep
@@ -257,9 +263,11 @@ sub_agent:
     - write
     - edit
     - bash
-  allow_nesting: false   # children cannot delegate further
-  max_concurrent: 1      # concurrency limit (for future use)
+  allow_nesting: false   # parsed/defaulted; children still cannot delegate
+  max_concurrent: 1      # parsed/validated; no concurrency limiter is wired
 ```
+
+`max_tokens` maps to `agent.Limits.MaxTokens`, which limits accumulated tracked child token usage. It is not an output-size cap.
 
 ---
 
@@ -282,8 +290,8 @@ Events emitted during delegation (via `output.EventSink`):
 |-------|------|------------|
 | `delegation_started` | Before child run begins | `agent_id`, `task_preview` |
 | `delegation_extension` | Each auto-extension iteration | `agent_id`, `extension`, `max_extensions` |
-| `delegation_complete` | After summarisation, on success | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
-| `delegation_failed` | On child error | `agent_id`, `task_preview`, `error` |
+| `delegation_complete` | After summarisation when `SpawnDelegate` returns a result | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
+| `delegation_failed` | On initial child run error | `agent_id`, `task_preview`, `error` |
 
 The TUI renders these with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations.
 
@@ -292,11 +300,12 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 ## Constraints and Invariants
 
 1. **No nesting**: children never have access to the `delegate` tool
-2. **No user interaction**: children cannot prompt the user; all tools are auto-approved
-3. **No context manager**: children don't perform compaction or masking internally
+2. **No approval prompts**: child tool execution is auto-approved
+3. **Naive context manager**: children get the default naive context manager, so they do not perform smart compaction or masking internally
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them
 5. **Single provider**: children use the same provider/model instance as the parent
 6. **Filesystem shared**: children operate in the same `WorkDir` — concurrent filesystem mutation is the caller's responsibility
 7. **Extension cap**: maximum 5 auto-extensions to prevent runaway children
 8. **Summary cap**: retention summaries capped at 1000 runes
 9. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist
+10. **Config caveat**: `allowed_tools`, `allow_nesting`, and `max_concurrent` exist in config, but only `enabled`, `max_turns`, and `max_tokens` currently affect child run construction
