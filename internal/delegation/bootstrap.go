@@ -39,7 +39,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		return agent.RunRequest{}, DelegationLimits{}, fmt.Errorf("build child prompt: %w", err)
 	}
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName)
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName, deps.SubAgentCfg.AllowedTools)
 	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.Thinking)
 	return req, limits, nil
 }
@@ -77,11 +77,20 @@ func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 // buildChildRegistries produces both the visible tool registry (tools the model
 // can request) and the execution registry (tools the child agent can actually
 // execute) from the parent registry. The named tool (typically "delegate") is
-// excluded from both. Execution tools are set to auto-approval mode.
-func buildChildRegistries(parent *tool.Registry, excludeTool string) (*tool.Registry, *tool.Registry) {
+// always excluded from both, even if it appears in allowedTools. If allowedTools
+// is non-empty, only listed tools are included. If empty, no tools are included.
+// Execution tools are set to auto-approval mode.
+func buildChildRegistries(parent *tool.Registry, excludeTool string, allowedTools []string) (*tool.Registry, *tool.Registry) {
 	if parent == nil {
 		empty := tool.NewRegistry()
 		return empty, empty
+	}
+
+	allowed := make(map[string]struct{}, len(allowedTools))
+	for _, name := range allowedTools {
+		if name != excludeTool {
+			allowed[name] = struct{}{}
+		}
 	}
 
 	defs := parent.Definitions()
@@ -90,6 +99,9 @@ func buildChildRegistries(parent *tool.Registry, excludeTool string) (*tool.Regi
 
 	for _, def := range defs {
 		if def.Name == excludeTool {
+			continue
+		}
+		if _, ok := allowed[def.Name]; !ok {
 			continue
 		}
 		execDef := def

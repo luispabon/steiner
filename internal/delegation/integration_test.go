@@ -76,9 +76,16 @@ func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	return p
 }
 
-// testChildRegistries is a test helper that builds visible and execution registries.
+// testChildRegistries is a test helper that builds visible and execution registries
+// with all parent tools allowed (minus delegate).
 func testChildRegistries(parent *tool.Registry) (*tool.Registry, *tool.Registry) {
-	return buildChildRegistries(parent, "delegate")
+	var names []string
+	for _, name := range parent.Names() {
+		if name != "delegate" {
+			names = append(names, name)
+		}
+	}
+	return buildChildRegistries(parent, "delegate", names)
 }
 
 func makeSpec(agentID string, outputLimitTokens int) DelegationSpec {
@@ -427,7 +434,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	)
 
 	spec := makeSpec("agent-6", 1000)
-	visibleReg, execReg := buildChildRegistries(parentReg, "delegate")
+	visibleReg, execReg := buildChildRegistries(parentReg, "delegate", []string{"helper"})
 	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{})
 
 	if len(req.Tools) != 1 {
@@ -702,7 +709,7 @@ func TestParentContextIsolation(t *testing.T) {
 	deps := DelegateHandlerDeps{
 		Provider:    childProv,
 		ParentReg:   parentReg,
-		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
+		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000, AllowedTools: []string{"helper"}},
 		Events:      output.NoopSink{},
 		Runner:      agent.NewRunner(),
 		WorkDir:     "/tmp/work",

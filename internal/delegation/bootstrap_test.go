@@ -217,7 +217,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "grep"},
 		)
 
-		visible, exec := buildChildRegistries(parent, "delegate")
+		visible, exec := buildChildRegistries(parent, "delegate", []string{"read", "write", "grep"})
 
 		if visible == nil || exec == nil {
 			t.Fatal("registries should not be nil")
@@ -249,7 +249,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
 		)
 
-		_, exec := buildChildRegistries(parent, "delegate")
+		_, exec := buildChildRegistries(parent, "delegate", []string{"bash"})
 
 		defs := exec.Definitions()
 		if len(defs) != 1 {
@@ -261,7 +261,7 @@ func TestBuildChildRegistries(t *testing.T) {
 	})
 
 	t.Run("nil parent returns empty registries", func(t *testing.T) {
-		visible, exec := buildChildRegistries(nil, "delegate")
+		visible, exec := buildChildRegistries(nil, "delegate", []string{"read"})
 
 		if len(visible.Names()) != 0 {
 			t.Errorf("visible has %d tools, want 0", len(visible.Names()))
@@ -270,6 +270,138 @@ func TestBuildChildRegistries(t *testing.T) {
 			t.Errorf("exec has %d tools, want 0", len(exec.Names()))
 		}
 	})
+}
+
+func TestBuildChildRegistries_AllowedTools(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read"},
+		tool.ToolDef{Name: "write"},
+		tool.ToolDef{Name: "grep"},
+		tool.ToolDef{Name: "bash"},
+		tool.ToolDef{Name: "delegate"},
+	)
+
+	tests := []struct {
+		name         string
+		allowedTools []string
+		wantNames    []string
+		wantCount    int
+	}{
+		{
+			name:         "non-empty allow-list: only listed tools visible",
+			allowedTools: []string{"read", "grep"},
+			wantNames:    []string{"grep", "read"},
+			wantCount:    2,
+		},
+		{
+			name:         "delegate in allow-list is still excluded",
+			allowedTools: []string{"read", "delegate"},
+			wantNames:    []string{"read"},
+			wantCount:    1,
+		},
+		{
+			name:         "empty allow-list produces 0 tools",
+			allowedTools: []string{},
+			wantNames:    []string{},
+			wantCount:    0,
+		},
+		{
+			name:         "allow-list with unknown name: only valid name appears",
+			allowedTools: []string{"read", "nonexistent"},
+			wantNames:    []string{"read"},
+			wantCount:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			visible, exec := buildChildRegistries(parent, "delegate", tt.allowedTools)
+
+			visibleNames := visible.Names()
+			if len(visibleNames) != tt.wantCount {
+				t.Errorf("visible has %d tools, want %d: %v", len(visibleNames), tt.wantCount, visibleNames)
+			}
+			execNames := exec.Names()
+			if len(execNames) != tt.wantCount {
+				t.Errorf("exec has %d tools, want %d: %v", len(execNames), tt.wantCount, execNames)
+			}
+			for _, name := range visibleNames {
+				if name == "delegate" {
+					t.Error("visible registry must not contain delegate")
+				}
+			}
+			for i, want := range tt.wantNames {
+				if i >= len(visibleNames) || visibleNames[i] != want {
+					t.Errorf("visible[%d] = %q, want %q", i, func() string {
+						if i < len(visibleNames) {
+							return visibleNames[i]
+						}
+						return "<missing>"
+					}(), want)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildChildRegistriesAutoApproval(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Approval: config.ApprovalModePrompt},
+		tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
+	)
+
+	_, exec := buildChildRegistries(parent, "delegate", []string{"read", "bash"})
+
+	defs := exec.Definitions()
+	if len(defs) != 2 {
+		t.Fatalf("exec has %d tools, want 2", len(defs))
+	}
+	for _, def := range defs {
+		if def.Approval != config.ApprovalModeAuto {
+			t.Errorf("tool %q exec approval = %v, want %v", def.Name, def.Approval, config.ApprovalModeAuto)
+		}
+	}
+}
+
+func TestBuildChildRunAllowedTools(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "bash", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "delegate"},
+	)
+
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+	}
+
+	spec := DelegationSpec{
+		Task:    "test allowed tools",
+		AgentID: "test-allowed",
+		Limits:  DelegationLimits{MaxTurns: 5},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+
+	if len(req.Tools) != 1 {
+		t.Fatalf("visible tools = %d, want 1: %v", len(req.Tools), func() []string {
+			names := make([]string, len(req.Tools))
+			for i, ts := range req.Tools {
+				names[i] = ts.Function.Name
+			}
+			return names
+		}())
+	}
+	if req.Tools[0].Function.Name != "read" {
+		t.Errorf("visible tool = %q, want %q", req.Tools[0].Function.Name, "read")
+	}
 }
 
 func TestBuildChildRunResultToolSurface(t *testing.T) {
@@ -283,7 +415,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 
 	deps := BootstrapDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read", "write"}},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 	}
@@ -332,7 +464,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 	deps := BootstrapDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -465,7 +597,7 @@ func TestBuildChildRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := BootstrapDeps{
 				ParentReg:   parent,
-				SubAgentCfg: config.SubAgentConfig{},
+				SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read", "write"}},
 				Events:      output.NoopSink{},
 				WorkDir:     "/tmp/work",
 				Provider:    stubProvider{},
