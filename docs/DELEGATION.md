@@ -119,12 +119,10 @@ The system prompt is passed via `PromptOverrides` so the provider sees exactly o
 
 Two registries are built from the parent:
 
-1. **Visible registry** — what the model can see and request (parent base registry tools minus `delegate`)
-2. **Execution registry** — same tools but with all approval modes forced to `ApprovalModeAuto`
+1. **Visible registry** — what the model can see and request: parent base registry tools filtered to `allowed_tools`, always excluding `delegate`
+2. **Execution registry** — same filtered tools but with all approval modes forced to `ApprovalModeAuto`
 
-This ensures children cannot delegate further and never block on approval.
-
-Current implementation note: `sub_agent.allowed_tools` is parsed/defaulted in config but is not used when building these child registries.
+`allowed_tools` is enforced when building these registries. If `allowed_tools` is non-empty, only listed tools are included (minus `delegate`). If `allowed_tools` is empty, no tools are available to the child (empty is a safe no-access posture; defaults already populate a useful allow-list). This ensures children cannot delegate further, never block on approval, and only access the explicitly permitted tool set.
 
 ### 4. Assemble RunRequest
 
@@ -255,7 +253,7 @@ sub_agent:
   enabled: true          # master switch; adds delegate tool when true
   max_turns: 15          # default turn budget per child
   max_tokens: 100000     # default tracked token budget per child
-  allowed_tools:         # parsed/defaulted but not currently enforced
+  allowed_tools:         # enforced: only listed tools are visible/executable by child agents
     - read
     - glob
     - grep
@@ -307,4 +305,4 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children
 9. **Summary cap**: retention summaries capped at 1000 runes
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist
-11. **Config caveat**: `allowed_tools` exists in config, but only `enabled`, `max_turns`, and `max_tokens` currently affect child run construction
+11. **Enforced allow-list**: `allowed_tools` is enforced during child registry construction; only listed tools (minus `delegate`) are visible and executable by the child. All child exec registry tools are auto-approved within this enforced set.
