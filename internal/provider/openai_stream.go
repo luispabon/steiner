@@ -26,6 +26,7 @@ type openAIStreamState struct {
 	sawToolCall   bool
 	sawThinking   bool
 	assistantRole bool
+	sawDone       bool
 }
 
 func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk) error {
@@ -46,6 +47,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 			continue
 		}
 		if event == "[DONE]" {
+			state.sawDone = true
 			break
 		}
 
@@ -118,7 +120,13 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 		}
 	}
 
-	return flushStreamState(ctx, out, state)
+	if err := flushStreamState(ctx, out, state); err != nil {
+		return err
+	}
+	if !state.sawDone {
+		return fmt.Errorf("stream completed without a final chunk: %w", io.ErrUnexpectedEOF)
+	}
+	return nil
 }
 
 func flushStreamState(ctx context.Context, out chan<- ChatChunk, state openAIStreamState) error {

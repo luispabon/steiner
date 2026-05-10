@@ -86,6 +86,27 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	sawFinal := false
 
 	for chunk := range chunks {
+		if chunk.RetryReset {
+			response = provider.ChatResponse{}
+			message = provider.Message{Role: provider.MessageRoleAssistant}
+			sawFinal = false
+			if chunk.Diagnostic != "" {
+				emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+					Turn:     turn,
+					Severity: chunk.Severity,
+					Message:  chunk.Diagnostic,
+				}))
+			}
+			continue
+		}
+		if chunk.Diagnostic != "" {
+			emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+				Turn:     turn,
+				Severity: chunk.Severity,
+				Message:  chunk.Diagnostic,
+			}))
+			continue
+		}
 		if errText := strings.TrimSpace(chunk.Error); errText != "" {
 			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
 		}

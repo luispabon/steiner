@@ -64,5 +64,8 @@ type ChatChunk struct {
 	Done          bool        `json:"done,omitempty"`
 	FinishReason  string      `json:"finish_reason,omitempty"`
 	Error         string      `json:"error,omitempty"`
+	Diagnostic    string      `json:"diagnostic,omitempty"`
+	Severity      string      `json:"severity,omitempty"`
+	RetryReset    bool        `json:"retry_reset,omitempty"`
 	OriginalError error       `json:"-"` // preserves the original error type (not serialized)
 }

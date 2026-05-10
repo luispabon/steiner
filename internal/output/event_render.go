@@ -19,6 +19,8 @@ func renderEvent(event Event) Segment {
 		return renderAssistantChunkEvent(payload)
 	case ThinkingChunkEvent:
 		return renderThinkingChunkEvent(payload)
+	case ProviderDiagnosticEvent:
+		return renderProviderDiagnosticEvent(payload)
 	case ContextReportEvent:
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	case DisplayFilePayload:
@@ -142,6 +144,32 @@ func renderThinkingChunkEvent(payload ThinkingChunkEvent) Segment {
 		parts = append(parts, fmt.Sprintf("thinking=%s", payload.Content))
 	}
 	return Segment{Channel: ChannelStatus, Label: "thinking", Text: strings.Join(parts, " ")}
+}
+
+func renderProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Segment {
+	parts := []string{"provider"}
+	if payload.Turn > 0 {
+		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
+	}
+	if payload.Severity != "" {
+		parts = append(parts, payload.Severity)
+	}
+	if payload.Attempt > 0 {
+		parts = append(parts, fmt.Sprintf("attempt=%d", payload.Attempt))
+	}
+	if payload.MaxAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("max=%d", payload.MaxAttempts))
+	}
+	if payload.Delay != "" {
+		parts = append(parts, fmt.Sprintf("delay=%s", payload.Delay))
+	}
+	if payload.Partial {
+		parts = append(parts, "partial=true")
+	}
+	if payload.Message != "" {
+		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
+	}
+	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
 func renderDisplayFileEvent(payload DisplayFilePayload) Segment {

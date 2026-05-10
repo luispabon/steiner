@@ -27,6 +27,7 @@ const (
 	EventTypeAssistantMessage    = "assistant_message"
 	EventTypeAssistantChunk      = "assistant_chunk"
 	EventTypeThinkingChunk       = "thinking_chunk"
+	EventTypeProviderDiagnostic  = "provider_diagnostic"
 	EventTypeContextReport       = "context_report"
 	EventTypeHistoryLoaded       = "history_loaded"
 	EventTypeContextDiagnostics  = "context_diagnostics"
@@ -224,6 +225,16 @@ type ThinkingChunkEvent struct {
 	Turn    int         `json:"turn,omitempty"`
 	Content string      `json:"content,omitempty"`
 	Source  ChunkSource `json:"source,omitempty"`
+}
+
+type ProviderDiagnosticEvent struct {
+	Turn        int    `json:"turn,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Attempt     int    `json:"attempt,omitempty"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+	Delay       string `json:"delay,omitempty"`
+	Partial     bool   `json:"partial,omitempty"`
 }
 
 type DelegationStartedEvent struct {
