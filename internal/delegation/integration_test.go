@@ -113,8 +113,8 @@ func TestBasicDelegationResult(t *testing.T) {
 	if typedResult.Output != "done" {
 		t.Errorf("Output: got %q, want %q", typedResult.Output, "done")
 	}
-	if typedResult.Summary != "" {
-		t.Fatalf("Summary = %q, want hidden summary metadata only", typedResult.Summary)
+	if typedResult.Summary == "" {
+		t.Fatal("Summary = empty, want populated delegate summary")
 	}
 	if typedResult.TurnCount != 1 {
 		t.Errorf("TurnCount: got %d, want 1", typedResult.TurnCount)
@@ -269,8 +269,8 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	if len(result.Retention.Summary) > 1000 {
 		t.Fatalf("Summary length %d exceeds retention cap", len(result.Retention.Summary))
 	}
-	if typedResult.Summary != "" {
-		t.Fatalf("Summary = %q, want hidden summary metadata only", typedResult.Summary)
+	if typedResult.Summary == "" {
+		t.Fatal("Summary = empty, want populated delegate summary")
 	}
 }
 
@@ -1015,6 +1015,139 @@ func TestExtensionErrorPreservesState(t *testing.T) {
 	// Output should come from first state (last successful state before error)
 	if typedResult.Output != "" && typedResult.TurnCount != firstState.TurnCount {
 		t.Errorf("TurnCount = %d, want %d (from pre-error state)", typedResult.TurnCount, firstState.TurnCount)
+	}
+}
+
+// TestSummaryTurnDoesNotEmitEvents verifies that events from the summary turn do
+// not appear in the parent sink. It uses presetRunner so both calls are
+// controlled; after the main run the event count is recorded, then the summary
+// run must not add any turn_started or assistant_message events.
+func TestSummaryTurnDoesNotEmitEvents(t *testing.T) {
+	spec := makeSpec("summary-events-agent", 1000)
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	sink := &collectingSink{}
+
+	runner := &presetRunner{
+		states: []agent.RunState{
+			completeState("task done"),
+			completeState("short summary"),
+		},
+	}
+
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+
+	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if runner.calls != 2 {
+		t.Fatalf("runner.calls = %d, want 2", runner.calls)
+	}
+
+	// The summary run request must have Events = nil.
+	summaryReq := runner.reqs[1]
+	if summaryReq.Events != nil {
+		t.Errorf("summary run request Events = %v, want nil", summaryReq.Events)
+	}
+}
+
+// TestSummaryUsesFullConversation verifies that the summary turn receives the
+// full delegate conversation (not just the initial prompt + last fragment).
+func TestSummaryUsesFullConversation(t *testing.T) {
+	spec := makeSpec("summary-conv-agent", 10000)
+	sink := &collectingSink{}
+
+	// Build a realistic multi-turn conversation for the main run state.
+	fullConversation := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "do the task"},
+		{
+			Role:      agent.MessageRoleAssistant,
+			ToolCalls: []agent.ToolCall{{ID: "tc-1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}}},
+		},
+		{Role: agent.MessageRoleTool, Content: "file1.go\nfile2.go"},
+		{Role: agent.MessageRoleAssistant, Content: "I found the files"},
+	}
+
+	mainState := agent.RunState{
+		TurnCount:    2,
+		StopReason:   agent.StopReasonComplete,
+		Conversation: fullConversation,
+	}
+	summaryState := agent.RunState{
+		TurnCount:  1,
+		StopReason: agent.StopReasonComplete,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "summary of findings"},
+		},
+	}
+
+	runner := &presetRunner{
+		states: []agent.RunState{mainState, summaryState},
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+
+	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if runner.calls != 2 {
+		t.Fatalf("runner.calls = %d, want 2", runner.calls)
+	}
+
+	// The summary request (second call) must contain the full conversation.
+	summaryReq := runner.reqs[1]
+	wantMessages := agent.ToProviderMessages(fullConversation)
+	// The summary request conversation should start with the full conversation
+	// messages followed by the summarise instruction.
+	if len(summaryReq.Prompt.Conversation) < len(wantMessages) {
+		t.Fatalf("summary conversation length %d < full conversation length %d",
+			len(summaryReq.Prompt.Conversation), len(wantMessages))
+	}
+	for i, want := range wantMessages {
+		got := summaryReq.Prompt.Conversation[i]
+		if got.Role != want.Role || got.Content != want.Content {
+			t.Errorf("summary conversation[%d]: got role=%q content=%q, want role=%q content=%q",
+				i, got.Role, got.Content, want.Role, want.Content)
+		}
+	}
+}
+
+// TestDelegationResultSummaryPopulated verifies that DelegationResult.Summary is
+// populated after a successful SpawnDelegate call.
+func TestDelegationResultSummaryPopulated(t *testing.T) {
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{Message: provider.Message{Content: "task output"}, FinishReason: "stop"},
+			{Message: provider.Message{Content: "condensed summary"}, FinishReason: "stop"},
+		},
+	}
+
+	spec := makeSpec("summary-populated-agent", 10000)
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	sink := output.NoopSink{}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{})
+
+	runner := agent.NewRunner()
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if typedResult.Summary == "" {
+		t.Fatal("DelegationResult.Summary = empty, want populated summary text")
 	}
 }
 

@@ -50,8 +50,9 @@ type DelegationResult struct {
 	// Output is the child's final answer or result.
 	Output string `json:"output"`
 
-	// Summary is left empty in visible output; retained summaries travel on the
-	// tool result envelope as runtime-only metadata.
+	// Summary holds the retained delegate summary. When the delegate's Output is
+	// an intermediate fragment (e.g. from a tool-calling turn), this provides a
+	// useful condensed view of the delegate's findings.
 	Summary string `json:"summary,omitempty"`
 
 	// TurnCount is the number of turns the child executed.
