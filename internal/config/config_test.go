@@ -21,6 +21,24 @@ func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigRetryDefaults(t *testing.T) {
+	cfg := defaultConfig()
+
+	want := RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: MustDuration("250ms"),
+		MaxBackoff:     MustDuration("5s"),
+		RetryAfterMax:  MustDuration("30s"),
+	}
+	if !reflect.DeepEqual(cfg.Model.Retry, want) {
+		t.Fatalf("model.retry = %#v, want %#v", cfg.Model.Retry, want)
+	}
+	if !reflect.DeepEqual(cfg.Models["default"].Retry, want) {
+		t.Fatalf("models[default].retry = %#v, want %#v", cfg.Models["default"].Retry, want)
+	}
+}
+
 func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.Logging.ThinkingChunk {
@@ -191,6 +209,108 @@ logging:
 	}
 	if got := cfg.Models["env"].Model; got != "env-backend" {
 		t.Fatalf("models[env].model = %q, want env config", got)
+	}
+}
+
+func TestLoadAppliesRetryConfigFromModelBlocks(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model:
+  type: openai_compat
+  base_url: http://localhost:11434/v1
+  model: qwen3-35b-a3b
+  max_completion_tokens: 8192
+  context_size: 32768
+  retry:
+    enabled: false
+    max_attempts: 7
+    initial_backoff: 1s
+    max_backoff: 10s
+    retry_after_max: 1m
+  compaction:
+    safety_margin_tokens: 2048
+    summary_max_tokens: 1024
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    model: qwen3-35b-a3b
+    max_completion_tokens: 8192
+    context_size: 32768
+    retry:
+      enabled: false
+      max_attempts: 5
+      initial_backoff: 500ms
+      max_backoff: 4s
+      retry_after_max: 45s
+    compaction:
+      safety_margin_tokens: 2048
+      summary_max_tokens: 1024
+  custom:
+    type: openai_compat
+    base_url: http://custom.example/v1
+    model: custom-backend
+    max_completion_tokens: 1024
+    context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 9
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+    compaction:
+      safety_margin_tokens: 128
+      summary_max_tokens: 64
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got, want := cfg.Model.Retry, (RetryConfig{
+		Enabled:        false,
+		MaxAttempts:    7,
+		InitialBackoff: MustDuration("1s"),
+		MaxBackoff:     MustDuration("10s"),
+		RetryAfterMax:  MustDuration("1m"),
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("model.retry = %#v, want %#v", got, want)
+	}
+	if got, want := cfg.Models["default"].Retry, (RetryConfig{
+		Enabled:        false,
+		MaxAttempts:    5,
+		InitialBackoff: MustDuration("500ms"),
+		MaxBackoff:     MustDuration("4s"),
+		RetryAfterMax:  MustDuration("45s"),
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("models[default].retry = %#v, want %#v", got, want)
+	}
+	if got, want := cfg.Models["custom"].Retry, (RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    9,
+		InitialBackoff: MustDuration("250ms"),
+		MaxBackoff:     MustDuration("5s"),
+		RetryAfterMax:  MustDuration("30s"),
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("models[custom].retry = %#v, want %#v", got, want)
 	}
 }
 

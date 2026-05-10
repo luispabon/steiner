@@ -37,16 +37,25 @@ type thinkingConfigPatch struct {
 }
 
 type modelPatch struct {
-	Type                *string            `yaml:"type"`
-	BaseURL             *string            `yaml:"base_url"`
-	APIKey              *string            `yaml:"api_key"`
-	Model               *string            `yaml:"model"`
-	ExtraParams         *map[string]any    `yaml:"extra_params"`
-	MaxCompletionTokens *int               `yaml:"max_completion_tokens"`
-	ContextSize         *int               `yaml:"context_size"`
-	Compaction          *compactionPatch   `yaml:"compaction"`
-	Prompts             *modelPromptsPatch `yaml:"prompts"`
+	Type                *string              `yaml:"type"`
+	BaseURL             *string              `yaml:"base_url"`
+	APIKey              *string              `yaml:"api_key"`
+	Model               *string              `yaml:"model"`
+	ExtraParams         *map[string]any      `yaml:"extra_params"`
+	MaxCompletionTokens *int                 `yaml:"max_completion_tokens"`
+	ContextSize         *int                 `yaml:"context_size"`
+	Retry               *retryPatch          `yaml:"retry"`
+	Compaction          *compactionPatch     `yaml:"compaction"`
+	Prompts             *modelPromptsPatch   `yaml:"prompts"`
 	Thinking            *thinkingConfigPatch `yaml:"thinking"`
+}
+
+type retryPatch struct {
+	Enabled        *bool     `yaml:"enabled"`
+	MaxAttempts    *int      `yaml:"max_attempts"`
+	InitialBackoff *Duration `yaml:"initial_backoff"`
+	MaxBackoff     *Duration `yaml:"max_backoff"`
+	RetryAfterMax  *Duration `yaml:"retry_after_max"`
 }
 
 type modelPromptsPatch struct {
@@ -203,6 +212,9 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.ContextSize != nil {
 		dst.ContextSize = *patch.ContextSize
 	}
+	if patch.Retry != nil {
+		applyRetryPatch(&dst.Retry, patch.Retry)
+	}
 	if patch.Compaction != nil {
 		applyCompactionPatch(&dst.Compaction, patch.Compaction)
 	}
@@ -241,6 +253,24 @@ func applyCompactionPatch(dst *CompactionConfig, patch *compactionPatch) {
 	}
 	if patch.SummaryMaxTokens != nil {
 		dst.SummaryMaxTokens = *patch.SummaryMaxTokens
+	}
+}
+
+func applyRetryPatch(dst *RetryConfig, patch *retryPatch) {
+	if patch.Enabled != nil {
+		dst.Enabled = *patch.Enabled
+	}
+	if patch.MaxAttempts != nil {
+		dst.MaxAttempts = *patch.MaxAttempts
+	}
+	if patch.InitialBackoff != nil {
+		dst.InitialBackoff = *patch.InitialBackoff
+	}
+	if patch.MaxBackoff != nil {
+		dst.MaxBackoff = *patch.MaxBackoff
+	}
+	if patch.RetryAfterMax != nil {
+		dst.RetryAfterMax = *patch.RetryAfterMax
 	}
 }
 

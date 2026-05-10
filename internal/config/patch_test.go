@@ -11,6 +11,7 @@ func boolPtr(v bool) *bool                         { return &v }
 func approvalModePtr(v ApprovalMode) *ApprovalMode { return &v }
 func durationPtr(v Duration) *Duration             { return &v }
 func debugPatchPtr(v debugPatch) *debugPatch       { return &v }
+func retryPatchPtr(v retryPatch) *retryPatch       { return &v }
 
 func stringSlicePtr(v ...string) *[]string {
 	s := append([]string(nil), v...)
@@ -73,6 +74,11 @@ func TestApplySchedulerPatch(t *testing.T) {
 }
 
 func TestApplyModelPatch(t *testing.T) {
+	retry250ms := MustDuration("250ms")
+	retry1s := MustDuration("1s")
+	retry5s := MustDuration("5s")
+	retry10s := MustDuration("10s")
+	retry30s := MustDuration("30s")
 	tests := []struct {
 		name    string
 		initial ModelConfig
@@ -88,6 +94,13 @@ func TestApplyModelPatch(t *testing.T) {
 				Model:               "old-model",
 				MaxCompletionTokens: 4096,
 				ContextSize:         16384,
+				Retry: RetryConfig{
+					Enabled:        true,
+					MaxAttempts:    3,
+					InitialBackoff: retry250ms,
+					MaxBackoff:     retry5s,
+					RetryAfterMax:  retry30s,
+				},
 			},
 			patch: modelPatch{
 				Type:                stringPtr("openai_compat"),
@@ -96,6 +109,13 @@ func TestApplyModelPatch(t *testing.T) {
 				Model:               stringPtr("new-model"),
 				MaxCompletionTokens: intPtr(8192),
 				ContextSize:         intPtr(32768),
+				Retry: &retryPatch{
+					Enabled:        boolPtr(false),
+					MaxAttempts:    intPtr(7),
+					InitialBackoff: durationPtr(retry1s),
+					MaxBackoff:     durationPtr(retry10s),
+					RetryAfterMax:  durationPtr(retry30s),
+				},
 			},
 			want: ModelConfig{
 				Type:                "openai_compat",
@@ -104,6 +124,13 @@ func TestApplyModelPatch(t *testing.T) {
 				Model:               "new-model",
 				MaxCompletionTokens: 8192,
 				ContextSize:         32768,
+				Retry: RetryConfig{
+					Enabled:        false,
+					MaxAttempts:    7,
+					InitialBackoff: retry1s,
+					MaxBackoff:     retry10s,
+					RetryAfterMax:  retry30s,
+				},
 			},
 		},
 		{
@@ -158,6 +185,36 @@ func TestApplyModelPatch(t *testing.T) {
 			},
 			want: ModelConfig{
 				Compaction: CompactionConfig{SafetyMarginTokens: 1024, SummaryMaxTokens: 512},
+			},
+		},
+		{
+			name: "applies retry sub-patch",
+			initial: ModelConfig{
+				Retry: RetryConfig{
+					Enabled:        true,
+					MaxAttempts:    3,
+					InitialBackoff: retry250ms,
+					MaxBackoff:     retry5s,
+					RetryAfterMax:  retry30s,
+				},
+			},
+			patch: modelPatch{
+				Retry: &retryPatch{
+					Enabled:        boolPtr(false),
+					MaxAttempts:    intPtr(5),
+					InitialBackoff: durationPtr(retry1s),
+					MaxBackoff:     durationPtr(retry30s),
+					RetryAfterMax:  durationPtr(retry5s),
+				},
+			},
+			want: ModelConfig{
+				Retry: RetryConfig{
+					Enabled:        false,
+					MaxAttempts:    5,
+					InitialBackoff: retry1s,
+					MaxBackoff:     retry30s,
+					RetryAfterMax:  retry5s,
+				},
 			},
 		},
 		{
@@ -216,6 +273,74 @@ func TestApplyCompactionPatch(t *testing.T) {
 			applyCompactionPatch(&dst, &tt.patch)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applyCompactionPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyRetryPatch(t *testing.T) {
+	retry250ms := MustDuration("250ms")
+	retry1s := MustDuration("1s")
+	retry5s := MustDuration("5s")
+	retry30s := MustDuration("30s")
+
+	tests := []struct {
+		name    string
+		initial RetryConfig
+		patch   retryPatch
+		want    RetryConfig
+	}{
+		{
+			name: "sets all fields",
+			initial: RetryConfig{
+				Enabled:        false,
+				MaxAttempts:    1,
+				InitialBackoff: retry250ms,
+				MaxBackoff:     retry1s,
+				RetryAfterMax:  retry5s,
+			},
+			patch: retryPatch{
+				Enabled:        boolPtr(true),
+				MaxAttempts:    intPtr(3),
+				InitialBackoff: durationPtr(retry1s),
+				MaxBackoff:     durationPtr(retry5s),
+				RetryAfterMax:  durationPtr(retry30s),
+			},
+			want: RetryConfig{
+				Enabled:        true,
+				MaxAttempts:    3,
+				InitialBackoff: retry1s,
+				MaxBackoff:     retry5s,
+				RetryAfterMax:  retry30s,
+			},
+		},
+		{
+			name: "nil fields leave values untouched",
+			initial: RetryConfig{
+				Enabled:        true,
+				MaxAttempts:    3,
+				InitialBackoff: retry250ms,
+				MaxBackoff:     retry5s,
+				RetryAfterMax:  retry30s,
+			},
+			patch: retryPatch{
+				MaxAttempts: intPtr(9),
+			},
+			want: RetryConfig{
+				Enabled:        true,
+				MaxAttempts:    9,
+				InitialBackoff: retry250ms,
+				MaxBackoff:     retry5s,
+				RetryAfterMax:  retry30s,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyRetryPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyRetryPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
 	}
@@ -1075,6 +1200,75 @@ func TestApplyPatch(t *testing.T) {
 				Paths:   PathsConfig{ProjectRootOnly: true},
 				Logging: LoggingConfig{Level: "info", File: "steiner.log"},
 				Debug:   DebugConfig{ShowInternalScaffoldInference: true},
+			},
+		},
+		{
+			name: "applies retry patch to singleton model and models map",
+			cfg: Config{
+				Model: ModelConfig{
+					Retry: RetryConfig{
+						Enabled:        true,
+						MaxAttempts:    3,
+						InitialBackoff: MustDuration("250ms"),
+						MaxBackoff:     MustDuration("5s"),
+						RetryAfterMax:  MustDuration("30s"),
+					},
+				},
+				Models: map[string]ModelConfig{
+					"default": {
+						Retry: RetryConfig{
+							Enabled:        true,
+							MaxAttempts:    3,
+							InitialBackoff: MustDuration("250ms"),
+							MaxBackoff:     MustDuration("5s"),
+							RetryAfterMax:  MustDuration("30s"),
+						},
+					},
+				},
+			},
+			patch: configPatch{
+				Model: &modelPatch{
+					Retry: &retryPatch{
+						Enabled:        boolPtr(false),
+						MaxAttempts:    intPtr(8),
+						InitialBackoff: durationPtr(MustDuration("1s")),
+						MaxBackoff:     durationPtr(MustDuration("10s")),
+						RetryAfterMax:  durationPtr(MustDuration("1m")),
+					},
+				},
+				Models: modelPatchMapPtr(map[string]modelPatch{
+					"default": {
+						Retry: &retryPatch{
+							Enabled:        boolPtr(false),
+							MaxAttempts:    intPtr(4),
+							InitialBackoff: durationPtr(MustDuration("500ms")),
+							MaxBackoff:     durationPtr(MustDuration("4s")),
+							RetryAfterMax:  durationPtr(MustDuration("45s")),
+						},
+					},
+				}),
+			},
+			want: Config{
+				Model: ModelConfig{
+					Retry: RetryConfig{
+						Enabled:        false,
+						MaxAttempts:    8,
+						InitialBackoff: MustDuration("1s"),
+						MaxBackoff:     MustDuration("10s"),
+						RetryAfterMax:  MustDuration("1m"),
+					},
+				},
+				Models: map[string]ModelConfig{
+					"default": {
+						Retry: RetryConfig{
+							Enabled:        false,
+							MaxAttempts:    4,
+							InitialBackoff: MustDuration("500ms"),
+							MaxBackoff:     MustDuration("4s"),
+							RetryAfterMax:  MustDuration("45s"),
+						},
+					},
+				},
 			},
 		},
 	}
