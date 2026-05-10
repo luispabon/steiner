@@ -10,7 +10,6 @@ func TestDelegationSpecFields(t *testing.T) {
 		Task:         "test task",
 		Context:      "test context",
 		SystemPrompt: "test prompt",
-		Model:        "test-model",
 		AgentID:      "agent-123",
 		Limits: DelegationLimits{
 			MaxTurns:          10,
@@ -27,9 +26,6 @@ func TestDelegationSpecFields(t *testing.T) {
 	}
 	if spec.SystemPrompt != "test prompt" {
 		t.Errorf("expected SystemPrompt=%q, got %q", "test prompt", spec.SystemPrompt)
-	}
-	if spec.Model != "test-model" {
-		t.Errorf("expected Model=%q, got %q", "test-model", spec.Model)
 	}
 	if spec.AgentID != "agent-123" {
 		t.Errorf("expected AgentID=%q, got %q", "agent-123", spec.AgentID)

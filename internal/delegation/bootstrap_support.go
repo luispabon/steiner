@@ -35,10 +35,11 @@ func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Pro
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
 
 	req := agent.RunRequest{
-		Provider:    prov,
-		Executor:    tool.NewExecutor(execReg, childCfg, nil, workDir),
-		Tools:       visibleReg.ToProviderSpecs(),
-		Model:       spec.Model,
+		Provider: prov,
+		Executor: tool.NewExecutor(execReg, childCfg, nil, workDir),
+		Tools:    visibleReg.ToProviderSpecs(),
+		// Leave Model empty so the child inherits the already-selected model
+		// from the active provider instance used by the parent run.
 		Limits:      baseLimits,
 		Events:      events,
 		Prompt:      promptOpts,

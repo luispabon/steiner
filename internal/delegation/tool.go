@@ -29,7 +29,6 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 				"task":          map[string]any{"type": "string", "description": "Required. The task for the sub-agent."},
 				"context":       map[string]any{"type": "string", "description": "Optional additional context."},
 				"system_prompt": map[string]any{"type": "string", "description": "Optional system prompt override."},
-				"model":         map[string]any{"type": "string", "description": "Optional model override."},
 				"max_turns":     map[string]any{"type": "integer", "description": "Optional max turns (cannot exceed default limit)."},
 				"timeout":       map[string]any{"type": "string", "description": "Optional timeout duration string (e.g. '30s')."},
 			},
@@ -62,7 +61,6 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 
 		contextStr, _ := input["context"].(string)
 		systemPrompt, _ := input["system_prompt"].(string)
-		model, _ := input["model"].(string)
 
 		var overrides DelegationLimits
 		if v, ok := input["max_turns"].(float64); ok {
@@ -77,8 +75,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
-			Model: model, AgentID: agentID,
-			Limits: overrides,
+			AgentID: agentID, Limits: overrides,
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{

@@ -425,24 +425,10 @@ func TestBuildChildRun(t *testing.T) {
 			},
 		},
 		{
-			name: "with model override",
-			spec: DelegationSpec{
-				Task:    "do something",
-				AgentID: "test-3",
-				Model:   "gpt-4",
-				Limits:  DelegationLimits{},
-			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
-				if req.Model != "gpt-4" {
-					t.Errorf("Model=%q, want 'gpt-4'", req.Model)
-				}
-			},
-		},
-		{
 			name: "with system prompt override",
 			spec: DelegationSpec{
 				Task:         "do something",
-				AgentID:      "test-4",
+				AgentID:      "test-3",
 				SystemPrompt: "custom",
 				Limits:       DelegationLimits{},
 			},
@@ -459,7 +445,7 @@ func TestBuildChildRun(t *testing.T) {
 			name: "with context",
 			spec: DelegationSpec{
 				Task:    "do something",
-				AgentID: "test-5",
+				AgentID: "test-4",
 				Context: "extra",
 				Limits:  DelegationLimits{},
 			},

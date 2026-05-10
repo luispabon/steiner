@@ -75,7 +75,7 @@ func TestToolDef(t *testing.T) {
 	if !ok {
 		t.Fatal("properties missing from schema")
 	}
-	for _, key := range []string{"task", "context", "system_prompt", "model", "max_turns", "timeout"} {
+	for _, key := range []string{"task", "context", "system_prompt", "max_turns", "timeout"} {
 		if _, exists := props[key]; !exists {
 			t.Errorf("property %q missing from properties", key)
 		}

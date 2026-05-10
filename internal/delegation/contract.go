@@ -26,9 +26,6 @@ type DelegationSpec struct {
 	// SystemPrompt is an optional override of the system prompt.
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
-	// Model is an optional model override.
-	Model string `json:"model,omitempty"`
-
 	// Limits define resource constraints for the child execution.
 	Limits DelegationLimits `json:"limits"`
 
