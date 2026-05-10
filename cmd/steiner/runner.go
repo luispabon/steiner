@@ -101,7 +101,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 			}
 		}),
 	)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, prov, events, r.runtime.workDir, selected.ExtraParams, selected.Thinking)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, prov, events, r.runtime.workDir, selected.ExtraParams, selected.Thinking, modelBudget, selected.Model, selected.MaxCompletionTokens, r.streamingPreferred)
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	runner := agent.NewRunner()
 	maxTokens := selected.MaxCompletionTokens
@@ -239,20 +239,25 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // buildActiveRegistry returns the registry to use for a run. When sub-agent
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinking config.ThinkingConfig) *tool.Registry {
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens int, streamingPreferred bool) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
 	cloned := base.Clone()
+	mt := maxTokens
 	handler := delegation.NewDelegateHandler(delegation.DelegateHandlerDeps{
-		Provider:    prov,
-		ParentReg:   base,
-		SubAgentCfg: subAgentCfg,
-		Events:      events,
-		Runner:      agent.NewRunner(),
-		WorkDir:     workDir,
-		ExtraParams: extraParams,
-		Thinking:    thinking,
+		Provider:           prov,
+		ParentReg:          base,
+		SubAgentCfg:        subAgentCfg,
+		Events:             events,
+		Runner:             agent.NewRunner(),
+		WorkDir:            workDir,
+		ExtraParams:        extraParams,
+		Thinking:           thinking,
+		ModelBudget:        modelBudget,
+		Model:              model,
+		MaxTokens:          &mt,
+		StreamingPreferred: streamingPreferred,
 	})
 	cloned.Register(delegation.DelegateToolDef(handler))
 	return cloned
