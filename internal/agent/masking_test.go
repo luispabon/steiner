@@ -119,6 +119,162 @@ func TestMaskConversationFallsBackForMissingRetention(t *testing.T) {
 	}
 }
 
+func TestMaskConversationMasksHistoricalDelegateToolCallInputs(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "u1"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "delegate work",
+			Turn:    1,
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "inspect the repo and summarize findings"}},
+			},
+		},
+		{
+			Role:       MessageRoleTool,
+			ToolCallID: "call_1",
+			Name:       "delegate",
+			Content:    "full delegate output",
+			Turn:       1,
+		},
+		{Role: MessageRoleUser, Content: "u2"},
+		{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+		{Role: MessageRoleUser, Content: "u3"},
+		{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+	}
+
+	got := maskConversation(messages, 1)
+	if got[1].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("masked tool call id = %q, want preserved", got[1].ToolCalls[0].ID)
+	}
+	if got[1].ToolCalls[0].Name != "delegate" {
+		t.Fatalf("masked tool call name = %q, want preserved", got[1].ToolCalls[0].Name)
+	}
+	if got[2].ToolCallID != "call_1" {
+		t.Fatalf("tool result ToolCallID = %q, want preserved", got[2].ToolCallID)
+	}
+	if got[2].Name != "delegate" {
+		t.Fatalf("tool result name = %q, want preserved", got[2].Name)
+	}
+	if got[1].ToolCalls[0].Arguments["task"] != "[masked historical delegate request from turn 1; see retained delegation summary in paired tool result]" {
+		t.Fatalf("masked delegate args = %#v", got[1].ToolCalls[0].Arguments)
+	}
+	if messages[1].ToolCalls[0].Arguments["task"] != "inspect the repo and summarize findings" {
+		t.Fatalf("source conversation mutated: %#v", messages[1].ToolCalls[0].Arguments)
+	}
+}
+
+func TestMaskConversationLeavesRecentDelegateToolCallInputsUnmasked(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "u1"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "older answer",
+			Turn:    1,
+		},
+		{Role: MessageRoleUser, Content: "u2"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "middle answer",
+			Turn:    2,
+		},
+		{Role: MessageRoleUser, Content: "u3"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "recent answer",
+			Turn:    3,
+			ToolCalls: []ToolCall{
+				{ID: "call_recent", Name: "delegate", Arguments: map[string]any{"task": "fresh delegate task"}},
+			},
+		},
+	}
+
+	got := maskConversation(messages, 1)
+	if got[5].ToolCalls[0].Arguments["task"] != "fresh delegate task" {
+		t.Fatalf("recent delegate args = %#v, want unchanged", got[5].ToolCalls[0].Arguments)
+	}
+}
+
+func TestMaskConversationLeavesNonDelegateToolCallArgumentsUnchanged(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "u1"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "tool work",
+			Turn:    1,
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "internal/agent/masking.go", "offset": 0}},
+			},
+		},
+		{
+			Role:       MessageRoleTool,
+			ToolCallID: "call_1",
+			Name:       "read",
+			Content:    "file content",
+			Turn:       1,
+		},
+		{Role: MessageRoleUser, Content: "u2"},
+		{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+		{Role: MessageRoleUser, Content: "u3"},
+		{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+	}
+
+	got := maskConversation(messages, 1)
+	if got[1].ToolCalls[0].Arguments["path"] != "internal/agent/masking.go" {
+		t.Fatalf("non-delegate args changed: %#v", got[1].ToolCalls[0].Arguments)
+	}
+	if got[1].ToolCalls[0].Arguments["offset"] != 0 {
+		t.Fatalf("non-delegate args changed: %#v", got[1].ToolCalls[0].Arguments)
+	}
+}
+
+func TestMaskConversationMasksOnlyDelegateToolCallsInMixedAssistantMessage(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "u1"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "mixed tools",
+			Turn:    7,
+			ToolCalls: []ToolCall{
+				{ID: "call_delegate", Name: "delegate", Arguments: map[string]any{"task": "delegate this"}},
+				{ID: "call_read", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+			},
+		},
+		{
+			Role:       MessageRoleTool,
+			ToolCallID: "call_delegate",
+			Name:       "delegate",
+			Content:    "delegate output",
+			Turn:       7,
+		},
+		{
+			Role:       MessageRoleTool,
+			ToolCallID: "call_read",
+			Name:       "read",
+			Content:    "read output",
+			Turn:       7,
+		},
+		{Role: MessageRoleUser, Content: "u2"},
+		{Role: MessageRoleAssistant, Content: "middle answer", Turn: 8},
+		{Role: MessageRoleUser, Content: "u3"},
+		{Role: MessageRoleAssistant, Content: "recent answer", Turn: 9},
+	}
+
+	got := maskConversation(messages, 1)
+	if got[1].ToolCalls[0].Arguments["task"] != "[masked historical delegate request from turn 7; see retained delegation summary in paired tool result]" {
+		t.Fatalf("delegate args = %#v", got[1].ToolCalls[0].Arguments)
+	}
+	if got[1].ToolCalls[1].Arguments["path"] != "README.md" {
+		t.Fatalf("non-delegate args changed in mixed tool call set: %#v", got[1].ToolCalls[1].Arguments)
+	}
+	if got[2].ToolCallID != "call_delegate" || got[2].Name != "delegate" {
+		t.Fatalf("delegate pairing changed: %#v", got[2])
+	}
+	if got[3].ToolCallID != "call_read" || got[3].Name != "read" {
+		t.Fatalf("read pairing changed: %#v", got[3])
+	}
+}
+
 func TestMaskConversationLeavesScratchpadAndRecentMessagesAlone(t *testing.T) {
 	messages := []Message{
 		{Role: MessageRoleUser, Content: "u1"},
