@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestConversationGenerationViewsArePrefixAware(t *testing.T) {
@@ -352,8 +350,8 @@ func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 				{
 					Role:    MessageRoleTool,
 					Content: "visible output",
-					Retention: &tool.ToolRetention{
-						Kind:    tool.RetentionKindDelegateSummary,
+					Retention: &MessageRetention{
+						Kind:    "delegate_summary",
 						Summary: "retained summary",
 						AgentID: "child-1",
 					},
@@ -383,8 +381,8 @@ func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
 				{
 					Role:    MessageRoleTool,
 					Content: "visible output",
-					Retention: &tool.ToolRetention{
-						Kind:    tool.RetentionKindDelegateSummary,
+					Retention: &MessageRetention{
+						Kind:    "delegate_summary",
 						Summary: "hidden summary",
 						AgentID: "child-1",
 					},
@@ -401,15 +399,18 @@ func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
 	if string(data) == "" {
 		t.Fatal("marshal produced empty output")
 	}
-	if strings.Contains(string(data), "hidden summary") {
-		t.Fatalf("retention metadata leaked into JSON: %s", string(data))
+	if !strings.Contains(string(data), `"retention":{"kind":"delegate_summary","summary":"hidden summary","agent_id":"child-1"}`) {
+		t.Fatalf("retention metadata missing from JSON: %s", string(data))
 	}
 
 	var restored ConversationLineage
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("unmarshal lineage: %v", err)
 	}
-	if restored.Generations[0].Messages[0].Retention != nil {
-		t.Fatalf("restored retention = %#v, want nil", restored.Generations[0].Messages[0].Retention)
+	if restored.Generations[0].Messages[0].Retention == nil {
+		t.Fatal("restored retention = nil, want persisted metadata")
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.Summary, "hidden summary"; got != want {
+		t.Fatalf("restored retention summary = %q, want %q", got, want)
 	}
 }

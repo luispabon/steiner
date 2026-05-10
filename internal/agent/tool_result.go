@@ -10,7 +10,7 @@ import (
 type ToolResultEnvelope struct {
 	Content   string
 	Metadata  tool.ExecutionMetadata
-	Retention *tool.ToolRetention
+	Retention *MessageRetention
 }
 
 func normalizeToolResult(result any) ToolResultEnvelope {
@@ -19,7 +19,7 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 		return ToolResultEnvelope{
 			Content:   toolResultContent(v.Value),
 			Metadata:  v.Metadata,
-			Retention: cloneToolRetention(v.Retention),
+			Retention: messageRetentionFromToolRetention(v.Retention),
 		}
 	default:
 		return ToolResultEnvelope{

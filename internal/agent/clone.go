@@ -15,7 +15,7 @@ func cloneMessages(messages []Message) []Message {
 	copy(out, messages)
 	for i := range out {
 		out[i].ToolCalls = cloneToolCalls(out[i].ToolCalls)
-		out[i].Retention = cloneToolRetention(out[i].Retention)
+		out[i].Retention = cloneMessageRetention(out[i].Retention)
 	}
 	return out
 }
@@ -85,6 +85,28 @@ func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
 }
 
 func cloneToolRetention(retention *tool.ToolRetention) *tool.ToolRetention {
+	if retention == nil {
+		return nil
+	}
+	cloned := *retention
+	return &cloned
+}
+
+func messageRetentionFromToolRetention(retention *tool.ToolRetention) *MessageRetention {
+	if retention == nil {
+		return nil
+	}
+	return &MessageRetention{
+		Kind:       retention.Kind,
+		Summary:    retention.Summary,
+		AgentID:    retention.AgentID,
+		Status:     retention.Status,
+		TurnCount:  retention.TurnCount,
+		TokenCount: retention.TokenCount,
+	}
+}
+
+func cloneMessageRetention(retention *MessageRetention) *MessageRetention {
 	if retention == nil {
 		return nil
 	}

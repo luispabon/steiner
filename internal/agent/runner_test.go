@@ -903,6 +903,11 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	if strings.Contains(providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, "child summary") {
 		t.Fatal("tool message content leaked retention summary")
 	}
+	if got := state.Conversation[2].Retention; got == nil {
+		t.Fatal("tool message retention = nil, want durable retained summary")
+	} else if got.Summary != "child summary" {
+		t.Fatalf("tool message retention summary = %q, want child summary", got.Summary)
+	}
 }
 
 func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
