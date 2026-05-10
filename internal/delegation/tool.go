@@ -67,9 +67,11 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			overrides.MaxTurns = int(v)
 		}
 		if v, ok := input["timeout"].(string); ok && v != "" {
-			if d, err := time.ParseDuration(v); err == nil {
-				overrides.Timeout = d
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return nil, fmt.Errorf("delegate: invalid timeout %q: %w", v, err)
 			}
+			overrides.Timeout = d
 		}
 
 		agentID := generateAgentID()

@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -202,7 +203,6 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 	}{
 		{name: "valid 30s", timeoutVal: "30s", wantDeadline: true},
 		{name: "valid 5m", timeoutVal: "5m", wantDeadline: true},
-		{name: "invalid ignored", timeoutVal: "not-a-duration", wantDeadline: false},
 		{name: "empty ignored", timeoutVal: "", wantDeadline: false},
 		{name: "missing", timeoutVal: nil, wantDeadline: false},
 	}
@@ -234,6 +234,44 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 			}
 			if gotDeadline != tt.wantDeadline {
 				t.Errorf("context has deadline=%v, want %v", gotDeadline, tt.wantDeadline)
+			}
+		})
+	}
+}
+
+func TestToolHandler_RejectsInvalidTimeout(t *testing.T) {
+	tests := []struct {
+		name       string
+		timeoutVal string
+	}{
+		{name: "not-a-duration", timeoutVal: "not-a-duration"},
+		{name: "99x", timeoutVal: "99x"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := DelegateHandlerDeps{
+				SubAgentCfg: config.SubAgentConfig{},
+				Provider:    stubProvider{},
+				ParentReg:   tool.NewRegistry(),
+				Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+					t.Error("runner must not be called for invalid timeout")
+					return agent.RunState{}, nil
+				}},
+				Events:  noopEventSink{},
+				WorkDir: "/tmp/work",
+			}
+			handler := NewDelegateHandler(deps)
+
+			_, err := handler(context.Background(), map[string]any{
+				"task":    "do something",
+				"timeout": tt.timeoutVal,
+			})
+			if err == nil {
+				t.Fatal("expected error for invalid timeout, got nil")
+			}
+			if !strings.Contains(err.Error(), "delegate: invalid timeout") {
+				t.Errorf("error=%q, want to contain %q", err.Error(), "delegate: invalid timeout")
 			}
 		})
 	}
