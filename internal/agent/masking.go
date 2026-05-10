@@ -3,8 +3,6 @@ package agent
 import (
 	"fmt"
 	"strings"
-
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 const defaultMaskingWindowTurns = 5
@@ -40,7 +38,7 @@ func maskConversation(messages []Message, windowTurns int) []Message {
 	for _, message := range messages {
 		cloned := message
 		cloned.ToolCalls = cloneToolCalls(cloned.ToolCalls)
-		cloned.Retention = cloneToolRetention(cloned.Retention)
+		cloned.Retention = cloneMessageRetention(cloned.Retention)
 
 		switch cloned.Role {
 		case MessageRoleAssistant:
@@ -75,7 +73,7 @@ func maskConversationBeforeTurn(messages []Message, boundaryTurn int) []Message 
 	for _, message := range messages {
 		cloned := message
 		cloned.ToolCalls = cloneToolCalls(cloned.ToolCalls)
-		cloned.Retention = cloneToolRetention(cloned.Retention)
+		cloned.Retention = cloneMessageRetention(cloned.Retention)
 
 		switch cloned.Role {
 		case MessageRoleAssistant:
@@ -148,7 +146,7 @@ func maskToolResult(message Message, toolCalls []ToolCall) string {
 
 func retainedDelegateSummary(message Message) (string, bool) {
 	retention := message.Retention
-	if retention == nil || retention.Kind != tool.RetentionKindDelegateSummary {
+	if retention == nil || retention.Kind != "delegate_summary" {
 		return "", false
 	}
 

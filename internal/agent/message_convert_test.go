@@ -233,6 +233,21 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 			t.Errorf("expected context-block, got %s", result.Role)
 		}
 	})
+
+	t.Run("retention does not copy to provider message", func(t *testing.T) {
+		msg := Message{
+			Role:    MessageRoleTool,
+			Content: "tool output",
+			Retention: &MessageRetention{
+				Kind:    "delegate_summary",
+				Summary: "retained",
+			},
+		}
+		result := toProviderMessage(msg)
+		if result.Content != "tool output" {
+			t.Fatalf("content = %q, want tool output", result.Content)
+		}
+	})
 }
 
 func TestMessageConvert_FromProviderMessage(t *testing.T) {
@@ -241,6 +256,14 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		result := fromProviderMessage(msg)
 		if result.Role != MessageRole("system") {
 			t.Errorf("expected system, got %s", result.Role)
+		}
+	})
+
+	t.Run("provider message does not create retention", func(t *testing.T) {
+		msg := provider.Message{Role: provider.MessageRoleTool, Content: "tool"}
+		result := fromProviderMessage(msg)
+		if result.Retention != nil {
+			t.Fatalf("retention = %#v, want nil", result.Retention)
 		}
 	})
 }

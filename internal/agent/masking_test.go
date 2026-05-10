@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestMaskConversationUsesRetainedDelegateSummary(t *testing.T) {
@@ -23,8 +21,8 @@ func TestMaskConversationUsesRetainedDelegateSummary(t *testing.T) {
 			Name:       "delegate",
 			Content:    "full delegate output with paths and details",
 			Turn:       1,
-			Retention: &tool.ToolRetention{
-				Kind:       tool.RetentionKindDelegateSummary,
+			Retention: &MessageRetention{
+				Kind:       "delegate_summary",
 				Summary:    "summary text with findings",
 				AgentID:    "child-123",
 				Status:     "complete",
@@ -69,8 +67,8 @@ func TestMaskConversationBeforeTurnUsesRetainedDelegateSummary(t *testing.T) {
 			Name:       "delegate",
 			Content:    "full delegate output with paths and details",
 			Turn:       1,
-			Retention: &tool.ToolRetention{
-				Kind:       tool.RetentionKindDelegateSummary,
+			Retention: &MessageRetention{
+				Kind:       "delegate_summary",
 				Summary:    "summary text with findings",
 				AgentID:    "child-123",
 				Status:     "complete",
@@ -162,8 +160,8 @@ func TestRetainedSummaryTruncationIsUTF8Safe(t *testing.T) {
 			Name:       "delegate",
 			Content:    "full delegate output",
 			Turn:       1,
-			Retention: &tool.ToolRetention{
-				Kind:       tool.RetentionKindDelegateSummary,
+			Retention: &MessageRetention{
+				Kind:       "delegate_summary",
 				Summary:    longSummary,
 				AgentID:    "child-123",
 				Status:     "complete",

@@ -147,7 +147,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 			Turn:       turn,
 		}
 		if err == nil {
-			toolMessage.Retention = cloneToolRetention(normalizedResult.Retention)
+			toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
 		}
 		state.Conversation = append(state.Conversation, toolMessage)
 		state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
