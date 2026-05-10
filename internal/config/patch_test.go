@@ -609,17 +609,15 @@ func TestApplySubAgentPatch(t *testing.T) {
 			name: "sets all fields",
 			initial: SubAgentConfig{
 				Enabled: false, MaxTurns: 5, MaxTokens: 50000,
-				AllowedTools: []string{"bash"}, AllowNesting: false, MaxConcurrent: 1,
+				AllowedTools: []string{"bash"},
 			},
 			patch: subAgentPatch{
 				Enabled: boolPtr(true), MaxTurns: intPtr(10), MaxTokens: intPtr(100000),
 				AllowedTools: stringSlicePtr("read", "write", "bash"),
-				AllowNesting: boolPtr(true), MaxConcurrent: intPtr(3),
 			},
 			want: SubAgentConfig{
 				Enabled: true, MaxTurns: 10, MaxTokens: 100000,
 				AllowedTools: []string{"read", "write", "bash"},
-				AllowNesting: true, MaxConcurrent: 3,
 			},
 		},
 		{
@@ -638,14 +636,14 @@ func TestApplySubAgentPatch(t *testing.T) {
 			name: "nil fields leave existing values untouched",
 			initial: SubAgentConfig{
 				Enabled: true, MaxTurns: 10, MaxTokens: 100000,
-				AllowedTools: []string{"bash"}, AllowNesting: true, MaxConcurrent: 3,
+				AllowedTools: []string{"bash"},
 			},
 			patch: subAgentPatch{
 				MaxTurns: intPtr(25),
 			},
 			want: SubAgentConfig{
 				Enabled: true, MaxTurns: 25, MaxTokens: 100000,
-				AllowedTools: []string{"bash"}, AllowNesting: true, MaxConcurrent: 3,
+				AllowedTools: []string{"bash"},
 			},
 		},
 		{

@@ -778,6 +778,39 @@ models:
 	}
 }
 
+func TestLoadRejectsRemovedSubAgentFields(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `sub_agent:
+  allow_nesting: false
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want removed field rejection")
+	}
+	if !strings.Contains(err.Error(), "allow_nesting") {
+		t.Fatalf("error = %q, want removed field name", err)
+	}
+}
+
 func TestLoadAllowsZeroMaxTurns(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")

@@ -397,16 +397,6 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `max_tokens must be at least 1 when enabled`,
 		},
-		{
-			name: "subagent zero max_concurrent",
-			cfg: func() Config {
-				c := validBase()
-				c.SubAgent.Enabled = true
-				c.SubAgent.MaxConcurrent = 0
-				return c
-			}(),
-			wantErr: `max_concurrent must be at least 1 when enabled`,
-		},
 
 		// 9. Project context max tokens < 1
 		{

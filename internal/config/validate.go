@@ -111,9 +111,6 @@ func validate(cfg Config) error {
 		if cfg.SubAgent.MaxTokens < 1 {
 			problems = append(problems, "sub_agent.max_tokens must be at least 1 when enabled")
 		}
-		if cfg.SubAgent.MaxConcurrent < 1 {
-			problems = append(problems, "sub_agent.max_concurrent must be at least 1 when enabled")
-		}
 	}
 	if cfg.ProjectContext.MaxTokens < 1 {
 		problems = append(problems, "project_context.max_tokens must be at least 1")

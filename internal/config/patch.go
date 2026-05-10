@@ -82,12 +82,10 @@ type approvalPatch struct {
 }
 
 type subAgentPatch struct {
-	Enabled       *bool     `yaml:"enabled"`
-	MaxTurns      *int      `yaml:"max_turns"`
-	MaxTokens     *int      `yaml:"max_tokens"`
-	AllowedTools  *[]string `yaml:"allowed_tools"`
-	AllowNesting  *bool     `yaml:"allow_nesting"`
-	MaxConcurrent *int      `yaml:"max_concurrent"`
+	Enabled      *bool     `yaml:"enabled"`
+	MaxTurns     *int      `yaml:"max_turns"`
+	MaxTokens    *int      `yaml:"max_tokens"`
+	AllowedTools *[]string `yaml:"allowed_tools"`
 }
 
 type toolPatch struct {
@@ -323,12 +321,6 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	}
 	if patch.AllowedTools != nil {
 		dst.AllowedTools = append([]string(nil), (*patch.AllowedTools)...)
-	}
-	if patch.AllowNesting != nil {
-		dst.AllowNesting = *patch.AllowNesting
-	}
-	if patch.MaxConcurrent != nil {
-		dst.MaxConcurrent = *patch.MaxConcurrent
 	}
 }
 
