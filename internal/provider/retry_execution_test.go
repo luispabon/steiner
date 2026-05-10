@@ -451,7 +451,7 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 				t.Fatal("writer does not support flushing")
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]\n\n")
+			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
 			flusher.Flush()
 		case 2:
 			flusher, ok := w.(http.Flusher)
