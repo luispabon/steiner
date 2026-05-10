@@ -144,12 +144,10 @@ type ApprovalConfig struct {
 }
 
 type SubAgentConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	MaxTurns      int      `yaml:"max_turns"`
-	MaxTokens     int      `yaml:"max_tokens"`
-	AllowedTools  []string `yaml:"allowed_tools"`
-	AllowNesting  bool     `yaml:"allow_nesting"`
-	MaxConcurrent int      `yaml:"max_concurrent"`
+	Enabled      bool     `yaml:"enabled"`
+	MaxTurns     int      `yaml:"max_turns"`
+	MaxTokens    int      `yaml:"max_tokens"`
+	AllowedTools []string `yaml:"allowed_tools"`
 }
 
 type ToolConfig struct {

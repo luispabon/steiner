@@ -263,8 +263,6 @@ sub_agent:
     - write
     - edit
     - bash
-  allow_nesting: false   # parsed/defaulted; children still cannot delegate
-  max_concurrent: 1      # parsed/validated; no concurrency limiter is wired
 ```
 
 `max_tokens` maps to `agent.Limits.MaxTokens`, which limits accumulated tracked child token usage. It is not an output-size cap.
@@ -299,13 +297,14 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 
 ## Constraints and Invariants
 
-1. **No nesting**: children never have access to the `delegate` tool
+1. **One level only**: children never have access to the `delegate` tool
 2. **No approval prompts**: child tool execution is auto-approved
 3. **Naive context manager**: children get the default naive context manager, so they do not perform smart compaction or masking internally
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them
 5. **Single provider**: children use the same provider/model instance as the parent
-6. **Filesystem shared**: children operate in the same `WorkDir` — concurrent filesystem mutation is the caller's responsibility
-7. **Extension cap**: maximum 5 auto-extensions to prevent runaway children
-8. **Summary cap**: retention summaries capped at 1000 runes
-9. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist
-10. **Config caveat**: `allowed_tools`, `allow_nesting`, and `max_concurrent` exist in config, but only `enabled`, `max_turns`, and `max_tokens` currently affect child run construction
+6. **Synchronous execution**: each delegate runs to completion before control returns to the parent
+7. **Filesystem shared**: children operate in the same `WorkDir` as the parent
+8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children
+9. **Summary cap**: retention summaries capped at 1000 runes
+10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist
+11. **Config caveat**: `allowed_tools` exists in config, but only `enabled`, `max_turns`, and `max_tokens` currently affect child run construction

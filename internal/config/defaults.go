@@ -50,12 +50,10 @@ func defaultConfig() Config {
 			Default: ApprovalModeAuto,
 		},
 		SubAgent: SubAgentConfig{
-			Enabled:       true,
-			MaxTurns:      15,
-			MaxTokens:     100000,
-			AllowedTools:  []string{"read", "glob", "grep", "ls", "write", "edit", "bash"},
-			AllowNesting:  false,
-			MaxConcurrent: 1,
+			Enabled:      true,
+			MaxTurns:     15,
+			MaxTokens:    100000,
+			AllowedTools: []string{"read", "glob", "grep", "ls", "write", "edit", "bash"},
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
