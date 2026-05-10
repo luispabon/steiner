@@ -79,6 +79,12 @@ model:
   model: global-backend
   max_completion_tokens: 2048
   context_size: 8192
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 256
     summary_max_tokens: 128
@@ -89,6 +95,12 @@ models:
     model: global-backend
     max_completion_tokens: 2048
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 256
       summary_max_tokens: 128
@@ -98,6 +110,12 @@ models:
     model: env-backend
     max_completion_tokens: 1024
     context_size: 16384
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 512
       summary_max_tokens: 256
@@ -115,6 +133,12 @@ paths:
   model: project-backend
   max_completion_tokens: 4096
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 1024
     summary_max_tokens: 512
@@ -125,6 +149,12 @@ models:
     model: project-backend
     max_completion_tokens: 4096
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 1024
       summary_max_tokens: 512
@@ -134,6 +164,12 @@ models:
     model: cli-backend
     max_completion_tokens: 8192
     context_size: 65536
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
@@ -330,6 +366,12 @@ func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
   model: explicit-backend
   max_completion_tokens: 1024
   context_size: 8192
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 128
     summary_max_tokens: 64
@@ -340,6 +382,12 @@ models:
     model: explicit-backend
     max_completion_tokens: 1024
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 128
       summary_max_tokens: 64
@@ -351,6 +399,12 @@ models:
   model: env-backend
   max_completion_tokens: 2048
   context_size: 8192
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 256
     summary_max_tokens: 128
@@ -361,6 +415,12 @@ models:
     model: env-backend
     max_completion_tokens: 2048
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 256
       summary_max_tokens: 128
@@ -405,6 +465,12 @@ func TestLoadUsesEnvHomeWhenExplicitHomeDirUnset(t *testing.T) {
   model: env-backend
   max_completion_tokens: 2048
   context_size: 8192
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 256
     summary_max_tokens: 128
@@ -415,6 +481,12 @@ models:
     model: env-backend
     max_completion_tokens: 2048
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 256
       summary_max_tokens: 128
@@ -502,6 +574,12 @@ func TestLoadExpandsEnvInterpolation(t *testing.T) {
   model: qwen3-35b-a3b
   max_completion_tokens: 8192
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 2048
     summary_max_tokens: 1024
@@ -512,6 +590,12 @@ models:
     model: qwen3-35b-a3b
     max_completion_tokens: 8192
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
@@ -561,6 +645,12 @@ model:
   model: qwen3-35b-a3b
   max_completion_tokens: 8192
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 2048
     summary_max_tokens: 1024
@@ -571,6 +661,12 @@ models:
     model: qwen3-35b-a3b
     max_completion_tokens: 8192
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
@@ -694,6 +790,12 @@ func TestLoadAllowsZeroMaxTurns(t *testing.T) {
   model: qwen3-35b-a3b
   max_completion_tokens: 8192
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 2048
     summary_max_tokens: 1024
@@ -704,6 +806,12 @@ models:
     model: qwen3-35b-a3b
     max_completion_tokens: 8192
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
@@ -746,6 +854,12 @@ func TestLoadRejectsSummaryMaxTokensAboveMaxCompletionTokens(t *testing.T) {
   model: qwen3-35b-a3b
   max_completion_tokens: 256
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 2048
     summary_max_tokens: 512
@@ -756,6 +870,12 @@ models:
     model: qwen3-35b-a3b
     max_completion_tokens: 256
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 512
@@ -806,6 +926,12 @@ func TestLoadMergesExtraParams(t *testing.T) {
     top_p: 0.9
   max_completion_tokens: 8192
   context_size: 32768
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 250ms
+    max_backoff: 5s
+    retry_after_max: 30s
   compaction:
     safety_margin_tokens: 2048
     summary_max_tokens: 1024
@@ -819,6 +945,12 @@ models:
       top_p: 0.9
     max_completion_tokens: 8192
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024

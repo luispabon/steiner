@@ -89,9 +89,16 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	}
 	providerFactory := func(modelCfg config.ModelConfig) (provider.Provider, error) {
 		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL:    modelCfg.BaseURL,
-			APIKey:     modelCfg.APIKey,
-			Model:      modelCfg.Model,
+			BaseURL: modelCfg.BaseURL,
+			APIKey:  modelCfg.APIKey,
+			Model:   modelCfg.Model,
+			Retry: provider.RetryConfig{
+				Enabled:        modelCfg.Retry.Enabled,
+				MaxAttempts:    modelCfg.Retry.MaxAttempts,
+				InitialBackoff: time.Duration(modelCfg.Retry.InitialBackoff.Duration()),
+				MaxBackoff:     time.Duration(modelCfg.Retry.MaxBackoff.Duration()),
+				RetryAfterMax:  time.Duration(modelCfg.Retry.RetryAfterMax.Duration()),
+			},
 			Scheduler:  scheduler,
 			HTTPClient: httpClient,
 		})

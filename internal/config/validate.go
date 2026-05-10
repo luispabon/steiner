@@ -26,6 +26,27 @@ func validate(cfg Config) error {
 		if model.ContextSize < 1 {
 			problems = append(problems, fmt.Sprintf("%s.context_size must be at least 1", prefix))
 		}
+		appendRetryProblems := func(path string, retry RetryConfig) {
+			if retry.MaxAttempts < 1 {
+				problems = append(problems, fmt.Sprintf("%s.max_attempts must be at least 1", path))
+			}
+			if retry.InitialBackoff.IsZero() {
+				problems = append(problems, fmt.Sprintf("%s.initial_backoff must be greater than zero", path))
+			}
+			if retry.MaxBackoff.IsZero() {
+				problems = append(problems, fmt.Sprintf("%s.max_backoff must be greater than zero", path))
+			}
+			if retry.RetryAfterMax.IsZero() {
+				problems = append(problems, fmt.Sprintf("%s.retry_after_max must be greater than zero", path))
+			}
+			if !retry.InitialBackoff.IsZero() && !retry.MaxBackoff.IsZero() && retry.MaxBackoff.Duration() < retry.InitialBackoff.Duration() {
+				problems = append(problems, fmt.Sprintf("%s.max_backoff must be greater than or equal to %s.initial_backoff", path, path))
+			}
+			if !retry.InitialBackoff.IsZero() && !retry.RetryAfterMax.IsZero() && retry.RetryAfterMax.Duration() < retry.InitialBackoff.Duration() {
+				problems = append(problems, fmt.Sprintf("%s.retry_after_max must be greater than or equal to %s.initial_backoff", path, path))
+			}
+		}
+		appendRetryProblems(prefix+".retry", model.Retry)
 		if model.Compaction.SafetyMarginTokens < 0 {
 			problems = append(problems, fmt.Sprintf("%s.compaction.safety_margin_tokens must be at least 0", prefix))
 		}

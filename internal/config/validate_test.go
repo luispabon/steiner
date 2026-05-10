@@ -6,6 +6,13 @@ import (
 )
 
 func validBase() Config {
+	retry := RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: MustDuration("250ms"),
+		MaxBackoff:     MustDuration("5s"),
+		RetryAfterMax:  MustDuration("30s"),
+	}
 	return Config{
 		Scheduler: SchedulerConfig{Parallelism: 1},
 		Model: ModelConfig{
@@ -14,6 +21,7 @@ func validBase() Config {
 			Model:               "qwen3-35b-a3b",
 			MaxCompletionTokens: 8192,
 			ContextSize:         32768,
+			Retry:               retry,
 			Compaction: CompactionConfig{
 				SafetyMarginTokens: 2048,
 				SummaryMaxTokens:   1024,
@@ -26,6 +34,7 @@ func validBase() Config {
 				Model:               "qwen3-35b-a3b",
 				MaxCompletionTokens: 8192,
 				ContextSize:         32768,
+				Retry:               retry,
 				Compaction: CompactionConfig{
 					SafetyMarginTokens: 2048,
 					SummaryMaxTokens:   1024,
@@ -279,7 +288,48 @@ func TestValidate(t *testing.T) {
 			wantErr: `must be greater than zero`,
 		},
 
-		// 6. Approval mode invalid or empty
+		// 6. Retry validation
+		{
+			name: "zero retry max_attempts",
+			cfg: func() Config {
+				c := validBase()
+				c.Model.Retry.MaxAttempts = 0
+				return c
+			}(),
+			wantErr: `model.retry.max_attempts must be at least 1`,
+		},
+		{
+			name: "zero retry duration",
+			cfg: func() Config {
+				c := validBase()
+				c.Model.Retry.InitialBackoff = Duration{}
+				return c
+			}(),
+			wantErr: `model.retry.initial_backoff must be greater than zero`,
+		},
+		{
+			name: "retry max_backoff less than initial_backoff",
+			cfg: func() Config {
+				c := validBase()
+				c.Model.Retry.InitialBackoff = MustDuration("5s")
+				c.Model.Retry.MaxBackoff = MustDuration("1s")
+				return c
+			}(),
+			wantErr: `model.retry.max_backoff must be greater than or equal to model.retry.initial_backoff`,
+		},
+		{
+			name: "alias retry validation reports alias path",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models["default"]
+				m.Retry.RetryAfterMax = Duration{}
+				c.Models["fast"] = m
+				return c
+			}(),
+			wantErr: `models["fast"].retry.retry_after_max must be greater than zero`,
+		},
+
+		// 7. Approval mode invalid or empty
 		{
 			name: "invalid approval default",
 			cfg: func() Config {
@@ -326,7 +376,7 @@ func TestValidate(t *testing.T) {
 			wantErr: ``,
 		},
 
-		// 7. Sub-agent enabled with bad limits
+		// 8. Sub-agent enabled with bad limits
 		{
 			name: "subagent zero max_turns",
 			cfg: func() Config {
@@ -358,7 +408,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `max_concurrent must be at least 1 when enabled`,
 		},
 
-		// 8. Project context max tokens < 1
+		// 9. Project context max tokens < 1
 		{
 			name: "zero project_context max_tokens",
 			cfg: func() Config {
@@ -369,7 +419,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `max_tokens must be at least 1`,
 		},
 
-		// 9. Logging level invalid or empty file path
+		// 10. Logging level invalid or empty file path
 		{
 			name: "invalid logging level",
 			cfg: func() Config {
@@ -389,7 +439,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `logging.file is required`,
 		},
 
-		// 10. Tool validation failures
+		// 11. Tool validation failures
 		{
 			name: "tool empty name",
 			cfg: func() Config {

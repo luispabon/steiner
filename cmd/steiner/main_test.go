@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -78,6 +79,12 @@ models:
     model: global-backend
     max_completion_tokens: 2048
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 256
       summary_max_tokens: 128
@@ -96,6 +103,12 @@ models:
     model: project-backend
     max_completion_tokens: 4096
     context_size: 32768
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 1024
       summary_max_tokens: 512
@@ -105,6 +118,12 @@ models:
     model: cli-backend
     max_completion_tokens: 8192
     context_size: 65536
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 2048
       summary_max_tokens: 1024
@@ -223,6 +242,12 @@ models:
     model: fast-backend
     max_completion_tokens: 256
     context_size: 4096
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 128
       summary_max_tokens: 64
@@ -232,6 +257,12 @@ models:
     model: slow-backend
     max_completion_tokens: 512
     context_size: 8192
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
     compaction:
       safety_margin_tokens: 256
       summary_max_tokens: 128
@@ -292,6 +323,15 @@ models:
 	}
 	if gotProviderConfig.Model != "slow-backend" {
 		t.Fatalf("provider model = %q, want slow-backend", gotProviderConfig.Model)
+	}
+	if got := gotProviderConfig.Retry; got != (provider.RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: 250 * time.Millisecond,
+		MaxBackoff:     5 * time.Second,
+		RetryAfterMax:  30 * time.Second,
+	}) {
+		t.Fatalf("provider retry = %#v, want default retry config", got)
 	}
 	if gotProviderConfig.Scheduler == nil {
 		t.Fatal("provider scheduler = nil, want scheduler")

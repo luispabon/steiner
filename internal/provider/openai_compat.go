@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 var defaultHTTPClient = &http.Client{}
@@ -14,14 +15,24 @@ type OpenAICompatConfig struct {
 	BaseURL    string
 	APIKey     string
 	Model      string
+	Retry      RetryConfig
 	HTTPClient *http.Client
 	Scheduler  *Scheduler
+}
+
+type RetryConfig struct {
+	Enabled        bool
+	MaxAttempts    int
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+	RetryAfterMax  time.Duration
 }
 
 type OpenAICompat struct {
 	baseURL    *url.URL
 	apiKey     string
 	model      string
+	retry      RetryConfig
 	httpClient *http.Client
 	scheduler  *Scheduler
 }
@@ -49,6 +60,7 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 		baseURL:    parsed,
 		apiKey:     cfg.APIKey,
 		model:      cfg.Model,
+		retry:      cfg.Retry,
 		httpClient: client,
 		scheduler:  cfg.Scheduler,
 	}, nil
