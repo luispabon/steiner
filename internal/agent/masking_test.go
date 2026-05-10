@@ -99,14 +99,126 @@ func TestMaskConversationBeforeTurnUsesRestoredRetainedDelegateSummary(t *testin
 	}
 
 	got := maskConversationBeforeTurn(restored.FullMessages(), 2)
+	if got[1].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("masked tool call id = %q, want preserved", got[1].ToolCalls[0].ID)
+	}
+	if got[1].ToolCalls[0].Name != "delegate" {
+		t.Fatalf("masked tool call name = %q, want preserved", got[1].ToolCalls[0].Name)
+	}
+	if got[1].ToolCalls[0].Arguments["task"] != "[masked historical delegate request from turn 1; see retained delegation summary in paired tool result]" {
+		t.Fatalf("masked delegate args = %#v", got[1].ToolCalls[0].Arguments)
+	}
 	if strings.Contains(got[2].Content, "full delegate output with paths and details") {
 		t.Fatalf("masked delegate content leaked full output: %q", got[2].Content)
 	}
 	if !strings.Contains(got[2].Content, "retained delegation summary") {
 		t.Fatalf("masked delegate content = %q, want retained summary block", got[2].Content)
 	}
+	if got[2].ToolCallID != "call_1" {
+		t.Fatalf("tool result ToolCallID = %q, want preserved", got[2].ToolCallID)
+	}
+	if got[2].Name != "delegate" {
+		t.Fatalf("tool result name = %q, want preserved", got[2].Name)
+	}
 	if got[6].Content != "recent answer" {
 		t.Fatalf("recent assistant content = %q, want unchanged", got[6].Content)
+	}
+}
+
+func TestMaskConversationBeforeTurnMasksHistoricalDelegateInputsInMixedAssistantMessage(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "u1", Turn: 1},
+				{
+					Role:    MessageRoleAssistant,
+					Content: "delegate work",
+					Turn:    1,
+					ToolCalls: []ToolCall{
+						{ID: "call_delegate", Name: "delegate", Arguments: map[string]any{"task": "inspect the repo and summarize findings"}},
+						{ID: "call_read", Name: "read", Arguments: map[string]any{"path": "internal/agent/masking.go", "offset": 0}},
+					},
+				},
+				{
+					Role:       MessageRoleTool,
+					ToolCallID: "call_delegate",
+					Name:       "delegate",
+					Content:    "full delegate output with paths and details",
+					Turn:       1,
+					Retention: &MessageRetention{
+						Kind:       "delegate_summary",
+						Summary:    "summary text with findings",
+						AgentID:    "child-123",
+						Status:     "complete",
+						TurnCount:  4,
+						TokenCount: 8120,
+					},
+				},
+				{
+					Role:       MessageRoleTool,
+					ToolCallID: "call_read",
+					Content:    "read output",
+					Turn:       1,
+				},
+				{Role: MessageRoleUser, Content: "u2", Turn: 2},
+				{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+				{Role: MessageRoleUser, Content: "u3", Turn: 3},
+				{
+					Role:    MessageRoleAssistant,
+					Content: "recent answer",
+					Turn:    3,
+					ToolCalls: []ToolCall{
+						{ID: "call_recent", Name: "delegate", Arguments: map[string]any{"task": "fresh delegate task"}},
+					},
+				},
+			}),
+		},
+		NextGenerationID: 2,
+	}
+
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+
+	got := maskConversationBeforeTurn(restored.FullMessages(), 2)
+	if got[1].ToolCalls[0].ID != "call_delegate" || got[1].ToolCalls[0].Name != "delegate" {
+		t.Fatalf("delegate tool call pairing changed: %#v", got[1].ToolCalls[0])
+	}
+	if got[1].ToolCalls[0].Arguments["task"] != "[masked historical delegate request from turn 1; see retained delegation summary in paired tool result]" {
+		t.Fatalf("delegate args = %#v", got[1].ToolCalls[0].Arguments)
+	}
+	if got[1].ToolCalls[1].Arguments["path"] != "internal/agent/masking.go" || got[1].ToolCalls[1].Arguments["offset"] != float64(0) {
+		t.Fatalf("non-delegate args changed: %#v", got[1].ToolCalls[1].Arguments)
+	}
+	if got[2].ToolCallID != "call_delegate" || got[2].Name != "delegate" {
+		t.Fatalf("delegate tool result pairing changed: %#v", got[2])
+	}
+	if got[2].Retention == nil || got[2].Retention.Summary != "summary text with findings" {
+		t.Fatalf("delegate retention lost after masking: %#v", got[2].Retention)
+	}
+	if !strings.Contains(got[2].Content, "retained delegation summary") || !strings.Contains(got[2].Content, "summary text with findings") {
+		t.Fatalf("delegate tool result content = %q, want retained summary", got[2].Content)
+	}
+	if got[3].ToolCallID != "call_read" {
+		t.Fatalf("read tool result ToolCallID = %q, want preserved", got[3].ToolCallID)
+	}
+	if !strings.Contains(got[3].Content, "read") {
+		t.Fatalf("read tool result content = %q, want tool name from ToolCallID", got[3].Content)
+	}
+	if !strings.Contains(got[3].Content, "path=internal/agent/masking.go") {
+		t.Fatalf("read tool result content = %q, want summarized args", got[3].Content)
+	}
+	if got[7].ToolCalls[0].ID != "call_recent" || got[7].ToolCalls[0].Name != "delegate" {
+		t.Fatalf("recent delegate tool call changed: %#v", got[7].ToolCalls[0])
+	}
+	if got[7].ToolCalls[0].Arguments["task"] != "fresh delegate task" {
+		t.Fatalf("recent delegate args = %#v, want unchanged", got[7].ToolCalls[0].Arguments)
 	}
 }
 
