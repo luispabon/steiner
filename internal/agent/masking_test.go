@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -51,38 +52,53 @@ func TestMaskConversationUsesRetainedDelegateSummary(t *testing.T) {
 	}
 }
 
-func TestMaskConversationBeforeTurnUsesRetainedDelegateSummary(t *testing.T) {
-	messages := []Message{
-		{Role: MessageRoleUser, Content: "u1", Turn: 1},
-		{
-			Role: MessageRoleAssistant,
-			ToolCalls: []ToolCall{
-				{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
-			},
-			Turn: 1,
+func TestMaskConversationBeforeTurnUsesRestoredRetainedDelegateSummary(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "u1", Turn: 1},
+				{
+					Role: MessageRoleAssistant,
+					ToolCalls: []ToolCall{
+						{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
+					},
+					Turn: 1,
+				},
+				{
+					Role:       MessageRoleTool,
+					ToolCallID: "call_1",
+					Name:       "delegate",
+					Content:    "full delegate output with paths and details",
+					Turn:       1,
+					Retention: &MessageRetention{
+						Kind:       "delegate_summary",
+						Summary:    "summary text with findings",
+						AgentID:    "child-123",
+						Status:     "complete",
+						TurnCount:  4,
+						TokenCount: 8120,
+					},
+				},
+				{Role: MessageRoleUser, Content: "u2", Turn: 2},
+				{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+				{Role: MessageRoleUser, Content: "u3", Turn: 3},
+				{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+			}),
 		},
-		{
-			Role:       MessageRoleTool,
-			ToolCallID: "call_1",
-			Name:       "delegate",
-			Content:    "full delegate output with paths and details",
-			Turn:       1,
-			Retention: &MessageRetention{
-				Kind:       "delegate_summary",
-				Summary:    "summary text with findings",
-				AgentID:    "child-123",
-				Status:     "complete",
-				TurnCount:  4,
-				TokenCount: 8120,
-			},
-		},
-		{Role: MessageRoleUser, Content: "u2", Turn: 2},
-		{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
-		{Role: MessageRoleUser, Content: "u3", Turn: 3},
-		{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+		NextGenerationID: 2,
 	}
 
-	got := maskConversationBeforeTurn(messages, 3)
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+
+	got := maskConversationBeforeTurn(restored.FullMessages(), 2)
 	if strings.Contains(got[2].Content, "full delegate output with paths and details") {
 		t.Fatalf("masked delegate content leaked full output: %q", got[2].Content)
 	}
@@ -94,23 +110,39 @@ func TestMaskConversationBeforeTurnUsesRetainedDelegateSummary(t *testing.T) {
 	}
 }
 
-func TestMaskConversationFallsBackForMissingRetention(t *testing.T) {
-	messages := []Message{
-		{Role: MessageRoleUser, Content: "u1"},
-		{
-			Role: MessageRoleAssistant,
-			ToolCalls: []ToolCall{
-				{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
-			},
+func TestMaskConversationBeforeTurnFallsBackForRestoredMissingRetention(t *testing.T) {
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "u1", Turn: 1},
+				{
+					Role: MessageRoleAssistant,
+					ToolCalls: []ToolCall{
+						{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
+					},
+					Turn: 1,
+				},
+				{Role: MessageRoleTool, ToolCallID: "call_1", Name: "delegate", Content: "full delegate output", Turn: 1},
+				{Role: MessageRoleUser, Content: "u2", Turn: 2},
+				{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+				{Role: MessageRoleUser, Content: "u3", Turn: 3},
+				{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+			}),
 		},
-		{Role: MessageRoleTool, ToolCallID: "call_1", Name: "delegate", Content: "full delegate output", Turn: 1},
-		{Role: MessageRoleUser, Content: "u2"},
-		{Role: MessageRoleAssistant, Content: "middle answer"},
-		{Role: MessageRoleUser, Content: "u3"},
-		{Role: MessageRoleAssistant, Content: "recent answer"},
+		NextGenerationID: 2,
 	}
 
-	got := maskConversation(messages, 1)
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+
+	got := maskConversationBeforeTurn(restored.FullMessages(), 2)
 	if got[2].Content == "full delegate output" {
 		t.Fatal("delegate content was not masked")
 	}
@@ -300,38 +332,57 @@ func TestMaskConversationLeavesScratchpadAndRecentMessagesAlone(t *testing.T) {
 	}
 }
 
-func TestRetainedSummaryTruncationIsUTF8Safe(t *testing.T) {
+func TestRetainedSummaryTruncationIsUTF8SafeAfterJSONRoundTrip(t *testing.T) {
 	longSummary := strings.Repeat("世界", 800)
-	messages := []Message{
-		{Role: MessageRoleUser, Content: "u1"},
-		{
-			Role: MessageRoleAssistant,
-			ToolCalls: []ToolCall{
-				{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
-			},
+	lineage := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{
+				{Role: MessageRoleUser, Content: "u1", Turn: 1},
+				{
+					Role: MessageRoleAssistant,
+					ToolCalls: []ToolCall{
+						{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "do work"}},
+					},
+					Turn: 1,
+				},
+				{
+					Role:       MessageRoleTool,
+					ToolCallID: "call_1",
+					Name:       "delegate",
+					Content:    "full delegate output",
+					Turn:       1,
+					Retention: &MessageRetention{
+						Kind:       "delegate_summary",
+						Summary:    longSummary,
+						AgentID:    "child-123",
+						Status:     "complete",
+						TurnCount:  4,
+						TokenCount: 8120,
+					},
+				},
+				{Role: MessageRoleUser, Content: "u2", Turn: 2},
+				{Role: MessageRoleAssistant, Content: "middle answer", Turn: 2},
+				{Role: MessageRoleUser, Content: "u3", Turn: 3},
+				{Role: MessageRoleAssistant, Content: "recent answer", Turn: 3},
+			}),
 		},
-		{
-			Role:       MessageRoleTool,
-			ToolCallID: "call_1",
-			Name:       "delegate",
-			Content:    "full delegate output",
-			Turn:       1,
-			Retention: &MessageRetention{
-				Kind:       "delegate_summary",
-				Summary:    longSummary,
-				AgentID:    "child-123",
-				Status:     "complete",
-				TurnCount:  4,
-				TokenCount: 8120,
-			},
-		},
-		{Role: MessageRoleUser, Content: "u2"},
-		{Role: MessageRoleAssistant, Content: "middle answer"},
-		{Role: MessageRoleUser, Content: "u3"},
-		{Role: MessageRoleAssistant, Content: "recent answer"},
+		NextGenerationID: 2,
 	}
 
-	got := maskConversation(messages, 1)
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+
+	var restored ConversationLineage
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+	if got, want := restored.Generations[0].Messages[2].Retention.Summary, longSummary; got != want {
+		t.Fatalf("restored retention summary truncated before masking: got len %d, want len %d", len(got), len(want))
+	}
+
+	got := maskConversationBeforeTurn(restored.FullMessages(), 2)
 	if !utf8.ValidString(got[2].Content) {
 		t.Fatal("masked retained summary is not valid UTF-8")
 	}
