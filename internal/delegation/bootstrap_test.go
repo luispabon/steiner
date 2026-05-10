@@ -486,6 +486,104 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunIncludesModel(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		Model:       "test-model",
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "m1", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.Model != "test-model" {
+		t.Errorf("Model=%q, want %q", req.Model, "test-model")
+	}
+}
+
+func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+	mt := 42000
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		MaxTokens:   &mt,
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "m2", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.MaxTokens == nil {
+		t.Fatal("MaxTokens is nil, want non-nil")
+	}
+	if *req.MaxTokens != mt {
+		t.Errorf("MaxTokens=%d, want %d", *req.MaxTokens, mt)
+	}
+}
+
+func TestBuildChildRunIncludesModelBudget(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+	budget := prompt.ModelTokenBudget{
+		ContextSize:         128000,
+		MaxCompletionTokens: 8192,
+		SafetyMarginTokens:  500,
+		SummaryMaxTokens:    2000,
+	}
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		ModelBudget: budget,
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "m3", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.ModelBudget != budget {
+		t.Errorf("ModelBudget=%+v, want %+v", req.ModelBudget, budget)
+	}
+}
+
+func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+	)
+	deps := BootstrapDeps{
+		ParentReg:          parent,
+		SubAgentCfg:        config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:             output.NoopSink{},
+		WorkDir:            "/tmp/work",
+		Provider:           stubProvider{},
+		StreamingPreferred: true,
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "m4", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if !req.StreamingPreferred {
+		t.Error("StreamingPreferred=false, want true")
+	}
+}
+
 func TestBuildChildRun(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
@@ -536,7 +634,7 @@ func TestBuildChildRun(t *testing.T) {
 					t.Error("Executor is nil")
 				}
 				if req.Model != "" {
-					t.Errorf("Model=%q, want empty", req.Model)
+					t.Errorf("Model=%q, want empty (no model set in deps)", req.Model)
 				}
 			},
 		},

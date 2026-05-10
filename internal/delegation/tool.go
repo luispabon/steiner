@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -41,14 +42,18 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 
 // DelegateHandlerDeps holds dependencies for the delegate tool handler.
 type DelegateHandlerDeps struct {
-	Provider    provider.Provider
-	ParentReg   *tool.Registry
-	SubAgentCfg config.SubAgentConfig
-	Events      output.EventSink
-	Runner      AgentRunner
-	WorkDir     string
-	ExtraParams map[string]any
-	Thinking    config.ThinkingConfig
+	Provider           provider.Provider
+	ParentReg          *tool.Registry
+	SubAgentCfg        config.SubAgentConfig
+	Events             output.EventSink
+	Runner             AgentRunner
+	WorkDir            string
+	ExtraParams        map[string]any
+	Thinking           config.ThinkingConfig
+	ModelBudget        prompt.ModelTokenBudget
+	Model              string
+	MaxTokens          *int
+	StreamingPreferred bool
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -81,13 +86,17 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:    deps.Provider,
-			ParentReg:   deps.ParentReg,
-			SubAgentCfg: deps.SubAgentCfg,
-			Events:      deps.Events,
-			WorkDir:     deps.WorkDir,
-			ExtraParams: deps.ExtraParams,
-			Thinking:    deps.Thinking,
+			Provider:           deps.Provider,
+			ParentReg:          deps.ParentReg,
+			SubAgentCfg:        deps.SubAgentCfg,
+			Events:             deps.Events,
+			WorkDir:            deps.WorkDir,
+			ExtraParams:        deps.ExtraParams,
+			Thinking:           deps.Thinking,
+			ModelBudget:        deps.ModelBudget,
+			Model:              deps.Model,
+			MaxTokens:          deps.MaxTokens,
+			StreamingPreferred: deps.StreamingPreferred,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
