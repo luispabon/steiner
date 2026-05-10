@@ -2,7 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -374,7 +373,7 @@ func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 	}
 }
 
-func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
+func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T) {
 	lineage := ConversationLineage{
 		Generations: []ConversationGeneration{
 			newConversationGeneration(1, nil, []Message{
@@ -382,9 +381,12 @@ func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
 					Role:    MessageRoleTool,
 					Content: "visible output",
 					Retention: &MessageRetention{
-						Kind:    "delegate_summary",
-						Summary: "hidden summary",
-						AgentID: "child-1",
+						Kind:       "delegate_summary",
+						Summary:    "hidden summary",
+						AgentID:    "child-1",
+						Status:     "complete",
+						TurnCount:  4,
+						TokenCount: 8120,
 					},
 				},
 			}),
@@ -399,9 +401,6 @@ func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
 	if string(data) == "" {
 		t.Fatal("marshal produced empty output")
 	}
-	if !strings.Contains(string(data), `"retention":{"kind":"delegate_summary","summary":"hidden summary","agent_id":"child-1"}`) {
-		t.Fatalf("retention metadata missing from JSON: %s", string(data))
-	}
 
 	var restored ConversationLineage
 	if err := json.Unmarshal(data, &restored); err != nil {
@@ -412,5 +411,14 @@ func TestConversationLineageJSONOmitRetentionMetadata(t *testing.T) {
 	}
 	if got, want := restored.Generations[0].Messages[0].Retention.Summary, "hidden summary"; got != want {
 		t.Fatalf("restored retention summary = %q, want %q", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.Status, "complete"; got != want {
+		t.Fatalf("restored retention status = %q, want %q", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.TurnCount, 4; got != want {
+		t.Fatalf("restored retention turn count = %d, want %d", got, want)
+	}
+	if got, want := restored.Generations[0].Messages[0].Retention.TokenCount, 8120; got != want {
+		t.Fatalf("restored retention token count = %d, want %d", got, want)
 	}
 }
