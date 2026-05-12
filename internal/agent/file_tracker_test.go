@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -310,5 +312,201 @@ func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
 				t.Fatalf("observation reason = %q, want generation changed", obs.Reason)
 			}
 		})
+	}
+}
+
+func TestFileTrackerRecordMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	oldWD, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	tracker := FileTracker{}
+	if ok := tracker.BumpGeneration("note.txt"); !ok {
+		t.Fatal("BumpGeneration returned false")
+	}
+	canonicalPath, _ := normalizeTrackedPath("note.txt")
+	genBefore := tracker.generations[canonicalPath]
+
+	tracker.RecordMutation("note.txt")
+	genAfter := tracker.generations[canonicalPath]
+	if genAfter != genBefore+1 {
+		t.Fatalf("generation after RecordMutation = %d, want %d", genAfter, genBefore+1)
+	}
+}
+
+func TestFileTrackerObserveToolResultRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	oldWD, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	tests := []struct {
+		name       string
+		content    string
+		wantPath   string
+		wantFact   string
+		wantNoFact bool
+	}{
+		{
+			name:       "full content no annotation",
+			content:    `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`,
+			wantPath:   "note.txt",
+			wantNoFact: true,
+		},
+		{
+			name:     "annotation in content",
+			content:  fmt.Sprintf(`{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"%s"}`, "[file unchanged since turn 1: lines 1-2 of 2 in note.txt]"),
+			wantPath: "note.txt",
+			wantFact: "read annotation:",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := FileTracker{}
+			update, facts := tracker.ObserveToolResult(1, "read", nil, tc.content)
+			if update.Path != tc.wantPath {
+				t.Errorf("update.Path = %q, want %q", update.Path, tc.wantPath)
+			}
+			if tc.wantNoFact && len(facts) != 0 {
+				t.Errorf("facts = %v, want none", facts)
+			}
+			if tc.wantFact != "" {
+				found := false
+				for _, f := range facts {
+					if strings.Contains(f, tc.wantFact) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("facts = %v, want one containing %q", facts, tc.wantFact)
+				}
+			}
+		})
+	}
+}
+
+func TestFileTrackerObserveToolResultMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("content\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	oldWD, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	makeContent := func(p string) string {
+		b, _ := json.Marshal(map[string]string{"path": p, "output": "ok"})
+		return string(b)
+	}
+
+	tests := []struct {
+		name     string
+		toolName string
+		wantFact bool
+	}{
+		{name: "edit produces fact", toolName: "edit", wantFact: true},
+		{name: "write no fact", toolName: "write", wantFact: false},
+		{name: "apply_patch no fact", toolName: "apply_patch", wantFact: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := FileTracker{}
+			content := makeContent("note.txt")
+			update, facts := tracker.ObserveToolResult(1, tc.toolName, nil, content)
+			if update.Path == "" {
+				t.Errorf("update.Path empty, want note.txt")
+			}
+			canonicalPath, _ := normalizeTrackedPath("note.txt")
+			if tracker.generations[canonicalPath] == 0 {
+				t.Errorf("generation not bumped after %s", tc.toolName)
+			}
+			if tc.wantFact && len(facts) == 0 {
+				t.Errorf("facts empty, want edit fact")
+			}
+			if !tc.wantFact && len(facts) != 0 {
+				t.Errorf("facts = %v, want none for %s", facts, tc.toolName)
+			}
+		})
+	}
+}
+
+func TestFileTrackerObserveToolResultBash(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      map[string]any
+		content    string
+		wantPrefix string
+		wantFact   bool
+	}{
+		{
+			name:       "non-test command no fact",
+			input:      map[string]any{"command": "ls -la"},
+			content:    `{"exit_code":0,"output":"file.go","truncated":false,"message":""}`,
+			wantPrefix: "bash:",
+			wantFact:   false,
+		},
+		{
+			name:       "test command produces fact",
+			input:      map[string]any{"command": "go test ./..."},
+			content:    `{"exit_code":0,"output":"ok","truncated":false,"message":""}`,
+			wantPrefix: "bash:",
+			wantFact:   true,
+		},
+		{
+			name:       "failed test produces fact",
+			input:      map[string]any{"command": "go test ./..."},
+			content:    `{"exit_code":1,"output":"FAIL","truncated":false,"message":""}`,
+			wantPrefix: "bash:",
+			wantFact:   true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := FileTracker{}
+			update, facts := tracker.ObserveToolResult(1, "bash", tc.input, tc.content)
+			if !strings.HasPrefix(update.LastAction, tc.wantPrefix) {
+				t.Errorf("LastAction = %q, want prefix %q", update.LastAction, tc.wantPrefix)
+			}
+			if update.Path != "" {
+				t.Errorf("Path = %q, want empty for bash", update.Path)
+			}
+			if tc.wantFact && len(facts) == 0 {
+				t.Errorf("facts empty, want test fact")
+			}
+			if !tc.wantFact && len(facts) != 0 {
+				t.Errorf("facts = %v, want none", facts)
+			}
+		})
+	}
+}
+
+func TestFileTrackerObserveToolResultGeneric(t *testing.T) {
+	tracker := FileTracker{}
+	update, facts := tracker.ObserveToolResult(1, "glob", nil, `{"matches":["a.go","b.go"]}`)
+	if !strings.HasPrefix(update.LastAction, "glob:") {
+		t.Errorf("LastAction = %q, want prefix glob:", update.LastAction)
+	}
+	if update.Path != "" {
+		t.Errorf("Path = %q, want empty for generic tool", update.Path)
+	}
+	if len(facts) != 0 {
+		t.Errorf("facts = %v, want none", facts)
 	}
 }
