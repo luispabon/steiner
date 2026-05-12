@@ -205,7 +205,7 @@ func TestSmartContextManagerPreAssembly(t *testing.T) {
 }
 
 func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *testing.T) {
-	cm := &SmartContextManager{maskingWindowTurns: 5}
+	cm := &SmartContextManager{epoch: EpochManager{maskingWindowTurns: 5}}
 	state := RunState{TurnCount: 12}
 
 	got, err := cm.PostIngestion(context.Background(), state)
@@ -215,10 +215,10 @@ func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *te
 	if got.TurnCount != state.TurnCount {
 		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
 	}
-	if got, want := cm.epochStartTurn, 12; got != want {
+	if got, want := cm.epoch.epochStartTurn, 12; got != want {
 		t.Fatalf("epochStartTurn = %d, want %d", got, want)
 	}
-	if got, want := cm.epochMaskBoundary, 7; got != want {
+	if got, want := cm.epoch.epochMaskBoundary, 7; got != want {
 		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
 	}
 }
@@ -269,7 +269,7 @@ func TestSmartContextManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory
 }
 
 func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
-	cm := &SmartContextManager{maskingWindowTurns: 5, epochStartTurn: 5}
+	cm := &SmartContextManager{epoch: EpochManager{maskingWindowTurns: 5, epochStartTurn: 5}}
 	first := RunState{
 		TurnCount:    9,
 		Conversation: epochTestConversation(10),
@@ -280,10 +280,10 @@ func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing
 	if err != nil {
 		t.Fatalf("first PreAssembly error: %v", err)
 	}
-	if got, want := cm.epochMaskBoundary, 5; got != want {
+	if got, want := cm.epoch.epochMaskBoundary, 5; got != want {
 		t.Fatalf("epochMaskBoundary after advance = %d, want %d", got, want)
 	}
-	if got, want := cm.epochStartTurn, 10; got != want {
+	if got, want := cm.epoch.epochStartTurn, 10; got != want {
 		t.Fatalf("epochStartTurn after advance = %d, want %d", got, want)
 	}
 
@@ -297,10 +297,10 @@ func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing
 	if err != nil {
 		t.Fatalf("second PreAssembly error: %v", err)
 	}
-	if got, want := cm.epochMaskBoundary, 5; got != want {
+	if got, want := cm.epoch.epochMaskBoundary, 5; got != want {
 		t.Fatalf("epochMaskBoundary after steady turn = %d, want %d", got, want)
 	}
-	if got, want := cm.epochStartTurn, 10; got != want {
+	if got, want := cm.epoch.epochStartTurn, 10; got != want {
 		t.Fatalf("epochStartTurn after steady turn = %d, want %d", got, want)
 	}
 
@@ -431,7 +431,7 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompacted(t *testing.T)
 	}
 
 	// Simulate compaction by setting minVisibleTurn above turn 1
-	cm.minVisibleTurn = 2
+	cm.epoch.minVisibleTurn = 2
 
 	// Turn 3: re-read — PreviousRead.LastTurn is 2 (updated by turn 2's read),
 	// minVisibleTurn=2, 2<2 false — gate doesn't fire for consecutive reads.
@@ -477,7 +477,7 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *tes
 	// Don't read at turn 2 — creates a gap, PreviousRead.LastTurn stays at 1
 
 	// Simulate compaction by setting minVisibleTurn above turn 1
-	cm.minVisibleTurn = 2
+	cm.epoch.minVisibleTurn = 2
 
 	// Turn 3: re-read — PreviousRead.LastTurn is 1 (no read at turn 2),
 	// minVisibleTurn=2, 1<2 — gate fires!
@@ -611,8 +611,8 @@ func TestIngestToolResultSuppressesTurnZeroPlaceholderAnnotations(t *testing.T) 
 		t.Fatalf("turn 0 read = %q, want full content", got1)
 	}
 
-	cm.minVisibleTurn = 1
-	cm.epochMaskBoundary = 1
+	cm.epoch.minVisibleTurn = 1
+	cm.epoch.epochMaskBoundary = 1
 
 	got2 := cm.IngestToolResult(2, "read", content)
 	if got2 != content {
@@ -652,7 +652,7 @@ func TestObserveReadHeuristicsRecordsSuppressionFact(t *testing.T) {
 	_ = cm.IngestToolResult(2, "read", content)
 
 	// Simulate masking boundary advancing past turn 2
-	cm.epochMaskBoundary = 3
+	cm.epoch.epochMaskBoundary = 3
 
 	// Turn 3: re-read, gate suppresses annotation
 	_ = cm.IngestToolResult(3, "read", content)
