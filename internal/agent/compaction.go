@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -170,7 +171,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	*state = outcome.State
 	if compactionCount != nil {
 		(*compactionCount)++
-		if recorder, ok := req.ContextManager.(interface{ RecordCompaction(turn int) }); ok {
+		if recorder, ok := req.ContextManager.(CompactionRecorder); ok {
 			recorder.RecordCompaction(turn)
 		}
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, outcome.Fit, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
@@ -181,21 +182,28 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 }
 
 func resetEpochForContextManager(cm ContextManager, turn int) {
-	type epochResetter interface {
-		ResetEpoch(turn int)
-	}
-	if resetter, ok := cm.(epochResetter); ok {
+	if resetter, ok := cm.(EpochResetter); ok {
 		resetter.ResetEpoch(turn)
 	}
 }
 
 func compactorForRequest(req RunRequest) Compactor {
-	if req.ContextManager != nil {
-		if compactor, ok := req.ContextManager.(Compactor); ok {
-			return compactor
-		}
+	strategy := config.CompactionStrategySummarize
+	if sp, ok := req.ContextManager.(CompactionStrategyProvider); ok {
+		strategy = sp.CompactionStrategy()
 	}
-	return summarizeCompactor{}
+	switch strategy {
+	case config.CompactionStrategyDrop:
+		return dropCompactor{retainTurns: defaultDropRetainTurns}
+	case config.CompactionStrategyHybrid:
+		window := defaultMaskingWindowTurns
+		if mw, ok := req.ContextManager.(MaskingWindowProvider); ok {
+			window = mw.MaskingWindow()
+		}
+		return hybridCompactor{maskingWindowTurns: window}
+	default:
+		return summarizeCompactor{}
+	}
 }
 
 func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message) (CompactionOutcome, error) {

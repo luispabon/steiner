@@ -157,20 +157,22 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 		t.Fatal("selectCompactionCandidate() ok = false, want true")
 	}
 
-	outcome, err := NewContextManager("smart", config.ContextManagementConfig{
-		CompactionStrategy: config.CompactionStrategySummarize,
-	}).(*SmartContextManager).Compact(
-		context.Background(),
-		RunRequest{
-			Provider: providerStub,
-			Model:    "test-model",
-			ModelBudget: prompt.ModelTokenBudget{
-				ContextSize:         100000,
-				MaxCompletionTokens: 256,
-				SafetyMarginTokens:  0,
-				SummaryMaxTokens:    128,
-			},
+	req := RunRequest{
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
+			CompactionStrategy: config.CompactionStrategySummarize,
+		}),
+		Provider: providerStub,
+		Model:    "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 256,
+			SafetyMarginTokens:  0,
+			SummaryMaxTokens:    128,
 		},
+	}
+	outcome, err := compactorForRequest(req).Compact(
+		context.Background(),
+		req,
 		state,
 		3,
 		candidate,
@@ -309,19 +311,21 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 		t.Fatal("selectCompactionCandidate() ok = false, want true")
 	}
 
-	outcome, err := NewContextManager("smart", config.ContextManagementConfig{
-		CompactionStrategy: config.CompactionStrategyDrop,
-	}).(*SmartContextManager).Compact(
-		context.Background(),
-		RunRequest{
-			Model: "test-model",
-			ModelBudget: prompt.ModelTokenBudget{
-				ContextSize:         4096,
-				MaxCompletionTokens: 256,
-				SafetyMarginTokens:  0,
-				SummaryMaxTokens:    128,
-			},
+	dropReq := RunRequest{
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
+			CompactionStrategy: config.CompactionStrategyDrop,
+		}),
+		Model: "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+			SafetyMarginTokens:  0,
+			SummaryMaxTokens:    128,
 		},
+	}
+	outcome, err := compactorForRequest(dropReq).Compact(
+		context.Background(),
+		dropReq,
 		state,
 		9,
 		candidate,
@@ -352,10 +356,12 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
 	var events []output.Event
 	cm := &SmartContextManager{
-		maskingWindowTurns: 5,
 		compactionStrategy: config.CompactionStrategyDrop,
-		epochMaskBoundary:  7,
-		epochStartTurn:     12,
+		epoch: EpochManager{
+			maskingWindowTurns: 5,
+			epochMaskBoundary:  7,
+			epochStartTurn:     12,
+		},
 	}
 	state := RunState{
 		TurnCount: 12,
@@ -404,10 +410,10 @@ func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
 	if !compacted {
 		t.Fatal("compactConversationForBudget() = false, want true")
 	}
-	if got, want := cm.epochMaskBoundary, 0; got != want {
+	if got, want := cm.epoch.epochMaskBoundary, 0; got != want {
 		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
 	}
-	if got, want := cm.epochStartTurn, 13; got != want {
+	if got, want := cm.epoch.epochStartTurn, 13; got != want {
 		t.Fatalf("epochStartTurn = %d, want %d", got, want)
 	}
 
@@ -463,21 +469,23 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 		t.Fatal("selectCompactionCandidate() ok = false, want true")
 	}
 
-	outcome, err := NewContextManager("smart", config.ContextManagementConfig{
-		CompactionStrategy: config.CompactionStrategyHybrid,
-		MaskingWindowTurns: 1,
-	}).(*SmartContextManager).Compact(
-		context.Background(),
-		RunRequest{
-			Provider: providerStub,
-			Model:    "test-model",
-			ModelBudget: prompt.ModelTokenBudget{
-				ContextSize:         100000,
-				MaxCompletionTokens: 256,
-				SafetyMarginTokens:  0,
-				SummaryMaxTokens:    128,
-			},
+	hybridReq := RunRequest{
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
+			CompactionStrategy: config.CompactionStrategyHybrid,
+			MaskingWindowTurns: 1,
+		}),
+		Provider: providerStub,
+		Model:    "test-model",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 256,
+			SafetyMarginTokens:  0,
+			SummaryMaxTokens:    128,
 		},
+	}
+	outcome, err := compactorForRequest(hybridReq).Compact(
+		context.Background(),
+		hybridReq,
 		state,
 		5,
 		candidate,
@@ -500,5 +508,70 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 	}
 	if got := outcome.State.Conversation[7].Content; !strings.Contains(got, "more detail") {
 		t.Fatalf("turn 3 assistant = %q, want remaining detail to survive within window", got)
+	}
+}
+
+func TestCompactorForRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		manager   ContextManager
+		wantType  string
+	}{
+		{
+			name:     "no ContextManager defaults to summarize",
+			manager:  nil,
+			wantType: "summarizeCompactor",
+		},
+		{
+			name:     "NaiveContextManager defaults to summarize",
+			manager:  &NaiveContextManager{},
+			wantType: "summarizeCompactor",
+		},
+		{
+			name: "SmartContextManager with drop strategy",
+			manager: NewContextManager("smart", config.ContextManagementConfig{
+				CompactionStrategy: config.CompactionStrategyDrop,
+			}),
+			wantType: "dropCompactor",
+		},
+		{
+			name: "SmartContextManager with hybrid strategy",
+			manager: NewContextManager("smart", config.ContextManagementConfig{
+				CompactionStrategy: config.CompactionStrategyHybrid,
+			}),
+			wantType: "hybridCompactor",
+		},
+		{
+			name: "SmartContextManager with summarize strategy",
+			manager: NewContextManager("smart", config.ContextManagementConfig{
+				CompactionStrategy: config.CompactionStrategySummarize,
+			}),
+			wantType: "summarizeCompactor",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := RunRequest{ContextManager: tt.manager}
+			compactor := compactorForRequest(req)
+			switch tt.wantType {
+			case "summarizeCompactor":
+				if _, ok := compactor.(summarizeCompactor); !ok {
+					t.Fatalf("compactorForRequest() type = %T, want summarizeCompactor", compactor)
+				}
+			case "dropCompactor":
+				if _, ok := compactor.(dropCompactor); !ok {
+					t.Fatalf("compactorForRequest() type = %T, want dropCompactor", compactor)
+				}
+			case "hybridCompactor":
+				if _, ok := compactor.(hybridCompactor); !ok {
+					t.Fatalf("compactorForRequest() type = %T, want hybridCompactor", compactor)
+				}
+			default:
+				t.Fatalf("unknown wantType %q", tt.wantType)
+			}
+		})
 	}
 }

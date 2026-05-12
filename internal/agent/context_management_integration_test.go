@@ -414,7 +414,7 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 	manager := NewContextManager("smart", config.ContextManagementConfig{
 		ScratchpadMode: config.ScratchpadModeHybrid,
 	}).(*SmartContextManager)
-	manager.scratchpad = Scratchpad{
+	manager.scratchpad.scratchpad = Scratchpad{
 		Intent:       "inspect note",
 		Decisions:    "old decision",
 		Open:         "why does it fail?",
@@ -463,10 +463,10 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 			t.Fatalf("request still contains stale task state %q: %#v", forbidden, request)
 		}
 	}
-	if got := manager.scratchpad.Intent; got != "" {
+	if got := manager.scratchpad.scratchpad.Intent; got != "" {
 		t.Fatalf("scratchpad intent = %q, want cleared", got)
 	}
-	if got := manager.scratchpad.WorkingFile; got != "" {
+	if got := manager.scratchpad.scratchpad.WorkingFile; got != "" {
 		t.Fatalf("scratchpad working file = %q, want cleared", got)
 	}
 	if got, want := state.StopReason, StopReasonComplete; got != want {
@@ -796,10 +796,10 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 	if !messageContentsContain(providerStub.requests[4].Messages, "next: reread note") {
 		t.Fatalf("post-failure turn missing carried scaffold next: %#v", providerStub.requests[4].Messages)
 	}
-	if got := smartCM.scratchpad.Intent; got != "inspect note" {
+	if got := smartCM.scratchpad.scratchpad.Intent; got != "inspect note" {
 		t.Fatalf("scratchpad intent = %q, want inspect note", got)
 	}
-	if got := smartCM.scratchpad.Next; got != "reread note" {
+	if got := smartCM.scratchpad.scratchpad.Next; got != "reread note" {
 		t.Fatalf("scratchpad next = %q, want reread note", got)
 	}
 }

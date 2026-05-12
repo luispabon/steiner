@@ -10,6 +10,11 @@ import (
 	"strings"
 )
 
+type workingFileUpdate struct {
+	Path       string
+	LastAction string
+}
+
 type trackedFileRead struct {
 	Path        string
 	Canonical   string
@@ -241,4 +246,130 @@ func fileUnchangedAnnotation(read trackedFileRead) string {
 		rangeSummary = fmt.Sprintf("empty file with %d lines", read.TotalLines)
 	}
 	return fmt.Sprintf("[file unchanged since turn %d: %s in %s]", read.LastTurn, rangeSummary, read.Path)
+}
+
+// RecordMutation implements MutationRecorder by bumping the in-memory file
+// generation for a successful mutation.
+func (t *FileTracker) RecordMutation(path string) {
+	t.BumpGeneration(path)
+}
+
+func (t *FileTracker) updateWorkingFile(path string, toolName, lastAction string) workingFileUpdate {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return workingFileUpdate{}
+	}
+	return workingFileUpdate{
+		Path:       sanitizeScratchpadPath(path),
+		LastAction: lastAction,
+	}
+}
+
+func (t *FileTracker) observeReadHeuristics(result readResult, observation fileObservation, content string) (workingFileUpdate, []string) {
+	path := sanitizeScratchpadPath(result.Path)
+	if path == "" {
+		return workingFileUpdate{}, nil
+	}
+	update := t.updateWorkingFile(path, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
+	var facts []string
+	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
+		facts = append(facts, fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))
+	}
+	if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
+		facts = append(facts, fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
+	}
+	return update, facts
+}
+
+func (t *FileTracker) observeMutationHeuristics(toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
+	var result struct {
+		Path   string `json:"path"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return workingFileUpdate{}, nil
+	}
+	path := sanitizeScratchpadPath(result.Path)
+	if path == "" && input != nil {
+		if rawPath, ok := input["path"].(string); ok {
+			path = sanitizeScratchpadPath(rawPath)
+		}
+	}
+	var update workingFileUpdate
+	if path != "" {
+		update = t.updateWorkingFile(path, toolName, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
+		t.BumpGeneration(path)
+	}
+	var facts []string
+	if toolName == "edit" {
+		facts = append(facts, fmt.Sprintf("edited %s: %s", path, summarizeTextPreview(result.Output, 96)))
+	}
+	return update, facts
+}
+
+func (t *FileTracker) observeBashHeuristics(input map[string]any, content string) (workingFileUpdate, []string) {
+	var result struct {
+		ExitCode  int    `json:"exit_code"`
+		Truncated bool   `json:"truncated"`
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return workingFileUpdate{}, nil
+	}
+	command := ""
+	if input != nil {
+		command, _ = input["command"].(string)
+	}
+	command = strings.TrimSpace(command)
+	cwd := ""
+	if input != nil {
+		cwd, _ = input["cwd"].(string)
+	}
+	command = summarizeBashCommand(command, cwd)
+	preview := summarizeTextPreview(result.Output, 96)
+	if preview == "" {
+		preview = strings.TrimSpace(result.Message)
+	}
+	if preview == "" {
+		preview = fmt.Sprintf("exit_code=%d", result.ExitCode)
+	}
+	update := workingFileUpdate{LastAction: fmt.Sprintf("bash: %s", preview)}
+	var facts []string
+	if isTestCommand(command) {
+		status := "failed"
+		if result.ExitCode == 0 {
+			status = "passed"
+		}
+		facts = append(facts, fmt.Sprintf("tests %s: %s", status, command))
+	}
+	return update, facts
+}
+
+func (t *FileTracker) observeGenericToolHeuristics(toolName string, content string) (workingFileUpdate, []string) {
+	update := workingFileUpdate{LastAction: fmt.Sprintf("%s: %s", strings.TrimSpace(toolName), summarizeTextPreview(content, 80))}
+	return update, nil
+}
+
+// ObserveToolResult dispatches to per-tool heuristics and returns a
+// workingFileUpdate and any decision facts derived from the result.
+func (t *FileTracker) ObserveToolResult(turn int, toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "read":
+		result, ok := parseReadResult(content)
+		if !ok {
+			return workingFileUpdate{}, nil
+		}
+		observation := fileObservation{Action: "full"}
+		if strings.Contains(content, "file unchanged since turn") {
+			observation.Action = "annotated"
+		}
+		return t.observeReadHeuristics(result, observation, content)
+	case "edit", "write", "apply_patch":
+		return t.observeMutationHeuristics(toolName, input, content)
+	case "bash":
+		return t.observeBashHeuristics(input, content)
+	default:
+		return t.observeGenericToolHeuristics(toolName, content)
+	}
 }
