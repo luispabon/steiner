@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -15,8 +16,16 @@ import (
 // DelegateToolName is the registered name of the delegate tool.
 const DelegateToolName = "delegate"
 
+// agentCounter is a process-local monotonic counter for agent ID generation.
+var agentCounter atomic.Uint64
+
+// idGen is the agent ID generator; tests may override for determinism.
+var idGen = func() string {
+	return fmt.Sprintf("child-%d", agentCounter.Add(1))
+}
+
 func generateAgentID() string {
-	return fmt.Sprintf("child-%d", time.Now().UnixNano())
+	return idGen()
 }
 
 // DelegateToolDef returns a ToolDef for the delegate tool with the given in-process handler.
