@@ -657,8 +657,8 @@ func TestObserveReadHeuristicsRecordsSuppressionFact(t *testing.T) {
 	// Turn 3: re-read, gate suppresses annotation
 	_ = cm.IngestToolResult(3, "read", content)
 
-	if !strings.Contains(cm.scratchpad.Decisions, "previous read turn 2 no longer visible") {
-		t.Fatalf("Decisions = %q, want suppression fact", cm.scratchpad.Decisions)
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "previous read turn 2 no longer visible") {
+		t.Fatalf("Decisions = %q, want suppression fact", cm.scratchpad.scratchpad.Decisions)
 	}
 }
 
@@ -712,7 +712,7 @@ func TestNewContextManagerAppliesScratchpadMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
 	}
-	if got, want := m.scratchpadMode, config.ScratchpadModeHybrid; got != want {
+	if got, want := m.scratchpad.mode, config.ScratchpadModeHybrid; got != want {
 		t.Fatalf("scratchpadMode = %q, want %q", got, want)
 	}
 }
@@ -724,23 +724,24 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
-	if cm.scratchpad.Intent != "fix bug" {
-		t.Fatalf("Intent = %q, want fix bug", cm.scratchpad.Intent)
+	if cm.scratchpad.scratchpad.Intent != "fix bug" {
+		t.Fatalf("Intent = %q, want fix bug", cm.scratchpad.scratchpad.Intent)
 	}
-	if cm.scratchpad.Decisions != "chose X" {
-		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.Decisions)
+	if cm.scratchpad.scratchpad.Decisions != "chose X" {
+		t.Fatalf("Decisions = %q, want chose X", cm.scratchpad.scratchpad.Decisions)
 	}
 }
 
 func TestIngestToolResultLeavesScratchpadUnchangedOnLegacyOnlyPayload(t *testing.T) {
-	cm := &SmartContextManager{scratchpad: Scratchpad{Intent: "keep"}}
+	cm := &SmartContextManager{}
+	cm.scratchpad.scratchpad.Intent = "keep"
 
 	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
-	if cm.scratchpad.Intent != "keep" {
-		t.Fatalf("Intent = %q, want unchanged scratchpad on rejected legacy payload", cm.scratchpad.Intent)
+	if cm.scratchpad.scratchpad.Intent != "keep" {
+		t.Fatalf("Intent = %q, want unchanged scratchpad on rejected legacy payload", cm.scratchpad.scratchpad.Intent)
 	}
 }
 
@@ -752,11 +753,11 @@ func TestHeuristicDecisionsAppendWithoutModelScratchpadInput(t *testing.T) {
 	}
 	cm.RecordCompaction(2)
 
-	if !strings.Contains(cm.scratchpad.Decisions, "edited note.txt") {
-		t.Fatalf("Decisions = %q, want edit heuristic", cm.scratchpad.Decisions)
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "edited note.txt") {
+		t.Fatalf("Decisions = %q, want edit heuristic", cm.scratchpad.scratchpad.Decisions)
 	}
-	if !strings.Contains(cm.scratchpad.Decisions, "compaction occurred at turn 2") {
-		t.Fatalf("Decisions = %q, want compaction heuristic", cm.scratchpad.Decisions)
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "compaction occurred at turn 2") {
+		t.Fatalf("Decisions = %q, want compaction heuristic", cm.scratchpad.scratchpad.Decisions)
 	}
 }
 
@@ -773,11 +774,11 @@ func TestHeuristicDecisionsSanitizeBashCommandSummary(t *testing.T) {
 	if got != `{"exit_code":0,"output":"ok\n"}` {
 		t.Fatalf("ObserveToolResult(bash) = %q, want passthrough JSON", got)
 	}
-	if strings.Contains(cm.scratchpad.Decisions, cwd) {
-		t.Fatalf("Decisions = %q, want no absolute cwd", cm.scratchpad.Decisions)
+	if strings.Contains(cm.scratchpad.scratchpad.Decisions, cwd) {
+		t.Fatalf("Decisions = %q, want no absolute cwd", cm.scratchpad.scratchpad.Decisions)
 	}
-	if !strings.Contains(cm.scratchpad.Decisions, "tests passed: go test ./internal/agent") {
-		t.Fatalf("Decisions = %q, want sanitized bash summary", cm.scratchpad.Decisions)
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "tests passed: go test ./internal/agent") {
+		t.Fatalf("Decisions = %q, want sanitized bash summary", cm.scratchpad.scratchpad.Decisions)
 	}
 }
 
@@ -834,14 +835,14 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	_ = cm.ObserveToolResult(1, "read", nil, `{"path":"first.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`)
 	_ = cm.ObserveToolResult(2, "read", nil, `{"path":"second.txt","start_line":1,"end_line":1,"total_lines":1,"output":"two\n"}`)
 
-	if cm.scratchpad.WorkingFile != "second.txt" {
-		t.Fatalf("WorkingFile = %q, want second.txt", cm.scratchpad.WorkingFile)
+	if cm.scratchpad.scratchpad.WorkingFile != "second.txt" {
+		t.Fatalf("WorkingFile = %q, want second.txt", cm.scratchpad.scratchpad.WorkingFile)
 	}
-	if strings.Contains(cm.scratchpad.Decisions, "switched from first.txt to second.txt") {
-		t.Fatalf("Decisions = %q, want no durable file-switch heuristic", cm.scratchpad.Decisions)
+	if strings.Contains(cm.scratchpad.scratchpad.Decisions, "switched from first.txt to second.txt") {
+		t.Fatalf("Decisions = %q, want no durable file-switch heuristic", cm.scratchpad.scratchpad.Decisions)
 	}
-	if !strings.Contains(cm.scratchpad.LastAction, "read second.txt") {
-		t.Fatalf("LastAction = %q, want read working-file update", cm.scratchpad.LastAction)
+	if !strings.Contains(cm.scratchpad.scratchpad.LastAction, "read second.txt") {
+		t.Fatalf("LastAction = %q, want read working-file update", cm.scratchpad.scratchpad.LastAction)
 	}
 }
 
@@ -851,11 +852,11 @@ func TestObserveToolResultTracksApplyPatchMutationHeuristics(t *testing.T) {
 	if got != `{"path":"note.txt","output":"patched 1 hunk"}` {
 		t.Fatalf("ObserveToolResult(apply_patch) = %q, want passthrough JSON", got)
 	}
-	if cm.scratchpad.WorkingFile != "note.txt" {
-		t.Fatalf("WorkingFile = %q, want note.txt", cm.scratchpad.WorkingFile)
+	if cm.scratchpad.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("WorkingFile = %q, want note.txt", cm.scratchpad.scratchpad.WorkingFile)
 	}
-	if !strings.Contains(cm.scratchpad.LastAction, "patched note.txt") {
-		t.Fatalf("LastAction = %q, want apply_patch working-file update", cm.scratchpad.LastAction)
+	if !strings.Contains(cm.scratchpad.scratchpad.LastAction, "patched note.txt") {
+		t.Fatalf("LastAction = %q, want apply_patch working-file update", cm.scratchpad.scratchpad.LastAction)
 	}
 }
 
@@ -996,28 +997,32 @@ func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {
 }
 
 func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
-	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid, scratchpadFailures: 2}
+	cm := &SmartContextManager{}
+	cm.scratchpad.mode = config.ScratchpadModeHybrid
+	cm.scratchpad.failures = 2
 	cm.OnTurnComplete(1, true)
-	if cm.scratchpadFailures != 0 {
-		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpadFailures)
+	if cm.scratchpad.failures != 0 {
+		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpad.failures)
 	}
 }
 
 func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
-	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid}
+	cm := &SmartContextManager{}
+	cm.scratchpad.mode = config.ScratchpadModeHybrid
 	cm.OnTurnComplete(1, false)
-	if cm.scratchpadFailures != 1 {
-		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpadFailures)
+	if cm.scratchpad.failures != 1 {
+		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpad.failures)
 	}
 	cm.OnTurnComplete(2, false)
-	if cm.scratchpadFailures != 2 {
-		t.Fatalf("scratchpadFailures = %d, want 2", cm.scratchpadFailures)
+	if cm.scratchpad.failures != 2 {
+		t.Fatalf("scratchpadFailures = %d, want 2", cm.scratchpad.failures)
 	}
 }
 
 func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
 	var events []output.Event
-	cm := &SmartContextManager{scratchpadMode: config.ScratchpadModeHybrid}
+	cm := &SmartContextManager{}
+	cm.scratchpad.mode = config.ScratchpadModeHybrid
 	cm.SetEventSink(output.SinkFunc(func(e output.Event) { events = append(events, e) }))
 
 	cm.OnTurnComplete(1, false)
@@ -1133,16 +1138,15 @@ func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
 }
 
 func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
-	cm := &SmartContextManager{
-		scratchpad: Scratchpad{
-			Intent:       "inspect note",
-			Decisions:    "old decision",
-			Open:         "why is it stale?",
-			Next:         "re-read note",
-			WorkingFile:  "note.txt",
-			LastAction:   "read note.txt",
-			SessionState: "session state: turn=3 compactions=1",
-		},
+	cm := &SmartContextManager{}
+	cm.scratchpad.scratchpad = Scratchpad{
+		Intent:       "inspect note",
+		Decisions:    "old decision",
+		Open:         "why is it stale?",
+		Next:         "re-read note",
+		WorkingFile:  "note.txt",
+		LastAction:   "read note.txt",
+		SessionState: "session state: turn=3 compactions=1",
 	}
 	state := RunState{
 		Conversation: []Message{
@@ -1159,10 +1163,10 @@ func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
 
 	cm.resetTaskStateIfNeeded(&state)
 
-	if cm.scratchpad.Intent != "" || cm.scratchpad.Decisions != "" || cm.scratchpad.Open != "" || cm.scratchpad.Next != "" {
+	if cm.scratchpad.scratchpad.Intent != "" || cm.scratchpad.scratchpad.Decisions != "" || cm.scratchpad.scratchpad.Open != "" || cm.scratchpad.scratchpad.Next != "" {
 		t.Fatalf("scratchpad not cleared: %+v", cm.scratchpad)
 	}
-	if cm.scratchpad.WorkingFile != "" || cm.scratchpad.LastAction != "" {
+	if cm.scratchpad.scratchpad.WorkingFile != "" || cm.scratchpad.scratchpad.LastAction != "" {
 		t.Fatalf("working fields not cleared: %+v", cm.scratchpad)
 	}
 	if state.Context.ActiveFocus != nil {
@@ -1177,11 +1181,10 @@ func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
 }
 
 func TestResetTaskStateIfNeededIgnoresContinuations(t *testing.T) {
-	cm := &SmartContextManager{
-		scratchpad: Scratchpad{
-			Intent:      "keep",
-			WorkingFile: "note.txt",
-		},
+	cm := &SmartContextManager{}
+	cm.scratchpad.scratchpad = Scratchpad{
+		Intent:      "keep",
+		WorkingFile: "note.txt",
 	}
 	state := RunState{
 		Conversation: []Message{
@@ -1191,7 +1194,7 @@ func TestResetTaskStateIfNeededIgnoresContinuations(t *testing.T) {
 
 	cm.resetTaskStateIfNeeded(&state)
 
-	if cm.scratchpad.Intent != "keep" || cm.scratchpad.WorkingFile != "note.txt" {
+	if cm.scratchpad.scratchpad.Intent != "keep" || cm.scratchpad.scratchpad.WorkingFile != "note.txt" {
 		t.Fatalf("scratchpad changed on continuation: %+v", cm.scratchpad)
 	}
 	if state.Context.ActiveFocus != nil || len(state.Context.UnresolvedWork) != 0 {
