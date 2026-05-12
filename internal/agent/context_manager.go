@@ -208,7 +208,7 @@ func (s *SmartContextManager) IngestToolResult(turn int, toolName, content strin
 // RecordMutation bumps the in-memory file generation for a successful
 // steiner-originated mutation.
 func (s *SmartContextManager) RecordMutation(path string) {
-	s.fileTracker.BumpGeneration(path)
+	s.fileTracker.RecordMutation(path)
 }
 
 // ResetEpoch resets the current masking epoch after compaction so retained
@@ -330,111 +330,42 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 			}
 		}
 		s.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
-		s.observeReadHeuristics(turn, result, observation, next)
+		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, nil, next)
+		// Supplement with suppression fact that ObserveToolResult cannot infer from
+		// content alone — it requires the full observation computed above.
+		if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
+			path := sanitizeScratchpadPath(result.Path)
+			if path != "" {
+				facts = append(facts, fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
+			}
+		}
+		s.applyFileTrackerUpdate(update, facts)
 		return next
 	case "edit", "write", "apply_patch":
-		s.observeMutationHeuristics(turn, toolName, input, shaped)
+		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
+		s.applyFileTrackerUpdate(update, facts)
 		return shaped
 	case "bash":
-		s.observeBashHeuristics(turn, input, shaped)
+		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
+		s.applyFileTrackerUpdate(update, facts)
 		return shaped
 	default:
-		s.observeGenericToolHeuristics(turn, toolName, shaped)
+		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
+		s.applyFileTrackerUpdate(update, facts)
 		return shaped
 	}
 }
 
-func (s *SmartContextManager) observeReadHeuristics(turn int, result readResult, observation fileObservation, content string) {
-	path := sanitizeScratchpadPath(result.Path)
-	if path == "" {
-		return
+func (s *SmartContextManager) applyFileTrackerUpdate(update workingFileUpdate, facts []string) {
+	if update.Path != "" {
+		s.scratchpad.WorkingFile = update.Path
 	}
-	s.updateWorkingFile(path, turn, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
-	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
-		s.appendDecisionFact(fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))
+	if update.LastAction != "" {
+		s.scratchpad.LastAction = update.LastAction
 	}
-	if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
-		s.appendDecisionFact(fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
+	for _, fact := range facts {
+		s.appendDecisionFact(fact)
 	}
-}
-
-func (s *SmartContextManager) observeMutationHeuristics(turn int, toolName string, input map[string]any, content string) {
-	var result struct {
-		Path   string `json:"path"`
-		Output string `json:"output"`
-	}
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return
-	}
-	path := sanitizeScratchpadPath(result.Path)
-	if path == "" && input != nil {
-		if rawPath, ok := input["path"].(string); ok {
-			path = sanitizeScratchpadPath(rawPath)
-		}
-	}
-	if path != "" {
-		s.updateWorkingFile(path, turn, toolName, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
-	}
-	if toolName == "edit" {
-		s.appendDecisionFact(fmt.Sprintf("edited %s: %s", path, summarizeTextPreview(result.Output, 96)))
-	}
-}
-
-func (s *SmartContextManager) observeBashHeuristics(turn int, input map[string]any, content string) {
-	var result struct {
-		ExitCode  int    `json:"exit_code"`
-		Truncated bool   `json:"truncated"`
-		Output    string `json:"output"`
-		Message   string `json:"message"`
-	}
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return
-	}
-
-	command := ""
-	if input != nil {
-		command, _ = input["command"].(string)
-	}
-	command = strings.TrimSpace(command)
-	cwd := ""
-	if input != nil {
-		cwd, _ = input["cwd"].(string)
-	}
-	command = summarizeBashCommand(command, cwd)
-	preview := summarizeTextPreview(result.Output, 96)
-	if preview == "" {
-		preview = strings.TrimSpace(result.Message)
-	}
-	if preview == "" {
-		preview = fmt.Sprintf("exit_code=%d", result.ExitCode)
-	}
-
-	if isTestCommand(command) {
-		status := "failed"
-		if result.ExitCode == 0 {
-			status = "passed"
-		}
-		s.appendDecisionFact(fmt.Sprintf("tests %s: %s", status, command))
-	}
-	s.scratchpad.LastAction = fmt.Sprintf("bash: %s", preview)
-}
-
-func (s *SmartContextManager) observeGenericToolHeuristics(turn int, toolName string, content string) {
-	s.scratchpad.LastAction = fmt.Sprintf("%s: %s", strings.TrimSpace(toolName), summarizeTextPreview(content, 80))
-	_ = turn
-}
-
-func (s *SmartContextManager) updateWorkingFile(path string, turn int, toolName, lastAction string) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return
-	}
-	s.scratchpad.WorkingFile = sanitizeScratchpadPath(path)
-	s.scratchpad.LastAction = lastAction
-	if strings.TrimSpace(toolName) != "" {
-		s.scratchpad.LastAction = lastAction
-	}
-	_ = turn
 }
 
 func (s *SmartContextManager) appendDecisionFact(fact string) {
