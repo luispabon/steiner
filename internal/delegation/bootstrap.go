@@ -89,30 +89,7 @@ func buildChildRegistries(parent *tool.Registry, excludeTool string, allowedTool
 		empty := tool.NewRegistry()
 		return empty, empty
 	}
-
-	allowed := make(map[string]struct{}, len(allowedTools))
-	for _, name := range allowedTools {
-		if name != excludeTool {
-			allowed[name] = struct{}{}
-		}
-	}
-
-	defs := parent.Definitions()
-	visibleDefs := make([]tool.ToolDef, 0, len(defs))
-	execDefs := make([]tool.ToolDef, 0, len(defs))
-
-	for _, def := range defs {
-		if def.Name == excludeTool {
-			continue
-		}
-		if _, ok := allowed[def.Name]; !ok {
-			continue
-		}
-		execDef := def
-		execDef.Approval = config.ApprovalModeAuto
-		visibleDefs = append(visibleDefs, def)
-		execDefs = append(execDefs, execDef)
-	}
-
-	return tool.NewRegistry(visibleDefs...), tool.NewRegistry(execDefs...)
+	visible := parent.Subset(allowedTools, []string{excludeTool}, "")
+	exec := parent.Subset(allowedTools, []string{excludeTool}, config.ApprovalModeAuto)
+	return visible, exec
 }

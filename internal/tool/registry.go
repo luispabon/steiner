@@ -131,3 +131,36 @@ func (r *Registry) ToProviderSpecs() []provider.ToolSpec {
 	}
 	return specs
 }
+
+// Subset returns a new Registry containing only definitions whose names appear
+// in include and do not appear in exclude. If include is empty, the returned
+// registry is empty. When approvalOverride is non-empty, every definition in
+// the result has its Approval set to that value.
+func (r *Registry) Subset(include []string, exclude []string, approvalOverride config.ApprovalMode) *Registry {
+	if r == nil || len(include) == 0 {
+		return NewRegistry()
+	}
+	excludeSet := make(map[string]struct{}, len(exclude))
+	for _, name := range exclude {
+		excludeSet[name] = struct{}{}
+	}
+	includeSet := make(map[string]struct{}, len(include))
+	for _, name := range include {
+		includeSet[name] = struct{}{}
+	}
+	var filtered []ToolDef
+	for _, name := range r.Names() {
+		if _, excluded := excludeSet[name]; excluded {
+			continue
+		}
+		if _, included := includeSet[name]; !included {
+			continue
+		}
+		def := cloneToolDef(r.defs[name])
+		if approvalOverride != "" {
+			def.Approval = approvalOverride
+		}
+		filtered = append(filtered, def)
+	}
+	return NewRegistry(filtered...)
+}
