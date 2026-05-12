@@ -227,11 +227,6 @@ sub_agent:
     - write
     - edit
     - bash
-  # Prevents sub-agents from spawning further sub-agents.
-  allow_nesting: false
-
-  # Maximum sub-agents that may run at the same time.
-  max_concurrent: 1
 
 # Custom JSON-schema tools exposed to the agent.
 tools:

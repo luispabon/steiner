@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -341,9 +342,42 @@ func TestToolHandler_UniqueAgentID(t *testing.T) {
 		ids[i] = r.AgentID
 	}
 
-	for i := 1; i < len(ids); i++ {
-		if ids[i] == ids[i-1] {
-			t.Fatalf("duplicate agentID at index %d: %q", i, ids[i])
+	seen := make(map[string]bool, len(ids))
+	for i, id := range ids {
+		if !strings.HasPrefix(id, "child-") {
+			t.Errorf("id[%d]=%q does not have child- prefix", i, id)
 		}
+		if seen[id] {
+			t.Fatalf("duplicate agentID at index %d: %q", i, id)
+		}
+		seen[id] = true
+	}
+}
+
+// TestGenerateAgentID_UniqueUnderRace verifies that concurrent calls produce
+// unique IDs with no data races. Run with -race.
+func TestGenerateAgentID_UniqueUnderRace(t *testing.T) {
+	const n = 200
+	results := make([]string, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			results[i] = generateAgentID()
+		}()
+	}
+	wg.Wait()
+
+	seen := make(map[string]struct{}, n)
+	for _, id := range results {
+		if !strings.HasPrefix(id, "child-") {
+			t.Errorf("id %q missing child- prefix", id)
+		}
+		if _, dup := seen[id]; dup {
+			t.Fatalf("duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
 	}
 }

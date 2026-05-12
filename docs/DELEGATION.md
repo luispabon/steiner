@@ -168,7 +168,7 @@ A delegate "needs extension" when:
 
 This prevents early termination when a delegate is actively working but hit its turn cap.
 
-`StopReasonMaxTurns` and `StopReasonMaxTokens` currently map to `StatusComplete`, so callers should treat `complete` as the child loop's terminal status, not a guarantee that the delegated task semantically succeeded.
+`StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish; `Output` and `Summary` are preserved but may be incomplete. Parent models must treat a `partial` result conservatively — do not assume the delegated task succeeded or that returned data is complete. Retry, narrow scope, or surface the limitation to the user rather than treating the partial output as authoritative.
 
 ---
 
@@ -179,14 +179,17 @@ This prevents early termination when a delegate is actively working but hit its 
 ```go
 type DelegationResult struct {
     AgentID    string           // matches the request
-    Status     DelegationStatus // complete|failed|cancelled
+    Status     DelegationStatus // complete|partial|failed|cancelled
     Output     string           // last assistant message content
     Summary    string           // retained summary (≤1000 runes)
     TurnCount  int
     TokenCount int
+    StopReason string           // populated when Status is partial ("max_turns"|"max_tokens")
     Error      string           // populated on failure
 }
 ```
+
+When `Status` is `partial`, `StopReason` identifies the exhausted resource. `Output` and `Summary` are preserved and reflect the child's last state, but parent models must treat them as incomplete. Do not assume a partial result means the task succeeded.
 
 ### ToolRetention
 

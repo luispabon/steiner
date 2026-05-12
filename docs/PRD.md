@@ -687,8 +687,6 @@ sub_agent:
   max_turns: 15
   max_tokens: 100000
   allowed_tools: [read, glob, search, write, bash, edit]
-  allow_nesting: false
-  max_concurrent: 1
 
 tools: {}
 

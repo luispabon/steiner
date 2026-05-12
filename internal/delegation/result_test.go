@@ -29,6 +29,7 @@ func TestBuildResult(t *testing.T) {
 		wantTurnCount  int
 		wantTokenCount int
 		wantOutput     string
+		wantStopReason string
 	}{
 		{
 			name:           "maps complete stop reason",
@@ -38,6 +39,7 @@ func TestBuildResult(t *testing.T) {
 			wantTurnCount:  5,
 			wantTokenCount: 1000,
 			wantOutput:     "test output",
+			wantStopReason: "",
 		},
 		{
 			name:           "maps error stop reason",
@@ -47,6 +49,7 @@ func TestBuildResult(t *testing.T) {
 			wantTurnCount:  2,
 			wantTokenCount: 500,
 			wantOutput:     "",
+			wantStopReason: "",
 		},
 		{
 			name:           "maps cancelled stop reason",
@@ -56,15 +59,27 @@ func TestBuildResult(t *testing.T) {
 			wantTurnCount:  1,
 			wantTokenCount: 100,
 			wantOutput:     "",
+			wantStopReason: "",
 		},
 		{
-			name:           "max_turns stop reason defaults to complete",
+			name:           "max_turns stop reason maps to partial",
 			agentID:        "agent-4",
 			state:          makeRunState(10, 5000, agent.StopReasonMaxTurns, "result"),
-			wantStatus:     StatusComplete,
+			wantStatus:     StatusPartial,
 			wantTurnCount:  10,
 			wantTokenCount: 5000,
 			wantOutput:     "result",
+			wantStopReason: "max_turns",
+		},
+		{
+			name:           "max_tokens stop reason maps to partial",
+			agentID:        "agent-5",
+			state:          makeRunState(8, 100000, agent.StopReasonMaxTokens, "partial result"),
+			wantStatus:     StatusPartial,
+			wantTurnCount:  8,
+			wantTokenCount: 100000,
+			wantOutput:     "partial result",
+			wantStopReason: "max_tokens",
 		},
 	}
 
@@ -87,6 +102,9 @@ func TestBuildResult(t *testing.T) {
 			}
 			if got.Output != tt.wantOutput {
 				t.Errorf("Output=%q, want %q", got.Output, tt.wantOutput)
+			}
+			if got.StopReason != tt.wantStopReason {
+				t.Errorf("StopReason=%q, want %q", got.StopReason, tt.wantStopReason)
 			}
 		})
 	}

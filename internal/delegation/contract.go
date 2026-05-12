@@ -8,9 +8,12 @@ import (
 type DelegationStatus string
 
 const (
-	StatusPending   DelegationStatus = "pending"
-	StatusRunning   DelegationStatus = "running"
-	StatusComplete  DelegationStatus = "complete"
+	StatusPending  DelegationStatus = "pending"
+	StatusRunning  DelegationStatus = "running"
+	StatusComplete DelegationStatus = "complete"
+	// StatusPartial indicates the child stopped due to a resource budget (turn or
+	// token limit) rather than completing its task. The result may be incomplete.
+	StatusPartial   DelegationStatus = "partial"
 	StatusFailed    DelegationStatus = "failed"
 	StatusCancelled DelegationStatus = "cancelled"
 )
@@ -60,6 +63,10 @@ type DelegationResult struct {
 
 	// TokenCount is the total tokens used by the child.
 	TokenCount int `json:"token_count"`
+
+	// StopReason carries the raw stop reason string when Status is StatusPartial.
+	// It distinguishes budget exhaustion cause (e.g. "max_turns", "max_tokens").
+	StopReason string `json:"stop_reason,omitempty"`
 
 	// Error is populated if the delegation failed.
 	Error string `json:"error,omitempty"`
