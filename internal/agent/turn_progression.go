@@ -198,34 +198,34 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 }
 
 func (p *turnProgressor) maybeRunScaffoldInference(ctx context.Context, in turnInput, state RunState, turn int, assistantContent string) {
-	cm, ok := in.Request.ContextManager.(*SmartContextManager)
+	cm, ok := in.Request.ContextManager.(ScaffoldInferrer)
 	if !ok {
 		return
 	}
 	if in.CompactionCount == nil {
 		return
 	}
-	if !cm.shouldRunScaffoldInference(state, *in.CompactionCount) {
+	if !cm.ShouldRunScaffoldInference(state, *in.CompactionCount) {
 		return
 	}
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	request := buildScaffoldInferenceRequest(in.Request, cm.scaffoldPromptState(), assistantContent)
+	request := buildScaffoldInferenceRequest(in.Request, cm.ScaffoldPromptState(), assistantContent)
 	response, err := completeScaffoldInferenceCall(ctx, in.Request, turn, request)
 	if err != nil {
-		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.scaffoldPromptState(), 0, err.Error()))
+		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.ScaffoldPromptState(), 0, err.Error()))
 		return
 	}
 
 	content := strings.TrimSpace(response.Message.Content)
 	if content == "" {
-		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.scaffoldPromptState(), 0, "scaffold inference returned empty content"))
+		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.ScaffoldPromptState(), 0, "scaffold inference returned empty content"))
 		return
 	}
 
-	cm.applyScaffoldInference(turn, content)
+	cm.ApplyScaffoldInference(turn, content)
 }
 
 // handleError converts an error into a turnOutcome, checking for cancellation

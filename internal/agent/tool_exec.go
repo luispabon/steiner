@@ -53,7 +53,7 @@ func recordMutationForContextManager(cm ContextManager, toolName string, input m
 	if !ok || strings.TrimSpace(path) == "" {
 		return
 	}
-	recorder, ok := cm.(interface{ RecordMutation(path string) })
+	recorder, ok := cm.(MutationRecorder)
 	if !ok {
 		return
 	}
