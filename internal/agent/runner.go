@@ -70,7 +70,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		emitStop(req.Events, state, nil)
 		return state, nil
 	}
-	if setter, ok := req.ContextManager.(interface{ SetEventSink(output.EventSink) }); ok {
+	if setter, ok := req.ContextManager.(EventSinkSetter); ok {
 		setter.SetEventSink(req.Events)
 	}
 
@@ -85,9 +85,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	basePrompt.Conversation = nil
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
-	if preambler, ok := req.ContextManager.(interface {
-		CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string
-	}); ok {
+	if preambler, ok := req.ContextManager.(PreambleProvider); ok {
 		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
 			basePrompt.PromptOverrides.System,
 			basePrompt.ScratchpadEnabled,

@@ -28,6 +28,48 @@ type ContextManager interface {
 	OnTurnComplete(turnIndex int, scratchpadCalled bool)
 }
 
+// MutationRecorder tracks file mutations for context enrichment.
+type MutationRecorder interface {
+	RecordMutation(path string)
+}
+
+// CompactionRecorder records that a compaction event occurred.
+type CompactionRecorder interface {
+	RecordCompaction(turn int)
+}
+
+// EpochResetter resets the masking epoch after compaction.
+type EpochResetter interface {
+	ResetEpoch(turn int)
+}
+
+// EventSinkSetter accepts an event sink for diagnostics emission.
+type EventSinkSetter interface {
+	SetEventSink(sink output.EventSink)
+}
+
+// PreambleProvider returns a cached system preamble string.
+type PreambleProvider interface {
+	CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string
+}
+
+// ToolResultIngestor processes tool results for context shaping.
+type ToolResultIngestor interface {
+	ObserveToolResult(turn int, toolName string, input map[string]any, content string) string
+}
+
+// AssistantResponseIngestor processes assistant responses for context shaping.
+type AssistantResponseIngestor interface {
+	IngestAssistantResponse(turn int, content string) (string, string)
+}
+
+// ScaffoldInferrer runs scaffold inference to update scratchpad state.
+type ScaffoldInferrer interface {
+	ShouldRunScaffoldInference(state RunState, compactionCount int) bool
+	ApplyScaffoldInference(turn int, content string) (bool, string)
+	ScaffoldPromptState() string
+}
+
 // NaiveContextManager is a pass-through implementation that leaves state
 // unchanged. It preserves the existing compaction behaviour entirely.
 type NaiveContextManager struct{}
@@ -44,9 +86,6 @@ func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 
 // OnTurnComplete is a no-op for the naive manager.
 func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
-
-// RecordMutation is a no-op for the naive manager.
-func (n *NaiveContextManager) RecordMutation(_ string) {}
 
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
@@ -524,11 +563,14 @@ func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	return next
 }
 
-func (s *SmartContextManager) scaffoldPromptState() string {
+// ScaffoldPromptState returns the rendered scratchpad state for scaffold inference.
+func (s *SmartContextManager) ScaffoldPromptState() string {
 	return s.scratchpad.Render()
 }
 
-func (s *SmartContextManager) shouldRunScaffoldInference(state RunState, compactionCount int) bool {
+// ShouldRunScaffoldInference reports whether scaffold inference should run for
+// the current state and compaction count.
+func (s *SmartContextManager) ShouldRunScaffoldInference(state RunState, compactionCount int) bool {
 	if s.scratchpadMode != config.ScratchpadModeScaffoldOnly {
 		return false
 	}
@@ -540,7 +582,8 @@ func (s *SmartContextManager) shouldRunScaffoldInference(state RunState, compact
 	return true
 }
 
-func (s *SmartContextManager) applyScaffoldInference(turn int, content string) (bool, string) {
+// ApplyScaffoldInference parses scaffold inference output and updates the scratchpad.
+func (s *SmartContextManager) ApplyScaffoldInference(turn int, content string) (bool, string) {
 	next, parsed, note := parseScaffoldInferenceResult(content, s.scratchpad)
 	if !parsed {
 		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), 0, note))
@@ -668,20 +711,14 @@ func (s *SmartContextManager) emitMaskingDiagnostics(turn, window, previousBound
 }
 
 func shapeIngestedToolResultForContextManager(cm ContextManager, turn int, toolName string, input map[string]any, content string) string {
-	type toolResultIngestor interface {
-		ObserveToolResult(turn int, toolName string, input map[string]any, content string) string
-	}
-	if ingestor, ok := cm.(toolResultIngestor); ok {
+	if ingestor, ok := cm.(ToolResultIngestor); ok {
 		return ingestor.ObserveToolResult(turn, toolName, input, content)
 	}
 	return content
 }
 
 func processAssistantResponseForContextManager(cm ContextManager, turn int, content string) (string, string) {
-	type assistantIngestor interface {
-		IngestAssistantResponse(turn int, content string) (string, string)
-	}
-	if ingestor, ok := cm.(assistantIngestor); ok {
+	if ingestor, ok := cm.(AssistantResponseIngestor); ok {
 		return ingestor.IngestAssistantResponse(turn, content)
 	}
 	return content, ""
