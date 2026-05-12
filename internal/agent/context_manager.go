@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -94,20 +93,17 @@ type SmartContextManager struct {
 	readAnnotations    bool
 	configApplied      bool
 	compactionStrategy config.CompactionStrategy
-	scratchpadMode     config.ScratchpadMode
 	events             output.EventSink
 	fileTracker        FileTracker
-	scratchpad         Scratchpad
-	scratchpadFailures int
+	scratchpad         ScratchpadManager
 	epochMaskBoundary  int
 	epochStartTurn     int
 	// minVisibleTurn tracks the lowest turn number whose messages are still
 	// fully visible to the model (not masked, not compacted away). Updated
 	// during PostIngestion and PreAssembly. Used alongside epochMaskBoundary
 	// to gate file read annotations.
-	minVisibleTurn          int
-	contextPressureTrigger  func(currentTurn int, state RunState) bool
-	lastScaffoldFingerprint string
+	minVisibleTurn         int
+	contextPressureTrigger func(currentTurn int, state RunState) bool
 	// cachedPreamble holds the system preamble built once per session.
 	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
 	// so building the string once prevents unnecessary allocations and keeps
@@ -185,18 +181,7 @@ func (s *SmartContextManager) IngestAssistantResponse(_ int, content string) (st
 // OnTurnComplete tracks whether the scratchpad tool was called this turn and
 // emits a warning event when three consecutive turns have been missed.
 func (s *SmartContextManager) OnTurnComplete(turnIndex int, scratchpadCalled bool) {
-	if s.scratchpadMode != config.ScratchpadModeHybrid {
-		return
-	}
-	if scratchpadCalled {
-		s.scratchpadFailures = 0
-		return
-	}
-	s.scratchpadFailures++
-	if s.scratchpadFailures >= 3 {
-		note := "scratchpad tool not called in 3+ consecutive turns"
-		emitEvent(s.events, output.NewScratchpadEvent(turnIndex, false, s.scratchpad.Render(), s.scratchpadFailures, note))
-	}
+	s.scratchpad.OnTurnComplete(turnIndex, scratchpadCalled)
 }
 
 // IngestToolResult shapes a newly produced tool result before it enters the
@@ -230,19 +215,21 @@ func (s *SmartContextManager) ObserveToolResult(turn int, toolName string, input
 // SetEventSink installs the sink used for context-management diagnostics.
 func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
 	s.events = sink
+	s.scratchpad.SetEventSink(sink)
 }
 
 // NewContextManager constructs the appropriate ContextManager for the given
 // mode. An unrecognised mode falls back to NaiveContextManager.
 func NewContextManager(mode string, cfg ...config.ContextManagementConfig) ContextManager {
 	if mode == "smart" {
-		manager := &SmartContextManager{scratchpadMode: config.ScratchpadModeScaffoldOnly}
+		manager := &SmartContextManager{}
+		manager.scratchpad.mode = config.ScratchpadModeScaffoldOnly
 		if len(cfg) > 0 {
 			manager.maskingWindowTurns = cfg[0].MaskingWindowTurns
 			manager.readAnnotations = cfg[0].ReadAnnotations
 			manager.compactionStrategy = cfg[0].CompactionStrategy
 			if cfg[0].ScratchpadMode != "" {
-				manager.scratchpadMode = cfg[0].ScratchpadMode
+				manager.scratchpad.mode = cfg[0].ScratchpadMode
 			}
 			manager.configApplied = true
 		}
@@ -282,32 +269,11 @@ func (s *SmartContextManager) normalizeIngestedMessage(turn int, message Message
 	return message
 }
 
-func (s *SmartContextManager) syncScaffoldState(state RunState, next *ContextState) {
-	if next == nil {
-		return
-	}
-	s.scratchpad.SessionState = compactSessionState(next.TurnCount, next.CompactionCount)
-	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.FullMessages(), 3)
-}
-
 func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "scratchpad":
-		next, ok := parseScratchpadToolResult(shaped, s.scratchpad)
-		if ok {
-			s.scratchpad = next
-			s.scratchpad.LastAction = "scratchpad updated"
-			s.scratchpadFailures = 0
-			emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
-			emitEvent(s.events, output.NewScratchpadUpdatedEvent(output.ScratchpadUpdatedEvent{
-				Intent:    s.scratchpad.Intent,
-				Decisions: s.scratchpad.Decisions,
-				Open:      s.scratchpad.Open,
-				Next:      s.scratchpad.Next,
-			}))
-		}
-		return `{"ok":true}`
+		return s.scratchpad.IngestToolResult(turn, shaped)
 	case "read":
 		result, _ := parseReadResult(shaped)
 		next, observation := s.fileTracker.ObserveRead(turn, shaped, s.annotationsEnabled())
@@ -357,37 +323,12 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 }
 
 func (s *SmartContextManager) applyFileTrackerUpdate(update workingFileUpdate, facts []string) {
-	if update.Path != "" {
-		s.scratchpad.WorkingFile = update.Path
-	}
-	if update.LastAction != "" {
-		s.scratchpad.LastAction = update.LastAction
-	}
-	for _, fact := range facts {
-		s.appendDecisionFact(fact)
-	}
+	s.scratchpad.SetWorkingFile(update.Path, update.LastAction)
+	s.scratchpad.AppendDecisionFacts(facts)
 }
 
 func (s *SmartContextManager) appendDecisionFact(fact string) {
-	fact = strings.TrimSpace(fact)
-	if fact == "" || strings.EqualFold(fact, "none") {
-		return
-	}
-	combined := strings.TrimSpace(s.scratchpad.Decisions)
-	if combined != "" {
-		combined += "\n" + fact
-	} else {
-		combined = fact
-	}
-	for len(combined) > decisionsMaxBytes {
-		idx := strings.Index(combined, "\n")
-		if idx < 0 {
-			combined = combined[len(combined)-decisionsMaxBytes:]
-			break
-		}
-		combined = strings.TrimSpace(combined[idx+1:])
-	}
-	s.scratchpad.Decisions = combined
+	s.scratchpad.AppendDecisionFact(fact)
 }
 
 func toolVerb(toolName string) string {
@@ -489,55 +430,25 @@ func (s *SmartContextManager) annotationsEnabled() bool {
 func (s *SmartContextManager) enrichContextState(state RunState) ContextState {
 	next := state.Context.Clone()
 	next.TurnCount = state.TurnCount
-	s.syncScaffoldState(state, &next)
+	s.scratchpad.SyncState(state, &next)
 	next.Scratchpad = s.scratchpad.Render()
 	return next
 }
 
 // ScaffoldPromptState returns the rendered scratchpad state for scaffold inference.
 func (s *SmartContextManager) ScaffoldPromptState() string {
-	return s.scratchpad.Render()
+	return s.scratchpad.ScaffoldPromptState()
 }
 
 // ShouldRunScaffoldInference reports whether scaffold inference should run for
 // the current state and compaction count.
 func (s *SmartContextManager) ShouldRunScaffoldInference(state RunState, compactionCount int) bool {
-	if s.scratchpadMode != config.ScratchpadModeScaffoldOnly {
-		return false
-	}
-	fingerprint := s.scaffoldFingerprint(state, compactionCount)
-	if fingerprint == s.lastScaffoldFingerprint {
-		return false
-	}
-	s.lastScaffoldFingerprint = fingerprint
-	return true
+	return s.scratchpad.ShouldRunScaffoldInference(state, compactionCount)
 }
 
 // ApplyScaffoldInference parses scaffold inference output and updates the scratchpad.
 func (s *SmartContextManager) ApplyScaffoldInference(turn int, content string) (bool, string) {
-	next, parsed, note := parseScaffoldInferenceResult(content, s.scratchpad)
-	if !parsed {
-		emitEvent(s.events, output.NewScratchpadEvent(turn, false, s.scratchpad.Render(), 0, note))
-		return false, note
-	}
-	s.scratchpad = next
-	emitEvent(s.events, output.NewScratchpadEvent(turn, true, s.scratchpad.Render(), 0, ""))
-	emitEvent(s.events, output.NewScratchpadUpdatedEvent(output.ScratchpadUpdatedEvent{
-		Intent:    s.scratchpad.Intent,
-		Decisions: s.scratchpad.Decisions,
-		Open:      s.scratchpad.Open,
-		Next:      s.scratchpad.Next,
-	}))
-	return true, ""
-}
-
-func (s *SmartContextManager) scaffoldFingerprint(state RunState, compactionCount int) string {
-	toolSummary := ""
-	if recent := summarizeRecentToolCalls(state.Lineage.FullMessages(), 1); len(recent) > 0 {
-		toolSummary = recent[0]
-	}
-	workingFile := strings.TrimSpace(s.scratchpad.WorkingFile)
-	return fmt.Sprintf("compaction=%d|working=%s|tool=%s", compactionCount, workingFile, toolSummary)
+	return s.scratchpad.ApplyScaffoldInference(turn, content)
 }
 
 func (s *SmartContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, observation fileObservation, original, shaped string) {
@@ -818,120 +729,6 @@ func minTurnInMessages(messages []Message) int {
 	return minTurn
 }
 
-const decisionsMaxBytes = 2000
-const decisionsMaxLines = 24
-
-func parseScratchpadToolResult(content string, previous Scratchpad) (Scratchpad, bool) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return previous, false
-	}
-
-	next := previous
-
-	if v, ok := decodeScratchpadString(raw, "intent"); ok {
-		next.Intent = v
-	} else {
-		return previous, false
-	}
-	if v, ok := decodeScratchpadString(raw, "decisions"); ok {
-		next.Decisions = appendDecisionFactText(previous.Decisions, v)
-	} else {
-		return previous, false
-	}
-	if v, ok := decodeScratchpadString(raw, "open"); ok {
-		next.Open = v
-	} else {
-		return previous, false
-	}
-	if v, ok := decodeScratchpadString(raw, "next"); ok {
-		next.Next = v
-	} else {
-		return previous, false
-	}
-	return next, true
-}
-
-func parseScaffoldInferenceResult(content string, previous Scratchpad) (Scratchpad, bool, string) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return previous, false, "invalid scaffold inference JSON: " + err.Error()
-	}
-
-	next := previous
-	if v, ok := decodeScratchpadString(raw, "intent"); ok {
-		next.Intent = v
-	}
-	if v, ok := decodeScratchpadString(raw, "next"); ok {
-		next.Next = v
-	}
-	return next, true, ""
-}
-
-func decodeScratchpadString(raw map[string]json.RawMessage, key string) (string, bool) {
-	value, ok := raw[key]
-	if !ok {
-		return "", false
-	}
-	var text string
-	if err := json.Unmarshal(value, &text); err != nil {
-		return "", false
-	}
-	return text, true
-}
-
-func appendDecisionFactText(existing, fact string) string {
-	fact = strings.TrimSpace(fact)
-	if fact == "" || strings.EqualFold(fact, "none") {
-		return strings.TrimSpace(existing)
-	}
-	lines := splitDecisionFacts(existing)
-	lines = append(lines, fact)
-	lines = boundDecisionFacts(lines)
-	return strings.Join(lines, "\n")
-}
-
-func splitDecisionFacts(existing string) []string {
-	existing = strings.TrimSpace(existing)
-	if existing == "" {
-		return nil
-	}
-	parts := strings.Split(existing, "\n")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
-}
-
-func boundDecisionFacts(lines []string) []string {
-	if len(lines) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	for len(out) > decisionsMaxLines {
-		out = out[1:]
-	}
-	for len(out) > 0 && len(strings.Join(out, "\n")) > decisionsMaxBytes {
-		if len(out) == 1 {
-			line := out[0]
-			if len(line) > decisionsMaxBytes {
-				out[0] = line[len(line)-decisionsMaxBytes:]
-			}
-			break
-		}
-		out = out[1:]
-	}
-	return out
-}
-
 func (s *SmartContextManager) resetTaskStateIfNeeded(state *RunState) {
 	if state == nil {
 		return
@@ -943,15 +740,7 @@ func (s *SmartContextManager) resetTaskStateIfNeeded(state *RunState) {
 	if !ok || !shouldResetTaskState(message.Content) {
 		return
 	}
-
-	s.scratchpad.Intent = ""
-	s.scratchpad.Decisions = ""
-	s.scratchpad.Open = ""
-	s.scratchpad.Next = ""
-	s.scratchpad.WorkingFile = ""
-	s.scratchpad.LastAction = ""
-	s.scratchpadFailures = 0
-
+	s.scratchpad.Reset()
 	state.Context.ActiveFocus = nil
 	state.Context.UnresolvedWork = nil
 	state.Context.FileTrackerSummary = nil

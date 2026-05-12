@@ -365,7 +365,7 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 	// Scratchpad state is captured in context manager.
-	if got := cm.scratchpad.Intent; got != "ship scratchpad" {
+	if got := cm.scratchpad.scratchpad.Intent; got != "ship scratchpad" {
 		t.Fatalf("scratchpad intent = %q, want ship scratchpad", got)
 	}
 	// Second request should include the rendered scratchpad state via context.
