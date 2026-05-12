@@ -29,7 +29,8 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 	case "cancelled":
 		result.Status = StatusCancelled
 	case "max_turns", "max_tokens":
-		result.Status = StatusComplete
+		result.Status = StatusPartial
+		result.StopReason = string(state.StopReason)
 	default:
 		result.Status = StatusComplete
 	}
