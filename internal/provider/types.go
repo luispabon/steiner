@@ -1,5 +1,6 @@
 package provider
 
+// MessageRole identifies the provider-side role for a chat message.
 type MessageRole string
 
 const (
@@ -9,23 +10,27 @@ const (
 	MessageRoleTool      MessageRole = "tool"
 )
 
+// ToolFunctionSpec describes the callable portion of a tool schema.
 type ToolFunctionSpec struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
+// ToolSpec is the provider-facing schema for a callable tool.
 type ToolSpec struct {
 	Type     string           `json:"type"`
 	Function ToolFunctionSpec `json:"function"`
 }
 
+// ToolCall records a model-requested tool invocation.
 type ToolCall struct {
 	ID        string         `json:"id,omitempty"`
 	Name      string         `json:"name,omitempty"`
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// Message is the provider-facing chat message envelope.
 type Message struct {
 	Role             MessageRole `json:"role"`
 	Content          string      `json:"content,omitempty"`
@@ -36,12 +41,14 @@ type Message struct {
 	Turn             int         `json:"turn,omitempty"`
 }
 
+// UsageStats carries token accounting returned by a provider.
 type UsageStats struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
 }
 
+// ChatRequest is the normalized provider request payload.
 type ChatRequest struct {
 	Model       string         `json:"model"`
 	Messages    []Message      `json:"messages"`
@@ -51,12 +58,14 @@ type ChatRequest struct {
 	ExtraParams map[string]any `json:"-"`
 }
 
+// ChatResponse is the normalized provider response payload.
 type ChatResponse struct {
 	Message      Message     `json:"message"`
 	Usage        *UsageStats `json:"usage,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
+// ChatChunk is a streamed response fragment from a provider.
 type ChatChunk struct {
 	Delta         Message     `json:"delta"`
 	Thinking      string      `json:"thinking,omitempty"`

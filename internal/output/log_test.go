@@ -258,10 +258,10 @@ func TestSetupLogger(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.level, func(t *testing.T) {
-			logger := SetupLogger(tt.level)
+			logger := setupLogger(tt.level)
 			ctx := context.Background()
 			if !logger.Enabled(ctx, tt.enabled) {
-				t.Errorf("SetupLogger(%q).Enabled(%v) = false, want true", tt.level, tt.enabled)
+				t.Errorf("setupLogger(%q).Enabled(%v) = false, want true", tt.level, tt.enabled)
 			}
 		})
 	}

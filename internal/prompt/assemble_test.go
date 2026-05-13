@@ -134,13 +134,13 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	mustWrite(t, projectRoot, "README.md", "1234567890")
 	mustWrite(t, projectRoot, "go.mod", "module example.com/test\n")
 
-	blocks, err := GatherProjectContext(ProjectContextOptions{
+	blocks, err := gatherProjectContext(ProjectContextOptions{
 		Root:        projectRoot,
 		BudgetBytes: 5,
 		ExtraFiles:  []string{"README.md", "go.mod"},
 	})
 	if err != nil {
-		t.Fatalf("GatherProjectContext() error = %v", err)
+		t.Fatalf("gatherProjectContext() error = %v", err)
 	}
 
 	if got, want := len(blocks), 1; got != want {
@@ -269,12 +269,12 @@ func TestGatherProjectContextDoesNotLoadImplicitFilesByDefault(t *testing.T) {
 	mustWrite(t, projectRoot, "README.md", "project readme")
 	mustWrite(t, projectRoot, "go.mod", "module example.com/test\n")
 
-	blocks, err := GatherProjectContext(ProjectContextOptions{
+	blocks, err := gatherProjectContext(ProjectContextOptions{
 		Root:        projectRoot,
 		BudgetBytes: 1024,
 	})
 	if err != nil {
-		t.Fatalf("GatherProjectContext() error = %v", err)
+		t.Fatalf("gatherProjectContext() error = %v", err)
 	}
 	if len(blocks) != 0 {
 		t.Fatalf("len(blocks) = %d, want 0 with no explicit extra files", len(blocks))

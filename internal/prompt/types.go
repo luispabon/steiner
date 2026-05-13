@@ -5,6 +5,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// ContextSource identifies the origin of an assembled context block.
 type ContextSource string
 
 const (
@@ -21,6 +22,7 @@ const (
 	ContextSourceDelegationResult    ContextSource = "delegation_result"
 )
 
+// ContextBlock is a rendered context fragment included in a request.
 type ContextBlock struct {
 	Source    ContextSource `json:"source"`
 	Path      string        `json:"path,omitempty"`
@@ -29,6 +31,7 @@ type ContextBlock struct {
 	Truncated bool          `json:"truncated,omitempty"`
 }
 
+// SourceBudgetModel partitions byte budgets across prompt input sources.
 type SourceBudgetModel struct {
 	PreambleBytes       int
 	GlobalAgentsBytes   int
@@ -47,6 +50,7 @@ type ToolSummaryPolicy struct {
 	MaxBytes int
 }
 
+// ModelTokenBudget describes model-specific token limits and reserves.
 type ModelTokenBudget struct {
 	ContextSize         int
 	MaxCompletionTokens int
@@ -54,6 +58,7 @@ type ModelTokenBudget struct {
 	SummaryMaxTokens    int
 }
 
+// RequestTokenBudget is the result of fitting a request into a model budget.
 type RequestTokenBudget struct {
 	EstimatedPromptTokens    int
 	ReservedCompletionTokens int
@@ -75,6 +80,7 @@ type DurableContextEntry struct {
 	Turn   int    `json:"turn,omitempty"`
 }
 
+// DurableSummaryEntry stores a retained summary carried across compactions.
 type DurableSummaryEntry struct {
 	Title  string `json:"title,omitempty"`
 	Text   string `json:"text"`
@@ -82,10 +88,12 @@ type DurableSummaryEntry struct {
 	Turn   int    `json:"turn,omitempty"`
 }
 
+// DurableContextState carries retained context that survives compaction.
 type DurableContextState struct {
 	RetainedSummaries []DurableSummaryEntry `json:"retained_summaries,omitempty"`
 }
 
+// AssemblyOptions configures prompt assembly for a run.
 type AssemblyOptions struct {
 	HomeDir                   string
 	ProjectRoot               string
@@ -112,6 +120,7 @@ type AssemblyOptions struct {
 	CachedPreamble string
 }
 
+// Assembly is the rendered prompt plus its contributing context blocks.
 type Assembly struct {
 	Messages []provider.Message
 	Blocks   []ContextBlock

@@ -14,6 +14,7 @@ type eventingApprover struct {
 	sink  output.EventSink
 }
 
+// NewEventingApprover wraps an approver and emits approval lifecycle events.
 func NewEventingApprover(sink output.EventSink, inner tool.ApprovalResponder) tool.ApprovalResponder {
 	if sink == nil {
 		sink = output.NoopSink{}

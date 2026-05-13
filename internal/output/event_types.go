@@ -47,16 +47,19 @@ const (
 	EventTypeScratchpadUpdated = "scratchpad_updated"
 )
 
+// Event is the timestamped envelope emitted by the runtime event stream.
 type Event struct {
 	Type      string    `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   any       `json:"payload,omitempty"`
 }
 
+// EventSink receives structured runtime events.
 type EventSink interface {
 	Emit(Event)
 }
 
+// SinkFunc adapts a function into an EventSink.
 type SinkFunc func(Event)
 
 func (f SinkFunc) Emit(event Event) {
@@ -65,6 +68,7 @@ func (f SinkFunc) Emit(event Event) {
 	}
 }
 
+// NoopSink discards all events.
 type NoopSink struct{}
 
 func (NoopSink) Emit(Event) {}
@@ -102,12 +106,14 @@ func (f *ForwardSink) Emit(event Event) {
 	t.Emit(event)
 }
 
+// ModelCallStartedEvent marks the beginning of a provider request.
 type ModelCallStartedEvent struct {
 	Turn         int    `json:"turn"`
 	Model        string `json:"model,omitempty"`
 	MessageCount int    `json:"message_count,omitempty"`
 }
 
+// ModelCallFinishedEvent records the outcome of a provider request.
 type ModelCallFinishedEvent struct {
 	Turn         int    `json:"turn"`
 	Model        string `json:"model,omitempty"`
@@ -117,6 +123,7 @@ type ModelCallFinishedEvent struct {
 	Error        string `json:"error,omitempty"`
 }
 
+// ToolCallStartedEvent records a tool invocation before execution begins.
 type ToolCallStartedEvent struct {
 	Turn                     int            `json:"turn"`
 	Tool                     string         `json:"tool,omitempty"`
@@ -125,6 +132,7 @@ type ToolCallStartedEvent struct {
 	WriteTargetExistedBefore *bool          `json:"-"`
 }
 
+// ToolCallFinishedEvent records a completed tool invocation.
 type ToolCallFinishedEvent struct {
 	Turn    int         `json:"turn"`
 	Tool    string      `json:"tool,omitempty"`
@@ -134,6 +142,7 @@ type ToolCallFinishedEvent struct {
 	Preview ToolPreview `json:"-"`
 }
 
+// ApprovalEvent captures approval lifecycle decisions for mutation tools.
 type ApprovalEvent struct {
 	Turn    int    `json:"turn"`
 	Tool    string `json:"tool,omitempty"`
@@ -143,6 +152,7 @@ type ApprovalEvent struct {
 	Message string `json:"message,omitempty"`
 }
 
+// StopReasonEvent is the payload for EventTypeStopReason.
 type StopReasonEvent struct {
 	Reason  string `json:"reason"`
 	Turn    int    `json:"turn,omitempty"`
@@ -151,11 +161,13 @@ type StopReasonEvent struct {
 	Action  string `json:"action,omitempty"`
 }
 
+// UserInputEvent captures user input forwarded into the event stream.
 type UserInputEvent struct {
 	Content string `json:"content"`
 	Mode    string `json:"mode,omitempty"`
 }
 
+// APIRequestEvent captures the provider request payload sent for a turn.
 type APIRequestEvent struct {
 	Model       string                  `json:"model,omitempty"`
 	Messages    []provider.Message      `json:"messages,omitempty"`
@@ -165,6 +177,7 @@ type APIRequestEvent struct {
 	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
 }
 
+// APIResponseEvent captures the provider response payload for a turn.
 type APIResponseEvent struct {
 	Message      any    `json:"message,omitempty"`
 	Usage        any    `json:"usage,omitempty"`
@@ -172,6 +185,7 @@ type APIResponseEvent struct {
 	Error        string `json:"error,omitempty"`
 }
 
+// RunStartedEvent marks the start of a top-level run or compaction flow.
 type RunStartedEvent struct {
 	Mode      string `json:"mode,omitempty"`
 	Model     string `json:"model,omitempty"`
@@ -180,6 +194,7 @@ type RunStartedEvent struct {
 	MaxTokens int    `json:"max_tokens,omitempty"`
 }
 
+// RunFinishedEvent records the terminal outcome of a run.
 type RunFinishedEvent struct {
 	Turn       int    `json:"turn,omitempty"`
 	Reason     string `json:"reason,omitempty"`
@@ -188,12 +203,14 @@ type RunFinishedEvent struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// TurnStartedEvent marks the beginning of a model turn.
 type TurnStartedEvent struct {
 	Turn         int    `json:"turn"`
 	Model        string `json:"model,omitempty"`
 	MessageCount int    `json:"message_count,omitempty"`
 }
 
+// TurnFinishedEvent records the terminal state of a model turn.
 type TurnFinishedEvent struct {
 	Turn         int    `json:"turn"`
 	ToolCalls    int    `json:"tool_calls,omitempty"`
@@ -202,12 +219,14 @@ type TurnFinishedEvent struct {
 	Error        string `json:"error,omitempty"`
 }
 
+// AssistantMessageEvent records a completed assistant message.
 type AssistantMessageEvent struct {
 	Turn    int    `json:"turn,omitempty"`
 	Role    string `json:"role,omitempty"`
 	Content string `json:"content,omitempty"`
 }
 
+// ChunkSource identifies the origin of a streamed assistant or thinking chunk.
 type ChunkSource string
 
 const (
@@ -215,18 +234,21 @@ const (
 	ChunkSourceScaffoldInference ChunkSource = "scaffold_inference"
 )
 
+// AssistantChunkEvent records a streamed assistant chunk.
 type AssistantChunkEvent struct {
 	Turn    int         `json:"turn,omitempty"`
 	Content string      `json:"content,omitempty"`
 	Source  ChunkSource `json:"source,omitempty"`
 }
 
+// ThinkingChunkEvent records a streamed reasoning chunk.
 type ThinkingChunkEvent struct {
 	Turn    int         `json:"turn,omitempty"`
 	Content string      `json:"content,omitempty"`
 	Source  ChunkSource `json:"source,omitempty"`
 }
 
+// ProviderDiagnosticEvent describes provider retry and transport diagnostics.
 type ProviderDiagnosticEvent struct {
 	Turn        int    `json:"turn,omitempty"`
 	Severity    string `json:"severity,omitempty"`
@@ -237,11 +259,13 @@ type ProviderDiagnosticEvent struct {
 	Partial     bool   `json:"partial,omitempty"`
 }
 
+// DelegationStartedEvent records the start of a delegated child task.
 type DelegationStartedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
 }
 
+// DelegationCompleteEvent records a successful delegated child task.
 type DelegationCompleteEvent struct {
 	AgentID    string `json:"agent_id"`
 	Status     string `json:"status"`
@@ -250,6 +274,7 @@ type DelegationCompleteEvent struct {
 	Output     string `json:"output,omitempty"`
 }
 
+// DelegationFailedEvent records a failed delegated child task.
 type DelegationFailedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`

@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// RequestContextSnapshot captures the last assembled request for reporting.
 type RequestContextSnapshot struct {
 	Model       string                  `json:"model,omitempty"`
 	Messages    []provider.Message      `json:"messages,omitempty"`
@@ -19,6 +20,7 @@ type RequestContextSnapshot struct {
 	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
 }
 
+// ContextReportEvent carries overlay report content for the TUI.
 type ContextReportEvent struct {
 	Title   string `json:"title,omitempty"`
 	Content string `json:"content,omitempty"`
@@ -57,6 +59,7 @@ func NewOverlayReportEvent(title, content string) Event {
 	}
 }
 
+// BuildContextReport summarizes prompt composition and budget usage.
 func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (string, error) {
 	request := provider.ChatRequest{
 		Model:     snapshot.Model,

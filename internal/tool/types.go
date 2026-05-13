@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// ToolDef describes a callable tool and its execution policy.
 type ToolDef struct {
 	Name            string
 	ExecPath        string
@@ -33,12 +34,14 @@ type ToolRetention struct {
 	TokenCount int    `json:"token_count,omitempty"`
 }
 
+// JSONEnvelope is the structured tool result envelope returned to providers.
 type JSONEnvelope struct {
 	OK     bool               `json:"ok"`
 	Result any                `json:"result,omitempty"`
 	Error  *JSONEnvelopeError `json:"error,omitempty"`
 }
 
+// JSONEnvelopeError describes a failed JSONEnvelope result.
 type JSONEnvelopeError struct {
 	Kind    string `json:"kind,omitempty"`
 	Message string `json:"message"`
@@ -55,6 +58,7 @@ func (e *JSONEnvelopeError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Kind, e.Message)
 }
 
+// ApprovalRequest carries the information needed to approve a tool execution.
 type ApprovalRequest struct {
 	Tool     ToolDef
 	Mode     config.ApprovalMode
@@ -64,11 +68,13 @@ type ApprovalRequest struct {
 	Response chan ApprovalResponse
 }
 
+// ApprovalResponse records the result of an approval decision.
 type ApprovalResponse struct {
 	Allow   bool
 	Message string
 }
 
+// ToolExecutionError reports a failed tool execution with shaped output.
 type ToolExecutionError struct {
 	Tool     string
 	Kind     string
