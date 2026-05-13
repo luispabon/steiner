@@ -267,7 +267,7 @@ func TestSessionHandleNoop(t *testing.T) {
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			return conversation, nil
 		}),
 	})
@@ -290,7 +290,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			called = true
 			return conversation, nil
 		}),
@@ -306,7 +306,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
 			return []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
 				{Role: agent.MessageRoleAssistant, Content: "hi there"},
@@ -328,7 +328,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
 			return nil, fmt.Errorf("run failed")
 		}),
 	})
@@ -360,7 +360,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			return append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"}), nil
 		}),
 		HistoryWriter: &recordingHistoryWriter{

@@ -8,13 +8,18 @@ import (
 type DelegationStatus string
 
 const (
-	StatusPending  DelegationStatus = "pending"
-	StatusRunning  DelegationStatus = "running"
+	// StatusPending indicates the delegation has been created but not started.
+	StatusPending DelegationStatus = "pending"
+	// StatusRunning indicates the child agent is actively executing.
+	StatusRunning DelegationStatus = "running"
+	// StatusComplete indicates the child agent finished successfully.
 	StatusComplete DelegationStatus = "complete"
 	// StatusPartial indicates the child stopped due to a resource budget (turn or
 	// token limit) rather than completing its task. The result may be incomplete.
-	StatusPartial   DelegationStatus = "partial"
-	StatusFailed    DelegationStatus = "failed"
+	StatusPartial DelegationStatus = "partial"
+	// StatusFailed indicates the child agent terminated with an error.
+	StatusFailed DelegationStatus = "failed"
+	// StatusCancelled indicates the delegation was cancelled before completion.
 	StatusCancelled DelegationStatus = "cancelled"
 )
 

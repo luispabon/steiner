@@ -32,66 +32,80 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 		return inputAction{submit: trimmed}
 	}
 
-	switch {
-	case trimmed == "/exit":
+	switch trimmed {
+	case "/exit":
 		return inputAction{quit: true}
-	case trimmed == "/clear":
+	case "/clear":
 		return inputAction{clear: true}
-	case trimmed == "/compact":
+	case "/compact":
 		return inputAction{compaction: true}
-	case trimmed == "/config":
+	case "/config":
 		return inputAction{inspectConfig: true}
-	case trimmed == "/context":
+	case "/context":
 		return inputAction{inspectContext: true}
-	case trimmed == "/resume":
+	case "/resume":
 		return inputAction{requestSessionPicker: true}
-	case trimmed == "/skills":
+	case "/skills":
 		return inputAction{listSkills: true}
-	case trimmed == "/models":
+	case "/models":
 		return inputAction{listModels: true}
-	case trimmed == "/thinking":
+	case "/thinking":
 		return inputAction{toggleThinking: true}
+	case "/ls":
+		return inputAction{listFiles: true}
+	}
+
+	if action, ok := parseArgumentCommand(trimmed, enabledSkills); ok {
+		return action
+	}
+
+	return inputAction{submit: trimmed}
+}
+
+func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputAction, bool) {
+	switch {
 	case strings.HasPrefix(trimmed, "/accent "):
 		preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "/accent "))
 		if preset == "" {
-			return inputAction{}
+			return inputAction{}, true
 		}
-		return inputAction{setAccent: preset}
-	case trimmed == "/ls":
-		return inputAction{listFiles: true}
+		return inputAction{setAccent: preset}, true
 	case strings.HasPrefix(trimmed, "/ls "):
 		path := strings.TrimSpace(strings.TrimPrefix(trimmed, "/ls "))
 		if path == "" {
-			return inputAction{}
+			return inputAction{}, true
 		}
-		return inputAction{listFiles: true, listFilesPath: path}
+		return inputAction{listFiles: true, listFilesPath: path}, true
 	case strings.HasPrefix(trimmed, "/model "):
 		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
 		if name == "" {
-			return inputAction{}
+			return inputAction{}, true
 		}
-		return inputAction{switchModel: name}
+		return inputAction{switchModel: name}, true
 	case strings.HasPrefix(trimmed, "/skill "):
-		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill "))
-		enable := true
-		switch {
-		case strings.HasPrefix(name, "+"):
-			name = strings.TrimSpace(strings.TrimPrefix(name, "+"))
-		case strings.HasPrefix(name, "-"):
-			name = strings.TrimSpace(strings.TrimPrefix(name, "-"))
-			enable = false
-		default:
-			enable = !enabledSkills[name]
-		}
-		if name == "" {
-			return inputAction{}
-		}
-		return inputAction{
-			toggleSkill:  name,
-			toggleEnable: enable,
-		}
+		return parseSkillCommand(strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill ")), enabledSkills), true
 	default:
-		return inputAction{submit: trimmed}
+		return inputAction{}, false
+	}
+}
+
+func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
+	enable := true
+	switch {
+	case strings.HasPrefix(name, "+"):
+		name = strings.TrimSpace(strings.TrimPrefix(name, "+"))
+	case strings.HasPrefix(name, "-"):
+		name = strings.TrimSpace(strings.TrimPrefix(name, "-"))
+		enable = false
+	default:
+		enable = !enabledSkills[name]
+	}
+	if name == "" {
+		return inputAction{}
+	}
+	return inputAction{
+		toggleSkill:  name,
+		toggleEnable: enable,
 	}
 }
 

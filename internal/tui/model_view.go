@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// View renders the full TUI frame for the current model state.
 func (m Model) View() string {
 	contentWidth := max(1, m.width)
 	sidebarVisible := m.sidebar.Visible(m.width)
@@ -197,7 +198,7 @@ func (m Model) inputChromeHeight(contentWidth int) int {
 	return lipgloss.Height(m.renderInputView(contentWidth))
 }
 
-func (m Model) activityRowHeight(int) int {
+func (m Model) activityRowHeight(_ int) int {
 	return 1
 }
 

@@ -16,7 +16,7 @@ func NewEditTool(env Env) tool.ToolDef {
 		Name:            "edit",
 		Description:     "Replace exact text in one file. Fails if old_string is absent or ambiguous unless replace_all is true.",
 		ParameterSchema: EditSchema(),
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[EditInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("edit: %w", err)
@@ -68,7 +68,7 @@ func NewEditTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			replaced := content
+			var replaced []byte
 			if in.ReplaceAll {
 				replaced = bytes.ReplaceAll(content, oldBytes, newBytes)
 			} else {

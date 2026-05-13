@@ -86,30 +86,16 @@ var grepTypeToExt = map[string][]string{
 }
 
 func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
-	p := pattern
-	if caseInsens {
-		p = "(?i)" + p
-	}
-	if multiline {
-		p = "(?s)" + p
-	}
-	re, err := regexp.Compile(p)
+	re, err := compileGrepPattern(pattern, caseInsens, multiline)
 	if err != nil {
-		return nil, fmt.Errorf("invalid regex: %w", err)
+		return nil, err
 	}
 
-	var filterGlob glob.Glob
-	if fileGlob != "" {
-		filterGlob, err = glob.Compile(fileGlob, '/')
-		if err != nil {
-			return nil, fmt.Errorf("invalid glob: %w", err)
-		}
+	filterGlob, err := compileGrepGlob(fileGlob)
+	if err != nil {
+		return nil, err
 	}
-
-	var exts []string
-	if fileType != "" {
-		exts = grepTypeToExt[fileType]
-	}
+	exts := grepExtensions(fileType)
 
 	rootInfo, err := os.Stat(root)
 	if err != nil {
@@ -117,37 +103,7 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 	}
 
 	if !rootInfo.IsDir() {
-		relPath := filepath.ToSlash(filepath.Clean(displayPath))
-		if relPath == "." || relPath == "" {
-			relPath = filepath.Base(root)
-		}
-		if excluder != nil && excluder.ShouldExclude(relPath) {
-			return nil, nil
-		}
-		if filterGlob != nil && !filterGlob.Match(relPath) {
-			return nil, nil
-		}
-		if exts != nil {
-			ext := filepath.Ext(root)
-			found := false
-			for _, e := range exts {
-				if strings.EqualFold(ext, e) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil, nil
-			}
-		}
-		file, hasMatches, err := grepSearchFile(ctx, root, relPath, re, multiline)
-		if err != nil {
-			return nil, err
-		}
-		if !hasMatches {
-			return nil, nil
-		}
-		return []grepFileResult{file}, nil
+		return grepSearchPath(ctx, root, normalizedDisplayPath(root, displayPath), re, multiline, filterGlob, exts, excluder)
 	}
 
 	var results []grepFileResult
@@ -166,36 +122,12 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 		relPath, _ := filepath.Rel(root, path)
 		relPath = filepath.ToSlash(relPath)
 
-		if excluder != nil && excluder.ShouldExclude(relPath) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+		skipDir, skipFile := grepShouldSkipEntry(path, relPath, d, excluder, filterGlob, exts)
+		if skipDir {
+			return filepath.SkipDir
 		}
-
-		if d.IsDir() {
+		if skipFile {
 			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-
-		if filterGlob != nil && !filterGlob.Match(relPath) {
-			return nil
-		}
-
-		if exts != nil {
-			ext := filepath.Ext(path)
-			found := false
-			for _, e := range exts {
-				if strings.EqualFold(ext, e) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil
-			}
 		}
 
 		file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
@@ -213,6 +145,100 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 	}
 
 	return results, nil
+}
+
+func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Regexp, error) {
+	p := pattern
+	if caseInsens {
+		p = "(?i)" + p
+	}
+	if multiline {
+		p = "(?s)" + p
+	}
+	re, err := regexp.Compile(p)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex: %w", err)
+	}
+	return re, nil
+}
+
+func compileGrepGlob(fileGlob string) (glob.Glob, error) {
+	if fileGlob == "" {
+		return nil, nil
+	}
+	filterGlob, err := glob.Compile(fileGlob, '/')
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob: %w", err)
+	}
+	return filterGlob, nil
+}
+
+func grepExtensions(fileType string) []string {
+	if fileType == "" {
+		return nil
+	}
+	return grepTypeToExt[fileType]
+}
+
+func normalizedDisplayPath(root, displayPath string) string {
+	relPath := filepath.ToSlash(filepath.Clean(displayPath))
+	if relPath == "." || relPath == "" {
+		return filepath.Base(root)
+	}
+	return relPath
+}
+
+func grepSearchPath(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
+	if grepPathExcluded(path, relPath, filterGlob, exts, excluder) {
+		return nil, nil
+	}
+	file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMatches {
+		return nil, nil
+	}
+	return []grepFileResult{file}, nil
+}
+
+func grepShouldSkipEntry(path, relPath string, d fs.DirEntry, excluder *tool.PathExcluder, filterGlob glob.Glob, exts []string) (bool, bool) {
+	if excluder != nil && excluder.ShouldExclude(relPath) {
+		return d.IsDir(), true
+	}
+	if d.IsDir() {
+		return false, true
+	}
+	if !d.Type().IsRegular() {
+		return false, true
+	}
+	if grepPathExcluded(path, relPath, filterGlob, exts, excluder) {
+		return false, true
+	}
+	return false, false
+}
+
+func grepPathExcluded(path, relPath string, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) bool {
+	if excluder != nil && excluder.ShouldExclude(relPath) {
+		return true
+	}
+	if filterGlob != nil && !filterGlob.Match(relPath) {
+		return true
+	}
+	return !grepMatchesExtension(path, exts)
+}
+
+func grepMatchesExtension(path string, exts []string) bool {
+	if exts == nil {
+		return true
+	}
+	ext := filepath.Ext(path)
+	for _, candidate := range exts {
+		if strings.EqualFold(ext, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool) (grepFileResult, bool, error) {
@@ -237,61 +263,7 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 
 	contentText := string(content)
 	lines := strings.Split(contentText, "\n")
-	matches := make([]grepMatch, 0)
-
-	if multiline {
-		lineStarts := make([]int, len(lines))
-		offset := 0
-		for i, line := range lines {
-			lineStarts[i] = offset
-			offset += len(line)
-			if i < len(lines)-1 {
-				offset++
-			}
-		}
-
-		lineMatched := make([]bool, len(lines))
-		matchIndexes := re.FindAllStringIndex(contentText, -1)
-		for _, matchIndex := range matchIndexes {
-			matchStart := matchIndex[0]
-			matchEnd := matchIndex[1]
-			if matchEnd == matchStart {
-				matchEnd++
-			}
-			for i, line := range lines {
-				lineStart := lineStarts[i]
-				lineEnd := lineStart + len(line)
-				if i < len(lines)-1 {
-					lineEnd++
-				}
-				if lineStart < matchEnd && matchStart < lineEnd {
-					lineMatched[i] = true
-				}
-			}
-		}
-
-		for i, matched := range lineMatched {
-			if !matched {
-				continue
-			}
-			matches = append(matches, grepMatch{
-				file:       relPath,
-				lineNumber: i + 1,
-				line:       strings.TrimRight(lines[i], "\r"),
-			})
-		}
-	} else {
-		for i, line := range lines {
-			if re.MatchString(line) {
-				matches = append(matches, grepMatch{
-					file:       relPath,
-					lineNumber: i + 1,
-					line:       strings.TrimRight(line, "\r"),
-				})
-			}
-		}
-	}
-
+	matches := grepLineMatches(lines, contentText, relPath, re, multiline)
 	if len(matches) == 0 {
 		return grepFileResult{}, false, nil
 	}
@@ -301,6 +273,79 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 		lines:   lines,
 		matches: matches,
 	}, true, nil
+}
+
+func grepLineMatches(lines []string, contentText, relPath string, re *regexp.Regexp, multiline bool) []grepMatch {
+	if multiline {
+		return grepMultilineMatches(lines, contentText, relPath, re)
+	}
+	return grepSingleLineMatches(lines, relPath, re)
+}
+
+func grepSingleLineMatches(lines []string, relPath string, re *regexp.Regexp) []grepMatch {
+	matches := make([]grepMatch, 0)
+	for i, line := range lines {
+		if !re.MatchString(line) {
+			continue
+		}
+		matches = append(matches, grepMatch{
+			file:       relPath,
+			lineNumber: i + 1,
+			line:       strings.TrimRight(line, "\r"),
+		})
+	}
+	return matches
+}
+
+func grepMultilineMatches(lines []string, contentText, relPath string, re *regexp.Regexp) []grepMatch {
+	lineMatched := make([]bool, len(lines))
+	lineStarts := grepLineStarts(lines)
+	matchIndexes := re.FindAllStringIndex(contentText, -1)
+	for _, matchIndex := range matchIndexes {
+		grepMarkMatchedLines(lineMatched, lines, lineStarts, matchIndex[0], matchIndex[1])
+	}
+
+	matches := make([]grepMatch, 0)
+	for i, matched := range lineMatched {
+		if !matched {
+			continue
+		}
+		matches = append(matches, grepMatch{
+			file:       relPath,
+			lineNumber: i + 1,
+			line:       strings.TrimRight(lines[i], "\r"),
+		})
+	}
+	return matches
+}
+
+func grepLineStarts(lines []string) []int {
+	lineStarts := make([]int, len(lines))
+	offset := 0
+	for i, line := range lines {
+		lineStarts[i] = offset
+		offset += len(line)
+		if i < len(lines)-1 {
+			offset++
+		}
+	}
+	return lineStarts
+}
+
+func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, matchStart, matchEnd int) {
+	if matchEnd == matchStart {
+		matchEnd++
+	}
+	for i, line := range lines {
+		lineStart := lineStarts[i]
+		lineEnd := lineStart + len(line)
+		if i < len(lines)-1 {
+			lineEnd++
+		}
+		if lineStart < matchEnd && matchStart < lineEnd {
+			lineMatched[i] = true
+		}
+	}
 }
 
 func buildGrepResult(files []grepFileResult, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {

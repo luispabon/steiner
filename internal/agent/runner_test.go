@@ -56,6 +56,7 @@ func TestInitialConversationTurnCount(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -177,6 +178,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -281,6 +283,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 	// Scratchpad state is now captured exclusively via tool call results.
 	// The assistant content is preserved unchanged; the rendered scratchpad
@@ -391,6 +394,7 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing.T) {
 	dir := t.TempDir()
 	oldWD, err := os.Getwd()
@@ -1043,6 +1047,7 @@ func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -1143,6 +1148,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -1376,6 +1382,7 @@ func TestRunnerEmitsTokenBudgetDiagnosticsForNormalTurns(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

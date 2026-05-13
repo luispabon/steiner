@@ -37,6 +37,7 @@ func minimalScaffoldInferenceRequest(t *testing.T, request provider.ChatRequest)
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -117,12 +118,12 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
 			if toolName == "scratchpad" {
-				intent, _ := input["intent"].(string)
-				decisions, _ := input["decisions"].(string)
-				open, _ := input["open"].(string)
-				next, _ := input["next"].(string)
+				intent := "inspect note"
+				decisions := "file unchanged"
+				open := "none"
+				next := "finish"
 				return tool.ExecutionResult{
 					Value: scratchpadToolResult(intent, decisions, open, next),
 				}, nil
@@ -261,6 +262,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T) {
 	const fullDelegateOutput = "delegate output with full findings and repository details"
 	const hiddenSummary = "hidden summary marker"
@@ -308,7 +310,7 @@ func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T)
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
 			switch toolName {
 			case "delegate":
 				return tool.ExecutionResult{
@@ -398,6 +400,7 @@ func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T)
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -474,6 +477,7 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -590,6 +594,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 	longText := strings.Repeat("very long context ", 200)
 	shortText := "short"
@@ -672,6 +677,7 @@ func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -804,6 +810,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -964,6 +971,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 	}
 }
 
+//nolint:gocyclo
 func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")

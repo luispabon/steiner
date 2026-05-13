@@ -168,7 +168,7 @@ func TestExecutorContextCancellation(t *testing.T) {
 		},
 	}
 
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
 		return nil
 	}), t.TempDir())
 
@@ -194,7 +194,7 @@ func TestExecutorApprovalBackendFailure(t *testing.T) {
 	}
 
 	backendErr := errors.New("approval transport unavailable")
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
 		return backendErr
 	}), t.TempDir())
 

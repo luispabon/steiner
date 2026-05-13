@@ -62,10 +62,9 @@ func TestDelegationStartedEvent(t *testing.T) {
 				if len(payload.TaskPreview) > 120 {
 					t.Errorf("TaskPreview total length %d exceeds 120", len(payload.TaskPreview))
 				}
-			} else {
-				if payload.TaskPreview != tt.taskPreview {
-					t.Errorf("TaskPreview = %q, want %q", payload.TaskPreview, tt.taskPreview)
-				}
+			}
+			if !tt.wantTrunc && payload.TaskPreview != tt.taskPreview {
+				t.Errorf("TaskPreview = %q, want %q", payload.TaskPreview, tt.taskPreview)
 			}
 
 			// Test JSON round-trip

@@ -117,6 +117,7 @@ func TestFileTrackerFallsBackToFullContentWhenGenerationChangesWithoutMtimeChang
 	}
 }
 
+//nolint:gocyclo
 func TestFileTrackerBumpGenerationIsFileWide(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")

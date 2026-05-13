@@ -71,7 +71,7 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 	return summarizeCompactionOutcome(ctx, req, state, turn, candidate, candidate.Messages, nil)
 }
 
-func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
+func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunState, _ int, candidate ConversationCandidate) (CompactionOutcome, error) {
 	retainTurns := d.retainTurns
 	if retainTurns <= 0 {
 		retainTurns = defaultDropRetainTurns
@@ -139,6 +139,7 @@ func (h hybridCompactor) Compact(ctx context.Context, req RunRequest, state RunS
 	return summarizeCompactionOutcome(ctx, req, state, turn, maskedCandidate, maskedMessages, maskedMessages)
 }
 
+// Compact reduces the current conversation to fit the model budget.
 func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message) ([]Message, error) {
 	state := RunState{
 		Conversation: currentConv,

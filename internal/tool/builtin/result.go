@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dive"
+
 	"github.com/luispabon/steiner/internal/tool/builtin/patchdoc"
 )
 

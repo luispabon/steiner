@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestCommandsVersion(t *testing.T) {
@@ -29,9 +30,6 @@ func TestCommandsVersion(t *testing.T) {
 	got := stdout.String()
 	if !strings.HasPrefix(got, "Steiner v") {
 		t.Fatalf("version output = %q, want Steiner v prefix", got)
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -88,10 +86,7 @@ func TestCommandsTools(t *testing.T) {
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
 	var closeCalls atomic.Int32
 
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			toolNames: []string{"bash", "read", "write"},
 			cfg:       testRuntimeConfig("test-model"),
@@ -131,10 +126,7 @@ func TestCommandsSkills(t *testing.T) {
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
 	var closeCalls atomic.Int32
 
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			skillNames: []string{"review", "debug"},
 			cfg:        testRuntimeConfig("test-model"),

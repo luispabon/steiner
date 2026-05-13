@@ -71,7 +71,7 @@ func newVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print the steiner version",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Steiner v%s\n", version)
 			return err
 		},
@@ -83,7 +83,7 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 		Use:   "config",
 		Short: "Print the resolved configuration",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
 					ConfigPath:  flags.configPath,
@@ -112,7 +112,7 @@ func newToolsCommand(flags *cliFlags) *cobra.Command {
 		Use:   "tools",
 		Short: "List configured tools",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			rt, err := buildRuntime(cmd.Context(), cmd, flags)
 			if err != nil {
 				return err
@@ -129,7 +129,7 @@ func newSkillsCommand(flags *cliFlags) *cobra.Command {
 		Use:   "skills",
 		Short: "List discovered skills",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			rt, err := buildRuntime(cmd.Context(), cmd, flags)
 			if err != nil {
 				return err
@@ -155,7 +155,7 @@ func renderNames(stream *output.Stream, heading string, names []string) {
 	}
 }
 
-func runListSessions(cmd *cobra.Command, flags *cliFlags) error {
+func runListSessions(cmd *cobra.Command, _ *cliFlags) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)

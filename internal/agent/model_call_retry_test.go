@@ -44,12 +44,13 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 
 	var sawDiagnostic bool
 	for _, event := range events {
-		switch payload := event.Payload.(type) {
-		case output.ProviderDiagnosticEvent:
-			sawDiagnostic = true
-			if payload.Message != "retrying attempt 2/2" {
-				t.Fatalf("diagnostic message = %q, want %q", payload.Message, "retrying attempt 2/2")
-			}
+		payload, ok := event.Payload.(output.ProviderDiagnosticEvent)
+		if !ok {
+			continue
+		}
+		sawDiagnostic = true
+		if payload.Message != "retrying attempt 2/2" {
+			t.Fatalf("diagnostic message = %q, want %q", payload.Message, "retrying attempt 2/2")
 		}
 	}
 	if !sawDiagnostic {

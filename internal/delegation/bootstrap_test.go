@@ -594,7 +594,7 @@ func TestBuildChildRun(t *testing.T) {
 	tests := []struct {
 		name string
 		spec DelegationSpec
-		want func(t *testing.T, req agent.RunRequest, limits DelegationLimits)
+		want func(t *testing.T, req agent.RunRequest)
 	}{
 		{
 			name: "default limits and prompt",
@@ -603,7 +603,7 @@ func TestBuildChildRun(t *testing.T) {
 				AgentID: "test-1",
 				Limits:  DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 15 {
 					t.Errorf("MaxTurns=%d, want 15", req.Limits.MaxTurns)
 				}
@@ -645,7 +645,7 @@ func TestBuildChildRun(t *testing.T) {
 				AgentID: "test-2",
 				Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50000},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 5 {
 					t.Errorf("MaxTurns=%d, want 5", req.Limits.MaxTurns)
 				}
@@ -662,7 +662,7 @@ func TestBuildChildRun(t *testing.T) {
 				SystemPrompt: "custom",
 				Limits:       DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) < 1 {
 					t.Fatal("Conversation empty")
 				}
@@ -679,7 +679,7 @@ func TestBuildChildRun(t *testing.T) {
 				Context: "extra",
 				Limits:  DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) != 1 {
 					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
@@ -704,7 +704,7 @@ func TestBuildChildRun(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
-			tt.want(t, req, DelegationLimits{})
+			tt.want(t, req)
 		})
 	}
 }

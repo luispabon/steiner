@@ -200,7 +200,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		return boxStyle.Width(boxWidth).Render(header) + "\n"
 	}
 	// Expanded: wrap both header + body in single box
-	bodyContent := b.renderToolBody(tc, width, tagBgColor)
+	bodyContent := b.renderToolBody(tc, width)
 
 	// Combine for box rendering
 	fullContent := theme.WithBg(header+"\n"+bodyContent, lipgloss.Color(theme.BgElev))
@@ -256,7 +256,7 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 	return parts, width
 }
 
-func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int, tagBgColor string) string {
+func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 	const maxRows = 20
 
 	rowWidth := width // caller accounts for outer box border+padding

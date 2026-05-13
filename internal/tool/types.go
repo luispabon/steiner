@@ -21,6 +21,7 @@ type ToolDef struct {
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 }
 
+// RetentionKindDelegateSummary identifies retained delegate summaries.
 const RetentionKindDelegateSummary = "delegate_summary"
 
 // ToolRetention carries runtime-only metadata that can be preserved alongside a

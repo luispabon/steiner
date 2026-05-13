@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
@@ -44,6 +45,7 @@ const (
 	inputTailFill  = 1
 )
 
+// Model owns the interactive TUI state and rendering pipeline.
 type Model struct {
 	width    int
 	height   int

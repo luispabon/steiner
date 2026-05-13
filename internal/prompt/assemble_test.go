@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+//nolint:gocyclo
 func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	t.Parallel()
 
@@ -76,7 +77,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
 	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
 
-	if !(0 < readme && readme < conversation && conversation < toolSummary) {
+	if readme <= 0 || readme >= conversation || conversation >= toolSummary {
 		t.Fatalf("message order = readme:%d conversation:%d tool_summary:%d", readme, conversation, toolSummary)
 	}
 }
@@ -156,6 +157,7 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	t.Parallel()
 

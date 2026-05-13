@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
+//nolint:gocyclo // command parsing branches intentionally stay explicit
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	value := strings.TrimSpace(m.input.Value())
 	if m.approval.active {

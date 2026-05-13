@@ -106,21 +106,23 @@ func TestBuiltins(t *testing.T) {
 	t.Run("tool error is model-visible", func(t *testing.T) {
 		for _, td := range tools {
 			errResult, err := td.Handler(context.Background(), map[string]any{})
-			if err == nil {
-				_, isResult := errResult.(ReadResult)
-				_, isPtrResult := errResult.(*ReadResult)
-				_, isGlobResult := errResult.(Result)
-				_, isPtrGlob := errResult.(*Result)
-				_, isGrepResult := errResult.(GrepResult)
-				_, isMutation := errResult.(*MutationResult)
-				_, isBash := errResult.(*BashResult)
-				_, isDisplayFile := errResult.(*DisplayFileResult)
-				_, isApplyPatch := errResult.(*ApplyPatchResult)
+			if err != nil {
+				continue
+			}
 
-				hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch
-				if !hasResult {
-					t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
-				}
+			_, isResult := errResult.(ReadResult)
+			_, isPtrResult := errResult.(*ReadResult)
+			_, isGlobResult := errResult.(Result)
+			_, isPtrGlob := errResult.(*Result)
+			_, isGrepResult := errResult.(GrepResult)
+			_, isMutation := errResult.(*MutationResult)
+			_, isBash := errResult.(*BashResult)
+			_, isDisplayFile := errResult.(*DisplayFileResult)
+			_, isApplyPatch := errResult.(*ApplyPatchResult)
+
+			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch
+			if !hasResult {
+				t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 			}
 		}
 	})
@@ -128,14 +130,11 @@ func TestBuiltins(t *testing.T) {
 	t.Run("handler returns errors for invalid input", func(t *testing.T) {
 		for _, td := range tools {
 			td := td
-			t.Run(td.Name, func(t *testing.T) {
+			t.Run(td.Name, func(_ *testing.T) {
 				_, err := td.Handler(context.Background(), map[string]any{
 					"nonexistent_key": "value",
 				})
-				if err == nil {
-					// Some tools (ls, glob) may handle unknown fields via default path,
-					// but they should eventually return something
-				}
+				_ = err
 			})
 		}
 	})

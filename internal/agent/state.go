@@ -60,6 +60,7 @@ func (g ConversationGeneration) SummaryPrefixStrippedMessages() []Message {
 	return cloneMessages(g.Messages)
 }
 
+// ConversationCandidate captures one candidate view of the conversation lineage.
 type ConversationCandidate struct {
 	GenerationID int
 	View         ConversationViewKind

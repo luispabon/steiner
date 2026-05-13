@@ -169,45 +169,66 @@ func (e *semanticTokenEstimator) countValue(value any) int {
 		return 0
 	}
 
+	if total, ok := e.countValueByKind(value, visited); ok {
+		return total
+	}
+	return e.countText(fmt.Sprint(value))
+}
+
+func (e *semanticTokenEstimator) countValueByKind(value any, visited reflect.Value) (int, bool) {
 	switch visited.Kind() {
 	case reflect.Interface, reflect.Pointer:
 		if visited.IsNil() {
-			return 0
+			return 0, true
 		}
-		return e.countValue(visited.Elem().Interface())
+		return e.countValue(visited.Elem().Interface()), true
 	case reflect.String:
-		return e.countText(visited.String())
+		return e.countText(visited.String()), true
 	case reflect.Bool:
-		if visited.Bool() {
-			return e.countText("true")
-		}
-		return e.countText("false")
+		return e.countBool(visited.Bool()), true
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return e.countText(strconv.FormatInt(visited.Int(), 10))
+		return e.countText(strconv.FormatInt(visited.Int(), 10)), true
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return e.countText(strconv.FormatUint(visited.Uint(), 10))
+		return e.countText(strconv.FormatUint(visited.Uint(), 10)), true
 	case reflect.Float32, reflect.Float64:
-		return e.countText(strconv.FormatFloat(visited.Float(), 'f', -1, 64))
+		return e.countText(strconv.FormatFloat(visited.Float(), 'f', -1, 64)), true
 	case reflect.Slice, reflect.Array:
-		total := visited.Len() * listEntryOverheadTokens
-		for i := 0; i < visited.Len(); i++ {
-			total += e.countValue(visited.Index(i).Interface())
-		}
-		return total
+		return e.countSequenceValue(visited), true
 	case reflect.Map:
-		total := 0
-		for _, key := range visited.MapKeys() {
-			total += mapEntryOverheadTokens
-			total += e.countText(fmt.Sprint(key.Interface()))
-			total += e.countValue(visited.MapIndex(key).Interface())
-		}
-		return total
+		return e.countMapValue(visited), true
+	case reflect.Invalid:
+		return 0, true
 	default:
 		if stringer, ok := value.(fmt.Stringer); ok {
-			return e.countText(stringer.String())
+			return e.countText(stringer.String()), true
 		}
-		return e.countText(fmt.Sprint(value))
+		return 0, false
 	}
+}
+
+func (e *semanticTokenEstimator) countBool(value bool) int {
+	if value {
+		return e.countText("true")
+	}
+	return e.countText("false")
+}
+
+func (e *semanticTokenEstimator) countSequenceValue(value reflect.Value) int {
+	total := value.Len() * listEntryOverheadTokens
+	for i := 0; i < value.Len(); i++ {
+		total += e.countValue(value.Index(i).Interface())
+	}
+	return total
+}
+
+func (e *semanticTokenEstimator) countMapValue(value reflect.Value) int {
+	total := 0
+	for _, key := range value.MapKeys() {
+		total += mapEntryOverheadTokens
+		total += e.countText(fmt.Sprint(key.Interface()))
+		total += e.countValue(value.MapIndex(key).Interface())
+	}
+	return total
 }
 
 func tokenizerForModel(model string) (tokenizer.Codec, error) {

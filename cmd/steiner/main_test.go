@@ -16,13 +16,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
-	"gopkg.in/yaml.v3"
 )
 
 func TestMain(m *testing.M) {
@@ -394,9 +395,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
 			cfg: cfg,
@@ -541,8 +540,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	})
 
 	logPath := filepath.Join(t.TempDir(), "session.log")
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
+	buildRuntime = func(_ context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		fileSink, err := output.NewFileLogSink(flags.logFile, true)
 		if err != nil {
 			return cliRuntime{}, err
@@ -617,10 +615,7 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 64
@@ -709,10 +704,7 @@ func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
 	})
 
 	var prov *fakeProvider
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 0
@@ -799,10 +791,7 @@ func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 256
@@ -1412,7 +1401,7 @@ type fakeProvider struct {
 	responses []provider.ChatResponse
 }
 
-func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 	p.requests = append(p.requests, req)
 	if len(p.responses) == 0 {
 		return provider.ChatResponse{}, fmt.Errorf("no response configured")
@@ -1422,7 +1411,7 @@ func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequ
 	return resp, nil
 }
 
-func (p *fakeProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+func (p *fakeProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	return nil, fmt.Errorf("stream not used")
 }
 

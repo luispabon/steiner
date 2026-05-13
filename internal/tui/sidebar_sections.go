@@ -97,7 +97,7 @@ func (s sidebarState) repositorySection(width int) []string {
 	lines := []string{
 		"",
 		cardLabel("repository", s.styles),
-		cardField("workdir", s.styles.FgDim, fitTextMiddle(s.workdirSummary(width), maxWD), s.styles),
+		cardField("workdir", s.styles.FgDim, fitTextMiddle(s.workdirSummary(), maxWD), s.styles),
 		s.branchLine(width),
 	}
 	if s.ahead > 0 {

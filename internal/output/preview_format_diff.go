@@ -42,21 +42,13 @@ func formatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDoc
 func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) PreviewDocument {
 	syntax := DetectPreviewSyntax(path, firstNonEmpty(after, before))
 	lines := make([]PreviewLine, 0, 8)
-	appendLine := func(line PreviewLine) bool {
-		if lineLimit >= 0 && len(lines) >= lineLimit {
-			return false
-		}
-		lines = append(lines, line)
-		return true
-	}
+	appendLine := func(line PreviewLine) bool { return appendPreviewLine(&lines, line, lineLimit) }
 
 	if !appendLine(newHeaderLine("---", path)) {
-		lines = append(lines, truncationLine(lineLimit))
-		return PreviewDocument{Kind: PreviewFormatKindEditDiff, Path: path, Language: syntax.Language, Lines: lines, Truncated: true, LineLimit: lineLimit}
+		return truncatedDiffPreview(path, syntax.Language, lines, lineLimit)
 	}
 	if !appendLine(newHeaderLine("+++", path)) {
-		lines = append(lines, truncationLine(lineLimit))
-		return PreviewDocument{Kind: PreviewFormatKindEditDiff, Path: path, Language: syntax.Language, Lines: lines, Truncated: true, LineLimit: lineLimit}
+		return truncatedDiffPreview(path, syntax.Language, lines, lineLimit)
 	}
 
 	beforeLines := splitPreviewLines(normalizePreviewText(before))
@@ -64,10 +56,6 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 	if syntax.Language == "markdown" {
 		beforeLines, afterLines = trimSharedMarkdownHeadingPrefix(beforeLines, afterLines)
 	}
-	beforeHighlighted, beforeHighlightedOK := highlightedPreviewLines(joinPreviewLines(beforeLines), syntax.Lexer)
-	afterHighlighted, afterHighlightedOK := highlightedPreviewLines(joinPreviewLines(afterLines), syntax.Lexer)
-	beforeIndex := 0
-	afterIndex := 0
 	oldRange := previewRangeSpec(len(beforeLines))
 	newRange := previewRangeSpec(len(afterLines))
 	hunkHeader := PreviewLine{
@@ -78,47 +66,13 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 		},
 	}
 	if !appendLine(hunkHeader) {
-		lines = append(lines, truncationLine(lineLimit))
-		return PreviewDocument{Kind: PreviewFormatKindEditDiff, Path: path, Language: syntax.Language, Lines: lines, Truncated: true, LineLimit: lineLimit}
+		return truncatedDiffPreview(path, syntax.Language, lines, lineLimit)
 	}
 
 	for _, op := range diffLineOps(beforeLines, afterLines) {
-		var line PreviewLine
-		switch op.kind {
-		case diffOpEqual:
-			if beforeHighlightedOK {
-				line = beforeHighlighted[beforeIndex]
-				beforeIndex++
-				if afterHighlightedOK {
-					afterIndex++
-				}
-				line.Kind = PreviewLineKindContext
-				line.Prefix = " "
-			} else {
-				line = highlightedLine(PreviewLineKindContext, " ", syntax.Lexer, op.before)
-			}
-		case diffOpDelete:
-			if beforeHighlightedOK {
-				line = beforeHighlighted[beforeIndex]
-				beforeIndex++
-				line.Kind = PreviewLineKindRemoved
-				line.Prefix = "-"
-			} else {
-				line = highlightedLine(PreviewLineKindRemoved, "-", syntax.Lexer, op.before)
-			}
-		case diffOpInsert:
-			if afterHighlightedOK {
-				line = afterHighlighted[afterIndex]
-				afterIndex++
-				line.Kind = PreviewLineKindAdded
-				line.Prefix = "+"
-			} else {
-				line = highlightedLine(PreviewLineKindAdded, "+", syntax.Lexer, op.after)
-			}
-		}
+		line := formatDiffPreviewLine(op, syntax.Lexer)
 		if !appendLine(line) {
-			lines = append(lines, truncationLine(lineLimit))
-			return PreviewDocument{Kind: PreviewFormatKindEditDiff, Path: path, Language: syntax.Language, Lines: lines, Truncated: true, LineLimit: lineLimit}
+			return truncatedDiffPreview(path, syntax.Language, lines, lineLimit)
 		}
 	}
 
@@ -129,6 +83,32 @@ func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 		Lines:     lines,
 		Truncated: false,
 		LineLimit: lineLimit,
+	}
+}
+
+func appendPreviewLine(lines *[]PreviewLine, line PreviewLine, lineLimit int) bool {
+	if lineLimit >= 0 && len(*lines) >= lineLimit {
+		return false
+	}
+	*lines = append(*lines, line)
+	return true
+}
+
+func truncatedDiffPreview(path, language string, lines []PreviewLine, lineLimit int) PreviewDocument {
+	lines = append(lines, truncationLine(lineLimit))
+	return PreviewDocument{Kind: PreviewFormatKindEditDiff, Path: path, Language: language, Lines: lines, Truncated: true, LineLimit: lineLimit}
+}
+
+func formatDiffPreviewLine(op diffOp, lexer chroma.Lexer) PreviewLine {
+	switch op.kind {
+	case diffOpEqual:
+		return highlightedLine(PreviewLineKindContext, " ", lexer, op.before)
+	case diffOpDelete:
+		return highlightedLine(PreviewLineKindRemoved, "-", lexer, op.before)
+	case diffOpInsert:
+		return highlightedLine(PreviewLineKindAdded, "+", lexer, op.after)
+	default:
+		return PreviewLine{}
 	}
 }
 
@@ -166,32 +146,40 @@ type diffOp struct {
 	after  string
 }
 
-func diffLineOps(before, after []string) []diffOp {
-	type cell struct {
-		length int
-		prevI  int
-		prevJ  int
-		move   diffOpKind
-	}
+type diffCell struct {
+	length int
+	prevI  int
+	prevJ  int
+	move   diffOpKind
+}
 
-	table := make([][]cell, len(before)+1)
+func diffLineOps(before, after []string) []diffOp {
+	table := buildDiffTable(before, after)
+	return walkDiffOps(before, after, table)
+}
+
+func buildDiffTable(before, after []string) [][]diffCell {
+	table := make([][]diffCell, len(before)+1)
 	for i := range table {
-		table[i] = make([]cell, len(after)+1)
+		table[i] = make([]diffCell, len(after)+1)
 	}
 
 	for i := len(before) - 1; i >= 0; i-- {
 		for j := len(after) - 1; j >= 0; j-- {
 			switch {
 			case before[i] == after[j]:
-				table[i][j] = cell{length: table[i+1][j+1].length + 1, prevI: i + 1, prevJ: j + 1, move: diffOpEqual}
+				table[i][j] = diffCell{length: table[i+1][j+1].length + 1, prevI: i + 1, prevJ: j + 1, move: diffOpEqual}
 			case table[i+1][j].length >= table[i][j+1].length:
-				table[i][j] = cell{length: table[i+1][j].length, prevI: i + 1, prevJ: j, move: diffOpDelete}
+				table[i][j] = diffCell{length: table[i+1][j].length, prevI: i + 1, prevJ: j, move: diffOpDelete}
 			default:
-				table[i][j] = cell{length: table[i][j+1].length, prevI: i, prevJ: j + 1, move: diffOpInsert}
+				table[i][j] = diffCell{length: table[i][j+1].length, prevI: i, prevJ: j + 1, move: diffOpInsert}
 			}
 		}
 	}
+	return table
+}
 
+func walkDiffOps(before, after []string, table [][]diffCell) []diffOp {
 	ops := make([]diffOp, 0, len(before)+len(after))
 	for i, j := 0, 0; i < len(before) || j < len(after); {
 		if i < len(before) && j < len(after) && before[i] == after[j] {

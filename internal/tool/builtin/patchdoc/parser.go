@@ -90,9 +90,7 @@ func (p *parser) parseAddFile() (Hunk, error) {
 		if isTopLevelMarker(line) {
 			break
 		}
-		if strings.HasPrefix(line, "+") {
-			line = line[1:]
-		}
+		line = strings.TrimPrefix(line, "+")
 		contents.WriteString(line)
 		contents.WriteByte('\n')
 		p.pos++
@@ -167,24 +165,14 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 		return UpdateFileChunk{}, p.errorf("unexpected end of patch")
 	}
 
-	line := p.lines[p.pos]
-	chunk := UpdateFileChunk{}
-	switch {
-	case line == emptyChangeContextMarker:
-		p.pos++
-	case strings.HasPrefix(line, changeContextMarker):
-		chunk.HasContext = true
-		chunk.ChangeContext = strings.TrimPrefix(line, changeContextMarker)
-		p.pos++
-	default:
-		if !allowMissingContext {
-			return UpdateFileChunk{}, p.errorf("expected update chunk context marker, got %q", line)
-		}
+	chunk, err := p.parseUpdateChunkHeader(allowMissingContext)
+	if err != nil {
+		return UpdateFileChunk{}, err
 	}
 
 	bodyLines := 0
 	for p.pos < len(p.lines) {
-		line = p.lines[p.pos]
+		line := p.lines[p.pos]
 		if line == eofMarker {
 			if bodyLines == 0 {
 				return UpdateFileChunk{}, p.errorf("update chunk has no lines")
@@ -193,33 +181,14 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 			p.pos++
 			return chunk, nil
 		}
-		if line == emptyChangeContextMarker || strings.HasPrefix(line, changeContextMarker) {
+		if isChunkBoundary(line) {
 			if bodyLines == 0 {
 				return UpdateFileChunk{}, p.errorf("update chunk has no lines")
 			}
 			break
 		}
-		if isTopLevelMarker(line) {
-			if bodyLines == 0 {
-				return UpdateFileChunk{}, p.errorf("update chunk has no lines")
-			}
-			break
-		}
-
-		switch {
-		case line == "":
-			chunk.OldLines = append(chunk.OldLines, "")
-			chunk.NewLines = append(chunk.NewLines, "")
-		case strings.HasPrefix(line, " "):
-			text := line[1:]
-			chunk.OldLines = append(chunk.OldLines, text)
-			chunk.NewLines = append(chunk.NewLines, text)
-		case strings.HasPrefix(line, "+"):
-			chunk.NewLines = append(chunk.NewLines, line[1:])
-		case strings.HasPrefix(line, "-"):
-			chunk.OldLines = append(chunk.OldLines, line[1:])
-		default:
-			return UpdateFileChunk{}, p.errorf("unexpected line in update chunk: %q; update hunk body lines must start with %q for context, %q for additions, or %q for removals; prefix raw %q lines with a leading space", line, " ", "+", "-", firstRuneString(line))
+		if err := appendChunkLine(&chunk, line); err != nil {
+			return UpdateFileChunk{}, p.errorf("%v", err)
 		}
 
 		bodyLines++
@@ -231,6 +200,48 @@ func (p *parser) parseUpdateChunk(allowMissingContext bool) (UpdateFileChunk, er
 	}
 
 	return chunk, nil
+}
+
+func (p *parser) parseUpdateChunkHeader(allowMissingContext bool) (UpdateFileChunk, error) {
+	line := p.lines[p.pos]
+	switch {
+	case line == emptyChangeContextMarker:
+		p.pos++
+		return UpdateFileChunk{}, nil
+	case strings.HasPrefix(line, changeContextMarker):
+		p.pos++
+		return UpdateFileChunk{
+			HasContext:    true,
+			ChangeContext: strings.TrimPrefix(line, changeContextMarker),
+		}, nil
+	case allowMissingContext:
+		return UpdateFileChunk{}, nil
+	default:
+		return UpdateFileChunk{}, p.errorf("expected update chunk context marker, got %q", line)
+	}
+}
+
+func isChunkBoundary(line string) bool {
+	return line == emptyChangeContextMarker || strings.HasPrefix(line, changeContextMarker) || isTopLevelMarker(line)
+}
+
+func appendChunkLine(chunk *UpdateFileChunk, line string) error {
+	switch {
+	case line == "":
+		chunk.OldLines = append(chunk.OldLines, "")
+		chunk.NewLines = append(chunk.NewLines, "")
+	case strings.HasPrefix(line, " "):
+		text := line[1:]
+		chunk.OldLines = append(chunk.OldLines, text)
+		chunk.NewLines = append(chunk.NewLines, text)
+	case strings.HasPrefix(line, "+"):
+		chunk.NewLines = append(chunk.NewLines, line[1:])
+	case strings.HasPrefix(line, "-"):
+		chunk.OldLines = append(chunk.OldLines, line[1:])
+	default:
+		return fmt.Errorf("unexpected line in update chunk: %q; update hunk body lines must start with %q for context, %q for additions, or %q for removals; prefix raw %q lines with a leading space", line, " ", "+", "-", firstRuneString(line))
+	}
+	return nil
 }
 
 func isTopLevelMarker(line string) bool {

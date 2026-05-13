@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
+
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -19,7 +20,7 @@ func NewGlobTool(env Env) tool.ToolDef {
 		Name:            "glob",
 		Description:     "Find files by glob pattern. Use limit and offset to page through large result sets.",
 		ParameterSchema: GlobSchema(),
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[GlobInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)

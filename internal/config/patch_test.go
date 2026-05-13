@@ -11,7 +11,6 @@ func boolPtr(v bool) *bool                         { return &v }
 func approvalModePtr(v ApprovalMode) *ApprovalMode { return &v }
 func durationPtr(v Duration) *Duration             { return &v }
 func debugPatchPtr(v debugPatch) *debugPatch       { return &v }
-func retryPatchPtr(v retryPatch) *retryPatch       { return &v }
 
 func stringSlicePtr(v ...string) *[]string {
 	s := append([]string(nil), v...)
@@ -31,10 +30,6 @@ func stringAnyMapPtr(v map[string]any) *map[string]any {
 }
 
 func modelPatchMapPtr(v map[string]modelPatch) *map[string]modelPatch {
-	return &v
-}
-
-func modelPromptsPatchPtr(v modelPromptsPatch) *modelPromptsPatch {
 	return &v
 }
 

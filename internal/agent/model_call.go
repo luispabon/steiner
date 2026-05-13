@@ -86,65 +86,12 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	sawFinal := false
 
 	for chunk := range chunks {
-		if chunk.RetryReset {
-			response = provider.ChatResponse{}
-			message = provider.Message{Role: provider.MessageRoleAssistant}
-			sawFinal = false
-			if chunk.Diagnostic != "" {
-				emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-					Turn:     turn,
-					Severity: chunk.Severity,
-					Message:  chunk.Diagnostic,
-				}))
-			}
+		advance, err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal)
+		if err != nil {
+			return provider.ChatResponse{}, err
+		}
+		if !advance {
 			continue
-		}
-		if chunk.Diagnostic != "" {
-			emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-				Turn:     turn,
-				Severity: chunk.Severity,
-				Message:  chunk.Diagnostic,
-			}))
-			continue
-		}
-		if errText := strings.TrimSpace(chunk.Error); errText != "" {
-			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
-		}
-		if role := chunk.Delta.Role; role != "" {
-			message.Role = role
-		}
-		if !chunk.Done {
-			if thinking := chunk.Thinking; thinking != "" {
-				emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
-			}
-			if content := chunk.Delta.Content; content != "" {
-				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			}
-			if len(chunk.Delta.ToolCalls) > 0 {
-				message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
-			}
-			continue
-		}
-		sawFinal = true
-		response.Usage = chunk.Usage
-		response.FinishReason = chunk.FinishReason
-		if content := chunk.Delta.Content; content != "" {
-			switch {
-			case message.Content == "":
-				message.Content = content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			case strings.HasPrefix(content, message.Content):
-				message.Content = content
-			case strings.HasPrefix(message.Content, content):
-				// Final chunk already represented by prior deltas.
-			default:
-				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			}
-		}
-		if len(chunk.Delta.ToolCalls) > 0 {
-			message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
 		}
 	}
 
@@ -154,6 +101,106 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 
 	response.Message = message
 	return response, nil
+}
+
+func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) (bool, error) {
+	if handled, err := handleRetryResetChunk(sink, turn, chunk, response, message, sawFinal); handled || err != nil {
+		return false, err
+	}
+	if handled, err := handleDiagnosticChunk(sink, turn, chunk); handled || err != nil {
+		return false, err
+	}
+	if handled, err := handleErrorChunk(chunk); handled || err != nil {
+		return false, err
+	}
+	if role := chunk.Delta.Role; role != "" {
+		message.Role = role
+	}
+	if !chunk.Done {
+		if err := handleStreamingChunk(sink, turn, source, chunk, message); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	*sawFinal = true
+	if err := handleFinalChunk(sink, turn, source, chunk, response, message); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) (bool, error) {
+	if !chunk.RetryReset {
+		return false, nil
+	}
+	*response = provider.ChatResponse{}
+	*message = provider.Message{Role: provider.MessageRoleAssistant}
+	*sawFinal = false
+	if chunk.Diagnostic != "" {
+		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+			Turn:     turn,
+			Severity: chunk.Severity,
+			Message:  chunk.Diagnostic,
+		}))
+	}
+	return true, nil
+}
+
+func handleDiagnosticChunk(sink output.EventSink, turn int, chunk provider.ChatChunk) (bool, error) {
+	if chunk.Diagnostic == "" {
+		return false, nil
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     turn,
+		Severity: chunk.Severity,
+		Message:  chunk.Diagnostic,
+	}))
+	return true, nil
+}
+
+func handleErrorChunk(chunk provider.ChatChunk) (bool, error) {
+	if errText := strings.TrimSpace(chunk.Error); errText != "" {
+		return true, fmt.Errorf("%s", errText)
+	}
+	return false, nil
+}
+
+func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, message *provider.Message) error {
+	if thinking := chunk.Thinking; thinking != "" {
+		emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
+	}
+	if content := chunk.Delta.Content; content != "" {
+		message.Content += content
+		emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+	}
+	if len(chunk.Delta.ToolCalls) > 0 {
+		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+	}
+	return nil
+}
+
+func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message) error {
+	response.Usage = chunk.Usage
+	response.FinishReason = chunk.FinishReason
+	if content := chunk.Delta.Content; content != "" {
+		switch {
+		case message.Content == "":
+			message.Content = content
+			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+		case strings.HasPrefix(content, message.Content):
+			message.Content = content
+		case strings.HasPrefix(message.Content, content):
+			// Final chunk already represented by prior deltas.
+		default:
+			message.Content += content
+			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+		}
+	}
+	if len(chunk.Delta.ToolCalls) > 0 {
+		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+	}
+	return nil
 }
 
 func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) (int, error) {

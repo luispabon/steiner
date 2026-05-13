@@ -31,7 +31,16 @@ func DefaultAssemblyPolicy() AssemblyPolicy {
 
 func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 	defaults := DefaultAssemblyPolicy()
+	if err := validateAssemblyPolicy(policy); err != nil {
+		return AssemblyPolicy{}, err
+	}
+	policy.Budgets = normalizeSourceBudgets(policy.Budgets, defaults.Budgets)
+	policy.Compaction = normalizeCompactionPolicy(policy.Compaction, defaults.Compaction)
+	policy.ToolSummary = normalizeToolSummaryPolicy(policy.ToolSummary, defaults.ToolSummary)
+	return policy, nil
+}
 
+func validateAssemblyPolicy(policy AssemblyPolicy) error {
 	if policy.Budgets.PreambleBytes < 0 ||
 		policy.Budgets.GlobalAgentsBytes < 0 ||
 		policy.Budgets.ProjectAgentsBytes < 0 ||
@@ -39,44 +48,54 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		policy.Budgets.SkillBytes < 0 ||
 		policy.Budgets.ToolResultBytes < 0 ||
 		policy.Budgets.ToolSummaryBytes < 0 {
-		return AssemblyPolicy{}, fmt.Errorf("assembly budgets must not be negative")
+		return fmt.Errorf("assembly budgets must not be negative")
 	}
 	if policy.Compaction.SummaryBytes < 0 {
-		return AssemblyPolicy{}, fmt.Errorf("summary bytes must not be negative")
+		return fmt.Errorf("summary bytes must not be negative")
 	}
 	if policy.ToolSummary.MaxBytes < 0 {
-		return AssemblyPolicy{}, fmt.Errorf("tool summary max bytes must not be negative")
+		return fmt.Errorf("tool summary max bytes must not be negative")
 	}
+	return nil
+}
 
-	if policy.Budgets.PreambleBytes == 0 {
-		policy.Budgets.PreambleBytes = defaults.Budgets.PreambleBytes
+func normalizeSourceBudgets(budgets, defaults SourceBudgetModel) SourceBudgetModel {
+	if budgets.PreambleBytes == 0 {
+		budgets.PreambleBytes = defaults.PreambleBytes
 	}
-	if policy.Budgets.GlobalAgentsBytes == 0 {
-		policy.Budgets.GlobalAgentsBytes = defaults.Budgets.GlobalAgentsBytes
+	if budgets.GlobalAgentsBytes == 0 {
+		budgets.GlobalAgentsBytes = defaults.GlobalAgentsBytes
 	}
-	if policy.Budgets.ProjectAgentsBytes == 0 {
-		policy.Budgets.ProjectAgentsBytes = defaults.Budgets.ProjectAgentsBytes
+	if budgets.ProjectAgentsBytes == 0 {
+		budgets.ProjectAgentsBytes = defaults.ProjectAgentsBytes
 	}
-	if policy.Budgets.ProjectContextBytes == 0 {
-		policy.Budgets.ProjectContextBytes = defaults.Budgets.ProjectContextBytes
+	if budgets.ProjectContextBytes == 0 {
+		budgets.ProjectContextBytes = defaults.ProjectContextBytes
 	}
-	if policy.Budgets.SkillBytes == 0 {
-		policy.Budgets.SkillBytes = defaults.Budgets.SkillBytes
+	if budgets.SkillBytes == 0 {
+		budgets.SkillBytes = defaults.SkillBytes
 	}
-	if policy.Budgets.ToolResultBytes == 0 {
-		policy.Budgets.ToolResultBytes = defaults.Budgets.ToolResultBytes
+	if budgets.ToolResultBytes == 0 {
+		budgets.ToolResultBytes = defaults.ToolResultBytes
 	}
-	if policy.Budgets.ToolSummaryBytes == 0 {
-		policy.Budgets.ToolSummaryBytes = defaults.Budgets.ToolSummaryBytes
+	if budgets.ToolSummaryBytes == 0 {
+		budgets.ToolSummaryBytes = defaults.ToolSummaryBytes
 	}
+	return budgets
+}
 
-	if policy.Compaction.SummaryBytes == 0 {
-		policy.Compaction.SummaryBytes = defaults.Compaction.SummaryBytes
+func normalizeCompactionPolicy(compaction, defaults CompactionPolicy) CompactionPolicy {
+	if compaction.SummaryBytes == 0 {
+		compaction.SummaryBytes = defaults.SummaryBytes
 	}
-	if policy.ToolSummary.MaxBytes == 0 {
-		policy.ToolSummary.MaxBytes = defaults.ToolSummary.MaxBytes
+	return compaction
+}
+
+func normalizeToolSummaryPolicy(toolSummary, defaults ToolSummaryPolicy) ToolSummaryPolicy {
+	if toolSummary.MaxBytes == 0 {
+		toolSummary.MaxBytes = defaults.MaxBytes
 	}
-	return policy, nil
+	return toolSummary
 }
 
 func validateAssemblyOptions(opts AssemblyOptions) error {

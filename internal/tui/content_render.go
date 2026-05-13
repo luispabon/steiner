@@ -62,6 +62,7 @@ func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+//nolint:gocyclo // dispatch-heavy segment renderer
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentToolCall:
