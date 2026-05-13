@@ -515,9 +515,9 @@ func TestCompactorForRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		manager   ContextManager
-		wantType  string
+		name     string
+		manager  ContextManager
+		wantType string
 	}{
 		{
 			name:     "no ContextManager defaults to summarize",
