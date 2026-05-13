@@ -23,5 +23,29 @@ jobs:
       - name: Install check tools
         run: make install-check-tools
 
-      - name: Run checks
-        run: make ci-check
+      - name: Tidy check
+        run: make tidy-check
+
+      - name: Format check
+        run: make fmt-check
+
+      - name: Imports check
+        run: make imports-check
+
+      - name: Build
+        run: make build-binaries
+
+      - name: Test
+        run: make test
+
+      - name: Vet
+        run: make vet
+
+      - name: Lint
+        run: make lint
+
+      - name: Vuln check
+        run: make vuln
+
+      - name: Test race
+        run: make test-race
