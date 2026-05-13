@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// DefaultGlobalAgentsPath returns the default global AGENTS.md location.
 func DefaultGlobalAgentsPath(homeDir string) string {
 	if homeDir == "" {
 		return ""
@@ -14,7 +15,7 @@ func DefaultGlobalAgentsPath(homeDir string) string {
 	return filepath.Join(homeDir, ".config", "steiner", "AGENTS.md")
 }
 
-func LoadAgents(globalPath, projectPath string) ([]ContextBlock, error) {
+func loadAgents(globalPath, projectPath string) ([]ContextBlock, error) {
 	blocks := make([]ContextBlock, 0, 2)
 
 	if block, err := loadMarkdownFile(globalPath, ContextSourceGlobalAgentsMD); err != nil {

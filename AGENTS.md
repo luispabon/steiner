@@ -2,6 +2,10 @@
 
 `steiner` is a minimal local-first Go coding agent. Optimize for bounded context, explicit tool use, and safe local execution.
 
+## Project Overview
+
+`cmd/steiner` composes the CLI and wires packages together. `internal/agent` runs the loop, `internal/prompt` assembles context, `internal/tool` executes bounded tools, `internal/output` shapes terminal and machine-readable events, and `internal/tui` owns the interactive UI.
+
 ## Repo map
 
 ```text
@@ -23,6 +27,7 @@ docs/                    Product/design docs and implementation notes
 ## Boundaries and invariants
 
 * Keep package boundaries strict.
+* `cmd/steiner` is the composition root; it wires dependencies and flags only, and must not accumulate business logic.
 * `internal/agent` must not bypass provider abstractions or scheduler parallelism.
 * `internal/prompt` owns context assembly and stays separate from execution.
 * Context assembly order is intentional; update `internal/prompt` tests when changing precedence.
@@ -38,6 +43,8 @@ docs/                    Product/design docs and implementation notes
 * Use snake_case Go filenames.
 * Put tests next to source.
 * Aim for production `.go` files under ~300 lines; split around ~500 by domain responsibility.
+* In `internal/tui`, keep render, update, sidebar, and event-state concerns split before files drift past the line target.
+* In `internal/output`, keep render, event, and preview/report concerns split before files drift past the line target.
 * Do not create `util`, `helper`, or `common` packages. Put shared code in the package that owns the domain.
 
 ## Work loop
@@ -76,7 +83,8 @@ Go version: `1.25`.
 * Use `0o` octal literals.
 * Do not shadow builtins such as `close`, `max`, or `min`.
 * Keep symbols unexported unless cross-package use requires export.
-* Every exported symbol needs Godoc starting with its name.
+* Exported symbols in `internal/` must be justified by cross-package use and documented immediately with Godoc starting with the symbol name.
+* TODO comments must name the follow-up action or owner, not leave open-ended debt markers.
 
 ## Security
 

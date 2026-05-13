@@ -174,7 +174,7 @@ func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
 // Handle processes an interactive action. Handles SubmitPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
-// SwitchModel, SubmitApproval, LoadSession, and RequestSessionPicker.
+// SwitchModel, SubmitApproval, LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	switch a := action.(type) {
 	case SubmitPrompt:
@@ -213,7 +213,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		return nil
 	case LoadSession:
 		return s.loadSession(ctx, a.SessionID)
-	case RequestSessionPicker:
+	case requestSessionPicker:
 		return nil
 	default:
 		return fmt.Errorf("handle: unknown action type %T", action)
@@ -299,14 +299,13 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		}
 	}
 
-
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
 	var promptTokens int
 	for _, msg := range msgs {
 		t, err := provider.EstimateMessageTokens(ctx, s.deps.Config.Model.Model, provider.Message{
-			Role:       provider.MessageRole(msg.Role),
-			Content:    msg.Content,
+			Role:    provider.MessageRole(msg.Role),
+			Content: msg.Content,
 		})
 		if err != nil {
 			_ = err

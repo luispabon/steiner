@@ -22,6 +22,7 @@ const (
 	listEntryOverheadTokens = 1
 )
 
+// EstimateMessageTokens estimates the semantic token cost of a message.
 func EstimateMessageTokens(ctx context.Context, model string, message Message) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -41,6 +42,7 @@ func EstimateMessageTokens(ctx context.Context, model string, message Message) (
 	return total, nil
 }
 
+// EstimateToolSpecTokens estimates the semantic token cost of a tool schema.
 func EstimateToolSpecTokens(ctx context.Context, model string, tool ToolSpec) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -60,10 +62,12 @@ func EstimateToolSpecTokens(ctx context.Context, model string, tool ToolSpec) (i
 	return total, nil
 }
 
+// RequestOverheadTokens returns the fixed token overhead for a request envelope.
 func RequestOverheadTokens() int {
 	return requestOverheadTokens
 }
 
+// EstimateChatRequestTokens estimates the semantic token cost of a request.
 func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err

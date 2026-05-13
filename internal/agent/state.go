@@ -1,5 +1,6 @@
 package agent
 
+// StopReason records why a run terminated.
 type StopReason string
 
 const (
@@ -10,6 +11,7 @@ const (
 	StopReasonError     StopReason = "error"
 )
 
+// ConversationViewKind identifies the view used for a conversation candidate.
 type ConversationViewKind string
 
 const (
@@ -64,6 +66,7 @@ type ConversationCandidate struct {
 	Messages     []Message
 }
 
+// ConversationLineage tracks the generation history of a conversation.
 type ConversationLineage struct {
 	Generations      []ConversationGeneration `json:"generations"`
 	NextGenerationID int                      `json:"next_generation_id"`
@@ -221,6 +224,7 @@ func (l ConversationLineage) PruneGenerationsBefore(cutoffGenerationID int) Conv
 	return next
 }
 
+// RunState captures the mutable state of an in-flight run.
 type RunState struct {
 	TurnCount    int
 	TokenCount   int

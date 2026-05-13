@@ -26,40 +26,71 @@ import (
 func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
 	turn := in.State.TurnCount + 1
 
-	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
-	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
+	p.emitModelCallStarted(in, turn, assembly)
 
-	response, err := completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
+	response, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
 	if err != nil {
-		if cancelled, ok := contextCancellationState(ctx, in.State); ok {
-			emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, nil))
-			emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
-			emitStop(in.Request.Events, cancelled, nil)
-			return turnOutcome{State: cancelled, Stop: true}
-		}
-		state := in.State
-		state.StopReason = StopReasonError
-		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, err))
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
-		emitStop(in.Request.Events, state, err)
-		return turnOutcome{State: state, Stop: true, Error: err}
+		return p.handleModelCallError(ctx, in, turn, err)
 	}
 
+	response = p.normalizeModelResponse(in, turn, response)
+	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+	p.emitAssistantMessage(in, turn, response)
+	state = appendAssistantMessage(state, turn, response.Message)
+
+	if len(response.Message.ToolCalls) == 0 {
+		return p.finishAssistantOnlyTurn(ctx, in, state, turn, response)
+	}
+
+	return turnOutcome{State: state, Response: &response}
+}
+
+func (p *turnProgressor) emitModelCallStarted(in turnInput, turn int, assembly prompt.Assembly) {
+	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
+	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
+}
+
+func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
+	return completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
+}
+
+func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
+	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
+		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, nil))
+		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
+		emitStop(in.Request.Events, cancelled, nil)
+		return turnOutcome{State: cancelled, Stop: true}
+	}
+	state := in.State
+	state.StopReason = StopReasonError
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, err))
+	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
+	emitStop(in.Request.Events, state, err)
+	return turnOutcome{State: state, Stop: true, Error: err}
+}
+
+func (p *turnProgressor) normalizeModelResponse(in turnInput, turn int, response provider.ChatResponse) provider.ChatResponse {
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
-	if response.Message.Content != "" {
-		sanitized, note := processAssistantResponseForContextManager(in.Request.ContextManager, turn, response.Message.Content)
-		response.Message.Content = sanitized
-		if note != "" {
-			emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Turn:     turn,
-				Notes:    []string{note},
-			}))
-		}
+	if response.Message.Content == "" {
+		return response
 	}
+	sanitized, note := processAssistantResponseForContextManager(in.Request.ContextManager, turn, response.Message.Content)
+	response.Message.Content = sanitized
+	if note != "" {
+		emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Turn:     turn,
+			Notes:    []string{note},
+		}))
+	}
+	return response
+}
+
+func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInput, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, int) {
 	state := in.State
 	state.TurnCount = turn
 	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
@@ -71,28 +102,32 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 		}))
 	}
 	state.TokenCount += turnTokens
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+	return state, turnTokens
+}
+
+func (p *turnProgressor) emitAssistantMessage(in turnInput, turn int, response provider.ChatResponse) {
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(in.Request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
 	}
+}
 
-	assistant := fromProviderMessage(response.Message)
+func appendAssistantMessage(state RunState, turn int, message provider.Message) RunState {
+	assistant := fromProviderMessage(message)
 	assistant.Turn = turn
 	state.Conversation = append(state.Conversation, assistant)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
+	return state
+}
 
-	if len(response.Message.ToolCalls) == 0 {
-		if in.Request.ContextManager != nil {
-			p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
-			in.Request.ContextManager.OnTurnComplete(turn, false)
-		}
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
-		state.StopReason = StopReasonComplete
-		emitStop(in.Request.Events, state, nil)
-		return turnOutcome{State: state, Stop: true}
+func (p *turnProgressor) finishAssistantOnlyTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
+	if in.Request.ContextManager != nil {
+		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
+		in.Request.ContextManager.OnTurnComplete(turn, false)
 	}
-
-	return turnOutcome{State: state, Response: &response}
+	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
+	state.StopReason = StopReasonComplete
+	emitStop(in.Request.Events, state, nil)
+	return turnOutcome{State: state, Stop: true}
 }
 
 // executeToolCalls runs the tool-execution phase of the turn lifecycle and
@@ -112,47 +147,65 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 	scratchpadCalled := false
 
 	for _, call := range response.Message.ToolCalls {
-		if call.Name == "scratchpad" {
-			scratchpadCalled = true
+		var outcome turnOutcome
+		state, scratchpadCalled, outcome = p.executeSingleToolCall(ctx, in, state, turn, call, scratchpadCalled)
+		if outcome.Stop {
+			return outcome
 		}
-		writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
-		emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
-
-		result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
-		if cancelled, ok := contextCancellationState(ctx, state); ok {
-			emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-			emitStop(in.Request.Events, cancelled, nil)
-			return turnOutcome{State: cancelled, Stop: true}
-		}
-
-		var toolContent string
-		var preview output.ToolPreview
-		normalizedResult := ToolResultEnvelope{}
-		if err != nil {
-			toolContent = formatToolError(err)
-			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
-		} else {
-			recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments, result)
-			normalizedResult = normalizeToolResult(result)
-			toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
-			preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
-			emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
-		}
-		toolMessage := Message{
-			Role:       MessageRoleTool,
-			Content:    toolContent,
-			ToolCallID: call.ID,
-			Name:       call.Name,
-			Turn:       turn,
-		}
-		if err == nil {
-			toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
-		}
-		state.Conversation = append(state.Conversation, toolMessage)
-		state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	}
 
+	return p.finalizeToolTurn(ctx, in, state, turn, response, scratchpadCalled)
+}
+
+func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput, state RunState, turn int, call provider.ToolCall, scratchpadCalled bool) (RunState, bool, turnOutcome) {
+	if call.Name == "scratchpad" {
+		scratchpadCalled = true
+	}
+	writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
+	emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
+
+	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+		emitStop(in.Request.Events, cancelled, nil)
+		return state, scratchpadCalled, turnOutcome{State: cancelled, Stop: true}
+	}
+
+	toolMessage := p.buildToolMessage(in, turn, call, result, err, writeTargetExistedBefore)
+	state.Conversation = append(state.Conversation, toolMessage)
+	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
+	return state, scratchpadCalled, turnOutcome{}
+}
+
+func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error, writeTargetExistedBefore *bool) Message {
+	var toolContent string
+	var preview output.ToolPreview
+	normalizedResult := ToolResultEnvelope{}
+	if err != nil {
+		toolContent = formatToolError(err)
+		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+	} else {
+		recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments, result)
+		normalizedResult = normalizeToolResult(result)
+		toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
+		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+	}
+	toolMessage := Message{
+		Role:       MessageRoleTool,
+		Content:    toolContent,
+		ToolCallID: call.ID,
+		Name:       call.Name,
+		Turn:       turn,
+	}
+	if err == nil {
+		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
+	}
+	return toolMessage
+}
+
+func (p *turnProgressor) finalizeToolTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse, scratchpadCalled bool) turnOutcome {
 	if in.Request.ContextManager != nil {
 		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
 		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)

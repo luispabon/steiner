@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -35,95 +34,22 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	selected, err := selectedModelConfig(r.runtime.cfg)
+	setup, err := r.prepareRun(conversation, skillNames)
 	if err != nil {
 		return runResult{}, err
 	}
-	if r.currentModel != nil {
-		selected = r.currentModel()
-	}
-
-	prov := r.runtime.provider
-	if r.runtime.providerFactory != nil {
-		prov, err = r.runtime.providerFactory(selected)
-		if err != nil {
-			return runResult{}, err
-		}
-	}
-	if prov == nil {
-		return runResult{}, fmt.Errorf("provider is required")
-	}
-	prov = loggingProvider{
-		inner: prov,
-		sink:  r.runtime.events,
-	}
-
-	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
-	}
-
-	assembly := prompt.AssemblyOptions{
-		HomeDir:                   r.runtime.homeDir,
-		ProjectRoot:               r.runtime.workDir,
-		SkillsRoot:                prompt.DefaultSkillsRoot(r.runtime.homeDir),
-		SkillNames:                append([]string(nil), skillNames...),
-		ModelBudget:               modelBudget,
-		PromptOverrides:           selected.Prompts,
-		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
-		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
-		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
-		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.ScratchpadMode == config.ScratchpadModeHybrid,
-		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
-		Conversation:              toProviderConversation(conversation),
-	}
-
-	runMode := strings.TrimSpace(r.runMode)
-	if runMode == "" {
-		runMode = "exec"
-	}
 	r.runtime.events.Emit(output.NewRunStartedEvent(
-		runMode,
-		selected.Model,
+		setup.runMode,
+		setup.selected.Model,
 		lastUserPrompt(conversation),
 		r.maxTurns,
 		r.runtime.cfg.Limits.MaxTokens,
 	))
 
-	var diagnostics []output.Event
-	events := output.NewMultiSink(
-		r.runtime.events,
-		output.SinkFunc(func(event output.Event) {
-			if isRetainedDiagnosticEvent(event) {
-				diagnostics = append(diagnostics, event)
-			}
-		}),
-	)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, prov, events, r.runtime.workDir, selected.ExtraParams, selected.Thinking, modelBudget, selected.Model, selected.MaxCompletionTokens, r.streamingPreferred)
-	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
+	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.selected.ExtraParams, setup.selected.Thinking, setup.modelBudget, setup.selected.Model, setup.selected.MaxCompletionTokens, r.streamingPreferred)
 	runner := agent.NewRunner()
-	maxTokens := selected.MaxCompletionTokens
-	ctxManager := agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement)
-	state, err := runner.Run(runCtx, agent.RunRequest{
-		Provider:    prov,
-		Executor:    executor,
-		Tools:       activeRegistry.ToProviderSpecs(),
-		Prompt:      assembly,
-		ModelBudget: modelBudget,
-		Model:       selected.Model,
-		ExtraParams: selected.ExtraParams,
-		MaxTokens:   &maxTokens,
-		Limits: agent.Limits{
-			MaxTurns:  r.maxTurns,
-			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
-		},
-		Events:             events,
-		ContextManager:     ctxManager,
-		Thinking:           selected.Thinking,
-		StreamingPreferred: r.streamingPreferred,
-	})
+	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)
@@ -142,7 +68,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	return runResult{
 		Conversation: state.Conversation,
 		Reply:        lastAssistantReply(state.Conversation),
-		Diagnostics:  cloneEvents(diagnostics),
+		Diagnostics:  cloneEvents(*diagnostics),
 	}, nil
 }
 

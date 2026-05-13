@@ -86,8 +86,6 @@ type LoadSession struct{ SessionID string }
 
 func (LoadSession) isInteractiveAction() {}
 
-// RequestSessionPicker represents a user request to select and load a saved
-// session. The TUI interprets this and emits the LoadSession action.
-type RequestSessionPicker struct{}
+type requestSessionPicker struct{}
 
-func (RequestSessionPicker) isInteractiveAction() {}
+func (requestSessionPicker) isInteractiveAction() {}

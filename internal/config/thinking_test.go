@@ -12,28 +12,28 @@ func TestThinkingConfigPatchApply(t *testing.T) {
 		want  ThinkingConfig
 	}{
 		{
-			name: "enable false overrides true default",
-			base: ThinkingConfig{Enabled: true},
+			name:  "enable false overrides true default",
+			base:  ThinkingConfig{Enabled: true},
 			patch: thinkingConfigPatch{Enabled: boolPtr(false)},
-			want: ThinkingConfig{Enabled: false},
+			want:  ThinkingConfig{Enabled: false},
 		},
 		{
-			name: "enable scaffold inference",
-			base: ThinkingConfig{Enabled: true, EnabledScaffoldInference: false},
+			name:  "enable scaffold inference",
+			base:  ThinkingConfig{Enabled: true, EnabledScaffoldInference: false},
 			patch: thinkingConfigPatch{EnabledScaffoldInference: boolPtr(true)},
-			want: ThinkingConfig{Enabled: true, EnabledScaffoldInference: true},
+			want:  ThinkingConfig{Enabled: true, EnabledScaffoldInference: true},
 		},
 		{
-			name: "set disable marker",
-			base: ThinkingConfig{Enabled: true},
+			name:  "set disable marker",
+			base:  ThinkingConfig{Enabled: true},
 			patch: thinkingConfigPatch{DisableMarker: strPtr("<|think_off|>")},
-			want: ThinkingConfig{Enabled: true, DisableMarker: "<|think_off|>"},
+			want:  ThinkingConfig{Enabled: true, DisableMarker: "<|think_off|>"},
 		},
 		{
-			name: "set params",
-			base: ThinkingConfig{Enabled: true},
+			name:  "set params",
+			base:  ThinkingConfig{Enabled: true},
 			patch: thinkingConfigPatch{Params: &map[string]any{"thinking": map[string]any{"type": "enabled"}}},
-			want: ThinkingConfig{Enabled: true, Params: map[string]any{"thinking": map[string]any{"type": "enabled"}}},
+			want:  ThinkingConfig{Enabled: true, Params: map[string]any{"thinking": map[string]any{"type": "enabled"}}},
 		},
 		{
 			name:  "nil patch leaves base unchanged",

@@ -16,12 +16,14 @@ type StreamCapture struct {
 	Preview   string `json:"preview,omitempty"`
 }
 
+// ExecutionMetadata captures summarized stdout and stderr for a tool run.
 type ExecutionMetadata struct {
 	ExitCode int           `json:"exit_code"`
 	Stdout   StreamCapture `json:"stdout"`
 	Stderr   StreamCapture `json:"stderr"`
 }
 
+// ExecutionResult is the normalized result returned by a tool execution.
 type ExecutionResult struct {
 	Value     any               `json:"value,omitempty"`
 	Metadata  ExecutionMetadata `json:"metadata"`

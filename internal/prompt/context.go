@@ -16,7 +16,7 @@ type ProjectContextOptions struct {
 	IgnoreFiles []string
 }
 
-func GatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
+func gatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {
 		return nil, nil

@@ -1,5 +1,6 @@
 package agent
 
+// MessageRole identifies the semantic role of a conversation message.
 type MessageRole string
 
 const (
@@ -10,6 +11,7 @@ const (
 	MessageRoleContextBlock MessageRole = "context-block"
 )
 
+// ToolCall records a requested tool invocation.
 type ToolCall struct {
 	ID        string         `json:"id,omitempty"`
 	Name      string         `json:"name,omitempty"`
@@ -25,6 +27,7 @@ type MessageRetention struct {
 	TokenCount int    `json:"token_count,omitempty"`
 }
 
+// Message is the agent-side conversation record used across compaction flows.
 type Message struct {
 	Role       MessageRole       `json:"role"`
 	Content    string            `json:"content,omitempty"`
