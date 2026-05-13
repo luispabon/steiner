@@ -59,14 +59,22 @@ docs/                    Product/design docs and implementation notes
 
 Commands:
 
-```bash
-gofmt -w <files>
-go test ./path/to/pkg -run TestName
-go test ./...
-go build ./...
-go vet ./...
-make build-binaries
-```
+	```bash
+	gofmt -w <files>
+	goimports -w <files>
+	go test ./path/to/pkg -run TestName
+	go test ./...
+	go test -race ./...
+	go build ./...
+	go vet ./...
+	golangci-lint run ./...
+	govulncheck ./...
+	make quick-check
+	make check
+	make ci-check
+	make build-binaries
+	```
+Before finalizing Go changes, run `make quick-check` at minimum. For larger changes, run `make check`. Before merging, run `make ci-check` where practical. If a check cannot run, report the exact command and failure.
 
 Go version: `1.25`.
 
