@@ -7,6 +7,8 @@ GOLANGCI_LINT_VERSION := latest
 GOVULNCHECK_VERSION := latest
 GOIMPORTS_VERSION := latest
 
+default: build-binaries
+
 .PHONY: install-check-tools
 install-check-tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
