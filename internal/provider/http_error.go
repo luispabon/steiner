@@ -65,6 +65,11 @@ func isRetryableTransportError(err error) bool {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
+	type temporary interface{ Temporary() bool }
+	var tmpErr temporary
+	if errors.As(err, &tmpErr) && tmpErr.Temporary() {
+		return true
+	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) && opErr.Err != nil {
 		return isRetryableTransportError(opErr.Err)
