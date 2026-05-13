@@ -33,22 +33,46 @@ fmt:
 	goimports -w $(GO_FILES)
 
 fmt-check:
-	test -z "$$(gofmt -l $(GO_FILES))"
+	@files="$$(gofmt -l $(GO_FILES))"; \
+	if [ -n "$$files" ]; then \
+		printf 'gofmt needs to run on:\n%s\n' "$$files"; \
+		exit 1; \
+	fi
 
 imports:
+	@command -v goimports >/dev/null 2>&1 || { \
+		echo "missing goimports; run 'make install-check-tools'"; \
+		exit 1; \
+	}
 	goimports -w $(GO_FILES)
 
 imports-check:
-	test -z "$$(goimports -l $(GO_FILES))"
+	@command -v goimports >/dev/null 2>&1 || { \
+		echo "missing goimports; run 'make install-check-tools'"; \
+		exit 1; \
+	}
+	@files="$$(goimports -l $(GO_FILES))"; \
+	if [ -n "$$files" ]; then \
+		printf 'goimports needs to run on:\n%s\n' "$$files"; \
+		exit 1; \
+	fi
 
 tidy-check:
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
 lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "missing golangci-lint; run 'make install-check-tools'"; \
+		exit 1; \
+	}
 	golangci-lint run ./...
 
 vuln:
+	@command -v govulncheck >/dev/null 2>&1 || { \
+		echo "missing govulncheck; run 'make install-check-tools'"; \
+		exit 1; \
+	}
 	govulncheck ./...
 
 quick-check: fmt-check imports-check build test vet

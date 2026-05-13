@@ -592,7 +592,7 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, cancelContextKey{}, context.CancelFunc(cancel))
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 
 	runner := NewRunner()
 	p := newTurnProgressor(runner)

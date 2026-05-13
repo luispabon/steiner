@@ -72,7 +72,7 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 
 	pathWidth := max(1, width-3-statsLen-1)
 	path := fitTextMiddle(file.Path, pathWidth)
-	glyphWithBg := glyphStyle.Copy().Background(lipgloss.Color(theme.Black))
+	glyphWithBg := glyphStyle.Background(lipgloss.Color(theme.Black))
 	line := glyphWithBg.Render(glyph) + spaceBgStyle.Render(" ") + s.styledWithBg(s.styles.FgDim, path)
 	if statsText != "" {
 		padding := max(1, width-2-lipgloss.Width(path)-statsLen)

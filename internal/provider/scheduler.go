@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+// Scheduler limits concurrent provider work.
 type Scheduler struct {
 	sem         *semaphore.Weighted
 	parallelism int64
@@ -23,6 +24,7 @@ func NewScheduler(parallelism int) (*Scheduler, error) {
 	}, nil
 }
 
+// Acquire reserves one scheduler slot.
 func (s *Scheduler) Acquire(ctx context.Context) error {
 	if s == nil || s.sem == nil {
 		return fmt.Errorf("scheduler is not initialized")
@@ -30,6 +32,7 @@ func (s *Scheduler) Acquire(ctx context.Context) error {
 	return s.sem.Acquire(ctx, 1)
 }
 
+// Release frees one scheduler slot.
 func (s *Scheduler) Release() {
 	if s == nil || s.sem == nil {
 		return
@@ -37,6 +40,7 @@ func (s *Scheduler) Release() {
 	s.sem.Release(1)
 }
 
+// Parallelism returns the configured scheduler width.
 func (s *Scheduler) Parallelism() int {
 	if s == nil {
 		return 0

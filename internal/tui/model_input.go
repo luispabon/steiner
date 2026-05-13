@@ -85,11 +85,13 @@ func (m Model) moveApprovalSelection(delta int) Model {
 
 func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.SubmitApproval{
+		if err := m.controller.Handle(context.Background(), interactive.SubmitApproval{
 			Tool:     m.approval.tool,
 			Mode:     m.approval.mode,
 			Decision: string(decision),
-		})
+		}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.approval = approvalState{}
 	m.status.mode = "running"
@@ -102,9 +104,11 @@ func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, te
 	return m, nil
 }
 
-func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
+func (m Model) executeInterruptAction() Model {
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.InterruptActiveRun{})
+		if err := m.controller.Handle(context.Background(), interactive.InterruptActiveRun{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.interruptPending = true
 	m.content.AppendInterrupted()
@@ -118,7 +122,7 @@ func (m Model) executeInterruptAction() (tea.Model, tea.Cmd) {
 	m.syncInputChrome()
 	m.syncSidebar()
 	m.syncViewport()
-	return m, nil
+	return m
 }
 
 func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
@@ -132,7 +136,9 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 	}
 	m.syncSidebar()
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.ClearConversation{})
+		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -142,7 +148,9 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 
 func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{})
+		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -152,7 +160,9 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 
 func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.RequestContextReport{})
+		if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -162,7 +172,9 @@ func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
 
 func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.RequestConfigReport{})
+		if err := m.controller.Handle(context.Background(), interactive.RequestConfigReport{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -187,7 +199,9 @@ func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
 	m.enabledSkills[skill] = enable
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enable})
+		if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enable}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	state := "disabled"
 	if enable {
@@ -289,7 +303,9 @@ func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, 
 		m.historyIdx = 0
 	}
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText})
+		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.content.AppendUser(submitText)
 	m.input.Reset()

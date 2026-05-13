@@ -26,7 +26,11 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if w.Path() != path {
 		t.Errorf("Path() = %q, want %q", w.Path(), path)
@@ -51,7 +55,11 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 
 func TestRecord_EmptyPrompt(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if err := w.Record(""); err != nil {
 		t.Fatalf("Record empty: %v", err)
@@ -74,7 +82,11 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	prompt := "user query"
 	if err := w.Record(prompt); err != nil {
@@ -105,7 +117,11 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 
 func TestRecord_EscapesSpecialChars(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	prompt := "col1\tcol2\nline2"
 	if err := w.Record(prompt); err != nil {
@@ -134,7 +150,11 @@ func TestRecord_EscapesSpecialChars(t *testing.T) {
 
 func TestRecord_TrimsAfterWrite(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	for i := 0; i < 55; i++ {
 		if err := w.Record("prompt"); err != nil {
@@ -153,7 +173,11 @@ func TestRecord_TrimsAfterWrite(t *testing.T) {
 
 func TestTrimAfterAppend_NoOp(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if err := w.Record("hello"); err != nil {
 		t.Fatalf("Record: %v", err)

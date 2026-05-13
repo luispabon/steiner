@@ -18,7 +18,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleApprovalKey(msg)
 	}
 
-	m.resetCompletionState(msg)
+	m = m.resetCompletionState(msg)
 	activeConversation := m.hasActiveConversation()
 	if handled, next, cmd := m.handleConversationKeyMsg(msg, activeConversation); handled {
 		return next, cmd
@@ -43,8 +43,7 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 		m.fileList, cmd = m.fileList.Update(msg)
 		return true, m, cmd
 	case m.contextOverlay.open:
-		next, cmd := m.handleContextOverlayKey(msg)
-		return true, next, cmd
+		return true, m.handleContextOverlayKey(msg), nil
 	case m.filePicker.open:
 		next, cmd := m.handleFilePickerKey(msg)
 		return true, next, cmd
@@ -52,19 +51,19 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 		next, cmd := m.handleSessionPickerKey(msg)
 		return true, next, cmd
 	case m.scratchpadOverlay.IsOpen():
-		next, cmd := m.handleScratchpadOverlayKey(msg)
-		return true, next, cmd
+		return true, m.handleScratchpadOverlayKey(msg), nil
 	default:
 		return false, m, nil
 	}
 }
 
-func (m Model) resetCompletionState(msg tea.KeyMsg) {
+func (m Model) resetCompletionState(msg tea.KeyMsg) Model {
 	if msg.Type == tea.KeyTab {
-		return
+		return m
 	}
 	m.completionCandidates = nil
 	m.completionIdx = 0
+	return m
 }
 
 func (m Model) hasActiveConversation() bool {
@@ -73,8 +72,7 @@ func (m Model) hasActiveConversation() bool {
 
 func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model, tea.Cmd) {
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
-		next, cmd := m.executeInterruptAction()
-		return true, next, cmd
+		return true, m.executeInterruptAction(), nil
 	}
 
 	if !m.scratchpadOverlay.IsOpen() && msg.Type == tea.KeyCtrlS {
@@ -196,7 +194,7 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleContextOverlayKey(msg tea.KeyMsg) tea.Model {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.contextOverlay = m.contextOverlay.closeContextOverlay()
@@ -209,10 +207,10 @@ func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyPgDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
 	}
-	return m, nil
+	return m
 }
 
-func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) tea.Model {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.scratchpadOverlay = m.scratchpadOverlay.closeScratchpadOverlay()
@@ -225,7 +223,7 @@ func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyPgDown:
 		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(scratchpadMaxLines)
 	}
-	return m, nil
+	return m
 }
 
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -255,7 +253,9 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 			m.sessionPicker = m.sessionPicker.Close()
 			if m.controller != nil {
-				_ = m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID})
+				if err := m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID}); err != nil {
+					m.content.AppendLine("status: " + err.Error())
+				}
 			}
 		}
 	default:

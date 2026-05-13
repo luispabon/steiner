@@ -40,7 +40,7 @@ func (s sidebarState) tokenBarLine(width int) string {
 		}
 	}
 
-	barWithBg := barStyle.Copy().Background(lipgloss.Color(theme.Black))
+	barWithBg := barStyle.Background(lipgloss.Color(theme.Black))
 	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
 	return barWithBg.Render(strings.Repeat("█", filled)) +
 		emptyWithBg.Render(strings.Repeat(" ", barWidth-filled))

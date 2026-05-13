@@ -193,18 +193,18 @@ func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayloa
 	}
 
 	if caption := renderDisplayFileCaption(payload); caption != "" {
-		fmt.Fprintln(r.w, r.decorate(ChannelTool, "  "+caption))
+		r.writeStringLocked(r.decorate(ChannelTool, "  "+caption) + "\n")
 	}
 	for _, line := range doc.Lines {
 		text := renderPreviewLineText(line)
 		if text == "" {
 			continue
 		}
-		fmt.Fprintln(r.w, r.decorate(renderPreviewChannel(line), "  "+text))
+		r.writeStringLocked(r.decorate(renderPreviewChannel(line), "  "+text) + "\n")
 	}
 	if doc.Truncated {
 		truncation := fmt.Sprintf("  output truncated after %d lines", doc.LineLimit)
-		fmt.Fprintln(r.w, r.decorate(ChannelStatus, truncation))
+		r.writeStringLocked(r.decorate(ChannelStatus, truncation) + "\n")
 	}
 }
 
@@ -224,7 +224,7 @@ func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc Pre
 		return
 	}
 	if caption := renderPreviewCaption(preview, doc); caption != "" {
-		fmt.Fprintln(r.w, r.decorate(ChannelStatus, "  "+caption))
+		r.writeStringLocked(r.decorate(ChannelStatus, "  "+caption) + "\n")
 	}
 	for _, line := range doc.Lines {
 		if doc.Kind == PreviewFormatKindEditDiff && line.Kind == PreviewLineKindHeader {
@@ -234,7 +234,7 @@ func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc Pre
 			}
 		}
 		if text := renderPreviewLineText(line); text != "" {
-			fmt.Fprintln(r.w, r.decorate(renderPreviewChannel(line), "  "+text))
+			r.writeStringLocked(r.decorate(renderPreviewChannel(line), "  "+text) + "\n")
 		}
 	}
 }

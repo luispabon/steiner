@@ -11,8 +11,6 @@ linters:
     - errcheck
     - ineffassign
     - unused
-    - gofmt
-    - goimports
     - misspell
     - revive
     - unconvert
@@ -23,28 +21,38 @@ linters:
     - gocritic
     - gocyclo
     - dupl
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 120
-  revive:
+  settings:
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 120
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: exported
+        - name: unreachable-code
+        - name: unused-parameter
+  exclusions:
+    paths:
+      - testdata
     rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: error-return
-      - name: error-strings
-      - name: exported
-      - name: unreachable-code
-      - name: unused-parameter
+      - path: _test\.go
+        linters:
+          - dupl
+          - gocyclo
 
-issues:
-  exclude-dirs:
-    - testdata
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - gocyclo
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/luispabon/steiner
+  exclusions:
+    paths:
+      - testdata

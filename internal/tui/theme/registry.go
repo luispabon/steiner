@@ -11,6 +11,7 @@ var (
 	defName string
 )
 
+// Register adds a named theme to the global theme registry.
 func Register(name string, theme Theme) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -20,6 +21,7 @@ func Register(name string, theme Theme) {
 	}
 }
 
+// Get returns a registered theme by name, falling back to the steiner theme.
 func Get(name string) (Theme, error) {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -35,6 +37,7 @@ func Get(name string) (Theme, error) {
 	return theme, nil
 }
 
+// Default returns the first registered theme.
 func Default() Theme {
 	mu.RLock()
 	defer mu.RUnlock()

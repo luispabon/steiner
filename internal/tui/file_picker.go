@@ -31,7 +31,7 @@ func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
 }
 
 func (f filePickerOverlay) Open(root string) filePickerOverlay {
-	f.OverlayShell = f.OverlayShell.openShell()
+	f.OverlayShell = f.openShell()
 	f.root = root
 	f.query = ""
 	f.selection = 0
@@ -73,7 +73,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 }
 
 func (f filePickerOverlay) Close() filePickerOverlay {
-	f.OverlayShell = f.OverlayShell.closeShell()
+	f.OverlayShell = f.closeShell()
 	return f
 }
 
@@ -160,7 +160,7 @@ func (f filePickerOverlay) View() string {
 
 	for i := f.scrollOffset; i < min(f.scrollOffset+maxDisplay, len(f.candidates)); i++ {
 		entry := f.candidates[i]
-		row := entry
+		var row string
 		if strings.HasSuffix(entry, "/") {
 			row = dirStyle.Render(entry)
 		} else {

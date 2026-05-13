@@ -52,6 +52,7 @@ type MoveResult struct {
 	To   string
 }
 
+// FS abstracts filesystem operations needed to plan and apply patches.
 type FS interface {
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
@@ -60,24 +61,30 @@ type FS interface {
 	Stat(name string) (fs.FileInfo, error)
 }
 
+// OSFS implements FS using the local operating system filesystem.
 type OSFS struct{}
 
+// ReadFile reads a file from disk.
 func (OSFS) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
+// WriteFile writes a file to disk with the given permissions.
 func (OSFS) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(name, data, perm)
 }
 
+// Remove deletes a file from disk.
 func (OSFS) Remove(name string) error {
 	return os.Remove(name)
 }
 
+// MkdirAll creates a directory tree on disk.
 func (OSFS) MkdirAll(path string, perm fs.FileMode) error {
 	return os.MkdirAll(path, perm)
 }
 
+// Stat returns file metadata from disk.
 func (OSFS) Stat(name string) (fs.FileInfo, error) {
 	return os.Stat(name)
 }
@@ -359,6 +366,7 @@ func isBinary(data []byte) bool {
 	return bytes.Contains(data, []byte{0})
 }
 
+// DeriveNewContents applies update chunks to original and returns the resulting text.
 func DeriveNewContents(original string, path string, chunks []UpdateFileChunk) (string, error) {
 	originalLines := splitCodexLines(original)
 	replacements, err := computeReplacements(originalLines, path, chunks)

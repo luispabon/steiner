@@ -1,3 +1,4 @@
+// Package skill discovers and loads auxiliary skill documents.
 package skill
 
 import (
@@ -9,10 +10,12 @@ import (
 	"strings"
 )
 
+// Loader discovers and loads skill documents from disk.
 type Loader struct {
 	RootDir string
 }
 
+// Skill describes a discovered skill document on disk.
 type Skill struct {
 	Name     string
 	Path     string
@@ -20,6 +23,7 @@ type Skill struct {
 	ByteSize int
 }
 
+// Discover lists skills available under the configured root directory.
 func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -63,6 +67,7 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 	return skills, nil
 }
 
+// Load reads a single skill document by name.
 func (l Loader) Load(ctx context.Context, name string) (Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return Skill{}, err
@@ -92,6 +97,7 @@ func (l Loader) Load(ctx context.Context, name string) (Skill, error) {
 	}, nil
 }
 
+// LoadMany reads multiple skill documents by name.
 func (l Loader) LoadMany(ctx context.Context, names []string) ([]Skill, error) {
 	skills := make([]Skill, 0, len(names))
 	for _, name := range names {

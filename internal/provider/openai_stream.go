@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -30,6 +31,17 @@ type openAIStreamState struct {
 }
 
 func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk) error {
+	return decodeChatStreamWithHandler(ctx, body, func(chunk ChatChunk) error {
+		select {
+		case out <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+}
+
+func decodeChatStreamWithHandler(ctx context.Context, body io.Reader, emit func(ChatChunk) error) error {
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{
 		toolCalls: make(map[int]*openAIToolCallAccumulator),
@@ -38,7 +50,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 	for {
 		event, err := readSSEEvent(reader)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err
@@ -72,27 +84,21 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 		if thinking := extractThinkingDelta(choice.Delta.Content); thinking != "" {
 			state.thinking.WriteString(thinking)
 			state.sawThinking = true
-			select {
-			case out <- ChatChunk{Thinking: thinking}:
-			case <-ctx.Done():
-				return ctx.Err()
+			if err := emit(ChatChunk{Thinking: thinking}); err != nil {
+				return err
 			}
 		} else if content := stringOrEmpty(choice.Delta.Content); content != "" {
 			state.content.WriteString(content)
 			state.sawContent = true
-			select {
-			case out <- ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: content}}:
-			case <-ctx.Done():
-				return ctx.Err()
+			if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: content}}); err != nil {
+				return err
 			}
 		}
 		if rc := choice.Delta.ReasoningContent; rc != "" {
 			state.thinking.WriteString(rc)
 			state.sawThinking = true
-			select {
-			case out <- ChatChunk{Thinking: rc}:
-			case <-ctx.Done():
-				return ctx.Err()
+			if err := emit(ChatChunk{Thinking: rc}); err != nil {
+				return err
 			}
 		}
 		if len(choice.Delta.ToolCalls) > 0 {
@@ -120,7 +126,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 		}
 	}
 
-	if err := flushStreamState(ctx, out, state); err != nil {
+	if err := flushStreamState(emit, state); err != nil {
 		return err
 	}
 	if !state.sawDone {
@@ -129,7 +135,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 	return nil
 }
 
-func flushStreamState(ctx context.Context, out chan<- ChatChunk, state openAIStreamState) error {
+func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error {
 	if !state.sawContent && !state.sawToolCall && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
@@ -155,12 +161,7 @@ func flushStreamState(ctx context.Context, out chan<- ChatChunk, state openAIStr
 		Done:         true,
 		FinishReason: state.finishReason,
 	}
-	select {
-	case out <- chunk:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return emit(chunk)
 }
 
 func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall, error) {

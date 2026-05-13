@@ -37,8 +37,6 @@ type paletteSwitchModelMsg struct{ name string }
 
 type paletteClearMsg struct{}
 
-type historyLoadedMsg struct{ prompts []string }
-
 const (
 	inputRailWidth = 1
 	inputPadX      = 1

@@ -3,9 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"os"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/prefs"
@@ -73,7 +74,9 @@ func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
 	}
 	m.syncSidebar()
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.ClearConversation{})
+		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -172,14 +175,14 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.fileList.height = msg.Height
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
 	if m.contextOverlay.open {
-		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
 	if m.scratchpadOverlay.IsOpen() {
-		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.WithDimensions(msg.Width, msg.Height)
 		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
 	}
-	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
+	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
 }

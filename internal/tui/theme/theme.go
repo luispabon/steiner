@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Theme describes the colors and styles needed to render the TUI.
 type Theme interface {
 	Background() lipgloss.Color
 	Foreground() lipgloss.Color
@@ -25,6 +26,7 @@ type Theme interface {
 	GlamourStyleSheet() glamour.TermRendererOption
 }
 
+// Styles groups all rendered styles for the TUI.
 type Styles struct {
 	ContentPane       lipgloss.Style
 	Sidebar           lipgloss.Style

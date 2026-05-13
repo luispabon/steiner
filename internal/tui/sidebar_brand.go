@@ -16,7 +16,7 @@ func (s sidebarState) brandLines(width int) []string {
 		"▄▌▐▖▙▖▌▌▌▙▖▌",
 	}
 	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
-	accentFg := s.styles.Accent.Copy().Background(lipgloss.Color(theme.Black))
+	accentFg := s.styles.Accent.Background(lipgloss.Color(theme.Black))
 	out := make([]string, 0, len(logo))
 	for i, line := range logo {
 		if i < 2 {
@@ -26,7 +26,7 @@ func (s sidebarState) brandLines(width int) []string {
 		out = append(out, bg.Render(line))
 	}
 
-	ver := s.styles.FgMute.Copy().Background(lipgloss.Color(theme.Black)).Render(s.version)
+	ver := s.styles.FgMute.Background(lipgloss.Color(theme.Black)).Render(s.version)
 	third := out[2] + bg.Render(" ") + ver
 	if pad := width - lipgloss.Width(third); pad > 0 {
 		third += bg.Render(strings.Repeat(" ", pad))
@@ -36,12 +36,12 @@ func (s sidebarState) brandLines(width int) []string {
 }
 
 func cardLabel(label string, styles theme.Styles) string {
-	return styles.CardLabel.Copy().Background(lipgloss.Color(theme.Black)).Render(strings.ToUpper(label))
+	return styles.CardLabel.Background(lipgloss.Color(theme.Black)).Render(strings.ToUpper(label))
 }
 
 func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
-	keyStyle := styles.FgFaint.Copy().Background(lipgloss.Color(theme.Black))
-	valStyleWithBg := valStyle.Copy().Background(lipgloss.Color(theme.Black))
+	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
+	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-7s", key))
 	return keyStr + valStyleWithBg.Render(value)
 }
@@ -53,8 +53,8 @@ func cardFieldWrapped(key string, valStyle lipgloss.Style, value string, width i
 		return nil
 	}
 	out := make([]string, 0, len(wrapped))
-	keyStyle := styles.FgFaint.Copy().Background(lipgloss.Color(theme.Black))
-	valStyleWithBg := valStyle.Copy().Background(lipgloss.Color(theme.Black))
+	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
+	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-7s", key))
 	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
 	indent := bgStyle.Render(strings.Repeat(" ", 7))

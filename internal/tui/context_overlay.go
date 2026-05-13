@@ -77,7 +77,7 @@ func (s contextOverlayState) reflow() contextOverlayState {
 
 // closeContextOverlay returns a copy of the state with the overlay closed.
 func (s contextOverlayState) closeContextOverlay() contextOverlayState {
-	s.OverlayShell = s.OverlayShell.closeShell()
+	s.OverlayShell = s.closeShell()
 	return s
 }
 
@@ -116,7 +116,7 @@ func (s contextOverlayState) scrollDown(n int) contextOverlayState {
 // renderContextOverlay builds the rendered overlay string.
 func (m *Model) renderContextOverlay() string {
 	s := m.contextOverlay
-	s.OverlayShell = s.OverlayShell.WithDimensions(m.width, m.height)
+	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
 	innerWidth := s.contextInnerWidth()
 

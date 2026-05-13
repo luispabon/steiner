@@ -102,7 +102,9 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 		if err != nil {
 			return false, err
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		payload, err := p.decodeNonStreamResponse(resp)
 		if err != nil {
@@ -166,30 +168,23 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		if err != nil {
 			return false, err
 		}
-		defer resp.Body.Close()
-
-		attemptOut := make(chan ChatChunk)
-		errCh := make(chan error, 1)
-		go func() {
-			defer close(attemptOut)
-			errCh <- p.decodeStreamResponse(ctx, resp.Body, attemptOut)
+		defer func() {
+			_ = resp.Body.Close()
 		}()
 
 		partialStream := false
-		for chunk := range attemptOut {
+		err = decodeChatStreamWithHandler(ctx, resp.Body, func(chunk ChatChunk) error {
 			if chunkVisible(chunk) {
 				partialStream = true
 			}
 			select {
 			case out <- chunk:
+				return nil
 			case <-ctx.Done():
-				return partialStream, ctx.Err()
+				return ctx.Err()
 			}
-		}
-		if err := <-errCh; err != nil {
-			return partialStream, err
-		}
-		return partialStream, nil
+		})
+		return partialStream, err
 	}, p.classifyRetryError, func(info retryAttemptInfo) {
 		if !info.PartialStream {
 			return

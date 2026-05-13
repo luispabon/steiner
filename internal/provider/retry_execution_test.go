@@ -19,9 +19,9 @@ func TestOpenAICompatChatCompletionRetries429ThenSucceeds(t *testing.T) {
 		case 1:
 			w.Header().Set("Retry-After", "3")
 			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprint(w, `{"error":"rate limited"}`)
+			_, _ = fmt.Fprint(w, `{"error":"rate limited"}`)
 		case 2:
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -65,9 +65,9 @@ func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "busy")
+			_, _ = fmt.Fprint(w, "busy")
 		case 2:
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -112,7 +112,7 @@ func TestOpenAICompatChatCompletionDoesNotRetry400(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, "bad request")
+		_, _ = fmt.Fprint(w, "bad request")
 	}))
 	defer server.Close()
 
@@ -157,9 +157,9 @@ func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 		case 1:
 			w.Header().Set("Retry-After", "120")
 			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprint(w, "retry later")
+			_, _ = fmt.Fprint(w, "retry later")
 		case 2:
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -196,7 +196,7 @@ func TestOpenAICompatChatCompletionExhaustsAttemptsWithTypedError(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "busy")
+		_, _ = fmt.Fprint(w, "busy")
 	}))
 	defer server.Close()
 
@@ -233,7 +233,7 @@ func TestOpenAICompatChatCompletionCancellationDuringBackoffStopsImmediately(t *
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "busy")
+			_, _ = fmt.Fprint(w, "busy")
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -294,9 +294,9 @@ func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
 		case 1:
 			close(firstAttemptSeen)
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "busy")
+			_, _ = fmt.Fprint(w, "busy")
 		case 2, 3:
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -349,9 +349,7 @@ func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
 		secondErr <- err
 	}()
 
-	select {
-	case <-time.After(50 * time.Millisecond):
-	}
+	<-time.After(50 * time.Millisecond)
 	if got := atomic.LoadInt32(&attempts); got != 1 {
 		t.Fatalf("attempts during sleep = %d, want 1", got)
 	}
@@ -375,20 +373,20 @@ func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "busy")
+			_, _ = fmt.Fprint(w, "busy")
 		case 2:
 			flusher, ok := w.(http.Flusher)
 			if !ok {
 				t.Fatal("writer does not support flushing")
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"finish_reason":"stop"}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
 			flusher.Flush()
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
@@ -451,7 +449,7 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 				t.Fatal("writer does not support flushing")
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
 			flusher.Flush()
 		case 2:
 			flusher, ok := w.(http.Flusher)
@@ -459,13 +457,13 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 				t.Fatal("writer does not support flushing")
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"world"}}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"world"}}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"finish_reason":"stop"}]}`)
 			flusher.Flush()
-			fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
 			flusher.Flush()
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
@@ -517,7 +515,7 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryCallerCancellation(t *testi
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, "busy")
+			_, _ = fmt.Fprint(w, "busy")
 		default:
 			t.Fatalf("unexpected attempt %d", attempts)
 		}
@@ -567,7 +565,7 @@ func TestOpenAICompatStreamChatCompletionAfterExhaustionSendsFinalErrorChunk(t *
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "busy")
+		_, _ = fmt.Fprint(w, "busy")
 	}))
 	defer server.Close()
 

@@ -1,8 +1,10 @@
+// Package history persists local conversation history.
 package history
 
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 )
 
+// Writer persists prompt history to a local file.
 type Writer struct {
 	mu   sync.Mutex
 	file *os.File
@@ -29,6 +32,7 @@ func NewWriter(path string) (*Writer, error) {
 	return &Writer{file: f, path: path}, nil
 }
 
+// Record appends a prompt to the history file and trims the file to the recent limit.
 func (w *Writer) Record(prompt string) error {
 	if prompt == "" {
 		return nil
@@ -48,11 +52,12 @@ func (w *Writer) Record(prompt string) error {
 	return w.TrimAfterAppend(50)
 }
 
+// TrimAfterAppend keeps only the most recent max history entries after an append.
 func (w *Writer) TrimAfterAppend(max int) error {
 	if max <= 0 {
 		return nil
 	}
-	if _, err := w.file.Seek(0, os.SEEK_SET); err != nil {
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("seek to beginning of file: %w", err)
 	}
 	var lines []string
@@ -64,7 +69,7 @@ func (w *Writer) TrimAfterAppend(max int) error {
 		return err
 	}
 	if len(lines) <= max {
-		if _, err := w.file.Seek(0, os.SEEK_SET); err != nil {
+		if _, err := w.file.Seek(0, io.SeekStart); err != nil {
 			return fmt.Errorf("seek to beginning of file: %w", err)
 		}
 		return nil
@@ -75,15 +80,17 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpPath)
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
 	for _, line := range lines {
 		if _, err := tmp.WriteString(line + "\n"); err != nil {
-			tmp.Close()
+			_ = tmp.Close()
 			return err
 		}
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -96,6 +103,7 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	return err
 }
 
+// Close closes the underlying history file.
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -107,14 +115,18 @@ func (w *Writer) Close() error {
 	return err
 }
 
+// Path returns the configured history file path.
 func (w *Writer) Path() string {
 	return w.path
 }
 
+// Load reads the stored prompts from the history file.
 func (w *Writer) Load() ([]string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.file.Seek(0, os.SEEK_SET)
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek to beginning of file: %w", err)
+	}
 	var prompts []string
 	scanner := bufio.NewScanner(w.file)
 	for scanner.Scan() {

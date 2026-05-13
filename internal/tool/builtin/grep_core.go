@@ -20,6 +20,7 @@ package builtin
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
+
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -206,7 +208,7 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 		return nil
 	})
 
-	if walkErr != nil && walkErr != filepath.SkipAll {
+	if walkErr != nil && !errors.Is(walkErr, filepath.SkipAll) {
 		return nil, fmt.Errorf("walk: %w", walkErr)
 	}
 
@@ -409,7 +411,7 @@ func renderGrepCountRows(rows []grepCountRow) string {
 	}
 	var b strings.Builder
 	for _, row := range rows {
-		b.WriteString(fmt.Sprintf("%s:%d\n", row.file, row.count))
+		_, _ = fmt.Fprintf(&b, "%s:%d\n", row.file, row.count)
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -445,7 +447,7 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 			continue
 		}
 
-		b.WriteString(fmt.Sprintf("## %s\n", file.file))
+		_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
 		for windowIndex, window := range windows {
 			for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
 				line := ""
@@ -453,9 +455,9 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 					line = strings.TrimRight(file.lines[lineNumber-1], "\r")
 				}
 				if showLines {
-					b.WriteString(fmt.Sprintf("%d: %s\n", lineNumber, line))
+					_, _ = fmt.Fprintf(&b, "%d: %s\n", lineNumber, line)
 				} else {
-					b.WriteString(fmt.Sprintf("%s\n", line))
+					_, _ = fmt.Fprintf(&b, "%s\n", line)
 				}
 			}
 			if windowIndex < len(windows)-1 {

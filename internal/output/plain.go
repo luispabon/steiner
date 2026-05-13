@@ -8,16 +8,23 @@ import (
 	"sync"
 )
 
+// Channel identifies a rendered output stream.
 type Channel string
 
 const (
+	// ChannelAssistant renders assistant text.
 	ChannelAssistant Channel = "assistant"
-	ChannelStatus    Channel = "status"
-	ChannelTool      Channel = "tool"
-	ChannelApproval  Channel = "approval"
-	ChannelError     Channel = "error"
+	// ChannelStatus renders status text.
+	ChannelStatus Channel = "status"
+	// ChannelTool renders tool execution text.
+	ChannelTool Channel = "tool"
+	// ChannelApproval renders approval prompts and decisions.
+	ChannelApproval Channel = "approval"
+	// ChannelError renders error text.
+	ChannelError Channel = "error"
 )
 
+// Segment is a single rendered output unit.
 type Segment struct {
 	Channel   Channel
 	Label     string
@@ -25,11 +32,13 @@ type Segment struct {
 	Streaming bool
 }
 
+// ThemeStyle controls ANSI prefix and suffix decoration for a channel.
 type ThemeStyle struct {
 	LabelPrefix string
 	LabelSuffix string
 }
 
+// Theme defines the channel styles used by PlainRenderer.
 type Theme struct {
 	Enabled   bool
 	Assistant ThemeStyle
@@ -39,6 +48,7 @@ type Theme struct {
 	Error     ThemeStyle
 }
 
+// PlainRenderer writes terminal-friendly plain text output.
 type PlainRenderer struct {
 	mu        sync.Mutex
 	w         io.Writer
@@ -55,6 +65,7 @@ type retainedToolCall struct {
 	hasWriteTargetExistedBefore bool
 }
 
+// StreamOption configures a PlainRenderer.
 type StreamOption func(*PlainRenderer)
 
 // NewPlainRenderer creates a new plain-text renderer that writes to w.
@@ -71,6 +82,7 @@ func NewPlainRenderer(w io.Writer, options ...StreamOption) *PlainRenderer {
 	return renderer
 }
 
+// WithTheme overrides the renderer theme.
 func WithTheme(theme Theme) StreamOption {
 	return func(renderer *PlainRenderer) {
 		if renderer != nil {
@@ -79,6 +91,7 @@ func WithTheme(theme Theme) StreamOption {
 	}
 }
 
+// Println writes a newline-terminated line to the renderer output.
 func (r *PlainRenderer) Println(args ...any) {
 	if r == nil || r.w == nil {
 		return
@@ -91,9 +104,10 @@ func (r *PlainRenderer) Println(args ...any) {
 	if !r.finishStreamingLocked() {
 		return
 	}
-	fmt.Fprintln(r.w, args...)
+	r.writeStringLocked(fmt.Sprintln(args...))
 }
 
+// Printf writes formatted text to the renderer output.
 func (r *PlainRenderer) Printf(format string, args ...any) {
 	if r == nil || r.w == nil {
 		return
@@ -103,9 +117,10 @@ func (r *PlainRenderer) Printf(format string, args ...any) {
 	if r.err != nil {
 		return
 	}
-	fmt.Fprintf(r.w, format, args...)
+	r.writeStringLocked(fmt.Sprintf(format, args...))
 }
 
+// Render writes a formatted segment.
 func (r *PlainRenderer) Render(segment Segment) {
 	if r == nil || r.w == nil {
 		return
@@ -118,6 +133,7 @@ func (r *PlainRenderer) Render(segment Segment) {
 	r.renderLocked(segment)
 }
 
+// OnEvent renders a structured event.
 func (r *PlainRenderer) OnEvent(event Event) {
 	if r == nil || r.w == nil {
 		return
@@ -130,14 +146,17 @@ func (r *PlainRenderer) OnEvent(event Event) {
 	r.onEventLocked(event)
 }
 
+// WriteAssistant writes a complete assistant response.
 func (r *PlainRenderer) WriteAssistant(text string) {
 	r.Render(Segment{Channel: ChannelAssistant, Text: text})
 }
 
+// WriteAssistantChunk appends a streaming assistant chunk.
 func (r *PlainRenderer) WriteAssistantChunk(text string) {
 	r.Render(Segment{Channel: ChannelAssistant, Text: text, Streaming: true})
 }
 
+// FinishAssistant closes any active assistant streaming line.
 func (r *PlainRenderer) FinishAssistant() {
 	if r == nil || r.w == nil {
 		return
@@ -177,7 +196,7 @@ func (r *PlainRenderer) renderLocked(segment Segment) {
 	if line == "" {
 		return
 	}
-	fmt.Fprintln(r.w, r.decorate(segment.Channel, line))
+	r.writeStringLocked(r.decorate(segment.Channel, line) + "\n")
 }
 
 func (r *PlainRenderer) onEventLocked(event Event) {
@@ -304,6 +323,7 @@ func (r *PlainRenderer) decorate(channel Channel, text string) string {
 	return style.LabelPrefix + text + style.LabelSuffix
 }
 
+// Themed decorates text for the given channel without writing it.
 func (r *PlainRenderer) Themed(channel Channel, text string) string {
 	return r.decorate(channel, text)
 }

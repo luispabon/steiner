@@ -800,7 +800,7 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, cancelContextKey{}, context.CancelFunc(cancel))
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 
 	var events []output.Event
 	state, err := NewRunner().Run(ctx, RunRequest{

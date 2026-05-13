@@ -86,27 +86,6 @@ func validateAssemblyOptions(opts AssemblyOptions) error {
 	return nil
 }
 
-func (m SourceBudgetModel) limitFor(source ContextSource) int {
-	switch source {
-	case ContextSourcePreamble:
-		return m.PreambleBytes
-	case ContextSourceGlobalAgentsMD:
-		return m.GlobalAgentsBytes
-	case ContextSourceProjectAgentsMD:
-		return m.ProjectAgentsBytes
-	case ContextSourceProjectContext:
-		return m.ProjectContextBytes
-	case ContextSourceSkill:
-		return m.SkillBytes
-	case ContextSourceToolSummary, ContextSourceDelegationResult:
-		return m.ToolSummaryBytes
-	case ContextSourceToolResult:
-		return m.ToolResultBytes
-	default:
-		return 0
-	}
-}
-
 func (m SourceBudgetModel) withProjectContextBudget(bytes int) SourceBudgetModel {
 	if bytes > 0 {
 		m.ProjectContextBytes = bytes

@@ -31,13 +31,13 @@ func newSessionPickerOverlay(styles theme.Styles) sessionPickerOverlay {
 
 // withDimensions returns a copy of the overlay with updated terminal dimensions.
 func (s sessionPickerOverlay) withDimensions(width, height int) sessionPickerOverlay {
-	s.OverlayShell = s.OverlayShell.WithDimensions(width, height)
+	s.OverlayShell = s.WithDimensions(width, height)
 	return s
 }
 
 // Open loads sessions from the store and opens the overlay.
 func (s sessionPickerOverlay) Open(entries []session.IndexEntry) sessionPickerOverlay {
-	s.OverlayShell = s.OverlayShell.openShell()
+	s.OverlayShell = s.openShell()
 	s.query = ""
 	s.selection = 0
 	s.scrollOffset = 0
@@ -48,7 +48,7 @@ func (s sessionPickerOverlay) Open(entries []session.IndexEntry) sessionPickerOv
 
 // Close closes the overlay and resets state.
 func (s sessionPickerOverlay) Close() sessionPickerOverlay {
-	s.OverlayShell = s.OverlayShell.closeShell()
+	s.OverlayShell = s.closeShell()
 	return s
 }
 

@@ -88,7 +88,7 @@ func TestOpenAICompatChatCompletionNormalizesResponse(t *testing.T) {
 		if got, want := r.Header.Get("Authorization"), ""; got != want {
 			t.Fatalf("authorization = %q, want empty", got)
 		}
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"choices":[
 				{
 					"message":{
@@ -154,17 +154,17 @@ func TestOpenAICompatStreamChatCompletionNormalizesResponse(t *testing.T) {
 			t.Fatal("response writer does not implement Flusher")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
 		flusher.Flush()
-		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello "}}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello "}}]}`)
 		flusher.Flush()
-		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"query\":"}}]}}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"query\":"}}]}}]}`)
 		flusher.Flush()
-		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"x\"}"}}]},"finish_reason":"tool_calls"}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"x\"}"}}]},"finish_reason":"tool_calls"}]}`)
 		flusher.Flush()
-		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)
 		flusher.Flush()
-		fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -223,7 +223,7 @@ func TestOpenAICompatStreamChatCompletionNormalizesResponse(t *testing.T) {
 func TestOpenAICompatStreamChatCompletionReportsStreamErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprint(w, "bad upstream")
+		_, _ = fmt.Fprint(w, "bad upstream")
 	}))
 	defer server.Close()
 
@@ -270,7 +270,7 @@ func TestOpenAICompatSchedulerSerializesRequests(t *testing.T) {
 		case 2:
 			close(secondEntered)
 		}
-		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}))
 	defer server.Close()
 

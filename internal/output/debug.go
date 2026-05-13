@@ -45,11 +45,6 @@ type ContextDiagnosticsEvent struct {
 	Notes              []string `json:"notes,omitempty"`
 }
 
-type contextBudgetCategory struct {
-	Name   string `json:"name"`
-	Tokens int    `json:"tokens"`
-}
-
 // NewContextDiagnosticsEvent creates a new context diagnostics event.
 func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	if payload.Kind == "" {

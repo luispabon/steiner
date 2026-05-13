@@ -88,7 +88,9 @@ func TestToolDef(t *testing.T) {
 		t.Errorf("required=%v, want [\"task\"]", required)
 	}
 
-	handler(context.Background(), nil)
+	if _, err := handler(context.Background(), nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
 	if !called {
 		t.Error("handler was not called")
 	}

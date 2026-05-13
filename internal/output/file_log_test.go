@@ -64,7 +64,11 @@ func TestNewFileLogSinkCreatesDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileLogSink() error = %v", err)
 	}
-	t.Cleanup(func() { sink.Close() })
+	t.Cleanup(func() {
+		if err := sink.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Fatalf("file was not created at %s", path)
 	}

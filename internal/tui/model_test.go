@@ -30,12 +30,6 @@ func (c *testController) Handle(_ context.Context, action interactive.Action) er
 	return c.err
 }
 
-func (c *testController) record() []interactive.Action {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]interactive.Action(nil), c.actions...)
-}
-
 func (c *testController) countSubmitPrompt() int {
 	return c.countByType(interactive.SubmitPrompt{})
 }
@@ -58,10 +52,6 @@ func (c *testController) countRequestExit() int {
 
 func (c *testController) countSetSkillEnabled() int {
 	return c.countByType(interactive.SetSkillEnabled{})
-}
-
-func (c *testController) countSubmitApproval() int {
-	return c.countByType(interactive.SubmitApproval{})
 }
 
 func (c *testController) submitApprovals() []interactive.SubmitApproval {

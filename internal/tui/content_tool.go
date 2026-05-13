@@ -241,7 +241,7 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 		width += lipgloss.Width(patchMeta)
 	}
 	if tc.meta != "" {
-		styled := tc.meta
+		var styled string
 		if tc.hasError {
 			styled = b.styles.Removed.Render(tc.meta)
 		} else {

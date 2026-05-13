@@ -32,10 +32,19 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
+	if err := os.Setenv("HOME", tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
-	os.Setenv("HOME", oldHome)
-	os.RemoveAll(tmp)
+	if err := os.Setenv("HOME", oldHome); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to remove temp dir for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(code)
 }
 
@@ -1175,14 +1184,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		if !ok {
 			return
 		}
-		store.Store(output.RequestContextSnapshot{
-			Model:       payload.Model,
-			Messages:    payload.Messages,
-			Tools:       payload.Tools,
-			MaxTokens:   payload.MaxTokens,
-			Blocks:      payload.Blocks,
-			ModelBudget: payload.ModelBudget,
-		})
+		store.Store(output.RequestContextSnapshot(payload))
 	})
 
 	providerStub := &fakeProvider{
@@ -1449,7 +1451,7 @@ func mustBuildCLIHelperBinary(t *testing.T) string {
 		t.Fatalf("write helper source: %v", err)
 	}
 	bin := filepath.Join(dir, "helper")
-	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
