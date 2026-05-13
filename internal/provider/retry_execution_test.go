@@ -82,7 +82,7 @@ func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 	})
 
 	var slept []time.Duration
-	provider.sleep = func(_ context.Context, delay time.Duration) error {
+	provider.sleep = func(_ context.Context, _ time.Duration) error {
 		return nil
 	}
 	provider.jitter = func(cap time.Duration) time.Duration {
@@ -369,7 +369,7 @@ func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
 
 func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -511,7 +511,7 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 
 func TestOpenAICompatStreamChatCompletionDoesNotRetryCallerCancellation(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -562,7 +562,7 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryCallerCancellation(t *testi
 
 func TestOpenAICompatStreamChatCompletionAfterExhaustionSendsFinalErrorChunk(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = fmt.Fprint(w, "busy")

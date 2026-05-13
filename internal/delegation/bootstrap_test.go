@@ -402,9 +402,9 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 	// Verify that BuildChildRun produces correct tool registries through
 	// the full bootstrap path.
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	deps := BootstrapDeps{
@@ -453,7 +453,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 
 func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	deps := BootstrapDeps{
@@ -482,7 +482,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 func TestBuildChildRunIncludesModel(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
 		ParentReg:   parent,
@@ -504,7 +504,7 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 
 func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	mt := 42000
 	deps := BootstrapDeps{
@@ -530,7 +530,7 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 
 func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	budget := prompt.ModelTokenBudget{
 		ContextSize:         128000,
@@ -558,7 +558,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 
 func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
 		ParentReg:          parent,
@@ -580,9 +580,9 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 
 func TestBuildChildRun(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	tests := []struct {

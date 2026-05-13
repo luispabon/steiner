@@ -210,7 +210,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
 			if toolName != "bash" {
 				return nil, fmt.Errorf("tool = %s, want bash", toolName)
 			}
@@ -440,7 +440,7 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
 			return tool.ExecutionResult{
 				Value: map[string]any{
 					"path":          input["path"],
@@ -503,7 +503,7 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 
 func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	providerStub := &fakeProvider{
-		streamFn: func(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+		streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 			chunks := make(chan provider.ChatChunk, 2)
 			go func() {
 				defer close(chunks)
@@ -668,7 +668,7 @@ func TestRunnerStopsAtMaxTurns(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return map[string]any{"contents": "hello"}, nil
 		},
 	}
@@ -713,7 +713,7 @@ func TestRunnerStopsAtMaxTokens(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return map[string]any{"contents": "hello"}, nil
 		},
 	}
@@ -861,7 +861,7 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return tool.ExecutionResult{
 				Value: map[string]any{"contents": "hello"},
 				Metadata: tool.ExecutionMetadata{
@@ -1019,7 +1019,7 @@ func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return &builtin.DisplayFileResult{
 				Path:    "note.txt",
 				Status:  "displayed",
@@ -1070,7 +1070,7 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 			},
 		},
 	}
-	executor := &fakeExecutor{execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+	executor := &fakeExecutor{execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
 		switch toolName {
 		case "read":
 			return map[string]any{"path": input["path"], "contents": "alpha"}, nil
@@ -1189,7 +1189,7 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return tool.ExecutionResult{
 				Value: map[string]any{"contents": "alpha"},
 			}, nil
@@ -1273,7 +1273,7 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return tool.ExecutionResult{
 				Value: map[string]any{"contents": "alpha"},
 			}, nil

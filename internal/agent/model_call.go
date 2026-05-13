@@ -80,7 +80,7 @@ func completeScaffoldInferenceCall(ctx context.Context, req RunRequest, turn int
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, req.ModelBudget, req.Events, nil, false, req.StreamingPreferred, output.ChunkSourceScaffoldInference)
 }
 
-func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
+func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
@@ -193,12 +193,12 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	}
 }
 
-func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) (int, error) {
+func tokenCount(_ context.Context, _ provider.ChatRequest, usage *provider.UsageStats) int {
 	if count := provider.UsageCompletionTokenCount(usage); count > 0 {
-		return count, nil
+		return count
 	}
 	// When no completion token data is available, return 0 instead of estimating
 	// the full request. Accumulating input/prompt tokens across turns would cause
 	// the session to hit MaxTokens prematurely as the conversation grows.
-	return 0, nil
+	return 0
 }

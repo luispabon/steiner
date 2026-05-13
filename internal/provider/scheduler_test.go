@@ -221,7 +221,7 @@ func TestOpenAICompatStreamChatCompletionNormalizesResponse(t *testing.T) {
 }
 
 func TestOpenAICompatStreamChatCompletionReportsStreamErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = fmt.Fprint(w, "bad upstream")
 	}))

@@ -423,7 +423,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 		tool.ToolDef{
 			Name:        "delegate",
 			Description: "delegate tool",
-			Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			Handler: func(_ context.Context, _ map[string]any) (any, error) {
 				return "should not be reachable", nil
 			},
 		},
@@ -679,7 +679,7 @@ func TestParentContextIsolation(t *testing.T) {
 		tool.ToolDef{
 			Name:        "helper",
 			Description: "a helper tool",
-			Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			Handler: func(_ context.Context, _ map[string]any) (any, error) {
 				helperCallCount++
 				return "helper-output", nil
 			},
@@ -768,7 +768,7 @@ type presetRunner struct {
 	reqs   []agent.RunRequest
 }
 
-func (r *presetRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+func (r *presetRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 	r.reqs = append(r.reqs, req)
 	i := r.calls
 	r.calls++
@@ -1333,7 +1333,7 @@ func TestConfigGatingDisabled(t *testing.T) {
 		tool.ToolDef{
 			Name:        "bash",
 			Description: "run shell commands",
-			Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			Handler: func(_ context.Context, _ map[string]any) (any, error) {
 				return "ok", nil
 			},
 		},
