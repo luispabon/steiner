@@ -51,7 +51,7 @@ func successRunState() agent.RunState {
 
 func TestToolDef(t *testing.T) {
 	called := false
-	handler := func(ctx context.Context, input map[string]any) (any, error) {
+	handler := func(_ context.Context, _ map[string]any) (any, error) {
 		called = true
 		return nil, nil
 	}
@@ -88,7 +88,9 @@ func TestToolDef(t *testing.T) {
 		t.Errorf("required=%v, want [\"task\"]", required)
 	}
 
-	handler(context.Background(), nil)
+	if _, err := handler(context.Background(), nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
 	if !called {
 		t.Error("handler was not called")
 	}

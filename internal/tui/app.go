@@ -11,20 +11,26 @@ import (
 	"github.com/luispabon/steiner/internal/tui/prefs"
 )
 
+// ApprovalDecision is the selected outcome from an approval prompt.
 type ApprovalDecision string
 
 const (
-	ApprovalDecisionAllowOnce   ApprovalDecision = "allow_once"
+	// ApprovalDecisionAllowOnce approves the tool call once.
+	ApprovalDecisionAllowOnce ApprovalDecision = "allow_once"
+	// ApprovalDecisionAlwaysAllow approves the tool call and persists the choice.
 	ApprovalDecisionAlwaysAllow ApprovalDecision = "always_allow"
-	ApprovalDecisionDeny        ApprovalDecision = "deny"
+	// ApprovalDecisionDeny rejects the tool call.
+	ApprovalDecisionDeny ApprovalDecision = "deny"
 )
 
+// ApprovalSubmission describes a submitted approval response.
 type ApprovalSubmission struct {
 	Tool     string
 	Mode     string
 	Decision ApprovalDecision
 }
 
+// Config holds the runtime configuration for the TUI application.
 type Config struct {
 	Model                         string
 	ModelNames                    []string
@@ -45,6 +51,7 @@ type Config struct {
 	SessionStore                  SessionLister
 }
 
+// App wires the TUI runtime and event bridge.
 type App struct {
 	cfg    Config
 	bridge *eventBridge
@@ -73,6 +80,7 @@ func NewApp(cfg Config) *App {
 	}
 }
 
+// Subscriber returns the event subscriber exposed to the runtime.
 func (a *App) Subscriber() output.Subscriber {
 	if a == nil {
 		return noopSubscriber{}
@@ -80,10 +88,12 @@ func (a *App) Subscriber() output.Subscriber {
 	return a.bridge
 }
 
+// EventSink returns the event sink used by the runtime and TUI bridge.
 func (a *App) EventSink() output.EventSink {
 	return a.bridge
 }
 
+// NewProgram constructs the Bubble Tea program for the TUI.
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 	opts := []tea.ProgramOption{
 		tea.WithAltScreen(),
@@ -93,6 +103,7 @@ func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), opts...)
 }
 
+// Run starts the TUI program and waits for it to exit.
 func (a *App) Run(options ...tea.ProgramOption) error {
 	_, err := a.NewProgram(options...).Run()
 	return err

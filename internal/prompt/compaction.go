@@ -101,6 +101,7 @@ Rules:
 - Write for immediate continuation by a coding agent.`
 )
 
+// BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
 func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
@@ -118,6 +119,7 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 	}
 }
 
+// ToolSummaryEnvelope stores a summarized tool message in a bounded serialized form.
 type ToolSummaryEnvelope struct {
 	Kind      string               `json:"kind"`
 	Name      string               `json:"name,omitempty"`

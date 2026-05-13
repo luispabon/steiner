@@ -13,11 +13,10 @@ func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
 	for i := range b.segments {
-		seg := &b.segments[i]
-		if seg.kind == segmentThinkingBlock && !b.showThinking {
-			b.segmentHeights[i] = 0
+		if b.skipHiddenSegment(i) {
 			continue
 		}
+		seg := &b.segments[i]
 		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 			seg.renderDirty = true
 		}
@@ -48,6 +47,15 @@ func (b *contentBuffer) String(width int) string {
 	return b.fillEmptyLines(result, width)
 }
 
+func (b *contentBuffer) skipHiddenSegment(index int) bool {
+	seg := &b.segments[index]
+	if seg.kind != segmentThinkingBlock || b.showThinking {
+		return false
+	}
+	b.segmentHeights[index] = 0
+	return true
+}
+
 func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	if width < 1 {
 		width = 1
@@ -62,6 +70,7 @@ func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+//nolint:gocyclo // dispatch-heavy segment renderer
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentToolCall:
@@ -80,6 +89,13 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderUserSegment(segment, width)
 	case segmentUserMarkdown:
 		return b.renderUserMarkdownSegment(segment, width)
+	default:
+		return b.renderSupplementalSegment(segment, width)
+	}
+}
+
+func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width int) string {
+	switch segment.kind {
 	case segmentThinkingBlock:
 		return theme.WithBg(b.renderThinkingBlockSegment(segment), lipgloss.Color(theme.BgElev))
 	case segmentApprovalPill:
@@ -130,26 +146,6 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	}
 	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
 	return b.styles.AssistantProse.Render(wrapped) + "\n"
-}
-
-func (b *contentBuffer) streamingIndicatorView() string {
-	if b.streamingPhase == "" {
-		return ""
-	}
-	label := "thinking…"
-	if b.streamingPhase == "tool" {
-		label = "running tool…"
-	}
-	activeDot := b.tickCount % 3
-	dots := make([]string, 3)
-	for i := range dots {
-		if i == activeDot {
-			dots[i] = b.styles.Accent.Render("·")
-		} else {
-			dots[i] = b.styles.FgMute.Render("·")
-		}
-	}
-	return strings.Join(dots, "  ") + "  " + b.styles.FgMute.Render(label) + "\n"
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {

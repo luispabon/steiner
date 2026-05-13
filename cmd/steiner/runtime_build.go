@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
@@ -18,7 +20,6 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/spf13/cobra"
 )
 
 func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
@@ -35,9 +36,6 @@ func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
 func buildRuntimeProviderFactory(cfg config.Config) (func(config.ModelConfig) (provider.Provider, error), error) {
 	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := selectedModelConfig(cfg); err != nil {
 		return nil, err
 	}
 	httpClient := runtimeHTTPClient()

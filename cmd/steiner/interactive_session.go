@@ -10,12 +10,13 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
-	"github.com/spf13/cobra"
 )
 
 func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
@@ -46,11 +47,8 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRunti
 	return rt, nil
 }
 
-func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) (*tui.App, error) {
-	selected, err := selectedModelConfig(rt.cfg)
-	if err != nil {
-		return nil, err
-	}
+func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
+	selected := selectedModelConfig(rt.cfg)
 	tuiCfg := tui.Config{
 		Model:                         rt.cfg.Model.Model,
 		ModelNames:                    modelAliasNames(rt.cfg),
@@ -68,7 +66,7 @@ func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) (*tui.App, er
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
 	}
-	return tui.NewApp(tuiCfg), nil
+	return tui.NewApp(tuiCfg)
 }
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
@@ -104,7 +102,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	wait()
 	clearTerminalScreen(cmd.OutOrStdout())
 	if err == nil && sess.SessionTitle() != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
 	}
 	closeRuntime(rt)
 	return err

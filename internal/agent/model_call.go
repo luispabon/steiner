@@ -80,71 +80,14 @@ func completeScaffoldInferenceCall(ctx context.Context, req RunRequest, turn int
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, req.ModelBudget, req.Events, nil, false, req.StreamingPreferred, output.ChunkSourceScaffoldInference)
 }
 
-func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
+func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
 
 	for chunk := range chunks {
-		if chunk.RetryReset {
-			response = provider.ChatResponse{}
-			message = provider.Message{Role: provider.MessageRoleAssistant}
-			sawFinal = false
-			if chunk.Diagnostic != "" {
-				emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-					Turn:     turn,
-					Severity: chunk.Severity,
-					Message:  chunk.Diagnostic,
-				}))
-			}
-			continue
-		}
-		if chunk.Diagnostic != "" {
-			emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-				Turn:     turn,
-				Severity: chunk.Severity,
-				Message:  chunk.Diagnostic,
-			}))
-			continue
-		}
-		if errText := strings.TrimSpace(chunk.Error); errText != "" {
-			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
-		}
-		if role := chunk.Delta.Role; role != "" {
-			message.Role = role
-		}
-		if !chunk.Done {
-			if thinking := chunk.Thinking; thinking != "" {
-				emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
-			}
-			if content := chunk.Delta.Content; content != "" {
-				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			}
-			if len(chunk.Delta.ToolCalls) > 0 {
-				message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
-			}
-			continue
-		}
-		sawFinal = true
-		response.Usage = chunk.Usage
-		response.FinishReason = chunk.FinishReason
-		if content := chunk.Delta.Content; content != "" {
-			switch {
-			case message.Content == "":
-				message.Content = content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			case strings.HasPrefix(content, message.Content):
-				message.Content = content
-			case strings.HasPrefix(message.Content, content):
-				// Final chunk already represented by prior deltas.
-			default:
-				message.Content += content
-				emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-			}
-		}
-		if len(chunk.Delta.ToolCalls) > 0 {
-			message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal); err != nil {
+			return provider.ChatResponse{}, err
 		}
 	}
 
@@ -156,12 +99,106 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	return response, nil
 }
 
-func tokenCount(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) (int, error) {
+func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) error {
+	if handleRetryResetChunk(sink, turn, chunk, response, message, sawFinal) {
+		return nil
+	}
+	if handleDiagnosticChunk(sink, turn, chunk) {
+		return nil
+	}
+	if handled, err := handleErrorChunk(chunk); handled || err != nil {
+		return err
+	}
+	if role := chunk.Delta.Role; role != "" {
+		message.Role = role
+	}
+	if !chunk.Done {
+		handleStreamingChunk(sink, turn, source, chunk, message)
+		return nil
+	}
+
+	*sawFinal = true
+	handleFinalChunk(sink, turn, source, chunk, response, message)
+	return nil
+}
+
+func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) bool {
+	if !chunk.RetryReset {
+		return false
+	}
+	*response = provider.ChatResponse{}
+	*message = provider.Message{Role: provider.MessageRoleAssistant}
+	*sawFinal = false
+	if chunk.Diagnostic != "" {
+		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+			Turn:     turn,
+			Severity: chunk.Severity,
+			Message:  chunk.Diagnostic,
+		}))
+	}
+	return true
+}
+
+func handleDiagnosticChunk(sink output.EventSink, turn int, chunk provider.ChatChunk) bool {
+	if chunk.Diagnostic == "" {
+		return false
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     turn,
+		Severity: chunk.Severity,
+		Message:  chunk.Diagnostic,
+	}))
+	return true
+}
+
+func handleErrorChunk(chunk provider.ChatChunk) (bool, error) {
+	if errText := strings.TrimSpace(chunk.Error); errText != "" {
+		return true, fmt.Errorf("%s", errText)
+	}
+	return false, nil
+}
+
+func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, message *provider.Message) {
+	if thinking := chunk.Thinking; thinking != "" {
+		emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
+	}
+	if content := chunk.Delta.Content; content != "" {
+		message.Content += content
+		emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+	}
+	if len(chunk.Delta.ToolCalls) > 0 {
+		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+	}
+}
+
+func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message) {
+	response.Usage = chunk.Usage
+	response.FinishReason = chunk.FinishReason
+	if content := chunk.Delta.Content; content != "" {
+		switch {
+		case message.Content == "":
+			message.Content = content
+			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+		case strings.HasPrefix(content, message.Content):
+			message.Content = content
+		case strings.HasPrefix(message.Content, content):
+			// Final chunk already represented by prior deltas.
+		default:
+			message.Content += content
+			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+		}
+	}
+	if len(chunk.Delta.ToolCalls) > 0 {
+		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+	}
+}
+
+func tokenCount(_ context.Context, _ provider.ChatRequest, usage *provider.UsageStats) int {
 	if count := provider.UsageCompletionTokenCount(usage); count > 0 {
-		return count, nil
+		return count
 	}
 	// When no completion token data is available, return 0 instead of estimating
 	// the full request. Accumulating input/prompt tokens across turns would cause
 	// the session to hit MaxTokens prematurely as the conversation grows.
-	return 0, nil
+	return 0
 }

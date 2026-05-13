@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// ApprovalPreview captures the fields shown before an approval decision.
 type ApprovalPreview struct {
 	Tool    string              `json:"tool"`
 	Mode    config.ApprovalMode `json:"mode"`
@@ -19,6 +20,7 @@ type ApprovalPreview struct {
 	Notes   []string            `json:"notes,omitempty"`
 }
 
+// PreviewField captures a single field displayed in an approval preview.
 type PreviewField struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
@@ -37,59 +39,97 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 
 	switch toolName {
 	case "bash":
-		cwd := stringInput(input["cwd"])
-		if cwd != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "cwd", Value: cwd})
-		}
-		if command := stringInput(input["command"]); command != "" {
-			preview.Fields = append(preview.Fields, previewTextField("command", command, 160))
-		}
+		return buildBashApprovalPreview(preview, input)
 	case "read", "write":
-		if path := stringInput(input["path"]); path != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-		}
-		if toolName == "write" {
-			if contents := stringInput(input["contents"]); contents != "" {
-				preview.Fields = append(preview.Fields, previewTextField("contents", contents, 128))
-			}
-		}
+		return buildReadWriteApprovalPreview(preview, toolName, input)
 	case "edit":
-		if path := stringInput(input["path"]); path != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-		}
-		if old := stringInput(input["old_string"]); old != "" {
-			preview.Fields = append(preview.Fields, previewTextField("old_string", old, 128))
-		}
+		return buildEditApprovalPreview(preview, input)
 	case "apply_patch":
-		if patch := stringInput(input["patch"]); patch != "" {
-			preview.Fields = append(preview.Fields, previewTextField("patch", patch, 160))
-		}
+		return buildPatchApprovalPreview(preview, input)
 	case "glob":
-		if pattern := stringInput(input["pattern"]); pattern != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
-		}
+		return buildGlobApprovalPreview(preview, input)
 	case "grep":
-		if pattern := stringInput(input["pattern"]); pattern != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
-		}
-		if path := stringInput(input["path"]); path != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-		}
+		return buildGrepApprovalPreview(preview, input)
 	case "ls":
-		if path := stringInput(input["path"]); path != "" {
-			preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-		}
+		return buildLSApprovalPreview(preview, input)
 	default:
-		keys := make([]string, 0, len(input))
-		for key := range input {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			preview.Fields = append(preview.Fields, previewValueField(key, input[key]))
+		return buildGenericApprovalPreview(preview, input)
+	}
+}
+
+func buildBashApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	cwd := stringInput(input["cwd"])
+	if cwd != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "cwd", Value: cwd})
+	}
+	if command := stringInput(input["command"]); command != "" {
+		preview.Fields = append(preview.Fields, previewTextField("command", command, 160))
+	}
+	return preview
+}
+
+func buildReadWriteApprovalPreview(preview ApprovalPreview, toolName string, input map[string]any) ApprovalPreview {
+	if path := stringInput(input["path"]); path != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+	}
+	if toolName == "write" {
+		if contents := stringInput(input["contents"]); contents != "" {
+			preview.Fields = append(preview.Fields, previewTextField("contents", contents, 128))
 		}
 	}
+	return preview
+}
 
+func buildEditApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	if path := stringInput(input["path"]); path != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+	}
+	if old := stringInput(input["old_string"]); old != "" {
+		preview.Fields = append(preview.Fields, previewTextField("old_string", old, 128))
+	}
+	return preview
+}
+
+func buildPatchApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	if patch := stringInput(input["patch"]); patch != "" {
+		preview.Fields = append(preview.Fields, previewTextField("patch", patch, 160))
+	}
+	return preview
+}
+
+func buildGlobApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	if pattern := stringInput(input["pattern"]); pattern != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
+	}
+	return preview
+}
+
+func buildGrepApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	if pattern := stringInput(input["pattern"]); pattern != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
+	}
+	if path := stringInput(input["path"]); path != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+	}
+	return preview
+}
+
+func buildLSApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	if path := stringInput(input["path"]); path != "" {
+		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
+	}
+	return preview
+}
+
+func buildGenericApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	keys := make([]string, 0, len(input))
+	for key := range input {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		preview.Fields = append(preview.Fields, previewValueField(key, input[key]))
+	}
 	return preview
 }
 
@@ -190,6 +230,7 @@ func previewValueField(name string, value any) PreviewField {
 	}
 }
 
+// Summary returns a compact single-line description of the preview.
 func (p ApprovalPreview) Summary() string {
 	parts := make([]string, 0, 4)
 	if p.Tool != "" {
@@ -205,11 +246,12 @@ func (p ApprovalPreview) Summary() string {
 		fieldParts := make([]string, 0, len(p.Fields))
 		for _, field := range p.Fields {
 			value := field.Value
-			if field.Binary {
+			switch {
+			case field.Binary:
 				value = "<binary>"
-			} else if field.Truncated {
-				value = value + " [truncated]"
-			} else {
+			case field.Truncated:
+				value += " [truncated]"
+			default:
 				switch field.Name {
 				case "cwd", "path":
 					value = relDisplayPath(p.WorkDir, value)

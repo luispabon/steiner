@@ -3,6 +3,7 @@ package provider
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func TestOpenAIStreamReadSSEEvent_DoneEvent(t *testing.T) {
 func TestOpenAIStreamReadSSEEvent_EmptyStreamEOF(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader(""))
 	event, err := readSSEEvent(reader)
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected EOF, got %v", err)
 	}
 	if event != "" {
@@ -207,7 +208,14 @@ func TestOpenAIStreamFlushStreamState_EmitsDoneChunk(t *testing.T) {
 		usage:        &UsageStats{TotalTokens: 42},
 	}
 
-	err := flushStreamState(ctx, out, state)
+	err := flushStreamState(func(chunk ChatChunk) error {
+		select {
+		case out <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,7 +240,14 @@ func TestOpenAIStreamFlushStreamState_ReturnsNilWhenNothingSeen(t *testing.T) {
 	out := make(chan ChatChunk)
 	state := openAIStreamState{}
 
-	err := flushStreamState(ctx, out, state)
+	err := flushStreamState(func(chunk ChatChunk) error {
+		select {
+		case out <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}, state)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -248,7 +263,14 @@ func TestOpenAIStreamFlushStreamState_EmitsContent(t *testing.T) {
 		sawContent: true,
 	}
 
-	err := flushStreamState(ctx, out, state)
+	err := flushStreamState(func(chunk ChatChunk) error {
+		select {
+		case out <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

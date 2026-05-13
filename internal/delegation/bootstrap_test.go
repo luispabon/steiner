@@ -145,10 +145,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts, err := buildChildPrompt(tt.spec)
-			if err != nil {
-				t.Fatalf("buildChildPrompt() error = %v", err)
-			}
+			promptOpts := buildChildPrompt(tt.spec)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -171,14 +168,11 @@ func TestBuildChildPrompt(t *testing.T) {
 func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	t.Parallel()
 
-	promptOpts, err := buildChildPrompt(DelegationSpec{
+	promptOpts := buildChildPrompt(DelegationSpec{
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
 	})
-	if err != nil {
-		t.Fatalf("buildChildPrompt() error = %v", err)
-	}
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -217,7 +211,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "grep"},
 		)
 
-		visible, exec := buildChildRegistries(parent, "delegate", []string{"read", "write", "grep"})
+		visible, exec := buildChildRegistries(parent, []string{"read", "write", "grep"})
 
 		if visible == nil || exec == nil {
 			t.Fatal("registries should not be nil")
@@ -249,7 +243,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
 		)
 
-		_, exec := buildChildRegistries(parent, "delegate", []string{"bash"})
+		_, exec := buildChildRegistries(parent, []string{"bash"})
 
 		defs := exec.Definitions()
 		if len(defs) != 1 {
@@ -261,7 +255,7 @@ func TestBuildChildRegistries(t *testing.T) {
 	})
 
 	t.Run("nil parent returns empty registries", func(t *testing.T) {
-		visible, exec := buildChildRegistries(nil, "delegate", []string{"read"})
+		visible, exec := buildChildRegistries(nil, []string{"read"})
 
 		if len(visible.Names()) != 0 {
 			t.Errorf("visible has %d tools, want 0", len(visible.Names()))
@@ -315,7 +309,7 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			visible, exec := buildChildRegistries(parent, "delegate", tt.allowedTools)
+			visible, exec := buildChildRegistries(parent, tt.allowedTools)
 
 			visibleNames := visible.Names()
 			if len(visibleNames) != tt.wantCount {
@@ -350,7 +344,7 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 		tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
 	)
 
-	_, exec := buildChildRegistries(parent, "delegate", []string{"read", "bash"})
+	_, exec := buildChildRegistries(parent, []string{"read", "bash"})
 
 	defs := exec.Definitions()
 	if len(defs) != 2 {
@@ -365,9 +359,9 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 
 func TestBuildChildRunAllowedTools(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
-		tool.ToolDef{Name: "bash", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "bash", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
 	)
 
@@ -408,9 +402,9 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 	// Verify that BuildChildRun produces correct tool registries through
 	// the full bootstrap path.
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	deps := BootstrapDeps{
@@ -459,7 +453,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 
 func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	deps := BootstrapDeps{
@@ -488,7 +482,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 func TestBuildChildRunIncludesModel(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
 		ParentReg:   parent,
@@ -510,7 +504,7 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 
 func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	mt := 42000
 	deps := BootstrapDeps{
@@ -536,7 +530,7 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 
 func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	budget := prompt.ModelTokenBudget{
 		ContextSize:         128000,
@@ -564,7 +558,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 
 func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
 		ParentReg:          parent,
@@ -586,15 +580,15 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 
 func TestBuildChildRun(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
 	tests := []struct {
 		name string
 		spec DelegationSpec
-		want func(t *testing.T, req agent.RunRequest, limits DelegationLimits)
+		want func(t *testing.T, req agent.RunRequest)
 	}{
 		{
 			name: "default limits and prompt",
@@ -603,7 +597,7 @@ func TestBuildChildRun(t *testing.T) {
 				AgentID: "test-1",
 				Limits:  DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 15 {
 					t.Errorf("MaxTurns=%d, want 15", req.Limits.MaxTurns)
 				}
@@ -645,7 +639,7 @@ func TestBuildChildRun(t *testing.T) {
 				AgentID: "test-2",
 				Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50000},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 5 {
 					t.Errorf("MaxTurns=%d, want 5", req.Limits.MaxTurns)
 				}
@@ -662,7 +656,7 @@ func TestBuildChildRun(t *testing.T) {
 				SystemPrompt: "custom",
 				Limits:       DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) < 1 {
 					t.Fatal("Conversation empty")
 				}
@@ -679,7 +673,7 @@ func TestBuildChildRun(t *testing.T) {
 				Context: "extra",
 				Limits:  DelegationLimits{},
 			},
-			want: func(t *testing.T, req agent.RunRequest, limits DelegationLimits) {
+			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) != 1 {
 					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
@@ -704,7 +698,7 @@ func TestBuildChildRun(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
-			tt.want(t, req, DelegationLimits{})
+			tt.want(t, req)
 		})
 	}
 }

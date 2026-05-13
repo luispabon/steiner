@@ -1036,7 +1036,7 @@ func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
 	}
 }
 
-func TestOnTurnCompleteNaiveIsNoop(t *testing.T) {
+func TestOnTurnCompleteNaiveIsNoop(_ *testing.T) {
 	// NaiveContextManager.OnTurnComplete must not panic.
 	m := &NaiveContextManager{}
 	m.OnTurnComplete(0, false)

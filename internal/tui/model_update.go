@@ -3,9 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"os"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/prefs"
@@ -15,11 +16,12 @@ import (
 type syncDebounceFiredMsg struct{ seq int }
 
 func syncDebounceCmd(seq int) tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(50*time.Millisecond, func(_ time.Time) tea.Msg {
 		return syncDebounceFiredMsg{seq: seq}
 	})
 }
 
+// Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case paletteClearMsg:
@@ -58,7 +60,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
+func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
@@ -73,7 +75,9 @@ func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
 	}
 	m.syncSidebar()
 	if m.controller != nil {
-		m.controller.Handle(context.Background(), interactive.ClearConversation{})
+		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
@@ -81,7 +85,7 @@ func (m Model) handlePaletteClearMsg(msg paletteClearMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handlePaletteToggleThinkingMsg(msg paletteToggleThinkingMsg) (tea.Model, tea.Cmd) {
+func (m Model) handlePaletteToggleThinkingMsg(_ paletteToggleThinkingMsg) (tea.Model, tea.Cmd) {
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
@@ -138,7 +142,7 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	return m, nil
 }
 
-func (m Model) handleTickMsg(msg tickMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
 	m.activity = m.activity.advance()
@@ -172,14 +176,14 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.fileList.height = msg.Height
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
 	if m.contextOverlay.open {
-		m.contextOverlay.OverlayShell = m.contextOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
 	if m.scratchpadOverlay.IsOpen() {
-		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.OverlayShell.WithDimensions(msg.Width, msg.Height)
+		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.WithDimensions(msg.Width, msg.Height)
 		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
 	}
-	m.exitModal.OverlayShell = m.exitModal.OverlayShell.WithDimensions(msg.Width, msg.Height)
+	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
 	m.layout()
 	return m, nil
 }
@@ -196,7 +200,7 @@ func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) handleBridgeClosedMsg(msg bridgeClosedMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 

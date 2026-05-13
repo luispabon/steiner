@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// FileLogSink writes events to a log file in a readable append-only format.
 type FileLogSink struct {
 	mu            sync.Mutex
 	file          *os.File
@@ -34,6 +35,7 @@ func NewFileLogSink(path string, thinkingChunk bool) (*FileLogSink, error) {
 	return &FileLogSink{file: file, thinkingChunk: thinkingChunk}, nil
 }
 
+// Emit appends event to the log file unless it is filtered out.
 func (s *FileLogSink) Emit(event Event) {
 	if s == nil || s.file == nil {
 		return
@@ -78,6 +80,7 @@ func (s *FileLogSink) Emit(event Event) {
 	}
 }
 
+// Close releases the underlying log file handle.
 func (s *FileLogSink) Close() error {
 	if s == nil || s.file == nil {
 		return nil
@@ -89,10 +92,12 @@ func (s *FileLogSink) Close() error {
 	return err
 }
 
+// MultiSink fans each event out to multiple sinks.
 type MultiSink struct {
 	sinks []EventSink
 }
 
+// NewMultiSink returns a sink that emits to every non-nil sink in sinks.
 func NewMultiSink(sinks ...EventSink) EventSink {
 	filtered := make([]EventSink, 0, len(sinks))
 	for _, sink := range sinks {
@@ -109,6 +114,7 @@ func NewMultiSink(sinks ...EventSink) EventSink {
 	return MultiSink{sinks: filtered}
 }
 
+// Emit forwards event to each configured child sink.
 func (s MultiSink) Emit(event Event) {
 	for _, sink := range s.sinks {
 		sink.Emit(event)

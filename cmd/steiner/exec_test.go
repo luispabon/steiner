@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/spf13/cobra"
 )
 
 func TestExecModeReadsPromptFromStdin(t *testing.T) {
@@ -19,9 +20,7 @@ func TestExecModeReadsPromptFromStdin(t *testing.T) {
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
 			cfg: cfg,
@@ -70,9 +69,7 @@ func TestExecModeEmptyPromptReturnsError(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
 
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
 			cfg:         cfg,

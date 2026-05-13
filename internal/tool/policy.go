@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// PathPolicy constrains tool paths relative to the active project root.
 type PathPolicy struct {
 	root            string
 	projectRootOnly bool
@@ -35,10 +36,12 @@ func NewPathPolicy(root string, cfg config.PathsConfig) PathPolicy {
 	return policy
 }
 
+// Root returns the normalized policy root path.
 func (p PathPolicy) Root() string {
 	return p.root
 }
 
+// ResolveCWD resolves a working directory against the policy root.
 func (p PathPolicy) ResolveCWD(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		if p.root == "" {
@@ -49,6 +52,7 @@ func (p PathPolicy) ResolveCWD(raw string) (string, error) {
 	return p.ResolvePath(raw, false)
 }
 
+// ResolvePath resolves a tool path against the policy root and allowlists.
 func (p PathPolicy) ResolvePath(raw string, writable bool) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", fmt.Errorf("path is required")
@@ -87,6 +91,7 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	return nil
 }
 
+// ValidateToolInput normalizes path-bearing tool arguments.
 func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (map[string]any, error) {
 	normalized := CloneJSONMap(input)
 	switch toolName {

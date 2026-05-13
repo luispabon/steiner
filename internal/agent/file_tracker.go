@@ -23,11 +23,13 @@ type trackedFileRead struct {
 	Generation  uint64
 }
 
+// FileTracker records recent file reads and per-file mutation generations.
 type FileTracker struct {
 	reads       map[string]trackedFileRead
 	generations map[string]uint64
 }
 
+// Clone returns a copy of the tracker state.
 func (t *FileTracker) Clone() FileTracker {
 	if len(t.reads) == 0 && len(t.generations) == 0 {
 		return FileTracker{}
@@ -45,6 +47,7 @@ func (t *FileTracker) Clone() FileTracker {
 	return out
 }
 
+// Summaries returns recent read summaries in most-recent-first order.
 func (t *FileTracker) Summaries(limit int) []string {
 	if len(t.reads) == 0 || limit <= 0 {
 		return nil
@@ -82,6 +85,7 @@ func (t *FileTracker) PruneBeforeTurn(turn int) {
 	}
 }
 
+// BumpGeneration marks a file as mutated and advances its generation counter.
 func (t *FileTracker) BumpGeneration(path string) bool {
 	canonicalPath, ok := normalizeTrackedPath(path)
 	if !ok {

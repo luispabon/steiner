@@ -35,7 +35,7 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 		Name:            "display_file",
 		Description:     "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
 		ParameterSchema: DisplayFileSchema(),
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[DisplayFileInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)

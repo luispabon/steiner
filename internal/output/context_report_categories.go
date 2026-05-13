@@ -52,9 +52,10 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 			return nil, err
 		}
 
-		if blocks := blockMatches[messageMatchKey(message)]; len(blocks) > 0 {
+		key := messageMatchKey(message)
+		if blocks := blockMatches[key]; len(blocks) > 0 {
 			block := blocks[0]
-			blockMatches[messageMatchKey(message)] = blocks[1:]
+			blockMatches[key] = blocks[1:]
 			categoryTitle, label := classifyBlock(block)
 			categories[index[categoryTitle]].Items = append(categories[index[categoryTitle]].Items, contextReportItem{
 				Label:  label,
@@ -171,7 +172,7 @@ func messageMatchKey(message provider.Message) string {
 		builder.WriteString("\n")
 		builder.WriteString(call.Name)
 		builder.WriteString("\n")
-		builder.WriteString(fmt.Sprint(call.Arguments))
+		_, _ = fmt.Fprint(&builder, call.Arguments)
 	}
 	return builder.String()
 }

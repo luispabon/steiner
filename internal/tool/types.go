@@ -10,6 +10,8 @@ import (
 )
 
 // ToolDef describes a callable tool and its execution policy.
+//
+//nolint:revive // package API keeps tool-prefixed names for compatibility.
 type ToolDef struct {
 	Name            string
 	ExecPath        string
@@ -21,10 +23,13 @@ type ToolDef struct {
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 }
 
+// RetentionKindDelegateSummary identifies retained delegate summaries.
 const RetentionKindDelegateSummary = "delegate_summary"
 
 // ToolRetention carries runtime-only metadata that can be preserved alongside a
 // tool result without being surfaced to providers.
+//
+//nolint:revive // package API keeps tool-prefixed names for compatibility.
 type ToolRetention struct {
 	Kind       string `json:"kind,omitempty"`
 	Summary    string `json:"summary,omitempty"`
@@ -75,6 +80,8 @@ type ApprovalResponse struct {
 }
 
 // ToolExecutionError reports a failed tool execution with shaped output.
+//
+//nolint:revive // package API keeps tool-prefixed names for compatibility.
 type ToolExecutionError struct {
 	Tool     string
 	Kind     string

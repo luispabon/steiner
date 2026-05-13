@@ -9,31 +9,57 @@ import (
 )
 
 const (
-	EventTypeModelCallStarted    = "model_call_started"
-	EventTypeModelCallFinished   = "model_call_finished"
-	EventTypeToolCallStarted     = "tool_call_started"
-	EventTypeToolCallFinished    = "tool_call_finished"
-	EventTypeApprovalRequested   = "approval_requested"
-	EventTypeApprovalAccepted    = "approval_accepted"
-	EventTypeApprovalDenied      = "approval_denied"
-	EventTypeStopReason          = "stop_reason"
-	EventTypeUserInput           = "user_input"
-	EventTypeAPIRequest          = "api_request"
-	EventTypeAPIResponse         = "api_response"
-	EventTypeRunStarted          = "run_started"
-	EventTypeRunFinished         = "run_finished"
-	EventTypeTurnStarted         = "turn_started"
-	EventTypeTurnFinished        = "turn_finished"
-	EventTypeAssistantMessage    = "assistant_message"
-	EventTypeAssistantChunk      = "assistant_chunk"
-	EventTypeThinkingChunk       = "thinking_chunk"
-	EventTypeProviderDiagnostic  = "provider_diagnostic"
-	EventTypeContextReport       = "context_report"
-	EventTypeHistoryLoaded       = "history_loaded"
-	EventTypeContextDiagnostics  = "context_diagnostics"
-	EventTypeDelegationStarted   = "delegation_started"
-	EventTypeDelegationComplete  = "delegation_complete"
-	EventTypeDelegationFailed    = "delegation_failed"
+	// EventTypeModelCallStarted marks the start of a provider call.
+	EventTypeModelCallStarted = "model_call_started"
+	// EventTypeModelCallFinished marks the end of a provider call.
+	EventTypeModelCallFinished = "model_call_finished"
+	// EventTypeToolCallStarted marks the start of a tool call.
+	EventTypeToolCallStarted = "tool_call_started"
+	// EventTypeToolCallFinished marks the end of a tool call.
+	EventTypeToolCallFinished = "tool_call_finished"
+	// EventTypeApprovalRequested marks a pending approval request.
+	EventTypeApprovalRequested = "approval_requested"
+	// EventTypeApprovalAccepted marks an accepted approval request.
+	EventTypeApprovalAccepted = "approval_accepted"
+	// EventTypeApprovalDenied marks a denied approval request.
+	EventTypeApprovalDenied = "approval_denied"
+	// EventTypeStopReason records why a run stopped.
+	EventTypeStopReason = "stop_reason"
+	// EventTypeUserInput records user input entering the stream.
+	EventTypeUserInput = "user_input"
+	// EventTypeAPIRequest records an outbound provider request.
+	EventTypeAPIRequest = "api_request"
+	// EventTypeAPIResponse records an inbound provider response.
+	EventTypeAPIResponse = "api_response"
+	// EventTypeRunStarted marks the start of a top-level run.
+	EventTypeRunStarted = "run_started"
+	// EventTypeRunFinished marks the end of a top-level run.
+	EventTypeRunFinished = "run_finished"
+	// EventTypeTurnStarted marks the start of a model turn.
+	EventTypeTurnStarted = "turn_started"
+	// EventTypeTurnFinished marks the end of a model turn.
+	EventTypeTurnFinished = "turn_finished"
+	// EventTypeAssistantMessage records a completed assistant message.
+	EventTypeAssistantMessage = "assistant_message"
+	// EventTypeAssistantChunk records a streamed assistant chunk.
+	EventTypeAssistantChunk = "assistant_chunk"
+	// EventTypeThinkingChunk records a streamed reasoning chunk.
+	EventTypeThinkingChunk = "thinking_chunk"
+	// EventTypeProviderDiagnostic records provider retry or transport diagnostics.
+	EventTypeProviderDiagnostic = "provider_diagnostic"
+	// EventTypeContextReport records the assembled context report.
+	EventTypeContextReport = "context_report"
+	// EventTypeHistoryLoaded records loaded conversation history.
+	EventTypeHistoryLoaded = "history_loaded"
+	// EventTypeContextDiagnostics records context assembly diagnostics.
+	EventTypeContextDiagnostics = "context_diagnostics"
+	// EventTypeDelegationStarted marks the start of sub-agent delegation.
+	EventTypeDelegationStarted = "delegation_started"
+	// EventTypeDelegationComplete marks successful sub-agent completion.
+	EventTypeDelegationComplete = "delegation_complete"
+	// EventTypeDelegationFailed marks failed sub-agent completion.
+	EventTypeDelegationFailed = "delegation_failed"
+	// EventTypeDelegationExtension records delegation-specific auxiliary events.
 	EventTypeDelegationExtension = "delegation_extension"
 
 	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
@@ -62,6 +88,7 @@ type EventSink interface {
 // SinkFunc adapts a function into an EventSink.
 type SinkFunc func(Event)
 
+// Emit forwards the event to the wrapped function.
 func (f SinkFunc) Emit(event Event) {
 	if f != nil {
 		f(event)
@@ -71,6 +98,7 @@ func (f SinkFunc) Emit(event Event) {
 // NoopSink discards all events.
 type NoopSink struct{}
 
+// Emit discards the event.
 func (NoopSink) Emit(Event) {}
 
 // ForwardSink is a thread-safe EventSink whose target can be swapped at runtime.
@@ -230,7 +258,9 @@ type AssistantMessageEvent struct {
 type ChunkSource string
 
 const (
-	ChunkSourceAssistant         ChunkSource = "assistant"
+	// ChunkSourceAssistant identifies chunks emitted from assistant output.
+	ChunkSourceAssistant ChunkSource = "assistant"
+	// ChunkSourceScaffoldInference identifies chunks emitted from scaffold inference output.
 	ChunkSourceScaffoldInference ChunkSource = "scaffold_inference"
 )
 

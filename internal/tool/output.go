@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 )
 
+// StreamCapture summarizes a bounded stdout or stderr capture.
 type StreamCapture struct {
 	Bytes     int    `json:"bytes"`
 	Shown     int    `json:"shown,omitempty"`
@@ -101,6 +102,7 @@ func (c *boundedCapture) Bytes() []byte {
 	return append([]byte(nil), c.buf.Bytes()...)
 }
 
+// Summary returns a compact textual form of the captured stream.
 func (c StreamCapture) Summary() string {
 	switch {
 	case c.Binary:
@@ -115,14 +117,17 @@ func (c StreamCapture) Summary() string {
 	}
 }
 
+// Truncated reports whether either stream was truncated.
 func (m ExecutionMetadata) Truncated() bool {
 	return m.Stdout.Truncated || m.Stderr.Truncated
 }
 
+// Binary reports whether either stream was detected as binary.
 func (m ExecutionMetadata) Binary() bool {
 	return m.Stdout.Binary || m.Stderr.Binary
 }
 
+// Summary returns a compact textual summary of stdout, stderr, and exit code.
 func (m ExecutionMetadata) Summary() string {
 	parts := make([]string, 0, 3)
 	if stdout := strings.TrimSpace(m.Stdout.Summary()); stdout != "" {

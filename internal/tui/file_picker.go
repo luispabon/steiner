@@ -26,12 +26,20 @@ type filePickerOverlay struct {
 	styles       theme.Styles
 }
 
+type searchPickerUpdateResult int
+
+const (
+	searchPickerIgnored searchPickerUpdateResult = iota
+	searchPickerHandled
+	searchPickerClosed
+)
+
 func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
 	return filePickerOverlay{styles: styles}
 }
 
 func (f filePickerOverlay) Open(root string) filePickerOverlay {
-	f.OverlayShell = f.OverlayShell.openShell()
+	f.OverlayShell = f.openShell()
 	f.root = root
 	f.query = ""
 	f.selection = 0
@@ -73,7 +81,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 }
 
 func (f filePickerOverlay) Close() filePickerOverlay {
-	f.OverlayShell = f.OverlayShell.closeShell()
+	f.OverlayShell = f.closeShell()
 	return f
 }
 
@@ -81,57 +89,26 @@ func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 	if !f.open {
 		return f, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return f, nil
-	}
-	switch keyMsg.Type {
-	case tea.KeyEsc:
+	switch updateSearchPicker(&f.query, &f.selection, &f.scrollOffset, &f.candidates, f.allEntries, msg, func(query string, entries []string) []string {
+		return filterSearchPickerEntries(entries, query, func(entry string, loweredQuery string) bool {
+			return strings.Contains(strings.ToLower(entry), loweredQuery)
+		})
+	}) {
+	case searchPickerClosed:
 		return f.Close(), nil
-	case tea.KeyEnter:
+	case searchPickerHandled, searchPickerIgnored:
 		return f, nil
-	case tea.KeyUp:
-		if f.selection > 0 {
-			f.selection--
-		}
-		f.scrollIntoView()
-		return f, nil
-	case tea.KeyDown:
-		if f.selection < len(f.candidates)-1 {
-			f.selection++
-		}
-		f.scrollIntoView()
-		return f, nil
-	case tea.KeyBackspace:
-		if len(f.query) > 0 {
-			f.query = f.query[:len(f.query)-1]
-			f.filter()
-		}
-		return f, nil
-	case tea.KeyRunes:
-		f.query += keyMsg.String()
-		f.filter()
-		f.selection = 0
+	default:
 		return f, nil
 	}
-	return f, nil
 }
 
 func (f *filePickerOverlay) filter() {
 	f.scrollOffset = 0
 	f.selection = 0
-	q := strings.ToLower(f.query)
-	if q == "" {
-		f.candidates = append([]string(nil), f.allEntries...)
-		return
-	}
-	var result []string
-	for _, entry := range f.allEntries {
-		if strings.Contains(strings.ToLower(entry), q) {
-			result = append(result, entry)
-		}
-	}
-	f.candidates = result
+	f.candidates = filterSearchPickerEntries(f.allEntries, f.query, func(entry string, loweredQuery string) bool {
+		return strings.Contains(strings.ToLower(entry), loweredQuery)
+	})
 }
 
 func (f filePickerOverlay) View() string {
@@ -160,7 +137,7 @@ func (f filePickerOverlay) View() string {
 
 	for i := f.scrollOffset; i < min(f.scrollOffset+maxDisplay, len(f.candidates)); i++ {
 		entry := f.candidates[i]
-		row := entry
+		var row string
 		if strings.HasSuffix(entry, "/") {
 			row = dirStyle.Render(entry)
 		} else {
@@ -184,11 +161,70 @@ func (f filePickerOverlay) View() string {
 	return theme.WithBg(f.Render(overlayStyles{box: f.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
 }
 
-func (f *filePickerOverlay) scrollIntoView() {
-	if f.selection >= f.scrollOffset+maxDisplay {
-		f.scrollOffset = f.selection - maxDisplay + 1
+func filterSearchPickerEntries[T any](allEntries []T, query string, matches func(T, string) bool) []T {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return append([]T(nil), allEntries...)
 	}
-	if f.selection < f.scrollOffset {
-		f.scrollOffset = f.selection
+	result := make([]T, 0, len(allEntries))
+	for _, entry := range allEntries {
+		if matches(entry, q) {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int, candidates *[]T, allEntries []T, msg tea.Msg, filter func(string, []T) []T) searchPickerUpdateResult {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return searchPickerIgnored
+	}
+
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		return searchPickerClosed
+	case tea.KeyEnter:
+		return searchPickerHandled
+	case tea.KeyUp:
+		if *selection > 0 {
+			*selection--
+		}
+		scrollSearchPickerIntoView(selection, scrollOffset)
+		return searchPickerHandled
+	case tea.KeyDown:
+		if *selection < len(*candidates)-1 {
+			*selection++
+		}
+		scrollSearchPickerIntoView(selection, scrollOffset)
+		return searchPickerHandled
+	case tea.KeyBackspace:
+		if len(*query) > 0 {
+			*query = (*query)[:len(*query)-1]
+			*candidates = filter(*query, allEntries)
+			*selection = 0
+			*scrollOffset = 0
+		}
+		return searchPickerHandled
+	case tea.KeyRunes:
+		*query += keyMsg.String()
+		*candidates = filter(*query, allEntries)
+		*selection = 0
+		*scrollOffset = 0
+		return searchPickerHandled
+	default:
+		return searchPickerIgnored
+	}
+}
+
+func scrollSearchPickerIntoView(selection *int, scrollOffset *int) {
+	if *selection >= *scrollOffset+maxDisplay {
+		*scrollOffset = *selection - maxDisplay + 1
+	}
+	if *selection < *scrollOffset {
+		*scrollOffset = *selection
+	}
+	if *scrollOffset < 0 {
+		*scrollOffset = 0
 	}
 }

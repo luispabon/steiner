@@ -14,7 +14,7 @@ type stdinApprovalResponder struct {
 	reader *bufio.Reader
 }
 
-func (h stdinApprovalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+func (h stdinApprovalResponder) RequestApproval(_ context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
 	}

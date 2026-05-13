@@ -84,14 +84,6 @@ func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
 	return out
 }
 
-func cloneToolRetention(retention *tool.ToolRetention) *tool.ToolRetention {
-	if retention == nil {
-		return nil
-	}
-	cloned := *retention
-	return &cloned
-}
-
 func messageRetentionFromToolRetention(retention *tool.ToolRetention) *MessageRetention {
 	if retention == nil {
 		return nil

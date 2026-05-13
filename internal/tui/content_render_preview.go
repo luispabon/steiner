@@ -352,24 +352,6 @@ func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []
 	return lines
 }
 
-func (b *contentBuffer) renderDiffHeader(doc output.PreviewDocument, width int) string {
-	added, removed := output.CountPreviewChanges(doc)
-	addedStr := fmt.Sprintf("+%d", added)
-	removedStr := fmt.Sprintf("-%d", removed)
-	plainTagStyled := b.styles.ToolTagWrite.Render(" [edit] ")
-	plainPathStyled := b.baseTextStyle().Render(doc.Path)
-	plainMetrics := addedStr + " " + removedStr
-	headerPlainWidth := lipgloss.Width(plainTagStyled) + 1 + lipgloss.Width(plainPathStyled)
-	available := width - headerPlainWidth - lipgloss.Width(plainMetrics) - 1
-	if available < 1 {
-		available = 1
-	}
-	header := plainTagStyled + " " + plainPathStyled
-	header = lipgloss.NewStyle().Width(available).Render(header)
-	styledMetrics := b.styles.Added.Render(addedStr) + " " + b.styles.Removed.Render(removedStr)
-	return b.styles.BgElev2.Render(header + " " + styledMetrics)
-}
-
 func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {
 	lines := make([]string, 0, len(doc.Lines))
 	oldLine, newLine := 1, 1

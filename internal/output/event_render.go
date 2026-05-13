@@ -2,52 +2,77 @@ package output
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
 func renderEvent(event Event) Segment {
-	switch payload := event.Payload.(type) {
-	case RunStartedEvent:
-		return renderRunStartedEvent(payload)
-	case TurnStartedEvent:
-		return renderTurnStartedEvent(payload)
-	case TurnFinishedEvent:
-		return renderTurnFinishedEvent(payload)
-	case AssistantMessageEvent:
-		return renderAssistantMessageEvent(payload)
-	case AssistantChunkEvent:
-		return renderAssistantChunkEvent(payload)
-	case ThinkingChunkEvent:
-		return renderThinkingChunkEvent(payload)
-	case ProviderDiagnosticEvent:
-		return renderProviderDiagnosticEvent(payload)
-	case ContextReportEvent:
-		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
-	case DisplayFilePayload:
-		return renderDisplayFileEvent(payload)
-	case ModelCallStartedEvent:
-		return renderModelCallStartedEvent(payload)
-	case ModelCallFinishedEvent:
-		return renderModelCallFinishedEvent(payload)
-	case ToolCallStartedEvent:
-		return renderToolCallStartedEvent(payload)
-	case ToolCallFinishedEvent:
-		return renderToolCallFinishedEvent(payload)
-	case ApprovalEvent:
-		return renderApprovalEvent(event, payload)
-	case StopReasonEvent:
-		return renderStopReasonEvent(payload)
-	case UserInputEvent:
-		return renderUserInputEvent(payload)
-	case APIRequestEvent:
-		return renderAPIRequestEvent(payload)
-	case APIResponseEvent:
-		return renderAPIResponseEvent(payload)
-	case ContextDiagnosticsEvent:
-		return Segment{Channel: ChannelStatus, Label: "context", Text: formatContextDiagnosticsEvent(payload)}
-	default:
-		return renderUnknownEvent(event)
+	if renderer, ok := eventRenderers[reflect.TypeOf(event.Payload)]; ok {
+		return renderer(event)
 	}
+	return renderUnknownEvent(event)
+}
+
+var eventRenderers = map[reflect.Type]func(Event) Segment{
+	reflect.TypeOf(RunStartedEvent{}): func(event Event) Segment {
+		return renderRunStartedEvent(event.Payload.(RunStartedEvent))
+	},
+	reflect.TypeOf(TurnStartedEvent{}): func(event Event) Segment {
+		return renderTurnStartedEvent(event.Payload.(TurnStartedEvent))
+	},
+	reflect.TypeOf(TurnFinishedEvent{}): func(event Event) Segment {
+		return renderTurnFinishedEvent(event.Payload.(TurnFinishedEvent))
+	},
+	reflect.TypeOf(AssistantMessageEvent{}): func(event Event) Segment {
+		return renderAssistantMessageEvent(event.Payload.(AssistantMessageEvent))
+	},
+	reflect.TypeOf(AssistantChunkEvent{}): func(event Event) Segment {
+		return renderAssistantChunkEvent(event.Payload.(AssistantChunkEvent))
+	},
+	reflect.TypeOf(ThinkingChunkEvent{}): func(event Event) Segment {
+		return renderThinkingChunkEvent(event.Payload.(ThinkingChunkEvent))
+	},
+	reflect.TypeOf(ProviderDiagnosticEvent{}): func(event Event) Segment {
+		return renderProviderDiagnosticEvent(event.Payload.(ProviderDiagnosticEvent))
+	},
+	reflect.TypeOf(ContextReportEvent{}): func(event Event) Segment {
+		payload := event.Payload.(ContextReportEvent)
+		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
+	},
+	reflect.TypeOf(DisplayFilePayload{}): func(event Event) Segment {
+		return renderDisplayFileEvent(event.Payload.(DisplayFilePayload))
+	},
+	reflect.TypeOf(ModelCallStartedEvent{}): func(event Event) Segment {
+		return renderModelCallStartedEvent(event.Payload.(ModelCallStartedEvent))
+	},
+	reflect.TypeOf(ModelCallFinishedEvent{}): func(event Event) Segment {
+		return renderModelCallFinishedEvent(event.Payload.(ModelCallFinishedEvent))
+	},
+	reflect.TypeOf(ToolCallStartedEvent{}): func(event Event) Segment {
+		return renderToolCallStartedEvent(event.Payload.(ToolCallStartedEvent))
+	},
+	reflect.TypeOf(ToolCallFinishedEvent{}): func(event Event) Segment {
+		return renderToolCallFinishedEvent(event.Payload.(ToolCallFinishedEvent))
+	},
+	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
+		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
+	},
+	reflect.TypeOf(StopReasonEvent{}): func(event Event) Segment {
+		return renderStopReasonEvent(event.Payload.(StopReasonEvent))
+	},
+	reflect.TypeOf(UserInputEvent{}): func(event Event) Segment {
+		return renderUserInputEvent(event.Payload.(UserInputEvent))
+	},
+	reflect.TypeOf(APIRequestEvent{}): func(event Event) Segment {
+		return renderAPIRequestEvent(event.Payload.(APIRequestEvent))
+	},
+	reflect.TypeOf(APIResponseEvent{}): func(event Event) Segment {
+		return renderAPIResponseEvent(event.Payload.(APIResponseEvent))
+	},
+	reflect.TypeOf(ContextDiagnosticsEvent{}): func(event Event) Segment {
+		payload := event.Payload.(ContextDiagnosticsEvent)
+		return Segment{Channel: ChannelStatus, Label: "context", Text: formatContextDiagnosticsEvent(payload)}
+	},
 }
 
 func renderRunStartedEvent(payload RunStartedEvent) Segment {
@@ -290,7 +315,8 @@ func renderStopReasonEvent(payload StopReasonEvent) Segment {
 	parts := []string{}
 	if payload.Summary != "" {
 		parts = append(parts, payload.Summary)
-	} else if payload.Reason != "" {
+	}
+	if payload.Summary == "" && payload.Reason != "" {
 		parts = append(parts, "reason="+payload.Reason)
 	}
 	if payload.Action != "" {

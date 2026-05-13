@@ -128,34 +128,16 @@ func (e *EpochManager) emitMaskingDiagnostics(turn, window, previousBoundary, pr
 	}
 	newlyMaskedTurns := map[int]struct{}{}
 	for i := range original {
-		if strings.TrimSpace(original[i].Content) == strings.TrimSpace(masked[i].Content) {
+		action, reason, epochStatus, notes, maskedTurn := maskingDiagnosticForMessage(original[i], masked[i], i, window, previousBoundary, e.epochMaskBoundary, trigger)
+		if action == "" {
 			continue
 		}
-		action := "masked"
-		reason := "older than masking window"
-		epochStatus := "previously_masked"
 		toolName := strings.TrimSpace(original[i].Name)
-		switch original[i].Role {
-		case MessageRoleAssistant:
-			if strings.TrimSpace(masked[i].Content) != "" && strings.TrimSpace(masked[i].Content) != strings.TrimSpace(original[i].Content) {
-				action = "trimmed"
-				reason = "older assistant prose"
-			}
-		case MessageRoleTool:
-			if toolName == "" {
-				toolName = "tool"
-			}
-			reason = "older tool result"
-		default:
-			action = "masked"
+		if toolName == "" && original[i].Role == MessageRoleTool {
+			toolName = "tool"
 		}
-		if trigger != "" && original[i].Turn > 0 && original[i].Turn >= previousBoundary && original[i].Turn < e.epochMaskBoundary {
-			epochStatus = "newly_masked"
-			newlyMaskedTurns[original[i].Turn] = struct{}{}
-		}
-		notes := []string{fmt.Sprintf("message_index=%d", i)}
-		if original[i].ToolCallID != "" {
-			notes = append(notes, "tool_call_id="+original[i].ToolCallID)
+		if maskedTurn > 0 {
+			newlyMaskedTurns[maskedTurn] = struct{}{}
 		}
 		emitEvent(e.events, output.NewContextMaskingEvent(turn, toolName, action, reason, window, e.epochMaskBoundary, e.epochStartTurn, 0, trigger, epochStatus, notes...))
 	}
@@ -175,4 +157,35 @@ func (e *EpochManager) emitMaskingDiagnostics(turn, window, previousBoundary, pr
 			fmt.Sprintf("previous_start_turn=%d", previousStartTurn),
 		))
 	}
+}
+
+func maskingDiagnosticForMessage(original, masked Message, index, _ int, previousBoundary, currentBoundary int, trigger string) (string, string, string, []string, int) {
+	if strings.TrimSpace(original.Content) == strings.TrimSpace(masked.Content) {
+		return "", "", "", nil, 0
+	}
+
+	action := "masked"
+	reason := "older than masking window"
+	epochStatus := "previously_masked"
+	if original.Role == MessageRoleAssistant && strings.TrimSpace(masked.Content) != "" && strings.TrimSpace(masked.Content) != strings.TrimSpace(original.Content) {
+		action = "trimmed"
+		reason = "older assistant prose"
+	}
+	if original.Role == MessageRoleTool {
+		reason = "older tool result"
+	}
+	if trigger != "" && original.Turn > 0 && original.Turn >= previousBoundary && original.Turn < currentBoundary {
+		epochStatus = "newly_masked"
+	}
+
+	notes := []string{fmt.Sprintf("message_index=%d", index)}
+	if original.ToolCallID != "" {
+		notes = append(notes, "tool_call_id="+original.ToolCallID)
+	}
+
+	maskedTurn := 0
+	if epochStatus == "newly_masked" {
+		maskedTurn = original.Turn
+	}
+	return action, reason, epochStatus, notes, maskedTurn
 }

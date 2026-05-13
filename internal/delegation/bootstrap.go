@@ -32,18 +32,16 @@ type BootstrapDeps struct {
 // overrides, builds child prompt and tool registries, and returns the assembled
 // request together with the computed DelegationLimits.
 func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
+	_ = ctx
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	agentLimits := agent.Limits{
 		MaxTurns:  limits.MaxTurns,
 		MaxTokens: limits.OutputLimitTokens,
 	}
 
-	promptOpts, err := buildChildPrompt(spec)
-	if err != nil {
-		return agent.RunRequest{}, DelegationLimits{}, fmt.Errorf("build child prompt: %w", err)
-	}
+	promptOpts := buildChildPrompt(spec)
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, DelegateToolName, deps.SubAgentCfg.AllowedTools)
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
 	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.Thinking, deps.ModelBudget, deps.Model, deps.MaxTokens, deps.StreamingPreferred)
 	return req, limits, nil
 }
@@ -59,7 +57,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // buildChildPrompt assembles the prompt.AssemblyOptions for a child agent.
 // The child system prompt is supplied as the preamble override instead of a
 // conversation message so the assembled provider request has one system message.
-func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
+func buildChildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a sub-agent. Complete the task given to you."
@@ -75,7 +73,7 @@ func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},
-	}, nil
+	}
 }
 
 // buildChildRegistries produces both the visible tool registry (tools the model
@@ -84,12 +82,12 @@ func buildChildPrompt(spec DelegationSpec) (prompt.AssemblyOptions, error) {
 // always excluded from both, even if it appears in allowedTools. If allowedTools
 // is non-empty, only listed tools are included. If empty, no tools are included.
 // Execution tools are set to auto-approval mode.
-func buildChildRegistries(parent *tool.Registry, excludeTool string, allowedTools []string) (*tool.Registry, *tool.Registry) {
+func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.Registry, *tool.Registry) {
 	if parent == nil {
 		empty := tool.NewRegistry()
 		return empty, empty
 	}
-	visible := parent.Subset(allowedTools, []string{excludeTool}, "")
-	exec := parent.Subset(allowedTools, []string{excludeTool}, config.ApprovalModeAuto)
+	visible := parent.Subset(allowedTools, []string{DelegateToolName}, "")
+	exec := parent.Subset(allowedTools, []string{DelegateToolName}, config.ApprovalModeAuto)
 	return visible, exec
 }

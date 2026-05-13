@@ -84,10 +84,10 @@ func (s sidebarState) View(width, height int) string {
 }
 
 func (s sidebarState) styledWithBg(baseStyle lipgloss.Style, text string) string {
-	return baseStyle.Copy().Background(lipgloss.Color(theme.Black)).Render(text)
+	return baseStyle.Background(lipgloss.Color(theme.Black)).Render(text)
 }
 
-func (s sidebarState) workdirSummary(width int) string {
+func (s sidebarState) workdirSummary() string {
 	value := strings.TrimSpace(s.workingDir)
 	if value == "" {
 		return "n/a"

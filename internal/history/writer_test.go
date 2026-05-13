@@ -18,6 +18,13 @@ func mustOpenWriter(t *testing.T, dir string) *Writer {
 	return w
 }
 
+func closeWriter(t *testing.T, w *Writer) {
+	t.Helper()
+	if err := w.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
 func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "nested", "history.log")
@@ -26,7 +33,11 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if w.Path() != path {
 		t.Errorf("Path() = %q, want %q", w.Path(), path)
@@ -51,7 +62,11 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 
 func TestRecord_EmptyPrompt(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if err := w.Record(""); err != nil {
 		t.Fatalf("Record empty: %v", err)
@@ -74,7 +89,11 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	prompt := "user query"
 	if err := w.Record(prompt); err != nil {
@@ -105,7 +124,11 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 
 func TestRecord_EscapesSpecialChars(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	prompt := "col1\tcol2\nline2"
 	if err := w.Record(prompt); err != nil {
@@ -134,7 +157,11 @@ func TestRecord_EscapesSpecialChars(t *testing.T) {
 
 func TestRecord_TrimsAfterWrite(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	for i := 0; i < 55; i++ {
 		if err := w.Record("prompt"); err != nil {
@@ -153,7 +180,11 @@ func TestRecord_TrimsAfterWrite(t *testing.T) {
 
 func TestTrimAfterAppend_NoOp(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}()
 
 	if err := w.Record("hello"); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -177,7 +208,7 @@ func TestTrimAfterAppend_NoOp(t *testing.T) {
 
 func TestTrimAfterAppend_Truncates(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	for i := 0; i < 10; i++ {
 		if err := w.Record("line"); err != nil {
@@ -200,7 +231,7 @@ func TestTrimAfterAppend_Truncates(t *testing.T) {
 
 func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	for i := 0; i < 3; i++ {
 		if err := w.Record("line"); err != nil {
@@ -223,7 +254,7 @@ func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
 
 func TestLoad_ReturnsPrompts(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	prompts := []string{"first query", "second query", "third query"}
 	for _, p := range prompts {
@@ -259,7 +290,7 @@ func TestLoad_UnescapesSpecialChars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {
@@ -288,7 +319,7 @@ func TestLoad_SkipsMalformedLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {
@@ -307,7 +338,7 @@ func TestLoad_SkipsMalformedLines(t *testing.T) {
 
 func TestLoad_EmptyFile(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer w.Close()
+	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {

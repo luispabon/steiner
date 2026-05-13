@@ -86,7 +86,7 @@ func mustBuildHelperBinary(t *testing.T) string {
 		t.Fatalf("write helper source: %v", err)
 	}
 	bin := filepath.Join(dir, "helper")
-	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -168,7 +168,7 @@ func TestExecutorContextCancellation(t *testing.T) {
 		},
 	}
 
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
 		return nil
 	}), t.TempDir())
 
@@ -194,7 +194,7 @@ func TestExecutorApprovalBackendFailure(t *testing.T) {
 	}
 
 	backendErr := errors.New("approval transport unavailable")
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
 		return backendErr
 	}), t.TempDir())
 
@@ -276,7 +276,7 @@ func TestExitCodeFromError(t *testing.T) {
 		t.Fatalf("exitCodeFromError(errors.New) = %d, want 1", got)
 	}
 
-	err := exec.Command("sh", "-c", "exit 42").Run()
+	err := exec.CommandContext(context.Background(), "sh", "-c", "exit 42").Run()
 	if got := exitCodeFromError(err); got != 42 {
 		t.Fatalf("exitCodeFromError(exit 42) = %d, want 42", got)
 	}

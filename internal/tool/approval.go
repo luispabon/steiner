@@ -4,6 +4,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// ApprovalResolver resolves approval mode and preview data for a tool.
 type ApprovalResolver struct {
 	Config config.Config
 }
@@ -13,6 +14,7 @@ func NewApprovalResolver(cfg config.Config) ApprovalResolver {
 	return ApprovalResolver{Config: cfg}
 }
 
+// ResolveApprovalMode resolves the effective approval mode for a tool.
 func ResolveApprovalMode(cfg config.Config, def ToolDef) config.ApprovalMode {
 	if def.Approval != "" {
 		return def.Approval
@@ -26,10 +28,12 @@ func ResolveApprovalMode(cfg config.Config, def ToolDef) config.ApprovalMode {
 	return config.ApprovalModeAuto
 }
 
+// ModeFor returns the effective approval mode for a tool definition.
 func (r ApprovalResolver) ModeFor(def ToolDef) config.ApprovalMode {
 	return ResolveApprovalMode(r.Config, def)
 }
 
+// PreviewFor builds the approval preview for a validated tool input.
 func (r ApprovalResolver) PreviewFor(def ToolDef, input map[string]any, policy PathPolicy) (ApprovalPreview, error) {
 	normalized, err := policy.ValidateToolInput(def.Name, input)
 	if err != nil {
@@ -42,10 +46,12 @@ func (r ApprovalResolver) PreviewFor(def ToolDef, input map[string]any, policy P
 	return preview, nil
 }
 
+// IsApprovalPrompt reports whether approval should be requested interactively.
 func IsApprovalPrompt(mode config.ApprovalMode) bool {
 	return mode == config.ApprovalModePrompt || mode == ""
 }
 
+// IsApprovalDenied reports whether approval should be denied immediately.
 func IsApprovalDenied(mode config.ApprovalMode) bool {
 	return mode == config.ApprovalModeDeny
 }

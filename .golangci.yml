@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - staticcheck
+    - govet
+    - errcheck
+    - ineffassign
+    - unused
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - errorlint
+    - bodyclose
+    - noctx
+    - gocritic
+    - gocyclo
+    - dupl
+  settings:
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 120
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: exported
+        - name: unreachable-code
+        - name: unused-parameter
+  exclusions:
+    paths:
+      - testdata
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - gocyclo
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/luispabon/steiner
+  exclusions:
+    paths:
+      - testdata

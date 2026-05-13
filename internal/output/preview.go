@@ -3,17 +3,27 @@ package output
 import "strings"
 
 const (
-	ToolPreviewKindEditDiff  = "edit_diff"
+	// ToolPreviewKindEditDiff is a diff preview produced by edit-like tools.
+	ToolPreviewKindEditDiff = "edit_diff"
+	// ToolPreviewKindFileWrite is a full-file preview produced by write-like tools.
 	ToolPreviewKindFileWrite = "file_write"
-	ToolPreviewKindReadFile  = "read_file"
-	ToolPreviewKindGlobList  = "glob_list"
-	ToolPreviewKindLSList    = "ls_list"
-	ToolPreviewKindGrep      = "grep"
-	ToolPreviewKindBash      = "bash"
-	ToolPreviewKindPatch     = "patch"
-	ToolPreviewKindPlain     = "plain"
+	// ToolPreviewKindReadFile is a read-file preview.
+	ToolPreviewKindReadFile = "read_file"
+	// ToolPreviewKindGlobList is a glob results preview.
+	ToolPreviewKindGlobList = "glob_list"
+	// ToolPreviewKindLSList is a directory listing preview.
+	ToolPreviewKindLSList = "ls_list"
+	// ToolPreviewKindGrep is a grep results preview.
+	ToolPreviewKindGrep = "grep"
+	// ToolPreviewKindBash is a shell command preview.
+	ToolPreviewKindBash = "bash"
+	// ToolPreviewKindPatch is an apply_patch preview.
+	ToolPreviewKindPatch = "patch"
+	// ToolPreviewKindPlain is a fallback preview with no structured rendering.
+	ToolPreviewKindPlain = "plain"
 )
 
+// ToolPreviewListEntry is one filesystem entry in a list-style preview.
 type ToolPreviewListEntry struct {
 	Path  string
 	IsDir bool
@@ -25,17 +35,20 @@ type ToolPreviewPatchMove struct {
 	To   string
 }
 
+// ToolPreviewGrepMatch is one matching line in a grep preview.
 type ToolPreviewGrepMatch struct {
 	LineNumber int
 	Text       string
 }
 
+// ToolPreviewGrepFile groups grep matches by file.
 type ToolPreviewGrepFile struct {
 	Path    string
 	Count   int
 	Matches []ToolPreviewGrepMatch
 }
 
+// ToolPreview is the normalized preview payload for tool results.
 type ToolPreview struct {
 	Kind          string
 	Path          string
@@ -63,6 +76,7 @@ type ToolPreview struct {
 	HunksFailed   int
 }
 
+// BuildToolPreview builds a structured preview for a tool result when supported.
 func BuildToolPreview(tool string, arguments map[string]any, result string, writeTargetExistedBefore *bool) ToolPreview {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "edit":

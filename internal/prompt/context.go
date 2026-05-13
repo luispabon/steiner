@@ -9,6 +9,7 @@ import (
 
 const defaultProjectContextBudgetBytes = 2000
 
+// ProjectContextOptions configures which project files are gathered into prompt context.
 type ProjectContextOptions struct {
 	Root        string
 	BudgetBytes int

@@ -267,7 +267,7 @@ func TestSessionHandleNoop(t *testing.T) {
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			return conversation, nil
 		}),
 	})
@@ -290,7 +290,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			called = true
 			return conversation, nil
 		}),
@@ -306,7 +306,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
 			return []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
 				{Role: agent.MessageRoleAssistant, Content: "hi there"},
@@ -328,7 +328,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
 			return nil, fmt.Errorf("run failed")
 		}),
 	})
@@ -360,7 +360,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
 			return append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"}), nil
 		}),
 		HistoryWriter: &recordingHistoryWriter{
@@ -402,7 +402,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	block := make(chan struct{})
 	cancelled := false
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
 			close(block)
 			<-ctx.Done()
 			cancelled = true
@@ -412,7 +412,9 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 
 	go func() {
 		<-block
-		s.Handle(context.Background(), InterruptActiveRun{})
+		if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
+			t.Errorf("Handle(InterruptActiveRun) error = %v", err)
+		}
 	}()
 
 	s.submitPrompt(context.Background(), "hello")
@@ -500,7 +502,9 @@ func TestSessionRunBlocksUntilRequestExit(t *testing.T) {
 		done <- s.Run(ctx)
 	}()
 
-	s.Handle(ctx, RequestExit{})
+	if err := s.Handle(ctx, RequestExit{}); err != nil {
+		t.Fatalf("Handle(RequestExit) error = %v", err)
+	}
 
 	select {
 	case err := <-done:
@@ -887,8 +891,4 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	if !foundUserInputEvent {
 		t.Fatalf("events = %#v, want UserInput event", events)
 	}
-}
-
-func (m *mockSessionStore) setLoadSession(sess session.Session) {
-	m.loadedSessions[sess.ID] = sess
 }

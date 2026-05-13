@@ -13,9 +13,18 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
+	if err := os.Setenv("HOME", tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set HOME for tui tests: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
-	os.Setenv("HOME", oldHome)
-	os.RemoveAll(tmp)
+	if err := os.Setenv("HOME", oldHome); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore HOME for tui tests: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to remove temp dir for tui tests: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(code)
 }

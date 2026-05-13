@@ -7,6 +7,7 @@ import (
 // BuildResult constructs a DelegationResult from an agent.RunState and DelegationSpec.
 // Maps StopReason to DelegationStatus and captures state metrics.
 func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) DelegationResult {
+	_ = spec
 	// Extract last assistant message from conversation
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {

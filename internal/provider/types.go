@@ -4,10 +4,14 @@ package provider
 type MessageRole string
 
 const (
-	MessageRoleSystem    MessageRole = "system"
-	MessageRoleUser      MessageRole = "user"
+	// MessageRoleSystem identifies a system instruction message.
+	MessageRoleSystem MessageRole = "system"
+	// MessageRoleUser identifies an end-user message.
+	MessageRoleUser MessageRole = "user"
+	// MessageRoleAssistant identifies an assistant response message.
 	MessageRoleAssistant MessageRole = "assistant"
-	MessageRoleTool      MessageRole = "tool"
+	// MessageRoleTool identifies a tool result message.
+	MessageRoleTool MessageRole = "tool"
 )
 
 // ToolFunctionSpec describes the callable portion of a tool schema.

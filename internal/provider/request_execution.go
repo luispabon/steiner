@@ -10,23 +10,6 @@ import (
 	"strings"
 )
 
-type requestExecutionInput struct {
-	request ChatRequest
-	stream  bool
-}
-
-func (p *OpenAICompat) executeRequest(ctx context.Context, in requestExecutionInput) (*http.Response, error) {
-	payload, err := p.buildRequestPayload(in.request, in.stream)
-	if err != nil {
-		return nil, err
-	}
-	req, err := p.buildHTTPRequest(ctx, payload, in.stream)
-	if err != nil {
-		return nil, err
-	}
-	return p.executeHTTP(ctx, req)
-}
-
 func (p *OpenAICompat) buildRequestPayload(request ChatRequest, stream bool) ([]byte, error) {
 	return p.marshalRequest(request, stream)
 }
@@ -46,13 +29,13 @@ func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream
 	return req, nil
 }
 
-func (p *OpenAICompat) executeHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
+func (p *OpenAICompat) executeHTTP(_ context.Context, req *http.Request) (*http.Response, error) {
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		defer resp.Body.Close()
+		defer closeResponseBody(resp.Body)
 		return nil, p.readErrorResponse(resp)
 	}
 	return resp, nil
@@ -68,6 +51,13 @@ func (p *OpenAICompat) decodeNonStreamResponse(resp *http.Response) (*openAIResp
 
 func (p *OpenAICompat) decodeStreamResponse(ctx context.Context, body io.Reader, out chan<- ChatChunk) error {
 	return decodeChatStream(ctx, body, out)
+}
+
+func closeResponseBody(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_ = body.Close()
 }
 
 func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {

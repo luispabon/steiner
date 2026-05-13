@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// Registry stores tool definitions by name.
 type Registry struct {
 	defs map[string]ToolDef
 }
@@ -39,6 +40,7 @@ func NewRegistryFromConfig(cfg config.Config) *Registry {
 	return reg
 }
 
+// Register adds or replaces a tool definition.
 func (r *Registry) Register(def ToolDef) {
 	if r == nil || strings.TrimSpace(def.Name) == "" {
 		return
@@ -49,6 +51,7 @@ func (r *Registry) Register(def ToolDef) {
 	r.defs[def.Name] = cloneToolDef(def)
 }
 
+// Get returns a cloned tool definition by name.
 func (r *Registry) Get(name string) (ToolDef, bool) {
 	if r == nil {
 		return ToolDef{}, false
@@ -60,6 +63,7 @@ func (r *Registry) Get(name string) (ToolDef, bool) {
 	return cloneToolDef(def), true
 }
 
+// Names returns the registered tool names in sorted order.
 func (r *Registry) Names() []string {
 	if r == nil || len(r.defs) == 0 {
 		return nil
@@ -72,6 +76,7 @@ func (r *Registry) Names() []string {
 	return names
 }
 
+// Definitions returns all registered tool definitions in sorted order.
 func (r *Registry) Definitions() []ToolDef {
 	names := r.Names()
 	defs := make([]ToolDef, 0, len(names))
@@ -81,6 +86,7 @@ func (r *Registry) Definitions() []ToolDef {
 	return defs
 }
 
+// OpenAISchemas returns the registry definitions as OpenAI function schemas.
 func (r *Registry) OpenAISchemas() []map[string]any {
 	defs := r.Definitions()
 	schemas := make([]map[string]any, 0, len(defs))

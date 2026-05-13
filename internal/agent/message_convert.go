@@ -166,50 +166,54 @@ func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provide
 	if !scratchpadEnabled && !hasSubstantiveContent {
 		return provider.Message{}, false
 	}
-
-	hasContent := hasSubstantiveContent || state.TurnCount > 0
-	if !hasContent {
+	if !hasSubstantiveContent && state.TurnCount == 0 {
 		return provider.Message{}, false
 	}
 
-	var parts []string
-	parts = append(parts, "[Current task state]")
-
-	if len(state.ActiveConstraints) > 0 {
-		lines := []string{"active constraints:"}
-		for _, c := range state.ActiveConstraints {
-			lines = append(lines, "- "+c.Text)
-		}
-		parts = append(parts, strings.Join(lines, "\n"))
-	}
-
-	if len(state.UnresolvedWork) > 0 {
-		lines := []string{"unresolved work:"}
-		for _, w := range state.UnresolvedWork {
-			lines = append(lines, "- "+w.Text)
-		}
-		parts = append(parts, strings.Join(lines, "\n"))
-	}
-
-	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
-		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
-	}
-
-	if contextState := strings.TrimSpace(state.Render()); contextState != "" {
-		parts = append(parts, contextState)
-	}
-
-	scratchpad := strings.TrimSpace(strings.Join(scratchpadFieldLines(state.Scratchpad), "\n"))
-	if scratchpad != "" {
-		parts = append(parts, scratchpad)
-	} else {
-		parts = append(parts, "intent: \ndecisions: \nopen: \nnext: ")
-	}
-
+	parts := scratchpadMessageParts(state)
 	return provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: strings.Join(parts, "\n\n"),
 	}, true
+}
+
+func scratchpadMessageParts(state ContextState) []string {
+	parts := []string{"[Current task state]"}
+	parts = append(parts, scratchpadConstraintLines(state.ActiveConstraints)...)
+	parts = append(parts, scratchpadWorkLines(state.UnresolvedWork)...)
+	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
+		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
+	}
+	if contextState := strings.TrimSpace(state.Render()); contextState != "" {
+		parts = append(parts, contextState)
+	}
+	scratchpad := strings.TrimSpace(strings.Join(scratchpadFieldLines(state.Scratchpad), "\n"))
+	if scratchpad == "" {
+		scratchpad = "intent: \ndecisions: \nopen: \nnext: "
+	}
+	return append(parts, scratchpad)
+}
+
+func scratchpadConstraintLines(items []ActiveConstraint) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	lines := []string{"active constraints:"}
+	for _, item := range items {
+		lines = append(lines, "- "+item.Text)
+	}
+	return []string{strings.Join(lines, "\n")}
+}
+
+func scratchpadWorkLines(items []UnresolvedWorkItem) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	lines := []string{"unresolved work:"}
+	for _, item := range items {
+		lines = append(lines, "- "+item.Text)
+	}
+	return []string{strings.Join(lines, "\n")}
 }
 
 func scratchpadFieldLines(rendered string) []string {
@@ -226,8 +230,7 @@ func scratchpadFieldLines(rendered string) []string {
 		if trimmed == "" || trimmed == "[Current task state]" {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(trimmed, "session state:"):
+		if strings.HasPrefix(trimmed, "session state:") {
 			continue
 		}
 		out = append(out, trimmed)
@@ -322,17 +325,17 @@ func mergeThinkingParams(base, params map[string]any) map[string]any {
 // knows not to think.
 func applyThinking(cfg config.ThinkingConfig, req provider.ChatRequest) provider.ChatRequest {
 	if cfg.DisableMarker != "" {
-		markerPresent := hasThinkingMarker(req.Messages, cfg.DisableMarker)
 		if !cfg.Enabled {
-			if !markerPresent {
+			if !hasThinkingMarker(req.Messages, cfg.DisableMarker) {
 				req.Messages = appendThinkingMarker(req.Messages, cfg.DisableMarker)
 			}
 			return req
 		}
-		if markerPresent {
+		if hasThinkingMarker(req.Messages, cfg.DisableMarker) {
 			return req
 		}
-	} else if !cfg.Enabled {
+	}
+	if !cfg.Enabled {
 		return req
 	}
 	if len(cfg.Params) > 0 {

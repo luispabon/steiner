@@ -4,8 +4,8 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-func selectedModelConfig(cfg config.Config) (config.ModelConfig, error) {
-	return cfg.Model, nil
+func selectedModelConfig(cfg config.Config) config.ModelConfig {
+	return cfg.Model
 }
 
 func modelAliasNames(cfg config.Config) []string {

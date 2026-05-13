@@ -930,7 +930,7 @@ func (f *fakeFS) Remove(name string) error {
 	return nil
 }
 
-func (f *fakeFS) MkdirAll(path string, perm fs.FileMode) error {
+func (f *fakeFS) MkdirAll(path string, _ fs.FileMode) error {
 	f.ops = append(f.ops, "mkdir:"+path)
 	if err, ok := f.failMkdirAll[path]; ok {
 		return err

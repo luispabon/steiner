@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dive/toolkit"
+
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -94,7 +95,9 @@ func countFileLines(path string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	scanner := bufio.NewScanner(f)
 	count := 0

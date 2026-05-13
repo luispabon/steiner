@@ -17,14 +17,7 @@ type snapshotSink struct {
 
 func (s *snapshotSink) Emit(event output.Event) {
 	if payload, ok := event.Payload.(output.APIRequestEvent); ok {
-		s.store.Store(output.RequestContextSnapshot{
-			Model:       payload.Model,
-			Messages:    payload.Messages,
-			Tools:       payload.Tools,
-			MaxTokens:   payload.MaxTokens,
-			Blocks:      payload.Blocks,
-			ModelBudget: payload.ModelBudget,
-		})
+		s.store.Store(output.RequestContextSnapshot(payload))
 	}
 }
 

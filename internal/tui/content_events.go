@@ -130,48 +130,44 @@ type contentBuffer struct {
 	activeDelegations map[string]int // agentID → segment index (for in-flight delegations)
 }
 
+type contentEventHandler func(*contentBuffer, output.Event)
+
+var contentEventHandlers = map[string]contentEventHandler{
+	output.EventTypeThinkingChunk:      (*contentBuffer).appendThinkingChunkEvent,
+	output.EventTypeAssistantChunk:     (*contentBuffer).appendAssistantChunkEvent,
+	output.EventTypeApprovalRequested:  (*contentBuffer).appendApprovalRequestedEvent,
+	output.EventTypeApprovalAccepted:   (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeApprovalDenied:     (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeDelegationStarted:  (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationComplete: (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationFailed:   (*contentBuffer).appendDelegationEvent,
+	output.EventTypeToolCallStarted:    (*contentBuffer).appendToolCallStartedEvent,
+	output.EventTypeToolCallFinished:   (*contentBuffer).appendToolCallFinishedEvent,
+	output.EventTypeDisplayFile:        (*contentBuffer).appendDisplayFileEvent,
+	output.EventTypeStopReason:         (*contentBuffer).appendStopReasonEvent,
+	output.EventTypeAssistantMessage:   (*contentBuffer).appendAssistantMessageEvent,
+	output.EventTypeContextReport:      (*contentBuffer).appendContextReportEvent,
+	output.EventTypeModelCallStarted:   (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeModelCallFinished:  (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeContextDiagnostics: (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeUserInput:          (*contentBuffer).appendUserInputEvent,
+	output.EventTypeRunStarted:         func(*contentBuffer, output.Event) {},
+	output.EventTypeRunFinished:        func(*contentBuffer, output.Event) {},
+	output.EventTypeTurnStarted:        func(*contentBuffer, output.Event) {},
+	output.EventTypeTurnFinished:       func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIRequest:         func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIResponse:        func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+}
+
 func (b *contentBuffer) AppendEvent(event output.Event) {
-	switch event.Type {
-	case output.EventTypeThinkingChunk:
-		b.appendThinkingChunkEvent(event)
-	case output.EventTypeAssistantChunk:
-		b.appendAssistantChunkEvent(event)
-	case output.EventTypeApprovalRequested:
-		b.appendApprovalRequestedEvent(event)
-	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
-		b.appendApprovalDecisionEvent(event)
-	case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
-		b.appendDelegationEvent(event)
-	case output.EventTypeToolCallStarted:
-		b.appendToolCallStartedEvent(event)
-	case output.EventTypeToolCallFinished:
-		b.appendToolCallFinishedEvent(event)
-	case output.EventTypeDisplayFile:
-		b.appendDisplayFileEvent(event)
-	case output.EventTypeStopReason:
-		b.appendStopReasonEvent(event)
-	case output.EventTypeAssistantMessage:
-		b.appendAssistantMessageEvent(event)
-	case output.EventTypeContextReport:
-		b.appendContextReportEvent(event)
-	case output.EventTypeModelCallStarted, output.EventTypeModelCallFinished,
-		output.EventTypeContextDiagnostics:
-		b.appendModelCallDiagnosticsEvent(event)
-	case output.EventTypeUserInput:
-		b.appendUserInputEvent(event)
-	case output.EventTypeRunStarted, output.EventTypeRunFinished,
-		output.EventTypeTurnStarted, output.EventTypeTurnFinished,
-		output.EventTypeAPIRequest:
+	if handler, ok := contentEventHandlers[event.Type]; ok {
+		handler(b, event)
 		return
-	case output.EventTypeAPIResponse:
-		b.finishStreaming()
-		return
-	default:
-		b.finishStreaming()
-		line := strings.TrimSpace(output.FormatEvent(event))
-		if shouldSuppressLine(line) {
-			return
-		}
-		b.appendLine(line)
 	}
+	b.finishStreaming()
+	line := strings.TrimSpace(output.FormatEvent(event))
+	if shouldSuppressLine(line) {
+		return
+	}
+	b.appendLine(line)
 }

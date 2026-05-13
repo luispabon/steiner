@@ -24,8 +24,8 @@ func rawStringArg(arguments map[string]any, key string) string {
 	return text
 }
 
-func trimmedStringArg(arguments map[string]any, key string) string {
-	return strings.TrimSpace(rawStringArg(arguments, key))
+func pathStringArg(arguments map[string]any) string {
+	return strings.TrimSpace(rawStringArg(arguments, "path"))
 }
 
 func previewLanguage(path string) string {

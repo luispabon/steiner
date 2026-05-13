@@ -91,11 +91,12 @@ func (f fileListOverlay) View() string {
 
 	maxDisplay := 30
 	var lines []string
-	if f.err != "" {
+	switch {
+	case f.err != "":
 		lines = append(lines, f.styles.ErrorStyle.Render(f.err))
-	} else if len(f.entries) == 0 {
+	case len(f.entries) == 0:
 		lines = append(lines, "(empty)")
-	} else {
+	default:
 		dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber))
 		fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 		displayCount := min(len(f.entries), maxDisplay)

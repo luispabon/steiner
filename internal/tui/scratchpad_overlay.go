@@ -97,7 +97,7 @@ func (s scratchpadOverlayState) scrollDown(n int) scratchpadOverlayState {
 
 // closeScratchpadOverlay returns a copy of the state with the overlay closed.
 func (s scratchpadOverlayState) closeScratchpadOverlay() scratchpadOverlayState {
-	s.OverlayShell = s.OverlayShell.closeShell()
+	s.OverlayShell = s.closeShell()
 	return s
 }
 

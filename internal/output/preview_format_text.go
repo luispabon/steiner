@@ -101,16 +101,6 @@ func highlightedPreviewLines(text string, lexer chroma.Lexer) ([]PreviewLine, bo
 	return lines, truncated
 }
 
-func highlightTextSpans(text string, lexer chroma.Lexer) []PreviewSpan {
-	lines, _ := highlightedPreviewLines(text, lexer)
-	if len(lines) == 0 {
-		return []PreviewSpan{{Type: chroma.Text, Text: text}}
-	}
-	spans := make([]PreviewSpan, 0, len(lines[0].Spans))
-	spans = append(spans, lines[0].Spans...)
-	return spans
-}
-
 func newHeaderLine(prefix, text string) PreviewLine {
 	return PreviewLine{
 		Kind:   PreviewLineKindHeader,

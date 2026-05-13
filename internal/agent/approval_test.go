@@ -22,7 +22,7 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	}
 
 	var gotPreview tool.ApprovalPreview
-	approver := NewEventingApprover(output.NoopSink{}, tool.ApprovalResponderFunc(func(ctx context.Context, req tool.ApprovalRequest) error {
+	approver := NewEventingApprover(output.NoopSink{}, tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
 		gotPreview = req.Preview
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
 		return nil
@@ -49,7 +49,7 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 
 func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 	var events []output.Event
-	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(ctx context.Context, req tool.ApprovalRequest) error {
+	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
 		return nil
 	}))

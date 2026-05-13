@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+//nolint:gocyclo
 func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	t.Parallel()
 
@@ -77,7 +77,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
 	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
 
-	if !(0 < readme && readme < conversation && conversation < toolSummary) {
+	if readme <= 0 || readme >= conversation || conversation >= toolSummary {
 		t.Fatalf("message order = readme:%d conversation:%d tool_summary:%d", readme, conversation, toolSummary)
 	}
 }
@@ -157,6 +157,7 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo
 func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	t.Parallel()
 
@@ -397,66 +398,6 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 	if got := strings.Contains(promptMessages[1].Content, "durable context:"); !got {
 		t.Fatalf("user prompt = %q, want durable context section", promptMessages[1].Content)
 	}
-}
-
-func findBlockBySource(t *testing.T, blocks []ContextBlock, source ContextSource) ContextBlock {
-	t.Helper()
-
-	for _, block := range blocks {
-		if block.Source == source {
-			return block
-		}
-	}
-	t.Fatalf("block with source %q not found", source)
-	return ContextBlock{}
-}
-
-func loadMessagesFixture(t *testing.T, path string) []provider.Message {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) error = %v", path, err)
-	}
-	var messages []provider.Message
-	if err := json.Unmarshal(data, &messages); err != nil {
-		t.Fatalf("Unmarshal(%s) error = %v", path, err)
-	}
-	return messages
-}
-
-func renderAssemblyBlocksSnapshot(blocks []ContextBlock) string {
-	var builder strings.Builder
-	for _, block := range blocks {
-		if block.Source == ContextSourcePreamble {
-			continue
-		}
-		fmt.Fprintf(&builder, "source=%s path=%s truncated=%t content=%s\n",
-			block.Source,
-			filepath.Base(block.Path),
-			block.Truncated,
-			renderSnapshotContent(block),
-		)
-	}
-	return strings.TrimSpace(builder.String())
-}
-
-func renderSnapshotContent(block ContextBlock) string {
-	content := block.Content
-	switch block.Source {
-	case ContextSourceConversationSummary, ContextSourceDurableContext, ContextSourceToolSummary:
-		var envelope struct {
-			Content string `json:"content"`
-		}
-		if err := json.Unmarshal([]byte(block.Content), &envelope); err == nil && envelope.Content != "" {
-			content = envelope.Content
-		}
-	}
-	return normalizeSnapshotText(content)
-}
-
-func normalizeSnapshotText(text string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
 }
 
 func mustWrite(t *testing.T, dir, name, content string) {

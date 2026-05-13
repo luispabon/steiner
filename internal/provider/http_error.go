@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// HTTPError captures a non-success provider HTTP response.
 type HTTPError struct {
 	StatusCode int
 	Status     string
@@ -61,7 +62,12 @@ func isRetryableTransportError(err error) bool {
 		return true
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Temporary() {
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	type temporary interface{ Temporary() bool }
+	var tmpErr temporary
+	if errors.As(err, &tmpErr) && tmpErr.Temporary() {
 		return true
 	}
 	var opErr *net.OpError

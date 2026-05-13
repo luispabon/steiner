@@ -4,10 +4,15 @@ package agent
 type MessageRole string
 
 const (
-	MessageRoleUser         MessageRole = "user"
-	MessageRoleAssistant    MessageRole = "assistant"
-	MessageRoleTool         MessageRole = "tool"
-	MessageRoleSummary      MessageRole = "summary"
+	// MessageRoleUser identifies end-user input.
+	MessageRoleUser MessageRole = "user"
+	// MessageRoleAssistant identifies agent-authored content.
+	MessageRoleAssistant MessageRole = "assistant"
+	// MessageRoleTool identifies a tool result message.
+	MessageRoleTool MessageRole = "tool"
+	// MessageRoleSummary identifies a compaction summary.
+	MessageRoleSummary MessageRole = "summary"
+	// MessageRoleContextBlock identifies an injected context block.
 	MessageRoleContextBlock MessageRole = "context-block"
 )
 
@@ -18,6 +23,7 @@ type ToolCall struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// MessageRetention describes summary metadata retained across compaction.
 type MessageRetention struct {
 	Kind       string `json:"kind,omitempty"`
 	Summary    string `json:"summary,omitempty"`

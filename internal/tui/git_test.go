@@ -160,7 +160,7 @@ func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

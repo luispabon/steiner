@@ -184,6 +184,7 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+// Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), tea.HideCursor}
 	if m.external != nil {

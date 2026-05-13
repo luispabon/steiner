@@ -67,6 +67,7 @@ type Config struct {
 	ContextManagement ContextManagementConfig `yaml:"context_management"`
 }
 
+// SchedulerConfig controls provider concurrency.
 type SchedulerConfig struct {
 	Parallelism int `yaml:"parallelism"`
 }
@@ -102,6 +103,7 @@ type ModelConfig struct {
 	Thinking            ThinkingConfig   `yaml:"thinking"`
 }
 
+// RetryConfig controls retry behaviour for model requests.
 type RetryConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	MaxAttempts    int      `yaml:"max_attempts"`
@@ -117,11 +119,13 @@ type ModelPrompts struct {
 	Compaction string `yaml:"compaction"`
 }
 
+// CompactionConfig controls model-side summary compaction budgets.
 type CompactionConfig struct {
 	SafetyMarginTokens int `yaml:"safety_margin_tokens"`
 	SummaryMaxTokens   int `yaml:"summary_max_tokens"`
 }
 
+// LimitsConfig defines runtime limits for turns, tokens, and tools.
 type LimitsConfig struct {
 	MaxTurns           int                 `yaml:"max_turns"`
 	MaxTokens          int                 `yaml:"max_tokens"`
@@ -130,19 +134,25 @@ type LimitsConfig struct {
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`
 }
 
+// ApprovalMode defines the default approval policy for tool execution.
 type ApprovalMode string
 
 const (
-	ApprovalModeAuto   ApprovalMode = "auto"
+	// ApprovalModeAuto allows tools according to automatic policy.
+	ApprovalModeAuto ApprovalMode = "auto"
+	// ApprovalModePrompt asks for user approval before running gated tools.
 	ApprovalModePrompt ApprovalMode = "prompt"
-	ApprovalModeDeny   ApprovalMode = "deny"
+	// ApprovalModeDeny blocks gated tools.
+	ApprovalModeDeny ApprovalMode = "deny"
 )
 
+// ApprovalConfig controls default and per-tool approval behaviour.
 type ApprovalConfig struct {
 	Default       ApprovalMode             `yaml:"default"`
 	ToolOverrides map[string]*ApprovalMode `yaml:"tool_overrides"`
 }
 
+// SubAgentConfig controls delegated child-agent execution limits.
 type SubAgentConfig struct {
 	Enabled      bool     `yaml:"enabled"`
 	MaxTurns     int      `yaml:"max_turns"`
@@ -150,6 +160,7 @@ type SubAgentConfig struct {
 	AllowedTools []string `yaml:"allowed_tools"`
 }
 
+// ToolConfig defines an externally configured tool.
 type ToolConfig struct {
 	Exec        string         `yaml:"exec"`
 	Subcommand  string         `yaml:"subcommand"`
@@ -160,12 +171,14 @@ type ToolConfig struct {
 	Constraints map[string]any `yaml:"constraints"`
 }
 
+// ProjectContextConfig defines extra project files included in prompts.
 type ProjectContextConfig struct {
 	MaxTokens   int      `yaml:"max_tokens"`
 	ExtraFiles  []string `yaml:"extra_files"`
 	IgnoreFiles []string `yaml:"ignore_files"`
 }
 
+// PathsConfig constrains filesystem access for tools.
 type PathsConfig struct {
 	ProjectRootOnly bool     `yaml:"project_root_only"`
 	WritablePaths   []string `yaml:"writable_paths"`
@@ -174,6 +187,7 @@ type PathsConfig struct {
 	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
+// LoggingConfig controls diagnostic log output.
 type LoggingConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	Level         string `yaml:"level"`
@@ -181,6 +195,7 @@ type LoggingConfig struct {
 	ThinkingChunk bool   `yaml:"thinking_chunk"`
 }
 
+// DebugConfig exposes internal debugging toggles.
 type DebugConfig struct {
 	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
 }

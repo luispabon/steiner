@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/luispabon/steiner/internal/output"
 )
 
+//nolint:gocyclo // event fan-out stays centralized here
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil

@@ -315,7 +315,9 @@ logging:
 
 Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is just `model`, one `models.<alias>` entry, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
 
-## Build and test
+## Development
+
+### Build and test
 
 ```bash
 go build ./...
@@ -323,6 +325,34 @@ go test ./...
 make build-binaries
 go vet ./...
 ```
+
+### Development checks
+
+Install local check tools:
+
+```bash
+make install-check-tools
+```
+
+Fast local loop:
+
+```bash
+make quick-check
+```
+
+Full local/CI gate:
+
+```bash
+make ci-check
+```
+
+Formatting:
+
+```bash
+make fmt
+```
+
+The full linter configuration is in `.golangci.yml` at the repo root.
 
 ## Development notes
 

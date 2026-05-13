@@ -93,14 +93,7 @@ func (p *turnProgressor) normalizeModelResponse(in turnInput, turn int, response
 func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInput, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, int) {
 	state := in.State
 	state.TurnCount = turn
-	turnTokens, err := tokenCount(ctx, chatRequest, response.Usage)
-	if err != nil {
-		emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-			Kind:     "session_health",
-			Severity: "warning",
-			Notes:    []string{err.Error()},
-		}))
-	}
+	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
 	state.TokenCount += turnTokens
 	return state, turnTokens
 }

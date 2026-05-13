@@ -41,7 +41,7 @@ func isTestCommand(command string) bool {
 	return false
 }
 
-func (t *FileTracker) updateWorkingFile(path string, toolName, lastAction string) workingFileUpdate {
+func (t *FileTracker) updateWorkingFile(path, lastAction string) workingFileUpdate {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return workingFileUpdate{}
@@ -68,7 +68,7 @@ func (t *FileTracker) observeMutationHeuristics(toolName string, input map[strin
 	}
 	var update workingFileUpdate
 	if path != "" {
-		update = t.updateWorkingFile(path, toolName, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
+		update = t.updateWorkingFile(path, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
 		t.BumpGeneration(path)
 	}
 	var facts []string
@@ -124,7 +124,7 @@ func (t *FileTracker) observeGenericToolHeuristics(toolName string, content stri
 
 // ObserveToolResult dispatches to per-tool heuristics and returns a
 // workingFileUpdate and any decision facts derived from the result.
-func (t *FileTracker) ObserveToolResult(turn int, toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
+func (t *FileTracker) ObserveToolResult(_ int, toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "read":
 		result, ok := parseReadResult(content)

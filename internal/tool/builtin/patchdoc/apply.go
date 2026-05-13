@@ -52,6 +52,7 @@ type MoveResult struct {
 	To   string
 }
 
+// FS abstracts filesystem operations needed to plan and apply patches.
 type FS interface {
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
@@ -60,24 +61,30 @@ type FS interface {
 	Stat(name string) (fs.FileInfo, error)
 }
 
+// OSFS implements FS using the local operating system filesystem.
 type OSFS struct{}
 
+// ReadFile reads a file from disk.
 func (OSFS) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
+// WriteFile writes a file to disk with the given permissions.
 func (OSFS) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(name, data, perm)
 }
 
+// Remove deletes a file from disk.
 func (OSFS) Remove(name string) error {
 	return os.Remove(name)
 }
 
+// MkdirAll creates a directory tree on disk.
 func (OSFS) MkdirAll(path string, perm fs.FileMode) error {
 	return os.MkdirAll(path, perm)
 }
 
+// Stat returns file metadata from disk.
 func (OSFS) Stat(name string) (fs.FileInfo, error) {
 	return os.Stat(name)
 }
@@ -359,6 +366,7 @@ func isBinary(data []byte) bool {
 	return bytes.Contains(data, []byte{0})
 }
 
+// DeriveNewContents applies update chunks to original and returns the resulting text.
 func DeriveNewContents(original string, path string, chunks []UpdateFileChunk) (string, error) {
 	originalLines := splitCodexLines(original)
 	replacements, err := computeReplacements(originalLines, path, chunks)
@@ -396,64 +404,23 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 	lineIndex := 0
 
 	for _, chunk := range chunks {
-		if chunk.HasContext {
-			idx, ok := SeekSequence(originalLines, []string{chunk.ChangeContext}, lineIndex, false)
-			if !ok {
-				hint := ""
-				if closest, found := FindClosestLine(originalLines, chunk.ChangeContext, lineIndex, 20); found {
-					hint = fmt.Sprintf("; closest match at line %d: %q (edit distance %d)",
-						closest.LineIndex+1, closest.Content, closest.Distance)
-				}
-				return nil, fmt.Errorf("failed to find context %q in %s%s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward", chunk.ChangeContext, path, hint)
-			}
-			lineIndex = idx + 1
+		nextIndex, err := advanceReplacementContext(originalLines, path, chunk, lineIndex)
+		if err != nil {
+			return nil, err
 		}
+		lineIndex = nextIndex
 
 		if len(chunk.OldLines) == 0 {
-			insertionIdx := len(originalLines)
-			if len(originalLines) > 0 && originalLines[len(originalLines)-1] == "" {
-				insertionIdx--
-			}
-			replacements = append(replacements, replacement{
-				Start:    insertionIdx,
-				OldLen:   0,
-				NewLines: append([]string(nil), chunk.NewLines...),
-			})
+			replacements = append(replacements, buildInsertionReplacement(originalLines, chunk))
 			continue
 		}
 
-		pattern := chunk.OldLines
-		newLines := chunk.NewLines
-		startIdx, ok := SeekSequence(originalLines, pattern, lineIndex, chunk.EndOfFile)
-		if !ok && len(pattern) > 0 && pattern[len(pattern)-1] == "" {
-			pattern = pattern[:len(pattern)-1]
-			newLines = chunk.NewLines
-			if len(newLines) > 0 && newLines[len(newLines)-1] == "" {
-				newLines = newLines[:len(newLines)-1]
-			}
-			startIdx, ok = SeekSequence(originalLines, pattern, lineIndex, chunk.EndOfFile)
+		repl, err := buildChunkReplacement(originalLines, path, chunk, lineIndex)
+		if err != nil {
+			return nil, err
 		}
-		if !ok {
-			hint := ""
-			firstLine := ""
-			if len(chunk.OldLines) > 0 {
-				firstLine = chunk.OldLines[0]
-			}
-			if firstLine != "" {
-				if closest, found := FindClosestLine(originalLines, firstLine, lineIndex, 20); found {
-					hint = fmt.Sprintf("\nclosest match at line %d: %q (edit distance %d)",
-						closest.LineIndex+1, closest.Content, closest.Distance)
-				}
-			}
-			return nil, fmt.Errorf("failed to find expected lines in %s:\n%s%s", path, strings.Join(chunk.OldLines, "\n"), hint)
-		}
-
-		replacements = append(replacements, replacement{
-			Start:    startIdx,
-			OldLen:   len(pattern),
-			NewLines: append([]string(nil), newLines...),
-		})
-		lineIndex = startIdx + len(pattern)
+		replacements = append(replacements, repl)
+		lineIndex = repl.Start + repl.OldLen
 	}
 
 	sort.SliceStable(replacements, func(i, j int) bool {
@@ -463,6 +430,84 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 		return nil, err
 	}
 	return replacements, nil
+}
+
+func advanceReplacementContext(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int) (int, error) {
+	if !chunk.HasContext {
+		return lineIndex, nil
+	}
+
+	idx, ok := SeekSequence(originalLines, []string{chunk.ChangeContext}, lineIndex, false)
+	if ok {
+		return idx + 1, nil
+	}
+
+	return 0, fmt.Errorf(
+		"failed to find context %q in %s%s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
+		chunk.ChangeContext,
+		path,
+		closestContextHint(originalLines, chunk.ChangeContext, lineIndex),
+	)
+}
+
+func buildInsertionReplacement(originalLines []string, chunk UpdateFileChunk) replacement {
+	insertionIdx := len(originalLines)
+	if len(originalLines) > 0 && originalLines[len(originalLines)-1] == "" {
+		insertionIdx--
+	}
+	return replacement{
+		Start:    insertionIdx,
+		OldLen:   0,
+		NewLines: append([]string(nil), chunk.NewLines...),
+	}
+}
+
+func buildChunkReplacement(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int) (replacement, error) {
+	pattern, newLines, startIdx, ok := findChunkSequence(originalLines, chunk, lineIndex)
+	if !ok {
+		return replacement{}, fmt.Errorf("failed to find expected lines in %s:\n%s%s", path, strings.Join(chunk.OldLines, "\n"), closestChunkHint(originalLines, chunk.OldLines, lineIndex))
+	}
+
+	return replacement{
+		Start:    startIdx,
+		OldLen:   len(pattern),
+		NewLines: append([]string(nil), newLines...),
+	}, nil
+}
+
+func findChunkSequence(originalLines []string, chunk UpdateFileChunk, lineIndex int) ([]string, []string, int, bool) {
+	pattern := append([]string(nil), chunk.OldLines...)
+	newLines := append([]string(nil), chunk.NewLines...)
+	startIdx, ok := SeekSequence(originalLines, pattern, lineIndex, chunk.EndOfFile)
+	if ok || len(pattern) == 0 || pattern[len(pattern)-1] != "" {
+		return pattern, newLines, startIdx, ok
+	}
+
+	pattern = pattern[:len(pattern)-1]
+	if len(newLines) > 0 && newLines[len(newLines)-1] == "" {
+		newLines = newLines[:len(newLines)-1]
+	}
+	startIdx, ok = SeekSequence(originalLines, pattern, lineIndex, chunk.EndOfFile)
+	return pattern, newLines, startIdx, ok
+}
+
+func closestContextHint(originalLines []string, contextLine string, lineIndex int) string {
+	closest, found := FindClosestLine(originalLines, contextLine, lineIndex, 20)
+	if !found {
+		return ""
+	}
+	return fmt.Sprintf("; closest match at line %d: %q (edit distance %d)", closest.LineIndex+1, closest.Content, closest.Distance)
+}
+
+func closestChunkHint(originalLines []string, oldLines []string, lineIndex int) string {
+	if len(oldLines) == 0 || oldLines[0] == "" {
+		return ""
+	}
+	closest, found := FindClosestLine(originalLines, oldLines[0], lineIndex, 20)
+	if !found {
+		return ""
+	}
+	return fmt.Sprintf("\nclosest match at line %d: %q (edit distance %d)", closest.LineIndex+1, closest.Content, closest.Distance)
 }
 
 // validateNoOverlap returns an error if any two consecutive sorted replacements overlap.

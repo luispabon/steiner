@@ -15,7 +15,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		var authHeader string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader = r.Header.Get("Authorization")
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}))
 		defer server.Close()
 
@@ -44,7 +44,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		var authHeader string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader = r.Header.Get("Authorization")
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}))
 		defer server.Close()
 
@@ -64,9 +64,14 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 	t.Run("sends correct JSON body", func(t *testing.T) {
 		var gotBody map[string]any
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, _ := io.ReadAll(r.Body)
-			json.Unmarshal(body, &gotBody)
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
+			if err := json.Unmarshal(body, &gotBody); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}))
 		defer server.Close()
 
@@ -108,7 +113,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		var contentType string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			contentType = r.Header.Get("Content-Type")
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}))
 		defer server.Close()
 
@@ -128,11 +133,11 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 
 func TestIntegrationChatCompletionParsesResponseCorrectly(t *testing.T) {
 	t.Run("parses full response with content and usage", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{
-				"choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],
-				"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
-			}`)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprint(w, `{
+					"choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],
+					"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+				}`)
 		}))
 		defer server.Close()
 
@@ -162,8 +167,8 @@ func TestIntegrationChatCompletionParsesResponseCorrectly(t *testing.T) {
 	})
 
 	t.Run("parses minimal response with empty content", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant"},"finish_reason":"stop"}]}`)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant"},"finish_reason":"stop"}]}`)
 		}))
 		defer server.Close()
 
@@ -196,9 +201,9 @@ func TestIntegrationChatCompletionHTTPError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
-				fmt.Fprint(w, tt.body)
+				_, _ = fmt.Fprint(w, tt.body)
 			}))
 			defer server.Close()
 
@@ -216,12 +221,12 @@ func TestIntegrationChatCompletionHTTPError(t *testing.T) {
 
 func TestIntegrationStreamChatCompletionSSEParsing(t *testing.T) {
 	t.Run("parses single content chunk", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
-			fmt.Fprint(w, "data: [DONE]\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n")
 		}))
 		defer server.Close()
 
@@ -261,14 +266,14 @@ func TestIntegrationStreamChatCompletionSSEParsing(t *testing.T) {
 	})
 
 	t.Run("parses multiple content chunks with usage", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"World\"}}]}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n")
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
-			fmt.Fprint(w, "data: [DONE]\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"World\"}}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n")
 		}))
 		defer server.Close()
 
@@ -325,9 +330,9 @@ func TestIntegrationStreamChatCompletionSendsCorrectRequest(t *testing.T) {
 		accept = r.Header.Get("Accept")
 		authHeader = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n")
-		fmt.Fprint(w, "data: [DONE]\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n")
 	}))
 	defer server.Close()
 
@@ -373,9 +378,9 @@ func TestIntegrationStreamChatCompletionHTTPError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
-				fmt.Fprint(w, tt.body)
+				_, _ = fmt.Fprint(w, tt.body)
 			}))
 			defer server.Close()
 

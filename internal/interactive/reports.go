@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"gopkg.in/yaml.v3"
 )
 
 func (s *Session) emitContextReport(ctx context.Context) {

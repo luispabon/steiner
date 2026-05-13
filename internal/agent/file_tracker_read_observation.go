@@ -16,6 +16,7 @@ type fileObservation struct {
 	Notes        []string
 }
 
+// ObserveRead records a read result and may replace unchanged content with an annotation.
 func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled bool) (string, fileObservation) {
 	result, ok := parseReadResult(content)
 	if !ok {
@@ -29,12 +30,40 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 	if !ok {
 		return content, fileObservation{}
 	}
-	if _, err := os.Stat(canonicalPath); err != nil {
+	hash, ok := t.readObservationHash(canonicalPath)
+	if !ok {
 		return content, fileObservation{}
+	}
+
+	previous, next, existed := t.recordTrackedRead(canonicalPath, path, result, hash, turn)
+	observation := fileObservation{
+		Path:         path,
+		PreviousRead: previous,
+		HadPrevious:  existed,
+		Action:       "full",
+		Reason:       "first read",
+	}
+	if !annotationsEnabled {
+		observation.Reason = "annotations disabled"
+		return content, observation
+	}
+	if !existed {
+		return content, observation
+	}
+	observation, annotatedContent := t.decorateReadObservation(result, previous, next)
+	if annotatedContent != "" {
+		return annotatedContent, observation
+	}
+	return content, observation
+}
+
+func (t *FileTracker) readObservationHash(canonicalPath string) (uint64, bool) {
+	if _, err := os.Stat(canonicalPath); err != nil {
+		return 0, false
 	}
 	hash, ok := hashFileContent(canonicalPath)
 	if !ok {
-		return content, fileObservation{}
+		return 0, false
 	}
 	if t.reads == nil {
 		t.reads = make(map[string]trackedFileRead)
@@ -42,7 +71,10 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 	if t.generations == nil {
 		t.generations = make(map[string]uint64)
 	}
+	return hash, true
+}
 
+func (t *FileTracker) recordTrackedRead(canonicalPath, path string, result readResult, hash uint64, turn int) (trackedFileRead, trackedFileRead, bool) {
 	next := trackedFileRead{
 		Path:        path,
 		Canonical:   canonicalPath,
@@ -53,24 +85,19 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 		ContentHash: hash,
 		Generation:  t.generations[canonicalPath],
 	}
-	previous, ok := t.reads[canonicalPath]
+	previous, existed := t.reads[canonicalPath]
 	t.reads[canonicalPath] = next
+	return previous, next, existed
+}
 
+func (t *FileTracker) decorateReadObservation(result readResult, previous, next trackedFileRead) (fileObservation, string) {
 	observation := fileObservation{
-		Path:         path,
+		Path:         result.Path,
 		PreviousRead: previous,
-		HadPrevious:  ok,
+		HadPrevious:  true,
 		Action:       "full",
-		Reason:       "first read",
+		Reason:       "range changed",
 	}
-	if !annotationsEnabled {
-		observation.Reason = "annotations disabled"
-		return content, observation
-	}
-	if !ok {
-		return content, observation
-	}
-	observation.Reason = "range changed"
 	if previous.StartLine == next.StartLine && previous.EndLine == next.EndLine && previous.TotalLines == next.TotalLines {
 		observation.Reason = "modified file"
 		if previous.Generation != next.Generation {
@@ -80,7 +107,7 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 				fmt.Sprintf("current_generation=%d", next.Generation),
 				"mtime_unchanged",
 			)
-			return content, observation
+			return observation, ""
 		}
 		if previous.ContentHash == next.ContentHash {
 			observation.Action = "annotated"
@@ -88,12 +115,12 @@ func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled b
 			result.Output = fileUnchangedAnnotation(previous)
 			data, err := json.Marshal(result)
 			if err != nil {
-				return content, observation
+				return observation, ""
 			}
-			return string(data), observation
+			return observation, string(data)
 		}
 	}
-	return content, observation
+	return observation, ""
 }
 
 func (t *FileTracker) observeReadHeuristics(result readResult, observation fileObservation, content string) (workingFileUpdate, []string) {
@@ -101,7 +128,7 @@ func (t *FileTracker) observeReadHeuristics(result readResult, observation fileO
 	if path == "" {
 		return workingFileUpdate{}, nil
 	}
-	update := t.updateWorkingFile(path, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
+	update := t.updateWorkingFile(path, fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
 	var facts []string
 	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
 		facts = append(facts, fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))

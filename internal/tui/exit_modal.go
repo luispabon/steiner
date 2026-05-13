@@ -31,7 +31,7 @@ func openExitModal(width, height int) exitModalState {
 }
 
 func (s exitModalState) closeExitModal() exitModalState {
-	s.OverlayShell = s.OverlayShell.closeShell()
+	s.OverlayShell = s.closeShell()
 	return s
 }
 
@@ -43,7 +43,7 @@ func (s exitModalState) moveSelection(delta int) exitModalState {
 
 func (m *Model) renderExitModal() string {
 	s := m.exitModal
-	s.OverlayShell = s.OverlayShell.WithDimensions(m.width, m.height)
+	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
 	overlayWidth := 60
 	if overlayWidth > m.width-4 {
@@ -115,7 +115,9 @@ func (m Model) confirmExitModal() (tea.Model, tea.Cmd) {
 		return m, nil
 	default:
 		if m.controller != nil {
-			m.controller.Handle(context.Background(), interactive.RequestExit{})
+			if err := m.controller.Handle(context.Background(), interactive.RequestExit{}); err != nil {
+				m.content.AppendLine("status: " + err.Error())
+			}
 			return m, nil
 		}
 		return m, tea.Quit

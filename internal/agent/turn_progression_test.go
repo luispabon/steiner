@@ -393,7 +393,7 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return map[string]any{"contents": "hello"}, nil
 		},
 	}
@@ -553,7 +553,7 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(ctx context.Context, _ string, _ map[string]any) (any, error) {
 			cancelFunc := ctx.Value(cancelContextKey{}).(context.CancelFunc)
 			cancelFunc()
 			return nil, ctx.Err()
@@ -592,7 +592,7 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, cancelContextKey{}, context.CancelFunc(cancel))
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 
 	runner := NewRunner()
 	p := newTurnProgressor(runner)
@@ -641,7 +641,7 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return nil, fmt.Errorf("execution failed")
 		},
 	}

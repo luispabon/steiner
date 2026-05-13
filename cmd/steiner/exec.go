@@ -6,9 +6,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {

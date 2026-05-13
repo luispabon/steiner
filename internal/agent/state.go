@@ -4,18 +4,25 @@ package agent
 type StopReason string
 
 const (
-	StopReasonMaxTurns  StopReason = "max_turns"
+	// StopReasonMaxTurns indicates the run exhausted its turn budget.
+	StopReasonMaxTurns StopReason = "max_turns"
+	// StopReasonMaxTokens indicates the run exhausted its token budget.
 	StopReasonMaxTokens StopReason = "max_tokens"
+	// StopReasonCancelled indicates the caller cancelled the run context.
 	StopReasonCancelled StopReason = "cancelled"
-	StopReasonComplete  StopReason = "complete"
-	StopReasonError     StopReason = "error"
+	// StopReasonComplete indicates the run reached a normal completion state.
+	StopReasonComplete StopReason = "complete"
+	// StopReasonError indicates the run terminated due to an error.
+	StopReasonError StopReason = "error"
 )
 
 // ConversationViewKind identifies the view used for a conversation candidate.
 type ConversationViewKind string
 
 const (
-	ConversationViewFull                  ConversationViewKind = "full"
+	// ConversationViewFull keeps the full generation, including any summary prefix.
+	ConversationViewFull ConversationViewKind = "full"
+	// ConversationViewSummaryPrefixStripped removes the summary prefix from the view.
 	ConversationViewSummaryPrefixStripped ConversationViewKind = "summary_prefix_stripped"
 )
 
@@ -38,6 +45,7 @@ func newConversationGeneration(id int, summaryPrefix, messages []Message) Conver
 	}
 }
 
+// Clone returns a deep copy of the generation.
 func (g ConversationGeneration) Clone() ConversationGeneration {
 	return newConversationGeneration(g.ID, g.SummaryPrefix, g.Messages)
 }
@@ -60,6 +68,7 @@ func (g ConversationGeneration) SummaryPrefixStrippedMessages() []Message {
 	return cloneMessages(g.Messages)
 }
 
+// ConversationCandidate captures one candidate view of the conversation lineage.
 type ConversationCandidate struct {
 	GenerationID int
 	View         ConversationViewKind
@@ -94,10 +103,12 @@ func (l ConversationLineage) Clone() ConversationLineage {
 	return out
 }
 
+// Empty reports whether the lineage has any generations.
 func (l ConversationLineage) Empty() bool {
 	return len(l.Generations) == 0
 }
 
+// Latest returns the newest generation in the lineage.
 func (l ConversationLineage) Latest() (ConversationGeneration, bool) {
 	if len(l.Generations) == 0 {
 		return ConversationGeneration{}, false
@@ -105,6 +116,7 @@ func (l ConversationLineage) Latest() (ConversationGeneration, bool) {
 	return l.Generations[len(l.Generations)-1].Clone(), true
 }
 
+// FullMessages returns the full message view for the latest generation.
 func (l ConversationLineage) FullMessages() []Message {
 	latest, ok := l.Latest()
 	if !ok {
@@ -113,6 +125,7 @@ func (l ConversationLineage) FullMessages() []Message {
 	return latest.FullMessages()
 }
 
+// SummaryPrefixStrippedMessages returns only the raw messages from the latest generation.
 func (l ConversationLineage) SummaryPrefixStrippedMessages() []Message {
 	latest, ok := l.Latest()
 	if !ok {
@@ -121,6 +134,7 @@ func (l ConversationLineage) SummaryPrefixStrippedMessages() []Message {
 	return latest.SummaryPrefixStrippedMessages()
 }
 
+// WithCurrentMessages returns a copy with the latest generation's messages replaced.
 func (l ConversationLineage) WithCurrentMessages(messages []Message) ConversationLineage {
 	next := l.Clone()
 	if len(next.Generations) == 0 {
@@ -130,6 +144,7 @@ func (l ConversationLineage) WithCurrentMessages(messages []Message) Conversatio
 	return next
 }
 
+// WithAppendedMessages returns a copy with messages appended to the latest generation.
 func (l ConversationLineage) WithAppendedMessages(messages []Message) ConversationLineage {
 	if len(messages) == 0 {
 		return l.Clone()
@@ -143,6 +158,7 @@ func (l ConversationLineage) WithAppendedMessages(messages []Message) Conversati
 	return next
 }
 
+// WithNewGeneration returns a copy with a newly appended generation.
 func (l ConversationLineage) WithNewGeneration(summaryPrefix, messages []Message) ConversationLineage {
 	next := l.Clone()
 	id := next.NextGenerationID
@@ -154,6 +170,7 @@ func (l ConversationLineage) WithNewGeneration(summaryPrefix, messages []Message
 	return next
 }
 
+// Candidates returns lineage views ordered from highest to lower fidelity.
 func (l ConversationLineage) Candidates() []ConversationCandidate {
 	if len(l.Generations) == 0 {
 		return nil

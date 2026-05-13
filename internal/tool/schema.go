@@ -1,5 +1,6 @@
 package tool
 
+// ToOpenAISchema converts a tool definition into an OpenAI function schema.
 func ToOpenAISchema(def ToolDef) map[string]any {
 	parameters := CloneJSONMap(def.ParameterSchema)
 	if parameters == nil {

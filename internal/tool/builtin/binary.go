@@ -10,4 +10,3 @@ func isBinary(data []byte) bool {
 	}
 	return bytes.IndexByte(data[:checkLen], 0) >= 0
 }
-

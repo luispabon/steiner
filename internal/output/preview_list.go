@@ -16,7 +16,7 @@ func buildGlobPreview(arguments map[string]any, result string) ToolPreview {
 		return plainToolPreview()
 	}
 
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	if path == "" {
 		path = "."
 	}
@@ -42,7 +42,7 @@ func buildLSPreview(arguments map[string]any, result string) ToolPreview {
 		return plainToolPreview()
 	}
 
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	if path == "" {
 		path = "."
 	}

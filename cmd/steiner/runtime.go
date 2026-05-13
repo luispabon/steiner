@@ -7,13 +7,14 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/spf13/cobra"
 )
 
 type cliFlags struct {

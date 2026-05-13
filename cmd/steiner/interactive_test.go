@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/spf13/cobra"
 )
 
 func TestClearTerminalScreenWritesANSISequence(t *testing.T) {
@@ -93,7 +94,7 @@ func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
 	})
 
 	var events []output.Event
-	buildRuntime = func(context.Context, *cobra.Command, *cliFlags) (cliRuntime, error) {
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			cfg: config.Config{
 				Model: config.ModelConfig{
@@ -150,7 +151,7 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 	})
 
 	var events []output.Event
-	buildRuntime = func(context.Context, *cobra.Command, *cliFlags) (cliRuntime, error) {
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			cfg: config.Config{
 				Model: config.ModelConfig{
@@ -195,7 +196,7 @@ func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
 	}{
 		{
 			name: "fixed wiring does not duplicate",
-			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+			wire: func(sess *interactive.Session, _ output.EventSink) output.EventSink {
 				return sess.EventSink()
 			},
 			want: 1,

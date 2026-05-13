@@ -5,3 +5,4 @@ bin
 *.log
 test_config.yaml
 tmp/
+/.project_planning/

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -117,6 +118,7 @@ func TestFileTrackerFallsBackToFullContentWhenGenerationChangesWithoutMtimeChang
 	}
 }
 
+//nolint:gocyclo
 func TestFileTrackerBumpGenerationIsFileWide(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -227,7 +229,7 @@ func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	if got := manager.IngestToolResult(1, "read", content); got != content {
 		t.Fatalf("first manager read = %q, want full content", got)
 	}
-	if _, err := manager.PreAssembly(nil, RunState{TurnCount: 1}); err != nil {
+	if _, err := manager.PreAssembly(context.Background(), RunState{TurnCount: 1}); err != nil {
 		t.Fatalf("PreAssembly() error = %v", err)
 	}
 	manager.RecordMutation("note.txt")

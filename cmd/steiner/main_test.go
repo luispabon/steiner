@@ -16,13 +16,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
-	"gopkg.in/yaml.v3"
 )
 
 func TestMain(m *testing.M) {
@@ -32,10 +33,19 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
+	if err := os.Setenv("HOME", tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
-	os.Setenv("HOME", oldHome)
-	os.RemoveAll(tmp)
+	if err := os.Setenv("HOME", oldHome); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to remove temp dir for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(code)
 }
 
@@ -385,9 +395,7 @@ func TestExecModeRunsSinglePromptHeadlessly(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		return cliRuntime{
 			cfg: cfg,
@@ -532,8 +540,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	})
 
 	logPath := filepath.Join(t.TempDir(), "session.log")
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
+	buildRuntime = func(_ context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 		fileSink, err := output.NewFileLogSink(flags.logFile, true)
 		if err != nil {
 			return cliRuntime{}, err
@@ -608,10 +615,7 @@ func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 64
@@ -700,10 +704,7 @@ func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
 	})
 
 	var prov *fakeProvider
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 0
@@ -790,10 +791,7 @@ func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 	})
 
 	var stdout, stderr bytes.Buffer
-	buildRuntime = func(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		_ = ctx
-		_ = cmd
-		_ = flags
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		cfg := testRuntimeConfig("test-model")
 		cfg.Limits.MaxTurns = 4
 		cfg.Limits.MaxTokens = 256
@@ -820,7 +818,7 @@ func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 				Name:            "noop",
 				Description:     "No-op tool",
 				ParameterSchema: map[string]any{"type": "object"},
-				Handler: func(ctx context.Context, input map[string]any) (any, error) {
+				Handler: func(_ context.Context, _ map[string]any) (any, error) {
 					return map[string]any{"ok": true}, nil
 				},
 			}),
@@ -1175,14 +1173,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		if !ok {
 			return
 		}
-		store.Store(output.RequestContextSnapshot{
-			Model:       payload.Model,
-			Messages:    payload.Messages,
-			Tools:       payload.Tools,
-			MaxTokens:   payload.MaxTokens,
-			Blocks:      payload.Blocks,
-			ModelBudget: payload.ModelBudget,
-		})
+		store.Store(output.RequestContextSnapshot(payload))
 	})
 
 	providerStub := &fakeProvider{
@@ -1410,7 +1401,7 @@ type fakeProvider struct {
 	responses []provider.ChatResponse
 }
 
-func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 	p.requests = append(p.requests, req)
 	if len(p.responses) == 0 {
 		return provider.ChatResponse{}, fmt.Errorf("no response configured")
@@ -1420,7 +1411,7 @@ func (p *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequ
 	return resp, nil
 }
 
-func (p *fakeProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+func (p *fakeProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	return nil, fmt.Errorf("stream not used")
 }
 
@@ -1449,7 +1440,7 @@ func mustBuildCLIHelperBinary(t *testing.T) string {
 		t.Fatalf("write helper source: %v", err)
 	}
 	bin := filepath.Join(dir, "helper")
-	cmd := exec.Command("go", "build", "-o", bin, source)
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	if err != nil {

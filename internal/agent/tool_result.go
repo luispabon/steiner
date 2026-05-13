@@ -7,6 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// ToolResultEnvelope normalizes tool output plus metadata for agent messages.
 type ToolResultEnvelope struct {
 	Content   string
 	Metadata  tool.ExecutionMetadata

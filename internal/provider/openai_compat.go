@@ -15,6 +15,7 @@ import (
 
 var defaultHTTPClient = &http.Client{}
 
+// OpenAICompatConfig configures an OpenAI-compatible provider client.
 type OpenAICompatConfig struct {
 	BaseURL    string
 	APIKey     string
@@ -24,6 +25,7 @@ type OpenAICompatConfig struct {
 	Scheduler  *Scheduler
 }
 
+// RetryConfig controls retry behavior for transient provider failures.
 type RetryConfig struct {
 	Enabled        bool
 	MaxAttempts    int
@@ -32,6 +34,7 @@ type RetryConfig struct {
 	RetryAfterMax  time.Duration
 }
 
+// OpenAICompat implements the Provider interface for OpenAI-compatible APIs.
 type OpenAICompat struct {
 	baseURL    *url.URL
 	apiKey     string
@@ -78,10 +81,12 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	return provider, nil
 }
 
+// SupportsUsageStats reports whether the provider returns usage metadata.
 func (p *OpenAICompat) SupportsUsageStats() bool {
 	return p != nil
 }
 
+// ChatCompletion executes a non-streaming chat completion request.
 func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
 	if p == nil {
 		return ChatResponse{}, fmt.Errorf("provider is not initialized")
@@ -97,12 +102,14 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	}
 
 	var response ChatResponse
-	err = p.withRetry(ctx, func(attempt int) (bool, error) {
+	err = p.withRetry(ctx, func(_ int) (bool, error) {
 		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, false)
 		if err != nil {
 			return false, err
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		payload, err := p.decodeNonStreamResponse(resp)
 		if err != nil {
@@ -117,6 +124,7 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	return response, nil
 }
 
+// StreamChatCompletion executes a streaming chat completion request.
 func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
 	if p == nil {
 		return nil, fmt.Errorf("provider is not initialized")
@@ -161,35 +169,28 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		return err
 	}
 
-	return p.withRetry(ctx, func(attempt int) (bool, error) {
+	return p.withRetry(ctx, func(_ int) (bool, error) {
 		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, true)
 		if err != nil {
 			return false, err
 		}
-		defer resp.Body.Close()
-
-		attemptOut := make(chan ChatChunk)
-		errCh := make(chan error, 1)
-		go func() {
-			defer close(attemptOut)
-			errCh <- p.decodeStreamResponse(ctx, resp.Body, attemptOut)
+		defer func() {
+			_ = resp.Body.Close()
 		}()
 
 		partialStream := false
-		for chunk := range attemptOut {
+		err = decodeChatStreamWithHandler(ctx, resp.Body, func(chunk ChatChunk) error {
 			if chunkVisible(chunk) {
 				partialStream = true
 			}
 			select {
 			case out <- chunk:
+				return nil
 			case <-ctx.Done():
-				return partialStream, ctx.Err()
+				return ctx.Err()
 			}
-		}
-		if err := <-errCh; err != nil {
-			return partialStream, err
-		}
-		return partialStream, nil
+		})
+		return partialStream, err
 	}, p.classifyRetryError, func(info retryAttemptInfo) {
 		if !info.PartialStream {
 			return

@@ -1,12 +1,15 @@
+// Package prefs persists TUI preferences.
 package prefs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
+// Prefs stores persisted TUI preferences.
 type Prefs struct {
 	Accent          string `yaml:"accent"`
 	ShowThinking    bool   `yaml:"show_thinking"`
@@ -83,21 +86,19 @@ func Save(p Prefs) error {
 		return err
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		closeAndRemoveTempFile(tmp)
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		closeAndRemoveTempFile(tmp)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name())
 		return err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name())
 		return err
 	}
 	// Sync the directory so the rename is durable on ext4/XFS.
@@ -105,6 +106,19 @@ func Save(p Prefs) error {
 	if err != nil {
 		return err
 	}
-	defer dirf.Close()
+	defer func() {
+		_ = dirf.Close()
+	}()
 	return dirf.Sync()
+}
+
+func closeAndRemoveTempFile(tmp *os.File) {
+	if tmp == nil {
+		return
+	}
+	name := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "close temp prefs file %s: %v\n", name, err)
+	}
+	_ = os.Remove(name)
 }
