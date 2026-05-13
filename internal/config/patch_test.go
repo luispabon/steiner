@@ -1269,6 +1269,95 @@ func TestApplyPatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "new model alias inherits default model fields before patching",
+			cfg: Config{
+				Model: ModelConfig{
+					Type:                "openai_compat",
+					BaseURL:             "http://fallback.example/v1",
+					Model:               "fallback",
+					MaxCompletionTokens: 1024,
+					ContextSize:         8192,
+					Retry: RetryConfig{
+						Enabled:        true,
+						MaxAttempts:    1,
+						InitialBackoff: MustDuration("100ms"),
+						MaxBackoff:     MustDuration("1s"),
+						RetryAfterMax:  MustDuration("2s"),
+					},
+				},
+				Models: map[string]ModelConfig{
+					"default": {
+						Type:                "openai_compat",
+						BaseURL:             "http://localhost:11434/v1",
+						Model:               "qwen3-35b-a3b",
+						MaxCompletionTokens: 8192,
+						ContextSize:         32768,
+						Retry: RetryConfig{
+							Enabled:        true,
+							MaxAttempts:    3,
+							InitialBackoff: MustDuration("250ms"),
+							MaxBackoff:     MustDuration("5s"),
+							RetryAfterMax:  MustDuration("30s"),
+						},
+					},
+				},
+			},
+			patch: configPatch{
+				Models: modelPatchMapPtr(map[string]modelPatch{
+					"custom": {
+						BaseURL: stringPtr("http://custom.example/v1"),
+						Model:   stringPtr("custom-backend"),
+					},
+				}),
+			},
+			want: Config{
+				Model: ModelConfig{
+					Type:                "openai_compat",
+					BaseURL:             "http://fallback.example/v1",
+					Model:               "fallback",
+					MaxCompletionTokens: 1024,
+					ContextSize:         8192,
+					Retry: RetryConfig{
+						Enabled:        true,
+						MaxAttempts:    1,
+						InitialBackoff: MustDuration("100ms"),
+						MaxBackoff:     MustDuration("1s"),
+						RetryAfterMax:  MustDuration("2s"),
+					},
+				},
+				Models: map[string]ModelConfig{
+					"default": {
+						Type:                "openai_compat",
+						BaseURL:             "http://localhost:11434/v1",
+						Model:               "qwen3-35b-a3b",
+						MaxCompletionTokens: 8192,
+						ContextSize:         32768,
+						Retry: RetryConfig{
+							Enabled:        true,
+							MaxAttempts:    3,
+							InitialBackoff: MustDuration("250ms"),
+							MaxBackoff:     MustDuration("5s"),
+							RetryAfterMax:  MustDuration("30s"),
+						},
+					},
+					"custom": {
+						Type:                "openai_compat",
+						BaseURL:             "http://custom.example/v1",
+						Model:               "custom-backend",
+						MaxCompletionTokens: 8192,
+						ContextSize:         32768,
+						Retry: RetryConfig{
+							Enabled:        true,
+							MaxAttempts:    3,
+							InitialBackoff: MustDuration("250ms"),
+							MaxBackoff:     MustDuration("5s"),
+							RetryAfterMax:  MustDuration("30s"),
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

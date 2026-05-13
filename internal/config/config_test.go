@@ -350,6 +350,55 @@ models:
 	}
 }
 
+func TestLoadNewModelAliasesInheritRetryDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: default
+models:
+  default:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    model: qwen3-35b-a3b
+    max_completion_tokens: 8192
+    context_size: 32768
+  custom:
+    base_url: http://custom.example/v1
+    model: custom-backend
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got, want := cfg.Models["custom"].Retry, cfg.Models["default"].Retry; !reflect.DeepEqual(got, want) {
+		t.Fatalf("models[custom].retry = %#v, want %#v", got, want)
+	}
+	if got := cfg.Models["custom"].MaxCompletionTokens; got != cfg.Models["default"].MaxCompletionTokens {
+		t.Fatalf("models[custom].max_completion_tokens = %d, want inherited default", got)
+	}
+	if got := cfg.Models["custom"].ContextSize; got != cfg.Models["default"].ContextSize {
+		t.Fatalf("models[custom].context_size = %d, want inherited default", got)
+	}
+}
+
 func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
 	tempDir := t.TempDir()
 	explicitHomeDir := filepath.Join(tempDir, "explicit-home")

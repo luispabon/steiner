@@ -18,7 +18,10 @@ func applyModelConfigPatch(cfg *Config, patch configPatch) {
 			cfg.Models = make(map[string]ModelConfig)
 		}
 		for name, model := range *patch.Models {
-			current := cfg.Models[name]
+			current, ok := cfg.Models[name]
+			if !ok {
+				current = newModelConfigBase(*cfg)
+			}
 			applyModelPatch(&current, &model)
 			cfg.Models[name] = current
 		}
@@ -31,6 +34,20 @@ func applyModelConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Model != nil {
 		applyModelPatch(&cfg.Model, patch.Model)
 	}
+}
+
+func newModelConfigBase(cfg Config) ModelConfig {
+	if base, ok := cfg.Models["default"]; ok {
+		return cloneModelConfig(base)
+	}
+	return cloneModelConfig(cfg.Model)
+}
+
+func cloneModelConfig(src ModelConfig) ModelConfig {
+	dst := src
+	dst.ExtraParams = copyStringAnyMap(src.ExtraParams)
+	dst.Thinking.Params = copyStringAnyMap(src.Thinking.Params)
+	return dst
 }
 
 func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
