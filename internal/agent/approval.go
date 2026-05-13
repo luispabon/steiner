@@ -53,16 +53,16 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 		case <-ctx.Done():
 			response = tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
 		}
-		req.Response <- response
 		if response.Allow {
 			emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, string(req.Mode), preview, response.Message))
-			return
+		} else {
+			message := strings.TrimSpace(response.Message)
+			if message == "" {
+				message = "tool execution denied"
+			}
+			emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), preview, message))
 		}
-		message := strings.TrimSpace(response.Message)
-		if message == "" {
-			message = "tool execution denied"
-		}
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, string(req.Mode), preview, message))
+		req.Response <- response
 	}()
 	return nil
 }
