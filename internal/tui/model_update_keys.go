@@ -1,0 +1,323 @@
+package tui
+
+import (
+	"context"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/luispabon/steiner/internal/interactive"
+)
+
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if handled, next, cmd := m.handleOverlayKeyMsg(msg); handled {
+		return next, cmd
+	}
+	if m.approval.active {
+		return m.handleApprovalKey(msg)
+	}
+
+	m.resetCompletionState(msg)
+	activeConversation := m.hasActiveConversation()
+	if handled, next, cmd := m.handleConversationKeyMsg(msg, activeConversation); handled {
+		return next, cmd
+	}
+	if handled, next, cmd := m.handleNavigationKeyMsg(msg); handled {
+		return next, cmd
+	}
+	return m.handleComposerKeyMsg(msg)
+}
+
+func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
+	switch {
+	case m.exitModal.open:
+		next, cmd := m.handleExitModalKey(msg)
+		return true, next, cmd
+	case m.palette.open:
+		var cmd tea.Cmd
+		m.palette, cmd = m.palette.Update(msg)
+		return true, m, cmd
+	case m.fileList.open:
+		var cmd tea.Cmd
+		m.fileList, cmd = m.fileList.Update(msg)
+		return true, m, cmd
+	case m.contextOverlay.open:
+		next, cmd := m.handleContextOverlayKey(msg)
+		return true, next, cmd
+	case m.filePicker.open:
+		next, cmd := m.handleFilePickerKey(msg)
+		return true, next, cmd
+	case m.sessionPicker.open:
+		next, cmd := m.handleSessionPickerKey(msg)
+		return true, next, cmd
+	case m.scratchpadOverlay.IsOpen():
+		next, cmd := m.handleScratchpadOverlayKey(msg)
+		return true, next, cmd
+	default:
+		return false, m, nil
+	}
+}
+
+func (m Model) resetCompletionState(msg tea.KeyMsg) {
+	if msg.Type == tea.KeyTab {
+		return
+	}
+	m.completionCandidates = nil
+	m.completionIdx = 0
+}
+
+func (m Model) hasActiveConversation() bool {
+	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
+}
+
+func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model, tea.Cmd) {
+	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
+		next, cmd := m.executeInterruptAction()
+		return true, next, cmd
+	}
+
+	if !m.scratchpadOverlay.IsOpen() && msg.Type == tea.KeyCtrlS {
+		m.scratchpadOverlay = m.scratchpadOverlay.openScratchpadOverlay(
+			m.width, m.height,
+			m.sidebar.scratchpadIntent,
+			m.sidebar.scratchpadDecisions,
+			m.sidebar.scratchpadOpen,
+			m.sidebar.scratchpadNext,
+			m.styles,
+		)
+		return true, m, nil
+	}
+
+	if activeConversation {
+		return true, m, nil
+	}
+	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
+		m.helpVisible = !m.helpVisible
+		return true, m, nil
+	}
+	if msg.Type == tea.KeyEsc && m.helpVisible {
+		m.helpVisible = false
+		return true, m, nil
+	}
+	return false, m, nil
+}
+
+func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC, tea.KeyCtrlD:
+		if m.controller == nil {
+			return true, m, tea.Quit
+		}
+		return true, m.openExitModal(), nil
+	case tea.KeyCtrlP:
+		m.palette = m.palette.Open()
+		m.palette.width = m.width
+		m.palette.height = m.height
+		return true, m, nil
+	case tea.KeyCtrlB:
+		m.sidebar.Toggle()
+		m.layout()
+		return true, m, nil
+	case tea.KeyCtrlX:
+		m.content.ToggleLastDelegationOutput()
+		m.syncViewport()
+		return true, m, nil
+	case tea.KeyTab:
+		next, cmd := m.handleTabKey(msg)
+		return true, next, cmd
+	case tea.KeyUp:
+		next, cmd := m.handleKeyUp(msg)
+		return true, next, cmd
+	case tea.KeyDown:
+		next, cmd := m.handleKeyDown(msg)
+		return true, next, cmd
+	case tea.KeyPgUp:
+		m.scrollUp(max(1, m.viewport.Height))
+		return true, m, nil
+	case tea.KeyPgDown:
+		m.scrollDown(max(1, m.viewport.Height))
+		return true, m, nil
+	default:
+		return false, m, nil
+	}
+}
+
+func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEnter && (!m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline)) {
+		return m.handleEnter()
+	}
+
+	if msg.Type == tea.KeyRunes {
+		for _, r := range msg.Runes {
+			if r != '@' {
+				continue
+			}
+			root := m.sidebar.workingDir
+			if root == "" {
+				root = "."
+			}
+			m.filePicker = m.filePicker.Open(root)
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		m.exitModal = m.exitModal.moveSelection(-1)
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		m.exitModal = m.exitModal.moveSelection(1)
+	case tea.KeyEnter, tea.KeyCtrlC, tea.KeyCtrlD:
+		return m.confirmExitModal()
+	case tea.KeyEsc:
+		m.exitModal = m.exitModal.closeExitModal()
+	}
+	return m, nil
+}
+
+func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyUp:
+		return m.moveApprovalSelection(-1), nil
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		return m.moveApprovalSelection(1), nil
+	case tea.KeyEnter:
+		return m.executeApprovalDecision(m.selectedApprovalDecision())
+	case tea.KeyEsc:
+		return m.executeApprovalDecision(ApprovalDecisionDeny)
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleContextOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.contextOverlay = m.contextOverlay.closeContextOverlay()
+	case tea.KeyUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(1)
+	case tea.KeyDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(1)
+	case tea.KeyPgUp:
+		m.contextOverlay = m.contextOverlay.scrollUp(contextOverlayMaxLines)
+	case tea.KeyPgDown:
+		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
+	}
+	return m, nil
+}
+
+func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.scratchpadOverlay = m.scratchpadOverlay.closeScratchpadOverlay()
+	case tea.KeyUp:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(1)
+	case tea.KeyDown:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(1)
+	case tea.KeyPgUp:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(scratchpadMaxLines)
+	case tea.KeyPgDown:
+		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(scratchpadMaxLines)
+	}
+	return m, nil
+}
+
+func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.filePicker = m.filePicker.Close()
+	case tea.KeyEnter:
+		if m.filePicker.selection >= 0 && len(m.filePicker.candidates) > 0 {
+			selected := m.filePicker.candidates[m.filePicker.selection]
+			m.filePicker = m.filePicker.Close()
+			m.input.InsertString(selected + " ")
+		}
+	default:
+		var cmd tea.Cmd
+		m.filePicker, cmd = m.filePicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.sessionPicker = m.sessionPicker.Close()
+	case tea.KeyEnter:
+		if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
+			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
+			m.sessionPicker = m.sessionPicker.Close()
+			if m.controller != nil {
+				_ = m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID})
+			}
+		}
+	default:
+		var cmd tea.Cmd
+		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	current := m.input.Value()
+	if !strings.HasPrefix(current, "/") {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+	if len(m.completionCandidates) == 0 {
+		m.completionCandidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
+		m.completionIdx = 0
+	}
+	if len(m.completionCandidates) == 0 {
+		return m, nil
+	}
+	m.input.SetValue(m.completionCandidates[m.completionIdx])
+	m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
+	return m, nil
+}
+
+func (m Model) handleKeyUp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
+		m.fileHistoryIdx++
+		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
+		return m, nil
+	}
+	if len(m.fileHistory) > 0 && m.fileHistoryIdx < 0 {
+		m.historyDraft = m.input.Value()
+		m.fileHistoryIdx = 0
+		m.input.SetValue(m.fileHistory[0])
+		return m, nil
+	}
+	m.fileHistoryIdx = -1
+	m.historyIdx = -1
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryIdx > 0 {
+		m.fileHistoryIdx--
+		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
+		return m, nil
+	}
+	if m.fileHistoryIdx == 0 {
+		m.input.SetValue(m.historyDraft)
+		m.fileHistoryIdx = -1
+		return m, nil
+	}
+	m.fileHistoryIdx = -1
+	m.historyIdx = -1
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
