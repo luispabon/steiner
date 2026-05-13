@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// ToolExecutor runs a named tool invocation for the agent loop.
 type ToolExecutor interface {
 	Execute(ctx context.Context, toolName string, input map[string]any) (any, error)
 }
@@ -38,6 +39,7 @@ type RunRequest struct {
 	StreamingPreferred bool
 }
 
+// Runner executes the main turn loop for an agent run.
 type Runner struct{}
 
 // NewRunner creates a new agent runner with default limits and state.
@@ -45,6 +47,7 @@ func NewRunner() *Runner {
 	return &Runner{}
 }
 
+// Run executes req until the loop completes, stops, or fails.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	req = normalizeRunRequest(req)
 	state := initializeRunState(req)

@@ -289,6 +289,7 @@ func renderPreviewChannel(line PreviewLine) Channel {
 	}
 }
 
+// CountPreviewChanges counts added and removed lines in a diff preview document.
 func CountPreviewChanges(doc PreviewDocument) (adds, removes int) {
 	for _, line := range doc.Lines {
 		switch line.Kind {

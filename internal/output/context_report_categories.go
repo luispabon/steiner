@@ -172,7 +172,7 @@ func messageMatchKey(message provider.Message) string {
 		builder.WriteString("\n")
 		builder.WriteString(call.Name)
 		builder.WriteString("\n")
-		builder.WriteString(fmt.Sprint(call.Arguments))
+		_, _ = fmt.Fprint(&builder, call.Arguments)
 	}
 	return builder.String()
 }

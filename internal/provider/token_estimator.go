@@ -83,6 +83,7 @@ func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, e
 	return estimator.countRequest(request)
 }
 
+// UsageTokenCount returns the normalized token count from provider usage data.
 func UsageTokenCount(usage *UsageStats) int {
 	return normalizedTokenCount(usage)
 }

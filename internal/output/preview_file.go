@@ -6,7 +6,7 @@ import (
 )
 
 func buildEditPreview(arguments map[string]any) ToolPreview {
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	before := rawStringArg(arguments, "old_string")
 	after := rawStringArg(arguments, "new_string")
 	if path == "" || before == "" || after == "" {
@@ -22,7 +22,7 @@ func buildEditPreview(arguments map[string]any) ToolPreview {
 }
 
 func buildWritePreview(arguments map[string]any, writeTargetExistedBefore *bool) ToolPreview {
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	contents := rawStringArg(arguments, "content")
 	if path == "" || contents == "" {
 		return plainToolPreview()
@@ -49,7 +49,7 @@ func buildReadPreview(arguments map[string]any, result string) ToolPreview {
 	if err := json.Unmarshal([]byte(result), &payload); err != nil {
 		return plainToolPreview()
 	}
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	if path == "" {
 		path = strings.TrimSpace(payload.Path)
 	}

@@ -190,13 +190,13 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 		if *selection > 0 {
 			*selection--
 		}
-		scrollSearchPickerIntoView(selection, scrollOffset, len(*candidates))
+		scrollSearchPickerIntoView(selection, scrollOffset)
 		return searchPickerHandled
 	case tea.KeyDown:
 		if *selection < len(*candidates)-1 {
 			*selection++
 		}
-		scrollSearchPickerIntoView(selection, scrollOffset, len(*candidates))
+		scrollSearchPickerIntoView(selection, scrollOffset)
 		return searchPickerHandled
 	case tea.KeyBackspace:
 		if len(*query) > 0 {
@@ -217,10 +217,7 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 	}
 }
 
-func scrollSearchPickerIntoView(selection *int, scrollOffset *int, total int) {
-	if total < 0 {
-		total = 0
-	}
+func scrollSearchPickerIntoView(selection *int, scrollOffset *int) {
 	if *selection >= *scrollOffset+maxDisplay {
 		*scrollOffset = *selection - maxDisplay + 1
 	}

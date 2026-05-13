@@ -9,17 +9,28 @@ import (
 type ContextSource string
 
 const (
-	ContextSourcePreamble            ContextSource = "preamble"
-	ContextSourceGlobalAgentsMD      ContextSource = "global_agents_md"
-	ContextSourceProjectAgentsMD     ContextSource = "project_agents_md"
-	ContextSourceProjectContext      ContextSource = "project_context"
-	ContextSourceSkill               ContextSource = "skill"
-	ContextSourceDurableContext      ContextSource = "durable_context"
+	// ContextSourcePreamble identifies the assembled system preamble block.
+	ContextSourcePreamble ContextSource = "preamble"
+	// ContextSourceGlobalAgentsMD identifies the global AGENTS.md block.
+	ContextSourceGlobalAgentsMD ContextSource = "global_agents_md"
+	// ContextSourceProjectAgentsMD identifies the project AGENTS.md block.
+	ContextSourceProjectAgentsMD ContextSource = "project_agents_md"
+	// ContextSourceProjectContext identifies extra project context file blocks.
+	ContextSourceProjectContext ContextSource = "project_context"
+	// ContextSourceSkill identifies loaded skill content blocks.
+	ContextSourceSkill ContextSource = "skill"
+	// ContextSourceDurableContext identifies retained durable-context blocks.
+	ContextSourceDurableContext ContextSource = "durable_context"
+	// ContextSourceConversationSummary identifies summarized conversation blocks.
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
-	ContextSourceToolSummary         ContextSource = "tool_summary"
-	ContextSourceConversation        ContextSource = "conversation"
-	ContextSourceToolResult          ContextSource = "tool_result"
-	ContextSourceDelegationResult    ContextSource = "delegation_result"
+	// ContextSourceToolSummary identifies summarized tool output blocks.
+	ContextSourceToolSummary ContextSource = "tool_summary"
+	// ContextSourceConversation identifies raw conversation message blocks.
+	ContextSourceConversation ContextSource = "conversation"
+	// ContextSourceToolResult identifies raw tool result blocks.
+	ContextSourceToolResult ContextSource = "tool_result"
+	// ContextSourceDelegationResult identifies delegated sub-agent result blocks.
+	ContextSourceDelegationResult ContextSource = "delegation_result"
 )
 
 // ContextBlock is a rendered context fragment included in a request.
@@ -42,10 +53,12 @@ type SourceBudgetModel struct {
 	ToolSummaryBytes    int
 }
 
+// CompactionPolicy configures conversation summary budgets.
 type CompactionPolicy struct {
 	SummaryBytes int
 }
 
+// ToolSummaryPolicy configures tool-output summary budgets.
 type ToolSummaryPolicy struct {
 	MaxBytes int
 }
@@ -68,12 +81,14 @@ type RequestTokenBudget struct {
 	Fits                     bool
 }
 
+// AssemblyPolicy configures prompt assembly budgets and summarization policies.
 type AssemblyPolicy struct {
 	Budgets     SourceBudgetModel
 	Compaction  CompactionPolicy
 	ToolSummary ToolSummaryPolicy
 }
 
+// DurableContextEntry stores one durable context item retained across turns.
 type DurableContextEntry struct {
 	Text   string `json:"text"`
 	Source string `json:"source,omitempty"`

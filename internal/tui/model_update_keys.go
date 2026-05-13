@@ -20,8 +20,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m = m.resetCompletionState(msg)
 	activeConversation := m.hasActiveConversation()
-	if handled, next, cmd := m.handleConversationKeyMsg(msg, activeConversation); handled {
-		return next, cmd
+	if handled, next := m.handleConversationKeyMsg(msg, activeConversation); handled {
+		return next, nil
 	}
 	if handled, next, cmd := m.handleNavigationKeyMsg(msg); handled {
 		return next, cmd
@@ -70,9 +70,9 @@ func (m Model) hasActiveConversation() bool {
 	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 }
 
-func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model, tea.Cmd) {
+func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model) {
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
-		return true, m.executeInterruptAction(), nil
+		return true, m.executeInterruptAction()
 	}
 
 	if !m.scratchpadOverlay.IsOpen() && msg.Type == tea.KeyCtrlS {
@@ -84,21 +84,21 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool)
 			m.sidebar.scratchpadNext,
 			m.styles,
 		)
-		return true, m, nil
+		return true, m
 	}
 
 	if activeConversation {
-		return true, m, nil
+		return true, m
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 		m.helpVisible = !m.helpVisible
-		return true, m, nil
+		return true, m
 	}
 	if msg.Type == tea.KeyEsc && m.helpVisible {
 		m.helpVisible = false
-		return true, m, nil
+		return true, m
 	}
-	return false, m, nil
+	return false, m
 }
 
 func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {

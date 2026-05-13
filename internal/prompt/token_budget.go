@@ -7,6 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// Normalized clamps negative budget fields to zero.
 func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 	if m.ContextSize < 0 {
 		m.ContextSize = 0
@@ -23,10 +24,12 @@ func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 	return m
 }
 
+// FitRequest estimates whether a normal chat request fits within the model budget.
 func (m ModelTokenBudget) FitRequest(ctx context.Context, request provider.ChatRequest) (RequestTokenBudget, error) {
 	return m.fit(ctx, request, m.completionReserveForRequest(request))
 }
 
+// FitCompactionRequest estimates whether a compaction request fits within the model budget.
 func (m ModelTokenBudget) FitCompactionRequest(ctx context.Context, request provider.ChatRequest) (RequestTokenBudget, error) {
 	return m.fit(ctx, request, m.completionReserveForCompaction(request))
 }
@@ -80,6 +83,7 @@ func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRe
 	return reserve
 }
 
+// String returns a compact human-readable representation of the fitted budget.
 func (r RequestTokenBudget) String() string {
 	return fmt.Sprintf("prompt=%d reserve=%d safety=%d total=%d context=%d fits=%t",
 		r.EstimatedPromptTokens, r.ReservedCompletionTokens, r.SafetyMarginTokens, r.TotalTokens, r.ContextSize, r.Fits)

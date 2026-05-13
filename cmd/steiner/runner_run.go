@@ -21,10 +21,7 @@ type runnerSetup struct {
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
-	selected, err := r.selectedModel()
-	if err != nil {
-		return runnerSetup{}, err
-	}
+	selected := r.selectedModel()
 	prov, err := r.runtimeProvider(selected)
 	if err != nil {
 		return runnerSetup{}, err
@@ -45,15 +42,12 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	}, nil
 }
 
-func (r cliRunner) selectedModel() (config.ModelConfig, error) {
-	selected, err := selectedModelConfig(r.runtime.cfg)
-	if err != nil {
-		return config.ModelConfig{}, err
-	}
+func (r cliRunner) selectedModel() config.ModelConfig {
+	selected := selectedModelConfig(r.runtime.cfg)
 	if r.currentModel != nil {
 		selected = r.currentModel()
 	}
-	return selected, nil
+	return selected
 }
 
 func (r cliRunner) runtimeProvider(selected config.ModelConfig) (provider.Provider, error) {

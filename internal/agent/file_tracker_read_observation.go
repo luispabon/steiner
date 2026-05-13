@@ -16,6 +16,7 @@ type fileObservation struct {
 	Notes        []string
 }
 
+// ObserveRead records a read result and may replace unchanged content with an annotation.
 func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled bool) (string, fileObservation) {
 	result, ok := parseReadResult(content)
 	if !ok {
@@ -127,7 +128,7 @@ func (t *FileTracker) observeReadHeuristics(result readResult, observation fileO
 	if path == "" {
 		return workingFileUpdate{}, nil
 	}
-	update := t.updateWorkingFile(path, "read", fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
+	update := t.updateWorkingFile(path, fmt.Sprintf("read %s (%s)", path, result.rangeSummary()))
 	var facts []string
 	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
 		facts = append(facts, fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))

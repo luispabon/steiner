@@ -7,18 +7,22 @@ import (
 	"github.com/alecthomas/chroma/v2"
 )
 
+// FormatFilePreview formats file contents using the default preview line limit.
 func FormatFilePreview(path, contents string) PreviewDocument {
 	return formatFilePreviewWithLimit(path, contents, defaultPreviewLineLimit)
 }
 
+// FormatFilePreviewWithLimit formats file contents using the provided preview line limit.
 func FormatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDocument {
 	return formatFilePreviewWithLimit(path, contents, lineLimit)
 }
 
+// FormatEditDiffPreview formats an edit diff using the default preview line limit.
 func FormatEditDiffPreview(path, before, after string) PreviewDocument {
 	return formatEditDiffPreviewWithLimit(path, before, after, defaultPreviewLineLimit)
 }
 
+// FormatEditDiffPreviewWithLimit formats an edit diff using the provided preview line limit.
 func FormatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) PreviewDocument {
 	return formatEditDiffPreviewWithLimit(path, before, after, lineLimit)
 }
@@ -123,13 +127,6 @@ func trimSharedMarkdownHeadingPrefix(before, after []string) ([]string, []string
 		return before, after
 	}
 	return before[1:], after[1:]
-}
-
-func joinPreviewLines(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	return strings.Join(lines, "\n") + "\n"
 }
 
 type diffOpKind int

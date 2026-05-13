@@ -130,7 +130,7 @@ func TestRunPipelineApprovalContextCanceled(t *testing.T) {
 	cfg := config.Config{
 		Approval: config.ApprovalConfig{Default: config.ApprovalModePrompt},
 	}
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(ctx context.Context, req ApprovalRequest) error {
+	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(_ context.Context, _ ApprovalRequest) error {
 		return nil
 	}), t.TempDir())
 
@@ -146,7 +146,7 @@ func TestRunPipelineApprovalContextCanceled(t *testing.T) {
 func TestExecuteToolHandlerSuccess(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name: "greeter",
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, _ map[string]any) (any, error) {
 			return map[string]any{"message": "hello"}, nil
 		},
 		Approval: config.ApprovalModeAuto,

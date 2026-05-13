@@ -8,6 +8,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 )
 
+// DetectPreviewSyntax detects the best preview syntax highlighter for a path and contents.
 func DetectPreviewSyntax(path, contents string) PreviewSyntax {
 	lexer := detectPreviewLexer(path, contents)
 	return PreviewSyntax{

@@ -818,7 +818,7 @@ func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 				Name:            "noop",
 				Description:     "No-op tool",
 				ParameterSchema: map[string]any{"type": "object"},
-				Handler: func(ctx context.Context, input map[string]any) (any, error) {
+				Handler: func(_ context.Context, _ map[string]any) (any, error) {
 					return map[string]any{"ok": true}, nil
 				},
 			}),

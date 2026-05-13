@@ -47,11 +47,8 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRunti
 	return rt, nil
 }
 
-func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) (*tui.App, error) {
-	selected, err := selectedModelConfig(rt.cfg)
-	if err != nil {
-		return nil, err
-	}
+func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
+	selected := selectedModelConfig(rt.cfg)
 	tuiCfg := tui.Config{
 		Model:                         rt.cfg.Model.Model,
 		ModelNames:                    modelAliasNames(rt.cfg),
@@ -69,7 +66,7 @@ func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) (*tui.App, er
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
 	}
-	return tui.NewApp(tuiCfg), nil
+	return tui.NewApp(tuiCfg)
 }
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {

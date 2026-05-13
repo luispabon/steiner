@@ -94,8 +94,10 @@ func shapeToolText(text string, limit int, strategy truncationStrategy) (string,
 		limit = 0
 	}
 
-	shaped := text
-	truncated := false
+	var (
+		shaped    string
+		truncated bool
+	)
 
 	switch strategy {
 	case tailPriorityStrategy:

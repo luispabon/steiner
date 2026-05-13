@@ -23,7 +23,7 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	if mode == "" {
 		mode = "content"
 	}
-	path := trimmedStringArg(arguments, "path")
+	path := pathStringArg(arguments)
 	if path == "" {
 		path = "."
 	}

@@ -21,7 +21,7 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	}
 	ctrl := s.ActiveRunController()
 
-	result, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+	result, err := s.runManualCompaction(context.Background(), "test-model", func(_ context.Context) ([]agent.Message, error) {
 		s.events.Emit(output.NewAssistantChunkEvent(1, "streamed chunk"))
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	})

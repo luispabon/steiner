@@ -88,7 +88,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
 			if toolName != "read" {
 				return nil, fmt.Errorf("tool = %s, want read", toolName)
 			}
@@ -752,7 +752,7 @@ func TestRunnerTreatsProviderContextCancellationAsCancelled(t *testing.T) {
 			},
 		},
 	}
-	providerStub.chatFn = func(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+	providerStub.chatFn = func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
 		<-ctx.Done()
 		return provider.ChatResponse{}, ctx.Err()
 	}
@@ -796,7 +796,7 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 		},
 	}
 	executor := &fakeExecutor{
-		execute: func(ctx context.Context, toolName string, input map[string]any) (any, error) {
+		execute: func(ctx context.Context, _ string, _ map[string]any) (any, error) {
 			cancelFunc := ctx.Value(cancelContextKey{}).(context.CancelFunc)
 			cancelFunc()
 			return nil, ctx.Err()

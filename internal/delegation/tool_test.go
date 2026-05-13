@@ -51,7 +51,7 @@ func successRunState() agent.RunState {
 
 func TestToolDef(t *testing.T) {
 	called := false
-	handler := func(ctx context.Context, input map[string]any) (any, error) {
+	handler := func(_ context.Context, _ map[string]any) (any, error) {
 		called = true
 		return nil, nil
 	}

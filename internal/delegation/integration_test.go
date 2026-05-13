@@ -22,14 +22,14 @@ type fakeProvider struct {
 	requests  []provider.ChatRequest
 }
 
-func (f *fakeProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+func (f *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 	f.requests = append(f.requests, req)
 	resp := f.responses[f.callCount%len(f.responses)]
 	f.callCount++
 	return resp, nil
 }
 
-func (f *fakeProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+func (f *fakeProvider) StreamChatCompletion(_ context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	f.requests = append(f.requests, req)
 	ch := make(chan provider.ChatChunk, 1)
 	resp := f.responses[f.callCount%len(f.responses)]
@@ -69,11 +69,7 @@ func (r *failingRunner) Run(context.Context, agent.RunRequest) (agent.RunState, 
 
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
-	p, err := buildChildPrompt(spec)
-	if err != nil {
-		panic("testBuildPrompt: " + err.Error())
-	}
-	return p
+	return buildChildPrompt(spec)
 }
 
 // testChildRegistries is a test helper that builds visible and execution registries
@@ -85,7 +81,7 @@ func testChildRegistries(parent *tool.Registry) (*tool.Registry, *tool.Registry)
 			names = append(names, name)
 		}
 	}
-	return buildChildRegistries(parent, "delegate", names)
+	return buildChildRegistries(parent, names)
 }
 
 func makeSpec(agentID string, outputLimitTokens int) DelegationSpec {
@@ -354,7 +350,7 @@ type summaryFailRunner struct {
 	calls int
 }
 
-func (r *summaryFailRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+func (r *summaryFailRunner) Run(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 	r.calls++
 	if r.calls == 1 {
 		return agent.RunState{
@@ -420,7 +416,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 		tool.ToolDef{
 			Name:        "helper",
 			Description: "helper tool",
-			Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			Handler: func(_ context.Context, _ map[string]any) (any, error) {
 				return "helper-result", nil
 			},
 		},
@@ -434,7 +430,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	)
 
 	spec := makeSpec("agent-6", 1000)
-	visibleReg, execReg := buildChildRegistries(parentReg, "delegate", []string{"helper"})
+	visibleReg, execReg := buildChildRegistries(parentReg, []string{"helper"})
 	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
 
 	if len(req.Tools) != 1 {
@@ -464,7 +460,7 @@ type blockingRunner struct {
 	secondErr error
 }
 
-func (r *blockingRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+func (r *blockingRunner) Run(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
 	r.calls++
 	if r.calls == 1 {
 		return agent.RunState{

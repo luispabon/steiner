@@ -194,7 +194,7 @@ func TestRenderNames(t *testing.T) {
 		}
 	})
 
-	t.Run("nil stream", func(t *testing.T) {
+	t.Run("nil stream", func(_ *testing.T) {
 		renderNames(nil, "tools", []string{"bash"})
 	})
 }

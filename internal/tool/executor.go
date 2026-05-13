@@ -17,6 +17,7 @@ type ApprovalResponder interface {
 // ApprovalResponder.
 type ApprovalResponderFunc func(ctx context.Context, req ApprovalRequest) error
 
+// RequestApproval adapts f to the ApprovalResponder interface.
 func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req ApprovalRequest) error {
 	return f(ctx, req)
 }

@@ -196,7 +196,7 @@ func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
 	}{
 		{
 			name: "fixed wiring does not duplicate",
-			wire: func(sess *interactive.Session, tuiSink output.EventSink) output.EventSink {
+			wire: func(sess *interactive.Session, _ output.EventSink) output.EventSink {
 				return sess.EventSink()
 			},
 			want: 1,

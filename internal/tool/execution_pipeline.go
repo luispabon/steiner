@@ -271,7 +271,7 @@ func exitCodeFromError(err error) int {
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
-		return exitErr.ProcessState.ExitCode()
+		return exitErr.ExitCode()
 	}
 	return 1
 }

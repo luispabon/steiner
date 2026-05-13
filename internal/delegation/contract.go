@@ -5,6 +5,8 @@ import (
 )
 
 // DelegationStatus represents the lifecycle state of a delegation.
+//
+//nolint:revive // package API keeps delegation-prefixed names for compatibility.
 type DelegationStatus string
 
 const (
@@ -24,6 +26,8 @@ const (
 )
 
 // DelegationSpec defines what the parent sends to the child agent.
+//
+//nolint:revive // package API keeps delegation-prefixed names for compatibility.
 type DelegationSpec struct {
 	// Task is the required task description.
 	Task string `json:"task"`
@@ -48,6 +52,8 @@ func (s DelegationSpec) GetAgentID() string {
 }
 
 // DelegationResult defines what the child returns to the parent.
+//
+//nolint:revive // package API keeps delegation-prefixed names for compatibility.
 type DelegationResult struct {
 	// AgentID matches the request.
 	AgentID string `json:"agent_id"`
@@ -78,6 +84,8 @@ type DelegationResult struct {
 }
 
 // DelegationLimits defines resource constraints for a child execution.
+//
+//nolint:revive // package API keeps delegation-prefixed names for compatibility.
 type DelegationLimits struct {
 	// MaxTurns limits the number of agent turns.
 	MaxTurns int `json:"max_turns"`

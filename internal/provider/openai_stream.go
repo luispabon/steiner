@@ -41,7 +41,7 @@ func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk)
 	})
 }
 
-func decodeChatStreamWithHandler(ctx context.Context, body io.Reader, emit func(ChatChunk) error) error {
+func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{
 		toolCalls: make(map[int]*openAIToolCallAccumulator),

@@ -29,7 +29,7 @@ func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream
 	return req, nil
 }
 
-func (p *OpenAICompat) executeHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
+func (p *OpenAICompat) executeHTTP(_ context.Context, req *http.Request) (*http.Response, error) {
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return nil, err

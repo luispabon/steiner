@@ -38,9 +38,6 @@ func buildRuntimeProviderFactory(cfg config.Config) (func(config.ModelConfig) (p
 	if err != nil {
 		return nil, err
 	}
-	if _, err := selectedModelConfig(cfg); err != nil {
-		return nil, err
-	}
 	httpClient := runtimeHTTPClient()
 	return func(modelCfg config.ModelConfig) (provider.Provider, error) {
 		return newOpenAICompat(provider.OpenAICompatConfig{

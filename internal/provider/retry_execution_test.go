@@ -14,7 +14,7 @@ import (
 
 func TestOpenAICompatChatCompletionRetries429ThenSucceeds(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.Header().Set("Retry-After", "3")
@@ -37,7 +37,7 @@ func TestOpenAICompatChatCompletionRetries429ThenSucceeds(t *testing.T) {
 	})
 
 	var slept []time.Duration
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(_ context.Context, delay time.Duration) error {
 		slept = append(slept, delay)
 		return nil
 	}
@@ -61,7 +61,7 @@ func TestOpenAICompatChatCompletionRetries429ThenSucceeds(t *testing.T) {
 
 func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -82,7 +82,7 @@ func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 	})
 
 	var slept []time.Duration
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(_ context.Context, delay time.Duration) error {
 		return nil
 	}
 	provider.jitter = func(cap time.Duration) time.Duration {
@@ -109,7 +109,7 @@ func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 
 func TestOpenAICompatChatCompletionDoesNotRetry400(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = fmt.Fprint(w, "bad request")
@@ -124,7 +124,7 @@ func TestOpenAICompatChatCompletionDoesNotRetry400(t *testing.T) {
 	})
 
 	calls := 0
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(_ context.Context, _ time.Duration) error {
 		calls++
 		return nil
 	}
@@ -152,7 +152,7 @@ func TestOpenAICompatChatCompletionDoesNotRetry400(t *testing.T) {
 
 func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.Header().Set("Retry-After", "120")
@@ -175,7 +175,7 @@ func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 	})
 
 	var delays []time.Duration
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(_ context.Context, delay time.Duration) error {
 		delays = append(delays, delay)
 		return nil
 	}
@@ -193,7 +193,7 @@ func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 
 func TestOpenAICompatChatCompletionExhaustsAttemptsWithTypedError(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = fmt.Fprint(w, "busy")
@@ -206,7 +206,7 @@ func TestOpenAICompatChatCompletionExhaustsAttemptsWithTypedError(t *testing.T) 
 		InitialBackoff: 25 * time.Millisecond,
 		MaxBackoff:     time.Second,
 	})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error { return nil }
+	provider.sleep = func(_ context.Context, _ time.Duration) error { return nil }
 	provider.jitter = func(cap time.Duration) time.Duration { return cap }
 
 	_, err := provider.ChatCompletion(context.Background(), ChatRequest{
@@ -229,7 +229,7 @@ func TestOpenAICompatChatCompletionExhaustsAttemptsWithTypedError(t *testing.T) 
 
 func TestOpenAICompatChatCompletionCancellationDuringBackoffStopsImmediately(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -248,7 +248,7 @@ func TestOpenAICompatChatCompletionCancellationDuringBackoffStopsImmediately(t *
 	})
 
 	sleepStarted := make(chan struct{})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(ctx context.Context, _ time.Duration) error {
 		close(sleepStarted)
 		<-ctx.Done()
 		return ctx.Err()
@@ -289,7 +289,7 @@ func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
 	var attempts int32
 	firstAttemptSeen := make(chan struct{})
 	releaseSleep := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			close(firstAttemptSeen)
@@ -311,7 +311,7 @@ func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
 	})
 	var sleepOnce sync.Once
 	sleepStarted := make(chan struct{})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(ctx context.Context, _ time.Duration) error {
 		sleepOnce.Do(func() { close(sleepStarted) })
 		select {
 		case <-releaseSleep:
@@ -400,7 +400,7 @@ func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 		InitialBackoff: 25 * time.Millisecond,
 		MaxBackoff:     time.Second,
 	})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error { return nil }
+	provider.sleep = func(_ context.Context, _ time.Duration) error { return nil }
 	provider.jitter = func(cap time.Duration) time.Duration { return cap }
 
 	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
@@ -441,7 +441,7 @@ func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 
 func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *testing.T) {
 	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch atomic.AddInt32(&attempts, 1) {
 		case 1:
 			flusher, ok := w.(http.Flusher)
@@ -477,7 +477,7 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 		InitialBackoff: 25 * time.Millisecond,
 		MaxBackoff:     time.Second,
 	})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error { return nil }
+	provider.sleep = func(_ context.Context, _ time.Duration) error { return nil }
 	provider.jitter = func(cap time.Duration) time.Duration { return cap }
 
 	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
@@ -530,7 +530,7 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryCallerCancellation(t *testi
 	})
 
 	sleepStarted := make(chan struct{})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error {
+	provider.sleep = func(ctx context.Context, _ time.Duration) error {
 		close(sleepStarted)
 		<-ctx.Done()
 		return ctx.Err()
@@ -575,7 +575,7 @@ func TestOpenAICompatStreamChatCompletionAfterExhaustionSendsFinalErrorChunk(t *
 		InitialBackoff: 25 * time.Millisecond,
 		MaxBackoff:     time.Second,
 	})
-	provider.sleep = func(ctx context.Context, delay time.Duration) error { return nil }
+	provider.sleep = func(_ context.Context, _ time.Duration) error { return nil }
 	provider.jitter = func(cap time.Duration) time.Duration { return cap }
 
 	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{

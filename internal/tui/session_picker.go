@@ -64,14 +64,6 @@ func (s sessionPickerOverlay) Update(msg tea.Msg) (sessionPickerOverlay, tea.Cmd
 	}
 }
 
-func (s *sessionPickerOverlay) filter() {
-	s.scrollOffset = 0
-	s.selection = 0
-	s.candidates = filterSearchPickerEntries(s.allEntries, s.query, func(entry session.IndexEntry, loweredQuery string) bool {
-		return strings.Contains(strings.ToLower(entry.Title), loweredQuery)
-	})
-}
-
 func (s sessionPickerOverlay) View() string {
 	if !s.open {
 		return ""

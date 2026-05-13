@@ -96,8 +96,8 @@ func TestNewMultiSink(t *testing.T) {
 	})
 	t.Run("multiple sinks fan out events", func(t *testing.T) {
 		var emitted1, emitted2 int
-		sink1 := SinkFunc(func(e Event) { emitted1++ })
-		sink2 := SinkFunc(func(e Event) { emitted2++ })
+		sink1 := SinkFunc(func(Event) { emitted1++ })
+		sink2 := SinkFunc(func(Event) { emitted2++ })
 		s := NewMultiSink(sink1, sink2)
 		s.Emit(NewStopReasonEvent(1, "complete", nil))
 		if emitted1 != 1 || emitted2 != 1 {
@@ -106,7 +106,7 @@ func TestNewMultiSink(t *testing.T) {
 	})
 	t.Run("mixed nil and non-nil sinks", func(t *testing.T) {
 		var emitted int
-		sink1 := SinkFunc(func(e Event) { emitted++ })
+		sink1 := SinkFunc(func(Event) { emitted++ })
 		s := NewMultiSink(nil, sink1, nil)
 		s.Emit(NewStopReasonEvent(1, "complete", nil))
 		if emitted != 1 {

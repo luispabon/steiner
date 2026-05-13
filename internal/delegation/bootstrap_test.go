@@ -145,10 +145,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts, err := buildChildPrompt(tt.spec)
-			if err != nil {
-				t.Fatalf("buildChildPrompt() error = %v", err)
-			}
+			promptOpts := buildChildPrompt(tt.spec)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -171,14 +168,11 @@ func TestBuildChildPrompt(t *testing.T) {
 func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	t.Parallel()
 
-	promptOpts, err := buildChildPrompt(DelegationSpec{
+	promptOpts := buildChildPrompt(DelegationSpec{
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
 	})
-	if err != nil {
-		t.Fatalf("buildChildPrompt() error = %v", err)
-	}
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -217,7 +211,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "grep"},
 		)
 
-		visible, exec := buildChildRegistries(parent, "delegate", []string{"read", "write", "grep"})
+		visible, exec := buildChildRegistries(parent, []string{"read", "write", "grep"})
 
 		if visible == nil || exec == nil {
 			t.Fatal("registries should not be nil")
@@ -249,7 +243,7 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
 		)
 
-		_, exec := buildChildRegistries(parent, "delegate", []string{"bash"})
+		_, exec := buildChildRegistries(parent, []string{"bash"})
 
 		defs := exec.Definitions()
 		if len(defs) != 1 {
@@ -261,7 +255,7 @@ func TestBuildChildRegistries(t *testing.T) {
 	})
 
 	t.Run("nil parent returns empty registries", func(t *testing.T) {
-		visible, exec := buildChildRegistries(nil, "delegate", []string{"read"})
+		visible, exec := buildChildRegistries(nil, []string{"read"})
 
 		if len(visible.Names()) != 0 {
 			t.Errorf("visible has %d tools, want 0", len(visible.Names()))
@@ -315,7 +309,7 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			visible, exec := buildChildRegistries(parent, "delegate", tt.allowedTools)
+			visible, exec := buildChildRegistries(parent, tt.allowedTools)
 
 			visibleNames := visible.Names()
 			if len(visibleNames) != tt.wantCount {
@@ -350,7 +344,7 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 		tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
 	)
 
-	_, exec := buildChildRegistries(parent, "delegate", []string{"read", "bash"})
+	_, exec := buildChildRegistries(parent, []string{"read", "bash"})
 
 	defs := exec.Definitions()
 	if len(defs) != 2 {
@@ -365,9 +359,9 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 
 func TestBuildChildRunAllowedTools(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
-		tool.ToolDef{Name: "write", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
-		tool.ToolDef{Name: "bash", Handler: func(ctx context.Context, input map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+		tool.ToolDef{Name: "bash", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
 	)
 
