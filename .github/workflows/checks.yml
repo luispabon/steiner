@@ -20,7 +20,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Cache Go tools
+        id: cache-go-tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: ${{ runner.os }}-go-tools-${{ hashFiles('Makefile') }}
+
       - name: Install check tools
+        if: steps.cache-go-tools.outputs.cache-hit != 'true'
         run: make install-check-tools
 
       - name: Tidy check
