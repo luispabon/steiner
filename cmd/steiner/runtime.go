@@ -5,19 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
-	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/spf13/cobra"
 )
@@ -57,108 +51,31 @@ type cliRuntime struct {
 var buildRuntime = defaultBuildRuntime
 
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-	_ = ctx
-	cfg, err := config.Load(config.LoadOptions{
-		CLI: config.CLIOverrides{
-			ConfigPath:  flags.configPath,
-			Model:       flags.model,
-			Verbose:     flags.verbose,
-			ContextMode: config.ContextMode(flags.contextMode),
-		},
-	})
+	cfg, err := loadRuntimeConfig(flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-
-	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
+	providerFactory, err := buildRuntimeProviderFactory(cfg)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-
-	if _, err := selectedModelConfig(cfg); err != nil {
-		return cliRuntime{}, err
-	}
-	httpClient := &http.Client{
-		Timeout: 0, // no deadline on body reads — streams can run indefinitely
-		Transport: &http.Transport{
-			MaxIdleConns:          1,
-			IdleConnTimeout:       90 * time.Second,
-			MaxConnsPerHost:       1,
-			ResponseHeaderTimeout: 30 * time.Second,
-		},
-	}
-	providerFactory := func(modelCfg config.ModelConfig) (provider.Provider, error) {
-		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL: modelCfg.BaseURL,
-			APIKey:  modelCfg.APIKey,
-			Model:   modelCfg.Model,
-			Retry: provider.RetryConfig{
-				Enabled:        modelCfg.Retry.Enabled,
-				MaxAttempts:    modelCfg.Retry.MaxAttempts,
-				InitialBackoff: time.Duration(modelCfg.Retry.InitialBackoff.Duration()),
-				MaxBackoff:     time.Duration(modelCfg.Retry.MaxBackoff.Duration()),
-				RetryAfterMax:  time.Duration(modelCfg.Retry.RetryAfterMax.Duration()),
-			},
-			Scheduler:  scheduler,
-			HTTPClient: httpClient,
-		})
-	}
-
-	events := output.EventSink(output.NoopSink{})
-	if flags.exec {
-		events = output.EventSink(output.NewStream(cmd.OutOrStdout()))
-	}
-	var closeFn func() error
-	logFile := flags.logFile
-	if logFile == "" && cfg.Logging.Enabled {
-		logFile = cfg.Logging.File
-	}
-	if strings.TrimSpace(logFile) != "" {
-		fileSink, err := output.NewFileLogSink(logFile, cfg.Logging.ThinkingChunk)
-		if err != nil {
-			return cliRuntime{}, err
-		}
-		events = output.NewMultiSink(events, fileSink)
-		closeFn = fileSink.Close
-	}
-	currentDir, err := os.Getwd()
+	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-
-	registry, err := runtimeRegistry(cfg, currentDir)
+	workDir, registry, err := buildRuntimeRegistry(cfg)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = ""
-	}
-
-	skillsRoot := prompt.DefaultSkillsRoot(homeDir)
-	loadedSkills, err := skill.Loader{RootDir: skillsRoot}.Discover(ctx)
+	homeDir, skillNames, err := discoverRuntimeSkills(ctx)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	skillNames := make([]string, 0, len(loadedSkills))
-	for _, loaded := range loadedSkills {
-		skillNames = append(skillNames, loaded.Name)
-	}
-
-	historyPath := filepath.Join(homeDir, ".config", "steiner", "history.log")
-	historyWriter, err := history.NewWriter(historyPath)
+	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-
-	sessionPath := filepath.Join(homeDir, ".config", "steiner", "sessions")
-	sessionStore, err := session.NewStore(sessionPath)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-
-	sharedInput := bufio.NewReader(cmd.InOrStdin())
-	approvalInput, approvalClose := openApprovalInput(cmd.InOrStdin())
+	sharedInput, approvalInput, approvalClose := buildRuntimeInputs(cmd.InOrStdin())
 	closeFn = joinClosers(closeFn, approvalClose)
 
 	return cliRuntime{
@@ -167,7 +84,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		registry:        registry,
 		toolNames:       registry.Names(),
 		skillNames:      skillNames,
-		workDir:         currentDir,
+		workDir:         workDir,
 		homeDir:         homeDir,
 		stdin:           cmd.InOrStdin(),
 		human:           output.NewStream(cmd.OutOrStdout()),
