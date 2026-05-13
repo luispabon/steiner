@@ -351,6 +351,7 @@ func renderUnknownEvent(event Event) Segment {
 	return Segment{Channel: ChannelStatus, Label: "status", Text: fmt.Sprintf("%s %s", event.Type, CompactJSON(event.Payload))}
 }
 
+// FormatEvent renders an event into the plain-text line shown in stream output.
 func FormatEvent(event Event) string {
 	return formatSegment(renderEvent(event))
 }

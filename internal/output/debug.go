@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// ContextDiagnosticsEvent records context-management diagnostics for logs and UI.
 type ContextDiagnosticsEvent struct {
 	Kind               string   `json:"kind"`
 	Scope              string   `json:"scope,omitempty"`
@@ -44,7 +45,7 @@ type ContextDiagnosticsEvent struct {
 	Notes              []string `json:"notes,omitempty"`
 }
 
-type ContextBudgetCategory struct {
+type contextBudgetCategory struct {
 	Name   string `json:"name"`
 	Tokens int    `json:"tokens"`
 }

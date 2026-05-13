@@ -79,6 +79,7 @@ Final response:
 - List verification performed and results.
 - Mention any assumptions, skipped checks, or unrelated issues noticed.`
 
+// SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {

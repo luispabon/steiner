@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// CompactJSON renders a value as a single-line JSON string for diagnostics.
 func CompactJSON(value any) string {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -15,7 +16,7 @@ func CompactJSON(value any) string {
 	return string(data)
 }
 
-func SetupLogger(level string) *slog.Logger {
+func setupLogger(level string) *slog.Logger {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLevel(level),
 	})

@@ -12,7 +12,7 @@ import (
 func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 	t.Parallel()
 
-	plan := (Assembler{}).planSourceAssembly()
+	plan := (assembler{}).planSourceAssembly()
 
 	want := []sourcePlanStep{
 		{Kind: plannedSourcePreamble, Placement: plannedSourcePlacementCore, PassThrough: false},
@@ -121,7 +121,7 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 	t.Parallel()
 
-	lowBudgetAssembler := Assembler{
+	lowBudgetAssembler := assembler{
 		opts: AssemblyOptions{
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{
@@ -136,7 +136,7 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 			},
 		},
 	}
-	highBudgetAssembler := Assembler{
+	highBudgetAssembler := assembler{
 		opts: AssemblyOptions{
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{

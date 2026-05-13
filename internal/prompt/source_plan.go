@@ -37,7 +37,7 @@ type sourcePlanStep struct {
 	Apply       func(context.Context, *assemblyState) error
 }
 
-func (a Assembler) planSourceAssembly() sourcePlan {
+func (a assembler) planSourceAssembly() sourcePlan {
 	opts := a.opts
 	policy := a.policy
 
@@ -67,7 +67,7 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 				Apply: func(_ context.Context, state *assemblyState) error {
 					globalAgentsPath, projectAgentsPath := agentPaths(opts)
 
-					agentBlocks, err := LoadAgents(globalAgentsPath, projectAgentsPath)
+					agentBlocks, err := loadAgents(globalAgentsPath, projectAgentsPath)
 					if err != nil {
 						return err
 					}
@@ -81,7 +81,7 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 				Kind:      plannedSourceProjectContext,
 				Placement: plannedSourcePlacementCore,
 				Apply: func(_ context.Context, state *assemblyState) error {
-					projectContext, err := GatherProjectContext(ProjectContextOptions{
+					projectContext, err := gatherProjectContext(ProjectContextOptions{
 						Root:        opts.ProjectRoot,
 						BudgetBytes: policy.Budgets.ProjectContextBytes,
 						ExtraFiles:  opts.ProjectContextExtraFiles,
@@ -101,7 +101,7 @@ func (a Assembler) planSourceAssembly() sourcePlan {
 				Placement: plannedSourcePlacementCore,
 				Apply: func(ctx context.Context, state *assemblyState) error {
 					skillRoot := skillRoot(opts)
-					skillBlocks, err := LoadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, opts.SkillNames)
+					skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, opts.SkillNames)
 					if err != nil {
 						return err
 					}

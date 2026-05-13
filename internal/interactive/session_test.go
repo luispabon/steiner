@@ -26,7 +26,7 @@ var (
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
 	_ Action = LoadSession{}
-	_ Action = RequestSessionPicker{}
+	_ Action = requestSessionPicker{}
 )
 
 // testNewSession is a helper that creates a new session and fails the test if it returns an error.
