@@ -46,72 +46,29 @@ func NewRunner() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
-	if req.ContextManager == nil {
-		req.ContextManager = &NaiveContextManager{}
-	}
-
-	conversation := fromProviderMessages(req.Prompt.Conversation)
-	state := RunState{
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-		Context:      fromPromptContext(req.Prompt.ContextState),
-	}
-	state.TurnCount = initialConversationTurnCount(conversation)
-	if req.Provider == nil {
-		state.StopReason = StopReasonError
-		return state, fmt.Errorf("provider is required")
-	}
-	if req.Executor == nil {
-		state.StopReason = StopReasonError
-		return state, fmt.Errorf("tool executor is required")
-	}
-	if err := ctx.Err(); err != nil {
-		state.StopReason = StopReasonCancelled
-		emitStop(req.Events, state, nil)
-		return state, nil
-	}
-	if setter, ok := req.ContextManager.(EventSinkSetter); ok {
-		setter.SetEventSink(req.Events)
+	req = normalizeRunRequest(req)
+	state := initializeRunState(req)
+	if validated, done, err := validateRunRequest(ctx, req, state); err != nil {
+		return validated, err
+	} else if done {
+		return validated, nil
 	}
 
 	var err error
-	state, err = req.ContextManager.PostIngestion(ctx, state)
+	state, err = postIngestionState(ctx, req, state)
 	if err != nil {
 		state.StopReason = StopReasonError
 		return state, fmt.Errorf("post ingestion: %w", err)
 	}
 
-	basePrompt := req.Prompt
-	basePrompt.Conversation = nil
-	// Cache the system preamble once per session so every turn sends the
-	// byte-identical string, preventing KV cache busting on local servers.
-	if preambler, ok := req.ContextManager.(PreambleProvider); ok {
-		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
-			basePrompt.PromptOverrides.System,
-			basePrompt.ScratchpadEnabled,
-			basePrompt.DelegationEnabled,
-		)
-	}
+	basePrompt := prepareBasePrompt(req)
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
 	p := newTurnProgressor(r)
 
 	for {
-		if err := ctx.Err(); err != nil {
-			state.StopReason = StopReasonCancelled
-			emitStop(req.Events, state, nil)
-			return state, nil
-		}
-
-		if req.Limits.MaxTurns > 0 && state.TurnCount >= req.Limits.MaxTurns {
-			state.StopReason = StopReasonMaxTurns
-			emitStop(req.Events, state, nil)
-			return state, nil
-		}
-		if req.Limits.MaxTokens > 0 && state.TokenCount >= req.Limits.MaxTokens {
-			state.StopReason = StopReasonMaxTokens
-			emitStop(req.Events, state, nil)
-			return state, nil
+		if stopped, done := stopRunBeforeTurn(ctx, req, state); done {
+			return stopped, nil
 		}
 
 		in := turnInput{
@@ -130,6 +87,82 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return state, nil
 		}
 	}
+}
+
+func normalizeRunRequest(req RunRequest) RunRequest {
+	if req.ContextManager == nil {
+		req.ContextManager = &NaiveContextManager{}
+	}
+	if setter, ok := req.ContextManager.(EventSinkSetter); ok {
+		setter.SetEventSink(req.Events)
+	}
+	return req
+}
+
+func initializeRunState(req RunRequest) RunState {
+	conversation := fromProviderMessages(req.Prompt.Conversation)
+	state := RunState{
+		Conversation: conversation,
+		Lineage:      newConversationLineage(conversation),
+		Context:      fromPromptContext(req.Prompt.ContextState),
+	}
+	state.TurnCount = initialConversationTurnCount(conversation)
+	return state
+}
+
+func validateRunRequest(ctx context.Context, req RunRequest, state RunState) (RunState, bool, error) {
+	if req.Provider == nil {
+		state.StopReason = StopReasonError
+		return state, false, fmt.Errorf("provider is required")
+	}
+	if req.Executor == nil {
+		state.StopReason = StopReasonError
+		return state, false, fmt.Errorf("tool executor is required")
+	}
+	if err := ctx.Err(); err != nil {
+		state.StopReason = StopReasonCancelled
+		emitStop(req.Events, state, nil)
+		return state, true, nil
+	}
+	return state, false, nil
+}
+
+func postIngestionState(ctx context.Context, req RunRequest, state RunState) (RunState, error) {
+	return req.ContextManager.PostIngestion(ctx, state)
+}
+
+func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
+	basePrompt := req.Prompt
+	basePrompt.Conversation = nil
+	// Cache the system preamble once per session so every turn sends the
+	// byte-identical string, preventing KV cache busting on local servers.
+	if preambler, ok := req.ContextManager.(PreambleProvider); ok {
+		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
+			basePrompt.PromptOverrides.System,
+			basePrompt.ScratchpadEnabled,
+			basePrompt.DelegationEnabled,
+		)
+	}
+	return basePrompt
+}
+
+func stopRunBeforeTurn(ctx context.Context, req RunRequest, state RunState) (RunState, bool) {
+	if err := ctx.Err(); err != nil {
+		state.StopReason = StopReasonCancelled
+		emitStop(req.Events, state, nil)
+		return state, true
+	}
+	if req.Limits.MaxTurns > 0 && state.TurnCount >= req.Limits.MaxTurns {
+		state.StopReason = StopReasonMaxTurns
+		emitStop(req.Events, state, nil)
+		return state, true
+	}
+	if req.Limits.MaxTokens > 0 && state.TokenCount >= req.Limits.MaxTokens {
+		state.StopReason = StopReasonMaxTokens
+		emitStop(req.Events, state, nil)
+		return state, true
+	}
+	return state, false
 }
 
 func initialConversationTurnCount(messages []Message) int {
