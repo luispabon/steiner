@@ -1,6 +1,7 @@
 package output
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -75,9 +76,43 @@ const (
 
 // Event is the timestamped envelope emitted by the runtime event stream.
 type Event struct {
-	Type      string    `json:"type"`
-	Timestamp time.Time `json:"timestamp"`
-	Payload   any       `json:"payload,omitempty"`
+	Type      string     `json:"type"`
+	Timestamp time.Time  `json:"timestamp"`
+	Payload   any        `json:"payload,omitempty"`
+	Scope     EventScope `json:"scope,omitempty"`
+}
+
+// EventScope identifies the transcript scope for a runtime event.
+type EventScope struct {
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+// MarshalJSON omits empty scope metadata so top-level events keep their
+// existing JSON shape.
+func (e Event) MarshalJSON() ([]byte, error) {
+	if e.Scope.AgentID == "" {
+		return json.Marshal(struct {
+			Type      string    `json:"type"`
+			Timestamp time.Time `json:"timestamp"`
+			Payload   any       `json:"payload,omitempty"`
+		}{
+			Type:      e.Type,
+			Timestamp: e.Timestamp,
+			Payload:   e.Payload,
+		})
+	}
+
+	return json.Marshal(struct {
+		Type      string     `json:"type"`
+		Timestamp time.Time  `json:"timestamp"`
+		Payload   any        `json:"payload,omitempty"`
+		Scope     EventScope `json:"scope,omitempty"`
+	}{
+		Type:      e.Type,
+		Timestamp: e.Timestamp,
+		Payload:   e.Payload,
+		Scope:     e.Scope,
+	})
 }
 
 // EventSink receives structured runtime events.

@@ -9,6 +9,15 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// WithAgentScope attaches child-agent transcript scope metadata to an event.
+func WithAgentScope(event Event, agentID string) Event {
+	if agentID == "" {
+		return event
+	}
+	event.Scope.AgentID = agentID
+	return event
+}
+
 // NewHistoryLoadedEvent creates a new history loaded event.
 func NewHistoryLoadedEvent(prompts []string) Event {
 	return Event{
