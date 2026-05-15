@@ -6,5 +6,6 @@ import "time"
 type Limits struct {
 	MaxTurns    int
 	MaxTokens   int
+	TurnTimeout time.Duration
 	ToolTimeout time.Duration
 }

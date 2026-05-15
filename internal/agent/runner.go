@@ -74,6 +74,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			return stopped, nil
 		}
 
+		turnCtx := ctx
+		var cancel context.CancelFunc
+		if req.Limits.TurnTimeout > 0 {
+			turnCtx, cancel = context.WithTimeout(ctx, req.Limits.TurnTimeout)
+		}
 		in := turnInput{
 			Request:           req,
 			State:             state,
@@ -81,7 +86,10 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			CompactionHistory: compactionHistory,
 			CompactionCount:   &compactionCount,
 		}
-		outcome := p.advance(ctx, in)
+		outcome := p.advance(turnCtx, in)
+		if cancel != nil {
+			cancel()
+		}
 		state = outcome.State
 		if outcome.Error != nil {
 			return state, outcome.Error

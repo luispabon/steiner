@@ -16,6 +16,8 @@ import (
 // DelegateToolName is the registered name of the delegate tool.
 const DelegateToolName = "delegate"
 
+const delegateTimeoutFloor = time.Minute
+
 // agentCounter is a process-local monotonic counter for agent ID generation.
 var agentCounter atomic.Uint64
 
@@ -85,6 +87,9 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			d, err := time.ParseDuration(v)
 			if err != nil {
 				return nil, fmt.Errorf("delegate: invalid timeout %q: %w", v, err)
+			}
+			if d > 0 && d < delegateTimeoutFloor {
+				d = delegateTimeoutFloor
 			}
 			overrides.Timeout = d
 		}

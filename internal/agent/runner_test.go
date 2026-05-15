@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -175,6 +176,81 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
 		t.Fatalf("event types = %v, want %v", got, wantEventTypes)
+	}
+}
+
+func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
+	const turnTimeout = 100 * time.Millisecond
+	const turnDelay = 60 * time.Millisecond
+
+	providerStub := &fakeProvider{}
+	providerStub.chatFn = func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+		callNum := len(providerStub.requests)
+		select {
+		case <-time.After(turnDelay):
+		case <-ctx.Done():
+			return provider.ChatResponse{}, ctx.Err()
+		}
+
+		switch callNum {
+		case 1:
+			return provider.ChatResponse{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+			}, nil
+		case 2:
+			return provider.ChatResponse{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+			}, nil
+		default:
+			return provider.ChatResponse{}, fmt.Errorf("unexpected request %d", callNum)
+		}
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
+			if toolName != "read" {
+				return nil, fmt.Errorf("tool = %s, want read", toolName)
+			}
+			return map[string]any{"contents": "hello"}, nil
+		},
+	}
+
+	start := time.Now()
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+		},
+		Limits: Limits{MaxTurns: 4, MaxTokens: 50, TurnTimeout: turnTimeout},
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if elapsed < 2*turnDelay {
+		t.Fatalf("elapsed = %v, want at least %v for two completed turns", elapsed, 2*turnDelay)
+	}
+	if elapsed < turnTimeout {
+		t.Fatalf("elapsed = %v, want to exceed a single turn timeout budget", elapsed)
 	}
 }
 

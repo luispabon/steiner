@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -200,19 +201,20 @@ func TestToolHandler_ParsesMaxTurns(t *testing.T) {
 
 func TestToolHandler_ParsesTimeout(t *testing.T) {
 	tests := []struct {
-		name         string
-		timeoutVal   any
-		wantDeadline bool
+		name       string
+		timeoutVal any
+		wantMin    time.Duration
 	}{
-		{name: "valid 30s", timeoutVal: "30s", wantDeadline: true},
-		{name: "valid 5m", timeoutVal: "5m", wantDeadline: true},
-		{name: "empty ignored", timeoutVal: "", wantDeadline: false},
-		{name: "missing", timeoutVal: nil, wantDeadline: false},
+		{name: "short 15s floored", timeoutVal: "15s", wantMin: time.Minute},
+		{name: "short 30s floored", timeoutVal: "30s", wantMin: time.Minute},
+		{name: "valid 5m", timeoutVal: "5m", wantMin: 5 * time.Minute},
+		{name: "empty ignored", timeoutVal: "", wantMin: 0},
+		{name: "missing", timeoutVal: nil, wantMin: 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var gotDeadline bool
+			var gotDeadline time.Time
 			var callCount int
 			deps := DelegateHandlerDeps{
 				SubAgentCfg: config.SubAgentConfig{},
@@ -221,7 +223,10 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 				Runner: &mockRunner{runFunc: func(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
 					callCount++
 					if callCount == 1 {
-						_, gotDeadline = ctx.Deadline()
+						deadline, ok := ctx.Deadline()
+						if ok {
+							gotDeadline = deadline
+						}
 					}
 					return successRunState(), nil
 				}},
@@ -230,6 +235,7 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 			}
 			handler := NewDelegateHandler(deps)
 
+			start := time.Now()
 			input := map[string]any{"task": "do something"}
 			if tt.timeoutVal != nil {
 				input["timeout"] = tt.timeoutVal
@@ -239,8 +245,17 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if gotDeadline != tt.wantDeadline {
-				t.Errorf("context has deadline=%v, want %v", gotDeadline, tt.wantDeadline)
+			if tt.wantMin == 0 {
+				if !gotDeadline.IsZero() {
+					t.Errorf("context has deadline=%v, want none", gotDeadline)
+				}
+				return
+			}
+			if gotDeadline.IsZero() {
+				t.Fatal("context deadline missing")
+			}
+			if gotDeadline.Sub(start) < tt.wantMin {
+				t.Errorf("deadline after start = %v, want at least %v", gotDeadline.Sub(start), tt.wantMin)
 			}
 		})
 	}

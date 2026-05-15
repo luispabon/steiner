@@ -586,6 +586,27 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "m5", Limits: DelegationLimits{MaxTurns: 1, Timeout: 42 * time.Second}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if got, want := req.Limits.TurnTimeout, 42*time.Second; got != want {
+		t.Errorf("TurnTimeout=%v, want %v", got, want)
+	}
+}
+
 func TestBuildChildRun(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
