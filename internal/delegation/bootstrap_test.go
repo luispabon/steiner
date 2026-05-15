@@ -114,7 +114,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something",
-			wantSystem:    "You are a sub-agent. Complete the task given to you.",
+			wantSystem:    "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive.",
 			wantLen:       1,
 		},
 		{
@@ -138,7 +138,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something\n\nAdditional context:\nrelevant info",
-			wantSystem:    "You are a sub-agent. Complete the task given to you.",
+			wantSystem:    "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive.",
 			wantLen:       1,
 		},
 	}
@@ -354,6 +354,14 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 		if def.Approval != config.ApprovalModeAuto {
 			t.Errorf("tool %q exec approval = %v, want %v", def.Name, def.Approval, config.ApprovalModeAuto)
 		}
+	}
+}
+
+func TestBuildChildPromptDefaultSystemPromptMentionsScratchpad(t *testing.T) {
+	spec := DelegationSpec{Task: "do something"}
+	opts := buildChildPrompt(spec)
+	if !strings.Contains(opts.PromptOverrides.System, "scratchpad") {
+		t.Errorf("default system prompt does not mention scratchpad: %q", opts.PromptOverrides.System)
 	}
 }
 
@@ -607,8 +615,8 @@ func TestBuildChildRun(t *testing.T) {
 				if len(req.Prompt.Conversation) != 1 {
 					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
-				if req.Prompt.PromptOverrides.System != "You are a sub-agent. Complete the task given to you." {
-					t.Errorf("PromptOverrides.System=%q, want default system prompt", req.Prompt.PromptOverrides.System)
+				if !strings.HasPrefix(req.Prompt.PromptOverrides.System, "You are a sub-agent. Complete the task given to you.") {
+					t.Errorf("PromptOverrides.System=%q, want to start with default system prompt", req.Prompt.PromptOverrides.System)
 				}
 				if req.Prompt.Conversation[0].Role != provider.MessageRoleUser {
 					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleUser)
