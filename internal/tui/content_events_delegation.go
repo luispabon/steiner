@@ -205,6 +205,44 @@ func (b *contentBuffer) findDelegationSegment(agentID string) (int, bool) {
 	return 0, false
 }
 
+func (b *contentBuffer) dequeuePendingDelegateParentSegment() (int, bool) {
+	for len(b.pendingDelegateParents) > 0 {
+		idx := b.pendingDelegateParents[0]
+		b.pendingDelegateParents = b.pendingDelegateParents[1:]
+		if idx < 0 || idx >= len(b.segments) {
+			continue
+		}
+		seg := b.segments[idx]
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.agentID != "" {
+			continue
+		}
+		return idx, true
+	}
+	return 0, false
+}
+
+func (b *contentBuffer) dequeuePendingDelegationStartSegment() (int, bool) {
+	for len(b.pendingDelegationStarts) > 0 {
+		idx := b.pendingDelegationStarts[0]
+		b.pendingDelegationStarts = b.pendingDelegationStarts[1:]
+		if idx < 0 || idx >= len(b.segments) {
+			continue
+		}
+		seg := b.segments[idx]
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.parentCallID != "" {
+			continue
+		}
+		return idx, true
+	}
+	return 0, false
+}
+
 func (b *contentBuffer) markDelegationDirty(idx int) {
 	if idx < 0 || idx >= len(b.segments) {
 		return
@@ -213,6 +251,46 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 		return
 	}
 	b.segments[idx].renderDirty = true
+}
+
+func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallStartedEvent) bool {
+	if idx < 0 || idx >= len(b.segments) {
+		return false
+	}
+	seg := &b.segments[idx]
+	if seg.kind != segmentDelegation || seg.delegData == nil {
+		return false
+	}
+	dd := seg.delegData
+	dd.parentCallID = payload.CallID
+	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	if dd.taskPreview == "" {
+		dd.taskPreview = dd.parentArgs
+	}
+	seg.renderDirty = true
+	return true
+}
+
+func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
+	if idx, found := b.dequeuePendingDelegationStartSegment(); found {
+		b.bindParentDelegateCall(idx, payload)
+		return
+	}
+
+	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			taskPreview:  summary,
+			parentCallID: payload.CallID,
+			parentArgs:   summary,
+			status:       "active",
+			collapsed:    true,
+		},
+		renderDirty: true,
+	})
+	b.pendingDelegateParents = append(b.pendingDelegateParents, idx)
 }
 
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {
@@ -224,6 +302,19 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	preview := payload.TaskPreview
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
+	}
+	if idx, found := b.dequeuePendingDelegateParentSegment(); found {
+		dd := b.segments[idx].delegData
+		dd.agentID = payload.AgentID
+		if preview != "" {
+			dd.taskPreview = preview
+		}
+		dd.startTime = nanoNow()
+		dd.status = "active"
+		dd.collapsed = true
+		b.activeDelegations[payload.AgentID] = idx
+		b.markDelegationDirty(idx)
+		return
 	}
 	idx := len(b.segments)
 	b.segments = append(b.segments, contentSegment{
@@ -238,6 +329,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		renderDirty: true,
 	})
 	b.activeDelegations[payload.AgentID] = idx
+	b.pendingDelegationStarts = append(b.pendingDelegationStarts, idx)
 }
 
 func (b *contentBuffer) handleDelegationComplete(event output.Event) {
