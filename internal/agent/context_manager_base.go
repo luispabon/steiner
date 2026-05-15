@@ -74,7 +74,13 @@ func (b *baseContextManager) emitFileAnnotationDiagnostics(turn int, result read
 	if strings.TrimSpace(result.Path) == "" {
 		return
 	}
+	if strings.TrimSpace(observation.Action) == "" {
+		return
+	}
 	if observation.Reason == "first read" {
+		return
+	}
+	if observation.Reason == "annotations disabled" {
 		return
 	}
 

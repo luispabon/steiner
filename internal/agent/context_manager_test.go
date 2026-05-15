@@ -158,6 +158,40 @@ func TestPostIngestionNaiveContextManagerAnnotatesRepeatedReadWhenEnabled(t *tes
 	}
 }
 
+func TestPostIngestionNaiveContextManagerDefaultsReadAnnotationsEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`
+	state := RunState{
+		TurnCount: 2,
+		Conversation: []Message{
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 1},
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 2},
+		},
+	}
+
+	got, err := NewContextManager("naive").(*NaiveContextManager).PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got.Conversation[1].Content, "file unchanged since turn 1") {
+		t.Fatalf("second read = %q, want default annotation", got.Conversation[1].Content)
+	}
+}
+
 func TestPostIngestionSmartContextManagerTransformsToolOutput(t *testing.T) {
 	bashContent := mustJSON(t, bashOutputForIngestionTest())
 	grepContent := mustJSON(t, grepOutputForIngestionTest())
@@ -773,6 +807,50 @@ func TestNaiveContextManagerImplementsSharedInterfaces(t *testing.T) {
 	}
 	if _, ok := manager.(EventSinkSetter); !ok {
 		t.Fatalf("%T does not implement EventSinkSetter", manager)
+	}
+}
+
+func TestNaiveContextManagerSetEventSinkEmitsReadDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	var events []output.Event
+	cm := NewContextManager("naive").(*NaiveContextManager)
+	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+
+	content := `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`
+	if got := cm.ObserveToolResult(1, "read", nil, content); got != content {
+		t.Fatalf("first read = %q, want full content", got)
+	}
+	got := cm.ObserveToolResult(2, "read", nil, content)
+	if !strings.Contains(got, "file unchanged since turn 1") {
+		t.Fatalf("second read = %q, want annotation", got)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	payload, ok := events[0].Payload.(output.ContextDiagnosticsEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want ContextDiagnosticsEvent", events[0].Payload)
+	}
+	if got, want := payload.Kind, "file_annotation"; got != want {
+		t.Fatalf("kind = %q, want %q", got, want)
+	}
+	if got, want := payload.Reason, "unchanged since turn 1"; got != want {
+		t.Fatalf("reason = %q, want %q", got, want)
 	}
 }
 

@@ -99,9 +99,6 @@ func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 // OnTurnComplete is a no-op for the naive manager.
 func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
 
-// SetEventSink is a no-op for the naive manager.
-func (n *NaiveContextManager) SetEventSink(_ output.EventSink) {}
-
 // ObserveToolResult records heuristic context derived from a tool result.
 func (n *NaiveContextManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
 	shaped := n.observeToolResult(turn, toolName, input, content)
@@ -235,16 +232,14 @@ func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
 // NewContextManager constructs the appropriate ContextManager for the given
 // mode. An unrecognised mode falls back to NaiveContextManager.
 func NewContextManager(mode string, cfg ...config.ContextManagementConfig) ContextManager {
-	base := baseContextManager{}
+	base := baseContextManager{
+		readAnnotations: true,
+	}
 	if len(cfg) > 0 {
 		base.readAnnotations = cfg[0].ReadAnnotations
 		base.annotationsConfigured = true
 	}
 	if mode == "smart" {
-		if len(cfg) == 0 {
-			base.readAnnotations = true
-			base.annotationsConfigured = true
-		}
 		manager := &SmartContextManager{baseContextManager: base}
 		manager.scratchpad.mode = config.ScratchpadModeScaffoldOnly
 		if len(cfg) > 0 {

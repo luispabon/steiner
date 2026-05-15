@@ -160,6 +160,13 @@ func TestBaseContextManagerObserveReadToolResult(t *testing.T) {
 				t.Fatalf("second read annotation presence = %t, want %t; got %q", strings.Contains(got, "file unchanged since turn 1"), tc.wantAnnotated, got)
 			}
 
+			if tc.wantReason == "annotations disabled" {
+				if len(events) != 0 {
+					t.Fatalf("events = %d, want 0 when annotations disabled", len(events))
+				}
+				return
+			}
+
 			if len(events) < 1 {
 				t.Fatalf("events = %d, want at least 1", len(events))
 			}
