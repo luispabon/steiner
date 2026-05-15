@@ -34,13 +34,14 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens *int, streamingPreferred bool) agent.RunRequest {
 	_ = spec
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
+	scopedEvents := withAgentScope(spec.AgentID, events)
 
 	req := agent.RunRequest{
 		Provider:           prov,
 		Executor:           tool.NewExecutor(execReg, childCfg, nil, workDir),
 		Tools:              visibleReg.ToProviderSpecs(),
 		Limits:             baseLimits,
-		Events:             events,
+		Events:             scopedEvents,
 		Prompt:             promptOpts,
 		ExtraParams:        extraParams,
 		Thinking:           thinking,

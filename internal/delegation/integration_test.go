@@ -68,6 +68,48 @@ func (r *failingRunner) Run(context.Context, agent.RunRequest) (agent.RunState, 
 	return agent.RunState{}, r.err
 }
 
+type scopedEventRunner struct {
+	calls int
+}
+
+func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+	r.calls++
+	if r.calls <= 2 {
+		if req.Events == nil {
+			return agent.RunState{}, fmt.Errorf("events sink missing")
+		}
+
+		req.Events.Emit(output.NewTurnStartedEvent(r.calls, "child-model", 1))
+		req.Events.Emit(output.NewAssistantMessageEvent(r.calls, string(agent.MessageRoleAssistant), fmt.Sprintf("child turn %d", r.calls)))
+	}
+
+	if r.calls == 1 {
+		return agent.RunState{
+			Conversation: []agent.Message{
+				{
+					Role:    agent.MessageRoleAssistant,
+					Content: "extend me",
+					ToolCalls: []agent.ToolCall{
+						{ID: "call-1", Name: "helper", Arguments: map[string]any{}},
+					},
+				},
+			},
+			TurnCount:  1,
+			TokenCount: 10,
+			StopReason: agent.StopReasonMaxTurns,
+		}, nil
+	}
+
+	return agent.RunState{
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "done"},
+		},
+		TurnCount:  2,
+		TokenCount: 20,
+		StopReason: agent.StopReasonComplete,
+	}, nil
+}
+
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	return buildChildPrompt(spec)
@@ -180,6 +222,42 @@ func TestDelegationEvents(t *testing.T) {
 	}
 }
 
+func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
+		},
+	}
+
+	spec := makeSpec("agent-scoped", 1000)
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	sink := &collectingSink{}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
+
+	runner := &scopedEventRunner{}
+	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.calls != 3 {
+		t.Fatalf("runner.calls = %d, want 3", runner.calls)
+	}
+
+	for _, ev := range sink.events {
+		switch ev.Type {
+		case output.EventTypeDelegationStarted, output.EventTypeDelegationExtension, output.EventTypeDelegationComplete:
+			if ev.Scope.AgentID != "" {
+				t.Fatalf("%s scope = %q, want empty", ev.Type, ev.Scope.AgentID)
+			}
+		case output.EventTypeTurnStarted, output.EventTypeAssistantMessage:
+			if ev.Scope.AgentID != spec.AgentID {
+				t.Fatalf("%s scope = %q, want %q", ev.Type, ev.Scope.AgentID, spec.AgentID)
+			}
+		}
+	}
+}
+
 func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
@@ -230,6 +308,9 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	var sawFailedEvent bool
 	for _, ev := range sink.events {
 		if ev.Type == output.EventTypeDelegationFailed {
+			if ev.Scope.AgentID != "" {
+				t.Fatalf("DelegationFailed scope = %q, want empty", ev.Scope.AgentID)
+			}
 			sawFailedEvent = true
 			break
 		}
