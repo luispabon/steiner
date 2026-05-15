@@ -16,16 +16,8 @@ func SeekSequence(lines []string, pattern []string, start int, eof bool) (int, b
 		return 0, false
 	}
 
-	searchStart := start
-	if eof {
-		searchStart = len(lines) - len(pattern)
-	}
-	if searchStart < 0 {
-		searchStart = 0
-	}
-
-	maxStart := len(lines) - len(pattern)
-	if searchStart > maxStart {
+	searchStart, maxStart, ok := sequenceSearchBounds(lines, pattern, start, eof)
+	if !ok {
 		return 0, false
 	}
 
@@ -37,46 +29,81 @@ func SeekSequence(lines []string, pattern []string, start int, eof bool) (int, b
 		func(line, pat string) bool { return normaliseForPatchMatch(line) == normaliseForPatchMatch(pat) },
 	}
 
+	if idx, ok := seekSequenceWithMatchers(lines, pattern, searchStart, maxStart, matchers); ok {
+		return idx, true
+	}
+
+	if idx, ok := seekSequenceFuzzy(lines, pattern, searchStart, maxStart); ok {
+		return idx, true
+	}
+
+	return 0, false
+}
+
+func sequenceSearchBounds(lines []string, pattern []string, start int, eof bool) (int, int, bool) {
+	searchStart := start
+	if eof {
+		searchStart = len(lines) - len(pattern)
+	}
+	if searchStart < 0 {
+		searchStart = 0
+	}
+
+	maxStart := len(lines) - len(pattern)
+	if searchStart > maxStart {
+		return 0, 0, false
+	}
+	return searchStart, maxStart, true
+}
+
+func seekSequenceWithMatchers(lines []string, pattern []string, searchStart int, maxStart int, matchers []func(string, string) bool) (int, bool) {
 	for _, match := range matchers {
 		for i := searchStart; i <= maxStart; i++ {
-			ok := true
-			for j, pat := range pattern {
-				if !match(lines[i+j], pat) {
-					ok = false
-					break
-				}
-			}
-			if ok {
+			if sequenceMatches(lines, pattern, i, match) {
 				return i, true
 			}
 		}
 	}
+	return 0, false
+}
 
+func sequenceMatches(lines []string, pattern []string, start int, match func(string, string) bool) bool {
+	for j, pat := range pattern {
+		if !match(lines[start+j], pat) {
+			return false
+		}
+	}
+	return true
+}
+
+func seekSequenceFuzzy(lines []string, pattern []string, searchStart int, maxStart int) (int, bool) {
 	bestIndex := 0
 	bestDistance := 0
 	foundFuzzy := false
 	for i := searchStart; i <= maxStart; i++ {
-		totalDistance := 0
-		ok := true
-		for j, pat := range pattern {
-			dist := levenshtein(normaliseForPatchMatch(lines[i+j]), normaliseForPatchMatch(pat))
-			if dist > fuzzyMatchThreshold(pat) {
-				ok = false
-				break
-			}
-			totalDistance += dist
-		}
+		totalDistance, ok := fuzzySequenceDistance(lines, pattern, i)
 		if ok && (!foundFuzzy || totalDistance < bestDistance) {
 			bestIndex = i
 			bestDistance = totalDistance
 			foundFuzzy = true
 		}
 	}
-	if foundFuzzy {
-		return bestIndex, true
+	if !foundFuzzy {
+		return 0, false
 	}
+	return bestIndex, true
+}
 
-	return 0, false
+func fuzzySequenceDistance(lines []string, pattern []string, start int) (int, bool) {
+	totalDistance := 0
+	for j, pat := range pattern {
+		dist := levenshtein(normaliseForPatchMatch(lines[start+j]), normaliseForPatchMatch(pat))
+		if dist > fuzzyMatchThreshold(pat) {
+			return 0, false
+		}
+		totalDistance += dist
+	}
+	return totalDistance, true
 }
 
 func trimRightSpace(s string) string {

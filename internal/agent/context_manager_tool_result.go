@@ -7,14 +7,15 @@ import (
 
 func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	s.ensureDefaults()
+	base := &s.baseContextManager
 	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
 	if normalizedToolName == "scratchpad" {
-		shaped := s.baseContextManager.observeToolResult(turn, toolName, input, content)
+		shaped := base.observeToolResult(turn, toolName, input, content)
 		return s.scratchpad.IngestToolResult(turn, shaped)
 	}
 	if normalizedToolName == "read" {
-		s.baseContextManager.minVisibleTurn = maxVisibleTurn(s.minVisibleTurn, s.epoch.MinVisibleTurn(), s.epoch.MaskBoundary())
-		shaped, result, observation := s.baseContextManager.observeReadToolResultWithObservation(turn, content)
+		base.minVisibleTurn = maxVisibleTurn(s.minVisibleTurn, s.epoch.MinVisibleTurn(), s.epoch.MaskBoundary())
+		shaped, result, observation := base.observeReadToolResultWithObservation(turn, content)
 		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
 		if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
 			path := sanitizeScratchpadPath(result.Path)
@@ -26,7 +27,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 		return shaped
 	}
 
-	shaped := s.baseContextManager.observeToolResult(turn, toolName, input, content)
+	shaped := base.observeToolResult(turn, toolName, input, content)
 	update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
 	s.applyFileTrackerUpdate(update, facts)
 	return shaped
