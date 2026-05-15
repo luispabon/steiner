@@ -1049,14 +1049,17 @@ func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T
 
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "follow-up"), "child-1"))
 
-	if got := len(dd.entries); got != 1 {
-		t.Fatalf("entries count after final message = %d, want 1", got)
+	if got := len(dd.entries); got != 2 {
+		t.Fatalf("entries count after final message = %d, want 2", got)
 	}
-	if got := dd.entries[0].body; got != "hello worldfollow-up" {
-		t.Fatalf("entry body after final message = %q, want %q", got, "hello worldfollow-up")
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("first entry body after final message = %q, want %q", got, "hello world")
 	}
-	if got := dd.currentOperation; got != "hello worldfollow-up" {
-		t.Fatalf("currentOperation after final message = %q, want %q", got, "hello worldfollow-up")
+	if got := dd.entries[1].body; got != "follow-up" {
+		t.Fatalf("second entry body after final message = %q, want %q", got, "follow-up")
+	}
+	if got := dd.currentOperation; got != "follow-up" {
+		t.Fatalf("currentOperation after final message = %q, want %q", got, "follow-up")
 	}
 }
 
