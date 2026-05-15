@@ -11,24 +11,24 @@ steiner --context-mode naive    # default
 steiner --context-mode smart
 ```
 
-**Naive mode** is the current behavior: full conversation history, model-based compaction at the hard limit, no gating. It exists as a baseline and safe fallback.
+**Naive mode** is the current behavior: full conversation history, file read annotation, cached preamble, and model-based compaction at the hard limit, no gating. It exists as a baseline and safe fallback.
 
-**Smart mode** activates the full context management pipeline: ingestion rules, observation masking, file read annotation, scratchpad, and structured compaction.
+**Smart mode** activates the full context management pipeline: ingestion rules, observation masking, scratchpad, and structured compaction.
 
 Both modes share the same provider, tool, and runner infrastructure. The context manager is an interface called at three points in the agent loop:
 
-1. **PostIngestion** — runs once at session start on the initial loaded conversation. Per-tool-result shaping during a run is handled by `IngestToolResult` on `SmartContextManager`.
+1. **PostIngestion** — runs once at session start on the initial loaded conversation. Shared read-result normalization happens here via the manager interfaces; `SmartContextManager` still exposes `IngestToolResult`, but it delegates to the shared shaping helpers internally.
 2. **PreAssembly** — before building the next model request, to filter the conversation view
 3. **OnTurnComplete** — after each model response, to track whether the scratchpad tool was called (hybrid scratchpad mode only; no-op in scaffold_only mode)
 
-In naive mode, all hooks are pass-through.
+In naive mode, `PreAssembly` and `OnTurnComplete` are pass-through, but `PostIngestion` can still normalize read results at session start.
 
 ## Pipeline Architecture
 
 Smart mode has two phases. The distinction matters: ingestion rules are destructive (they permanently reduce what is stored), assembly rules are non-destructive (the full history is retained, only the prompt view is filtered).
 
 ```
-Phase 1: Ingestion (when tool output arrives)
+Phase 1: Ingestion (shared, when tool output arrives)
 
     tool produces output
           │
@@ -40,14 +40,14 @@ Phase 1: Ingestion (when tool output arrives)
     processed result stored in conversation history
 
 
-Phase 2: Prompt Assembly (when building the next model request)
+Phase 2: Prompt Assembly (shared, when building the next model request)
 
     conversation history
           │
           ▼
-    epoch-based masking (mask turns older than epoch boundary)
+    epoch-based masking (smart-only: mask turns older than epoch boundary)
     mask old assistant prose (trim to first line)
-    annotate unchanged file re-reads
+    annotate unchanged file re-reads (shared)
           │
           ▼
     assemble prompt:
@@ -55,7 +55,7 @@ Phase 2: Prompt Assembly (when building the next model request)
       project context (skills, repo instructions)
       older turns (masked, token-stable between epoch advances)
       recent turns (verbatim)
-      synthetic scratchpad user message (scaffold state; + model scratchpad in hybrid mode)
+      synthetic scratchpad user message (smart-only: scaffold state; + model scratchpad in hybrid mode)
           │
           ▼
     prompt sent to model
@@ -84,7 +84,7 @@ Different tool types use different truncation strategies and limits:
 
 | Tool type | Strategy | Limit | Rationale |
 |-----------|----------|-------|-----------|
-| bash | Tail-priority | 4096 bytes | Errors and failures appear at the end; cap avoids context flooding from large stdout |
+| bash | Tail-priority | 12288 bytes | Errors and failures appear at the end; cap avoids context flooding from large stdout |
 | grep | Count cap | 200 results | Limit number of results, not bytes; preserves signal-to-noise ratio |
 | default (read, ls, glob, edit, write) | None | — | Output size managed at assembly time (observation masking, file annotation) |
 
@@ -206,7 +206,7 @@ When the model requests a file that was recently read and is unmodified since, s
 [file unchanged since turn 5: lines 1-247 of 247 in /path/to/file]
 ```
 
-This is the most aggressive option. The model can always re-read if it needs the content.
+This is the most aggressive option. The model can always re-read if it needs the content. File read annotation is shared across naive and smart modes.
 
 **Modification detection** uses three checks (all must pass for the annotation to be served):
 
@@ -225,7 +225,7 @@ Invalidation:
 
 steiner splits every prompt into two zones:
 
-- **Stable zone**: the system preamble (identity, scratchpad instructions, core rules), global agents file, and project AGENTS.md. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on `SmartContextManager`. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching. Also included are compaction summary blocks when they exist. Project context and skill files are **not** cached — they are loaded fresh each turn from disk.
+- **Stable zone**: the system preamble (identity, scratchpad instructions, core rules), global agents file, and project AGENTS.md. Built once per session from session-constant inputs (`override` and `scratchpadEnabled` from config) and cached on the base context manager. The same byte string is used on every turn, enabling KV cache hits on the system prompt prefix across all providers that support prefix caching. Also included are compaction summary blocks when they exist. Project context and skill files are **not** cached — they are loaded fresh each turn from disk.
 
 - **Volatile zone** (messages array): older masked turns (token-stable between epoch advances), recent turns verbatim, actual user message, project context blocks, skill blocks, synthetic scratchpad user message (appended as last message).
 
@@ -393,13 +393,13 @@ The model call, when needed, processes a much smaller input than raw summarizati
 
 The components are complementary and layer progressively:
 
-1. **Ingestion** prevents the biggest offenders from entering history at full size. A 50k grep result is capped to 200 results at ingestion. This is the cheapest, most impactful reduction.
+1. **Ingestion** prevents the biggest offenders from entering history at full size. A 50k grep result is capped to 200 results at ingestion. This is shared across modes and is the cheapest, most impactful reduction.
 
-2. **Epoch-based masking** progressively hollows out turns as they age, advancing in batches to preserve KV cache stability. By the time a turn is past the epoch boundary, its tool results are one-line placeholders. Context grows slowly, and the masked prefix is byte-stable between epoch advances.
+2. **Epoch-based masking** progressively hollows out turns as they age, advancing in batches to preserve KV cache stability. By the time a turn is past the epoch boundary, its tool results are one-line placeholders. Context grows slowly, and the masked prefix is byte-stable between epoch advances. This is smart-mode-only.
 
-3. **File annotation** prevents the single largest token source (file reads, 67-76% of total) from accumulating. Unchanged re-reads cost ~20 tokens instead of hundreds or thousands. The write generation counter ensures annotation correctness even for sub-second re-reads after steiner-initiated writes.
+3. **File annotation** prevents the single largest token source (file reads, 67-76% of total) from accumulating. Unchanged re-reads cost ~20 tokens instead of hundreds or thousands. The write generation counter ensures annotation correctness even for sub-second re-reads after steiner-initiated writes. This works in both naive and smart modes.
 
-4. **The scratchpad** ensures task continuity regardless of what has been masked or dropped. In scaffold_only mode, this is entirely deterministic. In hybrid mode, the scaffold state provides a factual safety net while the model adds intent.
+4. **The scratchpad** ensures task continuity regardless of what has been masked or dropped. In scaffold_only mode, this is entirely deterministic. In hybrid mode, the scaffold state provides a factual safety net while the model adds intent. This is smart-mode-only.
 
 5. **Compaction** is the hard reset when everything else is insufficient. By the time it fires, masking has already reduced most old turns to lightweight skeletons. Compaction drops these skeletons, preserves the scratchpad, resets epoch state, and the model continues with a clean slate plus full orientation.
 
@@ -412,7 +412,7 @@ context_management:
   mode: smart                    # naive or smart (default: naive)
   compaction_strategy: drop      # drop, summarize, or hybrid (default: drop)
   masking_window_turns: 5        # M: turns before masking (default: 5)
-  read_annotations: true         # annotate unchanged re-reads (default: true)
+  read_annotations: true         # annotate unchanged re-reads in both modes (default: true)
   scratchpad_mode: scaffold_only # scaffold_only or hybrid (default: scaffold_only)
 ```
 
@@ -432,6 +432,7 @@ models:
 Notes on configuration fields:
 
 - **`scratchpad_mode`**: `scaffold_only` (default) uses scaffold-managed state plus a cheap second-pass inference for `intent` and `next` when scaffold state materially changes. `hybrid` adds model-written scratchpad fields and enables the `scratchpad` tool. Use `hybrid` for 30B+ models with reliable tool-call compliance.
+- **`read_annotations`**: applies to both naive and smart modes.
 - **No `threshold`**: compaction fires when the prompt exceeds the context window (after applying safety margin); there is no configurable fill-ratio.
 - **No `retain_turns`**: the drop strategy keeps the last 3 turns (hardcoded).
 - **`safety_margin_tokens`** lives under `compaction`, not under `context_management`, and defaults to 8192 (not 2048).
