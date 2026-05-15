@@ -3,11 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 )
 
 // Compactor reduces an oversize conversation to fit the model token budget.
@@ -79,11 +77,18 @@ type MaskingWindowProvider interface {
 
 // NaiveContextManager is a pass-through implementation that leaves state
 // unchanged. It preserves the existing compaction behaviour entirely.
-type NaiveContextManager struct{}
+type NaiveContextManager struct {
+	baseContextManager
+}
 
-// PostIngestion returns the state unchanged.
+// PostIngestion normalizes loaded tool output when read annotations are enabled.
 func (n *NaiveContextManager) PostIngestion(_ context.Context, state RunState) (RunState, error) {
-	return state, nil
+	next := state.Clone()
+	if n.annotationsEnabled() {
+		next.Conversation = n.normalizeIngestedMessages(next.TurnCount, next.Conversation, n)
+	}
+	next.Lineage = newConversationLineage(next.Conversation)
+	return next, nil
 }
 
 // PreAssembly returns the state unchanged.
@@ -94,30 +99,37 @@ func (n *NaiveContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 // OnTurnComplete is a no-op for the naive manager.
 func (n *NaiveContextManager) OnTurnComplete(_ int, _ bool) {}
 
+// SetEventSink is a no-op for the naive manager.
+func (n *NaiveContextManager) SetEventSink(_ output.EventSink) {}
+
+// ObserveToolResult records heuristic context derived from a tool result.
+func (n *NaiveContextManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
+	shaped := n.observeToolResult(turn, toolName, input, content)
+	n.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
+	return shaped
+}
+
+// ResetEpoch prunes tracker state that refers to turns older than the retained conversation.
+func (n *NaiveContextManager) ResetEpoch(turn int) {
+	n.fileTracker.PruneBeforeTurn(turn)
+	n.minVisibleTurn = turn
+}
+
 // SmartContextManager applies ingestion-time shaping to tool output so the
 // active conversation starts in a compact, signal-rich form.
 type SmartContextManager struct {
-	readAnnotations    bool
-	configApplied      bool
+	baseContextManager
 	compactionStrategy config.CompactionStrategy
-	events             output.EventSink
-	fileTracker        FileTracker
 	scratchpad         ScratchpadManager
 	epoch              EpochManager
-	// cachedPreamble holds the system preamble built once per session.
-	// Both inputs (override string, scratchpadEnabled bool) are session-constants,
-	// so building the string once prevents unnecessary allocations and keeps
-	// the bytes byte-identical across turns, preserving KV cache hits.
-	cachedPreamble string
 }
 
-// CachedSystemPreamble returns the system preamble string, building it once
-// and caching it for the lifetime of the manager.
-func (s *SmartContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string {
-	if s.cachedPreamble == "" {
-		s.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled).Content
+func (s *SmartContextManager) ensureDefaults() {
+	if s.annotationsConfigured {
+		return
 	}
-	return s.cachedPreamble
+	s.readAnnotations = true
+	s.annotationsConfigured = true
 }
 
 // CompactionStrategy returns the configured compaction strategy.
@@ -132,16 +144,19 @@ func (s *SmartContextManager) MaskingWindow() int {
 
 // PostIngestion normalizes tool output in the loaded conversation.
 func (s *SmartContextManager) PostIngestion(_ context.Context, state RunState) (RunState, error) {
+	s.ensureDefaults()
 	next := state.Clone()
-	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
+	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation, s)
 	next.Lineage = newConversationLineage(next.Conversation)
 	s.epoch.UpdateMinVisibleTurn(next.Conversation)
+	s.minVisibleTurn = s.epoch.MinVisibleTurn()
 	s.epoch.InitializeFromTurnCount(next.TurnCount)
 	return next, nil
 }
 
 // PreAssembly applies non-destructive prompt-time masking on a copy of state.
 func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (RunState, error) {
+	s.ensureDefaults()
 	next := state.Clone()
 	s.resetTaskStateIfNeeded(&next)
 	next.Context = s.enrichContextState(next)
@@ -163,6 +178,7 @@ func (s *SmartContextManager) PreAssembly(_ context.Context, state RunState) (Ru
 	next.Conversation = masked
 	next.Lineage = next.Lineage.WithCurrentMessages(masked)
 	s.epoch.UpdateMinVisibleTurn(masked)
+	s.minVisibleTurn = s.epoch.MinVisibleTurn()
 	return next, nil
 }
 
@@ -188,13 +204,14 @@ func (s *SmartContextManager) IngestToolResult(turn int, toolName, content strin
 // RecordMutation bumps the in-memory file generation for a successful
 // steiner-originated mutation.
 func (s *SmartContextManager) RecordMutation(path string) {
-	s.fileTracker.RecordMutation(path)
+	s.baseContextManager.RecordMutation(path)
 }
 
 // ResetEpoch resets the current masking epoch after compaction so retained
 // conversation starts from a clean boundary.
 func (s *SmartContextManager) ResetEpoch(turn int) {
 	s.fileTracker.PruneBeforeTurn(turn)
+	s.minVisibleTurn = turn
 	s.epoch.Reset(turn, "compaction")
 }
 
@@ -210,7 +227,7 @@ func (s *SmartContextManager) ObserveToolResult(turn int, toolName string, input
 
 // SetEventSink installs the sink used for context-management diagnostics.
 func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
-	s.events = sink
+	s.baseContextManager.SetEventSink(sink)
 	s.scratchpad.SetEventSink(sink)
 	s.epoch.SetEventSink(sink)
 }
@@ -218,63 +235,32 @@ func (s *SmartContextManager) SetEventSink(sink output.EventSink) {
 // NewContextManager constructs the appropriate ContextManager for the given
 // mode. An unrecognised mode falls back to NaiveContextManager.
 func NewContextManager(mode string, cfg ...config.ContextManagementConfig) ContextManager {
+	base := baseContextManager{}
+	if len(cfg) > 0 {
+		base.readAnnotations = cfg[0].ReadAnnotations
+		base.annotationsConfigured = true
+	}
 	if mode == "smart" {
-		manager := &SmartContextManager{}
+		if len(cfg) == 0 {
+			base.readAnnotations = true
+			base.annotationsConfigured = true
+		}
+		manager := &SmartContextManager{baseContextManager: base}
 		manager.scratchpad.mode = config.ScratchpadModeScaffoldOnly
 		if len(cfg) > 0 {
 			manager.epoch.maskingWindowTurns = cfg[0].MaskingWindowTurns
-			manager.readAnnotations = cfg[0].ReadAnnotations
 			manager.compactionStrategy = cfg[0].CompactionStrategy
 			if cfg[0].ScratchpadMode != "" {
 				manager.scratchpad.mode = cfg[0].ScratchpadMode
 			}
-			manager.configApplied = true
 		}
 		return manager
 	}
-	return &NaiveContextManager{}
-}
-
-func (s *SmartContextManager) normalizeIngestedMessages(turn int, messages []Message) []Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]Message, len(messages))
-	for i, message := range messages {
-		out[i] = s.normalizeIngestedMessage(turn, message)
-	}
-	return out
-}
-
-func (s *SmartContextManager) normalizeIngestedMessage(turn int, message Message) Message {
-	if message.Role != MessageRoleTool {
-		return message
-	}
-	if strings.TrimSpace(message.Content) == "" {
-		return message
-	}
-	// Loaded tool history should keep each message's recorded turn so distinct
-	// reads do not collapse onto one shared session turn.
-	messageTurn := message.Turn
-	if messageTurn <= 0 {
-		messageTurn = turn
-	}
-	if messageTurn <= 0 {
-		return message
-	}
-	message.Content = s.IngestToolResult(messageTurn, message.Name, message.Content)
-	return message
+	return &NaiveContextManager{baseContextManager: base}
 }
 
 func (s *SmartContextManager) appendDecisionFact(fact string) {
 	s.scratchpad.AppendDecisionFact(fact)
-}
-
-func (s *SmartContextManager) annotationsEnabled() bool {
-	if !s.configApplied {
-		return true
-	}
-	return s.readAnnotations
 }
 
 func (s *SmartContextManager) enrichContextState(state RunState) ContextState {

@@ -25,7 +25,7 @@ func TestNaiveContextManagerPostIngestion(t *testing.T) {
 			state: RunState{},
 		},
 		{
-			name: "state with conversation passes through unchanged",
+			name: "state with conversation rebuilds lineage",
 			state: RunState{
 				Conversation: []Message{
 					{Role: MessageRoleUser, Content: "hello"},
@@ -46,6 +46,9 @@ func TestNaiveContextManagerPostIngestion(t *testing.T) {
 			}
 			if len(got.Conversation) != len(tc.state.Conversation) {
 				t.Errorf("Conversation len: got %d, want %d", len(got.Conversation), len(tc.state.Conversation))
+			}
+			if len(got.Lineage.FullMessages()) != len(got.Conversation) {
+				t.Errorf("Lineage len: got %d, want %d", len(got.Lineage.FullMessages()), len(got.Conversation))
 			}
 		})
 	}
@@ -85,7 +88,7 @@ func TestNaiveContextManagerPreAssembly(t *testing.T) {
 	}
 }
 
-func TestPostIngestionNaiveContextManagerKeepsToolOutput(t *testing.T) {
+func TestPostIngestionNaiveContextManagerKeepsToolOutputWhenAnnotationsDisabled(t *testing.T) {
 	state := RunState{
 		TurnCount: 2,
 		Conversation: []Message{
@@ -100,7 +103,7 @@ func TestPostIngestionNaiveContextManagerKeepsToolOutput(t *testing.T) {
 		},
 	}
 
-	got, err := (&NaiveContextManager{}).PostIngestion(context.Background(), state)
+	got, err := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: false}).(*NaiveContextManager).PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,6 +112,49 @@ func TestPostIngestionNaiveContextManagerKeepsToolOutput(t *testing.T) {
 	}
 	if got.TurnCount != state.TurnCount {
 		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
+	}
+	if len(got.Lineage.FullMessages()) != len(got.Conversation) {
+		t.Fatalf("lineage len = %d, want %d", len(got.Lineage.FullMessages()), len(got.Conversation))
+	}
+}
+
+func TestPostIngestionNaiveContextManagerAnnotatesRepeatedReadWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`
+	state := RunState{
+		TurnCount: 2,
+		Conversation: []Message{
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 1},
+			{Role: MessageRoleTool, Name: "read", Content: content, Turn: 2},
+		},
+	}
+
+	got, err := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: true}).(*NaiveContextManager).PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Conversation[0].Content != content {
+		t.Fatalf("first read = %q, want full content", got.Conversation[0].Content)
+	}
+	if !strings.Contains(got.Conversation[1].Content, "file unchanged since turn 1") {
+		t.Fatalf("second read = %q, want annotation", got.Conversation[1].Content)
+	}
+	if len(got.Lineage.FullMessages()) != len(got.Conversation) {
+		t.Fatalf("lineage len = %d, want %d", len(got.Lineage.FullMessages()), len(got.Conversation))
 	}
 }
 
@@ -690,6 +736,43 @@ func TestNewContextManager(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewContextManagerConfigAppliesReadAnnotationsToBothModes(t *testing.T) {
+	smart, ok := NewContextManager("smart", config.ContextManagementConfig{ReadAnnotations: false}).(*SmartContextManager)
+	if !ok {
+		t.Fatalf("smart manager type = %T, want *SmartContextManager", smart)
+	}
+	if smart.annotationsEnabled() {
+		t.Fatal("smart annotationsEnabled = true, want false")
+	}
+
+	naive, ok := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: false}).(*NaiveContextManager)
+	if !ok {
+		t.Fatalf("naive manager type = %T, want *NaiveContextManager", naive)
+	}
+	if naive.annotationsEnabled() {
+		t.Fatal("naive annotationsEnabled = true, want false")
+	}
+}
+
+func TestNaiveContextManagerImplementsSharedInterfaces(t *testing.T) {
+	manager := NewContextManager("naive")
+	if _, ok := manager.(PreambleProvider); !ok {
+		t.Fatalf("%T does not implement PreambleProvider", manager)
+	}
+	if _, ok := manager.(MutationRecorder); !ok {
+		t.Fatalf("%T does not implement MutationRecorder", manager)
+	}
+	if _, ok := manager.(ToolResultIngestor); !ok {
+		t.Fatalf("%T does not implement ToolResultIngestor", manager)
+	}
+	if _, ok := manager.(EpochResetter); !ok {
+		t.Fatalf("%T does not implement EpochResetter", manager)
+	}
+	if _, ok := manager.(EventSinkSetter); !ok {
+		t.Fatalf("%T does not implement EventSinkSetter", manager)
 	}
 }
 
