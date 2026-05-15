@@ -189,7 +189,8 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 		result.Output = msg.Content
 	}
 
-	summaryText := failedDelegateSummaryText(err, result.Output)
+	scratchpadState := lastScratchpadState(state.Conversation)
+	summaryText := failedDelegateSummaryText(err, result.Output, scratchpadState)
 	result.Summary = summaryText
 	result.Trace = tc.result()
 
@@ -208,12 +209,38 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	}
 }
 
-func failedDelegateSummaryText(err error, previousOutput string) string {
+func failedDelegateSummaryText(err error, previousOutput string, scratchpadState string) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
-	if previousOutput = strings.TrimSpace(previousOutput); previousOutput != "" {
-		parts = append(parts, "previous output: "+cappedRetentionPreview(previousOutput))
+	prev := strings.TrimSpace(previousOutput)
+	if prev != "" {
+		parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
+	} else if s := strings.TrimSpace(scratchpadState); s != "" {
+		parts = append(parts, "scratchpad state:\n"+s)
 	}
 	return truncateUTF8(strings.Join(parts, "\n"), delegateRetentionSummaryMaxRunes)
+}
+
+func lastScratchpadState(conversation []agent.Message) string {
+	for i := len(conversation) - 1; i >= 0; i-- {
+		msg := conversation[i]
+		for _, tc := range msg.ToolCalls {
+			if tc.Name != "scratchpad" {
+				continue
+			}
+			var parts []string
+			for _, key := range []string{"intent", "decisions", "open", "next"} {
+				if v, ok := tc.Arguments[key]; ok {
+					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+						parts = append(parts, key+": "+s)
+					}
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n")
+			}
+		}
+	}
+	return ""
 }
 
 func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) string {
