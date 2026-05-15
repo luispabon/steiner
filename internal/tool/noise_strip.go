@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultBashIngestionLimitBytes = 4096
+	defaultBashIngestionLimitBytes = 12288
 	defaultGrepIngestionLimitLines = 200
 )
 

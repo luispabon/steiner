@@ -6,17 +6,52 @@ import (
 	"testing"
 )
 
-func TestTruncationTailPriorityBashShape(t *testing.T) {
+func TestBashShapePassesThroughUnderLimit(t *testing.T) {
 	raw := bashIngestionResult{
-		ExitCode: 1,
-		Output:   "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+		ExitCode: 0,
+		Output:   "head\n" + strings.Repeat("a", 12*1024-6),
 	}
 	payload, err := json.Marshal(raw)
 	if err != nil {
 		t.Fatalf("marshal raw bash result: %v", err)
 	}
-	content := string(payload)
-	got := shapeBashIngestedResult(content)
+
+	got := shapeBashIngestedResult(string(payload))
+
+	var result struct {
+		ExitCode  int    `json:"exit_code"`
+		Truncated bool   `json:"truncated"`
+		Output    string `json:"output"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(got), &result); err != nil {
+		t.Fatalf("unmarshal shaped bash result: %v", err)
+	}
+	if result.Truncated {
+		t.Fatal("Truncated = true, want false")
+	}
+	if result.Output != raw.Output {
+		t.Fatalf("Output length = %d, want %d", len(result.Output), len(raw.Output))
+	}
+	if result.Message != "" {
+		t.Fatalf("Message = %q, want empty", result.Message)
+	}
+}
+
+func TestBashShapeTruncatesOverLimitWithTailPriority(t *testing.T) {
+	head := "HEAD-SENTINEL\n"
+	mid := strings.Repeat("filler line\n", 1200)
+	tail := "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n"
+	raw := bashIngestionResult{
+		ExitCode: 1,
+		Output:   head + mid + tail,
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal raw bash result: %v", err)
+	}
+
+	got := shapeBashIngestedResult(string(payload))
 
 	var result struct {
 		ExitCode  int    `json:"exit_code"`
@@ -42,11 +77,17 @@ func TestTruncationTailPriorityBashShape(t *testing.T) {
 	if !strings.Contains(result.Output, "warning: retry (repeated 3x)") {
 		t.Fatalf("Output = %q, want warning collapse", result.Output)
 	}
-	if !strings.Contains(result.Message, "<truncated output shown=") {
-		t.Fatalf("Message = %q, want truncation marker", result.Message)
+
+	shaped, _, shown, total := shapeToolText(raw.Output, defaultBashIngestionLimitBytes, tailPriorityStrategy)
+	if result.Output != shaped {
+		t.Fatalf("Output = %q, want shaped tail-priority output %q", result.Output, shaped)
 	}
-	if strings.Contains(result.Message, "bytes=") {
-		t.Fatalf("Message = %q, want shown/total marker", result.Message)
+	wantMarker := truncationMarker(shown, total)
+	if result.Message != wantMarker {
+		t.Fatalf("Message = %q, want %q", result.Message, wantMarker)
+	}
+	if shown >= total {
+		t.Fatalf("shown = %d, total = %d, want truncation", shown, total)
 	}
 }
 
