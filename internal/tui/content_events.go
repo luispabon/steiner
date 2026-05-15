@@ -71,6 +71,23 @@ type compactionBannerData struct {
 	msgCount int     // number of messages compacted (for finished summary)
 }
 
+type delegationTranscriptEntryKind int
+
+const (
+	delegationTranscriptEntryAssistant delegationTranscriptEntryKind = iota
+	delegationTranscriptEntryTool
+)
+
+type delegationTranscriptEntry struct {
+	kind     delegationTranscriptEntryKind
+	body     string
+	tool     string
+	args     string
+	callID   string
+	status   string
+	hasError bool
+}
+
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
 	agentID      string
@@ -88,6 +105,10 @@ type delegationDisplayState struct {
 	// output text and visibility
 	output    string
 	collapsed bool
+	// child transcript state
+	currentOperation string
+	entries          []delegationTranscriptEntry
+	childToolEntries map[string]int
 }
 
 type contentSegment struct {
