@@ -35,8 +35,9 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	_ = ctx
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	agentLimits := agent.Limits{
-		MaxTurns:  limits.MaxTurns,
-		MaxTokens: limits.OutputLimitTokens,
+		MaxTurns:    limits.MaxTurns,
+		MaxTokens:   limits.OutputLimitTokens,
+		TurnTimeout: limits.Timeout,
 	}
 
 	promptOpts := buildChildPrompt(spec)

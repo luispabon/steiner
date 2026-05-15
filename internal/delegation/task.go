@@ -247,6 +247,7 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	summaryReq := req
 	summaryReq.Events = nil
 	summaryReq.Limits.MaxTurns = 1
+	summaryReq.Limits.TurnTimeout = 0
 	summaryReq.Tools = nil
 	summaryReq.Executor = summaryOnlyExecutor{}
 	rawConv := agent.ToProviderMessages(state.Conversation)

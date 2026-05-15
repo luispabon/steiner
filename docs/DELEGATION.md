@@ -85,7 +85,7 @@ cloned.Register(delegation.DelegateToolDef(handler))
 | `context` | string | no | Additional context |
 | `system_prompt` | string | no | Override child system prompt |
 | `max_turns` | integer | no | Override max turns (tighten-only) |
-| `timeout` | string | no | Duration string, e.g. `"30s"` |
+| `timeout` | string | no | Duration string, e.g. `"30s"`; positive values below 60s are clamped up to 60s |
 
 ### Approval mode
 
@@ -105,7 +105,7 @@ Defaults (from `config.SubAgentConfig`):
 - `MaxTurns`: 15
 - `MaxTokens`: 100,000
 
-`timeout` is not a `sub_agent` config field. It is accepted only as an optional `delegate` tool input and defaults to no timeout.
+`timeout` is not a `sub_agent` config field. It is accepted only as an optional `delegate` tool input and defaults to no timeout. If provided and greater than zero, any value below 60s is clamped up to a 60s minimum floor.
 
 ### 2. Build child prompt
 

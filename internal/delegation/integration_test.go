@@ -591,6 +591,9 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 	if !summaryCtxHasDeadline {
 		t.Error("summary context has no deadline, expected 30s timeout")
 	}
+	if got := wrapped.summaryTurnTimeout; got != 0 {
+		t.Fatalf("summary request TurnTimeout = %v, want 0", got)
+	}
 
 	typedResult, ok := result.Value.(DelegationResult)
 	if !ok {
@@ -602,9 +605,10 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 }
 
 type summaryCtxInspector struct {
-	inner           *presetRunner
-	summaryCtxErr   error
-	summaryDeadline bool
+	inner              *presetRunner
+	summaryCtxErr      error
+	summaryDeadline    bool
+	summaryTurnTimeout time.Duration
 }
 
 func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -615,6 +619,7 @@ func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (ag
 	if i > 0 {
 		r.summaryCtxErr = ctx.Err()
 		_, r.summaryDeadline = ctx.Deadline()
+		r.summaryTurnTimeout = req.Limits.TurnTimeout
 	}
 
 	var st agent.RunState
