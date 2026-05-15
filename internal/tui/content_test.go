@@ -484,11 +484,15 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}),
 		"child-1",
 	))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallFinishedEvent(1, "bash", "call_1", "ok", nil),
+		"child-1",
+	))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "output", "final child output"} {
+	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "✓", "output", "final child output"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
