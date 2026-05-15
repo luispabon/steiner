@@ -81,6 +81,9 @@ type DelegationResult struct {
 
 	// Error is populated if the delegation failed.
 	Error string `json:"error,omitempty"`
+
+	// Trace captures lifecycle events for delegation diagnostics.
+	Trace []TraceEntry `json:"trace,omitempty"`
 }
 
 // DelegationLimits defines resource constraints for a child execution.

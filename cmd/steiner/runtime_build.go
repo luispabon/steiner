@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -133,6 +134,11 @@ func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store,
 		return nil, nil, err
 	}
 	return historyWriter, sessionStore, nil
+}
+
+func buildDelegationLogger(cfg config.Config, flags *cliFlags) (*delegation.TraceLogger, error) {
+	logPath := delegation.LogPath(runtimeLogFile(cfg, flags))
+	return delegation.NewTraceLogger(logPath)
 }
 
 func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() error) {

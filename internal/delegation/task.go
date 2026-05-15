@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -34,67 +35,115 @@ func delegateNeedsExtension(state agent.RunState) bool {
 }
 
 func truncateTaskPreview(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	// Ensure we leave room for the ellipsis
 	if max < 3 {
-		return s[:max]
+		return string(runes[:max])
 	}
-	return s[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
 
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink) (tool.ExecutionResult, error) {
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger) (tool.ExecutionResult, error) {
+	tc := newTraceCollector(spec.AgentID, spec.Task)
+
 	childCtx := ctx
 	var cancel context.CancelFunc
 	if spec.Limits.Timeout > 0 {
 		childCtx, cancel = context.WithTimeout(ctx, spec.Limits.Timeout)
 		defer cancel()
+		tc.add("setup", "timeout applied", map[string]any{"timeout": spec.Limits.Timeout.String()})
 	}
 
-	// Emit delegation started
+	tc.add("start", "delegation started", map[string]any{
+		"max_turns":   req.Limits.MaxTurns,
+		"max_tokens":  req.Limits.MaxTokens,
+		"has_timeout": spec.Limits.Timeout > 0,
+	})
+
 	if events != nil {
 		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
 	}
 
-	// Run the child agent
 	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
+
+	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
+
 	if err != nil {
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
-		return failedDelegateExecution(spec, state, err), nil
+		return failedDelegateExecution(spec, state, err, tc, logger), nil
 	}
 
+	extensionsGranted := 0
 	for ext := 0; ext < maxDelegateExtensions; ext++ {
-		if !delegateNeedsExtension(state) {
+		needs := delegateNeedsExtension(state)
+		if !needs {
+			tc.add("extension_check", "extension not needed", map[string]any{
+				"iteration":          ext,
+				"stop_reason":        string(state.StopReason),
+				"last_msg_has_tools": lastMessageHasTools(state),
+			})
 			break
 		}
+		extensionsGranted++
+		tc.add("extension", "granting extension", map[string]any{
+			"iteration":      ext + 1,
+			"max_extensions": maxDelegateExtensions,
+			"new_max_turns":  state.TurnCount + originalMaxTurns,
+		})
 		if events != nil {
 			events.Emit(output.NewDelegationExtensionEvent(spec.AgentID, ext+1, maxDelegateExtensions))
 		}
 		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
 		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
 		nextState, extensionErr := runner.Run(childCtx, req)
+
+		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(childCtx, nextState, extensionErr))
+
 		if extensionErr != nil {
 			if events != nil {
 				events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extensionErr.Error()))
 			}
-			return failedDelegateExecution(spec, state, extensionErr), nil
+			return failedDelegateExecution(spec, state, extensionErr, tc, logger), nil
 		}
 		state = nextState
 	}
 
-	result := BuildResult(spec.AgentID, state, spec)
-	summaryText := retainedDelegateSummary(childCtx, runner, req, state)
+	result := buildResultWithTrace(spec.AgentID, state, spec, tc)
+
+	tc.add("result", "status mapped", map[string]any{
+		"status":             string(result.Status),
+		"stop_reason":        string(state.StopReason),
+		"turns_used":         result.TurnCount,
+		"tokens_used":        result.TokenCount,
+		"extensions_granted": extensionsGranted,
+		"has_output":         strings.TrimSpace(result.Output) != "",
+	})
+
+	if events != nil {
+		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
+	}
+
+	summaryCtx, summaryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer summaryCancel()
+	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {
+		tc.add("summary", "summary empty, using output preview", nil)
 		summaryText = cappedRetentionPreview(result.Output)
+	} else {
+		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
 	}
 	result.Summary = summaryText
+	result.Trace = tc.result()
+
+	logger.WriteTrace(tc)
 
 	executionResult := tool.ExecutionResult{
 		Value: result,
@@ -108,19 +157,26 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		},
 	}
 
-	// Emit delegation complete
-	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
-	}
-
 	return executionResult, nil
 }
 
-func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error) tool.ExecutionResult {
+func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
 	status := StatusFailed
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	ctxCancelled := errors.Is(err, context.Canceled)
+	ctxDeadline := errors.Is(err, context.DeadlineExceeded)
+	if ctxCancelled || ctxDeadline {
 		status = StatusCancelled
 	}
+
+	tc.add("failed", "delegation failed", map[string]any{
+		"error":             err.Error(),
+		"status":            string(status),
+		"context_cancelled": ctxCancelled,
+		"context_deadline":  ctxDeadline,
+		"child_stop_reason": string(state.StopReason),
+		"child_turns":       state.TurnCount,
+		"child_tokens":      state.TokenCount,
+	})
 
 	result := DelegationResult{
 		AgentID:    spec.AgentID,
@@ -135,6 +191,9 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 
 	summaryText := failedDelegateSummaryText(err, result.Output)
 	result.Summary = summaryText
+	result.Trace = tc.result()
+
+	logger.WriteTrace(tc)
 
 	return tool.ExecutionResult{
 		Value: result,
@@ -214,4 +273,31 @@ type summaryOnlyExecutor struct{}
 
 func (summaryOnlyExecutor) Execute(context.Context, string, map[string]any) (any, error) {
 	return nil, fmt.Errorf("delegate summary turn does not permit tools")
+}
+
+// runStateFields builds trace fields from a child run's outcome.
+func runStateFields(ctx context.Context, state agent.RunState, err error) map[string]any {
+	fields := map[string]any{
+		"stop_reason": string(state.StopReason),
+		"turns":       state.TurnCount,
+		"tokens":      state.TokenCount,
+	}
+	if err != nil {
+		fields["error"] = err.Error()
+		fields["is_context_cancelled"] = errors.Is(err, context.Canceled)
+		fields["is_context_deadline"] = errors.Is(err, context.DeadlineExceeded)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		fields["ctx_err"] = ctxErr.Error()
+	}
+	fields["last_msg_has_tools"] = lastMessageHasTools(state)
+	return fields
+}
+
+func lastMessageHasTools(state agent.RunState) bool {
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok {
+		return false
+	}
+	return len(msg.ToolCalls) > 0
 }

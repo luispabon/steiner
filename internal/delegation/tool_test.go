@@ -213,12 +213,16 @@ func TestToolHandler_ParsesTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotDeadline bool
+			var callCount int
 			deps := DelegateHandlerDeps{
 				SubAgentCfg: config.SubAgentConfig{},
 				Provider:    stubProvider{},
 				ParentReg:   tool.NewRegistry(),
 				Runner: &mockRunner{runFunc: func(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
-					_, gotDeadline = ctx.Deadline()
+					callCount++
+					if callCount == 1 {
+						_, gotDeadline = ctx.Deadline()
+					}
 					return successRunState(), nil
 				}},
 				Events:  noopEventSink{},
