@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -34,14 +35,14 @@ func delegateNeedsExtension(state agent.RunState) bool {
 }
 
 func truncateTaskPreview(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	// Ensure we leave room for the ellipsis
 	if max < 3 {
-		return s[:max]
+		return string(runes[:max])
 	}
-	return s[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
 
 // SpawnDelegate executes a child agent with the given specification and runner.
@@ -90,7 +91,15 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	result := BuildResult(spec.AgentID, state, spec)
-	summaryText := retainedDelegateSummary(childCtx, runner, req, state)
+
+	// Emit delegation complete before the summary call
+	if events != nil {
+		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
+	}
+
+	summaryCtx, summaryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer summaryCancel()
+	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {
 		summaryText = cappedRetentionPreview(result.Output)
 	}
@@ -106,11 +115,6 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 			TurnCount:  result.TurnCount,
 			TokenCount: result.TokenCount,
 		},
-	}
-
-	// Emit delegation complete
-	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
 	}
 
 	return executionResult, nil

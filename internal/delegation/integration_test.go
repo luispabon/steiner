@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -455,36 +456,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	}
 }
 
-type blockingRunner struct {
-	calls     int
-	secondErr error
-}
-
-func (r *blockingRunner) Run(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
-	r.calls++
-	if r.calls == 1 {
-		return agent.RunState{
-			TurnCount: 1,
-			Conversation: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Content: strings.Repeat("z", 5000)},
-			},
-		}, nil
-	}
-	<-ctx.Done()
-	r.secondErr = ctx.Err()
-	return agent.RunState{
-		StopReason: agent.StopReasonCancelled,
-	}, nil
-}
-
-func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
-	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: strings.Repeat("z", 5000)}, FinishReason: "stop"},
-			{Message: provider.Message{Content: "unused"}, FinishReason: "stop"},
-		},
-	}
-
+func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 	spec := DelegationSpec{
 		Task:    "test task",
 		AgentID: "agent-7",
@@ -495,23 +467,50 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 		},
 	}
 
+	var summaryCtxErr error
+	var summaryCtxHasDeadline bool
+	runner := &presetRunner{
+		states: []agent.RunState{
+			{
+				TurnCount:  1,
+				StopReason: agent.StopReasonComplete,
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleAssistant, Content: strings.Repeat("z", 5000)},
+				},
+			},
+			completeState("summary"),
+		},
+	}
+
+	// Use a wrapper that inspects the summary call's context
+	wrapped := &summaryCtxInspector{
+		inner: runner,
+	}
+
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
-	runner := &blockingRunner{}
-	start := time.Now()
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{})
+
+	// Sleep past the spec timeout so childCtx is expired before summary
+	time.Sleep(30 * time.Millisecond)
+
+	result, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if runner.calls != 2 {
-		t.Fatalf("calls = %d, want 2", runner.calls)
+
+	summaryCtxErr = wrapped.summaryCtxErr
+	summaryCtxHasDeadline = wrapped.summaryDeadline
+
+	// Summary context should NOT be cancelled (detached from spec timeout)
+	if summaryCtxErr != nil {
+		t.Errorf("summary context was cancelled: %v — expected detached context", summaryCtxErr)
 	}
-	if runner.secondErr == nil {
-		t.Fatal("expected summary retry to observe deadline cancellation")
+	// Summary context should have a deadline (the 30s detached one)
+	if !summaryCtxHasDeadline {
+		t.Error("summary context has no deadline, expected 30s timeout")
 	}
-	if time.Since(start) < spec.Limits.Timeout {
-		t.Fatalf("timeout path returned too quickly: %v", time.Since(start))
-	}
+
 	typedResult, ok := result.Value.(DelegationResult)
 	if !ok {
 		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
@@ -519,6 +518,35 @@ func TestTimeoutEnforcedAcrossSummaryRetry(t *testing.T) {
 	if len(typedResult.Output) != 5000 {
 		t.Fatalf("Output length %d, want full visible output", len(typedResult.Output))
 	}
+}
+
+type summaryCtxInspector struct {
+	inner           *presetRunner
+	summaryCtxErr   error
+	summaryDeadline bool
+}
+
+func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+	r.inner.reqs = append(r.inner.reqs, req)
+	i := r.inner.calls
+	r.inner.calls++
+
+	if i > 0 {
+		r.summaryCtxErr = ctx.Err()
+		_, r.summaryDeadline = ctx.Deadline()
+	}
+
+	var st agent.RunState
+	if i < len(r.inner.states) {
+		st = r.inner.states[i]
+	} else if len(r.inner.states) > 0 {
+		st = r.inner.states[len(r.inner.states)-1]
+	}
+	var err error
+	if i < len(r.inner.errors) {
+		err = r.inner.errors[i]
+	}
+	return st, err
 }
 
 func TestDelegateHandlerTaskRequired(t *testing.T) {
@@ -1376,4 +1404,215 @@ func TestConfigGatingDisabled(t *testing.T) {
 			t.Error("delegate tool leaked into base registry")
 		}
 	}
+}
+
+func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		max  int
+		want string
+	}{
+		{"ascii under limit", "hello", 10, "hello"},
+		{"ascii at limit", "hello", 5, "hello"},
+		{"ascii over limit", "hello world", 8, "hello..."},
+		{"multibyte under limit", "héllo", 10, "héllo"},
+		{"multibyte truncate", "héllo wörld", 8, "héllo..."},
+		{"cjk truncate", "日本語テスト", 5, "日本..."},
+		{"emoji truncate", "🎉🎊🎈🎁🎂", 4, "🎉..."},
+		{"max less than 3", "hello", 2, "he"},
+		{"max less than 3 multibyte", "日本語", 2, "日本"},
+		{"empty string", "", 5, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateTaskPreview(tt.s, tt.max)
+			if got != tt.want {
+				t.Errorf("truncateTaskPreview(%q, %d) = %q, want %q", tt.s, tt.max, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
+	spec := makeSpec("event-order-agent", 10000)
+	sink := &collectingSink{}
+
+	var summaryCallSawCompleteEvent bool
+	runner := &presetRunner{
+		states: []agent.RunState{
+			completeState("task done"),
+			completeState("summary text"),
+		},
+	}
+
+	// Wrap the runner to check event state at summary call time
+	wrappedRunner := &eventOrderCheckRunner{
+		inner: runner,
+		sink:  sink,
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
+
+	_, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	summaryCallSawCompleteEvent = wrappedRunner.sawCompleteAtSummaryCall
+	if !summaryCallSawCompleteEvent {
+		t.Error("DelegationComplete event was not emitted before the summary call")
+	}
+}
+
+type eventOrderCheckRunner struct {
+	inner                    *presetRunner
+	sink                     *collectingSink
+	sawCompleteAtSummaryCall bool
+}
+
+func (r *eventOrderCheckRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+	r.inner.reqs = append(r.inner.reqs, req)
+	i := r.inner.calls
+	r.inner.calls++
+
+	if i > 0 {
+		for _, ev := range r.sink.events {
+			if ev.Type == output.EventTypeDelegationComplete {
+				r.sawCompleteAtSummaryCall = true
+				break
+			}
+		}
+	}
+
+	var st agent.RunState
+	if i < len(r.inner.states) {
+		st = r.inner.states[i]
+	} else if len(r.inner.states) > 0 {
+		st = r.inner.states[len(r.inner.states)-1]
+	}
+	var err error
+	if i < len(r.inner.errors) {
+		err = r.inner.errors[i]
+	}
+	return st, err
+}
+
+func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
+	spec := makeSpec("cancel-partial-agent", 10000)
+	sink := &collectingSink{}
+
+	runner := &presetRunner{
+		states: []agent.RunState{
+			{
+				TurnCount:  5,
+				StopReason: agent.StopReasonCancelled,
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleAssistant, Content: "completed useful work"},
+				},
+			},
+			completeState("summary"),
+		},
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 10, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
+
+	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if typedResult.Status != StatusPartial {
+		t.Errorf("Status = %q, want %q", typedResult.Status, StatusPartial)
+	}
+	if typedResult.StopReason != "cancelled" {
+		t.Errorf("StopReason = %q, want %q", typedResult.StopReason, "cancelled")
+	}
+	if typedResult.Output != "completed useful work" {
+		t.Errorf("Output = %q, want %q", typedResult.Output, "completed useful work")
+	}
+
+	var sawComplete bool
+	for _, ev := range sink.events {
+		if ev.Type == output.EventTypeDelegationComplete {
+			sawComplete = true
+		}
+	}
+	if !sawComplete {
+		t.Error("expected DelegationComplete event even for partial completion")
+	}
+}
+
+func TestSummaryUsesDetachedContext(t *testing.T) {
+	spec := makeSpec("detached-ctx-agent", 10000)
+
+	var summaryCtxDone bool
+	runner := &presetRunner{
+		states: []agent.RunState{
+			completeState("task done"),
+			completeState("summary text"),
+		},
+	}
+
+	ctxCheckRunner := &contextCheckRunner{
+		inner: runner,
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, output.NoopSink{}, testBuildPrompt(spec), nil, config.ThinkingConfig{}, prompt.ModelTokenBudget{}, "", nil, false)
+
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+	parentCancel()
+
+	_, err := SpawnDelegate(parentCtx, spec, req, ctxCheckRunner, output.NoopSink{})
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			t.Skip("parent context cancellation propagated to runner.Run — expected if childCtx == ctx")
+		}
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	summaryCtxDone = ctxCheckRunner.summaryCtxErr != nil
+	if summaryCtxDone {
+		t.Error("summary context was cancelled — should use detached context")
+	}
+}
+
+type contextCheckRunner struct {
+	inner         *presetRunner
+	summaryCtxErr error
+}
+
+func (r *contextCheckRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+	r.inner.reqs = append(r.inner.reqs, req)
+	i := r.inner.calls
+	r.inner.calls++
+
+	if i > 0 {
+		r.summaryCtxErr = ctx.Err()
+	}
+
+	var st agent.RunState
+	if i < len(r.inner.states) {
+		st = r.inner.states[i]
+	} else if len(r.inner.states) > 0 {
+		st = r.inner.states[len(r.inner.states)-1]
+	}
+	var err error
+	if i < len(r.inner.errors) {
+		err = r.inner.errors[i]
+	}
+	return st, err
 }

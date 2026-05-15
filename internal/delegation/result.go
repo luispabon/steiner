@@ -1,6 +1,8 @@
 package delegation
 
 import (
+	"strings"
+
 	"github.com/luispabon/steiner/internal/agent"
 )
 
@@ -28,7 +30,12 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 	case "error":
 		result.Status = StatusFailed
 	case "cancelled":
-		result.Status = StatusCancelled
+		if state.TurnCount > 0 && strings.TrimSpace(output) != "" {
+			result.Status = StatusPartial
+			result.StopReason = "cancelled"
+		} else {
+			result.Status = StatusCancelled
+		}
 	case "max_turns", "max_tokens":
 		result.Status = StatusPartial
 		result.StopReason = string(state.StopReason)
