@@ -17,11 +17,11 @@ steiner --context-mode smart
 
 Both modes share the same provider, tool, and runner infrastructure. The context manager is an interface called at three points in the agent loop:
 
-1. **PostIngestion** — runs once at session start on the initial loaded conversation. Per-tool-result shaping during a run is handled by `IngestToolResult` on the base context manager.
+1. **PostIngestion** — runs once at session start on the initial loaded conversation. Shared read-result normalization happens here via the manager interfaces; `SmartContextManager` still exposes `IngestToolResult`, but it delegates to the shared shaping helpers internally.
 2. **PreAssembly** — before building the next model request, to filter the conversation view
 3. **OnTurnComplete** — after each model response, to track whether the scratchpad tool was called (hybrid scratchpad mode only; no-op in scaffold_only mode)
 
-In naive mode, all hooks are pass-through.
+In naive mode, `PreAssembly` and `OnTurnComplete` are pass-through, but `PostIngestion` can still normalize read results at session start.
 
 ## Pipeline Architecture
 
