@@ -32,6 +32,7 @@ func SeekSequence(lines []string, pattern []string, start int, eof bool) (int, b
 	matchers := []func(string, string) bool{
 		func(line, pat string) bool { return line == pat },
 		func(line, pat string) bool { return trimRightSpace(line) == trimRightSpace(pat) },
+		func(line, pat string) bool { return trimLeadingIndent(line) == trimLeadingIndent(pat) },
 		func(line, pat string) bool { return strings.TrimSpace(line) == strings.TrimSpace(pat) },
 		func(line, pat string) bool { return normaliseForPatchMatch(line) == normaliseForPatchMatch(pat) },
 	}
@@ -51,11 +52,39 @@ func SeekSequence(lines []string, pattern []string, start int, eof bool) (int, b
 		}
 	}
 
+	bestIndex := 0
+	bestDistance := 0
+	foundFuzzy := false
+	for i := searchStart; i <= maxStart; i++ {
+		totalDistance := 0
+		ok := true
+		for j, pat := range pattern {
+			dist := levenshtein(normaliseForPatchMatch(lines[i+j]), normaliseForPatchMatch(pat))
+			if dist > fuzzyMatchThreshold(pat) {
+				ok = false
+				break
+			}
+			totalDistance += dist
+		}
+		if ok && (!foundFuzzy || totalDistance < bestDistance) {
+			bestIndex = i
+			bestDistance = totalDistance
+			foundFuzzy = true
+		}
+	}
+	if foundFuzzy {
+		return bestIndex, true
+	}
+
 	return 0, false
 }
 
 func trimRightSpace(s string) string {
 	return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
+func trimLeadingIndent(s string) string {
+	return strings.TrimLeft(s, " \t")
 }
 
 func normaliseForPatchMatch(s string) string {
@@ -77,6 +106,10 @@ func normaliseForPatchMatch(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func fuzzyMatchThreshold(pattern string) int {
+	return max(1, len([]rune(pattern))/5)
 }
 
 func levenshtein(a, b string) int {

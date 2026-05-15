@@ -403,8 +403,8 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 	replacements := make([]replacement, 0, len(chunks))
 	lineIndex := 0
 
-	for _, chunk := range chunks {
-		nextIndex, err := advanceReplacementContext(originalLines, path, chunk, lineIndex)
+	for chunkIndex, chunk := range chunks {
+		nextIndex, err := advanceReplacementContext(originalLines, path, chunk, lineIndex, chunkIndex, len(chunks))
 		if err != nil {
 			return nil, err
 		}
@@ -415,7 +415,7 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 			continue
 		}
 
-		repl, err := buildChunkReplacement(originalLines, path, chunk, lineIndex)
+		repl, err := buildChunkReplacement(originalLines, path, chunk, lineIndex, chunkIndex, len(chunks))
 		if err != nil {
 			return nil, err
 		}
@@ -432,7 +432,7 @@ func computeReplacements(originalLines []string, path string, chunks []UpdateFil
 	return replacements, nil
 }
 
-func advanceReplacementContext(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int) (int, error) {
+func advanceReplacementContext(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int, chunkIndex int, totalChunks int) (int, error) {
 	if !chunk.HasContext {
 		return lineIndex, nil
 	}
@@ -442,11 +442,18 @@ func advanceReplacementContext(originalLines []string, path string, chunk Update
 		return idx + 1, nil
 	}
 
-	return 0, fmt.Errorf(
-		"failed to find context %q in %s%s; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
-		chunk.ChangeContext,
+	return 0, buildChunkFailureError(
 		path,
-		closestContextHint(originalLines, chunk.ChangeContext, lineIndex),
+		len(originalLines),
+		chunkIndex,
+		totalChunks,
+		fmt.Sprintf(
+			"failed to find context %q; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
+			chunk.ChangeContext,
+		),
+		originalLines,
+		chunk.ChangeContext,
+		lineIndex,
 	)
 }
 
@@ -462,10 +469,19 @@ func buildInsertionReplacement(originalLines []string, chunk UpdateFileChunk) re
 	}
 }
 
-func buildChunkReplacement(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int) (replacement, error) {
+func buildChunkReplacement(originalLines []string, path string, chunk UpdateFileChunk, lineIndex int, chunkIndex int, totalChunks int) (replacement, error) {
 	pattern, newLines, startIdx, ok := findChunkSequence(originalLines, chunk, lineIndex)
 	if !ok {
-		return replacement{}, fmt.Errorf("failed to find expected lines in %s:\n%s%s", path, strings.Join(chunk.OldLines, "\n"), closestChunkHint(originalLines, chunk.OldLines, lineIndex))
+		return replacement{}, buildChunkFailureError(
+			path,
+			len(originalLines),
+			chunkIndex,
+			totalChunks,
+			fmt.Sprintf("failed to find expected lines:\n%s", strings.Join(chunk.OldLines, "\n")),
+			originalLines,
+			chunk.OldLines[0],
+			lineIndex,
+		)
 	}
 
 	return replacement{
@@ -491,23 +507,45 @@ func findChunkSequence(originalLines []string, chunk UpdateFileChunk, lineIndex 
 	return pattern, newLines, startIdx, ok
 }
 
-func closestContextHint(originalLines []string, contextLine string, lineIndex int) string {
-	closest, found := FindClosestLine(originalLines, contextLine, lineIndex, 20)
-	if !found {
-		return ""
+func buildChunkFailureError(path string, lineCount int, chunkIndex int, totalChunks int, message string, originalLines []string, target string, searchStart int) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "chunk %d of %d failed in %s (%d lines): %s", chunkIndex+1, totalChunks, path, lineCount, message)
+	if target == "" {
+		return errors.New(b.String())
 	}
-	return fmt.Sprintf("; closest match at line %d: %q (edit distance %d)", closest.LineIndex+1, closest.Content, closest.Distance)
+
+	closest, found := FindClosestLine(originalLines, target, searchStart, 20)
+	if !found {
+		return errors.New(b.String())
+	}
+	fmt.Fprintf(&b, "\nclosest match at line %d (edit distance %d): %q", closest.LineIndex+1, closest.Distance, closest.Content)
+	b.WriteString("\ncontext:")
+	for _, preview := range buildClosestMatchPreview(originalLines, closest.LineIndex) {
+		b.WriteByte('\n')
+		b.WriteString(preview)
+	}
+	return errors.New(b.String())
 }
 
-func closestChunkHint(originalLines []string, oldLines []string, lineIndex int) string {
-	if len(oldLines) == 0 || oldLines[0] == "" {
-		return ""
+func buildClosestMatchPreview(lines []string, matchIndex int) []string {
+	start := matchIndex - 1
+	if start < 0 {
+		start = 0
 	}
-	closest, found := FindClosestLine(originalLines, oldLines[0], lineIndex, 20)
-	if !found {
-		return ""
+	end := matchIndex + 1
+	if end >= len(lines) {
+		end = len(lines) - 1
 	}
-	return fmt.Sprintf("\nclosest match at line %d: %q (edit distance %d)", closest.LineIndex+1, closest.Content, closest.Distance)
+
+	preview := make([]string, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		marker := " "
+		if i == matchIndex {
+			marker = ">"
+		}
+		preview = append(preview, fmt.Sprintf("%s %d | %s", marker, i+1, lines[i]))
+	}
+	return preview
 }
 
 // validateNoOverlap returns an error if any two consecutive sorted replacements overlap.

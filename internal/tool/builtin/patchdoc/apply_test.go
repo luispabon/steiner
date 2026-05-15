@@ -122,7 +122,7 @@ func TestDeriveNewContents(t *testing.T) {
 			chunks: []UpdateFileChunk{
 				{HasContext: true, ChangeContext: "missing", OldLines: []string{"left"}, NewLines: []string{"LEFT"}},
 			},
-			wantErr: "failed to find context \"missing\" in missing-context.txt; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
+			wantErr: "chunk 1 of 1 failed in missing-context.txt (2 lines): failed to find context \"missing\"; @@ anchors must match a literal source line. Use bare @@ plus normal context lines when the anchor is awkward",
 		},
 		{
 			name:     "replace eof block",
@@ -149,7 +149,7 @@ func TestDeriveNewContents(t *testing.T) {
 			chunks: []UpdateFileChunk{
 				{OldLines: []string{"missing"}},
 			},
-			wantErr: "failed to find expected lines in file.txt:\nmissing",
+			wantErr: "chunk 1 of 1 failed in file.txt (1 lines): failed to find expected lines:\nmissing",
 		},
 		{
 			name:     "output is newline terminated",
@@ -193,6 +193,53 @@ func TestDeriveNewContents(t *testing.T) {
 				t.Fatalf("DeriveNewContents() output is not newline terminated: %q", got)
 			}
 		})
+	}
+}
+
+func TestDeriveNewContentsFailureIncludesChunkIndexLineCountAndPreview(t *testing.T) {
+	t.Parallel()
+
+	_, err := DeriveNewContents("keep\nfunc Main()  {\n    log.Println(\"start\")\n", "path/to/file", []UpdateFileChunk{
+		{OldLines: []string{"keep"}, NewLines: []string{"keep"}},
+		{OldLines: []string{"func main()"}, NewLines: []string{"func main() {}"}},
+		{OldLines: []string{"tail"}, NewLines: []string{"tail"}},
+	})
+	if err == nil {
+		t.Fatal("DeriveNewContents() error = nil, want failure")
+	}
+
+	want := []string{
+		"chunk 2 of 3 failed in path/to/file (3 lines): failed to find expected lines:\nfunc main()",
+		"closest match at line 2 (edit distance 4): \"func Main()  {\"",
+		"context:",
+		"  1 | keep",
+		"> 2 | func Main()  {",
+		"  3 |     log.Println(\"start\")",
+	}
+	for _, needle := range want {
+		if !strings.Contains(err.Error(), needle) {
+			t.Fatalf("DeriveNewContents() error = %q, want substring %q", err.Error(), needle)
+		}
+	}
+}
+
+func TestDeriveNewContentsFailureOmitsPreviewWhenNoClosestMatch(t *testing.T) {
+	t.Parallel()
+
+	_, err := DeriveNewContents("alpha\n", "path/to/file", []UpdateFileChunk{
+		{OldLines: []string{"missing value"}, NewLines: []string{"new"}},
+	})
+	if err == nil {
+		t.Fatal("DeriveNewContents() error = nil, want failure")
+	}
+	if !strings.Contains(err.Error(), "chunk 1 of 1 failed in path/to/file (1 lines): failed to find expected lines:\nmissing value") {
+		t.Fatalf("DeriveNewContents() error = %q, want enriched failure header", err.Error())
+	}
+	if strings.Contains(err.Error(), "closest match at line") {
+		t.Fatalf("DeriveNewContents() error = %q, want no closest match preview", err.Error())
+	}
+	if strings.Contains(err.Error(), "context:") {
+		t.Fatalf("DeriveNewContents() error = %q, want no context preview", err.Error())
 	}
 }
 
