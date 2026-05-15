@@ -38,6 +38,59 @@ func TestSeekSequenceTrimBoth(t *testing.T) {
 	}
 }
 
+func TestSeekSequenceTrimLeadingIndent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		lines   []string
+		pattern []string
+		want    int
+		ok      bool
+	}{
+		{
+			name:    "4-space indent matches 2-space indent",
+			lines:   []string{"    alpha"},
+			pattern: []string{"  alpha"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "tab indent matches space indent",
+			lines:   []string{"\talpha"},
+			pattern: []string{"  alpha"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "no indent matches indented pattern",
+			lines:   []string{"alpha"},
+			pattern: []string{"    alpha"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "different content after indent does not match",
+			lines:   []string{"    alpha"},
+			pattern: []string{"  beta"},
+			want:    0,
+			ok:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := SeekSequence(tt.lines, tt.pattern, 0, false)
+			if ok != tt.ok || got != tt.want {
+				t.Fatalf("SeekSequence() = (%d,%v), want (%d,%v)", got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
 func TestSeekSequenceUnicodeNormalise(t *testing.T) {
 	t.Parallel()
 
@@ -47,6 +100,73 @@ func TestSeekSequenceUnicodeNormalise(t *testing.T) {
 	got, ok := SeekSequence(lines, pattern, 0, false)
 	if !ok || got != 0 {
 		t.Fatalf("SeekSequence() = (%d,%v), want (0,true)", got, ok)
+	}
+}
+
+func TestSeekSequenceFuzzyFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		lines   []string
+		pattern []string
+		want    int
+		ok      bool
+	}{
+		{
+			name:    "single char substitution matches",
+			lines:   []string{"alpja"},
+			pattern: []string{"alpha"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "single char insertion matches",
+			lines:   []string{"alphxa"},
+			pattern: []string{"alpha"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "distance exactly at threshold matches",
+			lines:   []string{"abcdefghxy"},
+			pattern: []string{"abcdefghij"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "distance above threshold does not match",
+			lines:   []string{"abxyef"},
+			pattern: []string{"abcdef"},
+			want:    0,
+			ok:      false,
+		},
+		{
+			name:    "short pattern threshold 1",
+			lines:   []string{"cot"},
+			pattern: []string{"cat"},
+			want:    0,
+			ok:      true,
+		},
+		{
+			name:    "fuzzy match precedence behind stricter matchers",
+			lines:   []string{"abx", "abc"},
+			pattern: []string{"abc"},
+			want:    1,
+			ok:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := SeekSequence(tt.lines, tt.pattern, 0, false)
+			if ok != tt.ok || got != tt.want {
+				t.Fatalf("SeekSequence() = (%d,%v), want (%d,%v)", got, ok, tt.want, tt.ok)
+			}
+		})
 	}
 }
 

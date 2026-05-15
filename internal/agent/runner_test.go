@@ -217,7 +217,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 			return tool.ExecutionResult{
 				Value: map[string]any{
 					"exit_code": 1,
-					"output":    "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+					"output":    "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 1200) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
 				},
 				Metadata: tool.ExecutionMetadata{
 					ExitCode: 1,
