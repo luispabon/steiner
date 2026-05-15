@@ -180,7 +180,16 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	if boxWidth < 1 {
 		boxWidth = 1
 	}
-	return boxStyle.Width(boxWidth).Render(strings.Join(lines, "\n")) + "\n"
+	box := boxStyle.Width(boxWidth).Render(strings.Join(lines, "\n")) + "\n"
+	return box + b.renderDelegationHint(dd) + "\n"
+}
+
+func (b *contentBuffer) renderDelegationHint(dd *delegationDisplayState) string {
+	action := "expand"
+	if !dd.collapsed {
+		action = "collapse"
+	}
+	return b.styles.FgDim.Render("ctrl+x or click to " + action)
 }
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {

@@ -461,7 +461,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md"} {
+	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md", "ctrl+x or click to expand"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -492,7 +492,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "✓", "output", "final child output"} {
+	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click to collapse"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
