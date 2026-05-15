@@ -51,9 +51,9 @@ func defaultConfig() Config {
 		},
 		SubAgent: SubAgentConfig{
 			Enabled:      true,
-			MaxTurns:     15,
+			MaxTurns:     30,
 			MaxTokens:    100000,
-			AllowedTools: []string{"read", "glob", "grep", "ls", "write", "edit", "bash"},
+			AllowedTools: []string{"read", "glob", "grep", "ls", "write", "edit", "bash", "scratchpad"},
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
