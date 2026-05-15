@@ -160,6 +160,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
+	if event.Scope.AgentID != "" && b.appendScopedDelegationEvent(event) {
+		return
+	}
 	if handler, ok := contentEventHandlers[event.Type]; ok {
 		handler(b, event)
 		return
