@@ -920,6 +920,22 @@ func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *test
 	if !buffer.segments[0].renderDirty {
 		t.Fatal("delegation segment renderDirty = false, want true")
 	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.currentOperation; got != "read: README.md" {
+		t.Fatalf("currentOperation = %q, want %q", got, "read: README.md")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	if got := dd.entries[0].kind; got != delegationTranscriptEntryTool {
+		t.Fatalf("entry kind = %v, want delegationTranscriptEntryTool", got)
+	}
+	if got := dd.entries[0].args; got != "README.md" {
+		t.Fatalf("entry args = %q, want %q", got, "README.md")
+	}
 }
 
 func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T) {
@@ -964,6 +980,142 @@ func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
 	}
 	if buffer.segments[1].toolData == nil {
 		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
+func TestAppendEventScopedChildToolFinishedEventUpdatesExistingTranscriptEntry(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+	buffer.segments[0].renderDirty = false
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallFinishedEvent(1, "read", "call_1", "file contents", nil),
+		"child-1",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	entry := dd.entries[0]
+	if got := entry.status; got != "complete" {
+		t.Fatalf("entry status = %q, want complete", got)
+	}
+	if got := entry.body; got != "file contents" {
+		t.Fatalf("entry body = %q, want %q", got, "file contents")
+	}
+	if !buffer.segments[0].renderDirty {
+		t.Fatal("delegation segment renderDirty = false, want true")
+	}
+}
+
+func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello "), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "world"), "child-1"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count after chunks = %d, want 1", got)
+	}
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("entry body after chunks = %q, want %q", got, "hello world")
+	}
+	if got := dd.currentOperation; got != "hello world" {
+		t.Fatalf("currentOperation after chunks = %q, want %q", got, "hello world")
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "follow-up"), "child-1"))
+
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count after final message = %d, want 1", got)
+	}
+	if got := dd.entries[0].body; got != "hello worldfollow-up" {
+		t.Fatalf("entry body after final message = %q, want %q", got, "hello worldfollow-up")
+	}
+	if got := dd.currentOperation; got != "hello worldfollow-up" {
+		t.Fatalf("currentOperation after final message = %q, want %q", got, "hello worldfollow-up")
+	}
+}
+
+func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, " world"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "hello world"), "child-1"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("entry body = %q, want %q", got, "hello world")
+	}
+}
+
+func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "other work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "second child answer"), "child-2"))
+
+	first := buffer.segments[0].delegData
+	second := buffer.segments[1].delegData
+	if first == nil || second == nil {
+		t.Fatal("delegData = nil, want delegation state on both segments")
+	}
+	if got := len(first.entries); got != 1 {
+		t.Fatalf("child-1 entries count = %d, want 1", got)
+	}
+	if got := first.entries[0].kind; got != delegationTranscriptEntryTool {
+		t.Fatalf("child-1 first entry kind = %v, want delegationTranscriptEntryTool", got)
+	}
+	if got := len(second.entries); got != 1 {
+		t.Fatalf("child-2 entries count = %d, want 1", got)
+	}
+	if got := second.entries[0].kind; got != delegationTranscriptEntryAssistant {
+		t.Fatalf("child-2 first entry kind = %v, want delegationTranscriptEntryAssistant", got)
+	}
+	if got := second.currentOperation; got != "second child answer" {
+		t.Fatalf("child-2 currentOperation = %q, want %q", got, "second child answer")
 	}
 }
 
