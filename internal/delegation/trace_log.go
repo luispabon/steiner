@@ -66,9 +66,9 @@ func (l *TraceLogger) Close() error {
 	return l.file.Close()
 }
 
-// DelegationLogPath derives the delegation log path from the main session log
-// path. Returns empty string when logPath is empty.
-func DelegationLogPath(logPath string) string {
+// LogPath derives the delegation log path from the main session log path.
+// Returns empty string when logPath is empty.
+func LogPath(logPath string) string {
 	logPath = strings.TrimSpace(logPath)
 	if logPath == "" {
 		return ""

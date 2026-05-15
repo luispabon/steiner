@@ -1474,7 +1474,7 @@ type eventOrderCheckRunner struct {
 	sawCompleteAtSummaryCall bool
 }
 
-func (r *eventOrderCheckRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+func (r *eventOrderCheckRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 	r.inner.reqs = append(r.inner.reqs, req)
 	i := r.inner.calls
 	r.inner.calls++

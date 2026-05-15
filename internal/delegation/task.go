@@ -72,7 +72,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
 
-	tc.add("child_run_complete", "initial run finished", runStateFields(state, err, childCtx))
+	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
 
 	if err != nil {
 		if events != nil {
@@ -105,7 +105,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
 		nextState, extensionErr := runner.Run(childCtx, req)
 
-		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(nextState, extensionErr, childCtx))
+		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(childCtx, nextState, extensionErr))
 
 		if extensionErr != nil {
 			if events != nil {
@@ -276,7 +276,7 @@ func (summaryOnlyExecutor) Execute(context.Context, string, map[string]any) (any
 }
 
 // runStateFields builds trace fields from a child run's outcome.
-func runStateFields(state agent.RunState, err error, ctx context.Context) map[string]any {
+func runStateFields(ctx context.Context, state agent.RunState, err error) map[string]any {
 	fields := map[string]any{
 		"stop_reason": string(state.StopReason),
 		"turns":       state.TurnCount,

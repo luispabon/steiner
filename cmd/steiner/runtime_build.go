@@ -137,7 +137,7 @@ func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store,
 }
 
 func buildDelegationLogger(cfg config.Config, flags *cliFlags) (*delegation.TraceLogger, error) {
-	logPath := delegation.DelegationLogPath(runtimeLogFile(cfg, flags))
+	logPath := delegation.LogPath(runtimeLogFile(cfg, flags))
 	return delegation.NewTraceLogger(logPath)
 }
 

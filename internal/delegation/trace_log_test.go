@@ -147,7 +147,7 @@ func TestTraceLogger_CreatesParentDirs(t *testing.T) {
 	}
 }
 
-func TestDelegationLogPath(t *testing.T) {
+func TestLogPath(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -160,9 +160,9 @@ func TestDelegationLogPath(t *testing.T) {
 		{"session.log", "session-delegation.log"},
 	}
 	for _, tt := range tests {
-		got := DelegationLogPath(tt.input)
+		got := LogPath(tt.input)
 		if got != tt.want {
-			t.Errorf("DelegationLogPath(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("LogPath(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
