@@ -92,6 +92,8 @@ type delegationTranscriptEntry struct {
 type delegationDisplayState struct {
 	agentID      string
 	taskPreview  string // truncated to ~80 chars
+	parentCallID string
+	parentArgs   string
 	startTime    int64  // unix nano, set on DelegationStarted
 	elapsed      string // formatted elapsed, set on Complete/Failed
 	spinnerFrame int    // index into spinnerFrames
@@ -148,7 +150,9 @@ type contentBuffer struct {
 	tickCount                     int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr                 error // captures the last render error for logging
 	// delegation tracking
-	activeDelegations map[string]int // agentID → segment index (for in-flight delegations)
+	activeDelegations       map[string]int // agentID → segment index (for in-flight delegations)
+	pendingDelegateParents  []int          // segment indexes awaiting DelegationStartedEvent binding
+	pendingDelegationStarts []int          // segment indexes awaiting parent delegate tool binding
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

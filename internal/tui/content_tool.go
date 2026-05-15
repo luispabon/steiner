@@ -15,6 +15,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if args == nil {
 		return tool
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "delegate") {
+		return summarizeDelegateArgs(args)
+	}
 	if strings.EqualFold(strings.TrimSpace(tool), "apply_patch") {
 		return summarizePatchArgs(args)
 	}
@@ -37,6 +40,30 @@ func summarizeArgs(tool string, args map[string]any) string {
 		return s
 	}
 	return tool
+}
+
+func summarizeDelegateArgs(args map[string]any) string {
+	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
+		if v, ok := args[key]; ok {
+			return truncateToolArgSummary(fmt.Sprintf("%v", v))
+		}
+	}
+	return summarizeFirstArgValue(args)
+}
+
+func summarizeFirstArgValue(args map[string]any) string {
+	// Fallback: first value
+	for _, v := range args {
+		return truncateToolArgSummary(fmt.Sprintf("%v", v))
+	}
+	return ""
+}
+
+func truncateToolArgSummary(s string) string {
+	if len(s) > 60 {
+		s = s[:57] + "..."
+	}
+	return s
 }
 
 // summarizePatchArgs extracts the first affected file path from a patch document.

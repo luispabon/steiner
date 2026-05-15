@@ -960,6 +960,96 @@ func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T)
 	}
 }
 
+func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "fix the bug in module X",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+	if buffer.segments[0].toolData != nil {
+		t.Fatal("toolData != nil, want no top-level tool box for delegate")
+	}
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.agentID; got != "child-1" {
+		t.Fatalf("agentID = %q, want child-1", got)
+	}
+	if got := dd.parentCallID; got != "call_delegate_1" {
+		t.Fatalf("parentCallID = %q, want call_delegate_1", got)
+	}
+	if got := dd.parentArgs; got != "fix the bug in module X" {
+		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
+	}
+}
+
+func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "fix the bug in module X",
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.agentID; got != "child-1" {
+		t.Fatalf("agentID = %q, want child-1", got)
+	}
+	if got := dd.parentCallID; got != "call_delegate_1" {
+		t.Fatalf("parentCallID = %q, want call_delegate_1", got)
+	}
+	if got := dd.parentArgs; got != "fix the bug in module X" {
+		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
+	}
+}
+
+func TestAppendEventNormalParentBashToolStillUsesToolCallSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_bash_1", map[string]any{
+		"command": "pwd",
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentToolCall {
+		t.Fatalf("segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[0].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
 func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
