@@ -247,6 +247,58 @@ func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
 	}
 }
 
+func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "result text")})
+
+	dd := m.content.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if !dd.collapsed {
+		t.Fatal("delegation should start collapsed")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
+
+	if dd.collapsed {
+		t.Fatal("delegation should expand on ctrl+x during active conversation")
+	}
+	rendered := m.content.String(m.viewport.Width)
+	if !strings.Contains(rendered, "result text") {
+		t.Fatalf("rendered content = %q, want expanded delegation output", rendered)
+	}
+}
+
+func TestModelMouseClickTogglesDelegation(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "result text")})
+
+	dd := m.content.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if !dd.collapsed {
+		t.Fatal("delegation should start collapsed")
+	}
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 0})
+
+	if dd.collapsed {
+		t.Fatal("delegation should expand on mouse click")
+	}
+	rendered := m.content.String(m.viewport.Width)
+	if !strings.Contains(rendered, "result text") {
+		t.Fatalf("rendered content = %q, want expanded delegation output", rendered)
+	}
+}
+
 func TestModelHandlesContextCommandLocally(t *testing.T) {
 	ctrl := &testController{}
 

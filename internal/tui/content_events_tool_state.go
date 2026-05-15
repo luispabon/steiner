@@ -13,6 +13,10 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		if strings.EqualFold(payload.Tool, "display_file") {
 			return
 		}
+		if strings.EqualFold(payload.Tool, "delegate") {
+			b.handleParentDelegateToolCallStarted(payload)
+			return
+		}
 		rawArgs := cloneToolArguments(payload.Arguments)
 		tc := &toolCallSegment{
 			tool:                     strings.ToLower(payload.Tool),
@@ -125,6 +129,9 @@ func (b *contentBuffer) Clear() {
 	b.streamingPhase = ""
 	b.streamingSource = ""
 	b.collapseState = make(map[int]bool)
+	b.activeDelegations = nil
+	b.pendingDelegateParents = nil
+	b.pendingDelegationStarts = nil
 }
 
 func (b *contentBuffer) AppendInterrupted() {

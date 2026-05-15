@@ -105,7 +105,7 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 	case segmentInterrupted:
 		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
 	case segmentDelegation:
-		return b.renderDelegationSegment(segment)
+		return b.renderDelegationSegment(segment, width)
 	default:
 		return b.renderDefaultSegment(segment)
 	}

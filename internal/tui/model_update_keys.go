@@ -87,7 +87,7 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool)
 		return true, m
 	}
 
-	if activeConversation {
+	if activeConversation && msg.Type != tea.KeyCtrlX {
 		return true, m
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {

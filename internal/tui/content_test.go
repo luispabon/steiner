@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -363,7 +364,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 		t.Errorf("rendered output missing 'result text' in expanded state: %q", rendered)
 	}
 
-	// Toggle again → collapsed; output text hidden, hint shown.
+	// Toggle again → collapsed; output text hidden.
 	buffer.ToggleLastDelegationOutput()
 	if !dd.collapsed {
 		t.Error("delegation should be collapsed after second toggle")
@@ -371,9 +372,6 @@ func TestDelegationToggleOutput(t *testing.T) {
 	rendered = buffer.String(80)
 	if strings.Contains(rendered, "result text") {
 		t.Errorf("rendered output should not contain 'result text' in collapsed state: %q", rendered)
-	}
-	if !strings.Contains(rendered, "[output hidden") {
-		t.Errorf("rendered output missing '[output hidden' hint in collapsed state: %q", rendered)
 	}
 }
 
@@ -389,7 +387,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	if !strings.Contains(rendered, "tail marker") {
+	if !strings.Contains(rendered, "tail") || !strings.Contains(rendered, "marker") {
 		t.Fatalf("expanded delegation output was truncated: %q", rendered)
 	}
 }
@@ -446,6 +444,144 @@ func TestDelegationBlockRendering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "initial task preview"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md", "ctrl+x or click to expand"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "inspect docs",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}),
+		"child-1",
+	))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallFinishedEvent(1, "bash", "call_1", "ok", nil),
+		"child-1",
+	))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click to collapse"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, "┌") && strings.Contains(rendered, "bash") && strings.Contains(rendered, "pwd") && strings.Count(rendered, "┌") > 1 {
+		t.Fatalf("expanded delegation child tool should not render like a nested boxed tool call: %q", rendered)
+	}
+}
+
+func TestRenderNormalParentBashToolRemainsBoxed(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_bash_1", map[string]any{
+		"command": "pwd",
+	}))
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"┌", "┐", "bash", "pwd"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("normal parent bash render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "inspect docs",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, ""))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "✓", "complete"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("delegation lifecycle render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationTranscriptTruncatesToRecentRows(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	entries := make([]delegationTranscriptEntry, 0, 50)
+	for i := 0; i < 50; i++ {
+		entries = append(entries, delegationTranscriptEntry{
+			kind: delegationTranscriptEntryAssistant,
+			body: "line " + strconv.Itoa(i),
+		})
+	}
+	buffer.segments = []contentSegment{{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			agentID:      "child-1",
+			status:       "complete",
+			resultStatus: "complete",
+			collapsed:    false,
+			entries:      entries,
+		},
+	}}
+
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "[old child events hidden]") {
+		t.Fatalf("rendered delegation transcript %q missing truncation marker", rendered)
+	}
+	if strings.Contains(rendered, "line 0") {
+		t.Fatalf("rendered delegation transcript should hide oldest rows: %q", rendered)
+	}
+	if !strings.Contains(rendered, "line 49") {
+		t.Fatalf("rendered delegation transcript %q missing most recent row", rendered)
 	}
 }
 
@@ -894,6 +1030,321 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	}
 	if got, want := seg.preview.After, "newLine()"; got != want {
 		t.Fatalf("preview after = %q, want %q", got, want)
+	}
+}
+
+func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.segments[0].renderDirty = false
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+	if !buffer.segments[0].renderDirty {
+		t.Fatal("delegation segment renderDirty = false, want true")
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.currentOperation; got != "read: README.md" {
+		t.Fatalf("currentOperation = %q, want %q", got, "read: README.md")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	if got := dd.entries[0].kind; got != delegationTranscriptEntryTool {
+		t.Fatalf("entry kind = %v, want delegationTranscriptEntryTool", got)
+	}
+	if got := dd.entries[0].args; got != "README.md" {
+		t.Fatalf("entry args = %q, want %q", got, "README.md")
+	}
+}
+
+func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"missing-child",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentToolCall {
+		t.Fatalf("segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[0].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
+func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "fix the bug in module X",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+	if buffer.segments[0].toolData != nil {
+		t.Fatal("toolData != nil, want no top-level tool box for delegate")
+	}
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.agentID; got != "child-1" {
+		t.Fatalf("agentID = %q, want child-1", got)
+	}
+	if got := dd.parentCallID; got != "call_delegate_1" {
+		t.Fatalf("parentCallID = %q, want call_delegate_1", got)
+	}
+	if got := dd.parentArgs; got != "fix the bug in module X" {
+		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
+	}
+}
+
+func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "fix the bug in module X",
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := dd.agentID; got != "child-1" {
+		t.Fatalf("agentID = %q, want child-1", got)
+	}
+	if got := dd.parentCallID; got != "call_delegate_1" {
+		t.Fatalf("parentCallID = %q, want call_delegate_1", got)
+	}
+	if got := dd.parentArgs; got != "fix the bug in module X" {
+		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
+	}
+}
+
+func TestAppendEventNormalParentBashToolStillUsesToolCallSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_bash_1", map[string]any{
+		"command": "pwd",
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentToolCall {
+		t.Fatalf("segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[0].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
+func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}))
+
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("first segment kind = %v, want segmentDelegation", got)
+	}
+	if got := buffer.segments[1].kind; got != segmentToolCall {
+		t.Fatalf("second segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[1].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
+func TestAppendEventScopedChildToolFinishedEventUpdatesExistingTranscriptEntry(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+	buffer.segments[0].renderDirty = false
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallFinishedEvent(1, "read", "call_1", "file contents", nil),
+		"child-1",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	entry := dd.entries[0]
+	if got := entry.status; got != "complete" {
+		t.Fatalf("entry status = %q, want complete", got)
+	}
+	if got := entry.body; got != "file contents" {
+		t.Fatalf("entry body = %q, want %q", got, "file contents")
+	}
+	if !buffer.segments[0].renderDirty {
+		t.Fatal("delegation segment renderDirty = false, want true")
+	}
+}
+
+func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello "), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "world"), "child-1"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count after chunks = %d, want 1", got)
+	}
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("entry body after chunks = %q, want %q", got, "hello world")
+	}
+	if got := dd.currentOperation; got != "hello world" {
+		t.Fatalf("currentOperation after chunks = %q, want %q", got, "hello world")
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "follow-up"), "child-1"))
+
+	if got := len(dd.entries); got != 2 {
+		t.Fatalf("entries count after final message = %d, want 2", got)
+	}
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("first entry body after final message = %q, want %q", got, "hello world")
+	}
+	if got := dd.entries[1].body; got != "follow-up" {
+		t.Fatalf("second entry body after final message = %q, want %q", got, "follow-up")
+	}
+	if got := dd.currentOperation; got != "follow-up" {
+		t.Fatalf("currentOperation after final message = %q, want %q", got, "follow-up")
+	}
+}
+
+func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, " world"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "hello world"), "child-1"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	if got := dd.entries[0].body; got != "hello world" {
+		t.Fatalf("entry body = %q, want %q", got, "hello world")
+	}
+}
+
+func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "other work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "second child answer"), "child-2"))
+
+	first := buffer.segments[0].delegData
+	second := buffer.segments[1].delegData
+	if first == nil || second == nil {
+		t.Fatal("delegData = nil, want delegation state on both segments")
+	}
+	if got := len(first.entries); got != 1 {
+		t.Fatalf("child-1 entries count = %d, want 1", got)
+	}
+	if got := first.entries[0].kind; got != delegationTranscriptEntryTool {
+		t.Fatalf("child-1 first entry kind = %v, want delegationTranscriptEntryTool", got)
+	}
+	if got := len(second.entries); got != 1 {
+		t.Fatalf("child-2 entries count = %d, want 1", got)
+	}
+	if got := second.entries[0].kind; got != delegationTranscriptEntryAssistant {
+		t.Fatalf("child-2 first entry kind = %v, want delegationTranscriptEntryAssistant", got)
+	}
+	if got := second.currentOperation; got != "second child answer" {
+		t.Fatalf("child-2 currentOperation = %q, want %q", got, "second child answer")
 	}
 }
 

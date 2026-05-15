@@ -71,10 +71,29 @@ type compactionBannerData struct {
 	msgCount int     // number of messages compacted (for finished summary)
 }
 
+type delegationTranscriptEntryKind int
+
+const (
+	delegationTranscriptEntryAssistant delegationTranscriptEntryKind = iota
+	delegationTranscriptEntryTool
+)
+
+type delegationTranscriptEntry struct {
+	kind     delegationTranscriptEntryKind
+	body     string
+	tool     string
+	args     string
+	callID   string
+	status   string
+	hasError bool
+}
+
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
 	agentID      string
 	taskPreview  string // truncated to ~80 chars
+	parentCallID string
+	parentArgs   string
 	startTime    int64  // unix nano, set on DelegationStarted
 	elapsed      string // formatted elapsed, set on Complete/Failed
 	spinnerFrame int    // index into spinnerFrames
@@ -88,6 +107,10 @@ type delegationDisplayState struct {
 	// output text and visibility
 	output    string
 	collapsed bool
+	// child transcript state
+	currentOperation string
+	entries          []delegationTranscriptEntry
+	childToolEntries map[string]int
 }
 
 type contentSegment struct {
@@ -127,7 +150,9 @@ type contentBuffer struct {
 	tickCount                     int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr                 error // captures the last render error for logging
 	// delegation tracking
-	activeDelegations map[string]int // agentID → segment index (for in-flight delegations)
+	activeDelegations       map[string]int // agentID → segment index (for in-flight delegations)
+	pendingDelegateParents  []int          // segment indexes awaiting DelegationStartedEvent binding
+	pendingDelegationStarts []int          // segment indexes awaiting parent delegate tool binding
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)
@@ -160,6 +185,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
+	if event.Scope.AgentID != "" && b.appendScopedDelegationEvent(event) {
+		return
+	}
 	if handler, ok := contentEventHandlers[event.Type]; ok {
 		handler(b, event)
 		return
