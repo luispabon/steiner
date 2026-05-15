@@ -60,7 +60,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 func buildChildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
-		systemPrompt = "You are a sub-agent. Complete the task given to you."
+		systemPrompt = "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive."
 	}
 
 	taskContent := spec.Task
