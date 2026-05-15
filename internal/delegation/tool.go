@@ -63,6 +63,7 @@ type DelegateHandlerDeps struct {
 	Model              string
 	MaxTokens          *int
 	StreamingPreferred bool
+	TraceLogger        *TraceLogger
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -112,7 +113,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 		spec.Limits = limits
 
-		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events)
+		result, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {
 				return result, nil

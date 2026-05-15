@@ -47,7 +47,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.selected.ExtraParams, setup.selected.Thinking, setup.modelBudget, setup.selected.Model, setup.selected.MaxCompletionTokens, r.streamingPreferred)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.selected.ExtraParams, setup.selected.Thinking, setup.modelBudget, setup.selected.Model, setup.selected.MaxCompletionTokens, r.streamingPreferred, r.runtime.delegationLogger)
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
@@ -165,7 +165,7 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // buildActiveRegistry returns the registry to use for a run. When sub-agent
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens int, streamingPreferred bool) *tool.Registry {
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
@@ -184,6 +184,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		Model:              model,
 		MaxTokens:          &mt,
 		StreamingPreferred: streamingPreferred,
+		TraceLogger:        traceLogger,
 	})
 	cloned.Register(delegation.DelegateToolDef(handler))
 	return cloned

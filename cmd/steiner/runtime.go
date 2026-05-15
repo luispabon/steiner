@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -30,23 +31,24 @@ type cliFlags struct {
 }
 
 type cliRuntime struct {
-	cfg             config.Config
-	provider        provider.Provider
-	providerFactory func(config.ModelConfig) (provider.Provider, error)
-	registry        *tool.Registry
-	toolNames       []string
-	skillNames      []string
-	workDir         string
-	homeDir         string
-	stdin           io.Reader
-	human           *output.Stream
-	status          *output.Stream
-	events          output.EventSink
-	sharedInput     *bufio.Reader
-	approvalIn      *bufio.Reader
-	closeFn         func() error
-	historyWriter   *history.Writer
-	sessionStore    *session.Store
+	cfg              config.Config
+	provider         provider.Provider
+	providerFactory  func(config.ModelConfig) (provider.Provider, error)
+	registry         *tool.Registry
+	toolNames        []string
+	skillNames       []string
+	workDir          string
+	homeDir          string
+	stdin            io.Reader
+	human            *output.Stream
+	status           *output.Stream
+	events           output.EventSink
+	sharedInput      *bufio.Reader
+	approvalIn       *bufio.Reader
+	closeFn          func() error
+	historyWriter    *history.Writer
+	sessionStore     *session.Store
+	delegationLogger *delegation.TraceLogger
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -61,6 +63,10 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	delegationLogger, err := buildDelegationLogger(cfg, flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -80,26 +86,36 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	closeFn = joinClosers(closeFn, approvalClose)
 
 	return cliRuntime{
-		cfg:             cfg,
-		providerFactory: providerFactory,
-		registry:        registry,
-		toolNames:       registry.Names(),
-		skillNames:      skillNames,
-		workDir:         workDir,
-		homeDir:         homeDir,
-		stdin:           cmd.InOrStdin(),
-		human:           output.NewStream(cmd.OutOrStdout()),
-		status:          output.NewStream(cmd.ErrOrStderr()),
-		events:          events,
-		sharedInput:     sharedInput,
-		approvalIn:      approvalInput,
-		closeFn:         closeFn,
-		historyWriter:   historyWriter,
-		sessionStore:    sessionStore,
+		cfg:              cfg,
+		providerFactory:  providerFactory,
+		registry:         registry,
+		toolNames:        registry.Names(),
+		skillNames:       skillNames,
+		workDir:          workDir,
+		homeDir:          homeDir,
+		stdin:            cmd.InOrStdin(),
+		human:            output.NewStream(cmd.OutOrStdout()),
+		status:           output.NewStream(cmd.ErrOrStderr()),
+		events:           events,
+		sharedInput:      sharedInput,
+		approvalIn:       approvalInput,
+		closeFn:          closeFn,
+		historyWriter:    historyWriter,
+		sessionStore:     sessionStore,
+		delegationLogger: delegationLogger,
 	}, nil
 }
 
 func closeRuntime(rt *cliRuntime) {
+	if rt.delegationLogger != nil {
+		if err := rt.delegationLogger.Close(); err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("failed to close delegation logger: %v", err)},
+			}))
+		}
+	}
 	if rt.historyWriter != nil {
 		if err := rt.historyWriter.Close(); err != nil {
 			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{

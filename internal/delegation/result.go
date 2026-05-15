@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -9,8 +10,16 @@ import (
 // BuildResult constructs a DelegationResult from an agent.RunState and DelegationSpec.
 // Maps StopReason to DelegationStatus and captures state metrics.
 func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) DelegationResult {
+	return buildResultInternal(agentID, state, spec, nil)
+}
+
+// buildResultWithTrace is the trace-aware variant used by SpawnDelegate.
+func buildResultWithTrace(agentID string, state agent.RunState, spec DelegationSpec, tc *traceCollector) DelegationResult {
+	return buildResultInternal(agentID, state, spec, tc)
+}
+
+func buildResultInternal(agentID string, state agent.RunState, spec DelegationSpec, tc *traceCollector) DelegationResult {
 	_ = spec
-	// Extract last assistant message from conversation
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
@@ -23,8 +32,8 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 		TokenCount: state.TokenCount,
 	}
 
-	// Map StopReason to DelegationStatus
-	switch string(state.StopReason) {
+	rawReason := string(state.StopReason)
+	switch rawReason {
 	case "complete":
 		result.Status = StatusComplete
 	case "error":
@@ -38,9 +47,18 @@ func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) Dele
 		}
 	case "max_turns", "max_tokens":
 		result.Status = StatusPartial
-		result.StopReason = string(state.StopReason)
+		result.StopReason = rawReason
 	default:
 		result.Status = StatusComplete
+	}
+
+	if tc != nil {
+		tc.add("status_mapping", fmt.Sprintf("%s -> %s", rawReason, string(result.Status)), map[string]any{
+			"raw_stop_reason": rawReason,
+			"mapped_status":   string(result.Status),
+			"turns":           state.TurnCount,
+			"has_output":      strings.TrimSpace(output) != "",
+		})
 	}
 
 	return result
