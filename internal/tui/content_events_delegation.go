@@ -120,7 +120,11 @@ func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplaySta
 		dd.currentOperation = previewDelegationText(last.body)
 		return true
 	}
-	entry := dd.appendOrMergeAssistantEntry(payload.Content)
+	idx := dd.appendTranscriptEntry(delegationTranscriptEntry{
+		kind: delegationTranscriptEntryAssistant,
+		body: payload.Content,
+	})
+	entry := &dd.entries[idx]
 	dd.currentOperation = previewDelegationText(entry.body)
 	return true
 }
