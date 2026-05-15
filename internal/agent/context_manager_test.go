@@ -1375,7 +1375,7 @@ func mustJSON(t *testing.T, v any) string {
 func bashOutputForIngestionTest() map[string]any {
 	return map[string]any{
 		"exit_code": 1,
-		"output":    strings.Repeat("filler line\n", 900) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+		"output":    strings.Repeat("filler line\n", 1200) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
 	}
 }
 
