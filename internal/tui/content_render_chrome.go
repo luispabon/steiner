@@ -344,9 +344,12 @@ func (b *contentBuffer) renderDelegationToolEntry(entry delegationTranscriptEntr
 	label := b.styles.Accent.Bold(true).Render(toolName)
 	detail := strings.TrimSpace(entry.args)
 	status := ""
-	if entry.hasError {
+	switch {
+	case entry.hasError:
 		status = b.styles.ErrorStyle.Render("error")
-	} else if entry.status == "running" {
+	case entry.status == "complete":
+		status = b.styles.SuccessStyle.Render("✓")
+	case entry.status == "running":
 		status = b.styles.FgDim.Render("running")
 	}
 
