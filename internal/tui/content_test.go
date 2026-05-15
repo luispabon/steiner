@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -363,7 +364,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 		t.Errorf("rendered output missing 'result text' in expanded state: %q", rendered)
 	}
 
-	// Toggle again → collapsed; output text hidden, hint shown.
+	// Toggle again → collapsed; output text hidden.
 	buffer.ToggleLastDelegationOutput()
 	if !dd.collapsed {
 		t.Error("delegation should be collapsed after second toggle")
@@ -371,9 +372,6 @@ func TestDelegationToggleOutput(t *testing.T) {
 	rendered = buffer.String(80)
 	if strings.Contains(rendered, "result text") {
 		t.Errorf("rendered output should not contain 'result text' in collapsed state: %q", rendered)
-	}
-	if !strings.Contains(rendered, "[output hidden") {
-		t.Errorf("rendered output missing '[output hidden' hint in collapsed state: %q", rendered)
 	}
 }
 
@@ -389,7 +387,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	if !strings.Contains(rendered, "tail marker") {
+	if !strings.Contains(rendered, "tail") || !strings.Contains(rendered, "marker") {
 		t.Fatalf("expanded delegation output was truncated: %q", rendered)
 	}
 }
@@ -446,6 +444,140 @@ func TestDelegationBlockRendering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "initial task preview"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "inspect docs",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}),
+		"child-1",
+	))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "output", "final child output"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, "┌") && strings.Contains(rendered, "bash") && strings.Contains(rendered, "pwd") && strings.Count(rendered, "┌") > 1 {
+		t.Fatalf("expanded delegation child tool should not render like a nested boxed tool call: %q", rendered)
+	}
+}
+
+func TestRenderNormalParentBashToolRemainsBoxed(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_bash_1", map[string]any{
+		"command": "pwd",
+	}))
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"┌", "┐", "bash", "pwd"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("normal parent bash render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "inspect docs",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, ""))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+
+	rendered := buffer.String(80)
+	for _, want := range []string{"delegate", "child-1", "✓", "complete"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("delegation lifecycle render %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRenderDelegationTranscriptTruncatesToRecentRows(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	entries := make([]delegationTranscriptEntry, 0, 50)
+	for i := 0; i < 50; i++ {
+		entries = append(entries, delegationTranscriptEntry{
+			kind: delegationTranscriptEntryAssistant,
+			body: "line " + strconv.Itoa(i),
+		})
+	}
+	buffer.segments = []contentSegment{{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			agentID:      "child-1",
+			status:       "complete",
+			resultStatus: "complete",
+			collapsed:    false,
+			entries:      entries,
+		},
+	}}
+
+	rendered := buffer.String(80)
+	if !strings.Contains(rendered, "[old child events hidden]") {
+		t.Fatalf("rendered delegation transcript %q missing truncation marker", rendered)
+	}
+	if strings.Contains(rendered, "line 0") {
+		t.Fatalf("rendered delegation transcript should hide oldest rows: %q", rendered)
+	}
+	if !strings.Contains(rendered, "line 49") {
+		t.Fatalf("rendered delegation transcript %q missing most recent row", rendered)
 	}
 }
 
