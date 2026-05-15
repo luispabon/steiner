@@ -897,6 +897,76 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 	}
 }
 
+func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.segments[0].renderDirty = false
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"child-1",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("segment kind = %v, want segmentDelegation", got)
+	}
+	if !buffer.segments[0].renderDirty {
+		t.Fatal("delegation segment renderDirty = false, want true")
+	}
+}
+
+func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
+		"missing-child",
+	))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentToolCall {
+		t.Fatalf("segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[0].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
+func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}))
+
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
+	}
+	if got := buffer.segments[0].kind; got != segmentDelegation {
+		t.Fatalf("first segment kind = %v, want segmentDelegation", got)
+	}
+	if got := buffer.segments[1].kind; got != segmentToolCall {
+		t.Fatalf("second segment kind = %v, want segmentToolCall", got)
+	}
+	if buffer.segments[1].toolData == nil {
+		t.Fatal("toolData = nil, want tool segment")
+	}
+}
+
 func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),

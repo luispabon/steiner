@@ -24,6 +24,45 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	}
 }
 
+func (b *contentBuffer) appendScopedDelegationEvent(event output.Event) bool {
+	agentID := event.Scope.AgentID
+	if agentID == "" {
+		return false
+	}
+	if idx, active := b.activeDelegations[agentID]; active {
+		b.markDelegationDirty(idx)
+		return true
+	}
+	if idx, found := b.findDelegationSegment(agentID); found {
+		b.markDelegationDirty(idx)
+		return true
+	}
+	return false
+}
+
+func (b *contentBuffer) findDelegationSegment(agentID string) (int, bool) {
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := b.segments[i]
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.agentID == agentID {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (b *contentBuffer) markDelegationDirty(idx int) {
+	if idx < 0 || idx >= len(b.segments) {
+		return
+	}
+	if b.segments[idx].kind != segmentDelegation || b.segments[idx].delegData == nil {
+		return
+	}
+	b.segments[idx].renderDirty = true
+}
+
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationStartedEvent)
 	if !ok {
