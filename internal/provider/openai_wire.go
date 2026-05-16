@@ -15,14 +15,25 @@ type openAIRequest struct {
 	Stream        bool                 `json:"stream,omitempty"`
 	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
 	Tools         []openAITool         `json:"tools,omitempty"`
-	ExtraParams   map[string]any       `json:"-"`
+	Params        map[string]any       `json:"-"` // Normalized generation params
+	ExtraParams   map[string]any       `json:"-"` // Raw provider-specific passthrough
 }
 
 func (r openAIRequest) MarshalJSON() ([]byte, error) {
-	m := make(map[string]any, len(r.ExtraParams)+6)
+	// Merge order: base → Params → ExtraParams (later values win on collision)
+	m := make(map[string]any, len(r.Params)+len(r.ExtraParams)+6)
+
+	// Merge normalized params first
+	for k, v := range r.Params {
+		m[k] = v
+	}
+
+	// Merge extra params on top (override params on collision)
 	for k, v := range r.ExtraParams {
 		m[k] = v
 	}
+
+	// Standard fields (override anything from params/extra_params)
 	m["model"] = r.Model
 	m["messages"] = r.Messages
 	if r.Stream {
