@@ -1,9 +1,13 @@
 package provider
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 )
 
 func TestResolve(t *testing.T) {
@@ -313,5 +317,93 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				t.Errorf("CompactionThreshold = %f, want %f", got.CompactionThreshold, tt.want.CompactionThreshold)
 			}
 		})
+	}
+}
+
+func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"unknown": {
+				Provider: "local",
+				ID:       "custom-unknown-model",
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "unknown", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "fallback"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.Confidence, "low"; got != want {
+		t.Fatalf("Confidence = %q, want %q", got, want)
+	}
+	if len(rm.Warnings) != 1 {
+		t.Fatalf("Warnings len = %d, want 1", len(rm.Warnings))
+	}
+	wantWarning := "Model metadata warning: unknown/custom-unknown-model has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.unknown.advanced.limits.context_window to remove this warning."
+	if got := rm.Warnings[0]; got != wantWarning {
+		t.Fatalf("warning = %q, want %q", got, wantWarning)
+	}
+	if got, want := rm.TokenizerStrategy, "cl100k_base"; got != want {
+		t.Fatalf("TokenizerStrategy = %q, want %q", got, want)
+	}
+	if got, want := rm.TokenizerConfidence, "low"; got != want {
+		t.Fatalf("TokenizerConfidence = %q, want %q", got, want)
+	}
+}
+
+func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"gpt4o": {
+				Provider: "local",
+				ID:       "gpt-4o",
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "gpt4o", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "models.dev"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if len(rm.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none", rm.Warnings)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+	if !strings.HasSuffix(cache.CachePath(), filepath.Join("steiner", "model-metadata", "models.dev.json")) {
+		t.Fatalf("cache path = %q, want steiner model metadata path", cache.CachePath())
 	}
 }

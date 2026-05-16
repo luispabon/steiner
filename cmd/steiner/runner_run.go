@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -12,6 +13,8 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+var fallbackWarningModels sync.Map
 
 type runnerSetup struct {
 	resolvedModel provider.ResolvedModel
@@ -27,11 +30,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
-
-	// Emit any warnings to stderr
-	for _, warn := range rm.Warnings {
-		fmt.Fprintf(os.Stderr, "steiner: %s\n", warn)
-	}
+	emitFallbackWarnings(r.runtime.status, rm)
 
 	prov, err := r.runtimeProvider(rm)
 	if err != nil {
@@ -51,6 +50,30 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		assembly:      r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
 		runMode:       r.normalizedRunMode(),
 	}, nil
+}
+
+func emitFallbackWarnings(stream *output.Stream, rm provider.ResolvedModel) {
+	if rm.MetadataSource != "fallback" || len(rm.Warnings) == 0 {
+		return
+	}
+	key := rm.Alias + "\x00" + rm.BackendModelID
+	if _, loaded := fallbackWarningModels.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	for _, warn := range rm.Warnings {
+		if stream != nil {
+			stream.Printf("%s\n", warn)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", warn)
+	}
+}
+
+func resetFallbackModelWarnings() {
+	fallbackWarningModels.Range(func(key, _ any) bool {
+		fallbackWarningModels.Delete(key)
+		return true
+	})
 }
 
 func (r cliRunner) selectedAlias() string {

@@ -1,18 +1,18 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/metadata"
 )
+
+var metadataCacheFactory = runtimeMetadataCache
 
 func newModelMetadataCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,7 +31,7 @@ func newModelMetadataStatusCommand() *cobra.Command {
 		Short: "Show model metadata cache status",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cache := runtimeMetadataCache(nil)
+			cache := metadataCacheFactory(nil)
 			return printMetadataStatus(cmd.OutOrStdout(), cache)
 		},
 	}
@@ -43,7 +43,7 @@ func newModelMetadataRefreshCommand() *cobra.Command {
 		Short: "Force refresh of model metadata cache",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cache := runtimeMetadataCache(nil)
+			cache := metadataCacheFactory(nil)
 			if err := cache.Refresh(cmd.Context()); err != nil {
 				return fmt.Errorf("refresh cache: %w", err)
 			}
@@ -59,7 +59,7 @@ func newModelMetadataClearCommand() *cobra.Command {
 		Short: "Remove model metadata cache files",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cache := runtimeMetadataCache(nil)
+			cache := metadataCacheFactory(nil)
 			if err := cache.Clear(); err != nil {
 				return fmt.Errorf("clear cache: %w", err)
 			}
@@ -76,7 +76,10 @@ func printMetadataStatus(out io.Writer, cache *metadata.Cache) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Fprintf(out, "status: not_found\n")
+			fmt.Fprintf(out, "age: missing\n")
+			fmt.Fprintf(out, "size_bytes: 0\n")
+			fmt.Fprintf(out, "freshness: missing\n")
+			fmt.Fprintf(out, "model_count: 0\n")
 			return nil
 		}
 		return fmt.Errorf("stat cache: %w", err)
@@ -84,43 +87,38 @@ func printMetadataStatus(out io.Writer, cache *metadata.Cache) error {
 
 	fmt.Fprintf(out, "size_bytes: %d\n", info.Size())
 
-	meta, _ := cache.LoadMetadata()
+	meta, err := cache.LoadMetadata()
+	if err != nil {
+		return fmt.Errorf("load cache metadata: %w", err)
+	}
+	age := "unknown"
 	if !meta.DownloadedAt.IsZero() {
-		age := time.Since(meta.DownloadedAt)
-		fmt.Fprintf(out, "age: %s\n", age.Round(time.Minute))
+		age = time.Since(meta.DownloadedAt).Round(time.Minute).String()
 	}
-	if !meta.ExpiresAt.IsZero() {
-		fresh := cache.IsFresh()
-		if fresh {
-			fmt.Fprintf(out, "status: fresh\n")
-		} else {
-			fmt.Fprintf(out, "status: expired\n")
-		}
+	fmt.Fprintf(out, "age: %s\n", age)
+
+	freshness := "unknown"
+	switch {
+	case meta.ExpiresAt.IsZero():
+		freshness = "unknown"
+	case cache.IsFresh():
+		freshness = "fresh"
+	default:
+		freshness = "expired"
 	}
+	fmt.Fprintf(out, "freshness: %s\n", freshness)
 
 	if data, err := cache.Load(); err == nil && data != nil {
-		// Count models — simple heuristic
-		var root map[string]interface{}
-		if jsonErr := json.Unmarshal(data, &root); jsonErr == nil {
-			if models, ok := root["models"].(map[string]interface{}); ok {
-				fmt.Fprintf(out, "model_count: %d\n", len(models))
-			}
-		}
+		fmt.Fprintf(out, "model_count: %d\n", metadata.CountModels(data))
+		return nil
 	}
+	fmt.Fprintf(out, "model_count: 0\n")
 	return nil
 }
 
 func runtimeMetadataCache(httpClient *http.Client) *metadata.Cache {
 	return &metadata.Cache{
-		Dir:        metadataCacheDir(),
+		Dir:        metadata.DefaultCacheDir(),
 		HTTPClient: httpClient,
 	}
-}
-
-func metadataCacheDir() string {
-	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
-		return filepath.Join(xdg, "steiner", "model-metadata")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "steiner", "model-metadata")
 }

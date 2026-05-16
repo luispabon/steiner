@@ -40,6 +40,16 @@ type Cache struct {
 	HTTPClient *http.Client
 }
 
+// DefaultCacheDir returns the default models.dev cache directory, honouring
+// XDG_CACHE_HOME when set.
+func DefaultCacheDir() string {
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "steiner", "model-metadata")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "steiner", "model-metadata")
+}
+
 // CachePath returns the path to the main JSON cache file.
 func (c *Cache) CachePath() string {
 	return filepath.Join(c.Dir, cacheFilename)

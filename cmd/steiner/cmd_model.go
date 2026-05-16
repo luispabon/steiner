@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -50,9 +51,9 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	fmt.Fprintf(out, "alias: %s\n", rm.Alias)
 	fmt.Fprintf(out, "provider: %s\n", rm.ProviderAlias)
 	fmt.Fprintf(out, "backend_id: %s\n", rm.BackendModelID)
-	fmt.Fprintf(out, "metadata_source: %s\n", rm.MetadataSource)
 	fmt.Fprintf(out, "confidence: %s\n", rm.Confidence)
 	fmt.Fprintf(out, "limits:\n")
+	fmt.Fprintf(out, "  source: %s\n", rm.MetadataSource)
 	fmt.Fprintf(out, "  context_window: %d\n", rm.EffectiveLimits.ContextWindow)
 	fmt.Fprintf(out, "  max_output_tokens: %d\n", rm.EffectiveLimits.MaxOutputTokens)
 	fmt.Fprintf(out, "  max_input_tokens: %d\n", rm.EffectiveLimits.MaxInputTokens)
@@ -60,12 +61,11 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	fmt.Fprintf(out, "  safety_margin_tokens: %d\n", rm.EffectiveLimits.SafetyMarginTokens)
 	fmt.Fprintf(out, "  summary_max_tokens: %d\n", rm.EffectiveLimits.SummaryMaxTokens)
 	fmt.Fprintf(out, "  compaction_threshold: %.2f\n", rm.EffectiveLimits.CompactionThreshold)
-	if len(rm.Params) > 0 {
-		fmt.Fprintf(out, "params: %v\n", rm.Params)
-	}
-	if len(rm.ExtraParams) > 0 {
-		fmt.Fprintf(out, "extra_params: %v\n", rm.ExtraParams)
-	}
+	fmt.Fprintf(out, "params: %s\n", formatJSONMap(rm.Params))
+	fmt.Fprintf(out, "extra_params: %s\n", formatJSONMap(rm.ExtraParams))
+	fmt.Fprintf(out, "tokenizer:\n")
+	fmt.Fprintf(out, "  strategy: %s\n", rm.TokenizerStrategy)
+	fmt.Fprintf(out, "  confidence: %s\n", rm.TokenizerConfidence)
 	if len(rm.Warnings) > 0 {
 		fmt.Fprintf(out, "warnings:\n")
 		for _, warn := range rm.Warnings {
@@ -73,4 +73,15 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 		}
 	}
 	return nil
+}
+
+func formatJSONMap(values map[string]any) string {
+	if len(values) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }
