@@ -120,6 +120,16 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		}
 	}
 
+	// Check if we ended up using fallback defaults
+	if isFallbackLimits(adv) {
+		rm.MetadataSource = "fallback"
+		rm.Confidence = "low"
+		rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+			"Model metadata warning: %s/%s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
+			alias, rm.BackendModelID, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, alias,
+		))
+	}
+
 	return rm, nil
 }
 
@@ -137,6 +147,12 @@ func metadataCacheDir() string {
 // tokens are explicitly configured, making discovery unnecessary.
 func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
 	return adv.ContextWindow > 0 && adv.MaxOutputTokens > 0
+}
+
+// isFallbackLimits reports whether the advanced limits are all zero, indicating
+// that fallback defaults will be used.
+func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
+	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.MaxInputTokens == 0 && adv.OutputReserveTokens == 0
 }
 
 // resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured

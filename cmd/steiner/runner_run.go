@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -26,6 +27,12 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
+
+	// Emit any warnings to stderr
+	for _, warn := range rm.Warnings {
+		fmt.Fprintf(os.Stderr, "steiner: %s\n", warn)
+	}
+
 	prov, err := r.runtimeProvider(rm)
 	if err != nil {
 		return runnerSetup{}, err
