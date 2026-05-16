@@ -333,7 +333,7 @@ models:
 		"params: {\"temperature\":0.2}",
 		"extra_params: {\"reasoning\":{\"effort\":\"medium\"}}",
 		"tokenizer:",
-		"  strategy: o200k_base",
+		"  strategy: tiktoken",
 		"  confidence: high",
 	} {
 		if !strings.Contains(got, want) {
