@@ -14,30 +14,24 @@ func validBase() Config {
 		RetryAfterMax:  MustDuration("30s"),
 	}
 	return Config{
-		Scheduler: SchedulerConfig{Parallelism: 1},
-		Model: ModelConfig{
-			Type:                "openai_compat",
-			BaseURL:             "http://localhost:11434/v1",
-			Model:               "qwen3-35b-a3b",
-			MaxCompletionTokens: 8192,
-			ContextSize:         32768,
-			Retry:               retry,
-			Compaction: CompactionConfig{
-				SafetyMarginTokens: 2048,
-				SummaryMaxTokens:   1024,
+		Scheduler:    SchedulerConfig{Parallelism: 1},
+		DefaultModel: "default",
+		Providers: map[string]ProviderConfig{
+			"local": {
+				Type:    ProviderTypeOpenAICompat,
+				BaseURL: "http://localhost:11434/v1",
 			},
 		},
 		Models: map[string]ModelConfig{
 			"default": {
-				Type:                "openai_compat",
-				BaseURL:             "http://localhost:11434/v1",
-				Model:               "qwen3-35b-a3b",
-				MaxCompletionTokens: 8192,
-				ContextSize:         32768,
-				Retry:               retry,
-				Compaction: CompactionConfig{
-					SafetyMarginTokens: 2048,
-					SummaryMaxTokens:   1024,
+				Provider: "local",
+				ID:       "qwen3-35b-a3b",
+				Retry:    retry,
+				Advanced: AdvancedConfig{
+					Limits: AdvancedLimitsConfig{
+						SafetyMarginTokens: 2048,
+						SummaryMaxTokens:   1024,
+					},
 				},
 			},
 		},
@@ -90,33 +84,33 @@ func TestValidate(t *testing.T) {
 			wantErr: `context_management.scratchpad_mode "bogus" is not supported`,
 		},
 
-		// 2. Empty model fields, bad parallelism, missing models
+		// Missing default_model, providers, models
 		{
-			name: "empty model type",
+			name: "missing default_model",
 			cfg: func() Config {
 				c := validBase()
-				c.Model.Type = ""
+				c.DefaultModel = ""
 				return c
 			}(),
-			wantErr: "model.type is required",
+			wantErr: "default_model is required",
 		},
 		{
-			name: "empty model base_url",
+			name: "default_model not in models",
 			cfg: func() Config {
 				c := validBase()
-				c.Model.BaseURL = ""
+				c.DefaultModel = "missing"
 				return c
 			}(),
-			wantErr: "model.base_url is required",
+			wantErr: "default_model",
 		},
 		{
-			name: "bad parallelism",
+			name: "missing providers",
 			cfg: func() Config {
 				c := validBase()
-				c.Scheduler.Parallelism = 0
+				c.Providers = nil
 				return c
 			}(),
-			wantErr: "scheduler.parallelism must be at least 1",
+			wantErr: "providers is required",
 		},
 		{
 			name: "missing models",
@@ -128,111 +122,103 @@ func TestValidate(t *testing.T) {
 			wantErr: "models is required",
 		},
 
-		// 3. Model unsupported type, empty base_url, empty model, bad token counts
+		// Provider validation
 		{
-			name: "unsupported model type",
+			name: "provider missing type",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
-				m.Type = "anthropic"
-				c.Models["default"] = m
+				c.Providers["local"] = ProviderConfig{
+					Type:    "",
+					BaseURL: "http://localhost:11434/v1",
+				}
 				return c
 			}(),
-			wantErr: `not supported`,
+			wantErr: "providers[\"local\"].type is required",
 		},
 		{
-			name: "empty model type",
+			name: "provider unsupported type",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
-				m.Type = ""
-				c.Models["default"] = m
+				c.Providers["local"] = ProviderConfig{
+					Type:    "unsupported",
+					BaseURL: "http://localhost:11434/v1",
+				}
 				return c
 			}(),
-			wantErr: `type is required`,
+			wantErr: "providers[\"local\"].type",
 		},
 		{
-			name: "empty base_url",
+			name: "provider missing base_url",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
-				m.BaseURL = ""
-				c.Models["default"] = m
+				c.Providers["local"] = ProviderConfig{
+					Type: ProviderTypeOpenAICompat,
+				}
 				return c
 			}(),
-			wantErr: `base_url is required`,
+			wantErr: "providers[\"local\"].base_url is required",
 		},
 		{
-			name: "empty model field",
+			name: "empty provider alias",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
-				m.Model = ""
-				c.Models["default"] = m
+				c.Providers[""] = ProviderConfig{
+					Type:    ProviderTypeOpenAICompat,
+					BaseURL: "http://localhost:11434/v1",
+				}
 				return c
 			}(),
-			wantErr: `model is required`,
-		},
-		{
-			name: "zero max_completion_tokens",
-			cfg: func() Config {
-				c := validBase()
-				m := c.Models["default"]
-				m.MaxCompletionTokens = 0
-				c.Models["default"] = m
-				return c
-			}(),
-			wantErr: `max_completion_tokens must be at least 1`,
-		},
-		{
-			name: "zero context_size",
-			cfg: func() Config {
-				c := validBase()
-				m := c.Models["default"]
-				m.ContextSize = 0
-				c.Models["default"] = m
-				return c
-			}(),
-			wantErr: `context_size must be at least 1`,
+			wantErr: "providers contains an empty alias",
 		},
 
-		// 4. Compaction validation
+		// Model validation
 		{
-			name: "negative safety_margin_tokens",
+			name: "model missing provider",
 			cfg: func() Config {
 				c := validBase()
 				m := c.Models["default"]
-				m.Compaction.SafetyMarginTokens = -1
+				m.Provider = ""
 				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `safety_margin_tokens must be at least 0`,
+			wantErr: "models[\"default\"].provider is required",
 		},
 		{
-			name: "zero summary_max_tokens",
+			name: "model provider not in providers",
 			cfg: func() Config {
 				c := validBase()
 				m := c.Models["default"]
-				m.Compaction.SummaryMaxTokens = 0
+				m.Provider = "missing"
 				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `summary_max_tokens must be at least 1`,
+			wantErr: "models[\"default\"].provider",
 		},
 		{
-			name: "summary exceeds completion tokens",
+			name: "model missing id",
 			cfg: func() Config {
 				c := validBase()
 				m := c.Models["default"]
-				m.MaxCompletionTokens = 100
-				m.Compaction.SummaryMaxTokens = 500
+				m.ID = ""
 				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `summary_max_tokens must be less than or equal to models["default"].max_completion_tokens`,
+			wantErr: "models[\"default\"].id is required",
+		},
+		{
+			name: "empty model alias",
+			cfg: func() Config {
+				c := validBase()
+				c.Models[""] = ModelConfig{
+					Provider: "local",
+					ID:       "test-model",
+				}
+				return c
+			}(),
+			wantErr: "models contains an empty alias",
 		},
 
-		// 5. Limits with zero/negative values
+		// Limits validation
 		{
 			name: "negative max_turns",
 			cfg: func() Config {
@@ -288,48 +274,54 @@ func TestValidate(t *testing.T) {
 			wantErr: `must be greater than zero`,
 		},
 
-		// 6. Retry validation
+		// Retry validation
 		{
 			name: "zero retry max_attempts",
 			cfg: func() Config {
 				c := validBase()
-				c.Model.Retry.MaxAttempts = 0
+				m := c.Models["default"]
+				m.Retry.MaxAttempts = 0
+				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `model.retry.max_attempts must be at least 1`,
+			wantErr: `models["default"].retry.max_attempts must be at least 1`,
 		},
 		{
 			name: "zero retry duration",
 			cfg: func() Config {
 				c := validBase()
-				c.Model.Retry.InitialBackoff = Duration{}
+				m := c.Models["default"]
+				m.Retry.InitialBackoff = Duration{}
+				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `model.retry.initial_backoff must be greater than zero`,
+			wantErr: `models["default"].retry.initial_backoff must be greater than zero`,
 		},
 		{
 			name: "retry max_backoff less than initial_backoff",
 			cfg: func() Config {
 				c := validBase()
-				c.Model.Retry.InitialBackoff = MustDuration("5s")
-				c.Model.Retry.MaxBackoff = MustDuration("1s")
-				return c
-			}(),
-			wantErr: `model.retry.max_backoff must be greater than or equal to model.retry.initial_backoff`,
-		},
-		{
-			name: "alias retry validation reports alias path",
-			cfg: func() Config {
-				c := validBase()
 				m := c.Models["default"]
-				m.Retry.RetryAfterMax = Duration{}
-				c.Models["fast"] = m
+				m.Retry.InitialBackoff = MustDuration("5s")
+				m.Retry.MaxBackoff = MustDuration("1s")
+				c.Models["default"] = m
 				return c
 			}(),
-			wantErr: `models["fast"].retry.retry_after_max must be greater than zero`,
+			wantErr: `models["default"].retry.max_backoff must be greater than or equal to`,
 		},
 
-		// 7. Approval mode invalid or empty
+		// Scheduler validation
+		{
+			name: "bad parallelism",
+			cfg: func() Config {
+				c := validBase()
+				c.Scheduler.Parallelism = 0
+				return c
+			}(),
+			wantErr: "scheduler.parallelism must be at least 1",
+		},
+
+		// Approval mode invalid or empty
 		{
 			name: "invalid approval default",
 			cfg: func() Config {
@@ -376,7 +368,7 @@ func TestValidate(t *testing.T) {
 			wantErr: ``,
 		},
 
-		// 8. Sub-agent enabled with bad limits
+		// Sub-agent enabled with bad limits
 		{
 			name: "subagent zero max_turns",
 			cfg: func() Config {
@@ -398,7 +390,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `max_tokens must be at least 1 when enabled`,
 		},
 
-		// 9. Project context max tokens < 1
+		// Project context max tokens < 1
 		{
 			name: "zero project_context max_tokens",
 			cfg: func() Config {
@@ -409,7 +401,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `max_tokens must be at least 1`,
 		},
 
-		// 10. Logging level invalid or empty file path
+		// Logging level invalid or empty file path
 		{
 			name: "invalid logging level",
 			cfg: func() Config {
@@ -429,7 +421,7 @@ func TestValidate(t *testing.T) {
 			wantErr: `logging.file is required`,
 		},
 
-		// 11. Tool validation failures
+		// Tool validation failures
 		{
 			name: "tool empty name",
 			cfg: func() Config {
@@ -466,23 +458,6 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `not supported`,
 		},
-
-		// Empty model alias
-		{
-			name: "empty model alias",
-			cfg: func() Config {
-				c := validBase()
-				c.Models[""] = ModelConfig{
-					Type:                "openai_compat",
-					BaseURL:             "http://localhost:11434/v1",
-					Model:               "alias-model",
-					MaxCompletionTokens: 100,
-					ContextSize:         100,
-				}
-				return c
-			}(),
-			wantErr: `models contains an empty alias`,
-		},
 	}
 
 	for _, tt := range tests {
@@ -502,4 +477,8 @@ func TestValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func approvalModePtr(mode ApprovalMode) *ApprovalMode {
+	return &mode
 }

@@ -13,6 +13,19 @@ func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
 }
 
 func applyModelConfigPatch(cfg *Config, patch configPatch) {
+	if patch.DefaultModel != nil {
+		cfg.DefaultModel = *patch.DefaultModel
+	}
+	if patch.Providers != nil {
+		if cfg.Providers == nil {
+			cfg.Providers = make(map[string]ProviderConfig)
+		}
+		for name, p := range *patch.Providers {
+			current := cfg.Providers[name]
+			applyProviderPatch(&current, &p)
+			cfg.Providers[name] = current
+		}
+	}
 	if patch.Models != nil {
 		if cfg.Models == nil {
 			cfg.Models = make(map[string]ModelConfig)
@@ -26,31 +39,29 @@ func applyModelConfigPatch(cfg *Config, patch configPatch) {
 			cfg.Models[name] = current
 		}
 	}
-	if patch.ModelAlias != "" {
-		if m, ok := cfg.Models[patch.ModelAlias]; ok {
-			cfg.Model = m
-		}
-	}
-	if patch.Model != nil {
-		applyModelPatch(&cfg.Model, patch.Model)
-	}
 }
 
 func newModelConfigBase(cfg Config) ModelConfig {
 	if base, ok := cfg.Models["default"]; ok {
 		return cloneModelConfig(base)
 	}
-	return cloneModelConfig(cfg.Model)
+	if len(cfg.Models) > 0 {
+		for _, m := range cfg.Models {
+			return cloneModelConfig(m)
+		}
+	}
+	return ModelConfig{}
 }
 
 func cloneModelConfig(src ModelConfig) ModelConfig {
 	dst := src
+	dst.Params = copyStringAnyMap(src.Params)
 	dst.ExtraParams = copyStringAnyMap(src.ExtraParams)
-	dst.Thinking.Params = copyStringAnyMap(src.Thinking.Params)
+	dst.ThinkingParams = copyStringAnyMap(src.ThinkingParams)
 	return dst
 }
 
-func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
+func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	if patch.Type != nil {
 		dst.Type = *patch.Type
 	}
@@ -60,44 +71,77 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.APIKey != nil {
 		dst.APIKey = *patch.APIKey
 	}
-	if patch.Model != nil {
-		dst.Model = *patch.Model
+	if patch.APIKeyEnv != nil {
+		dst.APIKeyEnv = *patch.APIKeyEnv
+	}
+	if patch.Headers != nil {
+		dst.Headers = *patch.Headers
+	}
+	if patch.Timeout != nil {
+		dst.Timeout = *patch.Timeout
+	}
+}
+
+func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
+	if patch.Provider != nil {
+		dst.Provider = *patch.Provider
+	}
+	if patch.ID != nil {
+		dst.ID = *patch.ID
+	}
+	if patch.Params != nil {
+		dst.Params = copyStringAnyMap(*patch.Params)
 	}
 	if patch.ExtraParams != nil {
 		dst.ExtraParams = copyStringAnyMap(*patch.ExtraParams)
 	}
-	if patch.MaxCompletionTokens != nil {
-		dst.MaxCompletionTokens = *patch.MaxCompletionTokens
+	if patch.ThinkingEnabled != nil {
+		dst.ThinkingEnabled = *patch.ThinkingEnabled
 	}
-	if patch.ContextSize != nil {
-		dst.ContextSize = *patch.ContextSize
+	if patch.ThinkingDisableMarker != nil {
+		dst.ThinkingDisableMarker = *patch.ThinkingDisableMarker
+	}
+	if patch.ThinkingScaffoldInference != nil {
+		dst.ThinkingScaffoldInference = *patch.ThinkingScaffoldInference
+	}
+	if patch.ThinkingParams != nil {
+		dst.ThinkingParams = copyStringAnyMap(*patch.ThinkingParams)
 	}
 	if patch.Retry != nil {
 		applyRetryPatch(&dst.Retry, patch.Retry)
 	}
-	if patch.Compaction != nil {
-		applyCompactionPatch(&dst.Compaction, patch.Compaction)
-	}
 	if patch.Prompts != nil {
 		applyModelPromptsPatch(&dst.Prompts, patch.Prompts)
 	}
-	if patch.Thinking != nil {
-		applyThinkingConfigPatch(&dst.Thinking, patch.Thinking)
+	if patch.Advanced != nil {
+		applyAdvancedPatch(&dst.Advanced, patch.Advanced)
 	}
 }
 
-func applyThinkingConfigPatch(dst *ThinkingConfig, patch *thinkingConfigPatch) {
-	if patch.Enabled != nil {
-		dst.Enabled = *patch.Enabled
+func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
+	if patch.Limits != nil {
+		applyAdvancedLimitsPatch(&dst.Limits, patch.Limits)
 	}
-	if patch.EnabledScaffoldInference != nil {
-		dst.EnabledScaffoldInference = *patch.EnabledScaffoldInference
+}
+
+func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {
+	if patch.ContextWindow != nil {
+		dst.ContextWindow = *patch.ContextWindow
 	}
-	if patch.DisableMarker != nil {
-		dst.DisableMarker = *patch.DisableMarker
+	if patch.MaxOutputTokens != nil {
+		dst.MaxOutputTokens = *patch.MaxOutputTokens
 	}
-	if patch.Params != nil {
-		dst.Params = copyStringAnyMap(*patch.Params)
+	if patch.MaxInputTokens != nil {
+		dst.MaxInputTokens = *patch.MaxInputTokens
+	}
+	if patch.OutputReserveTokens != nil {
+		dst.OutputReserveTokens = *patch.OutputReserveTokens
+	}
+	if patch.SafetyMarginTokens != nil {
+		dst.SafetyMarginTokens = *patch.SafetyMarginTokens
+	}
+	if patch.SummaryMaxTokens != nil {
+		dst.SummaryMaxTokens = *patch.SummaryMaxTokens
 	}
 }
 
@@ -107,15 +151,6 @@ func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
 	}
 	if patch.Compaction != nil {
 		dst.Compaction = *patch.Compaction
-	}
-}
-
-func applyCompactionPatch(dst *CompactionConfig, patch *compactionPatch) {
-	if patch.SafetyMarginTokens != nil {
-		dst.SafetyMarginTokens = *patch.SafetyMarginTokens
-	}
-	if patch.SummaryMaxTokens != nil {
-		dst.SummaryMaxTokens = *patch.SummaryMaxTokens
 	}
 }
 

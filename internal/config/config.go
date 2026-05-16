@@ -87,19 +87,19 @@ type AdvancedConfig struct {
 
 // Config is the complete application configuration.
 type Config struct {
-	Scheduler         SchedulerConfig         `yaml:"scheduler"`
-	DefaultModel      string                  `yaml:"default_model"`
+	Scheduler         SchedulerConfig           `yaml:"scheduler"`
+	DefaultModel      string                    `yaml:"default_model"`
 	Providers         map[string]ProviderConfig `yaml:"providers"`
-	Models            map[string]ModelConfig  `yaml:"models"`
-	Limits            LimitsConfig            `yaml:"limits"`
-	Approval          ApprovalConfig          `yaml:"approval"`
-	SubAgent          SubAgentConfig          `yaml:"sub_agent"`
-	Tools             map[string]ToolConfig   `yaml:"tools"`
-	ProjectContext    ProjectContextConfig    `yaml:"project_context"`
-	Paths             PathsConfig             `yaml:"paths"`
-	Logging           LoggingConfig           `yaml:"logging"`
-	Debug             DebugConfig             `yaml:"debug"`
-	ContextManagement ContextManagementConfig `yaml:"context_management"`
+	Models            map[string]ModelConfig    `yaml:"models"`
+	Limits            LimitsConfig              `yaml:"limits"`
+	Approval          ApprovalConfig            `yaml:"approval"`
+	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
+	Tools             map[string]ToolConfig     `yaml:"tools"`
+	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
+	Paths             PathsConfig               `yaml:"paths"`
+	Logging           LoggingConfig             `yaml:"logging"`
+	Debug             DebugConfig               `yaml:"debug"`
+	ContextManagement ContextManagementConfig   `yaml:"context_management"`
 }
 
 // SchedulerConfig controls provider concurrency.

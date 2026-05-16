@@ -40,6 +40,20 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	if err := applyEnvModelOverride(cfg, lookup); err != nil {
 		return err
 	}
+
+	// Expand env vars in provider fields
+	for name, p := range cfg.Providers {
+		p.BaseURL = expandEnvText(p.BaseURL, lookup)
+		p.APIKey = expandEnvText(p.APIKey, lookup)
+		cfg.Providers[name] = p
+	}
+
+	// Expand env vars in model fields
+	for name, m := range cfg.Models {
+		m.ID = expandEnvText(m.ID, lookup)
+		cfg.Models[name] = m
+	}
+
 	if err := applyEnvIntOverride(&cfg.Scheduler.Parallelism, "STEINER_SCHEDULER_PARALLELISM", lookup); err != nil {
 		return err
 	}
@@ -112,8 +126,8 @@ func applyEnvModelOverride(cfg *Config, lookup func(string) (string, bool)) erro
 	if !ok {
 		return nil
 	}
-	if model, ok := cfg.Models[value]; ok {
-		cfg.Model = model
+	if _, ok := cfg.Models[value]; ok {
+		cfg.DefaultModel = value
 	}
 	return nil
 }
