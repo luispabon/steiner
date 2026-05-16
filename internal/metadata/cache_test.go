@@ -268,6 +268,54 @@ func TestRefresh_OfflineWithoutCacheIsNonFatal(t *testing.T) {
 	}
 }
 
+func TestLoadBestEffort_RefreshesExpiredCacheBeforeLoad(t *testing.T) {
+	staleData := []byte(`{"models":{"old":{"context":8192,"maxOutputTokens":1024}}}`)
+	freshData := []byte(`{"models":{"fresh":{"context":128000,"maxOutputTokens":16384}}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(freshData)
+	}))
+	defer srv.Close()
+
+	c := newTestCache(t)
+	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
+	writeTestData(t, c, staleData)
+	writeTestMeta(t, c, CacheMetadata{
+		DownloadedAt: time.Now().Add(-8 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(-time.Hour),
+		URL:          modelsDevURL,
+	})
+
+	data, err := c.LoadBestEffort(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBestEffort() error = %v", err)
+	}
+	if string(data) != string(freshData) {
+		t.Fatalf("LoadBestEffort() = %s, want %s", data, freshData)
+	}
+}
+
+func TestLoadBestEffort_OfflineFallsBackToStaleCache(t *testing.T) {
+	staleData := []byte(`{"models":{"stale-model":{"context":4096,"maxOutputTokens":512}}}`)
+
+	c := newTestCache(t)
+	c.HTTPClient = &http.Client{Transport: &alwaysFailTransport{}}
+	writeTestData(t, c, staleData)
+	writeTestMeta(t, c, CacheMetadata{
+		DownloadedAt: time.Now().Add(-8 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(-time.Hour),
+		URL:          modelsDevURL,
+	})
+
+	data, err := c.LoadBestEffort(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBestEffort() error = %v", err)
+	}
+	if string(data) != string(staleData) {
+		t.Fatalf("LoadBestEffort() = %s, want %s", data, staleData)
+	}
+}
+
 func TestRefresh_InvalidJSON_DoesNotCorruptCache(t *testing.T) {
 	originalData := []byte(`{"models":{"good":{"context":8192}}}`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

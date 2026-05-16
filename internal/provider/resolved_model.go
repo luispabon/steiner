@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/tiktoken-go/tokenizer"
@@ -57,6 +58,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 	if !ok {
 		return ResolvedModel{}, fmt.Errorf("provider %q not found for model %q", modelCfg.Provider, alias)
 	}
+	provCfg = resolveProviderConfig(provCfg)
 
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
@@ -115,7 +117,9 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 
 	// Try models.dev cache as third source.
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	if data, err := cache.Load(); err == nil && data != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cancel()
+	if data, err := cache.LoadBestEffort(ctx); err == nil && data != nil {
 		info := metadata.Lookup(data, rm.BackendModelID)
 		if info.ContextWindow > 0 || info.MaxOutputTokens > 0 {
 			meta := ModelMetadata{ContextWindow: info.ContextWindow, MaxOutputTokens: info.MaxOutputTokens}
@@ -137,6 +141,35 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	}
 
 	return rm, nil
+}
+
+func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
+	resolved := cfg
+	if strings.TrimSpace(resolved.BaseURL) == "" {
+		resolved.BaseURL = defaultProviderBaseURL(resolved.Type)
+	}
+	if strings.TrimSpace(resolved.APIKey) == "" && strings.TrimSpace(resolved.APIKeyEnv) != "" {
+		resolved.APIKey = os.Getenv(strings.TrimSpace(resolved.APIKeyEnv))
+	}
+	if len(resolved.Headers) > 0 {
+		cloned := make(map[string]string, len(resolved.Headers))
+		for key, value := range resolved.Headers {
+			cloned[key] = value
+		}
+		resolved.Headers = cloned
+	}
+	return resolved
+}
+
+func defaultProviderBaseURL(providerType config.ProviderType) string {
+	switch providerType {
+	case config.ProviderTypeOpenRouter:
+		return "https://openrouter.ai/api/v1"
+	case config.ProviderTypeOpenAI:
+		return "https://api.openai.com/v1"
+	default:
+		return ""
+	}
 }
 
 // limitsFullyConfigured reports whether both context window and max output

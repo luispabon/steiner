@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestOpenAICompatNewOpenAICompat_EmptyBaseURL(t *testing.T) {
@@ -71,6 +72,7 @@ func TestOpenAICompatNewOpenAICompat_Success(t *testing.T) {
 	cfg := OpenAICompatConfig{
 		BaseURL:    "http://localhost:11434/v1",
 		APIKey:     "test-key",
+		Headers:    map[string]string{"X-Test-Header": "configured"},
 		Model:      "gpt-4",
 		HTTPClient: customClient,
 		Scheduler:  &Scheduler{},
@@ -90,6 +92,32 @@ func TestOpenAICompatNewOpenAICompat_Success(t *testing.T) {
 	}
 	if p.httpClient != customClient {
 		t.Fatal("expected custom HTTP client to be stored")
+	}
+	if got, want := p.headers["X-Test-Header"], "configured"; got != want {
+		t.Fatalf("headers[X-Test-Header] = %q, want %q", got, want)
+	}
+}
+
+func TestOpenAICompatNewOpenAICompat_TimeoutClonesHTTPClient(t *testing.T) {
+	customClient := &http.Client{}
+	p, err := NewOpenAICompat(OpenAICompatConfig{
+		BaseURL:    "http://localhost:11434/v1",
+		Model:      "gpt-4",
+		Timeout:    45 * time.Second,
+		HTTPClient: customClient,
+		Scheduler:  &Scheduler{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.httpClient == customClient {
+		t.Fatal("expected timeout configuration to clone HTTP client")
+	}
+	if got, want := p.httpClient.Timeout, 45*time.Second; got != want {
+		t.Fatalf("httpClient.Timeout = %v, want %v", got, want)
+	}
+	if customClient.Timeout != 0 {
+		t.Fatalf("original client timeout = %v, want 0", customClient.Timeout)
 	}
 }
 
@@ -237,6 +265,32 @@ func TestOpenAICompatMarshalRequest_MessagesAndExtraParams(t *testing.T) {
 	}
 	if len(msgs) != 2 {
 		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+}
+
+func TestOpenAICompatBuildHTTPRequestAppliesConfiguredHeaders(t *testing.T) {
+	parsed, _ := url.Parse("http://localhost:11434/v1")
+	p := &OpenAICompat{
+		baseURL: parsed,
+		apiKey:  "secret",
+		headers: map[string]string{
+			"X-Test-Header": "configured",
+			"Authorization": "Bearer override",
+		},
+	}
+
+	req, err := p.buildHTTPRequest(t.Context(), []byte(`{}`), true)
+	if err != nil {
+		t.Fatalf("buildHTTPRequest() error = %v", err)
+	}
+	if got, want := req.Header.Get("X-Test-Header"), "configured"; got != want {
+		t.Fatalf("X-Test-Header = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Authorization"), "Bearer override"; got != want {
+		t.Fatalf("Authorization = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Accept"), "text/event-stream"; got != want {
+		t.Fatalf("Accept = %q, want %q", got, want)
 	}
 }
 
