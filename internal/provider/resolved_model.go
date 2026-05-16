@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 )
 
 // EffectiveLimits holds the runtime-resolved token limits for a model.
@@ -87,22 +90,47 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		return rm, nil
 	}
 
+	adv := modelCfg.Advanced.Limits
+
+	// Try provider discovery.
 	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
-	if discoverer == nil {
-		return rm, nil
+	if discoverer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+		defer cancel()
+		if meta, err := discoverer.DiscoverModelMetadata(ctx, rm.BackendModelID); err == nil {
+			if meta.ContextWindow > 0 || meta.MaxOutputTokens > 0 {
+				rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
+				rm.MetadataSource = "discovery"
+				rm.Confidence = "medium"
+				return rm, nil
+			}
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	defer cancel()
-
-	meta, _ := discoverer.DiscoverModelMetadata(ctx, rm.BackendModelID)
-	if meta.ContextWindow > 0 || meta.MaxOutputTokens > 0 {
-		rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(modelCfg.Advanced.Limits, meta)
-		rm.MetadataSource = "discovery"
-		rm.Confidence = "medium"
+	// Try models.dev cache as third source.
+	cache := &metadata.Cache{Dir: metadataCacheDir(), HTTPClient: httpClient}
+	if data, err := cache.Load(); err == nil && data != nil {
+		info := metadata.Lookup(data, rm.BackendModelID)
+		if info.ContextWindow > 0 || info.MaxOutputTokens > 0 {
+			meta := ModelMetadata{ContextWindow: info.ContextWindow, MaxOutputTokens: info.MaxOutputTokens}
+			rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
+			rm.MetadataSource = "models.dev"
+			rm.Confidence = "medium"
+			return rm, nil
+		}
 	}
 
 	return rm, nil
+}
+
+// metadataCacheDir returns the directory for the models.dev metadata cache,
+// honouring $XDG_CACHE_HOME when set.
+func metadataCacheDir() string {
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "steiner", "model-metadata")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "steiner", "model-metadata")
 }
 
 // limitsFullyConfigured reports whether both context window and max output
