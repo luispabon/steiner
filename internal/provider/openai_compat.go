@@ -116,6 +116,9 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 			return false, err
 		}
 		response, err = normalizeChatResponse(payload)
+		if err == nil {
+			observePromptTokenUsage(ctx, request, response.Usage)
+		}
 		return false, err
 	}, p.classifyRetryError, nil)
 	if err != nil {
@@ -180,6 +183,9 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 
 		partialStream := false
 		err = decodeChatStreamWithHandler(ctx, resp.Body, func(chunk ChatChunk) error {
+			if chunk.Done {
+				observePromptTokenUsage(ctx, request, chunk.Usage)
+			}
 			if chunkVisible(chunk) {
 				partialStream = true
 			}

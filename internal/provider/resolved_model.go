@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/tiktoken-go/tokenizer"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
 )
@@ -221,10 +223,15 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
+	return resolveTokenizerMetadataWithLoader(modelID, tokenizerForModel)
+}
+
+func resolveTokenizerMetadataWithLoader(modelID string, loadTokenizer func(string) (tokenizer.Codec, error)) (strategy string, confidence string) {
 	modelID = strings.TrimSpace(modelID)
-	if modelID == "" {
-		return "cl100k_base", "low"
+	if _, err := loadTokenizer(modelID); err != nil {
+		return TokenizerStrategyHeuristic, "low"
 	}
+
 	switch encodingNameForModel(modelID) {
 	case "o200k_base":
 		if strings.HasPrefix(modelID, "gpt-4.5") ||
@@ -232,20 +239,20 @@ func resolveTokenizerMetadata(modelID string) (strategy string, confidence strin
 			strings.HasPrefix(modelID, "gpt-4o") ||
 			strings.HasPrefix(modelID, "o1") ||
 			strings.HasPrefix(modelID, "o3") {
-			return "o200k_base", "high"
+			return TokenizerStrategyTiktoken, "high"
 		}
 	case "cl100k_base":
 		if strings.HasPrefix(modelID, "gpt-4") ||
 			strings.HasPrefix(modelID, "gpt-3.5") ||
 			strings.HasPrefix(modelID, "text-embedding-ada-002") ||
 			strings.HasPrefix(modelID, "text-embedding-3") {
-			return "cl100k_base", "high"
+			return TokenizerStrategyTiktoken, "high"
 		}
 	case "p50k_base":
 		if strings.HasPrefix(modelID, "text-davinci") ||
 			strings.HasPrefix(modelID, "code-davinci") ||
 			strings.HasPrefix(modelID, "code-cushman") {
-			return "p50k_base", "high"
+			return TokenizerStrategyTiktoken, "high"
 		}
 	case "r50k_base":
 		if strings.HasPrefix(modelID, "davinci") ||
@@ -253,8 +260,8 @@ func resolveTokenizerMetadata(modelID string) (strategy string, confidence strin
 			strings.HasPrefix(modelID, "babbage") ||
 			strings.HasPrefix(modelID, "ada") ||
 			modelID == "gpt2" {
-			return "r50k_base", "high"
+			return TokenizerStrategyTiktoken, "high"
 		}
 	}
-	return string(encodingNameForModel(modelID)), "low"
+	return TokenizerStrategyTiktoken, "low"
 }

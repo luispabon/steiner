@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
+	"github.com/tiktoken-go/tokenizer"
 )
 
 func TestResolve(t *testing.T) {
@@ -352,11 +354,25 @@ func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
 	if got := rm.Warnings[0]; got != wantWarning {
 		t.Fatalf("warning = %q, want %q", got, wantWarning)
 	}
-	if got, want := rm.TokenizerStrategy, "cl100k_base"; got != want {
+	if got, want := rm.TokenizerStrategy, TokenizerStrategyTiktoken; got != want {
 		t.Fatalf("TokenizerStrategy = %q, want %q", got, want)
 	}
 	if got, want := rm.TokenizerConfidence, "low"; got != want {
 		t.Fatalf("TokenizerConfidence = %q, want %q", got, want)
+	}
+}
+
+func TestResolveTokenizerMetadataFallsBackToHeuristicWhenTiktokenUnavailable(t *testing.T) {
+	t.Parallel()
+
+	strategy, confidence := resolveTokenizerMetadataWithLoader("custom-model", func(string) (tokenizer.Codec, error) {
+		return nil, errors.New("unavailable")
+	})
+	if strategy != TokenizerStrategyHeuristic {
+		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyHeuristic)
+	}
+	if confidence != "low" {
+		t.Fatalf("confidence = %q, want low", confidence)
 	}
 }
 
