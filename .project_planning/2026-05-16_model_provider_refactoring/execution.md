@@ -27,8 +27,8 @@
 | stage-4-step-1 | complete | Merged via `807eb8e` / `d3c7082`. Request payload merge order formalized. |
 | stage-5-step-1 | complete | Merged via `2d1cf1f` / `57d9e8b`. Provider metadata discovery added. |
 | stage-6-step-1 | complete | Implemented in `afda8e8`. `models.dev` cache integrated as third metadata source. |
-| stage-7-step-1 | blocked | Recoverable orphaned temp branch `exec/stage-7-step-1` exists at `/tmp/claude/steiner-s7s1` with commit `cf0bdfd`, but it is unmerged, includes an out-of-scope generated `steiner` binary, and needs executor review/salvage before merge. |
-| stage-8-step-1 | pending | Token counter interface |
+| stage-7-step-1 | complete | Salvaged from orphaned temp branch `exec/stage-7-step-1`, merged to feature branch, verification fix pass applied, and `make quick-check` now passes on merged branch. |
+| stage-8-step-1 | running | Token counter interface and provider-usage calibration is the next active implementation step. |
 | stage-9-step-1 | pending | Cleanup and audit |
 | stage-9-step-2 | pending | README rewrite |
 
@@ -42,18 +42,23 @@
 | stage-3-step-1 | unknown (prior executor state) | cleaned up | unknown | merged via `061a6fe` |
 | stage-4-step-1 | unknown (prior executor state) | cleaned up | unknown | merged via `807eb8e` |
 | stage-5-step-1 | unknown (prior executor state) | cleaned up | unknown | merged via `2d1cf1f` |
-| stage-7-step-1 | `exec/stage-7-step-1` | `/tmp/claude/steiner-s7s1` | unknown | committed (`cf0bdfd`), not merged, worktree still present |
+| stage-7-step-1 | `exec/stage-7-step-1` | `/tmp/claude/steiner-s7s1` | inherited runtime model | merged via `12fcd37`, sub-agent closed, worktree removed, branch deleted |
+| fix-pass-001 | `exec/fix-verification-pass-001` | `/tmp/claude/steiner-fix-verification-pass-001` | inherited runtime model | merged via `3ef09af`, sub-agent closed, worktree removed, branch deleted |
 
 ## Verification Runs
 
 - 2026-05-16: `make quick-check` on `cl/2026-05-16_model_provider_refactoring` — passed.
 - 2026-05-16: `go test ./internal/provider/... ./internal/metadata/... ./internal/config/... ./internal/agent/... ./internal/delegation/... ./cmd/steiner/...` — passed.
 - 2026-05-16: `git grep -n "\\bContextSize\\b|\\.Type\\b|\\.BaseURL\\b|\\.APIKey\\b|\\.MaxCompletionTokens\\b" -- ':(exclude)*_test.go'` — no non-test hits.
+- 2026-05-16: `make quick-check` after merging `stage-7-step-1` — failed in `cmd/steiner.TestModelInspectCommand` due to incorrect test expectation (`fallback` vs actual `config` source).
+- 2026-05-16: `go test ./cmd/steiner/...` in `exec/fix-verification-pass-001` — passed after narrowing the test expectation to actual resolver semantics.
+- 2026-05-16: `make quick-check` after merging fix pass `001` — passed.
 
 ## Deviations
 
 - Prior executor state was not recorded incrementally in this file. Reconstructed step completion state from feature-branch commits and surviving temp branch state.
+- `stage-7-step-1` required a post-merge verification fix pass because one merged test asserted fallback metadata semantics that contradicted the actual resolved config path.
 
 ## Blockers
 
-- `stage-7-step-1` resume state is inconsistent: temp branch and worktree exist, but the feature branch and this execution log were never updated. The surviving branch appears partly salvageable but must be cleaned and reviewed before merge.
+- (none currently)
