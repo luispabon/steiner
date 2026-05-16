@@ -30,7 +30,7 @@
 | stage-7-step-1 | complete | Salvaged from orphaned temp branch `exec/stage-7-step-1`, merged to feature branch, verification fix pass applied, and `make quick-check` now passes on merged branch. |
 | stage-8-step-1 | complete | Token counter strategies merged via `7cdcd80` and verified with `make quick-check`. |
 | stage-9-step-1 | complete | Cleanup/audit coverage merged via `c96140b`, lint/fmt follow-up merged via `b51fb49`, and `make check` passed in the isolated fix branch. |
-| stage-9-step-2 | running | README rewrite is the final planned implementation step before end-of-chain verification. |
+| stage-9-step-2 | complete | README rewrite merged via `81b508f` and final automated verification passed, including `make ci-check`. |
 
 ## Sub-Agents
 
@@ -47,6 +47,7 @@
 | stage-8-step-1 | `exec/stage-8-step-1` | `/tmp/claude/steiner-s8s1` | inherited runtime model | merged via `7cdcd80`, sub-agent closed, worktree removed, branch deleted |
 | stage-9-step-1 | `exec/stage-9-step-1` | `/tmp/claude/steiner-s9s1` | inherited runtime model | merged via `c96140b`, sub-agent closed, worktree removed, branch deleted |
 | fix-pass-002 | `exec/fix-verification-pass-002` | `/tmp/claude/steiner-fix-verification-pass-002` | inherited runtime model | merged via `b51fb49`, sub-agent closed, worktree removed, branch deleted |
+| stage-9-step-2 | `exec/stage-9-step-2` | `/tmp/claude/steiner-s9s2` | inherited runtime model | merged via `81b508f`, sub-agent closed, worktree removed, branch deleted |
 
 ## Verification Runs
 
@@ -63,6 +64,9 @@
 - 2026-05-16: `make quick-check` in `exec/stage-9-step-1` — passed.
 - 2026-05-16: `make check` after merging `stage-9-step-1` — failed on consolidated lint/fmt blockers from current branch state.
 - 2026-05-16: `make check` in `exec/fix-verification-pass-002` — passed, including `golangci-lint run ./...` and `govulncheck ./...`.
+- 2026-05-16: `make quick-check` after merging `stage-9-step-2` — passed.
+- 2026-05-16: `golangci-lint cache clean` — run to clear stale worktree-path cache entries before final CI verification.
+- 2026-05-16: `make ci-check` — passed after cache clean, including `go mod tidy`, `go test ./...`, `go vet ./...`, `golangci-lint run ./...`, `govulncheck ./...`, and `go test -race ./...`.
 
 ## Deviations
 
@@ -70,6 +74,7 @@
 - `stage-7-step-1` required a post-merge verification fix pass because one merged test asserted fallback metadata semantics that contradicted the actual resolved config path.
 - `stage-8-step-1` stores in-memory calibration by `request.Model` / backend model ID because the provider request path does not carry model alias information at calibration time.
 - Per user instruction on 2026-05-16, final handoff verification will use `make ci-check`, and any warnings or errors from that gate must be fixed before reviewer handoff.
+- Final `make ci-check` initially surfaced stale `golangci-lint` cache references to a deleted temp worktree; clearing the linter cache removed those false positives and the rerun passed cleanly.
 
 ## Blockers
 
