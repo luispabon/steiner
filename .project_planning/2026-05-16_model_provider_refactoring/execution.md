@@ -28,8 +28,8 @@
 | stage-5-step-1 | complete | Merged via `2d1cf1f` / `57d9e8b`. Provider metadata discovery added. |
 | stage-6-step-1 | complete | Implemented in `afda8e8`. `models.dev` cache integrated as third metadata source. |
 | stage-7-step-1 | complete | Salvaged from orphaned temp branch `exec/stage-7-step-1`, merged to feature branch, verification fix pass applied, and `make quick-check` now passes on merged branch. |
-| stage-8-step-1 | running | Token counter interface and provider-usage calibration is the next active implementation step. |
-| stage-9-step-1 | pending | Cleanup and audit |
+| stage-8-step-1 | complete | Token counter strategies merged via `7cdcd80` and verified with `make quick-check`. |
+| stage-9-step-1 | running | Cleanup/audit step is the next active implementation step. |
 | stage-9-step-2 | pending | README rewrite |
 
 ## Sub-Agents
@@ -44,6 +44,7 @@
 | stage-5-step-1 | unknown (prior executor state) | cleaned up | unknown | merged via `2d1cf1f` |
 | stage-7-step-1 | `exec/stage-7-step-1` | `/tmp/claude/steiner-s7s1` | inherited runtime model | merged via `12fcd37`, sub-agent closed, worktree removed, branch deleted |
 | fix-pass-001 | `exec/fix-verification-pass-001` | `/tmp/claude/steiner-fix-verification-pass-001` | inherited runtime model | merged via `3ef09af`, sub-agent closed, worktree removed, branch deleted |
+| stage-8-step-1 | `exec/stage-8-step-1` | `/tmp/claude/steiner-s8s1` | inherited runtime model | merged via `7cdcd80`, sub-agent closed, worktree removed, branch deleted |
 
 ## Verification Runs
 
@@ -53,11 +54,15 @@
 - 2026-05-16: `make quick-check` after merging `stage-7-step-1` — failed in `cmd/steiner.TestModelInspectCommand` due to incorrect test expectation (`fallback` vs actual `config` source).
 - 2026-05-16: `go test ./cmd/steiner/...` in `exec/fix-verification-pass-001` — passed after narrowing the test expectation to actual resolver semantics.
 - 2026-05-16: `make quick-check` after merging fix pass `001` — passed.
+- 2026-05-16: `go test ./internal/provider/...` in `exec/stage-8-step-1` — passed.
+- 2026-05-16: `go test ./cmd/steiner -run TestModelInspectCommand` in `exec/stage-8-step-1` — passed.
+- 2026-05-16: `make quick-check` after merging `stage-8-step-1` — passed.
 
 ## Deviations
 
 - Prior executor state was not recorded incrementally in this file. Reconstructed step completion state from feature-branch commits and surviving temp branch state.
 - `stage-7-step-1` required a post-merge verification fix pass because one merged test asserted fallback metadata semantics that contradicted the actual resolved config path.
+- `stage-8-step-1` stores in-memory calibration by `request.Model` / backend model ID because the provider request path does not carry model alias information at calibration time.
 
 ## Blockers
 
