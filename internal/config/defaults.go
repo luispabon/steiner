@@ -26,10 +26,8 @@ func defaultConfig() Config {
 		},
 		Advanced: AdvancedConfig{
 			Limits: AdvancedLimitsConfig{
-				ContextWindow:      32768,
-				MaxOutputTokens:    8192,
-				SafetyMarginTokens: 2048,
-				SummaryMaxTokens:   1024,
+				ContextWindow:   32768,
+				MaxOutputTokens: 8192,
 			},
 		},
 	}

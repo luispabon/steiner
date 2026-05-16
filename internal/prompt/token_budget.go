@@ -13,8 +13,8 @@ func ModelBudgetFromEffectiveLimits(limits provider.EffectiveLimits) ModelTokenB
 	return ModelTokenBudget{
 		ContextSize:         limits.ContextWindow,
 		MaxCompletionTokens: limits.MaxOutputTokens,
-		SafetyMarginTokens:  limits.SafetyMarginTokens,
-		SummaryMaxTokens:    limits.SummaryMaxTokens,
+		SafetyMarginTokens:  limits.EstimatorPadTokens,
+		SummaryMaxTokens:    limits.NormalSummaryMaxTokens,
 	}
 }
 

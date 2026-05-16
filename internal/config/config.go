@@ -80,11 +80,8 @@ type ProviderConfig struct {
 
 // AdvancedLimitsConfig defines token limits for model inference.
 type AdvancedLimitsConfig struct {
-	ContextWindow       int `yaml:"context_window"`
-	MaxOutputTokens     int `yaml:"max_output_tokens"`
-	OutputReserveTokens int `yaml:"output_reserve_tokens"`
-	SafetyMarginTokens  int `yaml:"safety_margin_tokens"`
-	SummaryMaxTokens    int `yaml:"summary_max_tokens"`
+	ContextWindow   int `yaml:"context_window"`
+	MaxOutputTokens int `yaml:"max_output_tokens"`
 }
 
 // AdvancedConfig holds advanced model-specific configuration.
@@ -143,12 +140,6 @@ type RetryConfig struct {
 type ModelPrompts struct {
 	System     string `yaml:"system"`
 	Compaction string `yaml:"compaction"`
-}
-
-// CompactionConfig controls model-side summary compaction budgets.
-type CompactionConfig struct {
-	SafetyMarginTokens int `yaml:"safety_margin_tokens"`
-	SummaryMaxTokens   int `yaml:"summary_max_tokens"`
 }
 
 // LimitsConfig defines runtime limits for turns, tokens, and tools.

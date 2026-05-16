@@ -63,8 +63,6 @@ models:
       limits:
         max_output_tokens: 64
         context_window: 4096
-        safety_margin_tokens: 16
-        summary_max_tokens: 32
 `)
 	t.Setenv("HOME", filepath.Join(tempDir, "home"))
 
