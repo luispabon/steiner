@@ -548,19 +548,16 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 		Provider:    stubProvider{},
 		ResolvedModel: provider.ResolvedModel{
 			EffectiveLimits: provider.EffectiveLimits{
-				ContextWindow:      128000,
-				MaxOutputTokens:    8192,
-				SafetyMarginTokens: 500,
-				SummaryMaxTokens:   2000,
+				ContextWindow:             128000,
+				MaxOutputTokens:           8192,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        1280,
+				NormalSummaryMaxTokens:    8192,
+				EmergencySummaryMaxTokens: 5120,
 			},
 		},
 	}
-	wantBudget := prompt.ModelTokenBudget{
-		ContextSize:         128000,
-		MaxCompletionTokens: 8192,
-		SafetyMarginTokens:  500,
-		SummaryMaxTokens:    2000,
-	}
+	wantBudget := prompt.ModelBudgetFromEffectiveLimits(deps.ResolvedModel.EffectiveLimits)
 	spec := DelegationSpec{Task: "task", AgentID: "m3", Limits: DelegationLimits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {

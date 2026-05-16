@@ -100,8 +100,6 @@ models:
       limits:
         max_output_tokens: 2048
         context_window: 8192
-        safety_margin_tokens: 256
-        summary_max_tokens: 128
 limits:
   max_turns: 25
 approval:
@@ -131,8 +129,6 @@ models:
       limits:
         max_output_tokens: 4096
         context_window: 32768
-        safety_margin_tokens: 1024
-        summary_max_tokens: 512
   cli:
     provider: cli-provider
     id: cli-backend
@@ -146,8 +142,6 @@ models:
       limits:
         max_output_tokens: 8192
         context_window: 65536
-        safety_margin_tokens: 2048
-        summary_max_tokens: 1024
 limits:
   max_turns: 10
 logging:
@@ -280,8 +274,6 @@ models:
       limits:
         max_output_tokens: 256
         context_window: 4096
-        safety_margin_tokens: 128
-        summary_max_tokens: 64
   slow:
     provider: slow-provider
     id: slow-backend
@@ -295,8 +287,6 @@ models:
       limits:
         max_output_tokens: 512
         context_window: 8192
-        safety_margin_tokens: 256
-        summary_max_tokens: 128
 `)
 
 	cwd, err := os.Getwd()
@@ -1035,8 +1025,6 @@ func testRuntimeConfig(alias string) config.Config {
 			Limits: config.AdvancedLimitsConfig{
 				MaxOutputTokens:    64,
 				ContextWindow:      4096,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   32,
 			},
 		},
 	}
@@ -1197,8 +1185,6 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 			Limits: config.AdvancedLimitsConfig{
 				MaxOutputTokens:    64,
 				ContextWindow:      1,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   8,
 			},
 		},
 	}
@@ -1266,8 +1252,6 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens:    32,
 					ContextWindow:      1024,
-					SafetyMarginTokens: 8,
-					SummaryMaxTokens:   16,
 				},
 			},
 		},
@@ -1278,8 +1262,6 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens:    96,
 					ContextWindow:      8192,
-					SafetyMarginTokens: 24,
-					SummaryMaxTokens:   48,
 				},
 			},
 		},
@@ -1350,8 +1332,6 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens:    32,
 					ContextWindow:      1024,
-					SafetyMarginTokens: 8,
-					SummaryMaxTokens:   16,
 				},
 			},
 		},
@@ -1362,8 +1342,6 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens:    96,
 					ContextWindow:      8192,
-					SafetyMarginTokens: 24,
-					SummaryMaxTokens:   48,
 				},
 			},
 		},
@@ -1429,8 +1407,6 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 			Limits: config.AdvancedLimitsConfig{
 				MaxOutputTokens:    64,
 				ContextWindow:      4096,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   32,
 			},
 		},
 	}

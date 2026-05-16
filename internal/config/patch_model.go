@@ -131,15 +131,6 @@ func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPa
 	if patch.MaxOutputTokens != nil {
 		dst.MaxOutputTokens = *patch.MaxOutputTokens
 	}
-	if patch.OutputReserveTokens != nil {
-		dst.OutputReserveTokens = *patch.OutputReserveTokens
-	}
-	if patch.SafetyMarginTokens != nil {
-		dst.SafetyMarginTokens = *patch.SafetyMarginTokens
-	}
-	if patch.SummaryMaxTokens != nil {
-		dst.SummaryMaxTokens = *patch.SummaryMaxTokens
-	}
 }
 
 func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {

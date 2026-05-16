@@ -40,8 +40,8 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	modelBudget := prompt.ModelTokenBudget{
 		ContextSize:         deps.ResolvedModel.EffectiveLimits.ContextWindow,
 		MaxCompletionTokens: deps.ResolvedModel.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:  deps.ResolvedModel.EffectiveLimits.SafetyMarginTokens,
-		SummaryMaxTokens:    deps.ResolvedModel.EffectiveLimits.SummaryMaxTokens,
+		SafetyMarginTokens:  deps.ResolvedModel.EffectiveLimits.EstimatorPadTokens,
+		SummaryMaxTokens:    deps.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
 	}
 
 	promptOpts := buildChildPrompt(spec)

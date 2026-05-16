@@ -32,11 +32,8 @@ func TestResolve(t *testing.T) {
 				ThinkingParams:            map[string]any{"budget_tokens": 1024},
 				Advanced: config.AdvancedConfig{
 					Limits: config.AdvancedLimitsConfig{
-						ContextWindow:       128000,
-						MaxOutputTokens:     8192,
-						OutputReserveTokens: 512,
-						SafetyMarginTokens:  500,
-						SummaryMaxTokens:    2000,
+						ContextWindow:   128000,
+						MaxOutputTokens: 8192,
 					},
 				},
 			},
@@ -122,14 +119,14 @@ func TestResolve(t *testing.T) {
 				if lim.MaxOutputTokens != 8192 {
 					t.Errorf("MaxOutputTokens=%d, want 8192", lim.MaxOutputTokens)
 				}
-				if lim.OutputReserveTokens != 512 {
-					t.Errorf("OutputReserveTokens=%d, want 512", lim.OutputReserveTokens)
+				if lim.EstimatorPadTokens != 1280 {
+					t.Errorf("EstimatorPadTokens=%d, want 1280", lim.EstimatorPadTokens)
 				}
-				if lim.SafetyMarginTokens != 500 {
-					t.Errorf("SafetyMarginTokens=%d, want 500", lim.SafetyMarginTokens)
+				if lim.NormalSummaryMaxTokens != 8192 {
+					t.Errorf("NormalSummaryMaxTokens=%d, want 8192", lim.NormalSummaryMaxTokens)
 				}
-				if lim.SummaryMaxTokens != 2000 {
-					t.Errorf("SummaryMaxTokens=%d, want 2000", lim.SummaryMaxTokens)
+				if lim.EmergencySummaryMaxTokens != 5120 {
+					t.Errorf("EmergencySummaryMaxTokens=%d, want 5120", lim.EmergencySummaryMaxTokens)
 				}
 				if lim.CompactionThreshold != 0.70 {
 					t.Errorf("CompactionThreshold=%v, want 0.70", lim.CompactionThreshold)
@@ -192,6 +189,15 @@ func TestResolveMinimalConfig(t *testing.T) {
 	if got, want := rm.EffectiveLimits.MaxOutputTokens, 4096; got != want {
 		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
 	}
+	if got, want := rm.EffectiveLimits.EstimatorPadTokens, 327; got != want {
+		t.Fatalf("EstimatorPadTokens = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.NormalSummaryMaxTokens, 4096; got != want {
+		t.Fatalf("NormalSummaryMaxTokens = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.EmergencySummaryMaxTokens, 2048; got != want {
+		t.Fatalf("EmergencySummaryMaxTokens = %d, want %d", got, want)
+	}
 }
 
 func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
@@ -228,19 +234,16 @@ func TestResolveEffectiveLimits(t *testing.T) {
 		{
 			name: "all values configured",
 			input: config.AdvancedLimitsConfig{
-				ContextWindow:       128000,
-				MaxOutputTokens:     8192,
-				OutputReserveTokens: 512,
-				SafetyMarginTokens:  500,
-				SummaryMaxTokens:    2000,
+				ContextWindow:   128000,
+				MaxOutputTokens: 8192,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       128000,
-				MaxOutputTokens:     8192,
-				OutputReserveTokens: 512,
-				SafetyMarginTokens:  500,
-				SummaryMaxTokens:    2000,
-				CompactionThreshold: 0.70,
+				ContextWindow:             128000,
+				MaxOutputTokens:           8192,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        1280,
+				NormalSummaryMaxTokens:    8192,
+				EmergencySummaryMaxTokens: 5120,
 			},
 		},
 		{
@@ -249,12 +252,12 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				ContextWindow: 64000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       64000,
-				MaxOutputTokens:     4096,
-				OutputReserveTokens: 4096,
-				SafetyMarginTokens:  2048,
-				SummaryMaxTokens:    8192, // min(64000/4, 8192) = min(16000, 8192) = 8192
-				CompactionThreshold: 0.70,
+				ContextWindow:             64000,
+				MaxOutputTokens:           0,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        640,
+				NormalSummaryMaxTokens:    5120,
+				EmergencySummaryMaxTokens: 2560,
 			},
 		},
 		{
@@ -264,12 +267,12 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens: 6000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       100000,
-				MaxOutputTokens:     6000,
-				OutputReserveTokens: 6000, // derives from max_output
-				SafetyMarginTokens:  2048,
-				SummaryMaxTokens:    8192, // min(100000/4, 8192) = 8192
-				CompactionThreshold: 0.70,
+				ContextWindow:             100000,
+				MaxOutputTokens:           6000,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        1000,
+				NormalSummaryMaxTokens:    6000,
+				EmergencySummaryMaxTokens: 4000,
 			},
 		},
 		{
@@ -278,52 +281,52 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens: 5000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       0,
-				MaxOutputTokens:     5000,
-				OutputReserveTokens: 5000,
-				SafetyMarginTokens:  0, // no safety margin when context_window unknown
-				SummaryMaxTokens:    0, // no summary max when context_window unknown
-				CompactionThreshold: 0.70,
+				ContextWindow:             0,
+				MaxOutputTokens:           5000,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        256,
+				NormalSummaryMaxTokens:    4096,
+				EmergencySummaryMaxTokens: 2048,
 			},
 		},
 		{
 			name:  "fallback (nothing configured)",
 			input: config.AdvancedLimitsConfig{},
 			want: EffectiveLimits{
-				ContextWindow:       32768,
-				MaxOutputTokens:     4096,
-				OutputReserveTokens: 4096,
-				SafetyMarginTokens:  2048,
-				SummaryMaxTokens:    4096,
-				CompactionThreshold: 0.70,
+				ContextWindow:             32768,
+				MaxOutputTokens:           4096,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        327,
+				NormalSummaryMaxTokens:    4096,
+				EmergencySummaryMaxTokens: 2048,
 			},
 		},
 		{
-			name: "context_window where context/4 < 8192 cap",
+			name: "context_window with summary floors",
 			input: config.AdvancedLimitsConfig{
-				ContextWindow: 32000, // 32000/4 = 8000, which is < 8192
+				ContextWindow: 32000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       32000,
-				MaxOutputTokens:     4096,
-				OutputReserveTokens: 4096,
-				SafetyMarginTokens:  2048,
-				SummaryMaxTokens:    8000, // min(32000/4, 8192) = min(8000, 8192) = 8000
-				CompactionThreshold: 0.70,
+				ContextWindow:             32000,
+				MaxOutputTokens:           0,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        320,
+				NormalSummaryMaxTokens:    4096,
+				EmergencySummaryMaxTokens: 2048,
 			},
 		},
 		{
-			name: "large context_window capped at 8192",
+			name: "large context_window capped at derived max",
 			input: config.AdvancedLimitsConfig{
-				ContextWindow: 1000000, // 1000000/4 = 250000, capped at 8192
+				ContextWindow: 1000000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       1000000,
-				MaxOutputTokens:     4096,
-				OutputReserveTokens: 4096,
-				SafetyMarginTokens:  2048,
-				SummaryMaxTokens:    8192, // min(1000000/4, 8192) = 8192
-				CompactionThreshold: 0.70,
+				ContextWindow:             1000000,
+				MaxOutputTokens:           0,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        2048,
+				NormalSummaryMaxTokens:    16000,
+				EmergencySummaryMaxTokens: 8000,
 			},
 		},
 		{
@@ -332,12 +335,12 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens: 2000,
 			},
 			want: EffectiveLimits{
-				ContextWindow:       0,
-				MaxOutputTokens:     2000,
-				OutputReserveTokens: 2000, // derives from max_output
-				SafetyMarginTokens:  0,
-				SummaryMaxTokens:    0,
-				CompactionThreshold: 0.70,
+				ContextWindow:             0,
+				MaxOutputTokens:           2000,
+				CompactionThreshold:       0.70,
+				EstimatorPadTokens:        256,
+				NormalSummaryMaxTokens:    2000,
+				EmergencySummaryMaxTokens: 2000,
 			},
 		},
 	}
@@ -351,14 +354,14 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			if got.MaxOutputTokens != tt.want.MaxOutputTokens {
 				t.Errorf("MaxOutputTokens = %d, want %d", got.MaxOutputTokens, tt.want.MaxOutputTokens)
 			}
-			if got.OutputReserveTokens != tt.want.OutputReserveTokens {
-				t.Errorf("OutputReserveTokens = %d, want %d", got.OutputReserveTokens, tt.want.OutputReserveTokens)
+			if got.EstimatorPadTokens != tt.want.EstimatorPadTokens {
+				t.Errorf("EstimatorPadTokens = %d, want %d", got.EstimatorPadTokens, tt.want.EstimatorPadTokens)
 			}
-			if got.SafetyMarginTokens != tt.want.SafetyMarginTokens {
-				t.Errorf("SafetyMarginTokens = %d, want %d", got.SafetyMarginTokens, tt.want.SafetyMarginTokens)
+			if got.NormalSummaryMaxTokens != tt.want.NormalSummaryMaxTokens {
+				t.Errorf("NormalSummaryMaxTokens = %d, want %d", got.NormalSummaryMaxTokens, tt.want.NormalSummaryMaxTokens)
 			}
-			if got.SummaryMaxTokens != tt.want.SummaryMaxTokens {
-				t.Errorf("SummaryMaxTokens = %d, want %d", got.SummaryMaxTokens, tt.want.SummaryMaxTokens)
+			if got.EmergencySummaryMaxTokens != tt.want.EmergencySummaryMaxTokens {
+				t.Errorf("EmergencySummaryMaxTokens = %d, want %d", got.EmergencySummaryMaxTokens, tt.want.EmergencySummaryMaxTokens)
 			}
 			if got.CompactionThreshold != tt.want.CompactionThreshold {
 				t.Errorf("CompactionThreshold = %f, want %f", got.CompactionThreshold, tt.want.CompactionThreshold)
