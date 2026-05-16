@@ -20,7 +20,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	selected := s.deps.Config.Model
+	selected := s.deps.Config.Models[s.deps.Config.DefaultModel]
 
 	var err error
 	prov := s.deps.Provider
@@ -37,10 +37,10 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	}
 
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+		ContextSize:         selected.Advanced.Limits.ContextWindow,
+		MaxCompletionTokens: selected.Advanced.Limits.MaxOutputTokens,
+		SafetyMarginTokens:  selected.Advanced.Limits.SafetyMarginTokens,
+		SummaryMaxTokens:    selected.Advanced.Limits.SummaryMaxTokens,
 	}
 	assembly := prompt.AssemblyOptions{
 		HomeDir:         s.deps.HomeDir,
@@ -54,11 +54,11 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		Provider:    prov,
 		Prompt:      assembly,
 		ModelBudget: modelBudget,
-		Model:       selected.Model,
+		Model:       selected.ID,
 		Events:      s.events,
 	}
 
-	newConv, err := s.runManualCompaction(ctx, selected.Model, func(runCtx context.Context) ([]agent.Message, error) {
+	newConv, err := s.runManualCompaction(ctx, selected.ID, func(runCtx context.Context) ([]agent.Message, error) {
 		agentRunner := agent.NewRunner()
 		return agentRunner.Compact(runCtx, compactReq, conversation)
 	})

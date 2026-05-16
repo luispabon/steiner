@@ -40,14 +40,14 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	}
 	r.runtime.events.Emit(output.NewRunStartedEvent(
 		setup.runMode,
-		setup.selected.Model,
+		setup.selected.ID,
 		lastUserPrompt(conversation),
 		r.maxTurns,
 		r.runtime.cfg.Limits.MaxTokens,
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.selected.ExtraParams, setup.selected.Thinking, setup.modelBudget, setup.selected.Model, setup.selected.MaxCompletionTokens, r.streamingPreferred, r.runtime.delegationLogger)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.selected.ExtraParams, setup.selected.ThinkingEnabled, setup.selected.ThinkingDisableMarker, setup.selected.ThinkingScaffoldInference, setup.selected.ThinkingParams, setup.modelBudget, setup.selected.ID, setup.selected.Advanced.Limits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger)
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
@@ -165,26 +165,29 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // buildActiveRegistry returns the registry to use for a run. When sub-agent
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger) *tool.Registry {
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, extraParams map[string]any, thinkingEnabled bool, thinkingDisableMarker string, thinkingScaffoldInference bool, thinkingParams map[string]any, modelBudget prompt.ModelTokenBudget, model string, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
 	cloned := base.Clone()
 	mt := maxTokens
 	handler := delegation.NewDelegateHandler(delegation.DelegateHandlerDeps{
-		Provider:           prov,
-		ParentReg:          base,
-		SubAgentCfg:        subAgentCfg,
-		Events:             events,
-		Runner:             agent.NewRunner(),
-		WorkDir:            workDir,
-		ExtraParams:        extraParams,
-		Thinking:           thinking,
-		ModelBudget:        modelBudget,
-		Model:              model,
-		MaxTokens:          &mt,
-		StreamingPreferred: streamingPreferred,
-		TraceLogger:        traceLogger,
+		Provider:                  prov,
+		ParentReg:                 base,
+		SubAgentCfg:               subAgentCfg,
+		Events:                    events,
+		Runner:                    agent.NewRunner(),
+		WorkDir:                   workDir,
+		ExtraParams:               extraParams,
+		ThinkingEnabled:           thinkingEnabled,
+		ThinkingDisableMarker:     thinkingDisableMarker,
+		ThinkingScaffoldInference: thinkingScaffoldInference,
+		ThinkingParams:            thinkingParams,
+		ModelBudget:               modelBudget,
+		Model:                     model,
+		MaxTokens:                 &mt,
+		StreamingPreferred:        streamingPreferred,
+		TraceLogger:               traceLogger,
 	})
 	cloned.Register(delegation.DelegateToolDef(handler))
 	return cloned

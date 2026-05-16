@@ -39,23 +39,27 @@ func TestCommandsVersion(t *testing.T) {
 func TestCommandsConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
-	writeFile(t, configPath, `model: test
-models:
-  test:
+	writeFile(t, configPath, `default_model: test
+providers:
+  local:
     type: openai_compat
     base_url: http://example/v1
-    model: test-model
-    max_completion_tokens: 64
-    context_size: 4096
+models:
+  test:
+    provider: local
+    id: test-model
     retry:
       enabled: true
       max_attempts: 3
       initial_backoff: 250ms
       max_backoff: 5s
       retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 16
-      summary_max_tokens: 32
+    advanced:
+      limits:
+        max_output_tokens: 64
+        context_window: 4096
+        safety_margin_tokens: 16
+        summary_max_tokens: 32
 `)
 	t.Setenv("HOME", filepath.Join(tempDir, "home"))
 
@@ -73,8 +77,8 @@ models:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Model.Model != "test-model" {
-		t.Fatalf("model.Model = %q, want test-model", got.Model.Model)
+	if got.Models["test"].ID != "test-model" {
+		t.Fatalf("models[test].ID = %q, want test-model", got.Models["test"].ID)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
