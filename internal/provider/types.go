@@ -59,7 +59,8 @@ type ChatRequest struct {
 	MaxTokens   *int           `json:"max_tokens,omitempty"`
 	Stream      bool           `json:"stream,omitempty"`
 	Tools       []ToolSpec     `json:"tools,omitempty"`
-	ExtraParams map[string]any `json:"-"`
+	Params      map[string]any `json:"-"` // Normalized generation params (temperature, top_p, etc.)
+	ExtraParams map[string]any `json:"-"` // Raw provider-specific passthrough
 }
 
 // ChatResponse is the normalized provider response payload.

@@ -110,6 +110,7 @@ func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantConte
 	chatReq := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
+		Params:      req.ResolvedModel.Params,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
 	}

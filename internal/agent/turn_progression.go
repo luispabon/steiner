@@ -348,6 +348,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		Model:       in.Request.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,
 		Tools:       cloneProviderTools(in.Request.Tools),
+		Params:      in.Request.ResolvedModel.Params,
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 		MaxTokens:   in.Request.MaxTokens,
 	}
