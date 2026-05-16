@@ -48,28 +48,35 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 }
 
 func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
-	fmt.Fprintf(out, "alias: %s\n", rm.Alias)
-	fmt.Fprintf(out, "provider: %s\n", rm.ProviderAlias)
-	fmt.Fprintf(out, "backend_id: %s\n", rm.BackendModelID)
-	fmt.Fprintf(out, "confidence: %s\n", rm.Confidence)
-	fmt.Fprintf(out, "limits:\n")
-	fmt.Fprintf(out, "  source: %s\n", rm.MetadataSource)
-	fmt.Fprintf(out, "  context_window: %d\n", rm.EffectiveLimits.ContextWindow)
-	fmt.Fprintf(out, "  max_output_tokens: %d\n", rm.EffectiveLimits.MaxOutputTokens)
-	fmt.Fprintf(out, "  max_input_tokens: %d\n", rm.EffectiveLimits.MaxInputTokens)
-	fmt.Fprintf(out, "  output_reserve_tokens: %d\n", rm.EffectiveLimits.OutputReserveTokens)
-	fmt.Fprintf(out, "  safety_margin_tokens: %d\n", rm.EffectiveLimits.SafetyMarginTokens)
-	fmt.Fprintf(out, "  summary_max_tokens: %d\n", rm.EffectiveLimits.SummaryMaxTokens)
-	fmt.Fprintf(out, "  compaction_threshold: %.2f\n", rm.EffectiveLimits.CompactionThreshold)
-	fmt.Fprintf(out, "params: %s\n", formatJSONMap(rm.Params))
-	fmt.Fprintf(out, "extra_params: %s\n", formatJSONMap(rm.ExtraParams))
-	fmt.Fprintf(out, "tokenizer:\n")
-	fmt.Fprintf(out, "  strategy: %s\n", rm.TokenizerStrategy)
-	fmt.Fprintf(out, "  confidence: %s\n", rm.TokenizerConfidence)
+	if _, err := fmt.Fprintf(out,
+		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  context_window: %d\n  max_output_tokens: %d\n  max_input_tokens: %d\n  output_reserve_tokens: %d\n  safety_margin_tokens: %d\n  summary_max_tokens: %d\n  compaction_threshold: %.2f\nparams: %s\nextra_params: %s\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
+		rm.Alias,
+		rm.ProviderAlias,
+		rm.BackendModelID,
+		rm.Confidence,
+		rm.MetadataSource,
+		rm.EffectiveLimits.ContextWindow,
+		rm.EffectiveLimits.MaxOutputTokens,
+		rm.EffectiveLimits.MaxInputTokens,
+		rm.EffectiveLimits.OutputReserveTokens,
+		rm.EffectiveLimits.SafetyMarginTokens,
+		rm.EffectiveLimits.SummaryMaxTokens,
+		rm.EffectiveLimits.CompactionThreshold,
+		formatJSONMap(rm.Params),
+		formatJSONMap(rm.ExtraParams),
+		rm.TokenizerStrategy,
+		rm.TokenizerConfidence,
+	); err != nil {
+		return err
+	}
 	if len(rm.Warnings) > 0 {
-		fmt.Fprintf(out, "warnings:\n")
+		if _, err := fmt.Fprint(out, "warnings:\n"); err != nil {
+			return err
+		}
 		for _, warn := range rm.Warnings {
-			fmt.Fprintf(out, "  - %s\n", warn)
+			if _, err := fmt.Fprintf(out, "  - %s\n", warn); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

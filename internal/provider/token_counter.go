@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	TokenizerStrategyTiktoken      = "tiktoken"
-	TokenizerStrategyHeuristic     = "heuristic"
+	// TokenizerStrategyTiktoken uses a concrete tiktoken encoding for estimation.
+	TokenizerStrategyTiktoken = "tiktoken"
+	// TokenizerStrategyHeuristic uses fallback estimation when tokenizer loading fails.
+	TokenizerStrategyHeuristic = "heuristic"
+	// TokenizerStrategyProviderUsage uses provider-reported usage calibration data.
 	TokenizerStrategyProviderUsage = "provider_usage"
 
 	tokenCalibrationAlpha = 0.25

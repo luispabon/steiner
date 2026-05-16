@@ -9,9 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tiktoken-go/tokenizer"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
-	"github.com/tiktoken-go/tokenizer"
 )
 
 func TestResolve(t *testing.T) {

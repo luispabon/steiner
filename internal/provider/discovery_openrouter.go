@@ -44,7 +44,9 @@ func (d *openRouterDiscoverer) DiscoverModelMetadata(ctx context.Context, backen
 	if err != nil {
 		return ModelMetadata{}, nil //nolint:nilerr // discovery is best-effort
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return ModelMetadata{}, nil

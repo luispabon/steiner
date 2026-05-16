@@ -47,7 +47,9 @@ func newModelMetadataRefreshCommand() *cobra.Command {
 			if err := cache.Refresh(cmd.Context()); err != nil {
 				return fmt.Errorf("refresh cache: %w", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache refreshed")
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache refreshed"); err != nil {
+				return fmt.Errorf("write refresh status: %w", err)
+			}
 			return nil
 		},
 	}
@@ -63,7 +65,9 @@ func newModelMetadataClearCommand() *cobra.Command {
 			if err := cache.Clear(); err != nil {
 				return fmt.Errorf("clear cache: %w", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache cleared")
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache cleared"); err != nil {
+				return fmt.Errorf("write clear status: %w", err)
+			}
 			return nil
 		},
 	}
@@ -71,21 +75,13 @@ func newModelMetadataClearCommand() *cobra.Command {
 
 func printMetadataStatus(out io.Writer, cache *metadata.Cache) error {
 	path := cache.CachePath()
-	fmt.Fprintf(out, "cache_path: %s\n", path)
-
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Fprintf(out, "age: missing\n")
-			fmt.Fprintf(out, "size_bytes: 0\n")
-			fmt.Fprintf(out, "freshness: missing\n")
-			fmt.Fprintf(out, "model_count: 0\n")
-			return nil
+			return writeMetadataStatus(out, path, 0, "missing", "missing", 0)
 		}
 		return fmt.Errorf("stat cache: %w", err)
 	}
-
-	fmt.Fprintf(out, "size_bytes: %d\n", info.Size())
 
 	meta, err := cache.LoadMetadata()
 	if err != nil {
@@ -95,24 +91,25 @@ func printMetadataStatus(out io.Writer, cache *metadata.Cache) error {
 	if !meta.DownloadedAt.IsZero() {
 		age = time.Since(meta.DownloadedAt).Round(time.Minute).String()
 	}
-	fmt.Fprintf(out, "age: %s\n", age)
-
-	freshness := "unknown"
-	switch {
-	case meta.ExpiresAt.IsZero():
+	freshness := "expired"
+	if meta.ExpiresAt.IsZero() {
 		freshness = "unknown"
-	case cache.IsFresh():
+	} else if cache.IsFresh() {
 		freshness = "fresh"
-	default:
-		freshness = "expired"
 	}
-	fmt.Fprintf(out, "freshness: %s\n", freshness)
 
+	modelCount := 0
 	if data, err := cache.Load(); err == nil && data != nil {
-		fmt.Fprintf(out, "model_count: %d\n", metadata.CountModels(data))
-		return nil
+		modelCount = metadata.CountModels(data)
 	}
-	fmt.Fprintf(out, "model_count: 0\n")
+
+	return writeMetadataStatus(out, path, info.Size(), age, freshness, modelCount)
+}
+
+func writeMetadataStatus(out io.Writer, path string, sizeBytes int64, age string, freshness string, modelCount int) error {
+	if _, err := fmt.Fprintf(out, "cache_path: %s\nsize_bytes: %d\nage: %s\nfreshness: %s\nmodel_count: %d\n", path, sizeBytes, age, freshness, modelCount); err != nil {
+		return fmt.Errorf("write cache status: %w", err)
+	}
 	return nil
 }
 

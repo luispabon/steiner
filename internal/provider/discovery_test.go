@@ -69,7 +69,7 @@ func TestOpenRouterDiscoverer_ModelNotFound(t *testing.T) {
 			{ID: "other/model", ContextLen: 8192},
 		},
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(payload)
 	}))
 	defer srv.Close()
@@ -85,7 +85,7 @@ func TestOpenRouterDiscoverer_ModelNotFound(t *testing.T) {
 }
 
 func TestOpenRouterDiscoverer_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -101,7 +101,7 @@ func TestOpenRouterDiscoverer_ServerError(t *testing.T) {
 }
 
 func TestOpenRouterDiscoverer_InvalidJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("not-json"))
 	}))
 	defer srv.Close()
@@ -151,7 +151,7 @@ func TestOllamaDiscoverer_FallbackToParameters(t *testing.T) {
 		ModelInfo:  map[string]any{},
 		Parameters: "num_ctx 32768\ntemperature 0.7\n",
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(payload)
 	}))
 	defer srv.Close()
@@ -167,7 +167,7 @@ func TestOllamaDiscoverer_FallbackToParameters(t *testing.T) {
 }
 
 func TestOllamaDiscoverer_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "model not found", http.StatusNotFound)
 	}))
 	defer srv.Close()
