@@ -1,0 +1,485 @@
+stages:
+  - id: stage-1
+    objective: "Split config into providers + models with new struct definitions, loading, validation, and defaults"
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: "Define new config structs (ProviderConfig, new ModelConfig, AdvancedLimitsConfig) and update Config root to hold providers/models/default_model. Remove old ModelConfig and ThinkingConfig structs. Move thinking behavioral controls into new ModelConfig as flat fields."
+        scope: "New struct definitions in internal/config/config.go. Provider types enum. New ModelConfig with provider ref, id, params, extra_params, thinking fields, advanced overrides, retry, prompts."
+        files:
+          - internal/config/config.go
+        constraints:
+          - "ProviderConfig holds: type, base_url, api_key, api_key_env, headers (map[string]string), timeout (Duration)"
+          - "Provider types: openai_compat, ollama, lmstudio, openrouter, openai, anthropic, gemini, litellm"
+          - "New ModelConfig holds: provider (string ref), id (string), params (map[string]any), extra_params (map[string]any), thinking_enabled (bool), thinking_disable_marker (string), thinking_scaffold_inference (bool), thinking_params (map[string]any), retry (RetryConfig), prompts (ModelPrompts), advanced (AdvancedConfig)"
+          - "AdvancedConfig holds: limits (AdvancedLimitsConfig)"
+          - "AdvancedLimitsConfig holds: context_window, max_output_tokens, max_input_tokens, output_reserve_tokens, safety_margin_tokens, summary_max_tokens (all int)"
+          - "Root Config gains: DefaultModel (string), Providers (map[string]ProviderConfig), Models (map[string]ModelConfig)"
+          - "Remove old top-level Model field, old Models map[string]ModelConfig (old shape), ThinkingConfig struct"
+          - "Keep SchedulerConfig, LimitsConfig, SubAgentConfig, ApprovalConfig, ToolConfig, ProjectContextConfig, LoggingConfig, DebugConfig, ContextManagementConfig unchanged for now"
+          - "Remove SwitchModelConfigByAlias and SelectedModelConfigByAlias (will be replaced by resolver in stage 2)"
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "internal/config/config.go with new struct definitions"
+        acceptance:
+          - "New structs compile"
+          - "No references to old ModelConfig shape remain in config.go"
+          - "ThinkingConfig struct removed; thinking fields are on new ModelConfig"
+        handoff: "Define ProviderConfig, new ModelConfig (with thinking fields folded in), AdvancedLimitsConfig. Update root Config struct. Remove old ModelConfig, ThinkingConfig, and alias-lookup helpers."
+        verification:
+          - "go build ./internal/config/... (will fail — dependents not yet updated, that's expected)"
+
+      - id: stage-1-step-2
+        objective: "Update config defaults, loading, env expansion, validation, and patches to work with new provider/model structure. Fix all compile errors in internal/config/."
+        scope: "Rewrite defaults.go, load.go, load_read.go, load_override.go, env.go, validate*.go, patch*.go to use new structs. Update or rewrite tests."
+        files:
+          - internal/config/defaults.go
+          - internal/config/defaults_test.go
+          - internal/config/load.go
+          - internal/config/load_read.go
+          - internal/config/load_override.go
+          - internal/config/load_paths.go
+          - internal/config/env.go
+          - internal/config/validate.go
+          - internal/config/validate_model.go
+          - internal/config/validate_approval.go
+          - internal/config/validate_limits.go
+          - internal/config/validate_modes.go
+          - internal/config/validate_runtime.go
+          - internal/config/validate_test.go
+          - internal/config/patch.go
+          - internal/config/patch_apply.go
+          - internal/config/patch_model.go
+          - internal/config/patch_limits.go
+          - internal/config/patch_context.go
+          - internal/config/patch_runtime.go
+          - internal/config/patch_approval.go
+          - internal/config/patch_test.go
+          - internal/config/config_test.go
+          - internal/config/thinking_test.go
+          - internal/config/duration.go
+        constraints:
+          - "Defaults: single provider 'local' type openai_compat at localhost:11434/v1, single model 'default' referencing 'local', default_model = 'default'"
+          - "Default model limits: context_size 32768, max_completion_tokens 8192, safety_margin 2048, summary_max 1024 (matches current defaults)"
+          - "Default thinking: enabled=true, disable_marker='<|think_off|>', scaffold_inference=false, params={thinking:{type:enabled, budget_tokens:10000}}"
+          - "Validation: default_model must exist in models map, each model.provider must exist in providers map, provider type must be known enum, model.id non-empty, base_url required for types that need it, api_key or api_key_env where required"
+          - "Env expansion: apply to provider.api_key, provider.base_url, model.id"
+          - "Patches: update patch system to target new field paths (providers.X.base_url, models.X.params.temperature, etc.)"
+          - "All existing config tests rewritten for new shape"
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "All internal/config/ files compile and pass tests"
+        acceptance:
+          - "go test ./internal/config/... passes"
+          - "go vet ./internal/config/... passes"
+          - "Default config loads successfully with new shape"
+          - "Validation catches: missing default_model, model referencing nonexistent provider, unknown provider type, empty model id"
+        handoff: "Rewrite all config loading, defaults, validation, patches, and tests for new provider/model structure. Must compile and pass all config package tests."
+        verification:
+          - "go test ./internal/config/..."
+          - "go vet ./internal/config/..."
+
+      - id: stage-1-step-3
+        objective: "Fix all compile errors outside internal/config/ caused by the struct changes. Wire provider construction, agent loop, delegation, prompt assembly to use new config shape temporarily (before ResolvedModel exists)."
+        scope: "Update all consumers of old ModelConfig: cmd/steiner/, internal/agent/, internal/delegation/, internal/prompt/, internal/provider/. Adapt to new field paths. This is a bridging step — consumers will use new config directly until ResolvedModel is introduced in stage 2."
+        files:
+          - cmd/steiner/*.go
+          - internal/agent/*.go
+          - internal/delegation/*.go
+          - internal/prompt/*.go
+          - internal/provider/*.go
+        constraints:
+          - "Provider construction: look up ProviderConfig by model's provider field, construct OpenAICompatConfig from it + model.id"
+          - "ThinkingConfig references in agent/message_convert.go: replace with model-level thinking fields (thinking_enabled, thinking_disable_marker, thinking_scaffold_inference, thinking_params)"
+          - "BootstrapDeps in delegation/bootstrap.go: replace Thinking config.ThinkingConfig with individual thinking fields or a thin adapter"
+          - "ModelTokenBudget construction: derive from model advanced.limits or use defaults"
+          - "ExtraParams: comes from model.extra_params directly"
+          - "Do not change functional behavior — only adapt to new field paths"
+          - "Fix all tests that reference old config shapes"
+        depends_on:
+          - stage-1-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Full codebase compiles: go build ./..."
+          - "All tests pass: go test ./..."
+        acceptance:
+          - "go build ./... succeeds"
+          - "go test ./... passes"
+          - "make quick-check passes"
+          - "Functional behavior unchanged — same runtime behavior with new config structure"
+        handoff: "Fix all compile errors outside config package. Adapt provider construction, agent loop, delegation, and prompt assembly to read from new config shape. All tests must pass."
+        verification:
+          - "make quick-check"
+
+  - id: stage-2
+    objective: "Introduce ResolvedModel as the runtime object and wire all consumers through it"
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: "Define ResolvedModel struct and a Resolver that combines ProviderConfig + ModelConfig into a ResolvedModel. Replace direct config access in agent, prompt, delegation with ResolvedModel."
+        scope: "New file internal/provider/resolved_model.go (or internal/config/resolved.go). Resolver function. Update agent.RunRequest, delegation.BootstrapDeps, prompt.AssemblyOptions to accept ResolvedModel. Update cmd/steiner wiring."
+        files:
+          - internal/provider/resolved_model.go
+          - internal/provider/resolved_model_test.go
+          - internal/agent/runner.go
+          - internal/agent/message_convert.go
+          - internal/agent/turn_progression.go
+          - internal/agent/events.go
+          - internal/delegation/bootstrap.go
+          - internal/prompt/types.go
+          - internal/prompt/budget.go
+          - internal/prompt/token_budget.go
+          - internal/prompt/compaction.go
+          - internal/prompt/assemble.go
+          - internal/prompt/assembler.go
+          - cmd/steiner/*.go
+        constraints:
+          - "ResolvedModel contains: Alias, ProviderAlias, ProviderConfig, BackendModelID, EffectiveLimits, Params, ExtraParams, ThinkingEnabled, ThinkingDisableMarker, ThinkingScaffoldInference, ThinkingParams, Prompts, Retry, MetadataSource (string), Confidence (string), Warnings ([]string)"
+          - "EffectiveLimits struct: ContextWindow, MaxInputTokens, MaxOutputTokens, OutputReserveTokens, SafetyMarginTokens, SummaryMaxTokens, CompactionThreshold (float64)"
+          - "Resolver takes Config + model alias -> ResolvedModel (for now, just reads from config; discovery added later)"
+          - "ModelTokenBudget derived from ResolvedModel.EffectiveLimits"
+          - "agent.RunRequest and delegation.BootstrapDeps simplified: replace ExtraParams + Thinking + ModelBudget + Model with single ResolvedModel"
+          - "AssemblyOptions.ModelBudget derived from ResolvedModel at call site"
+          - "Place ResolvedModel in internal/provider/ since it's consumed by provider, agent, prompt, delegation"
+        depends_on:
+          - stage-1-step-3
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "ResolvedModel struct and resolver"
+          - "All consumers use ResolvedModel"
+          - "All tests pass"
+        acceptance:
+          - "go build ./... succeeds"
+          - "go test ./... passes"
+          - "make quick-check passes"
+          - "No direct config.ModelConfig access remains in agent/delegation/prompt runtime paths (config package itself is fine)"
+        handoff: "Define ResolvedModel in internal/provider/. Write Resolve(cfg, alias) function. Update agent.RunRequest, delegation.BootstrapDeps, prompt assembly to use ResolvedModel. Derive ModelTokenBudget from EffectiveLimits. All tests must pass."
+        verification:
+          - "make quick-check"
+
+  - id: stage-3
+    objective: "Rewrite internal limits model to use effective limits with derivation from context_window"
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: "Implement effective limits derivation in the resolver. When only context_window is known, derive max_output, output_reserve, safety_margin, summary_max, and compaction_threshold. Update ModelTokenBudget to use effective limits. Update prompt fitting and compaction."
+        scope: "Enhance Resolve() to derive effective limits. Update token_budget.go, budget.go, compaction.go in internal/prompt/. Update RequestTokenBudget usage in agent/events.go."
+        files:
+          - internal/provider/resolved_model.go
+          - internal/provider/resolved_model_test.go
+          - internal/prompt/token_budget.go
+          - internal/prompt/token_budget_test.go
+          - internal/prompt/budget.go
+          - internal/prompt/compaction.go
+          - internal/agent/events.go
+        constraints:
+          - "Derivation policy from design doc section 10-11"
+          - "If max_input_tokens known: usable input = max_input_tokens. Else: usable input = context_window - output_reserve_tokens"
+          - "Default output_reserve = max_output_tokens (or 4096 if unknown)"
+          - "Default safety_margin = 2048 when context_window known"
+          - "Default summary_max = min(context_window/4, 8192) when context_window known"
+          - "Default compaction_threshold = 0.70"
+          - "Fallback (nothing known): context_window=32768, max_output=4096, output_reserve=4096, safety_margin=2048, summary_max=4096"
+          - "Manual advanced.limits always override derived values"
+          - "ModelTokenBudget fields may need renaming to align (ContextSize -> ContextWindow, etc.) or keep as adapter"
+          - "Guard: estimated_prompt + output_reserve + safety_margin <= context_window"
+        depends_on:
+          - stage-2-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Effective limits derivation with tests"
+          - "Updated prompt budget code"
+        acceptance:
+          - "go test ./internal/provider/... passes (resolved model tests)"
+          - "go test ./internal/prompt/... passes (budget tests)"
+          - "make quick-check passes"
+          - "Tests cover: context_window only, context_window + max_output, max_input + max_output, manual overrides, fallback, invalid (output > context)"
+        handoff: "Implement effective limits derivation in resolver. Derive output_reserve, safety_margin, summary_max, compaction_threshold from context_window when not explicitly set. Update ModelTokenBudget and prompt budget/compaction code. Add comprehensive derivation tests."
+        verification:
+          - "make quick-check"
+
+  - id: stage-4
+    objective: "Formalize params/extra_params/thinking merge order in request building"
+    parallel: false
+    steps:
+      - id: stage-4-step-1
+        objective: "Refactor request payload building to use clear merge order: generated defaults < model.params < model.extra_params < thinking_params (when active). Move applyThinking from agent/message_convert.go into a request builder that lives closer to provider dispatch. Add tests for merge precedence and thinking disable."
+        scope: "Refactor agent/message_convert.go thinking logic. Possibly new file internal/provider/request_builder.go or enhance request_payload.go. Tests for merge order."
+        files:
+          - internal/agent/message_convert.go
+          - internal/agent/message_convert_test.go
+          - internal/provider/request_payload.go
+          - internal/provider/request_payload_test.go
+        constraints:
+          - "Merge order: generated base request fields < ResolvedModel.Params < ResolvedModel.ExtraParams < ThinkingParams (when ThinkingEnabled and not suppressed)"
+          - "ThinkingParams only merged when: ThinkingEnabled=true AND disable_marker not found in current user message AND (not scaffold inference call OR ThinkingScaffoldInference=true)"
+          - "extra_params must survive unchanged into request body"
+          - "Params (temperature, top_p, etc.) go into standard request fields"
+          - "Test: thinking disabled via extra_params preserved correctly"
+          - "Test: disable_marker suppresses thinking_params for one turn"
+          - "Test: params override generated defaults"
+          - "Test: extra_params override params on key collision"
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Clean request builder with documented merge order"
+          - "Tests covering all merge scenarios"
+        acceptance:
+          - "go test ./internal/agent/... passes"
+          - "go test ./internal/provider/... passes"
+          - "make quick-check passes"
+          - "Thinking disable via marker still works"
+          - "extra_params passthrough preserved"
+        handoff: "Refactor request building to formalize merge order. Move thinking application logic to be part of a clear pipeline: base → params → extra_params → thinking_params. Add tests for each merge layer and disable scenarios."
+        verification:
+          - "make quick-check"
+
+  - id: stage-5
+    objective: "Add provider metadata discovery interface with implementations"
+    parallel: false
+    steps:
+      - id: stage-5-step-1
+        objective: "Define ModelMetadataDiscoverer interface and implement for openrouter, ollama, lmstudio, and generic openai_compat. Integrate into resolver as second source after user overrides."
+        scope: "New files in internal/provider/ for discovery. Interface returns optional context_window and max_output_tokens for a backend model ID. Provider-specific HTTP calls. Integration into Resolve()."
+        files:
+          - internal/provider/discovery.go
+          - internal/provider/discovery_test.go
+          - internal/provider/discovery_openrouter.go
+          - internal/provider/discovery_ollama.go
+          - internal/provider/discovery_lmstudio.go
+          - internal/provider/discovery_generic.go
+          - internal/provider/resolved_model.go
+        constraints:
+          - "Interface: DiscoverModelMetadata(ctx, backendModelID) -> (ModelMetadata, error). ModelMetadata has optional ContextWindow, MaxOutputTokens"
+          - "Discovery is best-effort — failure returns nil metadata, no error propagation to caller"
+          - "OpenRouter: GET /api/v1/models, find by ID, extract context_length and top_provider.max_completion_tokens"
+          - "Ollama: POST /api/show with model name, extract context_length from model_info or parameters"
+          - "LM Studio: GET /v1/models, may only return IDs (limited metadata)"
+          - "Generic OpenAI-compat: GET /v1/models, usually only returns IDs"
+          - "Discovery never mutates provider state (no Ollama num_ctx setting)"
+          - "Discovery called once at resolve time, not per-request"
+          - "Each discoverer constructed from ProviderConfig (needs base_url, api_key)"
+          - "Resolution chain in resolver: user override > discovery > (models.dev, stage 6) > fallback"
+          - "Timeout: discovery calls should have a short timeout (5-10s) to avoid blocking startup"
+        depends_on:
+          - stage-4-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Discovery interface and 4 implementations"
+          - "Resolver uses discovery as metadata source"
+          - "Tests with mock HTTP responses"
+        acceptance:
+          - "go test ./internal/provider/... passes"
+          - "make quick-check passes"
+          - "Discovery failure does not block startup or return error"
+          - "Tests: openrouter returns metadata, ollama returns metadata, generic returns empty, timeout handled gracefully"
+        handoff: "Define DiscoverModelMetadata interface. Implement for openrouter (parse /api/v1/models), ollama (parse /api/show), lmstudio and generic (best-effort /v1/models). Integrate into Resolve() between user overrides and fallback. All discovery failures are non-fatal. Add tests with httptest mocks."
+        verification:
+          - "make quick-check"
+
+  - id: stage-6
+    objective: "Add models.dev cache as metadata fallback source"
+    parallel: false
+    steps:
+      - id: stage-6-step-1
+        objective: "Implement models.dev JSON cache with TTL, conditional refresh, atomic writes, and offline behavior. Integrate into resolver as third source after provider discovery."
+        scope: "New package internal/metadata/ with cache logic. Lookup by backend model ID. Resolution chain integration."
+        files:
+          - internal/metadata/cache.go
+          - internal/metadata/cache_test.go
+          - internal/metadata/lookup.go
+          - internal/metadata/lookup_test.go
+          - internal/provider/resolved_model.go
+        constraints:
+          - "Cache path: $XDG_CACHE_HOME/steiner/model-metadata/models.dev.json (fallback ~/.cache/steiner/model-metadata/models.dev.json)"
+          - "Metadata file: models.dev.meta.json alongside, with downloaded_at, expires_at, etag, last_modified, url, schema_version"
+          - "TTL: 7 days"
+          - "Refresh: conditional HTTP with If-None-Match/If-Modified-Since when available"
+          - "Atomic writes: download to temp, validate JSON parse, rename into place"
+          - "Offline behavior: stale cache acceptable, missing cache acceptable, continue with next source"
+          - "Lookup: find model by ID in the JSON data, extract context_window and max_output_tokens"
+          - "Do not fetch on every run — only when cache expired or missing"
+          - "Do not require network for normal operation"
+          - "models.dev data is MIT licensed — add attribution comment"
+          - "Resolution order in resolver becomes: user override > provider discovery > models.dev cache > fallback"
+        depends_on:
+          - stage-5-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "internal/metadata/ package with cache and lookup"
+          - "Resolver integrated with models.dev as third source"
+          - "Tests for cache lifecycle"
+        acceptance:
+          - "go test ./internal/metadata/... passes"
+          - "go test ./internal/provider/... passes"
+          - "make quick-check passes"
+          - "Tests: fresh cache hit, expired cache triggers refresh, refresh failure uses stale, missing cache + network failure falls through, atomic write doesn't corrupt, lookup finds model by ID"
+        handoff: "Create internal/metadata/ package. Implement models.dev cache with 7-day TTL, atomic writes, conditional refresh. Add lookup function that searches cached JSON by model ID. Integrate into resolver as third metadata source. Test cache lifecycle including offline scenarios."
+        verification:
+          - "make quick-check"
+
+  - id: stage-7
+    objective: "Add startup warnings for fallback-resolved models and CLI inspection commands"
+    parallel: false
+    steps:
+      - id: stage-7-step-1
+        objective: "Add startup warning system that emits once per fallback-resolved model. Add 'steiner model inspect <alias>' and 'steiner model-metadata status|refresh|clear' CLI subcommands."
+        scope: "Warning emission in resolver or startup path. New CLI subcommands in cmd/steiner/. Wire to resolver and metadata cache."
+        files:
+          - cmd/steiner/cmd_model.go
+          - cmd/steiner/cmd_model_metadata.go
+          - cmd/steiner/main.go
+          - internal/provider/resolved_model.go
+          - internal/metadata/cache.go
+        constraints:
+          - "Warnings emitted to stderr, once per model, only when metadata source is 'fallback'"
+          - "Warning format: 'Model metadata warning: <alias>/<backend_id> has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.<alias>.advanced.limits.context_window to remove this warning.'"
+          - "No warning when source is: user override, provider discovery, or models.dev"
+          - "'model inspect' shows: alias, provider, id, resolved limits with source, params, extra_params, tokenizer strategy+confidence"
+          - "'model-metadata status' shows: cache path, age, size, freshness, model count"
+          - "'model-metadata refresh' forces cache refresh regardless of TTL"
+          - "'model-metadata clear' removes cache files"
+          - "Commands use same cobra/CLI pattern as existing subcommands"
+        depends_on:
+          - stage-6-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Startup warnings for fallback models"
+          - "model inspect command"
+          - "model-metadata subcommands"
+        acceptance:
+          - "go build ./... succeeds"
+          - "make quick-check passes"
+          - "'steiner model inspect default' produces readable YAML-like output"
+          - "'steiner model-metadata status' reports cache state"
+          - "Startup with a model that has no discoverable metadata emits warning"
+        handoff: "Add startup warning for fallback-resolved models (emit to stderr once per model). Add 'steiner model inspect' showing full resolved state. Add 'steiner model-metadata status|refresh|clear'. Follow existing CLI patterns."
+        verification:
+          - "make quick-check"
+
+  - id: stage-8
+    objective: "Wrap token estimator behind strategy interface with provider-usage calibration"
+    parallel: false
+    steps:
+      - id: stage-8-step-1
+        objective: "Introduce TokenCounter interface wrapping current estimation. Support tiktoken (current), heuristic, and provider-usage calibration strategies. Track correction factor from provider usage responses. Expose in model inspect output."
+        scope: "Refactor internal/provider/token_estimator.go behind interface. Add strategy selection. Add usage-based calibration. Wire into ResolvedModel."
+        files:
+          - internal/provider/token_counter.go
+          - internal/provider/token_counter_test.go
+          - internal/provider/token_estimator.go
+          - internal/provider/token_estimator_test.go
+          - internal/provider/resolved_model.go
+          - internal/provider/openai_stream.go
+        constraints:
+          - "Interface: TokenCounter with EstimateTokens(ctx, ChatRequest) (int, error)"
+          - "Strategies: tiktoken (current impl), heuristic (chars/4 approximation), provider_usage (calibrated)"
+          - "Provider-usage calibration: when provider response includes prompt_tokens in usage, compare with estimate, maintain exponential moving average correction factor per model alias"
+          - "Strategy selection in ResolvedModel: default to tiktoken, fall back to heuristic if tiktoken fails for model"
+          - "Correction factor stored in-memory only (not persisted across runs)"
+          - "ResolvedModel gains TokenizerStrategy and TokenizerConfidence fields"
+          - "Do not break existing EstimateChatRequestTokens call sites — can keep as wrapper that delegates to the counter on ResolvedModel"
+        depends_on:
+          - stage-7-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "TokenCounter interface and implementations"
+          - "Provider-usage calibration"
+          - "Strategy selection wired into ResolvedModel"
+        acceptance:
+          - "go test ./internal/provider/... passes"
+          - "make quick-check passes"
+          - "Existing token estimation behavior unchanged for default case"
+          - "Tests: tiktoken strategy, heuristic strategy, calibration updates correction factor, correction factor improves estimates"
+        handoff: "Define TokenCounter interface. Refactor current tiktoken estimator as one implementation. Add heuristic fallback (chars/4). Add provider-usage calibration that maintains correction factor from actual vs estimated. Wire strategy selection into ResolvedModel. Keep backward-compatible wrapper for existing call sites."
+        verification:
+          - "make quick-check"
+
+  - id: stage-9
+    objective: "Remove old code, update README with new config examples, ensure comprehensive test coverage"
+    parallel: false
+    steps:
+      - id: stage-9-step-1
+        objective: "Remove any remaining old config field references, dead code paths, and legacy helpers. Audit all packages for direct context_size or old ModelConfig usage. Add missing tests for resolution order, fallback warnings, and cache behavior."
+        scope: "Codebase-wide audit and cleanup. Remove dead code. Add integration-style tests for the full resolution chain."
+        files:
+          - internal/config/*.go
+          - internal/provider/*.go
+          - internal/prompt/*.go
+          - internal/agent/*.go
+          - internal/delegation/*.go
+          - internal/metadata/*.go
+        constraints:
+          - "grep for: ContextSize (old field name), old ModelConfig field names (Type, BaseURL, APIKey as direct model fields)"
+          - "Remove any compatibility shims or temporary adapters from stage-1-step-3"
+          - "Add tests: minimal config resolves, missing provider errors, fallback emits warning, provider metadata beats models.dev, models.dev beats fallback, manual override wins all"
+          - "Add tests: expired cache refreshes, refresh failure uses stale, offline mode runs"
+          - "Add tests: params survive parsing, extra_params survive parsing, extra_params merged into request body, thinking disabled via extra_params preserved"
+        depends_on:
+          - stage-8-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Clean codebase with no legacy references"
+          - "Comprehensive test coverage"
+        acceptance:
+          - "make check passes"
+          - "No grep hits for old field patterns in non-test code"
+          - "Test coverage for resolution chain end-to-end"
+        handoff: "Audit and remove all old config references and dead code. Add comprehensive tests for resolution chain, cache lifecycle, params passthrough. No old ModelConfig fields (Type, BaseURL, APIKey, ContextSize, MaxCompletionTokens as direct model fields) should remain outside test assertions."
+        verification:
+          - "make check"
+
+      - id: stage-9-step-2
+        objective: "Rewrite README.md configuration section with new provider/model examples. Update project description and minimum config guidance."
+        scope: "README.md lines 70-170+ rewrite. Add 6 config examples as specified in overview."
+        files:
+          - README.md
+        constraints:
+          - "Replace old flat config example (lines ~75-160) with new provider/model structure"
+          - "Include 6 examples: (1) minimal local (LM Studio/Ollama, 3 lines), (2) OpenRouter with api_key_env, (3) multiple providers with multiple models, (4) tuned model with params/extra_params/thinking disabled, (5) advanced overrides with explicit limits, (6) multi-model with default_model"
+          - "Update project description to mention provider/model split"
+          - "Update 'steiner config' description to reflect new output"
+          - "Update 'minimum useful config' summary near end of config section"
+          - "Keep examples realistic and tested against actual config parsing"
+          - "Preserve other README sections (installation, usage, development, etc.) unchanged"
+        depends_on:
+          - stage-9-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - "Updated README.md with comprehensive config documentation"
+        acceptance:
+          - "README renders correctly (valid markdown)"
+          - "All 6 config examples present"
+          - "No references to old flat config format remain"
+          - "make quick-check still passes (no code changes)"
+        handoff: "Rewrite README.md config section. Replace old flat ModelConfig example with 6 new examples showing provider/model split: minimal local, OpenRouter, multi-provider, tuned model, advanced overrides, multi-model. Update surrounding text."
+        verification:
+          - "make quick-check"
