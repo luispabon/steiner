@@ -43,7 +43,9 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 		return newOpenAICompat(provider.OpenAICompatConfig{
 			BaseURL: rm.ProviderConfig.BaseURL,
 			APIKey:  rm.ProviderConfig.APIKey,
+			Headers: rm.ProviderConfig.Headers,
 			Model:   rm.BackendModelID,
+			Timeout: time.Duration(rm.ProviderConfig.Timeout.Duration()),
 			Retry: provider.RetryConfig{
 				Enabled:        rm.Retry.Enabled,
 				MaxAttempts:    rm.Retry.MaxAttempts,

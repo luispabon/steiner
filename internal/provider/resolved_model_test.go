@@ -2,6 +2,7 @@ package provider
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,6 +195,30 @@ func TestResolveMinimalConfig(t *testing.T) {
 	}
 	if got, want := rm.EffectiveLimits.MaxOutputTokens, 4096; got != want {
 		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+}
+
+func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "router-secret")
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"router": {Type: config.ProviderTypeOpenRouter, APIKeyEnv: "OPENROUTER_API_KEY"},
+		},
+		Models: map[string]config.ModelConfig{
+			"sonnet": {Provider: "router", ID: "anthropic/claude-3.7-sonnet"},
+		},
+	}
+
+	rm, err := Resolve(cfg, "sonnet")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.BaseURL, "https://openrouter.ai/api/v1"; got != want {
+		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
+	}
+	if got, want := rm.ProviderConfig.APIKey, "router-secret"; got != want {
+		t.Fatalf("ProviderConfig.APIKey = %q, want %q", got, want)
 	}
 }
 
@@ -461,6 +486,92 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	}
 }
 
+func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"old":{"context":4096,"maxOutputTokens":512}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-02T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"gpt4o": {Provider: "local", ID: "gpt-4o"},
+		},
+	}
+
+	client := &http.Client{Transport: &redirectTransport{target: srv.URL}}
+	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "models.dev"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+}
+
+func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-02T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"gpt4o": {Provider: "local", ID: "gpt-4o"},
+		},
+	}
+
+	client := &http.Client{Transport: &alwaysFailTransport{}}
+	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "models.dev"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+}
+
 func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
@@ -575,4 +686,26 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	if len(rm.Warnings) != 0 {
 		t.Fatalf("Warnings = %v, want none", rm.Warnings)
 	}
+}
+
+type redirectTransport struct {
+	target string
+	base   http.RoundTripper
+}
+
+func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.URL.Scheme = "http"
+	cloned.URL.Host = strings.TrimPrefix(t.target, "http://")
+	rt := t.base
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	return rt.RoundTrip(cloned)
+}
+
+type alwaysFailTransport struct{}
+
+func (alwaysFailTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("offline")
 }

@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+func providerNeedsBaseURL(providerType ProviderType) bool {
+	switch providerType {
+	case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio, ProviderTypeLiteLLM:
+		return true
+	default:
+		return false
+	}
+}
+
+func providerNeedsCredential(providerType ProviderType) bool {
+	switch providerType {
+	case ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic, ProviderTypeGemini:
+		return true
+	default:
+		return false
+	}
+}
+
 func appendModelProblems(problems *[]string, prefix string, model ModelConfig, providers map[string]ProviderConfig) {
 	if model.Provider == "" {
 		*problems = append(*problems, fmt.Sprintf("%s.provider is required", prefix))
@@ -64,8 +82,11 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
 			}
 		}
-		if strings.TrimSpace(p.BaseURL) == "" {
+		if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
 			*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
+		}
+		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
+			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
 		}
 	}
 }

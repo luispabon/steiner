@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // openRouterDiscoverer discovers model metadata via the OpenRouter API.
@@ -31,7 +32,12 @@ type openRouterTopProviderInfo struct {
 // DiscoverModelMetadata fetches model limits from OpenRouter.
 // Returns zero ModelMetadata on any failure.
 func (d *openRouterDiscoverer) DiscoverModelMetadata(ctx context.Context, backendModelID string) (ModelMetadata, error) {
-	url := d.baseURL + "/api/v1/models"
+	url := strings.TrimRight(d.baseURL, "/")
+	if strings.HasSuffix(url, "/api/v1") {
+		url += "/models"
+	} else {
+		url += "/api/v1/models"
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return ModelMetadata{}, nil //nolint:nilerr // discovery is best-effort

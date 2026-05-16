@@ -159,6 +159,29 @@ func TestValidate(t *testing.T) {
 			wantErr: "providers[\"local\"].base_url is required",
 		},
 		{
+			name: "openrouter without base_url validates with api_key_env",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["local"] = ProviderConfig{
+					Type:      ProviderTypeOpenRouter,
+					APIKeyEnv: "OPENROUTER_API_KEY",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "credentialed provider missing api key",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["local"] = ProviderConfig{
+					Type: ProviderTypeOpenRouter,
+				}
+				return c
+			}(),
+			wantErr: `providers["local"] must set api_key or api_key_env`,
+		},
+		{
 			name: "empty provider alias",
 			cfg: func() Config {
 				c := validBase()

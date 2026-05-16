@@ -263,6 +263,9 @@ providers:
   slow-provider:
     type: openai_compat
     base_url: http://slow.example/v1
+    headers:
+      X-Test-Header: slow
+    timeout: 45s
 models:
   fast:
     provider: fast-provider
@@ -353,8 +356,14 @@ models:
 	if gotProviderConfig.BaseURL != "http://slow.example/v1" {
 		t.Fatalf("provider base_url = %q, want slow alias base_url", gotProviderConfig.BaseURL)
 	}
+	if gotProviderConfig.Headers["X-Test-Header"] != "slow" {
+		t.Fatalf("provider headers = %#v, want X-Test-Header=slow", gotProviderConfig.Headers)
+	}
 	if gotProviderConfig.Model != "slow-backend" {
 		t.Fatalf("provider model = %q, want slow-backend", gotProviderConfig.Model)
+	}
+	if gotProviderConfig.Timeout != 45*time.Second {
+		t.Fatalf("provider timeout = %v, want 45s", gotProviderConfig.Timeout)
 	}
 	if got := gotProviderConfig.Retry; got != (provider.RetryConfig{
 		Enabled:        true,

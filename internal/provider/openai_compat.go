@@ -19,7 +19,9 @@ var defaultHTTPClient = &http.Client{}
 type OpenAICompatConfig struct {
 	BaseURL    string
 	APIKey     string
+	Headers    map[string]string
 	Model      string
+	Timeout    time.Duration
 	Retry      RetryConfig
 	HTTPClient *http.Client
 	Scheduler  *Scheduler
@@ -38,6 +40,7 @@ type RetryConfig struct {
 type OpenAICompat struct {
 	baseURL    *url.URL
 	apiKey     string
+	headers    map[string]string
 	model      string
 	retry      RetryConfig
 	httpClient *http.Client
@@ -67,9 +70,15 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	if client == nil {
 		client = defaultHTTPClient
 	}
+	if cfg.Timeout > 0 {
+		cloned := *client
+		cloned.Timeout = cfg.Timeout
+		client = &cloned
+	}
 	provider := &OpenAICompat{
 		baseURL:    parsed,
 		apiKey:     cfg.APIKey,
+		headers:    copyHeaders(cfg.Headers),
 		model:      cfg.Model,
 		retry:      cfg.Retry,
 		httpClient: client,
@@ -79,6 +88,17 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	}
 	provider.jitter = provider.fullJitter
 	return provider, nil
+}
+
+func copyHeaders(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 // SupportsUsageStats reports whether the provider returns usage metadata.

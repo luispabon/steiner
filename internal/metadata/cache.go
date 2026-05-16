@@ -81,6 +81,18 @@ func (c *Cache) Load() ([]byte, error) {
 	return data, nil
 }
 
+// LoadBestEffort refreshes stale metadata before loading cached JSON.
+// Refresh is opportunistic and offline-safe: any refresh failure falls back to
+// whatever cache data is already available on disk.
+func (c *Cache) LoadBestEffort(ctx context.Context) ([]byte, error) {
+	if !c.IsFresh() {
+		if err := c.Refresh(ctx); err != nil {
+			return nil, fmt.Errorf("refresh cache: %w", err)
+		}
+	}
+	return c.Load()
+}
+
 // LoadMetadata loads the cache metadata. Returns zero CacheMetadata if missing.
 func (c *Cache) LoadMetadata() (CacheMetadata, error) {
 	data, err := os.ReadFile(c.MetaPath())
