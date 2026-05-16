@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -34,6 +35,7 @@ type cliRuntime struct {
 	cfg              config.Config
 	provider         provider.Provider
 	providerFactory  func(provider.ResolvedModel) (provider.Provider, error)
+	httpClient       *http.Client
 	registry         *tool.Registry
 	toolNames        []string
 	skillNames       []string
@@ -58,7 +60,8 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	providerFactory, err := buildRuntimeProviderFactory(cfg)
+	httpClient := runtimeHTTPClient()
+	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -88,6 +91,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	return cliRuntime{
 		cfg:              cfg,
 		providerFactory:  providerFactory,
+		httpClient:       httpClient,
 		registry:         registry,
 		toolNames:        registry.Names(),
 		skillNames:       skillNames,

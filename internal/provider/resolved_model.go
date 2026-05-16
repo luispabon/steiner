@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -69,6 +71,57 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		MetadataSource:            "config",
 		Confidence:                "high",
 	}, nil
+}
+
+// ResolveWithDiscovery resolves a model like Resolve but also attempts provider
+// metadata discovery to fill in missing limits. Discovery is best-effort: any
+// HTTP failure or unsupported provider type is silently ignored.
+func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Client) (ResolvedModel, error) {
+	rm, err := Resolve(cfg, alias)
+	if err != nil {
+		return ResolvedModel{}, err
+	}
+
+	modelCfg := cfg.Models[alias]
+	if limitsFullyConfigured(modelCfg.Advanced.Limits) {
+		return rm, nil
+	}
+
+	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
+	if discoverer == nil {
+		return rm, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cancel()
+
+	meta, _ := discoverer.DiscoverModelMetadata(ctx, rm.BackendModelID)
+	if meta.ContextWindow > 0 || meta.MaxOutputTokens > 0 {
+		rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(modelCfg.Advanced.Limits, meta)
+		rm.MetadataSource = "discovery"
+		rm.Confidence = "medium"
+	}
+
+	return rm, nil
+}
+
+// limitsFullyConfigured reports whether both context window and max output
+// tokens are explicitly configured, making discovery unnecessary.
+func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
+	return adv.ContextWindow > 0 && adv.MaxOutputTokens > 0
+}
+
+// resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
+// limits. User-configured values always take precedence; discovered values fill
+// gaps where the user has not set a value.
+func resolveEffectiveLimitsWithMeta(adv config.AdvancedLimitsConfig, meta ModelMetadata) EffectiveLimits {
+	if adv.ContextWindow == 0 && meta.ContextWindow > 0 {
+		adv.ContextWindow = meta.ContextWindow
+	}
+	if adv.MaxOutputTokens == 0 && meta.MaxOutputTokens > 0 {
+		adv.MaxOutputTokens = meta.MaxOutputTokens
+	}
+	return resolveEffectiveLimits(adv)
 }
 
 // resolveEffectiveLimits derives runtime effective limits from the user-configured
