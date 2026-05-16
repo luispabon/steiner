@@ -57,13 +57,6 @@ func decodeConfigNode(path, contents string) (*yaml.Node, error) {
 	return &rawMapping, nil
 }
 
-func configRootNode(rawMapping *yaml.Node) *yaml.Node {
-	if rawMapping.Kind == yaml.DocumentNode && len(rawMapping.Content) > 0 {
-		return rawMapping.Content[0]
-	}
-	return rawMapping
-}
-
 func marshalCleanConfigNode(path string, rawMapping *yaml.Node) ([]byte, error) {
 	cleaned, err := yaml.Marshal(rawMapping)
 	if err != nil {

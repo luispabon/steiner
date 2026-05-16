@@ -2,6 +2,8 @@ package provider
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +159,40 @@ func TestResolve(t *testing.T) {
 				tt.check(t, rm)
 			}
 		})
+	}
+}
+
+func TestResolveMinimalConfig(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"default": {
+				Provider: "local",
+				ID:       "qwen3",
+			},
+		},
+	}
+
+	rm, err := Resolve(cfg, "default")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "config"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.ProviderAlias, "local"; got != want {
+		t.Fatalf("ProviderAlias = %q, want %q", got, want)
+	}
+	if got, want := rm.BackendModelID, "qwen3"; got != want {
+		t.Fatalf("BackendModelID = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 32768; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 4096; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
 	}
 }
 
@@ -421,5 +457,121 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	}
 	if !strings.HasSuffix(cache.CachePath(), filepath.Join("steiner", "model-metadata", "models.dev.json")) {
 		t.Fatalf("cache path = %q, want steiner model metadata path", cache.CachePath())
+	}
+}
+
+func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"openai/gpt-4o":{"context":64000,"maxOutputTokens":4096}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+		},
+		Models: map[string]config.ModelConfig{
+			"gpt4o": {
+				Provider: "router",
+				ID:       "openai/gpt-4o",
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "discovery"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+	if len(rm.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none", rm.Warnings)
+	}
+}
+
+func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"openai/gpt-4o":{"context":64000,"maxOutputTokens":4096}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+		},
+		Models: map[string]config.ModelConfig{
+			"gpt4o": {
+				Provider: "router",
+				ID:       "openai/gpt-4o",
+				Advanced: config.AdvancedConfig{
+					Limits: config.AdvancedLimitsConfig{
+						ContextWindow:   200000,
+						MaxOutputTokens: 32000,
+					},
+				},
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "config"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 200000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 32000; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+	if len(rm.Warnings) != 0 {
+		t.Fatalf("Warnings = %v, want none", rm.Warnings)
 	}
 }

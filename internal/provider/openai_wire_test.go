@@ -160,3 +160,37 @@ func TestOpenAIRequestMarshalJSONMergeOrderPrecedence(t *testing.T) {
 		t.Fatalf("max_tokens = %v, want %v (explicit field overrides both)", got, want)
 	}
 }
+
+func TestOpenAIRequestMarshalJSONPreservesThinkingDisabledExtraParams(t *testing.T) {
+	req := openAIRequest{
+		Model:    "gpt-4",
+		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
+		ExtraParams: map[string]any{
+			"reasoning": map[string]any{
+				"enabled": false,
+			},
+		},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+
+	reasoningRaw, ok := m["reasoning"]
+	if !ok {
+		t.Fatal("reasoning missing from request body")
+	}
+	reasoning, ok := reasoningRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning type = %T, want map[string]any", reasoningRaw)
+	}
+	if got, want := reasoning["enabled"], false; got != want {
+		t.Fatalf("reasoning.enabled = %v, want %v", got, want)
+	}
+}
