@@ -10,28 +10,7 @@ func stringPtr(v string) *string       { return &v }
 func boolPtr(v bool) *bool             { return &v }
 func durationPtr(v Duration) *Duration { return &v }
 
-func stringSlicePtr(v ...string) *[]string {
-	s := append([]string(nil), v...)
-	return &s
-}
-
-func durationMapPtr(v map[string]Duration) *map[string]Duration {
-	return &v
-}
-
 func stringAnyMapPtr(v map[string]any) *map[string]any {
-	return &v
-}
-
-func modelPatchMapPtr(v map[string]modelPatch) *map[string]modelPatch {
-	return &v
-}
-
-func providerPatchMapPtr(v map[string]providerPatch) *map[string]providerPatch {
-	return &v
-}
-
-func toolPatchMapPtr(v map[string]toolPatch) *map[string]toolPatch {
 	return &v
 }
 

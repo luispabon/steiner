@@ -46,7 +46,9 @@ func (d *ollamaDiscoverer) DiscoverModelMetadata(ctx context.Context, backendMod
 	if err != nil {
 		return ModelMetadata{}, nil //nolint:nilerr // discovery is best-effort
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return ModelMetadata{}, nil

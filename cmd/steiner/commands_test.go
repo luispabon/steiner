@@ -438,7 +438,7 @@ func TestModelMetadataRefreshCommand(t *testing.T) {
 	t.Cleanup(func() { metadataCacheFactory = oldFactory })
 
 	payload := []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(payload)
 	}))

@@ -81,7 +81,7 @@ func TestLoad_MissingCache(t *testing.T) {
 
 func TestRefresh_200_AtomicWrite(t *testing.T) {
 	payload := []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("ETag", `"abc123"`)
 		w.Header().Set("Last-Modified", "Mon, 01 Jan 2024 00:00:00 GMT")
 		w.WriteHeader(http.StatusOK)
@@ -172,7 +172,7 @@ func TestRefresh_304_MetadataUpdated_DataUnchanged(t *testing.T) {
 func TestRefresh_ExpiredCacheFetchesFreshData(t *testing.T) {
 	originalData := []byte(`{"models":{"old":{"context":8192,"maxOutputTokens":1024}}}`)
 	freshData := []byte(`{"models":{"fresh":{"context":128000,"maxOutputTokens":16384}}}`)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(freshData)
 	}))
@@ -270,7 +270,7 @@ func TestRefresh_OfflineWithoutCacheIsNonFatal(t *testing.T) {
 
 func TestRefresh_InvalidJSON_DoesNotCorruptCache(t *testing.T) {
 	originalData := []byte(`{"models":{"good":{"context":8192}}}`)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`not valid json`)) //nolint:errcheck
 	}))

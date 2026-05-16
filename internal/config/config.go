@@ -50,14 +50,22 @@ type ContextManagementConfig struct {
 type ProviderType string
 
 const (
+	// ProviderTypeOpenAICompat targets OpenAI-compatible HTTP APIs.
 	ProviderTypeOpenAICompat ProviderType = "openai_compat"
-	ProviderTypeOllama       ProviderType = "ollama"
-	ProviderTypeLMStudio     ProviderType = "lmstudio"
-	ProviderTypeOpenRouter   ProviderType = "openrouter"
-	ProviderTypeOpenAI       ProviderType = "openai"
-	ProviderTypeAnthropic    ProviderType = "anthropic"
-	ProviderTypeGemini       ProviderType = "gemini"
-	ProviderTypeLiteLLM      ProviderType = "litellm"
+	// ProviderTypeOllama targets the Ollama API.
+	ProviderTypeOllama ProviderType = "ollama"
+	// ProviderTypeLMStudio targets LM Studio's OpenAI-compatible API.
+	ProviderTypeLMStudio ProviderType = "lmstudio"
+	// ProviderTypeOpenRouter targets the OpenRouter API.
+	ProviderTypeOpenRouter ProviderType = "openrouter"
+	// ProviderTypeOpenAI targets the native OpenAI API.
+	ProviderTypeOpenAI ProviderType = "openai"
+	// ProviderTypeAnthropic targets the native Anthropic API.
+	ProviderTypeAnthropic ProviderType = "anthropic"
+	// ProviderTypeGemini targets the native Gemini API.
+	ProviderTypeGemini ProviderType = "gemini"
+	// ProviderTypeLiteLLM targets a LiteLLM gateway endpoint.
+	ProviderTypeLiteLLM ProviderType = "litellm"
 )
 
 // ProviderConfig configures a model provider.

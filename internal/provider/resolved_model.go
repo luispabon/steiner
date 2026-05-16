@@ -232,36 +232,39 @@ func resolveTokenizerMetadataWithLoader(modelID string, loadTokenizer func(strin
 		return TokenizerStrategyHeuristic, "low"
 	}
 
-	switch encodingNameForModel(modelID) {
-	case "o200k_base":
-		if strings.HasPrefix(modelID, "gpt-4.5") ||
-			strings.HasPrefix(modelID, "gpt-4.1") ||
-			strings.HasPrefix(modelID, "gpt-4o") ||
-			strings.HasPrefix(modelID, "o1") ||
-			strings.HasPrefix(modelID, "o3") {
-			return TokenizerStrategyTiktoken, "high"
-		}
-	case "cl100k_base":
-		if strings.HasPrefix(modelID, "gpt-4") ||
-			strings.HasPrefix(modelID, "gpt-3.5") ||
-			strings.HasPrefix(modelID, "text-embedding-ada-002") ||
-			strings.HasPrefix(modelID, "text-embedding-3") {
-			return TokenizerStrategyTiktoken, "high"
-		}
-	case "p50k_base":
-		if strings.HasPrefix(modelID, "text-davinci") ||
-			strings.HasPrefix(modelID, "code-davinci") ||
-			strings.HasPrefix(modelID, "code-cushman") {
-			return TokenizerStrategyTiktoken, "high"
-		}
-	case "r50k_base":
-		if strings.HasPrefix(modelID, "davinci") ||
-			strings.HasPrefix(modelID, "curie") ||
-			strings.HasPrefix(modelID, "babbage") ||
-			strings.HasPrefix(modelID, "ada") ||
-			modelID == "gpt2" {
-			return TokenizerStrategyTiktoken, "high"
-		}
+	if tokenizerMatchConfidence(modelID, encodingNameForModel(modelID)) == "high" {
+		return TokenizerStrategyTiktoken, "high"
 	}
 	return TokenizerStrategyTiktoken, "low"
+}
+
+func tokenizerMatchConfidence(modelID string, encoding tokenizer.Encoding) string {
+	switch encoding {
+	case tokenizer.O200kBase:
+		if hasAnyPrefix(modelID, "gpt-4.5", "gpt-4.1", "gpt-4o", "o1", "o3") {
+			return "high"
+		}
+	case tokenizer.Cl100kBase:
+		if hasAnyPrefix(modelID, "gpt-4", "gpt-3.5", "text-embedding-ada-002", "text-embedding-3") {
+			return "high"
+		}
+	case tokenizer.P50kBase:
+		if hasAnyPrefix(modelID, "text-davinci", "code-davinci", "code-cushman") {
+			return "high"
+		}
+	case tokenizer.R50kBase:
+		if modelID == "gpt2" || hasAnyPrefix(modelID, "davinci", "curie", "babbage", "ada") {
+			return "high"
+		}
+	}
+	return "low"
+}
+
+func hasAnyPrefix(value string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
