@@ -15,12 +15,12 @@ import (
 
 // EffectiveLimits holds the runtime-resolved token limits for a model.
 type EffectiveLimits struct {
-	ContextWindow       int
-	MaxOutputTokens     int
-	OutputReserveTokens int
-	SafetyMarginTokens  int
-	SummaryMaxTokens    int
-	CompactionThreshold float64
+	ContextWindow             int
+	MaxOutputTokens           int
+	CompactionThreshold       float64
+	EstimatorPadTokens        int
+	NormalSummaryMaxTokens    int
+	EmergencySummaryMaxTokens int
 }
 
 // ResolvedModel is the runtime object combining provider and model config
@@ -180,7 +180,7 @@ func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
 // isFallbackLimits reports whether the advanced limits are all zero, indicating
 // that fallback defaults will be used.
 func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
-	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.OutputReserveTokens == 0
+	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0
 }
 
 // resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
@@ -202,53 +202,47 @@ func resolveEffectiveLimitsWithMeta(adv config.AdvancedLimitsConfig, meta ModelM
 func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 	cw := adv.ContextWindow
 	maxOut := adv.MaxOutputTokens
-	reserve := adv.OutputReserveTokens
-	safety := adv.SafetyMarginTokens
-	summaryMax := adv.SummaryMaxTokens
-	threshold := 0.70
-
-	// Fallback when nothing is configured: use reasonable defaults
-	if cw == 0 && maxOut == 0 && reserve == 0 {
+	if cw == 0 && maxOut == 0 {
 		cw = 32768
 		maxOut = 4096
-		reserve = 4096
-		safety = 2048
-		summaryMax = 4096
-		return EffectiveLimits{
-			ContextWindow:       cw,
-			MaxOutputTokens:     maxOut,
-			OutputReserveTokens: reserve,
-			SafetyMarginTokens:  safety,
-			SummaryMaxTokens:    summaryMax,
-			CompactionThreshold: threshold,
-		}
 	}
+	return deriveEffectiveLimits(cw, maxOut)
+}
 
-	// Derive missing values from what we know
-	if maxOut == 0 {
-		maxOut = 4096
-	}
-	if reserve == 0 {
-		reserve = maxOut
-	}
-	if safety == 0 && cw > 0 {
-		safety = 2048
-	}
-	if summaryMax == 0 && cw > 0 {
-		summaryMax = min(cw/4, 8192)
-		if summaryMax == 0 {
-			summaryMax = 1024
-		}
-	}
-
+func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
 	return EffectiveLimits{
-		ContextWindow:       cw,
-		MaxOutputTokens:     maxOut,
-		OutputReserveTokens: reserve,
-		SafetyMarginTokens:  safety,
-		SummaryMaxTokens:    summaryMax,
-		CompactionThreshold: threshold,
+		ContextWindow:             contextWindow,
+		MaxOutputTokens:           maxOutputTokens,
+		CompactionThreshold:       0.70,
+		EstimatorPadTokens:        clampInt(contextWindow/100, 256, 2048),
+		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 4096, 16000),
+		EmergencySummaryMaxTokens: deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 4, 2048, 8000),
 	}
+}
+
+func deriveSummaryMaxTokens(contextWindow, maxOutputTokens, percent, minTokens, maxTokens int) int {
+	derived := clampInt(contextWindow*percent/100, minTokens, maxTokens)
+	if maxOutputTokens > 0 {
+		return minInt(maxOutputTokens, derived)
+	}
+	return derived
+}
+
+func clampInt(value, minValue, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
