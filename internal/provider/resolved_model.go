@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
@@ -40,6 +39,8 @@ type ResolvedModel struct {
 	Retry                     config.RetryConfig
 	MetadataSource            string
 	Confidence                string
+	TokenizerStrategy         string
+	TokenizerConfidence       string
 	Warnings                  []string
 }
 
@@ -56,6 +57,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 	}
 
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
+	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
 
 	return ResolvedModel{
 		Alias:                     alias,
@@ -73,6 +75,8 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		Retry:                     modelCfg.Retry,
 		MetadataSource:            "config",
 		Confidence:                "high",
+		TokenizerStrategy:         tokenizerStrategy,
+		TokenizerConfidence:       tokenizerConfidence,
 	}, nil
 }
 
@@ -108,7 +112,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	}
 
 	// Try models.dev cache as third source.
-	cache := &metadata.Cache{Dir: metadataCacheDir(), HTTPClient: httpClient}
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	if data, err := cache.Load(); err == nil && data != nil {
 		info := metadata.Lookup(data, rm.BackendModelID)
 		if info.ContextWindow > 0 || info.MaxOutputTokens > 0 {
@@ -120,23 +124,29 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		}
 	}
 
-	return rm, nil
-}
-
-// metadataCacheDir returns the directory for the models.dev metadata cache,
-// honouring $XDG_CACHE_HOME when set.
-func metadataCacheDir() string {
-	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
-		return filepath.Join(xdg, "steiner", "model-metadata")
+	// Check if we ended up using fallback defaults
+	if isFallbackLimits(adv) {
+		rm.MetadataSource = "fallback"
+		rm.Confidence = "low"
+		rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+			"Model metadata warning: %s/%s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
+			alias, rm.BackendModelID, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, alias,
+		))
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "steiner", "model-metadata")
+
+	return rm, nil
 }
 
 // limitsFullyConfigured reports whether both context window and max output
 // tokens are explicitly configured, making discovery unnecessary.
 func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
 	return adv.ContextWindow > 0 && adv.MaxOutputTokens > 0
+}
+
+// isFallbackLimits reports whether the advanced limits are all zero, indicating
+// that fallback defaults will be used.
+func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
+	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.MaxInputTokens == 0 && adv.OutputReserveTokens == 0
 }
 
 // resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
@@ -208,4 +218,43 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 		SummaryMaxTokens:    summaryMax,
 		CompactionThreshold: threshold,
 	}
+}
+
+func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return "cl100k_base", "low"
+	}
+	switch encodingNameForModel(modelID) {
+	case "o200k_base":
+		if strings.HasPrefix(modelID, "gpt-4.5") ||
+			strings.HasPrefix(modelID, "gpt-4.1") ||
+			strings.HasPrefix(modelID, "gpt-4o") ||
+			strings.HasPrefix(modelID, "o1") ||
+			strings.HasPrefix(modelID, "o3") {
+			return "o200k_base", "high"
+		}
+	case "cl100k_base":
+		if strings.HasPrefix(modelID, "gpt-4") ||
+			strings.HasPrefix(modelID, "gpt-3.5") ||
+			strings.HasPrefix(modelID, "text-embedding-ada-002") ||
+			strings.HasPrefix(modelID, "text-embedding-3") {
+			return "cl100k_base", "high"
+		}
+	case "p50k_base":
+		if strings.HasPrefix(modelID, "text-davinci") ||
+			strings.HasPrefix(modelID, "code-davinci") ||
+			strings.HasPrefix(modelID, "code-cushman") {
+			return "p50k_base", "high"
+		}
+	case "r50k_base":
+		if strings.HasPrefix(modelID, "davinci") ||
+			strings.HasPrefix(modelID, "curie") ||
+			strings.HasPrefix(modelID, "babbage") ||
+			strings.HasPrefix(modelID, "ada") ||
+			modelID == "gpt2" {
+			return "r50k_base", "high"
+		}
+	}
+	return string(encodingNameForModel(modelID)), "low"
 }

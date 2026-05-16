@@ -555,6 +555,41 @@ func TestCLIRunnerEmitsRunLifecycleEvents(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
+	resetFallbackModelWarnings()
+	t.Cleanup(resetFallbackModelWarnings)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	var stderr bytes.Buffer
+	cfg := testRuntimeConfig("unknown")
+	cfg.Models["unknown"] = config.ModelConfig{
+		Provider: "local",
+		ID:       "custom-unknown-model",
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: &fakeProvider{},
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			status:   output.NewStream(&stderr),
+			events:   output.NoopSink{},
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := runner.prepareRun(nil, nil); err != nil {
+			t.Fatalf("prepareRun() error = %v", err)
+		}
+	}
+
+	const want = "Model metadata warning: unknown/custom-unknown-model has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.unknown.advanced.limits.context_window to remove this warning.\n"
+	if got := stderr.String(); got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
 func TestExecModeWritesFullLogFile(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {

@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -13,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -285,4 +290,195 @@ func TestResumeWithExecRejected(t *testing.T) {
 	if !strings.Contains(errMsg, "unsupported") {
 		t.Fatalf("error message = %q, want 'unsupported' in message", errMsg)
 	}
+}
+
+func TestModelInspectCommand(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tempDir, "xdg-cache"))
+	configPath := filepath.Join(tempDir, "config.yaml")
+	writeFile(t, configPath, `default_model: inspect
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  inspect:
+    provider: local
+    id: gpt-4o
+    params:
+      temperature: 0.2
+    extra_params:
+      reasoning:
+        effort: medium
+`)
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--config", configPath, "model", "inspect", "inspect"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"alias: inspect",
+		"provider: local",
+		"backend_id: gpt-4o",
+		"limits:",
+		"  source: fallback",
+		"  context_window: 32768",
+		"params: {\"temperature\":0.2}",
+		"extra_params: {\"reasoning\":{\"effort\":\"medium\"}}",
+		"tokenizer:",
+		"  strategy: o200k_base",
+		"  confidence: high",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestModelMetadataStatusCommand(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := runtimeMetadataCache(nil)
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{},"gpt-4.1":{}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	metaData, err := json.Marshal(metadata.CacheMetadata{
+		DownloadedAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt:    time.Now().Add(2 * time.Hour),
+		URL:          "https://models.dev/api.json",
+	})
+	if err != nil {
+		t.Fatalf("Marshal(meta) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), metaData, 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"model-metadata", "status"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"cache_path: " + cache.CachePath(),
+		"size_bytes: ",
+		"age: ",
+		"freshness: fresh",
+		"model_count: 2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestModelMetadataClearCommand(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := runtimeMetadataCache(nil)
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"model-metadata", "clear"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "model metadata cache cleared") {
+		t.Fatalf("stdout = %q, want clear confirmation", stdout.String())
+	}
+	if _, err := os.Stat(cache.CachePath()); !os.IsNotExist(err) {
+		t.Fatalf("cache file still exists, stat err = %v", err)
+	}
+	if _, err := os.Stat(cache.MetaPath()); !os.IsNotExist(err) {
+		t.Fatalf("meta file still exists, stat err = %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestModelMetadataRefreshCommand(t *testing.T) {
+	oldFactory := metadataCacheFactory
+	t.Cleanup(func() { metadataCacheFactory = oldFactory })
+
+	payload := []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	cache := &metadata.Cache{
+		Dir: t.TempDir(),
+		HTTPClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				req.URL.Scheme = "http"
+				req.URL.Host = strings.TrimPrefix(server.URL, "http://")
+				return http.DefaultTransport.RoundTrip(req)
+			}),
+		},
+	}
+	metadataCacheFactory = func(_ *http.Client) *metadata.Cache { return cache }
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"model-metadata", "refresh"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "model metadata cache refreshed") {
+		t.Fatalf("stdout = %q, want refresh confirmation", stdout.String())
+	}
+	data, err := os.ReadFile(cache.CachePath())
+	if err != nil {
+		t.Fatalf("ReadFile(cache) error = %v", err)
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("cache data = %q, want %q", string(data), string(payload))
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }

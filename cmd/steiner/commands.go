@@ -62,6 +62,8 @@ func newRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newConfigCommand(flags))
 	rootCmd.AddCommand(newToolsCommand(flags))
 	rootCmd.AddCommand(newSkillsCommand(flags))
+	rootCmd.AddCommand(newModelCommand(flags))
+	rootCmd.AddCommand(newModelMetadataCommand())
 
 	return rootCmd
 }

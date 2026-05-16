@@ -40,3 +40,20 @@ func Lookup(data []byte, modelID string) ModelInfo {
 	}
 	return info
 }
+
+// CountModels returns the number of model entries in cached metadata.
+func CountModels(data []byte) int {
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return 0
+	}
+	modelsRaw, ok := root["models"]
+	if !ok {
+		return 0
+	}
+	models, ok := modelsRaw.(map[string]any)
+	if !ok {
+		return 0
+	}
+	return len(models)
+}

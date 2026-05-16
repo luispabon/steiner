@@ -218,6 +218,24 @@ func TestRefresh_InvalidJSON_DoesNotCorruptCache(t *testing.T) {
 	}
 }
 
+func TestDefaultCacheDir(t *testing.T) {
+	t.Run("uses xdg cache home", func(t *testing.T) {
+		t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "xdg-cache"))
+		if got := DefaultCacheDir(); got != filepath.Join(os.Getenv("XDG_CACHE_HOME"), "steiner", "model-metadata") {
+			t.Fatalf("DefaultCacheDir() = %q", got)
+		}
+	})
+
+	t.Run("falls back to home cache", func(t *testing.T) {
+		t.Setenv("XDG_CACHE_HOME", "")
+		home := filepath.Join(t.TempDir(), "home")
+		t.Setenv("HOME", home)
+		if got := DefaultCacheDir(); got != filepath.Join(home, ".cache", "steiner", "model-metadata") {
+			t.Fatalf("DefaultCacheDir() = %q", got)
+		}
+	})
+}
+
 func TestClear(t *testing.T) {
 	c := newTestCache(t)
 	writeTestData(t, c, []byte(`{}`))
