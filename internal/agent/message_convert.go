@@ -3,10 +3,17 @@ package agent
 import (
 	"strings"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+// thinkingCfg carries thinking parameters without coupling to config.ModelConfig.
+type thinkingCfg struct {
+	enabled           bool
+	disableMarker     string
+	scaffoldInference bool
+	params            map[string]any
+}
 
 // ToProviderMessages converts a slice of agent Messages to provider Messages.
 func ToProviderMessages(messages []Message) []provider.Message {
@@ -101,14 +108,19 @@ func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantConte
 	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false).Content
 	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
 	chatReq := provider.ChatRequest{
-		Model:       req.Model,
+		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
-		ExtraParams: req.ExtraParams,
+		Params:      req.ResolvedModel.Params,
+		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
 	}
-	cfg := req.Thinking
-	cfg.Enabled = cfg.Enabled && cfg.EnabledScaffoldInference
-	return applyThinking(cfg, chatReq)
+	tc := thinkingCfg{
+		enabled:           req.ResolvedModel.ThinkingEnabled && req.ResolvedModel.ThinkingScaffoldInference,
+		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
+		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
+		params:            req.ResolvedModel.ThinkingParams,
+	}
+	return applyThinking(tc, chatReq)
 }
 
 func scaffoldInferenceUserPrompt(scaffoldState, assistantContent string) string {
@@ -323,23 +335,23 @@ func mergeThinkingParams(base, params map[string]any) map[string]any {
 // according to cfg. When thinking is disabled and a disable marker is
 // configured, the marker is appended to the last user message so the model
 // knows not to think.
-func applyThinking(cfg config.ThinkingConfig, req provider.ChatRequest) provider.ChatRequest {
-	if cfg.DisableMarker != "" {
-		if !cfg.Enabled {
-			if !hasThinkingMarker(req.Messages, cfg.DisableMarker) {
-				req.Messages = appendThinkingMarker(req.Messages, cfg.DisableMarker)
+func applyThinking(cfg thinkingCfg, req provider.ChatRequest) provider.ChatRequest {
+	if cfg.disableMarker != "" {
+		if !cfg.enabled {
+			if !hasThinkingMarker(req.Messages, cfg.disableMarker) {
+				req.Messages = appendThinkingMarker(req.Messages, cfg.disableMarker)
 			}
 			return req
 		}
-		if hasThinkingMarker(req.Messages, cfg.DisableMarker) {
+		if hasThinkingMarker(req.Messages, cfg.disableMarker) {
 			return req
 		}
 	}
-	if !cfg.Enabled {
+	if !cfg.enabled {
 		return req
 	}
-	if len(cfg.Params) > 0 {
-		req.ExtraParams = mergeThinkingParams(req.ExtraParams, cfg.Params)
+	if len(cfg.params) > 0 {
+		req.ExtraParams = mergeThinkingParams(req.ExtraParams, cfg.params)
 	}
 	return req
 }

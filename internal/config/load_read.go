@@ -38,11 +38,11 @@ func parseConfigPatch(path, contents string) (configPatch, error) {
 		return configPatch{}, err
 	}
 
-	patch := extractModelAliasPatch(rawMapping)
 	cleaned, err := marshalCleanConfigNode(path, rawMapping)
 	if err != nil {
 		return configPatch{}, err
 	}
+	var patch configPatch
 	if err := decodeKnownConfigPatch(cleaned, &patch); err != nil {
 		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
@@ -55,32 +55,6 @@ func decodeConfigNode(path, contents string) (*yaml.Node, error) {
 		return nil, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	return &rawMapping, nil
-}
-
-func extractModelAliasPatch(rawMapping *yaml.Node) configPatch {
-	root := configRootNode(rawMapping)
-	var patch configPatch
-	if root.Kind != yaml.MappingNode {
-		return patch
-	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		key := root.Content[i]
-		if key.Value == "model" && root.Content[i+1].Kind == yaml.ScalarNode {
-			patch.ModelAlias = root.Content[i+1].Value
-			root.Content[i+1].Kind = yaml.ScalarNode
-			root.Content[i+1].Tag = "!!null"
-			root.Content[i+1].Value = ""
-			break
-		}
-	}
-	return patch
-}
-
-func configRootNode(rawMapping *yaml.Node) *yaml.Node {
-	if rawMapping.Kind == yaml.DocumentNode && len(rawMapping.Content) > 0 {
-		return rawMapping.Content[0]
-	}
-	return rawMapping
 }
 
 func marshalCleanConfigNode(path string, rawMapping *yaml.Node) ([]byte, error) {

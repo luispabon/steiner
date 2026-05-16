@@ -155,7 +155,7 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ScratchpadEnabled: true,
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
@@ -348,8 +348,8 @@ func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T)
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 4, MaxTokens: 100},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -434,7 +434,7 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "commit changes", Turn: 7}},
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
@@ -562,7 +562,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
@@ -639,7 +639,7 @@ func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: initialConversation,
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         1024,
 			MaxCompletionTokens: 128,
@@ -778,7 +778,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
@@ -928,7 +928,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,
@@ -1045,7 +1045,7 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ScratchpadEnabled: true,
 		},
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 128,

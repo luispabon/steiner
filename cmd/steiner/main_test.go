@@ -81,23 +81,27 @@ func TestConfigCommandPrintsResolvedConfig(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 2
-model: global
-models:
-  global:
+default_model: global
+providers:
+  global-provider:
     type: openai_compat
     base_url: http://global.example/v1
-    model: global-backend
-    max_completion_tokens: 2048
-    context_size: 8192
+models:
+  global:
+    provider: global-provider
+    id: global-backend
     retry:
       enabled: true
       max_attempts: 3
       initial_backoff: 250ms
       max_backoff: 5s
       retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 256
-      summary_max_tokens: 128
+    advanced:
+      limits:
+        max_output_tokens: 2048
+        context_window: 8192
+        safety_margin_tokens: 256
+        summary_max_tokens: 128
 limits:
   max_turns: 25
 approval:
@@ -105,38 +109,45 @@ approval:
 paths:
   project_root_only: false
 `)
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `model: project
-models:
-  project:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: project
+providers:
+  project-provider:
     type: openai_compat
     base_url: http://project.example/v1
-    model: project-backend
-    max_completion_tokens: 4096
-    context_size: 32768
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 1024
-      summary_max_tokens: 512
-  cli:
+  cli-provider:
     type: openai_compat
     base_url: http://cli.example/v1
-    model: cli-backend
-    max_completion_tokens: 8192
-    context_size: 65536
+models:
+  project:
+    provider: project-provider
+    id: project-backend
     retry:
       enabled: true
       max_attempts: 3
       initial_backoff: 250ms
       max_backoff: 5s
       retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 2048
-      summary_max_tokens: 1024
+    advanced:
+      limits:
+        max_output_tokens: 4096
+        context_window: 32768
+        safety_margin_tokens: 1024
+        summary_max_tokens: 512
+  cli:
+    provider: cli-provider
+    id: cli-backend
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+    advanced:
+      limits:
+        max_output_tokens: 8192
+        context_window: 65536
+        safety_margin_tokens: 2048
+        summary_max_tokens: 1024
 limits:
   max_turns: 10
 logging:
@@ -169,8 +180,11 @@ logging:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Model.Model != "cli-backend" {
-		t.Fatalf("model.Model = %q, want cli-backend", got.Model.Model)
+	if got.DefaultModel != "cli" {
+		t.Fatalf("default_model = %q, want cli", got.DefaultModel)
+	}
+	if got.Models["cli"].ID != "cli-backend" {
+		t.Fatalf("models[cli].ID = %q, want cli-backend", got.Models["cli"].ID)
 	}
 	if got.Scheduler.Parallelism != 2 {
 		t.Fatalf("scheduler.parallelism = %d, want 2", got.Scheduler.Parallelism)
@@ -183,9 +197,6 @@ logging:
 	}
 	if got.Paths.ProjectRootOnly {
 		t.Fatalf("paths.project_root_only = %v, want false", got.Paths.ProjectRootOnly)
-	}
-	if got.Models["cli"].Model != "cli-backend" {
-		t.Fatalf("models[cli].model = %q, want cli-backend", got.Models["cli"].Model)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -244,38 +255,48 @@ func TestDefaultBuildRuntimeResolvesSelectedModelAndScheduler(t *testing.T) {
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `scheduler:
   parallelism: 7
-model: slow
-models:
-  fast:
+default_model: slow
+providers:
+  fast-provider:
     type: openai_compat
     base_url: http://fast.example/v1
-    model: fast-backend
-    max_completion_tokens: 256
-    context_size: 4096
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 128
-      summary_max_tokens: 64
-  slow:
+  slow-provider:
     type: openai_compat
     base_url: http://slow.example/v1
-    model: slow-backend
-    max_completion_tokens: 512
-    context_size: 8192
+    headers:
+      X-Test-Header: slow
+    timeout: 45s
+models:
+  fast:
+    provider: fast-provider
+    id: fast-backend
     retry:
       enabled: true
       max_attempts: 3
       initial_backoff: 250ms
       max_backoff: 5s
       retry_after_max: 30s
-    compaction:
-      safety_margin_tokens: 256
-      summary_max_tokens: 128
+    advanced:
+      limits:
+        max_output_tokens: 256
+        context_window: 4096
+        safety_margin_tokens: 128
+        summary_max_tokens: 64
+  slow:
+    provider: slow-provider
+    id: slow-backend
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+    advanced:
+      limits:
+        max_output_tokens: 512
+        context_window: 8192
+        safety_margin_tokens: 256
+        summary_max_tokens: 128
 `)
 
 	cwd, err := os.Getwd()
@@ -321,7 +342,11 @@ models:
 	if gotParallelism != 7 {
 		t.Fatalf("scheduler parallelism = %d, want 7", gotParallelism)
 	}
-	builtProvider, err := rt.providerFactory(rt.cfg.Model)
+	rm, err := provider.Resolve(rt.cfg, rt.cfg.DefaultModel)
+	if err != nil {
+		t.Fatalf("provider.Resolve() error = %v", err)
+	}
+	builtProvider, err := rt.providerFactory(rm)
 	if err != nil {
 		t.Fatalf("providerFactory() error = %v", err)
 	}
@@ -331,8 +356,14 @@ models:
 	if gotProviderConfig.BaseURL != "http://slow.example/v1" {
 		t.Fatalf("provider base_url = %q, want slow alias base_url", gotProviderConfig.BaseURL)
 	}
+	if gotProviderConfig.Headers["X-Test-Header"] != "slow" {
+		t.Fatalf("provider headers = %#v, want X-Test-Header=slow", gotProviderConfig.Headers)
+	}
 	if gotProviderConfig.Model != "slow-backend" {
 		t.Fatalf("provider model = %q, want slow-backend", gotProviderConfig.Model)
+	}
+	if gotProviderConfig.Timeout != 45*time.Second {
+		t.Fatalf("provider timeout = %v, want 45s", gotProviderConfig.Timeout)
 	}
 	if got := gotProviderConfig.Retry; got != (provider.RetryConfig{
 		Enabled:        true,
@@ -530,6 +561,41 @@ func TestCLIRunnerEmitsRunLifecycleEvents(t *testing.T) {
 	}
 	if got, want := finished.Summary, "final answer"; got != want {
 		t.Fatalf("run finished summary = %q, want %q", got, want)
+	}
+}
+
+func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
+	resetFallbackModelWarnings()
+	t.Cleanup(resetFallbackModelWarnings)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	var stderr bytes.Buffer
+	cfg := testRuntimeConfig("unknown")
+	cfg.Models["unknown"] = config.ModelConfig{
+		Provider: "local",
+		ID:       "custom-unknown-model",
+	}
+
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: &fakeProvider{},
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			status:   output.NewStream(&stderr),
+			events:   output.NoopSink{},
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := runner.prepareRun(nil, nil); err != nil {
+			t.Fatalf("prepareRun() error = %v", err)
+		}
+	}
+
+	const want = "Model metadata warning: unknown/custom-unknown-model has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.unknown.advanced.limits.context_window to remove this warning.\n"
+	if got := stderr.String(); got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
@@ -963,22 +1029,25 @@ func containsString(values []string, want string) bool {
 
 func testRuntimeConfig(alias string) config.Config {
 	modelCfg := config.ModelConfig{
-		Type:                "openai_compat",
-		BaseURL:             "http://localhost:11434/v1",
-		APIKey:              "",
-		Model:               alias,
-		MaxCompletionTokens: 64,
-		ContextSize:         4096,
-		Compaction: config.CompactionConfig{
-			SafetyMarginTokens: 16,
-			SummaryMaxTokens:   32,
+		Provider: "local",
+		ID:       alias,
+		Advanced: config.AdvancedConfig{
+			Limits: config.AdvancedLimitsConfig{
+				MaxOutputTokens:    64,
+				ContextWindow:      4096,
+				SafetyMarginTokens: 16,
+				SummaryMaxTokens:   32,
+			},
 		},
 	}
 	return config.Config{
 		Scheduler: config.SchedulerConfig{
 			Parallelism: 1,
 		},
-		Model:  modelCfg,
+		DefaultModel: alias,
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
 		Models: map[string]config.ModelConfig{alias: modelCfg},
 		Limits: config.LimitsConfig{
 			MaxTurns:           4,
@@ -1122,18 +1191,18 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 	}
 
 	modelCfg := config.ModelConfig{
-		Type:                "openai_compat",
-		BaseURL:             "http://localhost:11434/v1",
-		Model:               "test-model",
-		MaxCompletionTokens: 64,
-		ContextSize:         1,
-		Compaction: config.CompactionConfig{
-			SafetyMarginTokens: 16,
-			SummaryMaxTokens:   8,
+		Provider: "local",
+		ID:       "test-model",
+		Advanced: config.AdvancedConfig{
+			Limits: config.AdvancedLimitsConfig{
+				MaxOutputTokens:    64,
+				ContextWindow:      1,
+				SafetyMarginTokens: 16,
+				SummaryMaxTokens:   8,
+			},
 		},
 	}
 	cfg := testRuntimeConfig("test-model")
-	cfg.Model = modelCfg
 	cfg.Models["test-model"] = modelCfg
 
 	runner := cliRunner{
@@ -1191,30 +1260,31 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 
 	models := map[string]config.ModelConfig{
 		"small": {
-			Type:                "openai_compat",
-			BaseURL:             "http://localhost:11434/v1",
-			Model:               "gpt-4o-mini",
-			MaxCompletionTokens: 32,
-			ContextSize:         1024,
-			Compaction: config.CompactionConfig{
-				SafetyMarginTokens: 8,
-				SummaryMaxTokens:   16,
+			Provider: "local",
+			ID:       "gpt-4o-mini",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens:    32,
+					ContextWindow:      1024,
+					SafetyMarginTokens: 8,
+					SummaryMaxTokens:   16,
+				},
 			},
 		},
 		"large": {
-			Type:                "openai_compat",
-			BaseURL:             "http://localhost:11434/v1",
-			Model:               "gpt-4o",
-			MaxCompletionTokens: 96,
-			ContextSize:         8192,
-			Compaction: config.CompactionConfig{
-				SafetyMarginTokens: 24,
-				SummaryMaxTokens:   48,
+			Provider: "local",
+			ID:       "gpt-4o",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens:    96,
+					ContextWindow:      8192,
+					SafetyMarginTokens: 24,
+					SummaryMaxTokens:   48,
+				},
 			},
 		},
 	}
 	cfg := testRuntimeConfig("small")
-	cfg.Model = models["small"]
 	cfg.Models = models
 
 	runner := cliRunner{
@@ -1242,7 +1312,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		t.Fatalf("first max completion tokens = %d, want %d", got, want)
 	}
 
-	runner.runtime.cfg.Model = models["large"]
+	runner.runtime.cfg.DefaultModel = "large"
 	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1274,25 +1344,27 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 
 	models := map[string]config.ModelConfig{
 		"small": {
-			Type:                "openai_compat",
-			BaseURL:             "http://small.example/v1",
-			Model:               "gpt-4o-mini",
-			MaxCompletionTokens: 32,
-			ContextSize:         1024,
-			Compaction: config.CompactionConfig{
-				SafetyMarginTokens: 8,
-				SummaryMaxTokens:   16,
+			Provider: "local",
+			ID:       "gpt-4o-mini",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens:    32,
+					ContextWindow:      1024,
+					SafetyMarginTokens: 8,
+					SummaryMaxTokens:   16,
+				},
 			},
 		},
 		"large": {
-			Type:                "openai_compat",
-			BaseURL:             "http://large.example/v1",
-			Model:               "gpt-4o",
-			MaxCompletionTokens: 96,
-			ContextSize:         8192,
-			Compaction: config.CompactionConfig{
-				SafetyMarginTokens: 24,
-				SummaryMaxTokens:   48,
+			Provider: "local",
+			ID:       "gpt-4o",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens:    96,
+					ContextWindow:      8192,
+					SafetyMarginTokens: 24,
+					SummaryMaxTokens:   48,
+				},
 			},
 		},
 	}
@@ -1302,7 +1374,6 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 		runtime: cliRuntime{
 			cfg: func() config.Config {
 				cfg := testRuntimeConfig("small")
-				cfg.Model = models["small"]
 				cfg.Models = models
 				return cfg
 			}(),
@@ -1351,19 +1422,19 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 	}
 
 	modelCfg := config.ModelConfig{
-		Type:                "openai_compat",
-		BaseURL:             "http://localhost:11434/v1",
-		Model:               "test-model",
-		ExtraParams:         map[string]any{"temperature": 0.7, "top_p": 0.9},
-		MaxCompletionTokens: 64,
-		ContextSize:         4096,
-		Compaction: config.CompactionConfig{
-			SafetyMarginTokens: 16,
-			SummaryMaxTokens:   32,
+		Provider:    "local",
+		ID:          "test-model",
+		ExtraParams: map[string]any{"temperature": 0.7, "top_p": 0.9},
+		Advanced: config.AdvancedConfig{
+			Limits: config.AdvancedLimitsConfig{
+				MaxOutputTokens:    64,
+				ContextWindow:      4096,
+				SafetyMarginTokens: 16,
+				SummaryMaxTokens:   32,
+			},
 		},
 	}
 	cfg := testRuntimeConfig("test-model")
-	cfg.Model = modelCfg
 	cfg.Models["test-model"] = modelCfg
 
 	runner := cliRunner{

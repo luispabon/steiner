@@ -1,13 +1,22 @@
 package config
 
 func defaultConfig() Config {
+	defaultProvider := ProviderConfig{
+		Type:    ProviderTypeOpenAICompat,
+		BaseURL: "http://localhost:11434/v1",
+	}
 	defaultModel := ModelConfig{
-		Type:                "openai_compat",
-		BaseURL:             "http://localhost:11434/v1",
-		APIKey:              "",
-		Model:               "qwen3-35b-a3b",
-		MaxCompletionTokens: 8192,
-		ContextSize:         32768,
+		Provider:                  "local",
+		ID:                        "qwen3-35b-a3b",
+		ThinkingEnabled:           true,
+		ThinkingDisableMarker:     "<|think_off|>",
+		ThinkingScaffoldInference: false,
+		ThinkingParams: map[string]any{
+			"thinking": map[string]any{
+				"type":          "enabled",
+				"budget_tokens": 10000,
+			},
+		},
 		Retry: RetryConfig{
 			Enabled:        true,
 			MaxAttempts:    3,
@@ -15,20 +24,23 @@ func defaultConfig() Config {
 			MaxBackoff:     MustDuration("5s"),
 			RetryAfterMax:  MustDuration("30s"),
 		},
-		Compaction: CompactionConfig{
-			SafetyMarginTokens: 8192,
-			SummaryMaxTokens:   4096,
-		},
-		Thinking: ThinkingConfig{
-			Enabled:                  true,
-			EnabledScaffoldInference: false,
+		Advanced: AdvancedConfig{
+			Limits: AdvancedLimitsConfig{
+				ContextWindow:      32768,
+				MaxOutputTokens:    8192,
+				SafetyMarginTokens: 2048,
+				SummaryMaxTokens:   1024,
+			},
 		},
 	}
 	return Config{
 		Scheduler: SchedulerConfig{
 			Parallelism: 1,
 		},
-		Model: defaultModel,
+		DefaultModel: "default",
+		Providers: map[string]ProviderConfig{
+			"local": defaultProvider,
+		},
 		Models: map[string]ModelConfig{
 			"default": defaultModel,
 		},
@@ -57,9 +69,7 @@ func defaultConfig() Config {
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
-			MaxTokens:   2000,
-			ExtraFiles:  nil,
-			IgnoreFiles: nil,
+			MaxTokens: 2000,
 		},
 		Paths: PathsConfig{
 			ProjectRootOnly: true,

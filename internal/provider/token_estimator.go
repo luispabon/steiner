@@ -11,7 +11,10 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 )
 
-var tokenizerCache sync.Map
+var (
+	tokenizerCache  sync.Map
+	tokenizerLoader = defaultTokenizerForModel
+)
 
 const (
 	requestOverheadTokens   = 8
@@ -69,6 +72,25 @@ func RequestOverheadTokens() int {
 
 // EstimateChatRequestTokens estimates the semantic token cost of a request.
 func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
+	estimate, err := defaultTokenCounter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		return 0, err
+	}
+	return estimate.Tokens, nil
+}
+
+// UsageTokenCount returns the normalized token count from provider usage data.
+func UsageTokenCount(usage *UsageStats) int {
+	return normalizedTokenCount(usage)
+}
+
+type semanticTokenEstimator struct {
+	ctx context.Context
+	enc tokenizer.Codec
+	err error
+}
+
+func estimateTiktokenChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -81,17 +103,6 @@ func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, e
 		enc: enc,
 	}
 	return estimator.countRequest(request)
-}
-
-// UsageTokenCount returns the normalized token count from provider usage data.
-func UsageTokenCount(usage *UsageStats) int {
-	return normalizedTokenCount(usage)
-}
-
-type semanticTokenEstimator struct {
-	ctx context.Context
-	enc tokenizer.Codec
-	err error
 }
 
 func (e *semanticTokenEstimator) countRequest(request ChatRequest) (int, error) {
@@ -233,6 +244,10 @@ func (e *semanticTokenEstimator) countMapValue(value reflect.Value) int {
 }
 
 func tokenizerForModel(model string) (tokenizer.Codec, error) {
+	return tokenizerLoader(model)
+}
+
+func defaultTokenizerForModel(model string) (tokenizer.Codec, error) {
 	key := strings.TrimSpace(model)
 	if key == "" {
 		key = string(tokenizer.Cl100kBase)

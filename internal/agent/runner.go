@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -25,13 +24,11 @@ type RunRequest struct {
 	Tools          []provider.ToolSpec
 	Prompt         prompt.AssemblyOptions
 	ModelBudget    prompt.ModelTokenBudget
-	Model          string
-	ExtraParams    map[string]any
+	ResolvedModel  provider.ResolvedModel
 	MaxTokens      *int
 	Limits         Limits
 	Events         output.EventSink
 	ContextManager ContextManager
-	Thinking       config.ThinkingConfig
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a

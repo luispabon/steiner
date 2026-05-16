@@ -10,6 +10,7 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 		Messages:    make([]openAIMessage, 0, len(request.Messages)),
 		MaxTokens:   request.MaxTokens,
 		Stream:      stream,
+		Params:      request.Params,
 		ExtraParams: request.ExtraParams,
 	}
 	if strings.TrimSpace(request.Model) != "" {

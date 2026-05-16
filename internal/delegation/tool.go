@@ -8,7 +8,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -59,10 +58,7 @@ type DelegateHandlerDeps struct {
 	Events             output.EventSink
 	Runner             AgentRunner
 	WorkDir            string
-	ExtraParams        map[string]any
-	Thinking           config.ThinkingConfig
-	ModelBudget        prompt.ModelTokenBudget
-	Model              string
+	ResolvedModel      provider.ResolvedModel
 	MaxTokens          *int
 	StreamingPreferred bool
 	TraceLogger        *TraceLogger
@@ -106,10 +102,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			SubAgentCfg:        deps.SubAgentCfg,
 			Events:             deps.Events,
 			WorkDir:            deps.WorkDir,
-			ExtraParams:        deps.ExtraParams,
-			Thinking:           deps.Thinking,
-			ModelBudget:        deps.ModelBudget,
-			Model:              deps.Model,
+			ResolvedModel:      deps.ResolvedModel,
 			MaxTokens:          deps.MaxTokens,
 			StreamingPreferred: deps.StreamingPreferred,
 		}, spec)

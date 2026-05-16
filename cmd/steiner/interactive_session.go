@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
@@ -49,12 +48,16 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRunti
 
 func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
 	selected := selectedModelConfig(rt.cfg)
+	selectedProviderBaseURL := ""
+	if p, ok := rt.cfg.Providers[selected.Provider]; ok {
+		selectedProviderBaseURL = p.BaseURL
+	}
 	tuiCfg := tui.Config{
-		Model:                         rt.cfg.Model.Model,
+		Model:                         selected.ID,
 		ModelNames:                    modelAliasNames(rt.cfg),
 		ModelContexts:                 modelContextSizes(rt.cfg),
 		ModelBaseURLs:                 modelBaseURLs(rt.cfg),
-		ProviderBaseURL:               selected.BaseURL,
+		ProviderBaseURL:               selectedProviderBaseURL,
 		HomeDir:                       rt.homeDir,
 		WorkingDir:                    rt.workDir,
 		MaxTurns:                      0,
@@ -74,7 +77,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runtime:            rt,
 		runMode:            "interactive",
 		streamingPreferred: true,
-		currentModel:       func() config.ModelConfig { return sess.CurrentModelConfig() },
+		currentAlias:       func() string { return rt.cfg.DefaultModel },
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

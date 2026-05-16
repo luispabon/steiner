@@ -124,7 +124,7 @@ func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.Model
+	return s.deps.Config.Models[s.deps.Config.DefaultModel]
 }
 
 // Conversation returns the current conversation message slice. Callers must
@@ -205,11 +205,12 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		s.approvalCoordinator.Submit(a)
 		return nil
 	case SwitchModel:
-		_, err := config.SwitchModelConfigByAlias(&s.deps.Config, a.Name)
-		if err != nil {
+		if _, ok := s.deps.Config.Models[a.Name]; !ok {
+			err := fmt.Errorf("model %q not found in config", a.Name)
 			s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
 			return err
 		}
+		s.deps.Config.DefaultModel = a.Name
 		return nil
 	case LoadSession:
 		return s.loadSession(ctx, a.SessionID)
@@ -252,7 +253,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	sess, err := session.NewSession(s.deps.Config.Model.Model, s.lineage)
+	sess, err := session.NewSession(s.deps.Config.Models[s.deps.Config.DefaultModel].ID, s.lineage)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
@@ -301,9 +302,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
+	currentModel := s.deps.Config.Models[s.deps.Config.DefaultModel]
 	var promptTokens int
 	for _, msg := range msgs {
-		t, err := provider.EstimateMessageTokens(ctx, s.deps.Config.Model.Model, provider.Message{
+		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
 			Role:    provider.MessageRole(msg.Role),
 			Content: msg.Content,
 		})
@@ -320,7 +322,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 	s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:           "session_loaded",
-		ContextTokens:  s.deps.Config.Model.ContextSize,
+		ContextTokens:  currentModel.Advanced.Limits.ContextWindow,
 		PromptTokens:   promptTokens,
 		ReservedTokens: 0,
 		TotalTokens:    promptTokens,

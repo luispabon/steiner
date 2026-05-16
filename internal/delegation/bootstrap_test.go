@@ -493,20 +493,20 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
-		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
-		Events:      output.NoopSink{},
-		WorkDir:     "/tmp/work",
-		Provider:    stubProvider{},
-		Model:       "test-model",
+		ParentReg:     parent,
+		SubAgentCfg:   config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:        output.NoopSink{},
+		WorkDir:       "/tmp/work",
+		Provider:      stubProvider{},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m1", Limits: DelegationLimits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
-	if req.Model != "test-model" {
-		t.Errorf("Model=%q, want %q", req.Model, "test-model")
+	if req.ResolvedModel.BackendModelID != "test-model" {
+		t.Errorf("BackendModelID=%q, want %q", req.ResolvedModel.BackendModelID, "test-model")
 	}
 }
 
@@ -540,27 +540,34 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	budget := prompt.ModelTokenBudget{
-		ContextSize:         128000,
-		MaxCompletionTokens: 8192,
-		SafetyMarginTokens:  500,
-		SummaryMaxTokens:    2000,
-	}
 	deps := BootstrapDeps{
 		ParentReg:   parent,
 		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
-		ModelBudget: budget,
+		ResolvedModel: provider.ResolvedModel{
+			EffectiveLimits: provider.EffectiveLimits{
+				ContextWindow:      128000,
+				MaxOutputTokens:    8192,
+				SafetyMarginTokens: 500,
+				SummaryMaxTokens:   2000,
+			},
+		},
+	}
+	wantBudget := prompt.ModelTokenBudget{
+		ContextSize:         128000,
+		MaxCompletionTokens: 8192,
+		SafetyMarginTokens:  500,
+		SummaryMaxTokens:    2000,
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m3", Limits: DelegationLimits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
-	if req.ModelBudget != budget {
-		t.Errorf("ModelBudget=%+v, want %+v", req.ModelBudget, budget)
+	if req.ModelBudget != wantBudget {
+		t.Errorf("ModelBudget=%+v, want %+v", req.ModelBudget, wantBudget)
 	}
 }
 
@@ -656,8 +663,8 @@ func TestBuildChildRun(t *testing.T) {
 				if req.Executor == nil {
 					t.Error("Executor is nil")
 				}
-				if req.Model != "" {
-					t.Errorf("Model=%q, want empty (no model set in deps)", req.Model)
+				if req.ResolvedModel.BackendModelID != "" {
+					t.Errorf("BackendModelID=%q, want empty (no model set in deps)", req.ResolvedModel.BackendModelID)
 				}
 			},
 		},

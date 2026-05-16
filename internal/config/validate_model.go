@@ -5,27 +5,34 @@ import (
 	"strings"
 )
 
-func appendModelProblems(problems *[]string, prefix string, model ModelConfig) {
-	if model.Type == "" {
-		*problems = append(*problems, fmt.Sprintf("%s.type is required", prefix))
-	} else if model.Type != "openai_compat" {
-		*problems = append(*problems, fmt.Sprintf("%s.type %q is not supported", prefix, model.Type))
+func providerNeedsBaseURL(providerType ProviderType) bool {
+	switch providerType {
+	case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio, ProviderTypeLiteLLM:
+		return true
+	default:
+		return false
 	}
-	if strings.TrimSpace(model.BaseURL) == "" {
-		*problems = append(*problems, fmt.Sprintf("%s.base_url is required", prefix))
-	}
-	if strings.TrimSpace(model.Model) == "" {
-		*problems = append(*problems, fmt.Sprintf("%s.model is required", prefix))
-	}
-	if model.MaxCompletionTokens < 1 {
-		*problems = append(*problems, fmt.Sprintf("%s.max_completion_tokens must be at least 1", prefix))
-	}
-	if model.ContextSize < 1 {
-		*problems = append(*problems, fmt.Sprintf("%s.context_size must be at least 1", prefix))
-	}
+}
 
+func providerNeedsCredential(providerType ProviderType) bool {
+	switch providerType {
+	case ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic, ProviderTypeGemini:
+		return true
+	default:
+		return false
+	}
+}
+
+func appendModelProblems(problems *[]string, prefix string, model ModelConfig, providers map[string]ProviderConfig) {
+	if model.Provider == "" {
+		*problems = append(*problems, fmt.Sprintf("%s.provider is required", prefix))
+	} else if _, ok := providers[model.Provider]; !ok {
+		*problems = append(*problems, fmt.Sprintf("%s.provider %q is not defined in providers", prefix, model.Provider))
+	}
+	if strings.TrimSpace(model.ID) == "" {
+		*problems = append(*problems, fmt.Sprintf("%s.id is required", prefix))
+	}
 	appendRetryProblems(problems, prefix+".retry", model.Retry)
-	appendCompactionProblems(problems, prefix, model)
 }
 
 func appendRetryProblems(problems *[]string, path string, retry RetryConfig) {
@@ -49,25 +56,42 @@ func appendRetryProblems(problems *[]string, path string, retry RetryConfig) {
 	}
 }
 
-func appendCompactionProblems(problems *[]string, prefix string, model ModelConfig) {
-	if model.Compaction.SafetyMarginTokens < 0 {
-		*problems = append(*problems, fmt.Sprintf("%s.compaction.safety_margin_tokens must be at least 0", prefix))
-	}
-	if model.Compaction.SummaryMaxTokens < 1 {
-		*problems = append(*problems, fmt.Sprintf("%s.compaction.summary_max_tokens must be at least 1", prefix))
-	}
-	if model.Compaction.SummaryMaxTokens > model.MaxCompletionTokens {
-		*problems = append(*problems, fmt.Sprintf("%s.compaction.summary_max_tokens must be less than or equal to %s.max_completion_tokens", prefix, prefix))
-	}
-}
-
 func validateSchedulerConfig(problems *[]string, cfg SchedulerConfig) {
 	if cfg.Parallelism < 1 {
 		*problems = append(*problems, "scheduler.parallelism must be at least 1")
 	}
 }
 
-func validateModelsConfig(problems *[]string, models map[string]ModelConfig) {
+func validateProvidersConfig(problems *[]string, providers map[string]ProviderConfig) {
+	if len(providers) == 0 {
+		*problems = append(*problems, "providers is required")
+	}
+	for name, p := range providers {
+		if strings.TrimSpace(name) == "" {
+			*problems = append(*problems, "providers contains an empty alias")
+		}
+		if p.Type == "" {
+			*problems = append(*problems, fmt.Sprintf("providers[%q].type is required", name))
+		} else {
+			switch p.Type {
+			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
+				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
+				ProviderTypeGemini, ProviderTypeLiteLLM:
+				// valid
+			default:
+				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
+			}
+		}
+		if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
+			*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
+		}
+		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
+			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
+		}
+	}
+}
+
+func validateModelsConfig(problems *[]string, models map[string]ModelConfig, providers map[string]ProviderConfig) {
 	if len(models) == 0 {
 		*problems = append(*problems, "models is required")
 	}
@@ -75,6 +99,6 @@ func validateModelsConfig(problems *[]string, models map[string]ModelConfig) {
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "models contains an empty alias")
 		}
-		appendModelProblems(problems, fmt.Sprintf("models[%q]", name), model)
+		appendModelProblems(problems, fmt.Sprintf("models[%q]", name), model, providers)
 	}
 }

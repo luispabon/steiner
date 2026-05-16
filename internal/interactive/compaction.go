@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func (s *Session) manualCompaction(ctx context.Context) {
@@ -20,12 +21,15 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	selected := s.deps.Config.Model
+	rm, err := provider.Resolve(s.deps.Config, s.deps.Config.DefaultModel)
+	if err != nil {
+		s.emitCompactError(fmt.Errorf("resolve model: %w", err))
+		return
+	}
 
-	var err error
 	prov := s.deps.Provider
 	if prov == nil && s.deps.ProviderFactory != nil {
-		prov, err = s.deps.ProviderFactory(selected)
+		prov, err = s.deps.ProviderFactory(rm)
 		if err != nil {
 			s.emitCompactError(err)
 			return
@@ -37,28 +41,28 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	}
 
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+		ContextSize:         rm.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens: rm.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:  rm.EffectiveLimits.SafetyMarginTokens,
+		SummaryMaxTokens:    rm.EffectiveLimits.SummaryMaxTokens,
 	}
 	assembly := prompt.AssemblyOptions{
 		HomeDir:         s.deps.HomeDir,
 		ProjectRoot:     s.deps.WorkDir,
 		SkillsRoot:      prompt.DefaultSkillsRoot(s.deps.HomeDir),
 		ModelBudget:     modelBudget,
-		PromptOverrides: selected.Prompts,
+		PromptOverrides: rm.Prompts,
 	}
 
 	compactReq := agent.RunRequest{
-		Provider:    prov,
-		Prompt:      assembly,
-		ModelBudget: modelBudget,
-		Model:       selected.Model,
-		Events:      s.events,
+		Provider:      prov,
+		Prompt:        assembly,
+		ModelBudget:   modelBudget,
+		ResolvedModel: rm,
+		Events:        s.events,
 	}
 
-	newConv, err := s.runManualCompaction(ctx, selected.Model, func(runCtx context.Context) ([]agent.Message, error) {
+	newConv, err := s.runManualCompaction(ctx, rm.BackendModelID, func(runCtx context.Context) ([]agent.Message, error) {
 		agentRunner := agent.NewRunner()
 		return agentRunner.Compact(runCtx, compactReq, conversation)
 	})

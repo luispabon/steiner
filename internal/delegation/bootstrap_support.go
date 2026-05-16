@@ -31,7 +31,7 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 // Registries and prompt must be provided pre-built; the caller (typically
 // BuildChildRun) is responsible for registry and prompt assembly.
-func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, extraParams map[string]any, thinking config.ThinkingConfig, modelBudget prompt.ModelTokenBudget, model string, maxTokens *int, streamingPreferred bool) agent.RunRequest {
+func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool) agent.RunRequest {
 	_ = spec
 	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
 	scopedEvents := withAgentScope(spec.AgentID, events)
@@ -43,10 +43,8 @@ func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Pro
 		Limits:             baseLimits,
 		Events:             scopedEvents,
 		Prompt:             promptOpts,
-		ExtraParams:        extraParams,
-		Thinking:           thinking,
+		ResolvedModel:      rm,
 		ModelBudget:        modelBudget,
-		Model:              model,
 		MaxTokens:          maxTokens,
 		StreamingPreferred: streamingPreferred,
 	}

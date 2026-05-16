@@ -5,7 +5,7 @@ import (
 )
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	return cfg.Model
+	return cfg.Models[cfg.DefaultModel]
 }
 
 func modelAliasNames(cfg config.Config) []string {
@@ -25,8 +25,8 @@ func modelContextSizes(cfg config.Config) map[string]int {
 	}
 	sizes := make(map[string]int, len(cfg.Models))
 	for name, model := range cfg.Models {
-		if model.ContextSize > 0 {
-			sizes[name] = model.ContextSize
+		if model.Advanced.Limits.ContextWindow > 0 {
+			sizes[name] = model.Advanced.Limits.ContextWindow
 		}
 	}
 	return sizes
@@ -38,7 +38,9 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 	}
 	urls := make(map[string]string, len(cfg.Models))
 	for name, model := range cfg.Models {
-		urls[name] = model.BaseURL
+		if p, ok := cfg.Providers[model.Provider]; ok {
+			urls[name] = p.BaseURL
+		}
 	}
 	return urls
 }

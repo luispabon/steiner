@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -12,49 +14,89 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+var fallbackWarningModels sync.Map
+
 type runnerSetup struct {
-	selected    config.ModelConfig
-	provider    provider.Provider
-	modelBudget prompt.ModelTokenBudget
-	assembly    prompt.AssemblyOptions
-	runMode     string
+	resolvedModel provider.ResolvedModel
+	provider      provider.Provider
+	modelBudget   prompt.ModelTokenBudget
+	assembly      prompt.AssemblyOptions
+	runMode       string
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
-	selected := r.selectedModel()
-	prov, err := r.runtimeProvider(selected)
+	alias := r.selectedAlias()
+	rm, err := provider.ResolveWithDiscovery(r.runtime.cfg, alias, r.runtime.httpClient)
+	if err != nil {
+		return runnerSetup{}, err
+	}
+	emitFallbackWarnings(r.runtime.status, rm)
+
+	prov, err := r.runtimeProvider(rm)
 	if err != nil {
 		return runnerSetup{}, err
 	}
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+		ContextSize:         rm.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens: rm.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:  rm.EffectiveLimits.SafetyMarginTokens,
+		SummaryMaxTokens:    rm.EffectiveLimits.SummaryMaxTokens,
 	}
 
 	return runnerSetup{
-		selected:    selected,
-		provider:    loggingProvider{inner: prov, sink: r.runtime.events},
-		modelBudget: modelBudget,
-		assembly:    r.promptAssembly(conversation, skillNames, modelBudget, selected),
-		runMode:     r.normalizedRunMode(),
+		resolvedModel: rm,
+		provider:      loggingProvider{inner: prov, sink: r.runtime.events},
+		modelBudget:   modelBudget,
+		assembly:      r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
+		runMode:       r.normalizedRunMode(),
 	}, nil
 }
 
-func (r cliRunner) selectedModel() config.ModelConfig {
-	selected := selectedModelConfig(r.runtime.cfg)
-	if r.currentModel != nil {
-		selected = r.currentModel()
+func emitFallbackWarnings(stream *output.Stream, rm provider.ResolvedModel) {
+	if rm.MetadataSource != "fallback" || len(rm.Warnings) == 0 {
+		return
 	}
-	return selected
+	key := rm.Alias + "\x00" + rm.BackendModelID
+	if _, loaded := fallbackWarningModels.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	for _, warn := range rm.Warnings {
+		if stream != nil {
+			stream.Printf("%s\n", warn)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", warn)
+	}
 }
 
-func (r cliRunner) runtimeProvider(selected config.ModelConfig) (provider.Provider, error) {
+func resetFallbackModelWarnings() {
+	fallbackWarningModels.Range(func(key, _ any) bool {
+		fallbackWarningModels.Delete(key)
+		return true
+	})
+}
+
+func (r cliRunner) selectedAlias() string {
+	if r.currentAlias != nil {
+		return r.currentAlias()
+	}
+	if r.currentModel != nil {
+		// Reverse lookup: find the alias whose ModelConfig matches the one returned.
+		selected := r.currentModel()
+		for alias, mc := range r.runtime.cfg.Models {
+			if mc.ID == selected.ID && mc.Provider == selected.Provider {
+				return alias
+			}
+		}
+	}
+	return r.runtime.cfg.DefaultModel
+}
+
+func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
 	prov := r.runtime.provider
 	if r.runtime.providerFactory != nil {
 		var err error
-		prov, err = r.runtime.providerFactory(selected)
+		prov, err = r.runtime.providerFactory(rm)
 		if err != nil {
 			return nil, err
 		}
@@ -65,14 +107,14 @@ func (r cliRunner) runtimeProvider(selected config.ModelConfig) (provider.Provid
 	return prov, nil
 }
 
-func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, selected config.ModelConfig) prompt.AssemblyOptions {
+func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
 	return prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
 		ProjectRoot:               r.runtime.workDir,
 		SkillsRoot:                prompt.DefaultSkillsRoot(r.runtime.homeDir),
 		SkillNames:                append([]string(nil), skillNames...),
 		ModelBudget:               modelBudget,
-		PromptOverrides:           selected.Prompts,
+		PromptOverrides:           prompts,
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
@@ -104,23 +146,21 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 }
 
 func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink) agent.RunRequest {
-	maxTokens := setup.selected.MaxCompletionTokens
+	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	return agent.RunRequest{
-		Provider:    setup.provider,
-		Executor:    tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir),
-		Tools:       activeRegistry.ToProviderSpecs(),
-		Prompt:      setup.assembly,
-		ModelBudget: setup.modelBudget,
-		Model:       setup.selected.Model,
-		ExtraParams: setup.selected.ExtraParams,
-		MaxTokens:   &maxTokens,
+		Provider:      setup.provider,
+		Executor:      tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir),
+		Tools:         activeRegistry.ToProviderSpecs(),
+		Prompt:        setup.assembly,
+		ModelBudget:   setup.modelBudget,
+		ResolvedModel: setup.resolvedModel,
+		MaxTokens:     &maxTokens,
 		Limits: agent.Limits{
 			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
 		Events:             events,
 		ContextManager:     agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement),
-		Thinking:           setup.selected.Thinking,
 		StreamingPreferred: r.streamingPreferred,
 	}
 }

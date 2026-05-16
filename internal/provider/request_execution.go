@@ -26,6 +26,9 @@ func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream
 	if strings.TrimSpace(p.apiKey) != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
+	for key, value := range p.headers {
+		req.Header.Set(key, value)
+	}
 	return req, nil
 }
 

@@ -19,10 +19,7 @@ type BootstrapDeps struct {
 	SubAgentCfg        config.SubAgentConfig
 	Events             output.EventSink
 	WorkDir            string
-	ExtraParams        map[string]any
-	Thinking           config.ThinkingConfig
-	ModelBudget        prompt.ModelTokenBudget
-	Model              string
+	ResolvedModel      provider.ResolvedModel
 	MaxTokens          *int
 	StreamingPreferred bool
 }
@@ -40,10 +37,17 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		TurnTimeout: limits.Timeout,
 	}
 
+	modelBudget := prompt.ModelTokenBudget{
+		ContextSize:         deps.ResolvedModel.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens: deps.ResolvedModel.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:  deps.ResolvedModel.EffectiveLimits.SafetyMarginTokens,
+		SummaryMaxTokens:    deps.ResolvedModel.EffectiveLimits.SummaryMaxTokens,
+	}
+
 	promptOpts := buildChildPrompt(spec)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.Thinking, deps.ModelBudget, deps.Model, deps.MaxTokens, deps.StreamingPreferred)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred)
 	return req, limits, nil
 }
 
