@@ -7,6 +7,17 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// ModelBudgetFromEffectiveLimits derives a ModelTokenBudget from resolved EffectiveLimits.
+// Used to adapt provider.ResolvedModel limits to prompt budgeting.
+func ModelBudgetFromEffectiveLimits(limits provider.EffectiveLimits) ModelTokenBudget {
+	return ModelTokenBudget{
+		ContextSize:         limits.ContextWindow,
+		MaxCompletionTokens: limits.MaxOutputTokens,
+		SafetyMarginTokens:  limits.SafetyMarginTokens,
+		SummaryMaxTokens:    limits.SummaryMaxTokens,
+	}
+}
+
 // Normalized clamps negative budget fields to zero.
 func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 	if m.ContextSize < 0 {

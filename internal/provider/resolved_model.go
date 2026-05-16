@@ -72,16 +72,59 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 }
 
 // resolveEffectiveLimits derives runtime effective limits from the user-configured
-// advanced limits. Stage 3 will add derivation from context_window when only
-// partial limits are known.
+// advanced limits, filling in missing values with sensible defaults based on
+// known fields. When nothing is configured, uses fallback defaults.
 func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
+	cw := adv.ContextWindow
+	maxOut := adv.MaxOutputTokens
+	maxIn := adv.MaxInputTokens
+	reserve := adv.OutputReserveTokens
+	safety := adv.SafetyMarginTokens
+	summaryMax := adv.SummaryMaxTokens
+	threshold := 0.70
+
+	// Fallback when nothing is configured: use reasonable defaults
+	if cw == 0 && maxOut == 0 && maxIn == 0 && reserve == 0 {
+		cw = 32768
+		maxOut = 4096
+		reserve = 4096
+		safety = 2048
+		summaryMax = 4096
+		return EffectiveLimits{
+			ContextWindow:       cw,
+			MaxInputTokens:      maxIn,
+			MaxOutputTokens:     maxOut,
+			OutputReserveTokens: reserve,
+			SafetyMarginTokens:  safety,
+			SummaryMaxTokens:    summaryMax,
+			CompactionThreshold: threshold,
+		}
+	}
+
+	// Derive missing values from what we know
+	if maxOut == 0 {
+		maxOut = 4096
+	}
+	if reserve == 0 {
+		reserve = maxOut
+	}
+	if safety == 0 && cw > 0 {
+		safety = 2048
+	}
+	if summaryMax == 0 && cw > 0 {
+		summaryMax = min(cw/4, 8192)
+		if summaryMax == 0 {
+			summaryMax = 1024
+		}
+	}
+
 	return EffectiveLimits{
-		ContextWindow:       adv.ContextWindow,
-		MaxInputTokens:      adv.MaxInputTokens,
-		MaxOutputTokens:     adv.MaxOutputTokens,
-		OutputReserveTokens: adv.OutputReserveTokens,
-		SafetyMarginTokens:  adv.SafetyMarginTokens,
-		SummaryMaxTokens:    adv.SummaryMaxTokens,
-		CompactionThreshold: 0.70,
+		ContextWindow:       cw,
+		MaxInputTokens:      maxIn,
+		MaxOutputTokens:     maxOut,
+		OutputReserveTokens: reserve,
+		SafetyMarginTokens:  safety,
+		SummaryMaxTokens:    summaryMax,
+		CompactionThreshold: threshold,
 	}
 }
