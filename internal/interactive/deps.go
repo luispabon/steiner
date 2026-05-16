@@ -48,7 +48,7 @@ type Dependencies struct {
 	SkillNames      []string
 	Config          config.Config
 	Provider        provider.Provider
-	ProviderFactory func(config.ModelConfig) (provider.Provider, error)
+	ProviderFactory func(provider.ResolvedModel) (provider.Provider, error)
 	HomeDir         string
 	WorkDir         string
 }

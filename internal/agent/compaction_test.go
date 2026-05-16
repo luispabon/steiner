@@ -161,8 +161,8 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
 			CompactionStrategy: config.CompactionStrategySummarize,
 		}),
-		Provider: providerStub,
-		Model:    "test-model",
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         100000,
 			MaxCompletionTokens: 256,
@@ -245,8 +245,8 @@ func TestSummarizeCompactorDoesNotRetainMessagesOnRecompaction(t *testing.T) {
 	outcome, err := summarizeCompactor{}.Compact(
 		context.Background(),
 		RunRequest{
-			Provider: providerStub,
-			Model:    "test-model",
+			Provider:      providerStub,
+			ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 			ModelBudget: prompt.ModelTokenBudget{
 				ContextSize:         100000,
 				MaxCompletionTokens: 256,
@@ -315,7 +315,7 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
 			CompactionStrategy: config.CompactionStrategyDrop,
 		}),
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
@@ -393,7 +393,7 @@ func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
 	cm.SetEventSink(sink)
 	req := RunRequest{
 		ContextManager: cm,
-		Model:          "test-model",
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         100000,
 			MaxCompletionTokens: 256,
@@ -474,8 +474,8 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 			CompactionStrategy: config.CompactionStrategyHybrid,
 			MaskingWindowTurns: 1,
 		}),
-		Provider: providerStub,
-		Model:    "test-model",
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         100000,
 			MaxCompletionTokens: 256,

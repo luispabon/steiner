@@ -8,7 +8,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -53,22 +52,16 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 
 // DelegateHandlerDeps holds dependencies for the delegate tool handler.
 type DelegateHandlerDeps struct {
-	Provider                  provider.Provider
-	ParentReg                 *tool.Registry
-	SubAgentCfg               config.SubAgentConfig
-	Events                    output.EventSink
-	Runner                    AgentRunner
-	WorkDir                   string
-	ExtraParams               map[string]any
-	ThinkingEnabled           bool
-	ThinkingDisableMarker     string
-	ThinkingScaffoldInference bool
-	ThinkingParams            map[string]any
-	ModelBudget               prompt.ModelTokenBudget
-	Model                     string
-	MaxTokens                 *int
-	StreamingPreferred        bool
-	TraceLogger               *TraceLogger
+	Provider           provider.Provider
+	ParentReg          *tool.Registry
+	SubAgentCfg        config.SubAgentConfig
+	Events             output.EventSink
+	Runner             AgentRunner
+	WorkDir            string
+	ResolvedModel      provider.ResolvedModel
+	MaxTokens          *int
+	StreamingPreferred bool
+	TraceLogger        *TraceLogger
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -104,20 +97,14 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:                  deps.Provider,
-			ParentReg:                 deps.ParentReg,
-			SubAgentCfg:               deps.SubAgentCfg,
-			Events:                    deps.Events,
-			WorkDir:                   deps.WorkDir,
-			ExtraParams:               deps.ExtraParams,
-			ThinkingEnabled:           deps.ThinkingEnabled,
-			ThinkingDisableMarker:     deps.ThinkingDisableMarker,
-			ThinkingScaffoldInference: deps.ThinkingScaffoldInference,
-			ThinkingParams:            deps.ThinkingParams,
-			ModelBudget:               deps.ModelBudget,
-			Model:                     deps.Model,
-			MaxTokens:                 deps.MaxTokens,
-			StreamingPreferred:        deps.StreamingPreferred,
+			Provider:           deps.Provider,
+			ParentReg:          deps.ParentReg,
+			SubAgentCfg:        deps.SubAgentCfg,
+			Events:             deps.Events,
+			WorkDir:            deps.WorkDir,
+			ResolvedModel:      deps.ResolvedModel,
+			MaxTokens:          deps.MaxTokens,
+			StreamingPreferred: deps.StreamingPreferred,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)

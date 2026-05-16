@@ -339,7 +339,11 @@ models:
 	if gotParallelism != 7 {
 		t.Fatalf("scheduler parallelism = %d, want 7", gotParallelism)
 	}
-	builtProvider, err := rt.providerFactory(selectedModelConfig(rt.cfg))
+	rm, err := provider.Resolve(rt.cfg, rt.cfg.DefaultModel)
+	if err != nil {
+		t.Fatalf("provider.Resolve() error = %v", err)
+	}
+	builtProvider, err := rt.providerFactory(rm)
 	if err != nil {
 		t.Fatalf("providerFactory() error = %v", err)
 	}

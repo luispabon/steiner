@@ -374,10 +374,10 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 
 func buildConversationRequest(req RunRequest, messages []Message) provider.ChatRequest {
 	return provider.ChatRequest{
-		Model:       req.Model,
+		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    ToProviderMessages(messages),
 		Tools:       cloneProviderTools(req.Tools),
-		ExtraParams: req.ExtraParams,
+		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   req.MaxTokens,
 	}
 }
@@ -448,9 +448,9 @@ func buildCompactionRequest(req RunRequest, state RunState, candidate Conversati
 	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction)
 	maxTokens := compactionMaxTokens(req.ModelBudget)
 	request := provider.ChatRequest{
-		Model:       req.Model,
+		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    messages,
-		ExtraParams: req.ExtraParams,
+		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   maxTokens,
 	}
 	return request, summarizeCompactionPrompt(candidate)

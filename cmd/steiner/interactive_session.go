@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
@@ -78,7 +77,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runtime:            rt,
 		runMode:            "interactive",
 		streamingPreferred: true,
-		currentModel:       func() config.ModelConfig { return sess.CurrentModelConfig() },
+		currentAlias:       func() string { return rt.cfg.DefaultModel },
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

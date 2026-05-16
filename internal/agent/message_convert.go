@@ -108,16 +108,16 @@ func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantConte
 	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false).Content
 	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
 	chatReq := provider.ChatRequest{
-		Model:       req.Model,
+		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
-		ExtraParams: req.ExtraParams,
+		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
 	}
 	tc := thinkingCfg{
-		enabled:           req.ThinkingEnabled && req.ThinkingScaffoldInference,
-		disableMarker:     req.ThinkingDisableMarker,
-		scaffoldInference: req.ThinkingScaffoldInference,
-		params:            req.ThinkingParams,
+		enabled:           req.ResolvedModel.ThinkingEnabled && req.ResolvedModel.ThinkingScaffoldInference,
+		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
+		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
+		params:            req.ResolvedModel.ThinkingParams,
 	}
 	return applyThinking(tc, chatReq)
 }
