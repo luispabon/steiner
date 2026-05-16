@@ -234,9 +234,9 @@ func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			Model: config.ModelConfig{Model: "gpt-4"},
+			DefaultModel: "gpt-4",
 			Models: map[string]config.ModelConfig{
-				"gpt-4": {Model: "gpt-4"},
+				"gpt-4": {ID: "gpt-4"},
 			},
 		},
 	})
@@ -651,15 +651,14 @@ func TestSwitchModelSuccess(t *testing.T) {
 			events = append(events, event)
 		}),
 		Config: config.Config{
-			Model: config.ModelConfig{
-				Model:   "old-model",
-				BaseURL: "http://old.example/v1",
+			DefaultModel: "current",
+			Providers: map[string]config.ProviderConfig{
+				"old": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://old.example/v1"},
+				"new": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://new.example/v1"},
 			},
 			Models: map[string]config.ModelConfig{
-				"fast": {
-					Model:   "new-model",
-					BaseURL: "http://new.example/v1",
-				},
+				"current": {Provider: "old", ID: "old-model"},
+				"fast":    {Provider: "new", ID: "new-model"},
 			},
 		},
 	})
@@ -669,8 +668,8 @@ func TestSwitchModelSuccess(t *testing.T) {
 		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
 	}
 
-	if got, want := s.deps.Config.Model.Model, "new-model"; got != want {
-		t.Fatalf("config model = %q, want %q", got, want)
+	if got, want := s.deps.Config.DefaultModel, "fast"; got != want {
+		t.Fatalf("config default_model = %q, want %q", got, want)
 	}
 
 	for _, event := range events {
@@ -690,7 +689,8 @@ func TestSwitchModelFailure(t *testing.T) {
 			events = append(events, event)
 		}),
 		Config: config.Config{
-			Model: config.ModelConfig{Model: "current"},
+			DefaultModel: "current",
+			Models:       map[string]config.ModelConfig{"current": {ID: "current-id"}},
 		},
 	})
 
@@ -712,8 +712,8 @@ func TestSwitchModelFailure(t *testing.T) {
 		t.Fatalf("events = %#v, want ContextReportEvent with error", events)
 	}
 
-	if got, want := s.deps.Config.Model.Model, "current"; got != want {
-		t.Fatalf("config model after failed switch = %q, want %q", got, want)
+	if got, want := s.deps.Config.DefaultModel, "current"; got != want {
+		t.Fatalf("config default_model after failed switch = %q, want %q", got, want)
 	}
 }
 
@@ -721,15 +721,14 @@ func TestCurrentModelConfig(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			Model: config.ModelConfig{Model: "test-model", BaseURL: "http://example/v1"},
+			DefaultModel: "mymodel",
+			Providers:    map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://example/v1"}},
+			Models:       map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "test-model"}},
 		},
 	})
 	got := s.CurrentModelConfig()
-	if got.Model != "test-model" {
-		t.Fatalf("CurrentModelConfig().Model = %q, want %q", got.Model, "test-model")
-	}
-	if got.BaseURL != "http://example/v1" {
-		t.Fatalf("CurrentModelConfig().BaseURL = %q, want %q", got.BaseURL, "http://example/v1")
+	if got.ID != "test-model" {
+		t.Fatalf("CurrentModelConfig().ID = %q, want %q", got.ID, "test-model")
 	}
 }
 

@@ -3,7 +3,6 @@ package agent
 import (
 	"testing"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -104,54 +103,54 @@ func TestApplyThinking(t *testing.T) {
 
 	cases := []struct {
 		name            string
-		cfg             config.ThinkingConfig
+		cfg             thinkingCfg
 		req             provider.ChatRequest
 		wantExtraParams map[string]any
 		wantMsgContent  string
 	}{
 		{
 			name:            "enabled false, no marker configured → no change",
-			cfg:             config.ThinkingConfig{Enabled: false, Params: params},
+			cfg:             thinkingCfg{enabled: false, params: params},
 			req:             provider.ChatRequest{Messages: []provider.Message{msg}},
 			wantExtraParams: nil,
 			wantMsgContent:  "hello",
 		},
 		{
 			name:           "enabled false, marker configured → marker appended",
-			cfg:            config.ThinkingConfig{Enabled: false, Params: params, DisableMarker: "<|off|>"},
+			cfg:            thinkingCfg{enabled: false, params: params, disableMarker: "<|off|>"},
 			req:            provider.ChatRequest{Messages: []provider.Message{msg}},
 			wantMsgContent: "hello <|off|>",
 		},
 		{
 			name:           "enabled false, marker already present → not duplicated",
-			cfg:            config.ThinkingConfig{Enabled: false, Params: params, DisableMarker: "<|off|>"},
+			cfg:            thinkingCfg{enabled: false, params: params, disableMarker: "<|off|>"},
 			req:            provider.ChatRequest{Messages: []provider.Message{msgWithMarker}},
 			wantMsgContent: "hello <|off|>",
 		},
 		{
 			name:            "enabled true, nil params → no change",
-			cfg:             config.ThinkingConfig{Enabled: true, Params: nil},
+			cfg:             thinkingCfg{enabled: true, params: nil},
 			req:             provider.ChatRequest{Messages: []provider.Message{msg}},
 			wantExtraParams: nil,
 			wantMsgContent:  "hello",
 		},
 		{
 			name:            "enabled true, params set, no marker → params merged",
-			cfg:             config.ThinkingConfig{Enabled: true, Params: params},
+			cfg:             thinkingCfg{enabled: true, params: params},
 			req:             provider.ChatRequest{Messages: []provider.Message{msg}},
 			wantExtraParams: params,
 			wantMsgContent:  "hello",
 		},
 		{
 			name:            "marker present → no params injected, message untouched",
-			cfg:             config.ThinkingConfig{Enabled: true, Params: params, DisableMarker: "<|off|>"},
+			cfg:             thinkingCfg{enabled: true, params: params, disableMarker: "<|off|>"},
 			req:             provider.ChatRequest{Messages: []provider.Message{msgWithMarker}},
 			wantExtraParams: nil,
 			wantMsgContent:  "hello <|off|>",
 		},
 		{
 			name:            "marker not found → params merged",
-			cfg:             config.ThinkingConfig{Enabled: true, Params: params, DisableMarker: "<|off|>"},
+			cfg:             thinkingCfg{enabled: true, params: params, disableMarker: "<|off|>"},
 			req:             provider.ChatRequest{Messages: []provider.Message{msg}},
 			wantExtraParams: params,
 			wantMsgContent:  "hello",

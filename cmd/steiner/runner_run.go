@@ -27,10 +27,10 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		return runnerSetup{}, err
 	}
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         selected.ContextSize,
-		MaxCompletionTokens: selected.MaxCompletionTokens,
-		SafetyMarginTokens:  selected.Compaction.SafetyMarginTokens,
-		SummaryMaxTokens:    selected.Compaction.SummaryMaxTokens,
+		ContextSize:         selected.Advanced.Limits.ContextWindow,
+		MaxCompletionTokens: selected.Advanced.Limits.MaxOutputTokens,
+		SafetyMarginTokens:  selected.Advanced.Limits.SafetyMarginTokens,
+		SummaryMaxTokens:    selected.Advanced.Limits.SummaryMaxTokens,
 	}
 
 	return runnerSetup{
@@ -104,23 +104,26 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 }
 
 func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink) agent.RunRequest {
-	maxTokens := setup.selected.MaxCompletionTokens
+	maxTokens := setup.selected.Advanced.Limits.MaxOutputTokens
 	return agent.RunRequest{
 		Provider:    setup.provider,
 		Executor:    tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir),
 		Tools:       activeRegistry.ToProviderSpecs(),
 		Prompt:      setup.assembly,
 		ModelBudget: setup.modelBudget,
-		Model:       setup.selected.Model,
+		Model:       setup.selected.ID,
 		ExtraParams: setup.selected.ExtraParams,
 		MaxTokens:   &maxTokens,
 		Limits: agent.Limits{
 			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		Events:             events,
-		ContextManager:     agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement),
-		Thinking:           setup.selected.Thinking,
-		StreamingPreferred: r.streamingPreferred,
+		Events:                    events,
+		ContextManager:            agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement),
+		ThinkingEnabled:           setup.selected.ThinkingEnabled,
+		ThinkingDisableMarker:     setup.selected.ThinkingDisableMarker,
+		ThinkingScaffoldInference: setup.selected.ThinkingScaffoldInference,
+		ThinkingParams:            setup.selected.ThinkingParams,
+		StreamingPreferred:        r.streamingPreferred,
 	}
 }

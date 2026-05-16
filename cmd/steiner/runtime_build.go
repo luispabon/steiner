@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -41,10 +42,15 @@ func buildRuntimeProviderFactory(cfg config.Config) (func(config.ModelConfig) (p
 	}
 	httpClient := runtimeHTTPClient()
 	return func(modelCfg config.ModelConfig) (provider.Provider, error) {
+		provCfg, ok := cfg.Providers[modelCfg.Provider]
+		if !ok {
+			return nil, fmt.Errorf("provider %q not found in config", modelCfg.Provider)
+		}
+		apiKey := provCfg.APIKey
 		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL: modelCfg.BaseURL,
-			APIKey:  modelCfg.APIKey,
-			Model:   modelCfg.Model,
+			BaseURL: provCfg.BaseURL,
+			APIKey:  apiKey,
+			Model:   modelCfg.ID,
 			Retry: provider.RetryConfig{
 				Enabled:        modelCfg.Retry.Enabled,
 				MaxAttempts:    modelCfg.Retry.MaxAttempts,

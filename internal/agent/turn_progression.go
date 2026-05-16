@@ -351,7 +351,13 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		ExtraParams: in.Request.ExtraParams,
 		MaxTokens:   in.Request.MaxTokens,
 	}
-	chatRequest = applyThinking(in.Request.Thinking, chatRequest)
+	tc := thinkingCfg{
+		enabled:           in.Request.ThinkingEnabled,
+		disableMarker:     in.Request.ThinkingDisableMarker,
+		scaffoldInference: in.Request.ThinkingScaffoldInference,
+		params:            in.Request.ThinkingParams,
+	}
+	chatRequest = applyThinking(tc, chatRequest)
 
 	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {

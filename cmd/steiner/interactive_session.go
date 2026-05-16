@@ -49,12 +49,16 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRunti
 
 func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
 	selected := selectedModelConfig(rt.cfg)
+	selectedProviderBaseURL := ""
+	if p, ok := rt.cfg.Providers[selected.Provider]; ok {
+		selectedProviderBaseURL = p.BaseURL
+	}
 	tuiCfg := tui.Config{
-		Model:                         rt.cfg.Model.Model,
+		Model:                         selected.ID,
 		ModelNames:                    modelAliasNames(rt.cfg),
 		ModelContexts:                 modelContextSizes(rt.cfg),
 		ModelBaseURLs:                 modelBaseURLs(rt.cfg),
-		ProviderBaseURL:               selected.BaseURL,
+		ProviderBaseURL:               selectedProviderBaseURL,
 		HomeDir:                       rt.homeDir,
 		WorkingDir:                    rt.workDir,
 		MaxTurns:                      0,
