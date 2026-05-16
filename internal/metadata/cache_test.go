@@ -169,6 +169,40 @@ func TestRefresh_304_MetadataUpdated_DataUnchanged(t *testing.T) {
 	}
 }
 
+func TestRefresh_ExpiredCacheFetchesFreshData(t *testing.T) {
+	originalData := []byte(`{"models":{"old":{"context":8192,"maxOutputTokens":1024}}}`)
+	freshData := []byte(`{"models":{"fresh":{"context":128000,"maxOutputTokens":16384}}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(freshData)
+	}))
+	defer srv.Close()
+
+	c := newTestCache(t)
+	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
+	writeTestData(t, c, originalData)
+	writeTestMeta(t, c, CacheMetadata{
+		DownloadedAt: time.Now().Add(-8 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(-time.Hour),
+		URL:          modelsDevURL,
+	})
+
+	if c.IsFresh() {
+		t.Fatal("seeded cache unexpectedly fresh")
+	}
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	data, err := c.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if string(data) != string(freshData) {
+		t.Fatalf("expected refreshed data, got %s", data)
+	}
+}
+
 func TestRefresh_NetworkFailure_StaleDataStillLoadable(t *testing.T) {
 	staleData := []byte(`{"models":{"stale-model":{"context":4096,"maxOutputTokens":512}}}`)
 
@@ -189,6 +223,48 @@ func TestRefresh_NetworkFailure_StaleDataStillLoadable(t *testing.T) {
 	}
 	if string(data) != string(staleData) {
 		t.Errorf("expected stale data, got %s", data)
+	}
+}
+
+func TestRefresh_NetworkFailureWithExpiredCacheKeepsStaleData(t *testing.T) {
+	staleData := []byte(`{"models":{"stale-model":{"context":4096,"maxOutputTokens":512}}}`)
+
+	c := newTestCache(t)
+	writeTestData(t, c, staleData)
+	writeTestMeta(t, c, CacheMetadata{
+		DownloadedAt: time.Now().Add(-8 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(-time.Hour),
+		URL:          modelsDevURL,
+	})
+	c.HTTPClient = &http.Client{Transport: &alwaysFailTransport{}}
+
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatalf("expected nil error on network failure, got: %v", err)
+	}
+
+	data, err := c.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if string(data) != string(staleData) {
+		t.Fatalf("expected stale data, got %s", data)
+	}
+}
+
+func TestRefresh_OfflineWithoutCacheIsNonFatal(t *testing.T) {
+	c := newTestCache(t)
+	c.HTTPClient = &http.Client{Transport: &alwaysFailTransport{}}
+
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v, want nil in offline mode", err)
+	}
+
+	data, err := c.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if data != nil {
+		t.Fatalf("Load() = %s, want nil without cache", data)
 	}
 }
 
