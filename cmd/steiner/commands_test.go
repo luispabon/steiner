@@ -328,7 +328,7 @@ models:
 		"provider: local",
 		"backend_id: gpt-4o",
 		"limits:",
-		"  source: fallback",
+		"  source: config",
 		"  context_window: 32768",
 		"params: {\"temperature\":0.2}",
 		"extra_params: {\"reasoning\":{\"effort\":\"medium\"}}",
