@@ -34,12 +34,11 @@ func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
 	})
 }
 
-func buildRuntimeProviderFactory(cfg config.Config) (func(provider.ResolvedModel) (provider.Provider, error), error) {
+func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (func(provider.ResolvedModel) (provider.Provider, error), error) {
 	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
 	if err != nil {
 		return nil, err
 	}
-	httpClient := runtimeHTTPClient()
 	return func(rm provider.ResolvedModel) (provider.Provider, error) {
 		return newOpenAICompat(provider.OpenAICompatConfig{
 			BaseURL: rm.ProviderConfig.BaseURL,
