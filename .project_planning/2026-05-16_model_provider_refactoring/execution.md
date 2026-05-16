@@ -29,8 +29,8 @@
 | stage-6-step-1 | complete | Implemented in `afda8e8`. `models.dev` cache integrated as third metadata source. |
 | stage-7-step-1 | complete | Salvaged from orphaned temp branch `exec/stage-7-step-1`, merged to feature branch, verification fix pass applied, and `make quick-check` now passes on merged branch. |
 | stage-8-step-1 | complete | Token counter strategies merged via `7cdcd80` and verified with `make quick-check`. |
-| stage-9-step-1 | running | Cleanup/audit step is the next active implementation step. |
-| stage-9-step-2 | pending | README rewrite |
+| stage-9-step-1 | complete | Cleanup/audit coverage merged via `c96140b`, lint/fmt follow-up merged via `b51fb49`, and `make check` passed in the isolated fix branch. |
+| stage-9-step-2 | running | README rewrite is the final planned implementation step before end-of-chain verification. |
 
 ## Sub-Agents
 
@@ -45,6 +45,8 @@
 | stage-7-step-1 | `exec/stage-7-step-1` | `/tmp/claude/steiner-s7s1` | inherited runtime model | merged via `12fcd37`, sub-agent closed, worktree removed, branch deleted |
 | fix-pass-001 | `exec/fix-verification-pass-001` | `/tmp/claude/steiner-fix-verification-pass-001` | inherited runtime model | merged via `3ef09af`, sub-agent closed, worktree removed, branch deleted |
 | stage-8-step-1 | `exec/stage-8-step-1` | `/tmp/claude/steiner-s8s1` | inherited runtime model | merged via `7cdcd80`, sub-agent closed, worktree removed, branch deleted |
+| stage-9-step-1 | `exec/stage-9-step-1` | `/tmp/claude/steiner-s9s1` | inherited runtime model | merged via `c96140b`, sub-agent closed, worktree removed, branch deleted |
+| fix-pass-002 | `exec/fix-verification-pass-002` | `/tmp/claude/steiner-fix-verification-pass-002` | inherited runtime model | merged via `b51fb49`, sub-agent closed, worktree removed, branch deleted |
 
 ## Verification Runs
 
@@ -57,12 +59,17 @@
 - 2026-05-16: `go test ./internal/provider/...` in `exec/stage-8-step-1` — passed.
 - 2026-05-16: `go test ./cmd/steiner -run TestModelInspectCommand` in `exec/stage-8-step-1` — passed.
 - 2026-05-16: `make quick-check` after merging `stage-8-step-1` — passed.
+- 2026-05-16: `go test ./internal/config ./internal/provider ./internal/metadata` in `exec/stage-9-step-1` — passed.
+- 2026-05-16: `make quick-check` in `exec/stage-9-step-1` — passed.
+- 2026-05-16: `make check` after merging `stage-9-step-1` — failed on consolidated lint/fmt blockers from current branch state.
+- 2026-05-16: `make check` in `exec/fix-verification-pass-002` — passed, including `golangci-lint run ./...` and `govulncheck ./...`.
 
 ## Deviations
 
 - Prior executor state was not recorded incrementally in this file. Reconstructed step completion state from feature-branch commits and surviving temp branch state.
 - `stage-7-step-1` required a post-merge verification fix pass because one merged test asserted fallback metadata semantics that contradicted the actual resolved config path.
 - `stage-8-step-1` stores in-memory calibration by `request.Model` / backend model ID because the provider request path does not carry model alias information at calibration time.
+- Per user instruction on 2026-05-16, final handoff verification will use `make ci-check`, and any warnings or errors from that gate must be fixed before reviewer handoff.
 
 ## Blockers
 
