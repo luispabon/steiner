@@ -7,6 +7,8 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+const normalPromptCompactionThreshold = 0.70
+
 // ModelBudgetFromEffectiveLimits derives a ModelTokenBudget from resolved EffectiveLimits.
 // Used to adapt provider.ResolvedModel limits to prompt budgeting.
 func ModelBudgetFromEffectiveLimits(limits provider.EffectiveLimits) ModelTokenBudget {
@@ -37,7 +39,30 @@ func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 
 // FitRequest estimates whether a normal chat request fits within the model budget.
 func (m ModelTokenBudget) FitRequest(ctx context.Context, request provider.ChatRequest) (RequestTokenBudget, error) {
-	return m.fit(ctx, request, m.completionReserveForRequest(request))
+	if err := ctx.Err(); err != nil {
+		return RequestTokenBudget{}, err
+	}
+	m = m.Normalized()
+
+	estimatedPromptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		return RequestTokenBudget{}, err
+	}
+
+	completionReserve := m.completionReserveForRequest(request)
+	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
+	hardLimit := hardPromptLimit(m.ContextSize, m.SafetyMarginTokens)
+	return RequestTokenBudget{
+		EstimatedPromptTokens:    estimatedPromptTokens,
+		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
+		HardLimitTokens:          hardLimit,
+		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
+		ReservedCompletionTokens: completionReserve,
+		SafetyMarginTokens:       m.SafetyMarginTokens,
+		TotalTokens:              total,
+		ContextSize:              m.ContextSize,
+		Fits:                     m.ContextSize <= 0 || estimatedPromptTokens <= hardLimit,
+	}, nil
 }
 
 // FitCompactionRequest estimates whether a compaction request fits within the model budget.
@@ -63,12 +88,45 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 	fit := m.ContextSize <= 0 || total <= m.ContextSize
 	return RequestTokenBudget{
 		EstimatedPromptTokens:    estimatedPromptTokens,
+		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
+		HardLimitTokens:          hardPromptLimit(m.ContextSize, m.SafetyMarginTokens),
+		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
 		ReservedCompletionTokens: completionReserve,
 		SafetyMarginTokens:       m.SafetyMarginTokens,
 		TotalTokens:              total,
 		ContextSize:              m.ContextSize,
 		Fits:                     fit,
 	}, nil
+}
+
+func promptUsage(promptTokens, contextTokens int) float64 {
+	if promptTokens <= 0 || contextTokens <= 0 {
+		return 0
+	}
+	return float64(promptTokens) / float64(contextTokens)
+}
+
+func hardPromptLimit(contextTokens, estimatorPadTokens int) int {
+	if contextTokens <= 0 {
+		return 0
+	}
+	limit := contextTokens - estimatorPadTokens
+	if limit < 0 {
+		return 0
+	}
+	return limit
+}
+
+func shouldCompactPrompt(promptTokens, contextTokens, estimatorPadTokens int) bool {
+	if contextTokens <= 0 {
+		return false
+	}
+	usage := promptUsage(promptTokens, contextTokens)
+	if usage >= normalPromptCompactionThreshold {
+		return true
+	}
+	limit := hardPromptLimit(contextTokens, estimatorPadTokens)
+	return promptTokens > limit
 }
 
 func (m ModelTokenBudget) completionReserveForRequest(request provider.ChatRequest) int {
@@ -96,6 +154,6 @@ func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRe
 
 // String returns a compact human-readable representation of the fitted budget.
 func (r RequestTokenBudget) String() string {
-	return fmt.Sprintf("prompt=%d reserve=%d safety=%d total=%d context=%d fits=%t",
-		r.EstimatedPromptTokens, r.ReservedCompletionTokens, r.SafetyMarginTokens, r.TotalTokens, r.ContextSize, r.Fits)
+	return fmt.Sprintf("prompt=%d usage=%.0f%% hard_limit=%d compact=%t fits=%t",
+		r.EstimatedPromptTokens, r.PromptUsage*100, r.HardLimitTokens, r.ShouldCompact, r.Fits)
 }

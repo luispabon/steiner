@@ -76,10 +76,11 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		"review/SKILL.md",
 		"/tmp/project/README.md",
 		"read",
-		"Completion reserve: `64`",
-		"Safety margin: `32`",
-		"Reserve and safety margin are planning buffers, not prompt contents.",
-		"Budget occupancy:",
+		"Compaction threshold: `70%`",
+		"Estimator pad: `32`",
+		"Hard prompt limit:",
+		"Prompt occupancy:",
+		"Prompt usage:",
 	} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report missing %q\n%s", want, report)
@@ -99,7 +100,10 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	if !strings.Contains(report, fmt.Sprintf("Prompt occupancy: `%d / 4096`", fit.EstimatedPromptTokens)) {
 		t.Fatalf("report = %q, want prompt occupancy %d", report, fit.EstimatedPromptTokens)
 	}
-	if !strings.Contains(report, fmt.Sprintf("Budget occupancy: `%d / 4096`", fit.TotalTokens)) {
-		t.Fatalf("report = %q, want total %d", report, fit.TotalTokens)
+	if !strings.Contains(report, fmt.Sprintf("Hard prompt limit: `%d`", fit.HardLimitTokens)) {
+		t.Fatalf("report = %q, want hard limit %d", report, fit.HardLimitTokens)
+	}
+	if !strings.Contains(report, fmt.Sprintf("Prompt usage: `%.0f%%`", fit.PromptUsage*100)) {
+		t.Fatalf("report = %q, want prompt usage %.0f%%", report, fit.PromptUsage*100)
 	}
 }
