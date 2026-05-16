@@ -1,10 +1,5 @@
 package config
 
-import (
-	"fmt"
-	"strings"
-)
-
 // ContextMode controls which context management strategy the agent uses.
 type ContextMode string
 
@@ -51,10 +46,50 @@ type ContextManagementConfig struct {
 	ScratchpadMode     ScratchpadMode     `yaml:"scratchpad_mode"`
 }
 
+// ProviderType is the type of model provider.
+type ProviderType string
+
+const (
+	ProviderTypeOpenAICompat ProviderType = "openai_compat"
+	ProviderTypeOllama       ProviderType = "ollama"
+	ProviderTypeLMStudio     ProviderType = "lmstudio"
+	ProviderTypeOpenRouter   ProviderType = "openrouter"
+	ProviderTypeOpenAI       ProviderType = "openai"
+	ProviderTypeAnthropic    ProviderType = "anthropic"
+	ProviderTypeGemini       ProviderType = "gemini"
+	ProviderTypeLiteLLM      ProviderType = "litellm"
+)
+
+// ProviderConfig configures a model provider.
+type ProviderConfig struct {
+	Type      ProviderType      `yaml:"type"`
+	BaseURL   string            `yaml:"base_url"`
+	APIKey    string            `yaml:"api_key"`
+	APIKeyEnv string            `yaml:"api_key_env"`
+	Headers   map[string]string `yaml:"headers"`
+	Timeout   Duration          `yaml:"timeout"`
+}
+
+// AdvancedLimitsConfig defines token limits for model inference.
+type AdvancedLimitsConfig struct {
+	ContextWindow       int `yaml:"context_window"`
+	MaxOutputTokens     int `yaml:"max_output_tokens"`
+	MaxInputTokens      int `yaml:"max_input_tokens"`
+	OutputReserveTokens int `yaml:"output_reserve_tokens"`
+	SafetyMarginTokens  int `yaml:"safety_margin_tokens"`
+	SummaryMaxTokens    int `yaml:"summary_max_tokens"`
+}
+
+// AdvancedConfig holds advanced model-specific configuration.
+type AdvancedConfig struct {
+	Limits AdvancedLimitsConfig `yaml:"limits"`
+}
+
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler         SchedulerConfig         `yaml:"scheduler"`
-	Model             ModelConfig             `yaml:"model"`
+	DefaultModel      string                  `yaml:"default_model"`
+	Providers         map[string]ProviderConfig `yaml:"providers"`
 	Models            map[string]ModelConfig  `yaml:"models"`
 	Limits            LimitsConfig            `yaml:"limits"`
 	Approval          ApprovalConfig          `yaml:"approval"`
@@ -72,35 +107,19 @@ type SchedulerConfig struct {
 	Parallelism int `yaml:"parallelism"`
 }
 
-// ThinkingConfig controls thinking behaviour for a model.
-type ThinkingConfig struct {
-	// Enabled is the master switch. When false, Params are never injected.
-	Enabled bool `yaml:"enabled"`
-	// EnabledScaffoldInference applies thinking to scaffold inference calls.
-	EnabledScaffoldInference bool `yaml:"enabled_scaffolding_inference"`
-	// DisableMarker, if non-empty, is scanned in the latest user message each
-	// turn. When found, the marker is stripped before sending to the API and
-	// thinking is suppressed for that request only.
-	DisableMarker string `yaml:"disable_marker"`
-	// Params are merged into ExtraParams when thinking is active. Supports
-	// scalar and nested map values. Takes precedence over ExtraParams on key
-	// collision.
-	Params map[string]any `yaml:"params"`
-}
-
-// ModelConfig configures a model provider instance.
+// ModelConfig configures a model instance.
 type ModelConfig struct {
-	Type                string           `yaml:"type"`
-	BaseURL             string           `yaml:"base_url"`
-	APIKey              string           `yaml:"api_key"`
-	Model               string           `yaml:"model"`
-	ExtraParams         map[string]any   `yaml:"extra_params"`
-	MaxCompletionTokens int              `yaml:"max_completion_tokens"`
-	ContextSize         int              `yaml:"context_size"`
-	Retry               RetryConfig      `yaml:"retry"`
-	Compaction          CompactionConfig `yaml:"compaction"`
-	Prompts             ModelPrompts     `yaml:"prompts"`
-	Thinking            ThinkingConfig   `yaml:"thinking"`
+	Provider                  string         `yaml:"provider"`
+	ID                        string         `yaml:"id"`
+	Params                    map[string]any `yaml:"params"`
+	ExtraParams               map[string]any `yaml:"extra_params"`
+	ThinkingEnabled           bool           `yaml:"thinking_enabled"`
+	ThinkingDisableMarker     string         `yaml:"thinking_disable_marker"`
+	ThinkingScaffoldInference bool           `yaml:"thinking_scaffold_inference"`
+	ThinkingParams            map[string]any `yaml:"thinking_params"`
+	Retry                     RetryConfig    `yaml:"retry"`
+	Prompts                   ModelPrompts   `yaml:"prompts"`
+	Advanced                  AdvancedConfig `yaml:"advanced"`
 }
 
 // RetryConfig controls retry behaviour for model requests.
@@ -198,34 +217,6 @@ type LoggingConfig struct {
 // DebugConfig exposes internal debugging toggles.
 type DebugConfig struct {
 	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
-}
-
-// SwitchModelConfigByAlias looks up a model config by alias and updates cfg.Model
-// to point to it. It returns the selected ModelConfig.
-func SwitchModelConfigByAlias(cfg *Config, alias string) (ModelConfig, error) {
-	if cfg == nil {
-		return ModelConfig{}, fmt.Errorf("config is required")
-	}
-	model, err := SelectedModelConfigByAlias(*cfg, alias)
-	if err != nil {
-		return ModelConfig{}, err
-	}
-	cfg.Model = model
-	return model, nil
-}
-
-// SelectedModelConfigByAlias looks up a model config by its alias in the
-// Models map. It returns an error if the alias is empty or not found.
-func SelectedModelConfigByAlias(cfg Config, alias string) (ModelConfig, error) {
-	alias = strings.TrimSpace(alias)
-	if alias == "" {
-		return ModelConfig{}, fmt.Errorf("model is required")
-	}
-	model, ok := cfg.Models[alias]
-	if !ok {
-		return ModelConfig{}, fmt.Errorf("model %q is not defined", alias)
-	}
-	return model, nil
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.
