@@ -17,7 +17,7 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
 	}
 	req := RunRequest{
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
@@ -57,7 +57,7 @@ func TestPrepareTurn_FitFailure(t *testing.T) {
 		Conversation: []Message{{Role: MessageRoleUser, Content: "hello world this message is too long to fit"}},
 	}
 	req := RunRequest{
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello world this message is too long to fit"}},
 		},
@@ -273,7 +273,7 @@ func TestPrepareTurn_AssemblyErrorPropagates(t *testing.T) {
 	}
 	// Set a project context budget of 0 bytes to avoid assembly errors.
 	req := RunRequest{
-		Model: "test-model",
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
@@ -333,8 +333,8 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
 	}
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
@@ -415,8 +415,8 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
 	}
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
@@ -500,8 +500,8 @@ func TestAdvance_ModelCallCancellation(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
 	}
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
@@ -577,8 +577,8 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
 	}
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
@@ -663,8 +663,8 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
 	}
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })

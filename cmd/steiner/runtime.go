@@ -33,7 +33,7 @@ type cliFlags struct {
 type cliRuntime struct {
 	cfg              config.Config
 	provider         provider.Provider
-	providerFactory  func(config.ModelConfig) (provider.Provider, error)
+	providerFactory  func(provider.ResolvedModel) (provider.Provider, error)
 	registry         *tool.Registry
 	toolNames        []string
 	skillNames       []string

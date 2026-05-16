@@ -19,21 +19,16 @@ type ToolExecutor interface {
 
 // RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
-	Provider                  provider.Provider
-	Executor                  ToolExecutor
-	Tools                     []provider.ToolSpec
-	Prompt                    prompt.AssemblyOptions
-	ModelBudget               prompt.ModelTokenBudget
-	Model                     string
-	ExtraParams               map[string]any
-	MaxTokens                 *int
-	Limits                    Limits
-	Events                    output.EventSink
-	ContextManager            ContextManager
-	ThinkingEnabled           bool
-	ThinkingDisableMarker     string
-	ThinkingScaffoldInference bool
-	ThinkingParams            map[string]any
+	Provider       provider.Provider
+	Executor       ToolExecutor
+	Tools          []provider.ToolSpec
+	Prompt         prompt.AssemblyOptions
+	ModelBudget    prompt.ModelTokenBudget
+	ResolvedModel  provider.ResolvedModel
+	MaxTokens      *int
+	Limits         Limits
+	Events         output.EventSink
+	ContextManager ContextManager
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a

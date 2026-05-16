@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -35,28 +34,23 @@ func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
 	})
 }
 
-func buildRuntimeProviderFactory(cfg config.Config) (func(config.ModelConfig) (provider.Provider, error), error) {
+func buildRuntimeProviderFactory(cfg config.Config) (func(provider.ResolvedModel) (provider.Provider, error), error) {
 	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
 	if err != nil {
 		return nil, err
 	}
 	httpClient := runtimeHTTPClient()
-	return func(modelCfg config.ModelConfig) (provider.Provider, error) {
-		provCfg, ok := cfg.Providers[modelCfg.Provider]
-		if !ok {
-			return nil, fmt.Errorf("provider %q not found in config", modelCfg.Provider)
-		}
-		apiKey := provCfg.APIKey
+	return func(rm provider.ResolvedModel) (provider.Provider, error) {
 		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL: provCfg.BaseURL,
-			APIKey:  apiKey,
-			Model:   modelCfg.ID,
+			BaseURL: rm.ProviderConfig.BaseURL,
+			APIKey:  rm.ProviderConfig.APIKey,
+			Model:   rm.BackendModelID,
 			Retry: provider.RetryConfig{
-				Enabled:        modelCfg.Retry.Enabled,
-				MaxAttempts:    modelCfg.Retry.MaxAttempts,
-				InitialBackoff: time.Duration(modelCfg.Retry.InitialBackoff.Duration()),
-				MaxBackoff:     time.Duration(modelCfg.Retry.MaxBackoff.Duration()),
-				RetryAfterMax:  time.Duration(modelCfg.Retry.RetryAfterMax.Duration()),
+				Enabled:        rm.Retry.Enabled,
+				MaxAttempts:    rm.Retry.MaxAttempts,
+				InitialBackoff: time.Duration(rm.Retry.InitialBackoff.Duration()),
+				MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
+				RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
 			},
 			Scheduler:  scheduler,
 			HTTPClient: httpClient,

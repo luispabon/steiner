@@ -108,14 +108,14 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	var events []output.Event
 	runner := NewRunner()
 	state, err := runner.Run(context.Background(), RunRequest{
-		Provider:  providerStub,
-		Executor:  executor,
-		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
-		Prompt:    prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
-		Model:     "test-model",
-		MaxTokens: intPtr(64),
-		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
-		Events:    output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		Provider:      providerStub,
+		Executor:      executor,
+		Tools:         []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Description: "Read files", Parameters: map[string]any{"type": "object"}}}},
+		Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		MaxTokens:     intPtr(64),
+		Limits:        Limits{MaxTurns: 4, MaxTokens: 50},
+		Events:        output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -309,7 +309,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 		ContextManager: &SmartContextManager{},
 		Tools:          []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "Run shell commands", Parameters: map[string]any{"type": "object"}}}},
 		Prompt:         prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
-		Model:          "test-model",
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
 		MaxTokens:      intPtr(64),
 		Limits:         Limits{MaxTurns: 4, MaxTokens: 50},
 	})
@@ -428,10 +428,10 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "use scratchpad"}},
 			ScratchpadEnabled: true,
 		},
-		Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "scratchpad", Description: "scratchpad", Parameters: map[string]any{"type": "object"}}}},
-		Model:     "test-model",
-		MaxTokens: intPtr(64),
-		Limits:    Limits{MaxTurns: 4, MaxTokens: 50},
+		Tools:         []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "scratchpad", Description: "scratchpad", Parameters: map[string]any{"type": "object"}}}},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		MaxTokens:     intPtr(64),
+		Limits:        Limits{MaxTurns: 4, MaxTokens: 50},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -533,9 +533,9 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "write file"}},
 		},
-		Model:  "test-model",
-		Limits: Limits{MaxTurns: 2, MaxTokens: 50},
-		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2, MaxTokens: 50},
+		Events:        output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -664,10 +664,10 @@ func TestRunnerFallsBackToEstimatorWhenUsageIsMissing(t *testing.T) {
 			},
 			ProjectContextBudgetBytes: 128,
 		},
-		Model:     "test-model",
-		MaxTokens: intPtr(32),
-		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
-		Events:    output.NoopSink{},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		MaxTokens:     intPtr(32),
+		Limits:        Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:        output.NoopSink{},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -707,10 +707,10 @@ func TestRunnerPrefersReportedUsageOverFallbackEstimate(t *testing.T) {
 			},
 			ProjectContextBudgetBytes: 128,
 		},
-		Model:     "test-model",
-		MaxTokens: intPtr(32),
-		Limits:    Limits{MaxTurns: 2, MaxTokens: 100},
-		Events:    output.NoopSink{},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		MaxTokens:     intPtr(32),
+		Limits:        Limits{MaxTurns: 2, MaxTokens: 100},
+		Events:        output.NoopSink{},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

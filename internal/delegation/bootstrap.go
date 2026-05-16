@@ -14,20 +14,14 @@ import (
 
 // BootstrapDeps holds the dependencies needed to assemble a child agent run request.
 type BootstrapDeps struct {
-	Provider                  provider.Provider
-	ParentReg                 *tool.Registry
-	SubAgentCfg               config.SubAgentConfig
-	Events                    output.EventSink
-	WorkDir                   string
-	ExtraParams               map[string]any
-	ThinkingEnabled           bool
-	ThinkingDisableMarker     string
-	ThinkingScaffoldInference bool
-	ThinkingParams            map[string]any
-	ModelBudget               prompt.ModelTokenBudget
-	Model                     string
-	MaxTokens                 *int
-	StreamingPreferred        bool
+	Provider           provider.Provider
+	ParentReg          *tool.Registry
+	SubAgentCfg        config.SubAgentConfig
+	Events             output.EventSink
+	WorkDir            string
+	ResolvedModel      provider.ResolvedModel
+	MaxTokens          *int
+	StreamingPreferred bool
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -43,10 +37,17 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		TurnTimeout: limits.Timeout,
 	}
 
+	modelBudget := prompt.ModelTokenBudget{
+		ContextSize:         deps.ResolvedModel.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens: deps.ResolvedModel.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:  deps.ResolvedModel.EffectiveLimits.SafetyMarginTokens,
+		SummaryMaxTokens:    deps.ResolvedModel.EffectiveLimits.SummaryMaxTokens,
+	}
+
 	promptOpts := buildChildPrompt(spec)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ExtraParams, deps.ThinkingEnabled, deps.ThinkingDisableMarker, deps.ThinkingScaffoldInference, deps.ThinkingParams, deps.ModelBudget, deps.Model, deps.MaxTokens, deps.StreamingPreferred)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred)
 	return req, limits, nil
 }
 

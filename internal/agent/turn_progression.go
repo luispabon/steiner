@@ -35,7 +35,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 
 	response = p.normalizeModelResponse(in, turn, response)
 	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
 	p.emitAssistantMessage(in, turn, response)
 	state = appendAssistantMessage(state, turn, response.Message)
 
@@ -47,8 +47,8 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 }
 
 func (p *turnProgressor) emitModelCallStarted(in turnInput, turn int, assembly prompt.Assembly) {
-	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
-	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.Model, len(assembly.Messages)))
+	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
+	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 }
 
 func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
@@ -57,14 +57,14 @@ func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, tur
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
-		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, nil))
+		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil))
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state := in.State
 	state.StopReason = StopReasonError
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.Model, "", 0, 0, err))
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err))
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
 	emitStop(in.Request.Events, state, err)
 	return turnOutcome{State: state, Stop: true, Error: err}
@@ -345,17 +345,17 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
-		Model:       in.Request.Model,
+		Model:       in.Request.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,
 		Tools:       cloneProviderTools(in.Request.Tools),
-		ExtraParams: in.Request.ExtraParams,
+		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 		MaxTokens:   in.Request.MaxTokens,
 	}
 	tc := thinkingCfg{
-		enabled:           in.Request.ThinkingEnabled,
-		disableMarker:     in.Request.ThinkingDisableMarker,
-		scaffoldInference: in.Request.ThinkingScaffoldInference,
-		params:            in.Request.ThinkingParams,
+		enabled:           in.Request.ResolvedModel.ThinkingEnabled,
+		disableMarker:     in.Request.ResolvedModel.ThinkingDisableMarker,
+		scaffoldInference: in.Request.ResolvedModel.ThinkingScaffoldInference,
+		params:            in.Request.ResolvedModel.ThinkingParams,
 	}
 	chatRequest = applyThinking(tc, chatRequest)
 

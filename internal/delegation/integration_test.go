@@ -149,7 +149,7 @@ func TestBasicDelegationResult(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -197,7 +197,7 @@ func TestDelegationEvents(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -233,7 +233,7 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := &scopedEventRunner{}
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -269,7 +269,7 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := &failingRunner{err: fmt.Errorf("initial child run failed")}
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -341,7 +341,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -402,7 +402,7 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -462,7 +462,7 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	}
 
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 	runner := &summaryFailRunner{}
 
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
@@ -513,7 +513,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 
 	spec := makeSpec("agent-6", 1000)
 	visibleReg, execReg := buildChildRegistries(parentReg, []string{"helper"})
-	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "done"}, FinishReason: "stop"}}}, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	if len(req.Tools) != 1 {
 		t.Fatalf("Tools length = %d, want 1", len(req.Tools))
@@ -570,7 +570,7 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	// Sleep past the spec timeout so childCtx is expired before summary
 	time.Sleep(30 * time.Millisecond)
@@ -757,7 +757,7 @@ func TestNestingPrevention(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := &collectingSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, childProv, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, childProv, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -966,7 +966,7 @@ func TestExtensionTriggersWhenMidWork(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1006,7 +1006,7 @@ func TestNoExtensionWhenComplete(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1040,7 +1040,7 @@ func TestNoExtensionWhenNoToolCalls(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1071,7 +1071,7 @@ func TestExtensionCapAtFive(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1106,7 +1106,7 @@ func TestExtensionMaxTurnsBumped(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: originalMaxTurns, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1139,7 +1139,7 @@ func TestExtensionEventEmitted(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1187,7 +1187,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1259,7 +1259,7 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1305,7 +1305,7 @@ func TestSummaryTurnDoesNotEmitEvents(t *testing.T) {
 
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1360,7 +1360,7 @@ func TestSummaryUsesFullConversation(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1403,7 +1403,7 @@ func TestDelegationResultSummaryPopulated(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	sink := output.NoopSink{}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
@@ -1541,7 +1541,7 @@ func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	_, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
 	if err != nil {
@@ -1607,7 +1607,7 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 10, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
@@ -1657,7 +1657,7 @@ func TestSummaryUsesDetachedContext(t *testing.T) {
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, output.NoopSink{}, testBuildPrompt(spec), nil, false, "", false, nil, prompt.ModelTokenBudget{}, "", nil, false)
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, output.NoopSink{}, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	parentCtx, parentCancel := context.WithCancel(context.Background())
 	parentCancel()
