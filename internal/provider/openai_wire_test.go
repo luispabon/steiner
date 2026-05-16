@@ -33,6 +33,9 @@ func TestOpenAIRequestMarshalJSONFlattensExtraParams(t *testing.T) {
 	if got, want := m["top_p"], 0.9; got != want {
 		t.Fatalf("top_p = %v, want %v", got, want)
 	}
+	if _, ok := m["max_tokens"]; ok {
+		t.Fatal("max_tokens should be omitted when unset")
+	}
 }
 
 func TestOpenAIRequestMarshalJSONExplicitFieldsOverrideExtraParams(t *testing.T) {
