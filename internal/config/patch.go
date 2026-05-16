@@ -59,7 +59,6 @@ type advancedPatch struct {
 type advancedLimitsPatch struct {
 	ContextWindow       *int `yaml:"context_window"`
 	MaxOutputTokens     *int `yaml:"max_output_tokens"`
-	MaxInputTokens      *int `yaml:"max_input_tokens"`
 	OutputReserveTokens *int `yaml:"output_reserve_tokens"`
 	SafetyMarginTokens  *int `yaml:"safety_margin_tokens"`
 	SummaryMaxTokens    *int `yaml:"summary_max_tokens"`

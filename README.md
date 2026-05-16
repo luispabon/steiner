@@ -170,7 +170,6 @@ models:
       limits:
         context_window: 131072
         max_output_tokens: 8192
-        max_input_tokens: 120000
         output_reserve_tokens: 4096
         safety_margin_tokens: 4096
         summary_max_tokens: 1536

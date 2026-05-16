@@ -49,7 +49,7 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 
 func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	if _, err := fmt.Fprintf(out,
-		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  context_window: %d\n  max_output_tokens: %d\n  max_input_tokens: %d\n  output_reserve_tokens: %d\n  safety_margin_tokens: %d\n  summary_max_tokens: %d\n  compaction_threshold: %.2f\nparams: %s\nextra_params: %s\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
+		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  context_window: %d\n  max_output_tokens: %d\n  output_reserve_tokens: %d\n  safety_margin_tokens: %d\n  summary_max_tokens: %d\n  compaction_threshold: %.2f\nparams: %s\nextra_params: %s\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
 		rm.Alias,
 		rm.ProviderAlias,
 		rm.BackendModelID,
@@ -57,7 +57,6 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 		rm.MetadataSource,
 		rm.EffectiveLimits.ContextWindow,
 		rm.EffectiveLimits.MaxOutputTokens,
-		rm.EffectiveLimits.MaxInputTokens,
 		rm.EffectiveLimits.OutputReserveTokens,
 		rm.EffectiveLimits.SafetyMarginTokens,
 		rm.EffectiveLimits.SummaryMaxTokens,

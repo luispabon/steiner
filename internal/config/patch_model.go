@@ -131,9 +131,6 @@ func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPa
 	if patch.MaxOutputTokens != nil {
 		dst.MaxOutputTokens = *patch.MaxOutputTokens
 	}
-	if patch.MaxInputTokens != nil {
-		dst.MaxInputTokens = *patch.MaxInputTokens
-	}
 	if patch.OutputReserveTokens != nil {
 		dst.OutputReserveTokens = *patch.OutputReserveTokens
 	}

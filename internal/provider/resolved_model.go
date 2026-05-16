@@ -16,7 +16,6 @@ import (
 // EffectiveLimits holds the runtime-resolved token limits for a model.
 type EffectiveLimits struct {
 	ContextWindow       int
-	MaxInputTokens      int
 	MaxOutputTokens     int
 	OutputReserveTokens int
 	SafetyMarginTokens  int
@@ -181,7 +180,7 @@ func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
 // isFallbackLimits reports whether the advanced limits are all zero, indicating
 // that fallback defaults will be used.
 func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
-	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.MaxInputTokens == 0 && adv.OutputReserveTokens == 0
+	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.OutputReserveTokens == 0
 }
 
 // resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
@@ -203,14 +202,13 @@ func resolveEffectiveLimitsWithMeta(adv config.AdvancedLimitsConfig, meta ModelM
 func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 	cw := adv.ContextWindow
 	maxOut := adv.MaxOutputTokens
-	maxIn := adv.MaxInputTokens
 	reserve := adv.OutputReserveTokens
 	safety := adv.SafetyMarginTokens
 	summaryMax := adv.SummaryMaxTokens
 	threshold := 0.70
 
 	// Fallback when nothing is configured: use reasonable defaults
-	if cw == 0 && maxOut == 0 && maxIn == 0 && reserve == 0 {
+	if cw == 0 && maxOut == 0 && reserve == 0 {
 		cw = 32768
 		maxOut = 4096
 		reserve = 4096
@@ -218,7 +216,6 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 		summaryMax = 4096
 		return EffectiveLimits{
 			ContextWindow:       cw,
-			MaxInputTokens:      maxIn,
 			MaxOutputTokens:     maxOut,
 			OutputReserveTokens: reserve,
 			SafetyMarginTokens:  safety,
@@ -246,7 +243,6 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 
 	return EffectiveLimits{
 		ContextWindow:       cw,
-		MaxInputTokens:      maxIn,
 		MaxOutputTokens:     maxOut,
 		OutputReserveTokens: reserve,
 		SafetyMarginTokens:  safety,

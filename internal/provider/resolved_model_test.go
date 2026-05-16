@@ -34,7 +34,6 @@ func TestResolve(t *testing.T) {
 					Limits: config.AdvancedLimitsConfig{
 						ContextWindow:       128000,
 						MaxOutputTokens:     8192,
-						MaxInputTokens:      120000,
 						OutputReserveTokens: 512,
 						SafetyMarginTokens:  500,
 						SummaryMaxTokens:    2000,
@@ -122,9 +121,6 @@ func TestResolve(t *testing.T) {
 				}
 				if lim.MaxOutputTokens != 8192 {
 					t.Errorf("MaxOutputTokens=%d, want 8192", lim.MaxOutputTokens)
-				}
-				if lim.MaxInputTokens != 120000 {
-					t.Errorf("MaxInputTokens=%d, want 120000", lim.MaxInputTokens)
 				}
 				if lim.OutputReserveTokens != 512 {
 					t.Errorf("OutputReserveTokens=%d, want 512", lim.OutputReserveTokens)
@@ -234,14 +230,12 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			input: config.AdvancedLimitsConfig{
 				ContextWindow:       128000,
 				MaxOutputTokens:     8192,
-				MaxInputTokens:      120000,
 				OutputReserveTokens: 512,
 				SafetyMarginTokens:  500,
 				SummaryMaxTokens:    2000,
 			},
 			want: EffectiveLimits{
 				ContextWindow:       128000,
-				MaxInputTokens:      120000,
 				MaxOutputTokens:     8192,
 				OutputReserveTokens: 512,
 				SafetyMarginTokens:  500,
@@ -256,7 +250,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 			want: EffectiveLimits{
 				ContextWindow:       64000,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     4096,
 				OutputReserveTokens: 4096,
 				SafetyMarginTokens:  2048,
@@ -272,7 +265,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 			want: EffectiveLimits{
 				ContextWindow:       100000,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     6000,
 				OutputReserveTokens: 6000, // derives from max_output
 				SafetyMarginTokens:  2048,
@@ -281,14 +273,12 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 		},
 		{
-			name: "max_input and max_output only",
+			name: "max_output only with unknown context",
 			input: config.AdvancedLimitsConfig{
-				MaxInputTokens:  90000,
 				MaxOutputTokens: 5000,
 			},
 			want: EffectiveLimits{
 				ContextWindow:       0,
-				MaxInputTokens:      90000,
 				MaxOutputTokens:     5000,
 				OutputReserveTokens: 5000,
 				SafetyMarginTokens:  0, // no safety margin when context_window unknown
@@ -301,7 +291,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			input: config.AdvancedLimitsConfig{},
 			want: EffectiveLimits{
 				ContextWindow:       32768,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     4096,
 				OutputReserveTokens: 4096,
 				SafetyMarginTokens:  2048,
@@ -316,7 +305,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 			want: EffectiveLimits{
 				ContextWindow:       32000,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     4096,
 				OutputReserveTokens: 4096,
 				SafetyMarginTokens:  2048,
@@ -331,7 +319,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 			want: EffectiveLimits{
 				ContextWindow:       1000000,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     4096,
 				OutputReserveTokens: 4096,
 				SafetyMarginTokens:  2048,
@@ -346,7 +333,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			},
 			want: EffectiveLimits{
 				ContextWindow:       0,
-				MaxInputTokens:      0,
 				MaxOutputTokens:     2000,
 				OutputReserveTokens: 2000, // derives from max_output
 				SafetyMarginTokens:  0,
@@ -361,9 +347,6 @@ func TestResolveEffectiveLimits(t *testing.T) {
 			got := resolveEffectiveLimits(tt.input)
 			if got.ContextWindow != tt.want.ContextWindow {
 				t.Errorf("ContextWindow = %d, want %d", got.ContextWindow, tt.want.ContextWindow)
-			}
-			if got.MaxInputTokens != tt.want.MaxInputTokens {
-				t.Errorf("MaxInputTokens = %d, want %d", got.MaxInputTokens, tt.want.MaxInputTokens)
 			}
 			if got.MaxOutputTokens != tt.want.MaxOutputTokens {
 				t.Errorf("MaxOutputTokens = %d, want %d", got.MaxOutputTokens, tt.want.MaxOutputTokens)
