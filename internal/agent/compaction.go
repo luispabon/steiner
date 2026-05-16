@@ -649,12 +649,20 @@ func compactionEscalationForFit(compactionCount int, fit prompt.RequestTokenBudg
 }
 
 func compactionBudgetIsFragile(fit prompt.RequestTokenBudget) bool {
-	if fit.ContextSize <= 0 || fit.TotalTokens <= 0 {
+	limit := fit.HardLimitTokens
+	if limit <= 0 {
+		limit = fit.ContextSize
+	}
+	promptTokens := fit.EstimatedPromptTokens
+	if promptTokens <= 0 {
+		promptTokens = fit.TotalTokens
+	}
+	if limit <= 0 || promptTokens <= 0 {
 		return false
 	}
-	overage := fit.TotalTokens - fit.ContextSize
+	overage := promptTokens - limit
 	if overage <= 0 {
 		return false
 	}
-	return overage*100 >= fit.ContextSize*compactionFragilityOveragePercent
+	return overage*100 >= limit*compactionFragilityOveragePercent
 }

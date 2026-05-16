@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -96,15 +97,27 @@ func TestModelTokenBudgetFitsToolHeavyPayloadWithCompletionAndSafetyReserve(t *t
 	if got, want := fit.SafetyMarginTokens, 32; got != want {
 		t.Fatalf("FitRequest safety margin = %d, want %d", got, want)
 	}
+	if fit.ShouldCompact {
+		t.Fatal("FitRequest() should not request compaction for the baseline fit")
+	}
+	if got, want := fit.HardLimitTokens, budget.ContextSize-budget.SafetyMarginTokens; got != want {
+		t.Fatalf("FitRequest hard limit = %d, want %d", got, want)
+	}
+	if fit.PromptUsage <= 0 {
+		t.Fatalf("FitRequest prompt usage = %f, want > 0", fit.PromptUsage)
+	}
 
 	tooSmall := budget
-	tooSmall.ContextSize--
+	tooSmall.ContextSize = toolTokens + budget.SafetyMarginTokens - 1
 	fit, err = tooSmall.FitRequest(ctx, toolReq)
 	if err != nil {
 		t.Fatalf("FitRequest(smaller) error = %v", err)
 	}
 	if fit.Fits {
 		t.Fatalf("FitRequest(smaller) = %+v, want not fit", fit)
+	}
+	if !fit.ShouldCompact {
+		t.Fatal("FitRequest(smaller) should request compaction when the hard prompt limit is exceeded")
 	}
 }
 
@@ -160,5 +173,37 @@ func TestModelTokenBudgetFitCompactionRequestUsesSummaryReserve(t *testing.T) {
 	}
 	if got, want := fit.TotalTokens, promptTokens+8+24; got != want {
 		t.Fatalf("FitCompactionRequest total tokens = %d, want %d", got, want)
+	}
+}
+
+func TestModelTokenBudgetFitRequestRequestsCompactionAtSeventyPercentUsage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system instructions"},
+			{Role: provider.MessageRoleUser, Content: "review the request"},
+		},
+	}
+
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	contextSize := int(math.Floor(float64(promptTokens) / normalPromptCompactionThreshold))
+	budget := ModelTokenBudget{ContextSize: contextSize}
+
+	fit, err := budget.FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+	if !fit.ShouldCompact {
+		t.Fatalf("FitRequest() = %+v, want compaction at >=70%% prompt usage", fit)
+	}
+	if !fit.Fits {
+		t.Fatalf("FitRequest() = %+v, want hard fit when the prompt still fits", fit)
 	}
 }
