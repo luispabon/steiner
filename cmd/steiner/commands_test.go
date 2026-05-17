@@ -345,6 +345,15 @@ models:
 			t.Fatalf("stdout = %q, want %q", got, want)
 		}
 	}
+	for _, absent := range []string{
+		"safety_margin_tokens",
+		"summary_max_tokens",
+		"output_reserve",
+	} {
+		if strings.Contains(got, absent) {
+			t.Fatalf("stdout = %q, want %q absent", got, absent)
+		}
+	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}

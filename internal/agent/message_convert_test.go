@@ -635,3 +635,26 @@ func TestMessageConvert_PromptContextRoundTrip(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildScaffoldInferenceRequestCapsMaxTokens(t *testing.T) {
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			MaxCompletionTokens: 256,
+		},
+	}
+
+	chatReq := buildScaffoldInferenceRequest(req, "intent: inspect", "assistant reasoning text")
+	if chatReq.Model != "test-model" {
+		t.Fatalf("chatReq.Model = %q, want %q", chatReq.Model, "test-model")
+	}
+	if got, want := len(chatReq.Messages), 2; got != want {
+		t.Fatalf("chatReq.Messages = %d, want %d", got, want)
+	}
+	if chatReq.MaxTokens == nil {
+		t.Fatal("chatReq.MaxTokens = nil, want bounded cap")
+	}
+	if got, want := *chatReq.MaxTokens, 150; got != want {
+		t.Fatalf("chatReq.MaxTokens = %d, want %d", got, want)
+	}
+}
