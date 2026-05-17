@@ -178,32 +178,50 @@ func (m *Model) renderScrollbar() string {
 }
 
 func (m *Model) renderContextInfoLine(width int) string {
-	if m.sessionHealthState == "" && m.sessionHealthCompactionCount == 0 {
+	hasSessionHealth := m.sessionHealthState != "" || m.sessionHealthCompactionCount > 0 || m.sessionHealthGuidance != "" || len(m.sessionHealthNotes) > 0
+	hasContextInfo := m.ctxInfoPromptTokens > 0 || m.ctxInfoContextWindow > 0 || m.ctxInfoContextUsagePercent > 0 || m.ctxInfoCompactionThreshold > 0 || m.ctxInfoEstimatorPadTokens > 0 || strings.TrimSpace(m.ctxInfoStatus) != ""
+	if !hasSessionHealth && !hasContextInfo {
 		return ""
 	}
-	line1Parts := []string{
-		fmt.Sprintf("context info: session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn),
-	}
-	if m.sessionHealthState != "" {
-		line1Parts = append(line1Parts, "state "+m.sessionHealthState)
-	}
-	if m.sessionHealthGuidance != "" {
-		entry := m.sessionHealthGuidance
-		if m.sessionHealthCompactionCount > 0 {
-			suffix := "compaction"
-			if m.sessionHealthCompactionCount != 1 {
-				suffix = "compactions"
-			}
-			entry += fmt.Sprintf(" after %d %s", m.sessionHealthCompactionCount, suffix)
+	line1Parts := []string{"context info:"}
+	if hasSessionHealth {
+		line1Parts = append(line1Parts, fmt.Sprintf("session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn))
+		if m.sessionHealthState != "" {
+			line1Parts = append(line1Parts, "state "+m.sessionHealthState)
 		}
-		line1Parts = append(line1Parts, entry)
-	}
-	if len(m.sessionHealthNotes) > 0 {
-		line1Parts = append(line1Parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
+		if m.sessionHealthGuidance != "" {
+			entry := m.sessionHealthGuidance
+			if m.sessionHealthCompactionCount > 0 {
+				suffix := "compaction"
+				if m.sessionHealthCompactionCount != 1 {
+					suffix = "compactions"
+				}
+				entry += fmt.Sprintf(" after %d %s", m.sessionHealthCompactionCount, suffix)
+			}
+			line1Parts = append(line1Parts, entry)
+		}
+		if len(m.sessionHealthNotes) > 0 {
+			line1Parts = append(line1Parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
+		}
 	}
 	line1 := strings.Join(line1Parts, "; ")
-	line2 := fmt.Sprintf("view full, prompt %d, reserve %d, safety %d",
-		m.ctxInfoPromptTokens, m.ctxInfoReservedTokens, m.ctxInfoSafetyTokens)
+	contextWindow := m.ctxInfoContextWindow
+	if contextWindow <= 0 {
+		contextWindow = m.sidebar.contextBudget
+	}
+	status := strings.TrimSpace(m.ctxInfoStatus)
+	if status == "" {
+		status = "unknown_context"
+	}
+	line2 := fmt.Sprintf(
+		"view full, prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
+		m.ctxInfoPromptTokens,
+		contextWindow,
+		fmt.Sprintf("%.0f%%", m.ctxInfoContextUsagePercent),
+		fmt.Sprintf("%.0f%%", m.ctxInfoCompactionThreshold),
+		m.ctxInfoEstimatorPadTokens,
+		status,
+	)
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgFaint)).
 		Italic(true).

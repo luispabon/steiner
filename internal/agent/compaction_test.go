@@ -736,7 +736,8 @@ func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
 		Events: sink,
 	}
 
-	compacted, err := new(Runner).compactConversationForBudget(context.Background(), req, &state, 13, skipped, &compactionCount)
+	beforeFit := prompt.RequestTokenBudget{ContextSize: 4096, EstimatedPromptTokens: 2800, PromptUsage: 0.68, CompactionThreshold: 0.70}
+	compacted, err := new(Runner).compactConversationForBudget(context.Background(), req, &state, 13, &beforeFit, skipped, &compactionCount)
 	if err != nil {
 		t.Fatalf("compactConversationForBudget() error = %v", err)
 	}

@@ -21,10 +21,13 @@ func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.Requ
 	if sink == nil {
 		return
 	}
+	status := requestTokenBudgetStatus(fit)
 	notes := []string{
-		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
-		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
-		fmt.Sprintf("safety=%d", fit.SafetyMarginTokens),
+		fmt.Sprintf("prompt_tokens=%d", fit.EstimatedPromptTokens),
+		fmt.Sprintf("context_usage_percent=%.0f%%", fit.PromptUsage*100),
+		fmt.Sprintf("compaction_threshold=%.0f%%", fit.CompactionThreshold*100),
+		fmt.Sprintf("estimator_pad_tokens=%d", fit.SafetyMarginTokens),
+		fmt.Sprintf("status=%s", status),
 	}
 	if truncated {
 		notes = append(notes, fmt.Sprintf("request exceeds context window: %s", fit.String()))
@@ -33,10 +36,12 @@ func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.Requ
 		string(prompt.ContextSourceConversation),
 		turn,
 		fit.EstimatedPromptTokens,
-		fit.ReservedCompletionTokens,
+		fit.ContextSize,
+		fit.PromptUsage*100,
+		fit.CompactionThreshold*100,
 		fit.SafetyMarginTokens,
 		fit.TotalTokens,
-		fit.ContextSize,
+		status,
 		truncated,
 		notes...,
 	))
@@ -56,45 +61,77 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, 0, "compacting", "compacting", "compacting in progress", "starting compaction"))
 }
 
-func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, fit prompt.RequestTokenBudget, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string) {
+func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, beforeFit, afterFit prompt.RequestTokenBudget, mode prompt.CompactionMode, summaryTokenBudget int, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string) {
 	if sink == nil {
 		return
 	}
 
-	escalation := compactionEscalationForFit(compactionCount, fit)
+	escalation := compactionEscalationForFit(compactionCount, afterFit)
 	notes := []string{
 		fmt.Sprintf("source generation=%d view=%s", candidate.GenerationID, candidate.View),
-		fmt.Sprintf("prompt=%d", fit.EstimatedPromptTokens),
-		fmt.Sprintf("reserve=%d", fit.ReservedCompletionTokens),
-		fmt.Sprintf("safety=%d", fit.SafetyMarginTokens),
+		fmt.Sprintf("mode=%s", mode),
+		fmt.Sprintf("before prompt_tokens=%d context_usage_percent=%.0f%%", beforeFit.EstimatedPromptTokens, beforeFit.PromptUsage*100),
+		fmt.Sprintf("after prompt_tokens=%d context_usage_percent=%.0f%%", afterFit.EstimatedPromptTokens, afterFit.PromptUsage*100),
+		fmt.Sprintf("retained_raw_turns=%d", countTurns(retainedMessages)),
+		fmt.Sprintf("summary_token_budget=%d", summaryTokenBudget),
+		fmt.Sprintf("threshold_achieved=%t", compactionThresholdAchieved(afterFit)),
 	}
 	if promptText != "" {
 		notes = append(notes, "prompt="+promptText)
 	}
 	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:               "compaction",
-		Scope:              "conversation",
-		Turn:               turn,
-		Severity:           escalation.Severity,
-		SessionState:       escalation.SessionState,
-		CompactionCount:    compactionCount,
-		RestartGuidance:    escalation.RestartGuidance,
-		CompactedTurns:     len(candidate.Messages),
-		CompactedMessages:  len(candidate.Messages),
-		RetainedTurns:      countTurns(retainedMessages),
-		RetainedMessages:   len(retainedMessages),
-		SummaryTitle:       "compacted conversation history",
-		SummaryPreview:     summarizeTextPreview(summaryText, 120),
-		SummaryBytes:       len(summaryText),
-		PromptTokens:       fit.EstimatedPromptTokens,
-		ReservedTokens:     fit.ReservedCompletionTokens,
-		SafetyMarginTokens: fit.SafetyMarginTokens,
-		ContextTokens:      fit.ContextSize,
-		TotalTokens:        fit.TotalTokens,
-		Truncated:          fit.TotalTokens > fit.ContextSize && fit.ContextSize > 0,
-		Notes:              notes,
+		Kind:                "compaction",
+		Scope:               "conversation",
+		Turn:                turn,
+		Severity:            escalation.Severity,
+		SessionState:        escalation.SessionState,
+		CompactionCount:     compactionCount,
+		RestartGuidance:     escalation.RestartGuidance,
+		CompactedTurns:      len(candidate.Messages),
+		CompactedMessages:   len(candidate.Messages),
+		RetainedTurns:       countTurns(retainedMessages),
+		RetainedMessages:    len(retainedMessages),
+		SummaryTitle:        "compacted conversation history",
+		SummaryPreview:      summarizeTextPreview(summaryText, 120),
+		SummaryBytes:        len(summaryText),
+		Mode:                string(mode),
+		BeforePromptTokens:  beforeFit.EstimatedPromptTokens,
+		BeforeUsagePercent:  beforeFit.PromptUsage * 100,
+		AfterPromptTokens:   afterFit.EstimatedPromptTokens,
+		AfterUsagePercent:   afterFit.PromptUsage * 100,
+		RetainedRawTurns:    countTurns(retainedMessages),
+		SummaryTokenBudget:  summaryTokenBudget,
+		ThresholdAchieved:   compactionThresholdAchieved(afterFit),
+		PromptTokens:        afterFit.EstimatedPromptTokens,
+		ContextWindow:       afterFit.ContextSize,
+		ContextUsagePercent: afterFit.PromptUsage * 100,
+		CompactionThreshold: afterFit.CompactionThreshold * 100,
+		EstimatorPadTokens:  afterFit.SafetyMarginTokens,
+		Status:              requestTokenBudgetStatus(afterFit),
+		Truncated:           afterFit.ContextSize > 0 && afterFit.TotalTokens > afterFit.ContextSize,
+		Notes:               notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
+}
+
+func requestTokenBudgetStatus(fit prompt.RequestTokenBudget) string {
+	switch {
+	case fit.ContextSize <= 0:
+		return "unknown_context"
+	case fit.EstimatedPromptTokens > fit.HardLimitTokens:
+		return "hard_limit"
+	case fit.ShouldCompact:
+		return "compact"
+	default:
+		return "ok"
+	}
+}
+
+func compactionThresholdAchieved(fit prompt.RequestTokenBudget) bool {
+	if fit.ContextSize <= 0 {
+		return false
+	}
+	return fit.PromptUsage <= fit.CompactionThreshold
 }
 
 func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions, turn int, assembly prompt.Assembly) {

@@ -63,6 +63,7 @@ func (m ModelTokenBudget) FitRequest(ctx context.Context, request provider.ChatR
 	return RequestTokenBudget{
 		EstimatedPromptTokens:    estimatedPromptTokens,
 		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
+		CompactionThreshold:      normalPromptCompactionThreshold,
 		HardLimitTokens:          hardLimit,
 		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
 		ReservedCompletionTokens: completionReserve,
@@ -97,6 +98,7 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 	return RequestTokenBudget{
 		EstimatedPromptTokens:    estimatedPromptTokens,
 		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
+		CompactionThreshold:      normalPromptCompactionThreshold,
 		HardLimitTokens:          hardPromptLimit(m.ContextSize, m.SafetyMarginTokens),
 		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
 		ReservedCompletionTokens: completionReserve,

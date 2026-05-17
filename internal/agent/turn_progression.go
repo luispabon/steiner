@@ -295,7 +295,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit
 	turn := in.State.TurnCount + 1
 	emitCompactionStartedEvent(in.Request.Events, turn)
 	state := in.State
-	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, in.CompactionHistory, in.CompactionCount)
+	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}

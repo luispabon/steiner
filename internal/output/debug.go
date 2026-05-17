@@ -8,41 +8,52 @@ import (
 
 // ContextDiagnosticsEvent records context-management diagnostics for logs and UI.
 type ContextDiagnosticsEvent struct {
-	Kind               string   `json:"kind"`
-	Scope              string   `json:"scope,omitempty"`
-	Turn               int      `json:"turn,omitempty"`
-	Severity           string   `json:"severity,omitempty"`
-	SessionState       string   `json:"session_state,omitempty"`
-	Action             string   `json:"action,omitempty"`
-	Reason             string   `json:"reason,omitempty"`
-	Tool               string   `json:"tool,omitempty"`
-	Path               string   `json:"path,omitempty"`
-	Window             int      `json:"window,omitempty"`
-	Parsed             bool     `json:"parsed,omitempty"`
-	Failures           int      `json:"failures,omitempty"`
-	CompactionCount    int      `json:"compaction_count,omitempty"`
-	RestartGuidance    string   `json:"restart_guidance,omitempty"`
-	RetainedTurns      int      `json:"retained_turns,omitempty"`
-	RetainedMessages   int      `json:"retained_messages,omitempty"`
-	CompactedTurns     int      `json:"compacted_turns,omitempty"`
-	CompactedMessages  int      `json:"compacted_messages,omitempty"`
-	SummaryTitle       string   `json:"summary_title,omitempty"`
-	SummaryPreview     string   `json:"summary_preview,omitempty"`
-	SummaryBytes       int      `json:"summary_bytes,omitempty"`
-	BudgetBytes        int      `json:"budget_bytes,omitempty"`
-	UsedBytes          int      `json:"used_bytes,omitempty"`
-	PromptTokens       int      `json:"prompt_tokens,omitempty"`
-	ReservedTokens     int      `json:"reserved_tokens,omitempty"`
-	SafetyMarginTokens int      `json:"safety_margin_tokens,omitempty"`
-	ContextTokens      int      `json:"context_tokens,omitempty"`
-	TotalTokens        int      `json:"total_tokens,omitempty"`
-	Truncated          bool     `json:"truncated,omitempty"`
-	EpochBoundary      int      `json:"epoch_boundary"`
-	EpochStartTurn     int      `json:"epoch_start_turn"`
-	EpochTrigger       string   `json:"epoch_trigger,omitempty"`
-	EpochStatus        string   `json:"epoch_status,omitempty"`
-	EpochMaskedTurns   int      `json:"epoch_masked_turns,omitempty"`
-	Notes              []string `json:"notes,omitempty"`
+	Kind                string   `json:"kind"`
+	Scope               string   `json:"scope,omitempty"`
+	Turn                int      `json:"turn,omitempty"`
+	Severity            string   `json:"severity,omitempty"`
+	SessionState        string   `json:"session_state,omitempty"`
+	Action              string   `json:"action,omitempty"`
+	Reason              string   `json:"reason,omitempty"`
+	Tool                string   `json:"tool,omitempty"`
+	Path                string   `json:"path,omitempty"`
+	Window              int      `json:"window,omitempty"`
+	Parsed              bool     `json:"parsed,omitempty"`
+	Failures            int      `json:"failures,omitempty"`
+	CompactionCount     int      `json:"compaction_count,omitempty"`
+	RestartGuidance     string   `json:"restart_guidance,omitempty"`
+	RetainedTurns       int      `json:"retained_turns,omitempty"`
+	RetainedMessages    int      `json:"retained_messages,omitempty"`
+	CompactedTurns      int      `json:"compacted_turns,omitempty"`
+	CompactedMessages   int      `json:"compacted_messages,omitempty"`
+	SummaryTitle        string   `json:"summary_title,omitempty"`
+	SummaryPreview      string   `json:"summary_preview,omitempty"`
+	SummaryBytes        int      `json:"summary_bytes,omitempty"`
+	BudgetBytes         int      `json:"budget_bytes,omitempty"`
+	UsedBytes           int      `json:"used_bytes,omitempty"`
+	PromptTokens        int      `json:"prompt_tokens,omitempty"`
+	ContextTokens       int      `json:"context_tokens,omitempty"`
+	TotalTokens         int      `json:"total_tokens,omitempty"`
+	Truncated           bool     `json:"truncated,omitempty"`
+	ContextWindow       int      `json:"context_window,omitempty"`
+	ContextUsagePercent float64  `json:"context_usage_percent,omitempty"`
+	CompactionThreshold float64  `json:"compaction_threshold,omitempty"`
+	EstimatorPadTokens  int      `json:"estimator_pad_tokens,omitempty"`
+	Status              string   `json:"status,omitempty"`
+	Mode                string   `json:"mode,omitempty"`
+	BeforePromptTokens  int      `json:"before_prompt_tokens,omitempty"`
+	BeforeUsagePercent  float64  `json:"before_usage_percent,omitempty"`
+	AfterPromptTokens   int      `json:"after_prompt_tokens,omitempty"`
+	AfterUsagePercent   float64  `json:"after_usage_percent,omitempty"`
+	RetainedRawTurns    int      `json:"retained_raw_turns,omitempty"`
+	SummaryTokenBudget  int      `json:"summary_token_budget,omitempty"`
+	ThresholdAchieved   bool     `json:"threshold_achieved,omitempty"`
+	EpochBoundary       int      `json:"epoch_boundary"`
+	EpochStartTurn      int      `json:"epoch_start_turn"`
+	EpochTrigger        string   `json:"epoch_trigger,omitempty"`
+	EpochStatus         string   `json:"epoch_status,omitempty"`
+	EpochMaskedTurns    int      `json:"epoch_masked_turns,omitempty"`
+	Notes               []string `json:"notes,omitempty"`
 }
 
 // NewContextDiagnosticsEvent creates a new context diagnostics event.
@@ -105,18 +116,21 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 }
 
 // NewContextTokenBudgetEvent creates a new context token budget event.
-func NewContextTokenBudgetEvent(scope string, turn, promptTokens, reservedTokens, safetyMarginTokens, totalTokens, contextTokens int, truncated bool, notes ...string) Event {
+func NewContextTokenBudgetEvent(scope string, turn, promptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
 	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:               "budget",
-		Scope:              scope,
-		Turn:               turn,
-		PromptTokens:       promptTokens,
-		ReservedTokens:     reservedTokens,
-		SafetyMarginTokens: safetyMarginTokens,
-		ContextTokens:      contextTokens,
-		TotalTokens:        totalTokens,
-		Truncated:          truncated,
-		Notes:              append([]string(nil), notes...),
+		Kind:                "budget",
+		Scope:               scope,
+		Turn:                turn,
+		PromptTokens:        promptTokens,
+		ContextWindow:       contextWindow,
+		ContextUsagePercent: contextUsagePercent,
+		CompactionThreshold: compactionThreshold,
+		EstimatorPadTokens:  estimatorPadTokens,
+		ContextTokens:       contextWindow,
+		TotalTokens:         totalTokens,
+		Status:              status,
+		Truncated:           truncated,
+		Notes:               append([]string(nil), notes...),
 	})
 }
 
@@ -215,19 +229,20 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	switch {
-	case payload.TotalTokens > 0 || payload.PromptTokens > 0 || payload.ReservedTokens > 0 || payload.SafetyMarginTokens > 0 || payload.ContextTokens > 0:
-		contextTokens := payload.ContextTokens
-		if contextTokens == 0 {
-			contextTokens = payload.BudgetBytes
+	case payload.ContextWindow > 0 || payload.PromptTokens > 0 || payload.ContextUsagePercent > 0 || payload.CompactionThreshold > 0 || payload.EstimatorPadTokens > 0 || payload.Status != "":
+		status := strings.TrimSpace(payload.Status)
+		if status == "" {
+			status = "unknown_context"
 		}
 		parts = append(parts, fmt.Sprintf(
-			"budget %s prompt=%d reserve=%d safety=%d budget=%d/%d tokens",
+			"budget %s prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
 			scope,
 			payload.PromptTokens,
-			payload.ReservedTokens,
-			payload.SafetyMarginTokens,
-			payload.TotalTokens,
-			contextTokens,
+			payload.ContextWindow,
+			formatPercent(payload.ContextUsagePercent),
+			formatPercent(payload.CompactionThreshold),
+			payload.EstimatorPadTokens,
+			status,
 		))
 	default:
 		parts = append(parts, fmt.Sprintf("budget %s used %d/%d bytes", scope, payload.UsedBytes, payload.BudgetBytes))
@@ -311,6 +326,30 @@ func formatContextScratchpadSummary(payload ContextDiagnosticsEvent) string {
 func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{formatDiagnosticHeadline(payload, "compaction")}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
+	if mode := strings.TrimSpace(payload.Mode); mode != "" {
+		parts = append(parts, fmt.Sprintf("mode=%s", mode))
+	}
+	if payload.BeforePromptTokens > 0 || payload.BeforeUsagePercent > 0 || payload.AfterPromptTokens > 0 || payload.AfterUsagePercent > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"before prompt_tokens=%d context_usage_percent=%s",
+			payload.BeforePromptTokens,
+			formatPercent(payload.BeforeUsagePercent),
+		))
+		parts = append(parts, fmt.Sprintf(
+			"after prompt_tokens=%d context_usage_percent=%s",
+			payload.AfterPromptTokens,
+			formatPercent(payload.AfterUsagePercent),
+		))
+	}
+	if payload.RetainedRawTurns > 0 {
+		parts = append(parts, fmt.Sprintf("retained raw turns=%d", payload.RetainedRawTurns))
+	}
+	if payload.SummaryTokenBudget > 0 {
+		parts = append(parts, fmt.Sprintf("summary token budget=%d", payload.SummaryTokenBudget))
+	}
+	if payload.Mode != "" || payload.SummaryTokenBudget > 0 || payload.ContextWindow > 0 || payload.CompactionThreshold > 0 {
+		parts = append(parts, fmt.Sprintf("threshold achieved=%t", payload.ThresholdAchieved))
+	}
 
 	summary := strings.TrimSpace(payload.SummaryTitle)
 	if preview := strings.TrimSpace(payload.SummaryPreview); preview != "" {
@@ -385,6 +424,10 @@ func joinDiagnosticNotes(notes []string) string {
 		filtered = append(filtered, strings.ReplaceAll(note, "=", " "))
 	}
 	return strings.Join(filtered, ", ")
+}
+
+func formatPercent(value float64) string {
+	return fmt.Sprintf("%.0f%%", value)
 }
 
 func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) string {

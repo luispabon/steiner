@@ -95,8 +95,11 @@ type Model struct {
 	sessionHealthGuidance        string
 	sessionHealthNotes           []string
 	ctxInfoPromptTokens          int
-	ctxInfoReservedTokens        int
-	ctxInfoSafetyTokens          int
+	ctxInfoContextWindow         int
+	ctxInfoContextUsagePercent   float64
+	ctxInfoCompactionThreshold   float64
+	ctxInfoEstimatorPadTokens    int
+	ctxInfoStatus                string
 	interruptPending             bool
 	contentDirty                 bool
 	syncDebounceSeq              int
@@ -179,6 +182,12 @@ func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
 	if payload.CompactionCount > 0 {
 		parts = append(parts, fmt.Sprintf("compaction #%d", payload.CompactionCount))
 	}
+	if mode := strings.TrimSpace(payload.Mode); mode != "" {
+		parts = append(parts, "mode "+mode)
+	}
+	if payload.Mode != "" || payload.SummaryTokenBudget > 0 || payload.ThresholdAchieved {
+		parts = append(parts, fmt.Sprintf("threshold achieved %t", payload.ThresholdAchieved))
+	}
 	if payload.Severity == "critical" && strings.TrimSpace(payload.RestartGuidance) != "" {
 		parts = append(parts, "restart now")
 	} else if payload.Severity == "warning" && strings.TrimSpace(payload.RestartGuidance) != "" {
@@ -220,7 +229,11 @@ func (m *Model) contextBudgetForModel(name string) int {
 }
 
 func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool {
-	if m == nil || payload.ContextTokens <= 0 {
+	contextWindow := payload.ContextWindow
+	if contextWindow <= 0 {
+		contextWindow = payload.ContextTokens
+	}
+	if m == nil || contextWindow <= 0 {
 		return false
 	}
 	promptUsed := payload.PromptTokens
@@ -231,16 +244,22 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 	if budgetUsed < 0 {
 		budgetUsed = 0
 	}
+	if budgetUsed == 0 {
+		budgetUsed = promptUsed
+	}
 	m.sidebar.promptUsed = promptUsed
 	m.sidebar.budgetUsed = budgetUsed
-	m.sidebar.contextBudget = payload.ContextTokens
+	m.sidebar.contextBudget = contextWindow
 	m.ctxInfoPromptTokens = payload.PromptTokens
-	m.ctxInfoReservedTokens = payload.ReservedTokens
-	m.ctxInfoSafetyTokens = payload.SafetyMarginTokens
+	m.ctxInfoContextWindow = contextWindow
+	m.ctxInfoContextUsagePercent = payload.ContextUsagePercent
+	m.ctxInfoCompactionThreshold = payload.CompactionThreshold
+	m.ctxInfoEstimatorPadTokens = payload.EstimatorPadTokens
+	m.ctxInfoStatus = payload.Status
 	if payload.Turn > 0 {
 		m.sidebar.currentTurn = payload.Turn
 	}
-	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, payload.ContextTokens)
+	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, contextWindow)
 	return true
 }
 
