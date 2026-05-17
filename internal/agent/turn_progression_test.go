@@ -198,8 +198,8 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want non-nil")
 	}
-	if !strings.Contains(outcome.Error.Error(), "emergency compaction could not reduce context enough") {
-		t.Fatalf("handleCompaction() error = %q, want emergency compaction failure", outcome.Error)
+	if !strings.Contains(outcome.Error.Error(), "compaction cannot solve this request") {
+		t.Fatalf("handleCompaction() error = %q, want irreducible compaction failure", outcome.Error)
 	}
 	if !outcome.Stop {
 		t.Fatalf("outcome.Stop = false, want true")
@@ -846,8 +846,8 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 	if outcome.Error == nil {
 		t.Fatal("outcome.Error = nil, want error")
 	}
-	if !strings.Contains(outcome.Error.Error(), "emergency compaction could not reduce context enough") {
-		t.Fatalf("outcome.Error = %q, want emergency compaction failure", outcome.Error)
+	if !strings.Contains(outcome.Error.Error(), "compaction cannot solve this request") {
+		t.Fatalf("outcome.Error = %q, want irreducible compaction failure", outcome.Error)
 	}
 }
 
