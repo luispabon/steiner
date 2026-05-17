@@ -68,6 +68,33 @@ func TestLookup_AcrossProviders(t *testing.T) {
 	}
 }
 
+func TestLookupWithProviderPrefersProviderSpecificLimits(t *testing.T) {
+	data := []byte(`{
+		"opencode-go":{"models":{"deepseek-v4-flash":{"limit":{"context":1000000,"output":384000}}}},
+		"ollama-cloud":{"models":{"deepseek-v4-flash":{"limit":{"context":1048576,"output":1048576}}}}
+	}`)
+	info := LookupWithProvider(data, "opencode-go", "deepseek-v4-flash")
+	if info.ContextWindow != 1000000 {
+		t.Errorf("ContextWindow: got %d, want 1000000", info.ContextWindow)
+	}
+	if info.MaxOutputTokens != 384000 {
+		t.Errorf("MaxOutputTokens: got %d, want 384000", info.MaxOutputTokens)
+	}
+}
+
+func TestLookupWithProviderFallsBackAcrossProviders(t *testing.T) {
+	data := []byte(`{
+		"opencode-go":{"models":{"deepseek-v4-flash":{"limit":{"context":1000000,"output":384000}}}}
+	}`)
+	info := LookupWithProvider(data, "local", "deepseek-v4-flash")
+	if info.ContextWindow != 1000000 {
+		t.Errorf("ContextWindow: got %d, want 1000000", info.ContextWindow)
+	}
+	if info.MaxOutputTokens != 384000 {
+		t.Errorf("MaxOutputTokens: got %d, want 384000", info.MaxOutputTokens)
+	}
+}
+
 func TestLookup_ReasoningEchoBack(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -102,7 +102,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	defer cacheCancel()
 	var modelsDevInfo metadata.ModelInfo
 	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
-		modelsDevInfo = metadata.Lookup(data, rm.BackendModelID)
+		modelsDevInfo = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
 	}
 	rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
 

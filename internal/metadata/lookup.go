@@ -1,6 +1,9 @@
 package metadata
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ModelInfo holds metadata for a single model from the models.dev cache.
 type ModelInfo struct {
@@ -14,24 +17,47 @@ type ModelInfo struct {
 // Lookup searches across all providers for the first matching model ID.
 // Returns zero ModelInfo if not found or if data is malformed.
 func Lookup(data []byte, modelID string) ModelInfo {
+	return LookupWithProvider(data, "", modelID)
+}
+
+// LookupWithProvider finds model metadata for modelID, preferring providerID
+// when it is present in the models.dev cache before falling back across all
+// providers. Provider preference matters because models.dev may list the same
+// model ID with different limits for different providers.
+func LookupWithProvider(data []byte, providerID, modelID string) ModelInfo {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
 		return ModelInfo{}
 	}
+	if providerID = strings.TrimSpace(providerID); providerID != "" {
+		if providerRaw, ok := root[providerID]; ok {
+			info, ok := lookupProviderModel(providerRaw, modelID)
+			if ok {
+				return info
+			}
+		}
+	}
 	for _, providerRaw := range root {
-		var provider struct {
-			Models map[string]json.RawMessage `json:"models"`
+		info, ok := lookupProviderModel(providerRaw, modelID)
+		if ok {
+			return info
 		}
-		if err := json.Unmarshal(providerRaw, &provider); err != nil || provider.Models == nil {
-			continue
-		}
-		modelRaw, ok := provider.Models[modelID]
-		if !ok {
-			continue
-		}
-		return parseModelEntry(modelRaw)
 	}
 	return ModelInfo{}
+}
+
+func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool) {
+	var provider struct {
+		Models map[string]json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(providerRaw, &provider); err != nil || provider.Models == nil {
+		return ModelInfo{}, false
+	}
+	modelRaw, ok := provider.Models[modelID]
+	if !ok {
+		return ModelInfo{}, false
+	}
+	return parseModelEntry(modelRaw), true
 }
 
 func parseModelEntry(raw json.RawMessage) ModelInfo {

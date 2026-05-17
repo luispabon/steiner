@@ -475,6 +475,55 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	}
 }
 
+func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{
+		"ollama-cloud":{"models":{"deepseek-v4-flash":{"limit":{"context":1048576,"output":1048576}}}},
+		"opencode-go":{"models":{"deepseek-v4-flash":{"limit":{"context":1000000,"output":384000},"interleaved":{"field":"reasoning_content"}}}}
+	}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
+		},
+		Models: map[string]config.ModelConfig{
+			"opencode-go/deepseek-v4-flash": {
+				Provider: "opencode-go",
+				ID:       "deepseek-v4-flash",
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "opencode-go/deepseek-v4-flash", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.MetadataSource, "models.dev"; got != want {
+		t.Fatalf("MetadataSource = %q, want %q", got, want)
+	}
+	if got, want := rm.EffectiveLimits.ContextWindow, 1000000; got != want {
+		t.Fatalf("ContextWindow = %d, want %d", got, want)
+	}
+	if got, want := rm.EffectiveLimits.MaxOutputTokens, 384000; got != want {
+		t.Fatalf("MaxOutputTokens = %d, want %d", got, want)
+	}
+	if !rm.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack = false, want true")
+	}
+}
+
 func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)

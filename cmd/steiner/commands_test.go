@@ -293,6 +293,16 @@ func TestResumeWithExecRejected(t *testing.T) {
 func TestModelInspectCommand(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tempDir, "xdg-cache"))
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
 	configPath := filepath.Join(tempDir, "config.yaml")
 	writeFile(t, configPath, `default_model: inspect
 providers:
@@ -326,15 +336,15 @@ models:
 		"provider: local",
 		"backend_id: gpt-4o",
 		"limits:",
-		"  source: config",
-		"  confidence: high",
-		"  context_window: 32768",
-		"  max_output_tokens: 8192",
+		"  source: models.dev",
+		"  confidence: medium",
+		"  context_window: 128000",
+		"  max_output_tokens: 16384",
 		"derived_policy:",
 		"  compaction_threshold: 0.70",
-		"  estimator_pad_tokens: 327",
-		"  normal_summary_token_budget: 4096",
-		"  emergency_summary_token_budget: 2048",
+		"  estimator_pad_tokens: 1280",
+		"  normal_summary_token_budget: 10240",
+		"  emergency_summary_token_budget: 5120",
 		"params: {\"temperature\":0.2}",
 		"extra_params: {\"reasoning\":{\"effort\":\"medium\"}}",
 		"tokenizer:",

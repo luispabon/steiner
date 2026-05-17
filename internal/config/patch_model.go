@@ -43,11 +43,15 @@ func applyModelConfigPatch(cfg *Config, patch configPatch) {
 
 func newModelConfigBase(cfg Config) ModelConfig {
 	if base, ok := cfg.Models["default"]; ok {
-		return cloneModelConfig(base)
+		cloned := cloneModelConfig(base)
+		cloned.Advanced.Limits = AdvancedLimitsConfig{}
+		return cloned
 	}
 	if len(cfg.Models) > 0 {
 		for _, m := range cfg.Models {
-			return cloneModelConfig(m)
+			cloned := cloneModelConfig(m)
+			cloned.Advanced.Limits = AdvancedLimitsConfig{}
+			return cloned
 		}
 	}
 	return ModelConfig{}
