@@ -1322,6 +1322,66 @@ func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T
 	}
 }
 
+func TestAppendEventScopedChildThinkingEventsStayInsideDelegationTranscript(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "plan "), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "search"), "child-1"))
+
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments count = %d, want 1", got)
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1", got)
+	}
+	if got := dd.entries[0].kind; got != delegationTranscriptEntryThinking {
+		t.Fatalf("entry kind = %v, want delegationTranscriptEntryThinking", got)
+	}
+	if got := dd.entries[0].body; got != "plan search" {
+		t.Fatalf("entry body = %q, want %q", got, "plan search")
+	}
+	if got := dd.currentOperation; got != "plan search" {
+		t.Fatalf("currentOperation = %q, want %q", got, "plan search")
+	}
+}
+
+func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "inspect docs",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "inspect files"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := stripANSI(buffer.String(80))
+	for _, want := range []string{"delegate", "child-1", "Thinking", "inspect files", "child assistant reply"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, "▾ Thinking") || strings.Contains(rendered, "▸ Thinking") {
+		t.Fatalf("delegation child thinking should render inline, not as a top-level thinking block: %q", rendered)
+	}
+}
+
 func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),

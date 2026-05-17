@@ -75,12 +75,14 @@ type delegationTranscriptEntryKind int
 
 const (
 	delegationTranscriptEntryAssistant delegationTranscriptEntryKind = iota
+	delegationTranscriptEntryThinking
 	delegationTranscriptEntryTool
 )
 
 type delegationTranscriptEntry struct {
 	kind     delegationTranscriptEntryKind
 	body     string
+	source   output.ChunkSource
 	tool     string
 	args     string
 	callID   string

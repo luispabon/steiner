@@ -338,11 +338,27 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 	switch entry.kind {
 	case delegationTranscriptEntryAssistant:
 		return b.wrapStyledDelegationLines(entry.body, width, b.styles.FgMute)
+	case delegationTranscriptEntryThinking:
+		return b.renderDelegationThinkingEntry(entry, width)
 	case delegationTranscriptEntryTool:
 		return b.renderDelegationToolEntry(entry, width)
 	default:
 		return nil
 	}
+}
+
+func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
+	style := b.thinkingTextStyle(entry.source)
+	lines := b.wrapStyledDelegationLines(entry.body, max(1, width-2), style)
+	if len(lines) == 0 {
+		return nil
+	}
+	rows := make([]string, 0, len(lines)+1)
+	rows = append(rows, style.Render("Thinking"))
+	for _, line := range lines {
+		rows = append(rows, style.Render("▎")+" "+line)
+	}
+	return rows
 }
 
 func (b *contentBuffer) renderDelegationToolEntry(entry delegationTranscriptEntry, width int) []string {

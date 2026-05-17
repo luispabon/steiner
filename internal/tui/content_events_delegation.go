@@ -63,6 +63,8 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 	switch event.Type {
 	case output.EventTypeAssistantChunk:
 		return b.applyDelegationAssistantChunk(dd, event)
+	case output.EventTypeThinkingChunk:
+		return b.applyDelegationThinkingChunk(dd, event)
 	case output.EventTypeAssistantMessage:
 		return b.applyDelegationAssistantMessage(dd, event)
 	case output.EventTypeToolCallStarted:
@@ -82,6 +84,25 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 	default:
 		return false
 	}
+}
+
+func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState, event output.Event) bool {
+	if b.inCompaction || !b.showThinking {
+		return true
+	}
+	payload, ok := event.Payload.(output.ThinkingChunkEvent)
+	if !ok {
+		return false
+	}
+	if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
+		return true
+	}
+	if payload.Content == "" {
+		return true
+	}
+	entry := dd.appendOrMergeThinkingEntry(payload.Content, payload.Source)
+	dd.currentOperation = previewDelegationText(entry.body)
+	return true
 }
 
 func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState, event output.Event) bool {
@@ -190,6 +211,21 @@ func (b *contentBuffer) applyDelegationStopReason(dd *delegationDisplayState, ev
 	}
 	dd.currentOperation = previewDelegationText(status)
 	return true
+}
+
+func (dd *delegationDisplayState) appendOrMergeThinkingEntry(text string, source output.ChunkSource) *delegationTranscriptEntry {
+	if last := dd.lastEntry(); last != nil &&
+		last.kind == delegationTranscriptEntryThinking &&
+		last.source == source {
+		last.body += text
+		return last
+	}
+	idx := dd.appendTranscriptEntry(delegationTranscriptEntry{
+		kind:   delegationTranscriptEntryThinking,
+		body:   text,
+		source: source,
+	})
+	return &dd.entries[idx]
 }
 
 func (b *contentBuffer) findDelegationSegment(agentID string) (int, bool) {
