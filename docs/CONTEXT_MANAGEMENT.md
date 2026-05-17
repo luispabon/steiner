@@ -137,7 +137,7 @@ Between epoch advances, the masking boundary is frozen. The masked prefix of the
 2. **Context pressure** (secondary, currently unimplemented):
    - Intended to trigger early epoch advances when estimated token usage approaches the context window limit
    - Placeholder mechanism: `contextPressureTrigger` function field on `SmartContextManager` is checked but never assigned (always nil)
-   - When implemented, would fire when: estimated prompt tokens exceed a soft threshold (proposed: 80% of context window minus safety margin)
+   - When implemented, would fire when prompt usage approaches the context window or the compaction threshold, whichever is closer to being exceeded
    - Would trigger `advanceEpoch()` even if turn count threshold hasn't been reached
    - Would report as `"context_pressure"` in masking diagnostics (see line 459 in context_manager.go)
 
@@ -172,7 +172,7 @@ M is configurable. Default is 5 (conservative starting point for steiner's targe
 
 Scratchpad tool results are special-cased during masking: their content is always cleared (set to empty string) regardless of turn. The scratchpad state survives masking because it is injected from Go state at assembly time, not from conversation history.
 
-**Trade-off:** Between epoch boundaries, context runs slightly larger than with rolling masking because masking of newly eligible turns is deferred. On a 32k window this is a modest overshoot — typically 3-5 extra unmasked turns for a few turns before the epoch catches up. The context pressure trigger (trigger 2) acts as a safety valve: if turns are unusually heavy, the epoch advances early rather than letting context grow unchecked.
+**Trade-off:** Between epoch boundaries, context runs slightly larger than with rolling masking because masking of newly eligible turns is deferred. On a 32k window this is a modest overshoot — typically 3-5 extra unmasked turns for a few turns before the epoch catches up. The context pressure trigger (trigger 2) acts as a safety valve when prompt usage starts approaching the context window or compaction threshold, so the epoch advances early rather than letting context grow unchecked.
 
 **Interaction with retain_turns:** After compaction, the immediate recent-turn window is intentionally small: `drop` keeps 3 turns, normal summarize compaction keeps the same 3-turn handoff window before summary generation, and emergency summarize compaction tightens that to 1 turn. With M=5, the oldest retained turn begins masking 2 turns after a drop compaction. This is intentional — the scratchpad carries orientation across the transition. If the model typically needs more turns to complete a sub-task post-compaction, increase `masking_window_turns` rather than hardcoding a higher `retain_turns`.
 
@@ -428,16 +428,17 @@ context_management:
   scratchpad_mode: scaffold_only # scaffold_only or hybrid (default: scaffold_only)
 ```
 
-Additional budget parameters live under the model's `compaction` block:
+Supported model capability settings live under each model alias:
 
 ```yaml
 models:
   default:
-    model: qwen3-35b-a3b
-    context_size: 32768
-    max_completion_tokens: 8192
-    compaction:
-      # derived policy values are no longer configured here
+    provider: local
+    id: qwen3-35b-a3b
+    advanced:
+      limits:
+        context_window: 32768
+        max_output_tokens: 8192
 ```
 
 Notes on configuration fields:
@@ -472,7 +473,7 @@ Smart mode emits structured events through the existing EventSink:
 - **FileAnnotationEvent**: file path, whether annotation or full content was served, why (including generation counter mismatches)
 - **CompactionEvent**: strategy used, token count before/after, turns dropped, epoch state reset
 - **ScratchpadEvent**: scratchpad content after scaffold inference or scratchpad tool processing; in hybrid mode it also reflects scratchpad-tool misses surfaced by `OnTurnComplete`
-- **TokenBudgetEvent**: aggregate prompt token counts each turn (estimated prompt, reserved completion, safety margin, context size, total). No per-category breakdown is emitted.
+- **TokenBudgetEvent**: aggregate prompt token diagnostics each turn (`prompt_tokens`, `context_window`, `context_usage_percent`, `compaction_threshold`, `estimator_pad_tokens`, `status`). No per-category breakdown is emitted.
 - **EpochEvent**: epoch advance trigger (turn count or context pressure), new boundary, turns masked in this batch
 
 Debug mode (`--log-level debug`) logs a one-line summary of per-zone byte sizes (`prompt zones`). Masking decisions and file annotation outcomes are emitted as structured events (ContextMaskingEvent, FileAnnotationEvent) regardless of log level. The full assembled prompt content and unmasked conversation are not logged at any log level.
