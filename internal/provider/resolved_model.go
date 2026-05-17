@@ -37,6 +37,7 @@ type ResolvedModel struct {
 	ThinkingDisableMarker     string
 	ThinkingScaffoldInference bool
 	ThinkingParams            map[string]any
+	ReasoningEchoBack         bool
 	Prompts                   config.ModelPrompts
 	Retry                     config.RetryConfig
 	MetadataSource            string
@@ -74,6 +75,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		ThinkingDisableMarker:     modelCfg.ThinkingDisableMarker,
 		ThinkingScaffoldInference: modelCfg.ThinkingScaffoldInference,
 		ThinkingParams:            modelCfg.ThinkingParams,
+		ReasoningEchoBack:         modelCfg.ReasoningEchoBack,
 		Prompts:                   modelCfg.Prompts,
 		Retry:                     modelCfg.Retry,
 		MetadataSource:            "config",

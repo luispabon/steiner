@@ -121,6 +121,7 @@ type ModelConfig struct {
 	ThinkingDisableMarker     string         `yaml:"thinking_disable_marker"`
 	ThinkingScaffoldInference bool           `yaml:"thinking_scaffold_inference"`
 	ThinkingParams            map[string]any `yaml:"thinking_params"`
+	ReasoningEchoBack         bool           `yaml:"reasoning_echo_back"`
 	Retry                     RetryConfig    `yaml:"retry"`
 	Prompts                   ModelPrompts   `yaml:"prompts"`
 	Advanced                  AdvancedConfig `yaml:"advanced"`

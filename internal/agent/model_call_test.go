@@ -105,3 +105,38 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleFinalChunkCopiesReasoningContent(t *testing.T) {
+	tests := []struct {
+		name                  string
+		chunkReasoningContent string
+		wantReasoningContent  string
+	}{
+		{
+			name:                  "reasoning content copied from final chunk delta",
+			chunkReasoningContent: "step by step reasoning",
+			wantReasoningContent:  "step by step reasoning",
+		},
+		{
+			name:                  "empty reasoning content leaves message unchanged",
+			chunkReasoningContent: "",
+			wantReasoningContent:  "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := output.SinkFunc(func(output.Event) {})
+			chunk := provider.ChatChunk{
+				Done:         true,
+				FinishReason: "stop",
+				Delta:        provider.Message{ReasoningContent: tc.chunkReasoningContent},
+			}
+			var response provider.ChatResponse
+			var message provider.Message
+			handleFinalChunk(sink, 1, output.ChunkSourceAssistant, chunk, &response, &message)
+			if message.ReasoningContent != tc.wantReasoningContent {
+				t.Errorf("ReasoningContent=%q, want %q", message.ReasoningContent, tc.wantReasoningContent)
+			}
+		})
+	}
+}

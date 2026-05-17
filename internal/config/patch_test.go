@@ -180,6 +180,18 @@ func TestApplyModelPatch(t *testing.T) {
 			},
 		},
 		{
+			name:    "sets reasoning_echo_back",
+			initial: ModelConfig{Provider: "local", ID: "model", ReasoningEchoBack: false},
+			patch:   modelPatch{ReasoningEchoBack: boolPtr(true)},
+			want:    ModelConfig{Provider: "local", ID: "model", ReasoningEchoBack: true},
+		},
+		{
+			name:    "nil reasoning_echo_back leaves field unchanged",
+			initial: ModelConfig{Provider: "local", ID: "model", ReasoningEchoBack: true},
+			patch:   modelPatch{},
+			want:    ModelConfig{Provider: "local", ID: "model", ReasoningEchoBack: true},
+		},
+		{
 			name: "sets Params map via copy",
 			initial: ModelConfig{
 				Params: map[string]any{"existing": "value"},
