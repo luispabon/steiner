@@ -186,14 +186,13 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	if got, want := len(providerStub.requests), 1; got != want {
 		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
 	}
-	if got, want := len(outcome.State.Conversation), 1; got != want {
-		t.Fatalf("len(conversation) = %d, want 1 (summary only, no retained messages)", got)
-	}
 	if got, want := outcome.State.Conversation[0].Role, MessageRoleSummary; got != want {
 		t.Fatalf("conversation[0].role = %q, want %q", got, want)
 	}
-	if got, want := outcome.State.Conversation[0].Content, "summary handoff text"; got != want {
-		t.Fatalf("conversation[0].content = %q, want %q", got, want)
+	for _, needle := range []string{"turn 1 user", "turn 2 user", "turn 2 assistant"} {
+		if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), needle) {
+			t.Fatalf("conversation missing retained content %q: %#v", needle, outcome.State.Conversation)
+		}
 	}
 	if got, want := len(outcome.State.Context.RetainedSummaries), 1; got != want {
 		t.Fatalf("retained summaries = %d, want %d", got, want)
@@ -267,14 +266,117 @@ func TestSummarizeCompactorDoesNotRetainMessagesOnRecompaction(t *testing.T) {
 	if got, want := len(providerStub.requests), 1; got != want {
 		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
 	}
-	if got, want := len(outcome.State.Conversation), 1; got != want {
-		t.Fatalf("len(conversation) = %d, want 1 (summary only, no old messages retained)", got)
-	}
 	if got, want := outcome.State.Conversation[0].Role, MessageRoleSummary; got != want {
 		t.Fatalf("conversation[0].role = %q, want %q", got, want)
 	}
-	if got, want := outcome.State.Conversation[0].Content, "recompaction summary"; got != want {
-		t.Fatalf("conversation[0].content = %q, want %q", got, want)
+	for _, needle := range []string{"post-compaction user", "post-compaction assistant"} {
+		if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), needle) {
+			t.Fatalf("conversation missing retained content %q: %#v", needle, outcome.State.Conversation)
+		}
+	}
+}
+
+func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptTooDense(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: strings.Repeat("normal summary detail ", 100),
+				},
+				FinishReason: "stop",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "emergency handoff summary",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 1 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 1 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 2 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 2 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 3 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 3 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 4 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 4 assistant detail ", 4)},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 1 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 1 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 2 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 2 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 3 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 3 assistant detail ", 4)},
+			{Role: MessageRoleUser, Content: strings.Repeat("turn 4 user detail ", 4)},
+			{Role: MessageRoleAssistant, Content: strings.Repeat("turn 4 assistant detail ", 4)},
+		}),
+	}
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	req := RunRequest{
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               1000,
+			MaxCompletionTokens:       128,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          64,
+			NormalSummaryMaxTokens:    64,
+			EmergencySummaryMaxTokens: 16,
+		},
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate)
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
+	}
+	if got, want := *providerStub.requests[0].MaxTokens, 64; got != want {
+		t.Fatalf("normal compaction max_tokens = %d, want %d", got, want)
+	}
+	if got, want := *providerStub.requests[1].MaxTokens, 16; got != want {
+		t.Fatalf("emergency compaction max_tokens = %d, want %d", got, want)
+	}
+	if got := providerStub.requests[1].Messages[0].Content; !strings.Contains(got, "emergency handoff") {
+		t.Fatalf("emergency system prompt = %q, want emergency handoff instruction", got)
+	}
+}
+
+func TestSummarizeCompactorErrorsWhenEmergencyCompactionCannotReduceEnough(t *testing.T) {
+	err := emergencyCompactionError(prompt.RequestTokenBudget{
+		EstimatedPromptTokens: 640,
+		ContextSize:           900,
+		PromptUsage:           0.711,
+	})
+	if err == nil {
+		t.Fatal("emergencyCompactionError() error = nil, want non-nil")
+	}
+	for _, needle := range []string{
+		"emergency compaction could not reduce context enough",
+		"prompt=",
+		"context_window=",
+		"usage=",
+		"compaction_threshold=70%",
+	} {
+		if !strings.Contains(err.Error(), needle) {
+			t.Fatalf("error = %q, want %q", err.Error(), needle)
+		}
 	}
 }
 

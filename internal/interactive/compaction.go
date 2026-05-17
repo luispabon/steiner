@@ -41,10 +41,12 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	}
 
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         rm.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens: rm.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:  rm.EffectiveLimits.EstimatorPadTokens,
-		SummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
+		ContextSize:               rm.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens:       rm.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:        rm.EffectiveLimits.EstimatorPadTokens,
+		SummaryMaxTokens:          rm.EffectiveLimits.NormalSummaryMaxTokens,
+		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
+		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 	assembly := prompt.AssemblyOptions{
 		HomeDir:         s.deps.HomeDir,

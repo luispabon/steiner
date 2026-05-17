@@ -65,10 +65,12 @@ type ToolSummaryPolicy struct {
 
 // ModelTokenBudget describes model-specific token limits and reserves.
 type ModelTokenBudget struct {
-	ContextSize         int
-	MaxCompletionTokens int
-	SafetyMarginTokens  int
-	SummaryMaxTokens    int
+	ContextSize               int
+	MaxCompletionTokens       int
+	SafetyMarginTokens        int
+	SummaryMaxTokens          int
+	NormalSummaryMaxTokens    int
+	EmergencySummaryMaxTokens int
 }
 
 // RequestTokenBudget is the result of fitting a request into a model budget.
