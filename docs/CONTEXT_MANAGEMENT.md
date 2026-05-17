@@ -174,7 +174,7 @@ Scratchpad tool results are special-cased during masking: their content is alway
 
 **Trade-off:** Between epoch boundaries, context runs slightly larger than with rolling masking because masking of newly eligible turns is deferred. On a 32k window this is a modest overshoot — typically 3-5 extra unmasked turns for a few turns before the epoch catches up. The context pressure trigger (trigger 2) acts as a safety valve: if turns are unusually heavy, the epoch advances early rather than letting context grow unchecked.
 
-**Interaction with retain_turns:** After compaction (drop strategy), 3 turns are retained. With M=5, the oldest retained turn begins masking 2 turns after compaction. This is intentional — the scratchpad carries orientation across the transition. If the model typically needs more turns to complete a sub-task post-compaction, increase `masking_window_turns` rather than hardcoding a higher `retain_turns`.
+**Interaction with retain_turns:** After compaction, the immediate recent-turn window is intentionally small: `drop` keeps 3 turns, normal summarize compaction keeps the same 3-turn handoff window before summary generation, and emergency summarize compaction tightens that to 1 turn. With M=5, the oldest retained turn begins masking 2 turns after a drop compaction. This is intentional — the scratchpad carries orientation across the transition. If the model typically needs more turns to complete a sub-task post-compaction, increase `masking_window_turns` rather than hardcoding a higher `retain_turns`.
 
 **Masking state tracking:**
 - `previousBoundary` is captured before epoch advance so `PreAssembly()` can detect "newly masked" vs "previously masked" turns
@@ -328,7 +328,7 @@ Compaction is the fallback when masking alone is insufficient to keep context wi
 
 ### Trigger
 
-Compaction fires when the estimated total token usage (prompt tokens + reserved completion tokens + safety margin) exceeds the model's context window size. There is no configurable fill-ratio threshold — the trigger is purely the hard capacity check after applying `safety_margin_tokens`.
+Compaction fires when prompt usage reaches 70% of the model's context window. That is the normal trigger. A separate hard-cap check still applies after the estimator pad is reserved, so requests that exceed the padded limit compact immediately even if the 70% threshold was not the first signal.
 
 ```yaml
 compaction:
@@ -354,9 +354,21 @@ The scratchpad (scaffold state; and model-written state in hybrid mode) survives
 
 Model-based compaction. The existing behavior from naive mode, enhanced with scratchpad awareness.
 
+Normal compaction:
+
 1. Feed the conversation to the model with a compaction system prompt
-2. Model produces a summary that replaces the old conversation
-3. Scratchpad is preserved alongside the summary
+2. Model produces a full-fidelity handoff summary that replaces the old conversation
+3. Use the normal summary token budget
+4. Retain the last 3 turns before summarizing so the immediate handoff stays visible
+5. Scratchpad is preserved alongside the summary
+
+Emergency compaction:
+
+1. If normal compaction still leaves prompt usage at or above 70%, retry with the emergency compaction prompt
+2. Model produces a shorter, lossier handoff summary
+3. Use the emergency summary token budget
+4. Retain only the last turn before summarizing
+5. If emergency compaction still leaves prompt usage at or above 70%, steiner stops with an emergency compaction error instead of looping again
 
 This costs one full-context model call. For local models, this is the most expensive possible operation. For frontier API models where inference is cheap relative to context cost, it may produce better continuity than `drop`.
 
@@ -425,17 +437,30 @@ models:
     context_size: 32768
     max_completion_tokens: 8192
     compaction:
-      safety_margin_tokens: 8192  # headroom before compaction trigger
-      summary_max_tokens: 4096    # max tokens for summarization
+      # derived policy values are no longer configured here
 ```
 
 Notes on configuration fields:
 
 - **`scratchpad_mode`**: `scaffold_only` (default) uses scaffold-managed state plus a cheap second-pass inference for `intent` and `next` when scaffold state materially changes. `hybrid` adds model-written scratchpad fields and enables the `scratchpad` tool. Use `hybrid` for 30B+ models with reliable tool-call compliance.
 - **`read_annotations`**: applies to both naive and smart modes.
-- **No `threshold`**: compaction fires when the prompt exceeds the context window (after applying safety margin); there is no configurable fill-ratio.
-- **No `retain_turns`**: the drop strategy keeps the last 3 turns (hardcoded).
-- **`safety_margin_tokens`** lives under `compaction`, not under `context_management`, and defaults to 8192 (not 2048).
+- **Normal requests omit API `max_tokens`**: regular assistant turns use the resolved model budget for internal planning, but do not expose a separate API `max_tokens` knob in the supported configuration surface. Compaction requests use the summary budgets instead.
+- **No `retain_turns`**: the drop strategy keeps the last 3 turns (hardcoded), and summarize compaction keeps the same 3-turn or 1-turn handoff window depending on normal vs emergency mode.
+- **Removed knobs**: the old output reserve, safety margin, and summary max settings are no longer supported config fields. Use `context_window` and `max_output_tokens`; steiner derives the estimator pad and summary budgets from those limits and discovered model metadata.
+- **Model metadata**: steiner resolves effective model capabilities from explicit config first, then provider discovery or the `models.dev` cache, then conservative fallback defaults. The resolved model keeps both a metadata source and confidence value so `model inspect` can show where the limits came from.
+
+### Model Capability Resolution
+
+`model inspect` surfaces the derived capabilities that steiner computes from the resolved model record:
+
+- `metadata source`
+- `confidence`
+- `context_window`
+- `max_output_tokens`
+- `compaction_threshold`
+- `estimator_pad_tokens`
+- `normal summary token budget`
+- `emergency summary token budget`
 
 The CLI flag `--context-mode naive|smart` overrides the config file setting.
 
