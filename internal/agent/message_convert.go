@@ -44,11 +44,12 @@ func toProviderMessage(message Message) provider.Message {
 		role = provider.MessageRoleSystem
 	}
 	out := provider.Message{
-		Role:       role,
-		Content:    message.Content,
-		Name:       message.Name,
-		ToolCallID: message.ToolCallID,
-		Turn:       message.Turn,
+		Role:             role,
+		Content:          message.Content,
+		ReasoningContent: message.ReasoningContent,
+		Name:             message.Name,
+		ToolCallID:       message.ToolCallID,
+		Turn:             message.Turn,
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
@@ -65,11 +66,12 @@ func toProviderMessage(message Message) provider.Message {
 
 func fromProviderMessage(message provider.Message) Message {
 	out := Message{
-		Role:       MessageRole(message.Role),
-		Content:    message.Content,
-		Name:       message.Name,
-		ToolCallID: message.ToolCallID,
-		Turn:       message.Turn,
+		Role:             MessageRole(message.Role),
+		Content:          message.Content,
+		ReasoningContent: message.ReasoningContent,
+		Name:             message.Name,
+		ToolCallID:       message.ToolCallID,
+		Turn:             message.Turn,
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]ToolCall, 0, len(message.ToolCalls))
@@ -278,6 +280,12 @@ func fromPromptContext(state prompt.DurableContextState) ContextState {
 		})
 	}
 	return out
+}
+
+func stripReasoningContent(messages []provider.Message) {
+	for i := range messages {
+		messages[i].ReasoningContent = ""
+	}
 }
 
 // LastAssistantMessage returns the last message with Role == MessageRoleAssistant.

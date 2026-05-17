@@ -29,8 +29,8 @@ func validBase() Config {
 				Retry:    retry,
 				Advanced: AdvancedConfig{
 					Limits: AdvancedLimitsConfig{
-						SafetyMarginTokens: 2048,
-						SummaryMaxTokens:   1024,
+						ContextWindow:   32768,
+						MaxOutputTokens: 8192,
 					},
 				},
 			},

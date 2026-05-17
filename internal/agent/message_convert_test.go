@@ -635,3 +635,135 @@ func TestMessageConvert_PromptContextRoundTrip(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildScaffoldInferenceRequestCapsMaxTokens(t *testing.T) {
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			MaxCompletionTokens: 256,
+		},
+	}
+
+	chatReq := buildScaffoldInferenceRequest(req, "intent: inspect", "assistant reasoning text")
+	if chatReq.Model != "test-model" {
+		t.Fatalf("chatReq.Model = %q, want %q", chatReq.Model, "test-model")
+	}
+	if got, want := len(chatReq.Messages), 2; got != want {
+		t.Fatalf("chatReq.Messages = %d, want %d", got, want)
+	}
+	if chatReq.MaxTokens == nil {
+		t.Fatal("chatReq.MaxTokens = nil, want bounded cap")
+	}
+	if got, want := *chatReq.MaxTokens, 150; got != want {
+		t.Fatalf("chatReq.MaxTokens = %d, want %d", got, want)
+	}
+}
+
+func TestToProviderMessagePreservesReasoningContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		message Message
+		want    string
+	}{
+		{
+			name:    "reasoning content copied to provider message",
+			message: Message{Role: MessageRoleAssistant, Content: "answer", ReasoningContent: "my reasoning"},
+			want:    "my reasoning",
+		},
+		{
+			name:    "empty reasoning content stays empty",
+			message: Message{Role: MessageRoleAssistant, Content: "answer"},
+			want:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := toProviderMessage(tc.message)
+			if got.ReasoningContent != tc.want {
+				t.Errorf("ReasoningContent=%q, want %q", got.ReasoningContent, tc.want)
+			}
+		})
+	}
+}
+
+func TestFromProviderMessagePreservesReasoningContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		message provider.Message
+		want    string
+	}{
+		{
+			name:    "reasoning content copied from provider message",
+			message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer", ReasoningContent: "deep thought"},
+			want:    "deep thought",
+		},
+		{
+			name:    "empty reasoning content stays empty",
+			message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+			want:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fromProviderMessage(tc.message)
+			if got.ReasoningContent != tc.want {
+				t.Errorf("ReasoningContent=%q, want %q", got.ReasoningContent, tc.want)
+			}
+		})
+	}
+}
+
+func TestRoundTripPreservesReasoningContent(t *testing.T) {
+	original := []Message{
+		{Role: MessageRoleAssistant, Content: "answer", ReasoningContent: "chain of thought"},
+		{Role: MessageRoleUser, Content: "question"},
+	}
+	roundTripped := fromProviderMessages(ToProviderMessages(original))
+	if len(roundTripped) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(roundTripped))
+	}
+	if roundTripped[0].ReasoningContent != "chain of thought" {
+		t.Errorf("ReasoningContent=%q, want %q", roundTripped[0].ReasoningContent, "chain of thought")
+	}
+	if roundTripped[1].ReasoningContent != "" {
+		t.Errorf("ReasoningContent=%q, want empty", roundTripped[1].ReasoningContent)
+	}
+}
+
+func TestStripReasoningContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []provider.Message
+	}{
+		{
+			name: "strips from all messages",
+			messages: []provider.Message{
+				{Role: provider.MessageRoleAssistant, Content: "a", ReasoningContent: "think1"},
+				{Role: provider.MessageRoleUser, Content: "b", ReasoningContent: "think2"},
+				{Role: provider.MessageRoleAssistant, Content: "c", ReasoningContent: "think3"},
+			},
+		},
+		{
+			name:     "empty slice is no-op",
+			messages: []provider.Message{},
+		},
+		{
+			name: "messages without reasoning content unchanged",
+			messages: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "hello"},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := make([]provider.Message, len(tc.messages))
+			copy(msgs, tc.messages)
+			stripReasoningContent(msgs)
+			for i, m := range msgs {
+				if m.ReasoningContent != "" {
+					t.Errorf("messages[%d].ReasoningContent=%q, want empty", i, m.ReasoningContent)
+				}
+			}
+		})
+	}
+}

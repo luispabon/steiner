@@ -100,8 +100,6 @@ models:
       limits:
         max_output_tokens: 2048
         context_window: 8192
-        safety_margin_tokens: 256
-        summary_max_tokens: 128
 limits:
   max_turns: 25
 approval:
@@ -131,8 +129,6 @@ models:
       limits:
         max_output_tokens: 4096
         context_window: 32768
-        safety_margin_tokens: 1024
-        summary_max_tokens: 512
   cli:
     provider: cli-provider
     id: cli-backend
@@ -146,8 +142,6 @@ models:
       limits:
         max_output_tokens: 8192
         context_window: 65536
-        safety_margin_tokens: 2048
-        summary_max_tokens: 1024
 limits:
   max_turns: 10
 logging:
@@ -280,8 +274,6 @@ models:
       limits:
         max_output_tokens: 256
         context_window: 4096
-        safety_margin_tokens: 128
-        summary_max_tokens: 64
   slow:
     provider: slow-provider
     id: slow-backend
@@ -295,8 +287,6 @@ models:
       limits:
         max_output_tokens: 512
         context_window: 8192
-        safety_margin_tokens: 256
-        summary_max_tokens: 128
 `)
 
 	cwd, err := os.Getwd()
@@ -1033,10 +1023,8 @@ func testRuntimeConfig(alias string) config.Config {
 		ID:       alias,
 		Advanced: config.AdvancedConfig{
 			Limits: config.AdvancedLimitsConfig{
-				MaxOutputTokens:    64,
-				ContextWindow:      4096,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   32,
+				MaxOutputTokens: 64,
+				ContextWindow:   4096,
 			},
 		},
 	}
@@ -1195,10 +1183,8 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		ID:       "test-model",
 		Advanced: config.AdvancedConfig{
 			Limits: config.AdvancedLimitsConfig{
-				MaxOutputTokens:    64,
-				ContextWindow:      1,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   8,
+				MaxOutputTokens: 64,
+				ContextWindow:   1,
 			},
 		},
 	}
@@ -1218,10 +1204,10 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 
 	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
 	if err == nil {
-		t.Fatal("Run() error = nil, want context window failure")
+		t.Fatal("Run() error = nil, want irreducible compaction failure")
 	}
-	if !strings.Contains(err.Error(), "request exceeds context window") {
-		t.Fatalf("Run() error = %v, want context window failure", err)
+	if !strings.Contains(err.Error(), "compaction cannot solve this request") {
+		t.Fatalf("Run() error = %v, want irreducible compaction failure", err)
 	}
 	if got, want := len(providerStub.requests), 0; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
@@ -1264,10 +1250,8 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			ID:       "gpt-4o-mini",
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
-					MaxOutputTokens:    32,
-					ContextWindow:      1024,
-					SafetyMarginTokens: 8,
-					SummaryMaxTokens:   16,
+					MaxOutputTokens: 32,
+					ContextWindow:   1024,
 				},
 			},
 		},
@@ -1276,10 +1260,8 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			ID:       "gpt-4o",
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
-					MaxOutputTokens:    96,
-					ContextWindow:      8192,
-					SafetyMarginTokens: 24,
-					SummaryMaxTokens:   48,
+					MaxOutputTokens: 96,
+					ContextWindow:   8192,
 				},
 			},
 		},
@@ -1348,10 +1330,8 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 			ID:       "gpt-4o-mini",
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
-					MaxOutputTokens:    32,
-					ContextWindow:      1024,
-					SafetyMarginTokens: 8,
-					SummaryMaxTokens:   16,
+					MaxOutputTokens: 32,
+					ContextWindow:   1024,
 				},
 			},
 		},
@@ -1360,10 +1340,8 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 			ID:       "gpt-4o",
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
-					MaxOutputTokens:    96,
-					ContextWindow:      8192,
-					SafetyMarginTokens: 24,
-					SummaryMaxTokens:   48,
+					MaxOutputTokens: 96,
+					ContextWindow:   8192,
 				},
 			},
 		},
@@ -1427,10 +1405,8 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 		ExtraParams: map[string]any{"temperature": 0.7, "top_p": 0.9},
 		Advanced: config.AdvancedConfig{
 			Limits: config.AdvancedLimitsConfig{
-				MaxOutputTokens:    64,
-				ContextWindow:      4096,
-				SafetyMarginTokens: 16,
-				SummaryMaxTokens:   32,
+				MaxOutputTokens: 64,
+				ContextWindow:   4096,
 			},
 		},
 	}

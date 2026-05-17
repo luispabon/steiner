@@ -102,14 +102,15 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("Completion reserve: `%d`", budget.ReservedCompletionTokens))
-	lines = append(lines, fmt.Sprintf("Safety margin: `%d`", budget.SafetyMarginTokens))
+	lines = append(lines, "Compaction threshold: `70%`")
+	lines = append(lines, fmt.Sprintf("Estimator pad: `%d`", budget.SafetyMarginTokens))
 	if budget.ContextSize > 0 {
-		lines = append(lines, "Reserve and safety margin are planning buffers, not prompt contents.")
-		lines = append(lines, fmt.Sprintf("Budget occupancy: `%d / %d`", budget.TotalTokens, budget.ContextSize))
+		lines = append(lines, fmt.Sprintf("Hard prompt limit: `%d`", budget.HardLimitTokens))
+		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d / %d`", promptTokens, budget.ContextSize))
+		lines = append(lines, fmt.Sprintf("Prompt usage: `%.0f%%`", budget.PromptUsage*100))
 	} else {
-		lines = append(lines, "Reserve and safety margin are planning buffers, not prompt contents.")
-		lines = append(lines, fmt.Sprintf("Budget occupancy: `%d`", budget.TotalTokens))
+		lines = append(lines, "Hard prompt limit: `n/a`")
+		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d`", promptTokens))
 	}
 	return strings.Join(lines, "\n"), nil
 }

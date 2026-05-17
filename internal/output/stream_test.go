@@ -151,35 +151,49 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	renderer := NewPlainRenderer(&buf)
 
 	renderer.OnEvent(NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		Scope:             "conversation",
-		Turn:              4,
-		Severity:          "warning",
-		SessionState:      "fragile",
-		CompactionCount:   2,
-		RestartGuidance:   "restart soon in a fresh session; repeated compaction is making retention fragile",
-		RetainedTurns:     2,
-		RetainedMessages:  6,
-		CompactedTurns:    1,
-		CompactedMessages: 3,
-		SummaryTitle:      "compacted conversation history",
-		SummaryPreview:    "user: earlier request | assistant: earlier reply",
-		SummaryBytes:      128,
-		Truncated:         true,
+		Kind:                "compaction",
+		Scope:               "conversation",
+		Turn:                4,
+		Severity:            "warning",
+		SessionState:        "fragile",
+		CompactionCount:     2,
+		RestartGuidance:     "restart soon in a fresh session; repeated compaction is making retention fragile",
+		RetainedTurns:       2,
+		RetainedMessages:    6,
+		CompactedTurns:      1,
+		CompactedMessages:   3,
+		SummaryTitle:        "compacted conversation history",
+		SummaryPreview:      "user: earlier request | assistant: earlier reply",
+		SummaryBytes:        128,
+		Mode:                "emergency",
+		BeforePromptTokens:  2400,
+		BeforeUsagePercent:  4,
+		AfterPromptTokens:   1682,
+		AfterUsagePercent:   3,
+		RetainedRawTurns:    2,
+		SummaryTokenBudget:  128,
+		ThresholdAchieved:   true,
+		PromptTokens:        1682,
+		ContextWindow:       65536,
+		ContextUsagePercent: 3,
+		CompactionThreshold: 70,
+		EstimatorPadTokens:  16384,
+		Status:              "ok",
+		Truncated:           true,
 	}))
 	renderer.OnEvent(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 	renderer.OnEvent(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
-	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 4096, 16384, 22162, 65536, false))
+	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 65536, 3, 70, 16384, 22162, "ok", false))
 	renderer.OnEvent(NewContextMaskingEvent(5, "read", "masked", "older tool result", 1, 4, 10, 0, "turn_count", "newly_masked", "message_index=7"))
 	renderer.OnEvent(NewFileAnnotationEvent(5, "note.txt", "annotated", "unchanged since turn 2", 2, "range=lines 1-3/3"))
 	renderer.OnEvent(NewScratchpadEvent(5, true, "[Current task state]\ngoal: keep going\nnext: finish", 0, ""))
 
 	got := buf.String()
 	for _, want := range []string{
-		`context: warning: compaction #2 turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; compactions 2; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
+		`context: warning: compaction #2 turn 4 compacted 1 turn/3 messages; retained 2 turns/6 messages; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; compactions 2; mode=emergency; before prompt_tokens=2400 context_usage_percent=4%; after prompt_tokens=1682 context_usage_percent=3%; retained raw turns=2; summary token budget=128; threshold achieved=true; kept summary "compacted conversation history: user: earlier request | assistant: earlier reply"; summary 128 bytes; summary truncated`,
 		`context: warning: session health #2 turn 4; state fragile; restart soon in a fresh session; repeated compaction is making retention fragile; after 2 compactions`,
 		"context: budget project context used 900/512 bytes; turn 4; truncated; notes trimmed extra files",
-		"context: budget conversation prompt=1682 reserve=4096 safety=16384 budget=22162/65536 tokens; turn 4",
+		"context: budget conversation prompt_tokens=1682 context_window=65536 context_usage_percent=3% compaction_threshold=70% estimator_pad_tokens=16384 status=ok; turn 4",
 		"context: info: masking turn 5; masked; tool=read; window=1; reason=older tool result; epoch boundary=4; start=10; trigger=turn_count; status=newly_masked; notes message_index 7",
 		"context: info: file annotation turn 5; annotated; path=note.txt; reason=unchanged since turn 2; notes range lines 1-3/3, previous_turn 2",
 		"context: info: scratchpad turn 5; parsed; content=\"[Current task state] goal: keep going next: finish\"; bytes=50",
@@ -329,9 +343,27 @@ func TestPlainRendererExecBaseline(t *testing.T) {
 func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 	events := []Event{
 		NewToolCallStartedEvent(1, "read", "call_1", nil),
-		NewContextCompactionEvent(2, 3, 8, 2, 4, 144, false, "compacted conversation history"),
+		NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+			Kind:               "compaction",
+			Scope:              "conversation",
+			Turn:               2,
+			Mode:               "normal",
+			CompactedTurns:     2,
+			CompactedMessages:  4,
+			RetainedTurns:      3,
+			RetainedMessages:   8,
+			BeforePromptTokens: 2400,
+			BeforeUsagePercent: 4,
+			AfterPromptTokens:  1682,
+			AfterUsagePercent:  3,
+			RetainedRawTurns:   3,
+			SummaryTokenBudget: 144,
+			ThresholdAchieved:  true,
+			SummaryTitle:       "compacted conversation history",
+			SummaryBytes:       144,
+		}),
 		NewStopReasonEvent(2, "max_tokens", nil),
-		NewContextTokenBudgetEvent("conversation", 2, 1682, 4096, 16384, 22162, 65536, false),
+		NewContextTokenBudgetEvent("conversation", 2, 1682, 65536, 3, 70, 16384, 22162, "ok", false),
 	}
 
 	got := summarizeInspection(events, 2)
@@ -344,8 +376,8 @@ func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"stopped at turn 2: reached the max token limit",
-		"budget conversation prompt=1682 reserve=4096 safety=16384 budget=22162/65536 tokens; turn 2",
-		"compaction turn 2 compacted 2 turns/4 messages; retained 3 turns/8 messages; kept summary \"compacted conversation history\"; summary 144 bytes",
+		"budget conversation prompt_tokens=1682 context_window=65536 context_usage_percent=3% compaction_threshold=70% estimator_pad_tokens=16384 status=ok; turn 2",
+		"compaction turn 2 compacted 2 turns/4 messages; retained 3 turns/8 messages; mode=normal; before prompt_tokens=2400 context_usage_percent=4%; after prompt_tokens=1682 context_usage_percent=3%; retained raw turns=3; summary token budget=144; threshold achieved=true; kept summary \"compacted conversation history\"; summary 144 bytes",
 	} {
 		if !strings.Contains(got.LastStopReason+got.LastBudget+got.LastCompaction, want) {
 			t.Fatalf("snapshot = %#v, want substring %q", got, want)

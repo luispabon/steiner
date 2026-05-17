@@ -37,10 +37,12 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		return runnerSetup{}, err
 	}
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:         rm.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens: rm.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:  rm.EffectiveLimits.SafetyMarginTokens,
-		SummaryMaxTokens:    rm.EffectiveLimits.SummaryMaxTokens,
+		ContextSize:               rm.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens:       rm.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:        rm.EffectiveLimits.EstimatorPadTokens,
+		SummaryMaxTokens:          rm.EffectiveLimits.NormalSummaryMaxTokens,
+		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
+		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
 	return runnerSetup{

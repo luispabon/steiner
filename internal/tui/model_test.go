@@ -114,7 +114,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "hello")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, " world")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 32, 32, 164, 4096, false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
 
 	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
@@ -153,6 +153,12 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	}
 	if strings.Contains(joined, "Turn:") {
 		t.Fatalf("sidebar = %q, want no Turn row", joined)
+	}
+	if got := m.renderContextInfoLine(120); !strings.Contains(got, "prompt_tokens=100") || !strings.Contains(got, "context_window=4096") || !strings.Contains(got, "context_usage_percent=2%") || !strings.Contains(got, "compaction_threshold=70%") || !strings.Contains(got, "estimator_pad_tokens=32") || !strings.Contains(got, "status=ok") {
+		t.Fatalf("context info line = %q, want usage diagnostics", got)
+	}
+	if got := m.renderContextInfoLine(120); strings.Contains(got, "reserve") || strings.Contains(got, "safety") {
+		t.Fatalf("context info line = %q, want no reserve/safety wording", got)
 	}
 }
 
@@ -829,6 +835,30 @@ func TestModelShowsScaffoldInferenceThinkingOnlyWhenDebugEnabled(t *testing.T) {
 
 	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "visible scaffold reasoning") {
 		t.Fatalf("content = %q, want scaffold reasoning visible when debug flag enabled", got)
+	}
+}
+
+func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
+	m.syncViewport()
+
+	got := m.viewport.View()
+	if strings.Contains(got, "context info:") || strings.Contains(got, "prompt_tokens=") {
+		t.Fatalf("viewport = %q, want no context diagnostics when debug disabled", got)
+	}
+}
+
+func TestContextDiagnosticsShownWhenDebugEnabled(t *testing.T) {
+	m := newModel(Config{ShowInternalScaffoldInference: true}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
+	m.syncViewport()
+
+	got := m.viewport.View()
+	if !strings.Contains(got, "prompt_tokens=100") {
+		t.Fatalf("viewport = %q, want context diagnostics when debug enabled", got)
 	}
 }
 

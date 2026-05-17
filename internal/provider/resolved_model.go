@@ -15,12 +15,12 @@ import (
 
 // EffectiveLimits holds the runtime-resolved token limits for a model.
 type EffectiveLimits struct {
-	ContextWindow       int
-	MaxOutputTokens     int
-	OutputReserveTokens int
-	SafetyMarginTokens  int
-	SummaryMaxTokens    int
-	CompactionThreshold float64
+	ContextWindow             int
+	MaxOutputTokens           int
+	CompactionThreshold       float64
+	EstimatorPadTokens        int
+	NormalSummaryMaxTokens    int
+	EmergencySummaryMaxTokens int
 }
 
 // ResolvedModel is the runtime object combining provider and model config
@@ -37,6 +37,7 @@ type ResolvedModel struct {
 	ThinkingDisableMarker     string
 	ThinkingScaffoldInference bool
 	ThinkingParams            map[string]any
+	ReasoningEchoBack         bool
 	Prompts                   config.ModelPrompts
 	Retry                     config.RetryConfig
 	MetadataSource            string
@@ -93,13 +94,23 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	}
 
 	modelCfg := cfg.Models[alias]
-	if limitsFullyConfigured(modelCfg.Advanced.Limits) {
+	adv := modelCfg.Advanced.Limits
+
+	// Load models.dev metadata early (needed for reasoning echo back regardless of limits).
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cacheCancel()
+	var modelsDevInfo metadata.ModelInfo
+	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
+		modelsDevInfo = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
+	}
+	rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
+
+	if limitsFullyConfigured(adv) {
 		return rm, nil
 	}
 
-	adv := modelCfg.Advanced.Limits
-
-	// Try provider discovery.
+	// Try provider discovery for limits.
 	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
 	if discoverer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
@@ -114,19 +125,13 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		}
 	}
 
-	// Try models.dev cache as third source.
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	defer cancel()
-	if data, err := cache.LoadBestEffort(ctx); err == nil && data != nil {
-		info := metadata.Lookup(data, rm.BackendModelID)
-		if info.ContextWindow > 0 || info.MaxOutputTokens > 0 {
-			meta := ModelMetadata{ContextWindow: info.ContextWindow, MaxOutputTokens: info.MaxOutputTokens}
-			rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
-			rm.MetadataSource = "models.dev"
-			rm.Confidence = "medium"
-			return rm, nil
-		}
+	// Try models.dev for limits (data already loaded above).
+	if modelsDevInfo.ContextWindow > 0 || modelsDevInfo.MaxOutputTokens > 0 {
+		meta := ModelMetadata{ContextWindow: modelsDevInfo.ContextWindow, MaxOutputTokens: modelsDevInfo.MaxOutputTokens}
+		rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
+		rm.MetadataSource = "models.dev"
+		rm.Confidence = "medium"
+		return rm, nil
 	}
 
 	// Check if we ended up using fallback defaults
@@ -180,7 +185,7 @@ func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
 // isFallbackLimits reports whether the advanced limits are all zero, indicating
 // that fallback defaults will be used.
 func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
-	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0 && adv.OutputReserveTokens == 0
+	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0
 }
 
 // resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
@@ -202,53 +207,47 @@ func resolveEffectiveLimitsWithMeta(adv config.AdvancedLimitsConfig, meta ModelM
 func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 	cw := adv.ContextWindow
 	maxOut := adv.MaxOutputTokens
-	reserve := adv.OutputReserveTokens
-	safety := adv.SafetyMarginTokens
-	summaryMax := adv.SummaryMaxTokens
-	threshold := 0.70
-
-	// Fallback when nothing is configured: use reasonable defaults
-	if cw == 0 && maxOut == 0 && reserve == 0 {
+	if cw == 0 && maxOut == 0 {
 		cw = 32768
 		maxOut = 4096
-		reserve = 4096
-		safety = 2048
-		summaryMax = 4096
-		return EffectiveLimits{
-			ContextWindow:       cw,
-			MaxOutputTokens:     maxOut,
-			OutputReserveTokens: reserve,
-			SafetyMarginTokens:  safety,
-			SummaryMaxTokens:    summaryMax,
-			CompactionThreshold: threshold,
-		}
 	}
+	return deriveEffectiveLimits(cw, maxOut)
+}
 
-	// Derive missing values from what we know
-	if maxOut == 0 {
-		maxOut = 4096
-	}
-	if reserve == 0 {
-		reserve = maxOut
-	}
-	if safety == 0 && cw > 0 {
-		safety = 2048
-	}
-	if summaryMax == 0 && cw > 0 {
-		summaryMax = min(cw/4, 8192)
-		if summaryMax == 0 {
-			summaryMax = 1024
-		}
-	}
-
+func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
 	return EffectiveLimits{
-		ContextWindow:       cw,
-		MaxOutputTokens:     maxOut,
-		OutputReserveTokens: reserve,
-		SafetyMarginTokens:  safety,
-		SummaryMaxTokens:    summaryMax,
-		CompactionThreshold: threshold,
+		ContextWindow:             contextWindow,
+		MaxOutputTokens:           maxOutputTokens,
+		CompactionThreshold:       0.70,
+		EstimatorPadTokens:        clampInt(contextWindow/100, 256, 2048),
+		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 4096, 16000),
+		EmergencySummaryMaxTokens: deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 4, 2048, 8000),
 	}
+}
+
+func deriveSummaryMaxTokens(contextWindow, maxOutputTokens, percent, minTokens, maxTokens int) int {
+	derived := clampInt(contextWindow*percent/100, minTokens, maxTokens)
+	if maxOutputTokens > 0 {
+		return minInt(maxOutputTokens, derived)
+	}
+	return derived
+}
+
+func clampInt(value, minValue, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {

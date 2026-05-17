@@ -35,13 +35,14 @@ type MessageRetention struct {
 
 // Message is the agent-side conversation record used across compaction flows.
 type Message struct {
-	Role       MessageRole       `json:"role"`
-	Content    string            `json:"content,omitempty"`
-	Name       string            `json:"name,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
-	Source     string            `json:"source,omitempty"`
-	ByteSize   int               `json:"byte_size,omitempty"`
-	Turn       int               `json:"turn,omitempty"`
-	Retention  *MessageRetention `json:"retention,omitempty"`
+	Role             MessageRole       `json:"role"`
+	Content          string            `json:"content,omitempty"`
+	ReasoningContent string            `json:"reasoning_content,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	ToolCallID       string            `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	Source           string            `json:"source,omitempty"`
+	ByteSize         int               `json:"byte_size,omitempty"`
+	Turn             int               `json:"turn,omitempty"`
+	Retention        *MessageRetention `json:"retention,omitempty"`
 }

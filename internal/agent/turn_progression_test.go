@@ -49,6 +49,12 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 	if chatRequest.Model != "test-model" {
 		t.Fatalf("chatRequest.Model = %q, want %q", chatRequest.Model, "test-model")
 	}
+	if chatRequest.MaxTokens != nil {
+		t.Fatalf("chatRequest.MaxTokens = %v, want nil for normal turns", *chatRequest.MaxTokens)
+	}
+	if fit.ShouldCompact {
+		t.Fatal("fit.ShouldCompact = true, want false for a small prompt")
+	}
 }
 
 func TestPrepareTurn_FitFailure(t *testing.T) {
@@ -82,6 +88,54 @@ func TestPrepareTurn_FitFailure(t *testing.T) {
 	}
 	if fit.Fits {
 		t.Fatalf("fit.Fits = true, want false")
+	}
+	if !fit.ShouldCompact {
+		t.Fatal("fit.ShouldCompact = false, want true when the hard prompt limit is exceeded")
+	}
+}
+
+func TestPrepareTurn_RequestsCompactionAtSeventyPercentUsage(t *testing.T) {
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize: 4096,
+		},
+		Limits: Limits{MaxTurns: 2},
+		Events: output.NoopSink{},
+	}
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	_, _, fit, err := prepareTurn(context.Background(), in)
+	if err != nil {
+		t.Fatalf("prepareTurn() baseline error = %v", err)
+	}
+
+	threshReq := req
+	threshReq.ModelBudget.ContextSize = int(float64(fit.EstimatedPromptTokens) / 0.70)
+	in.Request = threshReq
+
+	_, _, thresholdFit, err := prepareTurn(context.Background(), in)
+	if err != nil {
+		t.Fatalf("prepareTurn() threshold error = %v", err)
+	}
+	if !thresholdFit.ShouldCompact {
+		t.Fatalf("fit.ShouldCompact = false, want true at >=70%% prompt usage")
+	}
+	if !thresholdFit.Fits {
+		t.Fatalf("fit.Fits = false, want true when the prompt still hard-fits")
 	}
 }
 
@@ -141,14 +195,14 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 	p := newTurnProgressor(runner)
 	outcome := p.handleCompaction(context.Background(), in, fit)
 
-	if outcome.Error != nil {
-		t.Fatalf("handleCompaction() error = %v", outcome.Error)
+	if outcome.Error == nil {
+		t.Fatal("handleCompaction() error = nil, want non-nil")
 	}
-	if !outcome.Retry {
-		t.Fatalf("outcome.Retry = false, want true")
+	if !strings.Contains(outcome.Error.Error(), "compaction cannot solve this request") {
+		t.Fatalf("handleCompaction() error = %q, want irreducible compaction failure", outcome.Error)
 	}
-	if outcome.Stop {
-		t.Fatalf("outcome.Stop = true, want false")
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
 	}
 }
 
@@ -783,14 +837,17 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 
 	// Compaction should signal retry: the outer loop should retry the turn
 	// with the (skipped candidate) state.
-	if !outcome.Retry {
-		t.Fatalf("outcome.Retry = false, want true")
+	if outcome.Retry {
+		t.Fatalf("outcome.Retry = true, want false")
 	}
-	if outcome.Stop {
-		t.Fatalf("outcome.Stop = true, want false")
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
 	}
-	if outcome.Error != nil {
-		t.Fatalf("outcome.Error = %v, want nil", outcome.Error)
+	if outcome.Error == nil {
+		t.Fatal("outcome.Error = nil, want error")
+	}
+	if !strings.Contains(outcome.Error.Error(), "compaction cannot solve this request") {
+		t.Fatalf("outcome.Error = %q, want irreducible compaction failure", outcome.Error)
 	}
 }
 

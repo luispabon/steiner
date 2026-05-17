@@ -321,13 +321,29 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		turnCount = 1
 	}
 	s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:           "session_loaded",
-		ContextTokens:  currentModel.Advanced.Limits.ContextWindow,
-		PromptTokens:   promptTokens,
-		ReservedTokens: 0,
-		TotalTokens:    promptTokens,
-		Turn:           turnCount,
+		Kind:                "session_loaded",
+		ContextWindow:       currentModel.Advanced.Limits.ContextWindow,
+		ContextTokens:       currentModel.Advanced.Limits.ContextWindow,
+		PromptTokens:        promptTokens,
+		ContextUsagePercent: usagePercent(promptTokens, currentModel.Advanced.Limits.ContextWindow),
+		Status:              sessionLoadedStatus(currentModel.Advanced.Limits.ContextWindow),
+		TotalTokens:         promptTokens,
+		Turn:                turnCount,
 	}))
 
 	return nil
+}
+
+func usagePercent(promptTokens, contextWindow int) float64 {
+	if promptTokens <= 0 || contextWindow <= 0 {
+		return 0
+	}
+	return float64(promptTokens) / float64(contextWindow) * 100
+}
+
+func sessionLoadedStatus(contextWindow int) string {
+	if contextWindow <= 0 {
+		return "unknown_context"
+	}
+	return "ok"
 }

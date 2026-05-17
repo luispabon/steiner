@@ -226,7 +226,7 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 		return p.handleError(ctx, in.Request.Events, in.State, err)
 	}
 
-	if !fit.Fits {
+	if fit.ShouldCompact || !fit.Fits {
 		outcome := p.handleCompaction(ctx, in, fit)
 		if outcome.Error != nil {
 			return p.handleError(ctx, in.Request.Events, outcome.State, outcome.Error)
@@ -295,7 +295,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit
 	turn := in.State.TurnCount + 1
 	emitCompactionStartedEvent(in.Request.Events, turn)
 	state := in.State
-	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, in.CompactionHistory, in.CompactionCount)
+	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
@@ -350,20 +350,26 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		Tools:       cloneProviderTools(in.Request.Tools),
 		Params:      in.Request.ResolvedModel.Params,
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
-		MaxTokens:   in.Request.MaxTokens,
 	}
-	tc := thinkingCfg{
-		enabled:           in.Request.ResolvedModel.ThinkingEnabled,
-		disableMarker:     in.Request.ResolvedModel.ThinkingDisableMarker,
-		scaffoldInference: in.Request.ResolvedModel.ThinkingScaffoldInference,
-		params:            in.Request.ResolvedModel.ThinkingParams,
+	chatRequest = buildTurnChatRequest(in.Request, chatRequest)
+	if !in.Request.ResolvedModel.ReasoningEchoBack {
+		stripReasoningContent(chatRequest.Messages)
 	}
-	chatRequest = applyThinking(tc, chatRequest)
 
 	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
-	emitRequestTokenDiagnostic(in.Request.Events, turn, fit, !fit.Fits)
+	emitRequestTokenDiagnostic(in.Request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
 	return assembly, chatRequest, fit, nil
+}
+
+func buildTurnChatRequest(req RunRequest, chatRequest provider.ChatRequest) provider.ChatRequest {
+	tc := thinkingCfg{
+		enabled:           req.ResolvedModel.ThinkingEnabled,
+		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
+		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
+		params:            req.ResolvedModel.ThinkingParams,
+	}
+	return applyThinking(tc, chatRequest)
 }

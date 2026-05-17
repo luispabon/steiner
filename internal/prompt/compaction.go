@@ -14,6 +14,7 @@ const (
 	compactionHeadingUnresolvedDecisions = "Unresolved decisions"
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
+	compactionPromptEmergencyInstruction = "This is an emergency handoff. Be shorter and more lossy than usual while preserving the essential task, the current state, and any irreversible decisions."
 	compactionPromptInstructionBody      = `You are compacting the current working context for a coding agent.
 
 The conversation history will be replaced by your summary. Another agent instance must be able to resume the task from your summary alone, without repeating investigation, losing important decisions, or corrupting unfinished work.
@@ -101,8 +102,18 @@ Rules:
 - Write for immediate continuation by a coding agent.`
 )
 
+// CompactionMode selects the summarization style for a compaction request.
+type CompactionMode string
+
+const (
+	// CompactionModeNormal asks for a full-fidelity handoff summary.
+	CompactionModeNormal CompactionMode = "normal"
+	// CompactionModeEmergency asks for a shorter, lossier handoff summary.
+	CompactionModeEmergency CompactionMode = "emergency"
+)
+
 // BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string) []provider.Message {
+func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
 		return nil
@@ -111,6 +122,9 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 	systemContent := compactionPromptSystem()
 	if override != "" {
 		systemContent = override
+	}
+	if mode == CompactionModeEmergency {
+		systemContent = systemContent + "\n\n" + compactionPromptEmergencyInstruction
 	}
 	userPrompt := renderConversationCompactionSource(turns, state)
 	return []provider.Message{

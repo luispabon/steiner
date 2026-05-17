@@ -299,6 +299,54 @@ models:
 	}
 }
 
+func TestLoadNewModelAliasesDoNotInheritDefaultTokenLimits(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: custom
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: qwen3-35b-a3b
+    advanced:
+      limits:
+        context_window: 32768
+        max_output_tokens: 8192
+  custom:
+    provider: local
+    id: custom-backend
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got := cfg.Models["custom"].Advanced.Limits; got != (AdvancedLimitsConfig{}) {
+		t.Fatalf("models[custom].advanced.limits = %#v, want empty for metadata discovery", got)
+	}
+}
+
 func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
 	tempDir := t.TempDir()
 	explicitHomeDir := filepath.Join(tempDir, "explicit-home")
@@ -610,6 +658,70 @@ models:
 	}
 	if !strings.Contains(err.Error(), "id") {
 		t.Fatalf("error = %q, want model id required error", err)
+	}
+}
+
+func TestLoadRejectsRemovedAdvancedLimitFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		fieldYAML string
+	}{
+		{
+			name:      "output_reserve",
+			fieldYAML: "output_reserve: 128\n",
+		},
+		{
+			name:      "safety_margin_tokens",
+			fieldYAML: "safety_margin_tokens: 128\n",
+		},
+		{
+			name:      "summary_max_tokens",
+			fieldYAML: "summary_max_tokens: 128\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			projectDir := filepath.Join(tempDir, "project")
+			projectConfigDir := filepath.Join(projectDir, ".steiner")
+			mustMkdirAll(t, projectConfigDir)
+
+			writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: qwen3-35b-a3b
+    advanced:
+      limits:
+`+tt.fieldYAML)
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = os.Chdir(cwd)
+			})
+			if err := os.Chdir(projectDir); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = Load(LoadOptions{
+				HomeDir: filepath.Join(tempDir, "home"),
+				Env:     map[string]string{},
+			})
+			if err == nil {
+				t.Fatal("Load() error = nil, want unknown field error")
+			}
+			if !strings.Contains(err.Error(), tt.name) {
+				t.Fatalf("error = %q, want removed field %q in error", err, tt.name)
+			}
+		})
 	}
 }
 
