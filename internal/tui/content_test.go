@@ -1294,6 +1294,9 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 	if got := dd.parentArgs; got != "fix the bug in module X" {
 		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
 	}
+	if got := dd.promptText; got != "fix the bug in module X" {
+		t.Fatalf("promptText = %q, want canonical parent task", got)
+	}
 }
 
 func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSegment(t *testing.T) {

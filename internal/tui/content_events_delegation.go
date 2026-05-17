@@ -303,9 +303,7 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
-	if dd.promptText == "" {
-		dd.promptText = dd.parentArgs
-	}
+	dd.promptText = dd.parentArgs
 	seg.renderDirty = true
 	return true
 }
