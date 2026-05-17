@@ -845,6 +845,165 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 	}
 }
 
+func TestCompactionSourceAndRetentionUsesNormalAndEmergencyWindows(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: "turn 1 tool output"},
+		{Role: MessageRoleUser, Content: "turn 2 user"},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+		{Role: MessageRoleUser, Content: "turn 3 user"},
+		{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+		{Role: MessageRoleUser, Content: "turn 4 user"},
+		{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+		{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-4", Content: "turn 4 tool output"},
+		{Role: MessageRoleUser, Content: "turn 5 user"},
+		{Role: MessageRoleAssistant, Content: "turn 5 assistant"},
+	}
+
+	normalSource, normalRetained := compactionSourceAndRetention(messages, messages, normalCompactionRetainTurns)
+	if got, want := len(normalRetained), 7; got != want {
+		t.Fatalf("normal retained len = %d, want %d", got, want)
+	}
+	if got, want := len(normalSource), 5; got != want {
+		t.Fatalf("normal source len = %d, want %d", got, want)
+	}
+	if got, want := normalRetained[0].Content, "turn 3 user"; got != want {
+		t.Fatalf("normal retained[0] = %q, want %q", got, want)
+	}
+	if got, want := normalRetained[len(normalRetained)-2].Content, "turn 5 user"; got != want {
+		t.Fatalf("normal latest user = %q, want %q", got, want)
+	}
+	if !messageContentsContain(ToProviderMessages(normalRetained), "turn 4 tool output") {
+		t.Fatal("normal retained messages missing recent tool output, want raw recent turn preserved")
+	}
+	if messageContentsContain(ToProviderMessages(normalRetained), "turn 1 tool output") {
+		t.Fatal("normal retained messages kept old tool output, want it outside retained window")
+	}
+
+	emergencySource, emergencyRetained := compactionSourceAndRetention(messages, messages, emergencyCompactionRetainTurns)
+	if got, want := len(emergencyRetained), 2; got != want {
+		t.Fatalf("emergency retained len = %d, want %d", got, want)
+	}
+	if got, want := len(emergencySource), 10; got != want {
+		t.Fatalf("emergency source len = %d, want %d", got, want)
+	}
+	if got, want := emergencyRetained[0].Content, "turn 5 user"; got != want {
+		t.Fatalf("emergency retained[0] = %q, want %q", got, want)
+	}
+	if !messageContentsContain(ToProviderMessages(emergencyRetained), "turn 5 user") {
+		t.Fatal("emergency retained messages missing latest user turn, want raw latest user preserved")
+	}
+}
+
+func TestTruncateCompactionMessagesShortensLongToolOutputs(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: strings.Repeat("tool output ", 18)},
+		{Role: MessageRoleAssistant, Content: "short assistant"},
+	}
+
+	truncated := truncateCompactionMessages(messages, 24)
+	if len(truncated) != len(messages) {
+		t.Fatalf("truncateCompactionMessages len = %d, want %d", len(truncated), len(messages))
+	}
+	if len(truncated[0].Content) >= len(messages[0].Content) {
+		t.Fatalf("truncated tool output length = %d, want shorter than %d", len(truncated[0].Content), len(messages[0].Content))
+	}
+	if !strings.HasSuffix(truncated[0].Content, "...") {
+		t.Fatalf("truncated tool output = %q, want ellipsis suffix", truncated[0].Content)
+	}
+	if got, want := truncated[1].Content, "short assistant"; got != want {
+		t.Fatalf("non-truncated message = %q, want %q", got, want)
+	}
+}
+
+func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "summary handoff text",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: strings.Repeat("turn 1 tool output ", 12)},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-4", Content: "turn 4 tool output"},
+			{Role: MessageRoleUser, Content: "turn 5 user"},
+			{Role: MessageRoleAssistant, Content: "turn 5 assistant"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: strings.Repeat("turn 1 tool output ", 12)},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-4", Content: "turn 4 tool output"},
+			{Role: MessageRoleUser, Content: "turn 5 user"},
+			{Role: MessageRoleAssistant, Content: "turn 5 assistant"},
+		}),
+	}
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	req := RunRequest{
+		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
+			CompactionStrategy: config.CompactionStrategySummarize,
+		}),
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               100000,
+			MaxCompletionTokens:       256,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          128,
+			NormalSummaryMaxTokens:    128,
+			EmergencySummaryMaxTokens: 64,
+		},
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate)
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
+	}
+	conversation := ToProviderMessages(outcome.State.Conversation)
+	if !messageContentsContain(conversation, "turn 5 user") {
+		t.Fatal("compacted conversation missing latest user turn, want raw latest user preserved")
+	}
+	if !messageContentsContain(conversation, "turn 4 tool output") {
+		t.Fatal("compacted conversation missing recent tool output, want retained raw recent turn")
+	}
+	if messageContentsContain(conversation, "turn 1 tool output") {
+		t.Fatal("compacted conversation kept older tool output, want it dropped from retained window")
+	}
+}
+
 func TestCompactorForRequest(t *testing.T) {
 	t.Parallel()
 
