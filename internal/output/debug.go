@@ -326,21 +326,44 @@ func formatContextScratchpadSummary(payload ContextDiagnosticsEvent) string {
 func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{formatDiagnosticHeadline(payload, "compaction")}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
-	if mode := strings.TrimSpace(payload.Mode); mode != "" {
-		parts = append(parts, fmt.Sprintf("mode=%s", mode))
+	parts = append(parts, formatCompactionMode(payload)...)
+	parts = append(parts, formatCompactionUsage(payload)...)
+	parts = append(parts, formatCompactionBudget(payload)...)
+	parts = append(parts, formatCompactionSummaryDetails(payload)...)
+	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
+		parts = append(parts, "notes "+notes)
 	}
-	if payload.BeforePromptTokens > 0 || payload.BeforeUsagePercent > 0 || payload.AfterPromptTokens > 0 || payload.AfterUsagePercent > 0 {
-		parts = append(parts, fmt.Sprintf(
+	return strings.Join(parts, "; ")
+}
+
+func formatCompactionMode(payload ContextDiagnosticsEvent) []string {
+	mode := strings.TrimSpace(payload.Mode)
+	if mode == "" {
+		return nil
+	}
+	return []string{fmt.Sprintf("mode=%s", mode)}
+}
+
+func formatCompactionUsage(payload ContextDiagnosticsEvent) []string {
+	if payload.BeforePromptTokens <= 0 && payload.BeforeUsagePercent <= 0 && payload.AfterPromptTokens <= 0 && payload.AfterUsagePercent <= 0 {
+		return nil
+	}
+	return []string{
+		fmt.Sprintf(
 			"before prompt_tokens=%d context_usage_percent=%s",
 			payload.BeforePromptTokens,
 			formatPercent(payload.BeforeUsagePercent),
-		))
-		parts = append(parts, fmt.Sprintf(
+		),
+		fmt.Sprintf(
 			"after prompt_tokens=%d context_usage_percent=%s",
 			payload.AfterPromptTokens,
 			formatPercent(payload.AfterUsagePercent),
-		))
+		),
 	}
+}
+
+func formatCompactionBudget(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 3)
 	if payload.RetainedRawTurns > 0 {
 		parts = append(parts, fmt.Sprintf("retained raw turns=%d", payload.RetainedRawTurns))
 	}
@@ -350,15 +373,12 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	if payload.Mode != "" || payload.SummaryTokenBudget > 0 || payload.ContextWindow > 0 || payload.CompactionThreshold > 0 {
 		parts = append(parts, fmt.Sprintf("threshold achieved=%t", payload.ThresholdAchieved))
 	}
+	return parts
+}
 
-	summary := strings.TrimSpace(payload.SummaryTitle)
-	if preview := strings.TrimSpace(payload.SummaryPreview); preview != "" {
-		if summary != "" {
-			summary += ": "
-		}
-		summary += preview
-	}
-	if summary != "" {
+func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 3)
+	if summary := compactionSummaryPreview(payload); summary != "" {
 		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
 	if payload.SummaryBytes > 0 {
@@ -367,10 +387,20 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")
 	}
-	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
-		parts = append(parts, "notes "+notes)
+	return parts
+}
+
+func compactionSummaryPreview(payload ContextDiagnosticsEvent) string {
+	summary := strings.TrimSpace(payload.SummaryTitle)
+	preview := strings.TrimSpace(payload.SummaryPreview)
+	switch {
+	case summary != "" && preview != "":
+		return summary + ": " + preview
+	case summary != "":
+		return summary
+	default:
+		return preview
 	}
-	return strings.Join(parts, "; ")
 }
 
 func formatContextSessionHealthSummary(payload ContextDiagnosticsEvent) string {

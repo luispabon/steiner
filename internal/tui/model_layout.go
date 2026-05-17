@@ -180,53 +180,86 @@ func (m *Model) renderScrollbar() string {
 }
 
 func (m *Model) renderContextInfoLine(width int) string {
-	hasSessionHealth := m.sessionHealthState != "" || m.sessionHealthCompactionCount > 0 || m.sessionHealthGuidance != "" || len(m.sessionHealthNotes) > 0
-	hasContextInfo := m.ctxInfoPromptTokens > 0 || m.ctxInfoContextWindow > 0 || m.ctxInfoContextUsagePercent > 0 || m.ctxInfoCompactionThreshold > 0 || m.ctxInfoEstimatorPadTokens > 0 || strings.TrimSpace(m.ctxInfoStatus) != ""
+	hasSessionHealth := m.hasSessionHealthInfo()
+	hasContextInfo := m.hasContextUsageInfo()
 	if !hasSessionHealth && !hasContextInfo {
 		return ""
 	}
-	line1Parts := []string{"context info:"}
-	if hasSessionHealth {
-		line1Parts = append(line1Parts, fmt.Sprintf("session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn))
-		if m.sessionHealthState != "" {
-			line1Parts = append(line1Parts, "state "+m.sessionHealthState)
-		}
-		if m.sessionHealthGuidance != "" {
-			entry := m.sessionHealthGuidance
-			if m.sessionHealthCompactionCount > 0 {
-				suffix := "compaction"
-				if m.sessionHealthCompactionCount != 1 {
-					suffix = "compactions"
-				}
-				entry += fmt.Sprintf(" after %d %s", m.sessionHealthCompactionCount, suffix)
-			}
-			line1Parts = append(line1Parts, entry)
-		}
-		if len(m.sessionHealthNotes) > 0 {
-			line1Parts = append(line1Parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
-		}
-	}
-	line1 := strings.Join(line1Parts, "; ")
-	contextWindow := m.ctxInfoContextWindow
-	if contextWindow <= 0 {
-		contextWindow = m.sidebar.contextBudget
-	}
-	status := strings.TrimSpace(m.ctxInfoStatus)
-	if status == "" {
-		status = "unknown_context"
-	}
-	line2 := fmt.Sprintf(
-		"view full, prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
-		m.ctxInfoPromptTokens,
-		contextWindow,
-		fmt.Sprintf("%.0f%%", m.ctxInfoContextUsagePercent),
-		fmt.Sprintf("%.0f%%", m.ctxInfoCompactionThreshold),
-		m.ctxInfoEstimatorPadTokens,
-		status,
-	)
+	line1 := strings.Join(m.contextSessionHealthParts(hasSessionHealth), "; ")
+	line2 := m.contextUsageLine()
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgFaint)).
 		Italic(true).
 		Width(width)
 	return style.Render(line1) + "\n" + style.Render(line2) + "\n"
+}
+
+func (m *Model) hasSessionHealthInfo() bool {
+	return m.sessionHealthState != "" || m.sessionHealthCompactionCount > 0 || m.sessionHealthGuidance != "" || len(m.sessionHealthNotes) > 0
+}
+
+func (m *Model) hasContextUsageInfo() bool {
+	return m.ctxInfoPromptTokens > 0 || m.ctxInfoContextWindow > 0 || m.ctxInfoContextUsagePercent > 0 || m.ctxInfoCompactionThreshold > 0 || m.ctxInfoEstimatorPadTokens > 0 || strings.TrimSpace(m.ctxInfoStatus) != ""
+}
+
+func (m *Model) contextSessionHealthParts(include bool) []string {
+	parts := []string{"context info:"}
+	if !include {
+		return parts
+	}
+
+	parts = append(parts, fmt.Sprintf("session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn))
+	if m.sessionHealthState != "" {
+		parts = append(parts, "state "+m.sessionHealthState)
+	}
+	if guidance := m.sessionHealthGuidanceEntry(); guidance != "" {
+		parts = append(parts, guidance)
+	}
+	if len(m.sessionHealthNotes) > 0 {
+		parts = append(parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
+	}
+	return parts
+}
+
+func (m *Model) sessionHealthGuidanceEntry() string {
+	entry := m.sessionHealthGuidance
+	if entry == "" {
+		return ""
+	}
+	if m.sessionHealthCompactionCount <= 0 {
+		return entry
+	}
+
+	suffix := "compaction"
+	if m.sessionHealthCompactionCount != 1 {
+		suffix = "compactions"
+	}
+	return fmt.Sprintf("%s after %d %s", entry, m.sessionHealthCompactionCount, suffix)
+}
+
+func (m *Model) contextUsageLine() string {
+	return fmt.Sprintf(
+		"view full, prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
+		m.ctxInfoPromptTokens,
+		m.contextInfoWindow(),
+		fmt.Sprintf("%.0f%%", m.ctxInfoContextUsagePercent),
+		fmt.Sprintf("%.0f%%", m.ctxInfoCompactionThreshold),
+		m.ctxInfoEstimatorPadTokens,
+		m.contextInfoStatus(),
+	)
+}
+
+func (m *Model) contextInfoWindow() int {
+	if m.ctxInfoContextWindow > 0 {
+		return m.ctxInfoContextWindow
+	}
+	return m.sidebar.contextBudget
+}
+
+func (m *Model) contextInfoStatus() string {
+	status := strings.TrimSpace(m.ctxInfoStatus)
+	if status == "" {
+		return "unknown_context"
+	}
+	return status
 }

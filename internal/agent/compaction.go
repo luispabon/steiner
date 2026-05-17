@@ -85,7 +85,7 @@ func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunSta
 	}
 
 	sourceMessages := cloneMessages(candidate.Messages)
-	sourceMessages, retainedMessages := compactionSourceAndRetention(sourceMessages, compactionRetentionBaseMessages(state.Lineage, candidate), retainTurns)
+	_, retainedMessages := compactionSourceAndRetention(sourceMessages, compactionRetentionBaseMessages(state.Lineage, candidate), retainTurns)
 	if len(retainedMessages) == 0 {
 		return CompactionOutcome{Candidate: candidate, Mode: prompt.CompactionModeNormal}, nil
 	}
@@ -346,15 +346,9 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 		return false, nil
 	}
 
-	currentFit := prompt.RequestTokenBudget{}
-	if beforeFit != nil {
-		currentFit = *beforeFit
-	} else {
-		var err error
-		currentFit, err = fitConversationState(ctx, req, *state)
-		if err != nil {
-			return false, err
-		}
+	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
+	if err != nil {
+		return false, err
 	}
 
 	compactor := compactorForRequest(req)
@@ -385,6 +379,13 @@ func resetEpochForContextManager(cm ContextManager, turn int) {
 	if resetter, ok := cm.(EpochResetter); ok {
 		resetter.ResetEpoch(turn)
 	}
+}
+
+func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {
+	if beforeFit != nil {
+		return *beforeFit, nil
+	}
+	return fitConversationState(ctx, req, state)
 }
 
 func compactorForRequest(req RunRequest) Compactor {
