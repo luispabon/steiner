@@ -75,7 +75,6 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		ThinkingDisableMarker:     modelCfg.ThinkingDisableMarker,
 		ThinkingScaffoldInference: modelCfg.ThinkingScaffoldInference,
 		ThinkingParams:            modelCfg.ThinkingParams,
-		ReasoningEchoBack:         modelCfg.ReasoningEchoBack,
 		Prompts:                   modelCfg.Prompts,
 		Retry:                     modelCfg.Retry,
 		MetadataSource:            "config",
@@ -95,13 +94,23 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	}
 
 	modelCfg := cfg.Models[alias]
-	if limitsFullyConfigured(modelCfg.Advanced.Limits) {
+	adv := modelCfg.Advanced.Limits
+
+	// Load models.dev metadata early (needed for reasoning echo back regardless of limits).
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cacheCancel()
+	var modelsDevInfo metadata.ModelInfo
+	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
+		modelsDevInfo = metadata.Lookup(data, rm.BackendModelID)
+	}
+	rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
+
+	if limitsFullyConfigured(adv) {
 		return rm, nil
 	}
 
-	adv := modelCfg.Advanced.Limits
-
-	// Try provider discovery.
+	// Try provider discovery for limits.
 	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
 	if discoverer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
@@ -116,19 +125,13 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		}
 	}
 
-	// Try models.dev cache as third source.
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	defer cancel()
-	if data, err := cache.LoadBestEffort(ctx); err == nil && data != nil {
-		info := metadata.Lookup(data, rm.BackendModelID)
-		if info.ContextWindow > 0 || info.MaxOutputTokens > 0 {
-			meta := ModelMetadata{ContextWindow: info.ContextWindow, MaxOutputTokens: info.MaxOutputTokens}
-			rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
-			rm.MetadataSource = "models.dev"
-			rm.Confidence = "medium"
-			return rm, nil
-		}
+	// Try models.dev for limits (data already loaded above).
+	if modelsDevInfo.ContextWindow > 0 || modelsDevInfo.MaxOutputTokens > 0 {
+		meta := ModelMetadata{ContextWindow: modelsDevInfo.ContextWindow, MaxOutputTokens: modelsDevInfo.MaxOutputTokens}
+		rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
+		rm.MetadataSource = "models.dev"
+		rm.Confidence = "medium"
+		return rm, nil
 	}
 
 	// Check if we ended up using fallback defaults

@@ -367,7 +367,7 @@ func TestModelMetadataStatusCommand(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{},"gpt-4.1":{}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{},"gpt-4.1":{}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	metaData, err := json.Marshal(metadata.CacheMetadata{
@@ -417,7 +417,7 @@ func TestModelMetadataClearCommand(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"url":"https://models.dev/api.json"}`), 0o644); err != nil {

@@ -30,7 +30,6 @@ func TestResolve(t *testing.T) {
 				ThinkingDisableMarker:     "nothink",
 				ThinkingScaffoldInference: true,
 				ThinkingParams:            map[string]any{"budget_tokens": 1024},
-				ReasoningEchoBack:         true,
 				Advanced: config.AdvancedConfig{
 					Limits: config.AdvancedLimitsConfig{
 						ContextWindow:   128000,
@@ -81,8 +80,8 @@ func TestResolve(t *testing.T) {
 				if !rm.ThinkingScaffoldInference {
 					t.Error("ThinkingScaffoldInference=false, want true")
 				}
-				if !rm.ReasoningEchoBack {
-					t.Error("ReasoningEchoBack=false, want true")
+				if rm.ReasoningEchoBack {
+					t.Error("ReasoningEchoBack=true, want false (no discovery)")
 				}
 				if v, ok := rm.ThinkingParams["budget_tokens"]; !ok || v != 1024 {
 					t.Errorf("ThinkingParams[budget_tokens]=%v, want 1024", v)
@@ -436,7 +435,7 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -484,7 +483,7 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"old":{"context":4096,"maxOutputTokens":512}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"prov":{"models":{"old":{"limit":{"context":4096,"output":512}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-02T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -493,7 +492,7 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`))
+		_, _ = w.Write([]byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`))
 	}))
 	defer srv.Close()
 
@@ -530,7 +529,7 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"gpt-4o":{"context":128000,"maxOutputTokens":16384}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-02T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -570,7 +569,7 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"openai/gpt-4o":{"context":64000,"maxOutputTokens":4096}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -625,7 +624,7 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"models":{"openai/gpt-4o":{"context":64000,"maxOutputTokens":4096}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -675,6 +674,76 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	}
 	if len(rm.Warnings) != 0 {
 		t.Fatalf("Warnings = %v, want none", rm.Warnings)
+	}
+}
+
+func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"prov":{"models":{` +
+		`"deepseek-r1":{"limit":{"context":128000,"output":8192},"interleaved":{"field":"reasoning_content"}},` +
+		`"gpt-4o":{"limit":{"context":128000,"output":16384}}` +
+		`}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-20T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	tests := []struct {
+		name            string
+		modelID         string
+		thinkingEnabled bool
+		wantEchoBack    bool
+	}{
+		{
+			name:            "thinking enabled + interleaved reasoning_content",
+			modelID:         "deepseek-r1",
+			thinkingEnabled: true,
+			wantEchoBack:    true,
+		},
+		{
+			name:            "thinking disabled + interleaved reasoning_content",
+			modelID:         "deepseek-r1",
+			thinkingEnabled: false,
+			wantEchoBack:    true,
+		},
+		{
+			name:            "thinking enabled + no interleaved field",
+			modelID:         "gpt-4o",
+			thinkingEnabled: true,
+			wantEchoBack:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+				},
+				Models: map[string]config.ModelConfig{
+					"test": {
+						Provider:        "local",
+						ID:              tt.modelID,
+						ThinkingEnabled: tt.thinkingEnabled,
+					},
+				},
+			}
+			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			if err != nil {
+				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			}
+			if rm.ReasoningEchoBack != tt.wantEchoBack {
+				t.Errorf("ReasoningEchoBack=%v, want %v", rm.ReasoningEchoBack, tt.wantEchoBack)
+			}
+		})
 	}
 }
 

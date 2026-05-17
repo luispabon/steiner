@@ -12,8 +12,9 @@ const discoveryTimeout = 8 * time.Second
 
 // ModelMetadata holds optional discovered model limits.
 type ModelMetadata struct {
-	ContextWindow   int // 0 = unknown
-	MaxOutputTokens int // 0 = unknown
+	ContextWindow     int // 0 = unknown
+	MaxOutputTokens   int // 0 = unknown
+	ReasoningEchoBack bool
 }
 
 // ModelMetadataDiscoverer discovers token limits for a backend model ID.
