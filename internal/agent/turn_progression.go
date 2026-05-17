@@ -352,6 +352,9 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 	}
 	chatRequest = buildTurnChatRequest(in.Request, chatRequest)
+	if !in.Request.ResolvedModel.ReasoningEchoBack {
+		stripReasoningContent(chatRequest.Messages)
+	}
 
 	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {

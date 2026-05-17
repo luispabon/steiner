@@ -30,6 +30,7 @@ func TestResolve(t *testing.T) {
 				ThinkingDisableMarker:     "nothink",
 				ThinkingScaffoldInference: true,
 				ThinkingParams:            map[string]any{"budget_tokens": 1024},
+				ReasoningEchoBack:         true,
 				Advanced: config.AdvancedConfig{
 					Limits: config.AdvancedLimitsConfig{
 						ContextWindow:   128000,
@@ -79,6 +80,9 @@ func TestResolve(t *testing.T) {
 				}
 				if !rm.ThinkingScaffoldInference {
 					t.Error("ThinkingScaffoldInference=false, want true")
+				}
+				if !rm.ReasoningEchoBack {
+					t.Error("ReasoningEchoBack=false, want true")
 				}
 				if v, ok := rm.ThinkingParams["budget_tokens"]; !ok || v != 1024 {
 					t.Errorf("ThinkingParams[budget_tokens]=%v, want 1024", v)
