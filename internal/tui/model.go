@@ -89,6 +89,7 @@ type Model struct {
 	scratchpadOverlay            scratchpadOverlayState
 	exitModal                    exitModalState
 	sessionStore                 SessionLister
+	showContextDiagnostics       bool
 	sessionHealthCompactionCount int
 	sessionHealthTurn            int
 	sessionHealthState           string

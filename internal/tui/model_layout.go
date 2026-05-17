@@ -33,8 +33,10 @@ func (m *Model) layout() {
 
 func (m *Model) syncViewport() {
 	rendered := m.content.String(m.viewport.Width)
-	if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
-		rendered = header + rendered
+	if m.showContextDiagnostics {
+		if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
+			rendered = header + rendered
+		}
 	}
 	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
