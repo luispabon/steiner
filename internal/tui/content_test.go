@@ -744,7 +744,7 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 	rendered := stripANSI(buffer.String(80))
 	lines := strings.Split(rendered, "\n")
 
-	var thinkingLine int = -1
+	thinkingLine := -1
 	for i, line := range lines {
 		if strings.Contains(line, "Thinking") {
 			thinkingLine = i
