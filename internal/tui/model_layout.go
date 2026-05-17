@@ -161,13 +161,21 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	if dd == nil || rowInSegment < 0 {
 		return -1
 	}
-	if rowInSegment == 1 {
+	rows := m.content.delegationRows(dd)
+	if rowInSegment >= len(rows) {
+		return -1
+	}
+	row := rows[rowInSegment]
+	switch {
+	case row.kind == delegationRowHeader:
 		return 0
-	}
-	if rowInSegment == 2 && !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
+	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
 		return 1
+	case delegationRowIsInteractive(row.kind):
+		return -1
+	default:
+		return -1
 	}
-	return -1
 }
 
 func (m *Model) renderScrollbar() string {

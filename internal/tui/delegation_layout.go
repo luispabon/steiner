@@ -5,11 +5,13 @@ import "strings"
 type delegationRowKind int
 
 const (
-	delegationRowHeader delegationRowKind = iota
+	delegationRowBorderTop delegationRowKind = iota
+	delegationRowHeader
 	delegationRowPromptHeader
 	delegationRowPromptBody
 	delegationRowTranscript
 	delegationRowOutput
+	delegationRowBorderBottom
 	delegationRowHint
 )
 
@@ -21,7 +23,7 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState) []delegationR
 	if dd == nil {
 		return nil
 	}
-	rows := []delegationRow{{kind: delegationRowHeader}}
+	rows := []delegationRow{{kind: delegationRowBorderTop}, {kind: delegationRowHeader}}
 	if !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
 		rows = append(rows, delegationRow{kind: delegationRowPromptHeader})
 		rows = append(rows, delegationRow{kind: delegationRowPromptBody})
@@ -34,6 +36,10 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState) []delegationR
 			rows = append(rows, delegationRow{kind: delegationRowOutput})
 		}
 	}
-	rows = append(rows, delegationRow{kind: delegationRowHint})
+	rows = append(rows, delegationRow{kind: delegationRowBorderBottom}, delegationRow{kind: delegationRowHint})
 	return rows
+}
+
+func delegationRowIsInteractive(row delegationRowKind) bool {
+	return row == delegationRowHeader || row == delegationRowPromptHeader
 }

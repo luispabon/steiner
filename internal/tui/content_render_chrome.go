@@ -180,7 +180,7 @@ func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, widt
 	rows := b.delegationRows(dd)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if row.kind == delegationRowHint {
+		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom || row.kind == delegationRowHint {
 			continue
 		}
 		switch row.kind {

@@ -312,9 +312,20 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 		t.Fatal("prompt subsection should collapse on prompt header click")
 	}
 
+	nonToggleY := -1
+	for i, row := range m.content.delegationRows(dd) {
+		if row.kind == delegationRowPromptBody || row.kind == delegationRowTranscript || row.kind == delegationRowOutput {
+			nonToggleY = i
+			break
+		}
+	}
+	if nonToggleY < 0 {
+		t.Fatal("expected a non-interactive delegation row to click")
+	}
+
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 2})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: nonToggleY})
 
 	if dd.collapsed {
 		t.Fatal("transcript/body click should not collapse delegation")
