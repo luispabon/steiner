@@ -69,6 +69,27 @@ func TestWithBg_emptyLine(t *testing.T) {
 	}
 }
 
+func TestWithBg_preservesTrailingNewlines(t *testing.T) {
+	s := "hello\n"
+	bg := lipgloss.Color(BgElev)
+	result := WithBg(s, bg)
+
+	if !strings.HasSuffix(result, "\n") {
+		t.Fatalf("WithBg result lost trailing newline: %q", result)
+	}
+
+	lines := strings.Split(result, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "hello") {
+		t.Fatalf("first line = %q, want original text", lines[0])
+	}
+	if lines[1] != "" {
+		t.Fatalf("second line = %q, want empty trailing line", lines[1])
+	}
+}
+
 func TestWithBg_visuallyIdempotent(t *testing.T) {
 	s := "hello\nworld"
 	bg := lipgloss.Color(BgElev)

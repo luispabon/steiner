@@ -31,6 +31,11 @@ func WithBg(s string, bg lipgloss.Color) string {
 	resetBg := reset + bgSeq
 	bgReset := "\x1b[49m" + bgSeq
 
+	trailingNewlines := len(s) - len(strings.TrimRight(s, "\n"))
+	if trailingNewlines > 0 {
+		s = strings.TrimRight(s, "\n")
+	}
+
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		line = strings.ReplaceAll(line, reset, resetBg)
@@ -41,7 +46,11 @@ func WithBg(s string, bg lipgloss.Color) string {
 			lines[i] = bgSeq + line
 		}
 	}
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if trailingNewlines > 0 {
+		result += strings.Repeat("\n", trailingNewlines)
+	}
+	return result
 }
 
 // PadLines pads every line in s to the given width by appending spaces

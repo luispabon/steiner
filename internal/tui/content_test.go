@@ -729,6 +729,39 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 	}
 }
 
+func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "inspect renderer"))
+	buffer.finalizeThinkingBlock()
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "internal/tui/content_tool.go"}))
+
+	rendered := stripANSI(buffer.String(80))
+	lines := strings.Split(rendered, "\n")
+
+	var thinkingLine int = -1
+	for i, line := range lines {
+		if strings.Contains(line, "Thinking") {
+			thinkingLine = i
+			break
+		}
+	}
+	if thinkingLine == -1 {
+		t.Fatalf("rendered output missing thinking line: %q", rendered)
+	}
+	if thinkingLine+1 >= len(lines) {
+		t.Fatalf("rendered output missing tool box after thinking line: %q", rendered)
+	}
+	if !strings.HasPrefix(lines[thinkingLine+1], "┌") {
+		t.Fatalf("tool box top border = %q, want fresh line starting with top border", lines[thinkingLine+1])
+	}
+}
+
 func TestAPIResponseFinalizesScaffoldInferenceJSONAfterThinking(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:                      make([]contentSegment, 0),
