@@ -160,18 +160,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	if headerWidth < 1 {
 		headerWidth = 1
 	}
-	header := b.renderDelegationHeader(dd, headerWidth)
-
-	lines := []string{theme.WithBg(header, lipgloss.Color(theme.BgElev))}
-	if !dd.collapsed {
-		if promptLines := b.renderDelegationPromptSubsection(dd, headerWidth); len(promptLines) > 0 {
-			lines = append(lines, promptLines...)
-		}
-		lines = append(lines, b.renderDelegationTranscript(dd, headerWidth)...)
-		if outputLines := b.renderDelegationOutput(dd, headerWidth); len(outputLines) > 0 {
-			lines = append(lines, outputLines...)
-		}
-	}
+	lines := b.renderDelegationBoxRows(dd, headerWidth)
 
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
@@ -187,35 +176,41 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	return box + b.renderDelegationHint(dd) + "\n"
 }
 
+func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
+	rows := b.delegationRows(dd)
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.kind == delegationRowHint {
+			continue
+		}
+		switch row.kind {
+		case delegationRowHeader:
+			lines = append(lines, theme.WithBg(b.renderDelegationHeader(dd, width), lipgloss.Color(theme.BgElev)))
+		case delegationRowPromptHeader:
+			lines = append(lines, b.renderDelegationPromptHeader(dd))
+		case delegationRowPromptBody:
+			if dd.promptCollapsed {
+				if preview := previewDelegationText(dd.promptText); preview != "" {
+					lines = append(lines, b.styles.FgMute.Render(truncateRunes(preview, max(1, width-2))))
+				}
+				continue
+			}
+			lines = append(lines, b.renderDelegationPromptBody(dd, width)...)
+		case delegationRowTranscript:
+			lines = append(lines, b.renderDelegationTranscript(dd, width)...)
+		case delegationRowOutput:
+			lines = append(lines, b.renderDelegationOutput(dd, width)...)
+		}
+	}
+	return lines
+}
+
 func (b *contentBuffer) renderDelegationHint(dd *delegationDisplayState) string {
 	action := "expand"
 	if !dd.collapsed {
 		action = "collapse"
 	}
 	return b.styles.FgDim.Render("ctrl+x or click header to " + action)
-}
-
-func (b *contentBuffer) renderDelegationPromptSubsection(dd *delegationDisplayState, width int) []string {
-	if dd == nil {
-		return nil
-	}
-	if strings.TrimSpace(dd.promptText) == "" {
-		return nil
-	}
-	if width < 8 {
-		width = 8
-	}
-	rows := make([]string, 0, 2)
-	rows = append(rows, b.renderDelegationPromptHeader(dd))
-	if dd.promptCollapsed {
-		preview := previewDelegationText(dd.promptText)
-		if preview != "" {
-			rows = append(rows, b.styles.FgMute.Render(truncateRunes(preview, max(1, width-2))))
-		}
-		return rows
-	}
-	rows = append(rows, b.renderDelegationPromptBody(dd, width)...)
-	return rows
 }
 
 func (b *contentBuffer) renderDelegationPromptHeader(dd *delegationDisplayState) string {

@@ -111,7 +111,6 @@ func (m *Model) handleLeftClick(termY int) {
 			continue
 		}
 		if contentLine < cumulative+h {
-			// Click landed in segment i — toggle if collapsible
 			seg := &m.content.segments[i]
 			switch seg.kind {
 			case segmentToolCall:
@@ -121,8 +120,7 @@ func (m *Model) handleLeftClick(termY int) {
 					m.syncViewport()
 				}
 			case segmentDelegation:
-				if seg.delegData != nil {
-					seg.delegData.collapsed = !seg.delegData.collapsed
+				if m.handleDelegationClick(seg, contentLine-cumulative) {
 					seg.renderDirty = true
 					m.syncViewport()
 				}
@@ -137,6 +135,39 @@ func (m *Model) handleLeftClick(termY int) {
 		}
 		cumulative += h
 	}
+}
+
+func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) bool {
+	if seg == nil || seg.kind != segmentDelegation || seg.delegData == nil {
+		return false
+	}
+	row := m.delegationRowInSegment(seg.delegData, rowInSegment)
+	switch row {
+	case 0:
+		seg.delegData.collapsed = !seg.delegData.collapsed
+		return true
+	case 1:
+		if seg.delegData.collapsed || strings.TrimSpace(seg.delegData.promptText) == "" {
+			return false
+		}
+		seg.delegData.promptCollapsed = !seg.delegData.promptCollapsed
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment int) int {
+	if dd == nil || rowInSegment < 0 {
+		return -1
+	}
+	if rowInSegment == 1 {
+		return 0
+	}
+	if rowInSegment == 2 && !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
+		return 1
+	}
+	return -1
 }
 
 func (m *Model) renderScrollbar() string {
