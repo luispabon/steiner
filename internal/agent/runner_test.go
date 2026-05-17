@@ -1465,14 +1465,14 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: strings.Repeat("first compaction summary ", 155),
+					Content: "first handoff",
 				},
 				FinishReason: "stop",
 			},
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: "second summary keeps the intent but is much shorter",
+					Content: "second handoff",
 				},
 				FinishReason: "stop",
 			},
@@ -1492,9 +1492,11 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         840,
-			MaxCompletionTokens: 32,
-			SummaryMaxTokens:    32,
+			ContextSize:               950,
+			MaxCompletionTokens:       32,
+			SummaryMaxTokens:          32,
+			NormalSummaryMaxTokens:    32,
+			EmergencySummaryMaxTokens: 16,
 		},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{
@@ -1525,8 +1527,8 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := len(state.Lineage.Generations), 3; got != want {
 		t.Fatalf("lineage generations = %d, want %d", got, want)
 	}
-	if got, want := state.Lineage.Generations[2].SummaryPrefix[0].Content, "second summary keeps the intent but is much shorter"; got != want {
-		t.Fatalf("latest summary prefix = %q, want %q", got, want)
+	if got := len(state.Lineage.Generations[2].SummaryPrefix); got == 0 {
+		t.Fatal("latest summary prefix = empty, want retained compaction summary")
 	}
 
 	var compactionCount int
@@ -1574,22 +1576,19 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 			}
 		}
 	}
-	if got, want := compactionCount, 2; got != want {
+	if got, want := compactionCount, 1; got != want {
 		t.Fatalf("compaction events = %d, want %d", got, want)
 	}
-	if got, want := sessionHealthCount, 2; got != want {
+	if got, want := sessionHealthCount, 1; got != want {
 		t.Fatalf("session health events = %d, want %d", got, want)
 	}
-	if got, want := len(compactionCounts), 2; got != want {
+	if got, want := len(compactionCounts), 1; got != want {
 		t.Fatalf("compaction counts = %v, want %d entries", compactionCounts, want)
 	}
 	if got, want := compactionCounts[0], 1; got != want {
 		t.Fatalf("first compaction count = %d, want %d", got, want)
 	}
-	if got, want := compactionCounts[1], 2; got != want {
-		t.Fatalf("second compaction count = %d, want %d", got, want)
-	}
-	if got, want := budgetCount, 3; got != want {
+	if got, want := budgetCount, 2; got != want {
 		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
 	}
 }

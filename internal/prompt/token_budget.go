@@ -13,10 +13,12 @@ const normalPromptCompactionThreshold = 0.70
 // Used to adapt provider.ResolvedModel limits to prompt budgeting.
 func ModelBudgetFromEffectiveLimits(limits provider.EffectiveLimits) ModelTokenBudget {
 	return ModelTokenBudget{
-		ContextSize:         limits.ContextWindow,
-		MaxCompletionTokens: limits.MaxOutputTokens,
-		SafetyMarginTokens:  limits.EstimatorPadTokens,
-		SummaryMaxTokens:    limits.NormalSummaryMaxTokens,
+		ContextSize:               limits.ContextWindow,
+		MaxCompletionTokens:       limits.MaxOutputTokens,
+		SafetyMarginTokens:        limits.EstimatorPadTokens,
+		SummaryMaxTokens:          limits.NormalSummaryMaxTokens,
+		NormalSummaryMaxTokens:    limits.NormalSummaryMaxTokens,
+		EmergencySummaryMaxTokens: limits.EmergencySummaryMaxTokens,
 	}
 }
 
@@ -33,6 +35,12 @@ func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 	}
 	if m.SummaryMaxTokens < 0 {
 		m.SummaryMaxTokens = 0
+	}
+	if m.NormalSummaryMaxTokens < 0 {
+		m.NormalSummaryMaxTokens = 0
+	}
+	if m.EmergencySummaryMaxTokens < 0 {
+		m.EmergencySummaryMaxTokens = 0
 	}
 	return m
 }
@@ -140,7 +148,10 @@ func (m ModelTokenBudget) completionReserveForRequest(request provider.ChatReque
 }
 
 func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRequest) int {
-	reserve := m.SummaryMaxTokens
+	reserve := m.NormalSummaryMaxTokens
+	if reserve <= 0 {
+		reserve = m.SummaryMaxTokens
+	}
 	if reserve <= 0 {
 		reserve = m.MaxCompletionTokens
 	}

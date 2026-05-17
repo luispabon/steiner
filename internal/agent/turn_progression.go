@@ -351,13 +351,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		Params:      in.Request.ResolvedModel.Params,
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 	}
-	tc := thinkingCfg{
-		enabled:           in.Request.ResolvedModel.ThinkingEnabled,
-		disableMarker:     in.Request.ResolvedModel.ThinkingDisableMarker,
-		scaffoldInference: in.Request.ResolvedModel.ThinkingScaffoldInference,
-		params:            in.Request.ResolvedModel.ThinkingParams,
-	}
-	chatRequest = applyThinking(tc, chatRequest)
+	chatRequest = buildTurnChatRequest(in.Request, chatRequest)
 
 	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {
@@ -365,4 +359,14 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	}
 	emitRequestTokenDiagnostic(in.Request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
 	return assembly, chatRequest, fit, nil
+}
+
+func buildTurnChatRequest(req RunRequest, chatRequest provider.ChatRequest) provider.ChatRequest {
+	tc := thinkingCfg{
+		enabled:           req.ResolvedModel.ThinkingEnabled,
+		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
+		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
+		params:            req.ResolvedModel.ThinkingParams,
+	}
+	return applyThinking(tc, chatRequest)
 }

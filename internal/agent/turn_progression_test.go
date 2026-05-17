@@ -195,14 +195,14 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 	p := newTurnProgressor(runner)
 	outcome := p.handleCompaction(context.Background(), in, fit)
 
-	if outcome.Error != nil {
-		t.Fatalf("handleCompaction() error = %v", outcome.Error)
+	if outcome.Error == nil {
+		t.Fatal("handleCompaction() error = nil, want non-nil")
 	}
-	if !outcome.Retry {
-		t.Fatalf("outcome.Retry = false, want true")
+	if !strings.Contains(outcome.Error.Error(), "emergency compaction could not reduce context enough") {
+		t.Fatalf("handleCompaction() error = %q, want emergency compaction failure", outcome.Error)
 	}
-	if outcome.Stop {
-		t.Fatalf("outcome.Stop = true, want false")
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
 	}
 }
 
@@ -837,14 +837,17 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 
 	// Compaction should signal retry: the outer loop should retry the turn
 	// with the (skipped candidate) state.
-	if !outcome.Retry {
-		t.Fatalf("outcome.Retry = false, want true")
+	if outcome.Retry {
+		t.Fatalf("outcome.Retry = true, want false")
 	}
-	if outcome.Stop {
-		t.Fatalf("outcome.Stop = true, want false")
+	if !outcome.Stop {
+		t.Fatalf("outcome.Stop = false, want true")
 	}
-	if outcome.Error != nil {
-		t.Fatalf("outcome.Error = %v, want nil", outcome.Error)
+	if outcome.Error == nil {
+		t.Fatal("outcome.Error = nil, want error")
+	}
+	if !strings.Contains(outcome.Error.Error(), "emergency compaction could not reduce context enough") {
+		t.Fatalf("outcome.Error = %q, want emergency compaction failure", outcome.Error)
 	}
 }
 

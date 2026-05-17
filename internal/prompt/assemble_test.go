@@ -376,7 +376,7 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		RetainedSummaries: []DurableSummaryEntry{
 			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
 		},
-	}, "")
+	}, "", CompactionModeNormal)
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}
@@ -397,6 +397,20 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 	}
 	if got := strings.Contains(promptMessages[1].Content, "durable context:"); !got {
 		t.Fatalf("user prompt = %q, want durable context section", promptMessages[1].Content)
+	}
+}
+
+func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *testing.T) {
+	t.Parallel()
+
+	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
+		{Role: provider.MessageRoleUser, Content: "keep only what matters"},
+	}, DurableContextState{}, "", CompactionModeEmergency)
+	if got, want := len(promptMessages), 2; got != want {
+		t.Fatalf("prompt messages = %d, want %d", got, want)
+	}
+	if got := strings.Contains(promptMessages[0].Content, "emergency handoff"); !got {
+		t.Fatalf("system prompt = %q, want emergency handoff instruction", promptMessages[0].Content)
 	}
 }
 
