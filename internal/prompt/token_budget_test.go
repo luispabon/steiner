@@ -207,3 +207,83 @@ func TestModelTokenBudgetFitRequestRequestsCompactionAtSeventyPercentUsage(t *te
 		t.Fatalf("FitRequest() = %+v, want hard fit when the prompt still fits", fit)
 	}
 }
+
+func TestModelTokenBudgetFitRequestLeavesBelowThresholdPromptAlone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system instructions"},
+			{Role: provider.MessageRoleUser, Content: "review the request"},
+		},
+	}
+
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	contextSize := int(math.Ceil(float64(promptTokens) / normalPromptCompactionThreshold))
+	if promptUsage(promptTokens, contextSize) >= normalPromptCompactionThreshold {
+		contextSize++
+	}
+
+	budget := ModelTokenBudget{ContextSize: contextSize}
+
+	fit, err := budget.FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+	if fit.ShouldCompact {
+		t.Fatalf("FitRequest() = %+v, want no compaction below the threshold", fit)
+	}
+	if !fit.Fits {
+		t.Fatalf("FitRequest() = %+v, want hard fit below the threshold", fit)
+	}
+	if fit.PromptUsage >= normalPromptCompactionThreshold {
+		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, normalPromptCompactionThreshold)
+	}
+}
+
+func TestModelTokenBudgetFitRequestTriggersHardLimitPadBeforeThreshold(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system instructions"},
+			{Role: provider.MessageRoleUser, Content: "review the request"},
+		},
+	}
+
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	contextSize := promptTokens * 2
+	safetyMargin := promptTokens + 1
+	budget := ModelTokenBudget{
+		ContextSize:        contextSize,
+		SafetyMarginTokens: safetyMargin,
+	}
+
+	fit, err := budget.FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+	if !fit.ShouldCompact {
+		t.Fatalf("FitRequest() = %+v, want compaction from the hard-limit pad", fit)
+	}
+	if fit.PromptUsage >= normalPromptCompactionThreshold {
+		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, normalPromptCompactionThreshold)
+	}
+	if fit.Fits {
+		t.Fatalf("FitRequest() = %+v, want hard-limit pad to force non-fit", fit)
+	}
+	if got, want := fit.HardLimitTokens, promptTokens-1; got != want {
+		t.Fatalf("FitRequest hard limit = %d, want %d", got, want)
+	}
+}
