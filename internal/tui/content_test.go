@@ -48,6 +48,9 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 	if seg.delegData.status != "active" {
 		t.Errorf("delegData.status = %q, want %q", seg.delegData.status, "active")
 	}
+	if !seg.delegData.promptCollapsed {
+		t.Error("delegData.promptCollapsed = false, want true")
+	}
 }
 
 func TestAppendEventDelegationComplete(t *testing.T) {
@@ -375,6 +378,50 @@ func TestDelegationToggleOutput(t *testing.T) {
 	}
 }
 
+func TestDelegationPromptStateFromParentCall(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	task := strings.Repeat("inspect docs carefully ", 6)
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": task,
+	}))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if got := dd.promptText; got != task {
+		t.Fatalf("promptText = %q, want full task %q", got, task)
+	}
+	if got := dd.parentArgs; got == task {
+		t.Fatalf("parentArgs = %q, want summarized header text", got)
+	}
+}
+
+func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	task := strings.Repeat("inspect docs carefully ", 6)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{"task": task}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if got := dd.promptText; got != task {
+		t.Fatalf("promptText = %q, want full task %q", got, task)
+	}
+	if dd.promptCollapsed != true {
+		t.Fatal("promptCollapsed = false, want true")
+	}
+}
+
 func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -461,7 +508,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md", "ctrl+x or click to expand"} {
+	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md", "ctrl+x or click header to expand"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -492,13 +539,97 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click to collapse"} {
+	for _, want := range []string{"delegate", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click header to collapse"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
 	}
 	if strings.Contains(rendered, "┌") && strings.Contains(rendered, "bash") && strings.Contains(rendered, "pwd") && strings.Count(rendered, "┌") > 1 {
 		t.Fatalf("expanded delegation child tool should not render like a nested boxed tool call: %q", rendered)
+	}
+}
+
+func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	prompt := "inspect the prompt layout\nwith a line that wraps nicely"
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": prompt,
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", prompt))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "final child output"))
+
+	buffer.ToggleLastDelegationOutput()
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	dd.collapsed = false
+	dd.promptCollapsed = false
+	buffer.segments[0].renderDirty = true
+
+	renderedCollapsed := stripANSI(buffer.String(42))
+	if !strings.Contains(renderedCollapsed, "▾ prompt") {
+		t.Fatalf("expanded prompt render %q missing subsection header", renderedCollapsed)
+	}
+
+	dd.promptCollapsed = true
+	buffer.segments[0].renderDirty = true
+	renderedPreview := buffer.String(42)
+	if !strings.Contains(renderedPreview, "▸ prompt") {
+		t.Fatalf("collapsed prompt render %q missing subsection header", renderedPreview)
+	}
+	if strings.Contains(renderedPreview, "inspect the prompt layout with a long line") {
+		t.Fatalf("collapsed prompt render leaked full prompt text: %q", renderedPreview)
+	}
+
+	dd.promptCollapsed = false
+	buffer.segments[0].renderDirty = true
+	renderedExpanded := stripANSI(buffer.String(80))
+	if !strings.Contains(renderedExpanded, "▾ prompt") {
+		t.Fatalf("expanded prompt render %q missing expanded subsection header", renderedExpanded)
+	}
+	lines := strings.Split(renderedExpanded, "\n")
+	promptLine := -1
+	assistantLine := -1
+	for i, line := range lines {
+		if promptLine == -1 && strings.Contains(line, "▾ prompt") {
+			promptLine = i
+		}
+		if assistantLine == -1 && strings.Contains(line, "child assistant reply") {
+			assistantLine = i
+		}
+	}
+	if promptLine == -1 || assistantLine == -1 || assistantLine <= promptLine {
+		t.Fatalf("expanded prompt render %q ordered incorrectly", renderedExpanded)
+	}
+	if idxPrompt := strings.Index(renderedExpanded, "prompt"); idxPrompt == -1 || strings.Index(renderedExpanded, "child assistant reply") < idxPrompt {
+		t.Fatalf("expanded prompt render %q ordered incorrectly", renderedExpanded)
+	}
+}
+
+func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", ""))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+		"task": "",
+	}))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "final child output"))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := buffer.String(80)
+	if strings.Contains(rendered, "prompt") {
+		t.Fatalf("blank prompt render %q should skip subsection", rendered)
 	}
 }
 
@@ -1162,6 +1293,9 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 	}
 	if got := dd.parentArgs; got != "fix the bug in module X" {
 		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
+	}
+	if got := dd.promptText; got != "fix the bug in module X" {
+		t.Fatalf("promptText = %q, want canonical full parent task", got)
 	}
 }
 

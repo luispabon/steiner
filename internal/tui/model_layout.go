@@ -111,7 +111,6 @@ func (m *Model) handleLeftClick(termY int) {
 			continue
 		}
 		if contentLine < cumulative+h {
-			// Click landed in segment i — toggle if collapsible
 			seg := &m.content.segments[i]
 			switch seg.kind {
 			case segmentToolCall:
@@ -121,8 +120,7 @@ func (m *Model) handleLeftClick(termY int) {
 					m.syncViewport()
 				}
 			case segmentDelegation:
-				if seg.delegData != nil {
-					seg.delegData.collapsed = !seg.delegData.collapsed
+				if m.handleDelegationClick(seg, contentLine-cumulative) {
 					seg.renderDirty = true
 					m.syncViewport()
 				}
@@ -136,6 +134,47 @@ func (m *Model) handleLeftClick(termY int) {
 			return
 		}
 		cumulative += h
+	}
+}
+
+func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) bool {
+	if seg == nil || seg.kind != segmentDelegation || seg.delegData == nil {
+		return false
+	}
+	row := m.delegationRowInSegment(seg.delegData, rowInSegment)
+	switch row {
+	case 0:
+		seg.delegData.collapsed = !seg.delegData.collapsed
+		return true
+	case 1:
+		if seg.delegData.collapsed || strings.TrimSpace(seg.delegData.promptText) == "" {
+			return false
+		}
+		seg.delegData.promptCollapsed = !seg.delegData.promptCollapsed
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment int) int {
+	if dd == nil || rowInSegment < 0 {
+		return -1
+	}
+	rows := m.content.delegationRows(dd, m.viewport.Width)
+	if rowInSegment >= len(rows) {
+		return -1
+	}
+	row := rows[rowInSegment]
+	switch {
+	case row.kind == delegationRowHeader:
+		return 0
+	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
+		return 1
+	case delegationRowIsInteractive(row.kind):
+		return -1
+	default:
+		return -1
 	}
 }
 

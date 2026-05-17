@@ -300,6 +300,7 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	dd := seg.delegData
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	dd.promptText = delegatePromptText(payload.Arguments)
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
@@ -314,15 +315,18 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	}
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	promptText := delegatePromptText(payload.Arguments)
 	idx := len(b.segments)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			taskPreview:  summary,
-			parentCallID: payload.CallID,
-			parentArgs:   summary,
-			status:       "active",
-			collapsed:    true,
+			taskPreview:     summary,
+			promptText:      promptText,
+			promptCollapsed: true,
+			parentCallID:    payload.CallID,
+			parentArgs:      summary,
+			status:          "active",
+			collapsed:       true,
 		},
 		renderDirty: true,
 	})
@@ -356,11 +360,13 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			agentID:     payload.AgentID,
-			taskPreview: preview,
-			startTime:   nanoNow(),
-			status:      "active",
-			collapsed:   true,
+			agentID:         payload.AgentID,
+			taskPreview:     preview,
+			promptText:      preview,
+			promptCollapsed: true,
+			startTime:       nanoNow(),
+			status:          "active",
+			collapsed:       true,
 		},
 		renderDirty: true,
 	})

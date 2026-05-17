@@ -156,19 +156,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 		width = 12
 	}
 
-	headerWidth := width - 4
-	if headerWidth < 1 {
-		headerWidth = 1
-	}
-	header := b.renderDelegationHeader(dd, headerWidth)
-
-	lines := []string{theme.WithBg(header, lipgloss.Color(theme.BgElev))}
-	if !dd.collapsed {
-		lines = append(lines, b.renderDelegationTranscript(dd, headerWidth)...)
-		if outputLines := b.renderDelegationOutput(dd, headerWidth); len(outputLines) > 0 {
-			lines = append(lines, outputLines...)
-		}
-	}
+	lines := b.renderDelegationBoxRows(dd, width)
 
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
@@ -184,12 +172,42 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	return box + b.renderDelegationHint(dd) + "\n"
 }
 
+func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
+	rows := b.delegationRows(dd, width)
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom || row.kind == delegationRowHint {
+			continue
+		}
+		if row.text != "" {
+			lines = append(lines, row.text)
+		}
+	}
+	return lines
+}
+
 func (b *contentBuffer) renderDelegationHint(dd *delegationDisplayState) string {
 	action := "expand"
 	if !dd.collapsed {
 		action = "collapse"
 	}
-	return b.styles.FgDim.Render("ctrl+x or click to " + action)
+	return b.styles.FgDim.Render("ctrl+x or click header to " + action)
+}
+
+func (b *contentBuffer) renderDelegationPromptHeader(dd *delegationDisplayState) string {
+	disclosure := "▾"
+	if dd.promptCollapsed {
+		disclosure = "▸"
+	}
+	return b.styles.FgDim.Render(disclosure + " prompt")
+}
+
+func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, width int) []string {
+	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgMute)
+	if len(lines) == 0 {
+		return nil
+	}
+	return lines
 }
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {

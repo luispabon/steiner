@@ -92,14 +92,16 @@ type delegationTranscriptEntry struct {
 
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
-	agentID      string
-	taskPreview  string // truncated to ~80 chars
-	parentCallID string
-	parentArgs   string
-	startTime    int64  // unix nano, set on DelegationStarted
-	elapsed      string // formatted elapsed, set on Complete/Failed
-	spinnerFrame int    // index into spinnerFrames
-	status       string // "active" | "complete" | "failed"
+	agentID         string
+	taskPreview     string // truncated to ~80 chars
+	promptText      string
+	promptCollapsed bool
+	parentCallID    string
+	parentArgs      string
+	startTime       int64  // unix nano, set on DelegationStarted
+	elapsed         string // formatted elapsed, set on Complete/Failed
+	spinnerFrame    int    // index into spinnerFrames
+	status          string // "active" | "complete" | "failed"
 	// result fields (Complete)
 	resultStatus string
 	turnCount    int
