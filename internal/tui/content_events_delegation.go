@@ -303,6 +303,7 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
+	dd.promptText = dd.parentArgs
 	seg.renderDirty = true
 	return true
 }
@@ -318,11 +319,13 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			taskPreview:  summary,
-			parentCallID: payload.CallID,
-			parentArgs:   summary,
-			status:       "active",
-			collapsed:    true,
+			taskPreview:     summary,
+			promptText:      summary,
+			promptCollapsed: true,
+			parentCallID:    payload.CallID,
+			parentArgs:      summary,
+			status:          "active",
+			collapsed:       true,
 		},
 		renderDirty: true,
 	})
@@ -356,11 +359,13 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			agentID:     payload.AgentID,
-			taskPreview: preview,
-			startTime:   nanoNow(),
-			status:      "active",
-			collapsed:   true,
+			agentID:         payload.AgentID,
+			taskPreview:     preview,
+			promptText:      preview,
+			promptCollapsed: true,
+			startTime:       nanoNow(),
+			status:          "active",
+			collapsed:       true,
 		},
 		renderDirty: true,
 	})
