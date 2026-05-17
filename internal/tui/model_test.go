@@ -838,6 +838,30 @@ func TestModelShowsScaffoldInferenceThinkingOnlyWhenDebugEnabled(t *testing.T) {
 	}
 }
 
+func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
+	m.syncViewport()
+
+	got := m.viewport.View()
+	if strings.Contains(got, "context info:") || strings.Contains(got, "prompt_tokens=") {
+		t.Fatalf("viewport = %q, want no context diagnostics when debug disabled", got)
+	}
+}
+
+func TestContextDiagnosticsShownWhenDebugEnabled(t *testing.T) {
+	m := newModel(Config{ShowInternalScaffoldInference: true}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
+	m.syncViewport()
+
+	got := m.viewport.View()
+	if !strings.Contains(got, "prompt_tokens=100") {
+		t.Fatalf("viewport = %q, want context diagnostics when debug enabled", got)
+	}
+}
+
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	ctrl := &testController{}
 

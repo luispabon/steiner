@@ -106,6 +106,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
 	m.content.showInternalScaffoldInference = cfg.ShowInternalScaffoldInference
+	m.showContextDiagnostics = cfg.ShowInternalScaffoldInference
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = newActivityState(m.styles)
