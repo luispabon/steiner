@@ -107,9 +107,6 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.ThinkingParams != nil {
 		dst.ThinkingParams = copyStringAnyMap(*patch.ThinkingParams)
 	}
-	if patch.ReasoningEchoBack != nil {
-		dst.ReasoningEchoBack = *patch.ReasoningEchoBack
-	}
 	if patch.Retry != nil {
 		applyRetryPatch(&dst.Retry, patch.Retry)
 	}
