@@ -83,7 +83,7 @@ func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunSta
 	}
 
 	sourceMessages := cloneMessages(candidate.Messages)
-	retainedMessages := retainRecentTurns(sourceMessages, retainTurns)
+	sourceMessages, retainedMessages := compactionSourceAndRetention(sourceMessages, compactionRetentionBaseMessages(state.Lineage, candidate), retainTurns)
 	if len(retainedMessages) == 0 {
 		return CompactionOutcome{Candidate: candidate}, nil
 	}
@@ -161,14 +161,17 @@ func twoStageSummarizeCompactionWithStages(
 	stageRunner compactionStageRunner,
 	fitRunner compactionFitRunner,
 ) (CompactionOutcome, error) {
-	normalRetained := retainRecentTurns(candidate.Messages, normalCompactionRetainTurns)
-	normalOutcome, err := stageRunner(ctx, req, state, turn, candidate, candidate.Messages, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
+	fullMessages := cloneMessages(candidate.Messages)
+	retentionBase := compactionRetentionBaseMessages(state.Lineage, candidate)
+	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
+	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
+
+	normalOutcome, err := stageRunner(ctx, req, state, turn, candidate, normalSource, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !normalOutcome.Applied {
-		emergencyRetained := retainRecentTurns(candidate.Messages, emergencyCompactionRetainTurns)
-		emergencyOutcome, emergencyErr := stageRunner(ctx, req, state, turn, candidate, candidate.Messages, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		emergencyOutcome, emergencyErr := stageRunner(ctx, req, state, turn, candidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 		if emergencyErr != nil {
 			return CompactionOutcome{}, emergencyErr
 		}
@@ -195,10 +198,14 @@ func twoStageSummarizeCompactionWithStages(
 		return normalOutcome, nil
 	}
 
-	emergencySource := normalOutcome.State.Conversation
+	emergencySource = normalOutcome.State.Conversation
 	emergencyCandidate := normalOutcome.Candidate
 	emergencyCandidate.Messages = cloneMessages(emergencySource)
-	emergencyRetained := retainRecentTurns(emergencySource, emergencyCompactionRetainTurns)
+	emergencyRetentionBase := normalOutcome.State.Lineage.SummaryPrefixStrippedMessages()
+	if len(emergencyRetentionBase) == 0 {
+		emergencyRetentionBase = cloneMessages(emergencySource)
+	}
+	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
 	emergencyOutcome, err := stageRunner(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -236,6 +243,14 @@ func emergencyCompactionError(fit prompt.RequestTokenBudget) error {
 }
 
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (CompactionOutcome, error) {
+	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(retainedMessages))
+	if err != nil {
+		return CompactionOutcome{}, err
+	}
+	if !retainedFit.Fits {
+		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode)), compactionCannotSolveError(retainedFit)
+	}
+
 	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -599,6 +614,27 @@ func retainRecentTurns(messages []Message, retainTurns int) []Message {
 	return out
 }
 
+func compactionRetentionBaseMessages(lineage ConversationLineage, candidate ConversationCandidate) []Message {
+	base := retainedMessagesForCandidate(lineage, candidate)
+	if len(base) > 0 {
+		return base
+	}
+	return cloneMessages(candidate.Messages)
+}
+
+func compactionSourceAndRetention(fullMessages, retentionBase []Message, retainTurns int) ([]Message, []Message) {
+	retainedMessages := retainRecentTurns(retentionBase, retainTurns)
+	if len(retainedMessages) == 0 {
+		return cloneMessages(fullMessages), nil
+	}
+	if len(retainedMessages) >= len(fullMessages) {
+		return nil, cloneMessages(retainedMessages)
+	}
+	sourceMessages := make([]Message, len(fullMessages)-len(retainedMessages))
+	copy(sourceMessages, fullMessages[:len(fullMessages)-len(retainedMessages)])
+	return sourceMessages, cloneMessages(retainedMessages)
+}
+
 func splitCompactionTurns(messages []Message) [][]Message {
 	if len(messages) == 0 {
 		return nil
@@ -668,6 +704,16 @@ func compactionSummaryMaxTokensForMode(budget prompt.ModelTokenBudget, mode prom
 		return budget.MaxCompletionTokens
 	}
 	return 0
+}
+
+func compactionCannotSolveError(fit prompt.RequestTokenBudget) error {
+	return fmt.Errorf(
+		"compaction cannot solve this request: retained conversation already exceeds the hard context limit: prompt=%d context_window=%d usage=%.0f%% hard_limit=%d",
+		fit.EstimatedPromptTokens,
+		fit.ContextSize,
+		fit.PromptUsage*100,
+		fit.HardLimitTokens,
+	)
 }
 
 func selectCompactionCandidate(lineage ConversationLineage, skipped map[string]bool) (ConversationCandidate, bool) {

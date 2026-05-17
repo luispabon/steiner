@@ -1204,10 +1204,10 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 
 	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil)
 	if err == nil {
-		t.Fatal("Run() error = nil, want emergency compaction failure")
+		t.Fatal("Run() error = nil, want irreducible compaction failure")
 	}
-	if !strings.Contains(err.Error(), "emergency compaction could not reduce context enough") {
-		t.Fatalf("Run() error = %v, want emergency compaction failure", err)
+	if !strings.Contains(err.Error(), "compaction cannot solve this request") {
+		t.Fatalf("Run() error = %v, want irreducible compaction failure", err)
 	}
 	if got, want := len(providerStub.requests), 0; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
