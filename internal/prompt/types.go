@@ -77,6 +77,7 @@ type ModelTokenBudget struct {
 type RequestTokenBudget struct {
 	EstimatedPromptTokens    int
 	PromptUsage              float64
+	CompactionThreshold      float64
 	HardLimitTokens          int
 	ShouldCompact            bool
 	ReservedCompletionTokens int
