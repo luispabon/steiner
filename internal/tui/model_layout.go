@@ -161,7 +161,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	if dd == nil || rowInSegment < 0 {
 		return -1
 	}
-	rows := m.content.delegationRows(dd)
+	rows := m.content.delegationRows(dd, m.viewport.Width)
 	if rowInSegment >= len(rows) {
 		return -1
 	}

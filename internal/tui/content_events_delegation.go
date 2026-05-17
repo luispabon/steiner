@@ -300,10 +300,10 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	dd := seg.delegData
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	dd.promptText = delegatePromptText(payload.Arguments)
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
-	dd.promptText = dd.parentArgs
 	seg.renderDirty = true
 	return true
 }
@@ -315,12 +315,13 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	}
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	promptText := delegatePromptText(payload.Arguments)
 	idx := len(b.segments)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
 			taskPreview:     summary,
-			promptText:      summary,
+			promptText:      promptText,
 			promptCollapsed: true,
 			parentCallID:    payload.CallID,
 			parentArgs:      summary,

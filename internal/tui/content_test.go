@@ -383,20 +383,21 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 		segments: make([]contentSegment, 0),
 	}
 
+	task := strings.Repeat("inspect docs carefully ", 6)
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
-		"task": "inspect docs",
+		"task": task,
 	}))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
 		t.Fatal("delegData = nil")
 	}
-	if dd.promptText != dd.parentArgs {
-		t.Fatalf("promptText = %q, want parentArgs %q", dd.promptText, dd.parentArgs)
+	if got := dd.promptText; got != task {
+		t.Fatalf("promptText = %q, want full task %q", got, task)
 	}
-	if dd.promptText == "" {
-		t.Fatal("promptText = empty, want task summary")
+	if got := dd.parentArgs; got == task {
+		t.Fatalf("parentArgs = %q, want summarized header text", got)
 	}
 }
 
@@ -405,17 +406,16 @@ func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
 		segments: make([]contentSegment, 0),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
-		"task": "inspect docs",
-	}))
+	task := strings.Repeat("inspect docs carefully ", 6)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{"task": task}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
 		t.Fatal("delegData = nil")
 	}
-	if dd.promptText != dd.parentArgs {
-		t.Fatalf("promptText = %q, want parentArgs %q", dd.promptText, dd.parentArgs)
+	if got := dd.promptText; got != task {
+		t.Fatalf("promptText = %q, want full task %q", got, task)
 	}
 	if dd.promptCollapsed != true {
 		t.Fatal("promptCollapsed = false, want true")
@@ -1295,7 +1295,7 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 		t.Fatalf("parentArgs = %q, want %q", got, "fix the bug in module X")
 	}
 	if got := dd.promptText; got != "fix the bug in module X" {
-		t.Fatalf("promptText = %q, want canonical parent task", got)
+		t.Fatalf("promptText = %q, want canonical full parent task", got)
 	}
 }
 

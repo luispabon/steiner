@@ -156,11 +156,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 		width = 12
 	}
 
-	headerWidth := width - 4
-	if headerWidth < 1 {
-		headerWidth = 1
-	}
-	lines := b.renderDelegationBoxRows(dd, headerWidth)
+	lines := b.renderDelegationBoxRows(dd, width)
 
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
@@ -177,29 +173,14 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 }
 
 func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
-	rows := b.delegationRows(dd)
+	rows := b.delegationRows(dd, width)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom || row.kind == delegationRowHint {
 			continue
 		}
-		switch row.kind {
-		case delegationRowHeader:
-			lines = append(lines, theme.WithBg(b.renderDelegationHeader(dd, width), lipgloss.Color(theme.BgElev)))
-		case delegationRowPromptHeader:
-			lines = append(lines, b.renderDelegationPromptHeader(dd))
-		case delegationRowPromptBody:
-			if dd.promptCollapsed {
-				if preview := previewDelegationText(dd.promptText); preview != "" {
-					lines = append(lines, b.styles.FgMute.Render(truncateRunes(preview, max(1, width-2))))
-				}
-				continue
-			}
-			lines = append(lines, b.renderDelegationPromptBody(dd, width)...)
-		case delegationRowTranscript:
-			lines = append(lines, b.renderDelegationTranscript(dd, width)...)
-		case delegationRowOutput:
-			lines = append(lines, b.renderDelegationOutput(dd, width)...)
+		if row.text != "" {
+			lines = append(lines, row.text)
 		}
 	}
 	return lines

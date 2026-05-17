@@ -303,7 +303,17 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 1})
+	promptHeaderY := -1
+	for i, row := range m.content.delegationRows(dd, m.viewport.Width) {
+		if row.kind == delegationRowPromptHeader {
+			promptHeaderY = i
+			break
+		}
+	}
+	if promptHeaderY < 0 {
+		t.Fatal("expected prompt header row")
+	}
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: promptHeaderY})
 
 	if dd.collapsed {
 		t.Fatal("delegation should stay expanded when prompt header toggles")
@@ -313,7 +323,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	}
 
 	nonToggleY := -1
-	for i, row := range m.content.delegationRows(dd) {
+	for i, row := range m.content.delegationRows(dd, m.viewport.Width) {
 		if row.kind == delegationRowPromptBody || row.kind == delegationRowTranscript || row.kind == delegationRowOutput {
 			nonToggleY = i
 			break

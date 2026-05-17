@@ -66,6 +66,21 @@ func truncateToolArgSummary(s string) string {
 	return s
 }
 
+func delegatePromptText(args map[string]any) string {
+	if args == nil {
+		return ""
+	}
+	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
+		if v, ok := args[key]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+	}
+	for _, v := range args {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
 // summarizePatchArgs extracts the first affected file path from a patch document.
 func summarizePatchArgs(args map[string]any) string {
 	patch, _ := args["patch"].(string)

@@ -1,6 +1,12 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
+)
 
 type delegationRowKind int
 
@@ -17,26 +23,51 @@ const (
 
 type delegationRow struct {
 	kind delegationRowKind
+	text string
 }
 
-func (b *contentBuffer) delegationRows(dd *delegationDisplayState) []delegationRow {
+func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []delegationRow {
 	if dd == nil {
 		return nil
 	}
-	rows := []delegationRow{{kind: delegationRowBorderTop}, {kind: delegationRowHeader}}
+	headerWidth := width - 4
+	if headerWidth < 1 {
+		headerWidth = 1
+	}
+	rows := []delegationRow{
+		{kind: delegationRowBorderTop},
+		{
+			kind: delegationRowHeader,
+			text: theme.WithBg(b.renderDelegationHeader(dd, headerWidth), lipgloss.Color(theme.BgElev)),
+		},
+	}
 	if !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
-		rows = append(rows, delegationRow{kind: delegationRowPromptHeader})
-		rows = append(rows, delegationRow{kind: delegationRowPromptBody})
+		rows = append(rows, delegationRow{kind: delegationRowPromptHeader, text: b.renderDelegationPromptHeader(dd)})
+		if dd.promptCollapsed {
+			if preview := previewDelegationText(dd.promptText); preview != "" {
+				rows = append(rows, delegationRow{
+					kind: delegationRowPromptBody,
+					text: b.styles.FgMute.Render(truncateRunes(preview, max(1, headerWidth-2))),
+				})
+			}
+		} else {
+			for _, line := range b.renderDelegationPromptBody(dd, headerWidth) {
+				rows = append(rows, delegationRow{kind: delegationRowPromptBody, text: line})
+			}
+		}
 	}
 	if !dd.collapsed {
-		if len(dd.entries) > 0 {
-			rows = append(rows, delegationRow{kind: delegationRowTranscript})
+		for _, line := range b.renderDelegationTranscript(dd, headerWidth) {
+			rows = append(rows, delegationRow{kind: delegationRowTranscript, text: line})
 		}
-		if strings.TrimSpace(dd.output) != "" && !b.delegationOutputDuplicatesTranscript(dd, strings.TrimSpace(dd.output)) {
-			rows = append(rows, delegationRow{kind: delegationRowOutput})
+		for _, line := range b.renderDelegationOutput(dd, headerWidth) {
+			rows = append(rows, delegationRow{kind: delegationRowOutput, text: line})
 		}
 	}
-	rows = append(rows, delegationRow{kind: delegationRowBorderBottom}, delegationRow{kind: delegationRowHint})
+	rows = append(rows,
+		delegationRow{kind: delegationRowBorderBottom},
+		delegationRow{kind: delegationRowHint, text: b.renderDelegationHint(dd)},
+	)
 	return rows
 }
 
