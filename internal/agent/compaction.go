@@ -44,13 +44,15 @@ const shortCompactionSystemPrompt = "Write a concise handoff summary for the nex
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
-	State            RunState
-	Applied          bool
-	Candidate        ConversationCandidate
-	Fit              prompt.RequestTokenBudget
-	RetainedMessages []Message
-	SummaryText      string
-	PromptText       string
+	State              RunState
+	Applied            bool
+	Candidate          ConversationCandidate
+	Fit                prompt.RequestTokenBudget
+	Mode               prompt.CompactionMode
+	SummaryTokenBudget int
+	RetainedMessages   []Message
+	SummaryText        string
+	PromptText         string
 }
 
 type summarizeCompactor struct{}
@@ -85,7 +87,7 @@ func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunSta
 	sourceMessages := cloneMessages(candidate.Messages)
 	sourceMessages, retainedMessages := compactionSourceAndRetention(sourceMessages, compactionRetentionBaseMessages(state.Lineage, candidate), retainTurns)
 	if len(retainedMessages) == 0 {
-		return CompactionOutcome{Candidate: candidate}, nil
+		return CompactionOutcome{Candidate: candidate, Mode: prompt.CompactionModeNormal}, nil
 	}
 	retainedMessages = append([]Message{{Role: MessageRoleSummary, Content: dropCompactionMarker}}, retainedMessages...)
 
@@ -101,13 +103,15 @@ func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunSta
 	}
 
 	return CompactionOutcome{
-		State:            nextState,
-		Applied:          true,
-		Candidate:        candidate,
-		Fit:              fit,
-		RetainedMessages: cloneMessages(retainedMessages),
-		SummaryText:      dropCompactionMarker,
-		PromptText:       fmt.Sprintf("drop retain_turns=%d", retainTurns),
+		State:              nextState,
+		Applied:            true,
+		Candidate:          candidate,
+		Fit:                fit,
+		Mode:               prompt.CompactionModeNormal,
+		SummaryTokenBudget: compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+		RetainedMessages:   cloneMessages(retainedMessages),
+		SummaryText:        dropCompactionMarker,
+		PromptText:         fmt.Sprintf("drop retain_turns=%d", retainTurns),
 	}, nil
 }
 
@@ -129,13 +133,15 @@ func (h hybridCompactor) Compact(ctx context.Context, req RunRequest, state RunS
 		nextState.Lineage = nextLineage
 		nextState.Conversation = nextLineage.FullMessages()
 		return CompactionOutcome{
-			State:            nextState,
-			Applied:          true,
-			Candidate:        candidate,
-			Fit:              fit,
-			RetainedMessages: cloneMessages(maskedMessages),
-			SummaryText:      "[conversation masked; no summary needed]",
-			PromptText:       fmt.Sprintf("hybrid mask window=%d", window),
+			State:              nextState,
+			Applied:            true,
+			Candidate:          candidate,
+			Fit:                fit,
+			Mode:               prompt.CompactionModeNormal,
+			SummaryTokenBudget: compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+			RetainedMessages:   cloneMessages(maskedMessages),
+			SummaryText:        "[conversation masked; no summary needed]",
+			PromptText:         fmt.Sprintf("hybrid mask window=%d", window),
 		}, nil
 	}
 
@@ -234,11 +240,16 @@ func needsEmergencyCompaction(fit prompt.RequestTokenBudget) bool {
 }
 
 func emergencyCompactionError(fit prompt.RequestTokenBudget) error {
+	threshold := fit.CompactionThreshold
+	if threshold <= 0 {
+		threshold = compactionUsageThreshold
+	}
 	return fmt.Errorf(
-		"emergency compaction could not reduce context enough: prompt=%d context_window=%d usage=%.0f%% compaction_threshold=70%%",
+		"emergency compaction could not reduce context enough: prompt=%d context_window=%d usage=%.0f%% compaction_threshold=%.0f%%",
 		fit.EstimatedPromptTokens,
 		fit.ContextSize,
 		fit.PromptUsage*100,
+		threshold*100,
 	)
 }
 
@@ -248,7 +259,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return CompactionOutcome{}, err
 	}
 	if !retainedFit.Fits {
-		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode)), compactionCannotSolveError(retainedFit)
+		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), compactionCannotSolveError(retainedFit)
 	}
 
 	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
@@ -256,7 +267,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return CompactionOutcome{}, err
 	}
 	if !ok {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, mode, maxTokens), nil
 	}
 
 	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget)
@@ -266,7 +277,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, mode, maxTokens), nil
 	}
 
 	retained := cloneMessages(plan.retainedMessages)
@@ -277,13 +288,15 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	return CompactionOutcome{
-		State:            nextState,
-		Applied:          true,
-		Candidate:        candidate,
-		Fit:              latestFit,
-		RetainedMessages: retained,
-		SummaryText:      summaryText,
-		PromptText:       plan.promptText,
+		State:              nextState,
+		Applied:            true,
+		Candidate:          candidate,
+		Fit:                latestFit,
+		Mode:               mode,
+		SummaryTokenBudget: maxTokens,
+		RetainedMessages:   retained,
+		SummaryText:        summaryText,
+		PromptText:         plan.promptText,
 	}, nil
 }
 
@@ -316,7 +329,7 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	compacted, err := r.compactConversationForBudget(ctx, req, &state, 0, skipped, &compactionCount)
+	compacted, err := r.compactConversationForBudget(ctx, req, &state, 0, nil, skipped, &compactionCount)
 	if err != nil {
 		return nil, err
 	}
@@ -327,10 +340,21 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 	return state.Conversation, nil
 }
 
-func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, skipped map[string]bool, compactionCount *int) (bool, error) {
+func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
 		return false, nil
+	}
+
+	currentFit := prompt.RequestTokenBudget{}
+	if beforeFit != nil {
+		currentFit = *beforeFit
+	} else {
+		var err error
+		currentFit, err = fitConversationState(ctx, req, *state)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	compactor := compactorForRequest(req)
@@ -350,7 +374,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 		if recorder, ok := req.ContextManager.(CompactionRecorder); ok {
 			recorder.RecordCompaction(turn)
 		}
-		emitCompactionDiagnostics(req.Events, turn, *compactionCount, outcome.Fit, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
+		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
 	}
 	resetEpochForContextManager(req.ContextManager, turn)
 	skipped[compactionCandidateKey(candidate)] = true
@@ -388,7 +412,7 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 		return CompactionOutcome{}, err
 	}
 	if !ok {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal)), nil
 	}
 
 	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget)
@@ -398,20 +422,22 @@ func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunSt
 
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal)), nil
 	}
 
 	retained := cloneMessages(plan.retainedMessages)
 	nextState := buildSummarizedCompactionState(state, summaryText, candidate, turn, retained)
 
 	return CompactionOutcome{
-		State:            nextState,
-		Applied:          true,
-		Candidate:        candidate,
-		Fit:              plan.fit,
-		RetainedMessages: retained,
-		SummaryText:      summaryText,
-		PromptText:       plan.promptText,
+		State:              nextState,
+		Applied:            true,
+		Candidate:          candidate,
+		Fit:                plan.fit,
+		Mode:               prompt.CompactionModeNormal,
+		SummaryTokenBudget: compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+		RetainedMessages:   retained,
+		SummaryText:        summaryText,
+		PromptText:         plan.promptText,
 	}, nil
 }
 
@@ -539,13 +565,15 @@ func shortPromptCompactionExecutionPlan(ctx context.Context, req RunRequest, sta
 	return shortPlan, true, nil
 }
 
-func compactionNotAppliedOutcome(candidate ConversationCandidate, fit prompt.RequestTokenBudget, promptText string) CompactionOutcome {
+func compactionNotAppliedOutcome(candidate ConversationCandidate, fit prompt.RequestTokenBudget, promptText string, mode prompt.CompactionMode, summaryTokenBudget int) CompactionOutcome {
 	return CompactionOutcome{
-		Candidate:   candidate,
-		Fit:         fit,
-		PromptText:  promptText,
-		Applied:     false,
-		SummaryText: "",
+		Candidate:          candidate,
+		Fit:                fit,
+		Mode:               mode,
+		SummaryTokenBudget: summaryTokenBudget,
+		PromptText:         promptText,
+		Applied:            false,
+		SummaryText:        "",
 	}
 }
 
