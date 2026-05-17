@@ -282,7 +282,8 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "result text")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task preview")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEvent(1, "transcript body"), "child-1")})
 
 	dd := m.content.segments[0].delegData
 	if dd == nil {
@@ -299,9 +300,38 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	if dd.collapsed {
 		t.Fatal("delegation should expand on mouse click")
 	}
-	rendered := m.content.String(m.viewport.Width)
-	if !strings.Contains(rendered, "result text") {
-		t.Fatalf("rendered content = %q, want expanded delegation output", rendered)
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 1})
+
+	if dd.collapsed {
+		t.Fatal("delegation should stay expanded when prompt header toggles")
+	}
+	if !dd.promptCollapsed {
+		t.Fatal("prompt subsection should collapse on prompt header click")
+	}
+
+	nonToggleY := -1
+	for i, row := range m.content.delegationRows(dd) {
+		if row.kind == delegationRowPromptBody || row.kind == delegationRowTranscript || row.kind == delegationRowOutput {
+			nonToggleY = i
+			break
+		}
+	}
+	if nonToggleY < 0 {
+		t.Fatal("expected a non-interactive delegation row to click")
+	}
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: nonToggleY})
+
+	if dd.collapsed {
+		t.Fatal("transcript/body click should not collapse delegation")
+	}
+	if !dd.promptCollapsed {
+		t.Fatal("transcript/body click should not toggle prompt subsection")
 	}
 }
 
