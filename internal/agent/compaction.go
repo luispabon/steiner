@@ -145,21 +145,37 @@ func (h hybridCompactor) Compact(ctx context.Context, req RunRequest, state RunS
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
+	return twoStageSummarizeCompactionWithStages(ctx, req, state, turn, candidate, summarizeCompactionStage, fitConversationState)
+}
+
+type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, []Message, []Message, prompt.CompactionMode, int) (CompactionOutcome, error)
+
+type compactionFitRunner func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error)
+
+func twoStageSummarizeCompactionWithStages(
+	ctx context.Context,
+	req RunRequest,
+	state RunState,
+	turn int,
+	candidate ConversationCandidate,
+	stageRunner compactionStageRunner,
+	fitRunner compactionFitRunner,
+) (CompactionOutcome, error) {
 	normalRetained := retainRecentTurns(candidate.Messages, normalCompactionRetainTurns)
-	normalOutcome, err := summarizeCompactionStage(ctx, req, state, turn, candidate, candidate.Messages, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
+	normalOutcome, err := stageRunner(ctx, req, state, turn, candidate, candidate.Messages, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !normalOutcome.Applied {
 		emergencyRetained := retainRecentTurns(candidate.Messages, emergencyCompactionRetainTurns)
-		emergencyOutcome, emergencyErr := summarizeCompactionStage(ctx, req, state, turn, candidate, candidate.Messages, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		emergencyOutcome, emergencyErr := stageRunner(ctx, req, state, turn, candidate, candidate.Messages, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 		if emergencyErr != nil {
 			return CompactionOutcome{}, emergencyErr
 		}
 		if !emergencyOutcome.Applied {
 			return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
 		}
-		emergencyFit, emergencyErr := fitConversationState(ctx, req, emergencyOutcome.State)
+		emergencyFit, emergencyErr := fitRunner(ctx, req, emergencyOutcome.State)
 		if emergencyErr != nil {
 			return CompactionOutcome{}, emergencyErr
 		}
@@ -170,7 +186,7 @@ func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunS
 		return emergencyOutcome, nil
 	}
 
-	normalFit, err := fitConversationState(ctx, req, normalOutcome.State)
+	normalFit, err := fitRunner(ctx, req, normalOutcome.State)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -183,15 +199,15 @@ func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunS
 	emergencyCandidate := normalOutcome.Candidate
 	emergencyCandidate.Messages = cloneMessages(emergencySource)
 	emergencyRetained := retainRecentTurns(emergencySource, emergencyCompactionRetainTurns)
-	emergencyOutcome, err := summarizeCompactionStage(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	emergencyOutcome, err := stageRunner(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !emergencyOutcome.Applied {
-		return emergencyOutcome, nil
+		return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
 	}
 
-	emergencyFit, err := fitConversationState(ctx, req, emergencyOutcome.State)
+	emergencyFit, err := fitRunner(ctx, req, emergencyOutcome.State)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}

@@ -358,6 +358,114 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 	}
 }
 
+func TestTwoStageSummarizeCompactionErrorsWhenEmergencyStageDoesNotApply(t *testing.T) {
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+			{Role: MessageRoleUser, Content: "turn 4 user"},
+			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+		}),
+	}
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	normalState := RunState{
+		Conversation: []Message{{Role: MessageRoleSummary, Content: "normal summary"}},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleSummary, Content: "normal summary"},
+		}),
+	}
+
+	req := RunRequest{
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               1000,
+			MaxCompletionTokens:       128,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          64,
+			NormalSummaryMaxTokens:    64,
+			EmergencySummaryMaxTokens: 16,
+		},
+	}
+
+	outcome, err := twoStageSummarizeCompactionWithStages(
+		context.Background(),
+		req,
+		state,
+		5,
+		candidate,
+		func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, _ []Message, _ []Message, mode prompt.CompactionMode, _ int) (CompactionOutcome, error) {
+			switch mode {
+			case prompt.CompactionModeNormal:
+				return CompactionOutcome{
+					Applied:   true,
+					Candidate: candidate,
+					State:     normalState,
+					Fit: prompt.RequestTokenBudget{
+						EstimatedPromptTokens: 680,
+						ContextSize:           1000,
+						PromptUsage:           0.80,
+					},
+				}, nil
+			case prompt.CompactionModeEmergency:
+				return CompactionOutcome{
+					Applied:   false,
+					Candidate: candidate,
+					Fit: prompt.RequestTokenBudget{
+						EstimatedPromptTokens: 640,
+						ContextSize:           900,
+						PromptUsage:           0.711,
+					},
+				}, nil
+			default:
+				t.Fatalf("unexpected mode %q", mode)
+				return CompactionOutcome{}, nil
+			}
+		},
+		func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+			return prompt.RequestTokenBudget{
+				EstimatedPromptTokens: 680,
+				ContextSize:           1000,
+				PromptUsage:           0.80,
+			}, nil
+		},
+	)
+	if err == nil {
+		t.Fatal("twoStageSummarizeCompactionWithStages() error = nil, want non-nil")
+	}
+	for _, needle := range []string{
+		"emergency compaction could not reduce context enough",
+		"prompt=",
+		"context_window=",
+		"usage=",
+		"compaction_threshold=70%",
+	} {
+		if !strings.Contains(err.Error(), needle) {
+			t.Fatalf("error = %q, want %q", err.Error(), needle)
+		}
+	}
+	if outcome.Applied {
+		t.Fatal("Applied = true, want false from unapplied emergency stage")
+	}
+}
+
 func TestSummarizeCompactorErrorsWhenEmergencyCompactionCannotReduceEnough(t *testing.T) {
 	err := emergencyCompactionError(prompt.RequestTokenBudget{
 		EstimatedPromptTokens: 640,
