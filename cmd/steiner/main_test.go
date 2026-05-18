@@ -1389,6 +1389,83 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+				FinishReason: "stop",
+			},
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	cfg := testRuntimeConfig("small")
+	cfg.Models = map[string]config.ModelConfig{
+		"small": {
+			Provider: "local",
+			ID:       "gpt-4o-mini",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens: 32,
+					ContextWindow:   1024,
+				},
+			},
+		},
+		"large": {
+			Provider: "local",
+			ID:       "gpt-4o",
+			Advanced: config.AdvancedConfig{
+				Limits: config.AdvancedLimitsConfig{
+					MaxOutputTokens: 96,
+					ContextWindow:   8192,
+				},
+			},
+		},
+	}
+
+	sess, err := interactive.NewSession(interactive.Dependencies{Config: cfg})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		currentAlias: sess.CurrentModelAlias,
+	}
+
+	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil)
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if got, want := providerStub.requests[0].Model, "gpt-4o-mini"; got != want {
+		t.Fatalf("first request model = %q, want %q", got, want)
+	}
+
+	if err := sess.Handle(context.Background(), interactive.SwitchModel{Name: "large"}); err != nil {
+		t.Fatalf("Handle(SwitchModel) error = %v", err)
+	}
+	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil)
+	if err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if got, want := providerStub.requests[1].Model, "gpt-4o"; got != want {
+		t.Fatalf("second request model = %q, want %q", got, want)
+	}
+	if got, want := cfg.DefaultModel, "small"; got != want {
+		t.Fatalf("runtime config default model = %q, want %q", got, want)
+	}
+}
+
 func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

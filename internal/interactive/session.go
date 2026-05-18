@@ -120,6 +120,13 @@ func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 	return agent.NewEventingApprover(eventSink, newApprovalResponder(s.approvalCoordinator))
 }
 
+// CurrentModelAlias returns the currently active model alias.
+func (s *Session) CurrentModelAlias() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config.DefaultModel
+}
+
 // CurrentModelConfig returns the currently active model config.
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
@@ -205,12 +212,15 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		s.approvalCoordinator.Submit(a)
 		return nil
 	case SwitchModel:
+		s.mu.Lock()
 		if _, ok := s.deps.Config.Models[a.Name]; !ok {
+			s.mu.Unlock()
 			err := fmt.Errorf("model %q not found in config", a.Name)
 			s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
 			return err
 		}
 		s.deps.Config.DefaultModel = a.Name
+		s.mu.Unlock()
 		return nil
 	case LoadSession:
 		return s.loadSession(ctx, a.SessionID)

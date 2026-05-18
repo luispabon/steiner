@@ -732,6 +732,29 @@ func TestCurrentModelConfig(t *testing.T) {
 	}
 }
 
+func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			DefaultModel: "current",
+			Models: map[string]config.ModelConfig{
+				"current": {Provider: "local", ID: "current-id"},
+				"fast":    {Provider: "local", ID: "fast-id"},
+			},
+		},
+	})
+
+	if got, want := s.CurrentModelAlias(), "current"; got != want {
+		t.Fatalf("CurrentModelAlias() before switch = %q, want %q", got, want)
+	}
+	if err := s.Handle(context.Background(), SwitchModel{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+	if got, want := s.CurrentModelAlias(), "fast"; got != want {
+		t.Fatalf("CurrentModelAlias() after switch = %q, want %q", got, want)
+	}
+}
+
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{

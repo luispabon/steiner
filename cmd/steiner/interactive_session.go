@@ -77,7 +77,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runtime:            rt,
 		runMode:            "interactive",
 		streamingPreferred: true,
-		currentAlias:       func() string { return rt.cfg.DefaultModel },
+		currentAlias:       sess.CurrentModelAlias,
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})
