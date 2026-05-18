@@ -37,6 +37,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "apply_patch") {
 		return summarizePatchArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
+		return summarizeMutateArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -95,6 +98,29 @@ func delegatePromptText(args map[string]any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return ""
+}
+
+func summarizeMutateArgs(args map[string]any) string {
+	ops, _ := args["operations"].([]any)
+	if len(ops) == 0 {
+		return "mutate"
+	}
+	firstOp, _ := ops[0].(map[string]any)
+	path, _ := firstOp["path"].(string)
+	if path == "" {
+		from, _ := firstOp["from"].(string)
+		to, _ := firstOp["to"].(string)
+		if from != "" || to != "" {
+			path = strings.TrimSpace(from + " -> " + to)
+		}
+	}
+	if path == "" {
+		path = "mutate"
+	}
+	if len(ops) > 1 {
+		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
+	}
+	return path
 }
 
 // summarizePatchArgs extracts the first affected file path from a patch document.
@@ -158,7 +184,7 @@ func inferBodyKind(tool, body string) string {
 		return "bash"
 	case "read", "read_file":
 		return "file"
-	case "edit", "write", "write_file":
+	case "edit", "write", "write_file", "mutate":
 		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
 			return "diff"
 		}
@@ -174,7 +200,7 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagBash
 	case "read", "read_file":
 		return b.styles.ToolTagRead
-	case "write", "write_file", "edit", "apply_patch":
+	case "write", "write_file", "edit", "apply_patch", "mutate":
 		return b.styles.ToolTagWrite
 	case "grep":
 		return b.styles.ToolTagGrep
@@ -195,7 +221,7 @@ func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
 		return b.styles.ToolBorderBash
 	case "read", "read_file":
 		return b.styles.ToolBorderRead
-	case "write", "write_file", "edit", "apply_patch":
+	case "write", "write_file", "edit", "apply_patch", "mutate":
 		return b.styles.ToolBorderWrite
 	case "grep":
 		return b.styles.ToolBorderGrep

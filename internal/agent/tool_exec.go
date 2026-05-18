@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -42,22 +43,42 @@ func recordMutationForContextManager(cm ContextManager, toolName string, input m
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "write", "write_file", "edit", "apply_patch":
+	case "write", "write_file", "edit", "apply_patch", "mutate":
 	default:
 		return
 	}
 	if m, ok := result.(mutated); ok && !m.WasMutated() {
 		return
 	}
-	path, ok := input["path"].(string)
-	if !ok || strings.TrimSpace(path) == "" {
-		return
-	}
 	recorder, ok := cm.(MutationRecorder)
 	if !ok {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(toolName), "mutate") {
+		for _, path := range mutationResultPaths(result) {
+			recorder.RecordMutation(path)
+		}
+		return
+	}
+	path, ok := input["path"].(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return
+	}
 	recorder.RecordMutation(path)
+}
+
+func mutationResultPaths(result any) []string {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return nil
+	}
+	var payload struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil
+	}
+	return payload.Paths
 }
 
 func contextCancellationState(ctx context.Context, state RunState) (RunState, bool) {

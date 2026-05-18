@@ -12,6 +12,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewBashTool(env),
 		NewDisplayFileTool(env),
 		NewScratchpadTool(env),
-		NewApplyPatchTool(env),
+		NewMutateTool(env),
 	}
 }

@@ -14,6 +14,8 @@ func toolVerb(toolName string) string {
 		return "wrote"
 	case "apply_patch":
 		return "patched"
+	case "mutate":
+		return "mutated"
 	default:
 		return "updated"
 	}
@@ -60,6 +62,9 @@ func (t *FileTracker) observeMutationHeuristics(toolName string, input map[strin
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return workingFileUpdate{}, nil
 	}
+	if strings.EqualFold(strings.TrimSpace(toolName), "mutate") {
+		return t.observeMutateHeuristics(input, content)
+	}
 	path := sanitizeScratchpadPath(result.Path)
 	if path == "" && input != nil {
 		if rawPath, ok := input["path"].(string); ok {
@@ -76,6 +81,27 @@ func (t *FileTracker) observeMutationHeuristics(toolName string, input map[strin
 		facts = append(facts, fmt.Sprintf("edited %s: %s", path, summarizeTextPreview(result.Output, 96)))
 	}
 	return update, facts
+}
+
+func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) (workingFileUpdate, []string) {
+	var result struct {
+		Paths  []string `json:"paths"`
+		Output string   `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return workingFileUpdate{}, nil
+	}
+	preview := summarizeTextPreview(result.Output, 96)
+	for _, path := range result.Paths {
+		if sanitized := sanitizeScratchpadPath(path); sanitized != "" {
+			t.BumpGeneration(sanitized)
+		}
+	}
+	if len(result.Paths) == 0 {
+		return workingFileUpdate{}, nil
+	}
+	path := sanitizeScratchpadPath(result.Paths[len(result.Paths)-1])
+	return t.updateWorkingFile(path, fmt.Sprintf("mutated %s: %s", path, preview)), nil
 }
 
 func (t *FileTracker) observeBashHeuristics(input map[string]any, content string) (workingFileUpdate, []string) {
@@ -136,7 +162,7 @@ func (t *FileTracker) ObserveToolResult(_ int, toolName string, input map[string
 			observation.Action = "annotated"
 		}
 		return t.observeReadHeuristics(result, observation, content)
-	case "edit", "write", "apply_patch":
+	case "edit", "write", "apply_patch", "mutate":
 		return t.observeMutationHeuristics(toolName, input, content)
 	case "bash":
 		return t.observeBashHeuristics(input, content)

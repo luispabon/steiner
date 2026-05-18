@@ -71,7 +71,7 @@ Your role: carry out a specific, scoped implementation task.
 How to work:
 - Read the relevant files before making any changes.
 - Use scratchpad to track progress, decisions, and what remains to be done.
-- Apply changes using write, edit, or apply_patch.
+- Apply changes using mutate.
 - Run bash to execute tests, linters, or build commands to verify your work.
 - Fix failures before reporting completion.
 
@@ -117,7 +117,7 @@ How to respond:
 var agentAllowlists = map[AgentType][]string{
 	AgentTypeExplore:  {"read", "glob", "grep", "ls", "scratchpad"},
 	AgentTypeResearch: {"read", "glob", "grep", "ls", "web_search", "fetch_url", "scratchpad"},
-	AgentTypeCode:     {"read", "glob", "grep", "ls", "write", "edit", "apply_patch", "bash", "scratchpad"},
+	AgentTypeCode:     {"read", "glob", "grep", "ls", "mutate", "bash", "scratchpad"},
 	AgentTypePlan:     {"read", "glob", "grep", "ls", "scratchpad"},
 	AgentTypeVerify:   {"read", "glob", "grep", "ls", "bash", "scratchpad"},
 }

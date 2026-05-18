@@ -113,6 +113,43 @@ func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (ma
 			return nil, err
 		}
 		normalized["path"] = resolved
+	case "mutate":
+		ops, ok := normalized["operations"].([]any)
+		if !ok {
+			return normalized, nil
+		}
+		normalizedOps := make([]any, 0, len(ops))
+		for _, rawOp := range ops {
+			op, ok := rawOp.(map[string]any)
+			if !ok {
+				normalizedOps = append(normalizedOps, rawOp)
+				continue
+			}
+			nextOp := CloneJSONMap(op)
+			if path := stringInput(nextOp["path"]); path != "" {
+				resolved, err := p.ResolvePath(path, true)
+				if err != nil {
+					return nil, err
+				}
+				nextOp["path"] = resolved
+			}
+			if from := stringInput(nextOp["from"]); from != "" {
+				resolved, err := p.ResolvePath(from, true)
+				if err != nil {
+					return nil, err
+				}
+				nextOp["from"] = resolved
+			}
+			if to := stringInput(nextOp["to"]); to != "" {
+				resolved, err := p.ResolvePath(to, true)
+				if err != nil {
+					return nil, err
+				}
+				nextOp["to"] = resolved
+			}
+			normalizedOps = append(normalizedOps, nextOp)
+		}
+		normalized["operations"] = normalizedOps
 	case "bash":
 		cwd, err := p.ResolveCWD(stringInput(normalized["cwd"]))
 		if err != nil {

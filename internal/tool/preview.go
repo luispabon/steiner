@@ -44,6 +44,8 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 		return buildReadWriteApprovalPreview(preview, toolName, input)
 	case "edit":
 		return buildEditApprovalPreview(preview, input)
+	case "mutate":
+		return buildMutateApprovalPreview(preview, input)
 	case "apply_patch":
 		return buildPatchApprovalPreview(preview, input)
 	case "glob":
@@ -86,6 +88,34 @@ func buildEditApprovalPreview(preview ApprovalPreview, input map[string]any) App
 	}
 	if old := stringInput(input["old_string"]); old != "" {
 		preview.Fields = append(preview.Fields, previewTextField("old_string", old, 128))
+	}
+	return preview
+}
+
+func buildMutateApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
+	ops, ok := input["operations"].([]any)
+	if !ok {
+		return buildGenericApprovalPreview(preview, input)
+	}
+	summaries := make([]string, 0, len(ops))
+	for _, rawOp := range ops {
+		op, ok := rawOp.(map[string]any)
+		if !ok {
+			continue
+		}
+		opType := stringInput(op["type"])
+		switch opType {
+		case "move":
+			summaries = append(summaries, fmt.Sprintf("move %s -> %s", relDisplayPath(preview.WorkDir, stringInput(op["from"])), relDisplayPath(preview.WorkDir, stringInput(op["to"]))))
+		default:
+			path := relDisplayPath(preview.WorkDir, stringInput(op["path"]))
+			if path != "" {
+				summaries = append(summaries, strings.TrimSpace(opType+" "+path))
+			}
+		}
+	}
+	if len(summaries) > 0 {
+		preview.Fields = append(preview.Fields, previewTextField("operations", strings.Join(summaries, "\n"), 240))
 	}
 	return preview
 }

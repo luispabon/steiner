@@ -17,7 +17,7 @@ const (
 	ToolPreviewKindGrep = "grep"
 	// ToolPreviewKindBash is a shell command preview.
 	ToolPreviewKindBash = "bash"
-	// ToolPreviewKindPatch is an apply_patch preview.
+	// ToolPreviewKindPatch is an apply_patch or mutate preview.
 	ToolPreviewKindPatch = "patch"
 	// ToolPreviewKindPlain is a fallback preview with no structured rendering.
 	ToolPreviewKindPlain = "plain"
@@ -93,6 +93,8 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 		return buildGrepPreview(arguments, result)
 	case "bash":
 		return buildBashPreview(arguments, result)
+	case "mutate":
+		return buildMutatePreview(result)
 	case "apply_patch":
 		return buildApplyPatchPreview(result)
 	default:

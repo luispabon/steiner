@@ -42,6 +42,43 @@ func EditSchema() map[string]any {
 	}
 }
 
+// MutateSchema returns the JSON schema for the mutate tool.
+func MutateSchema() map[string]any {
+	operationSchema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"type":        map[string]any{"type": "string", "enum": []string{"create", "write", "replace", "line_replace", "delete", "move"}, "description": "Operation type"},
+			"path":        map[string]any{"type": "string", "description": "Target path for create, write, replace, line_replace, and delete"},
+			"content":     map[string]any{"type": "string", "description": "File content for create or write"},
+			"old_string":  map[string]any{"type": "string", "description": "Exact text to replace"},
+			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
+			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences for replace", "default": false},
+			"line":        map[string]any{"type": "integer", "description": "1-based line number for line_replace", "minimum": 1},
+			"from":        map[string]any{"type": "string", "description": "Source path for move"},
+			"to":          map[string]any{"type": "string", "description": "Destination path for move"},
+		},
+		"required": []string{"type"},
+	}
+	return map[string]any{
+		"type":                 "object",
+		"required":             []string{"operations"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"operations": map[string]any{
+				"type":        "array",
+				"description": "Ordered list of file mutations. All operations are planned before any filesystem writes are committed.",
+				"minItems":    1,
+				"items":       operationSchema,
+			},
+			"dry_run": map[string]any{
+				"type":        "boolean",
+				"description": "Validate and preview mutations without writing files.",
+			},
+		},
+	}
+}
+
 // GlobSchema returns the JSON schema for the glob tool.
 func GlobSchema() map[string]any {
 	return map[string]any{

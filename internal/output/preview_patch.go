@@ -38,3 +38,35 @@ func buildApplyPatchPreview(result string) ToolPreview {
 	preview.HunksFailed = payload.HunksFailed
 	return preview
 }
+
+func buildMutatePreview(result string) ToolPreview {
+	preview := ToolPreview{Kind: ToolPreviewKindPatch}
+	if strings.TrimSpace(result) == "" {
+		return preview
+	}
+	var payload struct {
+		Created  []string `json:"created"`
+		Modified []string `json:"modified"`
+		Deleted  []string `json:"deleted"`
+		Moved    []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"moved"`
+		OperationsApplied int `json:"operations_applied"`
+		OperationsFailed  int `json:"operations_failed"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		return preview
+	}
+	moved := make([]ToolPreviewPatchMove, 0, len(payload.Moved))
+	for _, m := range payload.Moved {
+		moved = append(moved, ToolPreviewPatchMove{From: m.From, To: m.To})
+	}
+	preview.PatchAdded = payload.Created
+	preview.PatchModified = payload.Modified
+	preview.PatchDeleted = payload.Deleted
+	preview.PatchMoved = moved
+	preview.HunksApplied = payload.OperationsApplied
+	preview.HunksFailed = payload.OperationsFailed
+	return preview
+}

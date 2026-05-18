@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "apply_patch"}
+		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "mutate"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -46,7 +46,7 @@ func TestBuiltins(t *testing.T) {
 		}
 	})
 
-	t.Run("write and edit are not builtin tools", func(t *testing.T) {
+	t.Run("write, edit, and apply_patch are not builtin tools", func(t *testing.T) {
 		names := make(map[string]bool)
 		for _, td := range tools {
 			names[td.Name] = true
@@ -56,6 +56,9 @@ func TestBuiltins(t *testing.T) {
 		}
 		if names["edit"] {
 			t.Error("builtin tool 'edit' should not be registered")
+		}
+		if names["apply_patch"] {
+			t.Error("builtin tool 'apply_patch' should not be registered")
 		}
 	})
 
@@ -84,6 +87,12 @@ func TestBuiltins(t *testing.T) {
 				Moved:        []MoveResult{{From: "old.txt", To: "new.txt"}},
 				HunksApplied: 3,
 				Output:       "Success.\nUpdated the following files:\nM test.txt",
+			},
+			&MutateResult{
+				Paths:             []string{"test.txt"},
+				Modified:          []string{"test.txt"},
+				OperationsApplied: 1,
+				Output:            "Success.\nUpdated the following files:\nM test.txt",
 			},
 		}
 		for i, r := range results {
@@ -119,8 +128,9 @@ func TestBuiltins(t *testing.T) {
 			_, isBash := errResult.(*BashResult)
 			_, isDisplayFile := errResult.(*DisplayFileResult)
 			_, isApplyPatch := errResult.(*ApplyPatchResult)
+			_, isMutate := errResult.(*MutateResult)
 
-			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch
+			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch || isMutate
 			if !hasResult {
 				t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 			}
