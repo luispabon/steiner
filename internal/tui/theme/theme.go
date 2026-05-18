@@ -68,6 +68,16 @@ type Styles struct {
 	ToolTagGlob    lipgloss.Style // glob (blue)
 	ToolTagGrep    lipgloss.Style // grep (magenta)
 
+	// Tool call borders (muted line colors)
+	ToolBorderBash    lipgloss.Style
+	ToolBorderRead    lipgloss.Style
+	ToolBorderWrite   lipgloss.Style
+	ToolBorderTodo    lipgloss.Style
+	ToolBorderDefault lipgloss.Style
+	ToolBorderSearch  lipgloss.Style // search (blue)
+	ToolBorderGlob    lipgloss.Style // glob (blue)
+	ToolBorderGrep    lipgloss.Style // grep (magenta)
+
 	// Diff colors
 	Added   lipgloss.Style // added lines (green)
 	Removed lipgloss.Style // removed lines (red)
@@ -152,6 +162,15 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		ToolTagSearch:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagGlob:    lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolTagGrep:    lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+
+		ToolBorderBash:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
+		ToolBorderRead:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
+		ToolBorderWrite:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
+		ToolBorderTodo:    lipgloss.NewStyle().Foreground(lipgloss.Color(WarnLine)),
+		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+		ToolBorderSearch:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+		ToolBorderGlob:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+		ToolBorderGrep:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),

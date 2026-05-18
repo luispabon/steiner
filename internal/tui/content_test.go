@@ -1606,6 +1606,35 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	}
 }
 
+func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+
+	tests := []struct {
+		name string
+		tool string
+		want lipgloss.Color
+	}{
+		{name: "bash", tool: "bash", want: lipgloss.Color(theme.ToolAmberLine)},
+		{name: "read", tool: "read", want: lipgloss.Color(theme.ToolCyanLine)},
+		{name: "write", tool: "write", want: lipgloss.Color(theme.ToolGrnLine)},
+		{name: "grep", tool: "grep", want: lipgloss.Color(theme.ToolMagLine)},
+		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
+		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
+		{name: "default", tool: "ls", want: lipgloss.Color(theme.ToolBlueLine)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buffer.toolBorderStyle(tt.tool).GetForeground()
+			if got != tt.want {
+				t.Fatalf("toolBorderStyle(%q) foreground = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
 	useTrueColor(t)
 
