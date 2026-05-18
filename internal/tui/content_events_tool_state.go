@@ -18,8 +18,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			return
 		}
 		rawArgs := cloneToolArguments(payload.Arguments)
+		toolName := normalizeToolName(payload.Tool)
 		tc := &toolCallSegment{
-			tool:                     strings.ToLower(payload.Tool),
+			tool:                     toolName,
 			args:                     summarizeArgs(payload.Tool, payload.Arguments),
 			callID:                   payload.CallID,
 			collapsed:                true,
@@ -29,6 +30,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "", tc.writeTargetExistedBefore)
 		if tc.preview.Kind != output.ToolPreviewKindPlain {
 			tc.bodyKind = previewBodyKind(tc.tool, tc.preview)
+		}
+		if b.appendAdjacentToolCall(tc) {
+			return
 		}
 		b.segments = append(b.segments, contentSegment{kind: segmentToolCall, toolData: tc, renderDirty: true})
 		return
@@ -43,31 +47,26 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 			return
 		}
 		for i := len(b.segments) - 1; i >= 0; i-- {
-			if b.segments[i].kind != segmentToolCall || b.segments[i].toolData == nil {
-				continue
+			switch b.segments[i].kind {
+			case segmentToolCall:
+				if td := b.segments[i].toolData; td != nil && callIDsMatch(td.callID, payload.CallID) {
+					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+					return
+				}
+			case segmentToolCallGroup:
+				group := b.segments[i].toolGroupData
+				if group == nil {
+					continue
+				}
+				for j := len(group.entries); j >= 1; j-- {
+					td := group.entries[j-1]
+					if td == nil || !callIDsMatch(td.callID, payload.CallID) {
+						continue
+					}
+					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+					return
+				}
 			}
-			td := b.segments[i].toolData
-			if td.callID != "" && td.callID != payload.CallID {
-				continue
-			}
-			td.body = payload.Result
-			td.hasError = payload.Error != ""
-			td.meta = "✅"
-			if td.hasError {
-				td.meta = "❌"
-			}
-			if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
-				td.preview = payload.Preview
-			} else {
-				td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
-			}
-			if td.preview.Kind != output.ToolPreviewKindPlain {
-				td.bodyKind = previewBodyKind(td.tool, td.preview)
-			} else {
-				td.bodyKind = inferBodyKind(td.tool, payload.Result)
-			}
-			b.segments[i].renderDirty = true
-			return
 		}
 		return
 	}
@@ -132,6 +131,64 @@ func (b *contentBuffer) Clear() {
 	b.activeDelegations = nil
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
+}
+
+func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
+	if tc == nil || len(b.segments) == 0 {
+		return false
+	}
+	last := &b.segments[len(b.segments)-1]
+	switch last.kind {
+	case segmentToolCall:
+		if last.toolData == nil || last.toolData.tool != tc.tool {
+			return false
+		}
+		last.toolGroupData = &toolCallGroupSegment{
+			tool:    tc.tool,
+			entries: []*toolCallSegment{last.toolData, tc},
+		}
+		last.toolData = nil
+		last.kind = segmentToolCallGroup
+		last.renderDirty = true
+		return true
+	case segmentToolCallGroup:
+		if last.toolGroupData == nil || last.toolGroupData.tool != tc.tool {
+			return false
+		}
+		last.toolGroupData.entries = append(last.toolGroupData.entries, tc)
+		last.renderDirty = true
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
+	td.body = payload.Result
+	td.hasError = payload.Error != ""
+	td.meta = "✅"
+	if td.hasError {
+		td.meta = "❌"
+	}
+	if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
+		td.preview = payload.Preview
+	} else {
+		td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+	}
+	if td.preview.Kind != output.ToolPreviewKindPlain {
+		td.bodyKind = previewBodyKind(td.tool, td.preview)
+	} else {
+		td.bodyKind = inferBodyKind(td.tool, payload.Result)
+	}
+	seg.renderDirty = true
+}
+
+func callIDsMatch(existingCallID, payloadCallID string) bool {
+	return existingCallID == "" || existingCallID == payloadCallID
+}
+
+func normalizeToolName(tool string) string {
+	return strings.ToLower(strings.TrimSpace(tool))
 }
 
 func (b *contentBuffer) AppendInterrupted() {

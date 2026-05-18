@@ -162,6 +162,8 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagWrite
 	case "grep":
 		return b.styles.ToolTagGrep
+	case "search":
+		return b.styles.ToolTagSearch
 	case "glob":
 		return b.styles.ToolTagGlob
 	case "todo":
@@ -171,31 +173,59 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 	}
 }
 
-// toolTagBgHex returns the hex background color of a tool tag pill.
-func (b *contentBuffer) toolTagBgHex(tool string) string {
-	switch strings.ToLower(strings.TrimSpace(tool)) {
+func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
+	switch normalizeToolName(tool) {
 	case "bash":
-		return theme.AccentAmber
+		return b.styles.ToolBorderBash
 	case "read", "read_file":
-		return theme.ToolCyan
+		return b.styles.ToolBorderRead
 	case "write", "write_file", "edit", "apply_patch":
-		return theme.ToolGrn
+		return b.styles.ToolBorderWrite
 	case "grep":
-		return theme.ToolMag
+		return b.styles.ToolBorderGrep
+	case "search":
+		return b.styles.ToolBorderSearch
 	case "glob":
-		return theme.ToolBlue
+		return b.styles.ToolBorderGlob
 	case "todo":
-		return theme.Warn
+		return b.styles.ToolBorderTodo
 	default:
-		return theme.ToolBlue
+		return b.styles.ToolBorderDefault
 	}
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
+	content := b.renderToolCallFrame(tc, width)
+	return b.renderToolCallBox(content, tc.tool, width)
+}
+
+func (b *contentBuffer) renderToolCallGroup(group *toolCallGroupSegment, width int) string {
+	if group == nil || len(group.entries) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(group.entries)*2-1)
+	dividerWidth := width - 4
+	if dividerWidth < 1 {
+		dividerWidth = 1
+	}
+	for i, tc := range group.entries {
+		parts = append(parts, b.renderToolCallFrame(tc, width))
+		if i < len(group.entries)-1 {
+			parts = append(parts, b.renderToolCallDivider(dividerWidth))
+		}
+	}
+
+	return b.renderToolCallBox(strings.Join(parts, "\n"), group.tool, width)
+}
+
+func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) string {
+	if tc == nil {
+		return ""
+	}
 	tagStyle := b.toolTagStyle(tc.tool)
 	tag := tagStyle.Render(tc.tool)
 	tagWidth := lipgloss.Width(tag)
-	tagBgColor := b.toolTagBgHex(tc.tool)
 	disclosure := "▾"
 	if tc.collapsed {
 		disclosure = "▸"
@@ -225,35 +255,40 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	if metaStr != "" {
 		header = header + strings.Repeat(" ", gap) + metaStr
 	}
-	header = theme.WithBg(header, lipgloss.Color(theme.BgElev))
+	if tc.collapsed {
+		return header
+	}
 
+	bodyContent := b.renderToolBody(tc, width)
+
+	return header + "\n" + bodyContent
+}
+
+func (b *contentBuffer) renderToolCallBox(content, tool string, width int) string {
+	borderStyle := b.toolBorderStyle(tool)
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(tagBgColor))
+		BorderForeground(borderStyle.GetForeground())
 
-	if tc.collapsed {
-		boxWidth := width - 2
-		if boxWidth < 1 {
-			boxWidth = 1
-		}
+	content = theme.WithBg(content, lipgloss.Color(theme.BgElev))
 
-		return boxStyle.Width(boxWidth).Render(header) + "\n"
-	}
-	// Expanded: wrap both header + body in single box
-	bodyContent := b.renderToolBody(tc, width)
-
-	// Combine for box rendering
-	fullContent := theme.WithBg(header+"\n"+bodyContent, lipgloss.Color(theme.BgElev))
-
-	// Box dimensions - lipgloss border adds 2 columns
 	boxWidth := width - 2
 	if boxWidth < 1 {
 		boxWidth = 1
 	}
 
-	return boxStyle.Width(boxWidth).Render(fullContent) + "\n"
+	return boxStyle.Width(boxWidth).Render(content) + "\n"
+}
+
+func (b *contentBuffer) renderToolCallDivider(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BorderSoft)).
+		Render(strings.Repeat("─", width))
 }
 
 func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {

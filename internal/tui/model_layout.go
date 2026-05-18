@@ -105,7 +105,7 @@ func (m *Model) handleLeftClick(termY int) {
 	// adjusted for scroll offset.
 	// content line = termY + m.viewport.YOffset
 	// (viewport renders from its YOffset in the scrollable content)
-	contentLine := termY + m.viewport.YOffset - m.contentTopPad
+	contentLine := termY + m.viewport.YOffset - m.contentTopPad - m.viewportContentTopOffset()
 
 	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
 		return
@@ -119,29 +119,50 @@ func (m *Model) handleLeftClick(termY int) {
 		}
 		if contentLine < cumulative+h {
 			seg := &m.content.segments[i]
-			switch seg.kind {
-			case segmentToolCall:
-				if seg.toolData != nil {
-					seg.toolData.collapsed = !seg.toolData.collapsed
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			case segmentDelegation:
-				if m.handleDelegationClick(seg, contentLine-cumulative) {
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			case segmentThinkingBlock:
-				if seg.thinkData != nil {
-					seg.thinkData.collapsed = !seg.thinkData.collapsed
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			}
+			m.handleSegmentClick(seg, contentLine-cumulative)
 			return
 		}
 		cumulative += h
 	}
+}
+
+func (m Model) viewportContentTopOffset() int {
+	// ContentPane normally pads the viewport down by one row, and the scrollbar
+	// layout replaces that with a leading blank row, so content starts one row
+	// below the pane top in both cases.
+	return 1
+}
+
+func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, rowInSegment, width int) int {
+	if group == nil || rowInSegment <= 0 {
+		return -1
+	}
+	row := rowInSegment - 1
+	for i, tc := range group.entries {
+		frameRows := b.toolCallFrameRowCount(tc, width)
+		if row < frameRows {
+			return i
+		}
+		row -= frameRows
+		if i < len(group.entries)-1 {
+			if row == 0 {
+				return -1
+			}
+			row--
+		}
+	}
+	return -1
+}
+
+func (b *contentBuffer) toolCallFrameRowCount(tc *toolCallSegment, width int) int {
+	if tc == nil {
+		return 0
+	}
+	frame := b.renderToolCallFrame(tc, width)
+	if frame == "" {
+		return 0
+	}
+	return strings.Count(frame, "\n") + 1
 }
 
 func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) bool {
@@ -308,4 +329,57 @@ func (m *Model) contextInfoStatus() string {
 		return "unknown_context"
 	}
 	return status
+}
+
+func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
+	switch seg.kind {
+	case segmentToolCall:
+		m.handleToolCallClick(seg)
+	case segmentToolCallGroup:
+		m.handleToolCallGroupClick(seg, rowInSegment)
+	case segmentDelegation:
+		m.handleDelegationSegmentClick(seg, rowInSegment)
+	case segmentThinkingBlock:
+		m.handleThinkingBlockClick(seg)
+	}
+}
+
+func (m *Model) handleToolCallClick(seg *contentSegment) {
+	if seg.toolData != nil {
+		seg.toolData.collapsed = !seg.toolData.collapsed
+		seg.renderDirty = true
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) {
+	if seg.toolGroupData == nil {
+		return
+	}
+	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width)
+	if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
+		return
+	}
+	entry := seg.toolGroupData.entries[entryIndex]
+	if entry == nil {
+		return
+	}
+	entry.collapsed = !entry.collapsed
+	seg.renderDirty = true
+	m.syncViewport()
+}
+
+func (m *Model) handleDelegationSegmentClick(seg *contentSegment, rowInSegment int) {
+	if m.handleDelegationClick(seg, rowInSegment) {
+		seg.renderDirty = true
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleThinkingBlockClick(seg *contentSegment) {
+	if seg.thinkData != nil {
+		seg.thinkData.collapsed = !seg.thinkData.collapsed
+		seg.renderDirty = true
+		m.syncViewport()
+	}
 }

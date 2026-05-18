@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -1603,6 +1604,159 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered preview %q missing %q", got, want)
 		}
+	}
+}
+
+func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+
+	tests := []struct {
+		name string
+		tool string
+		want lipgloss.Color
+	}{
+		{name: "bash", tool: "bash", want: lipgloss.Color(theme.ToolAmberLine)},
+		{name: "read", tool: "read", want: lipgloss.Color(theme.ToolCyanLine)},
+		{name: "write", tool: "write", want: lipgloss.Color(theme.ToolGrnLine)},
+		{name: "grep", tool: "grep", want: lipgloss.Color(theme.ToolMagLine)},
+		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
+		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
+		{name: "default", tool: "ls", want: lipgloss.Color(theme.ToolBlueLine)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buffer.toolBorderStyle(tt.tool).GetForeground()
+			if got != tt.want {
+				t.Fatalf("toolBorderStyle(%q) foreground = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_2", map[string]any{"command": "git status"}))
+
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments = %d, want 1 grouped segment", got)
+	}
+	if got := buffer.segments[0].kind; got != segmentToolCallGroup {
+		t.Fatalf("segment kind = %v, want segmentToolCallGroup", got)
+	}
+	group := buffer.segments[0].toolGroupData
+	if group == nil {
+		t.Fatal("toolGroupData = nil, want grouped tool calls")
+	}
+	if got := len(group.entries); got != 2 {
+		t.Fatalf("group entries = %d, want 2", got)
+	}
+
+	rendered := stripANSI(buffer.String(100))
+	if !strings.Contains(rendered, "pwd") || !strings.Contains(rendered, "git status") {
+		t.Fatalf("rendered grouped tool output %q missing commands", rendered)
+	}
+	if got := strings.Count(rendered, "┌"); got != 1 {
+		t.Fatalf("group top borders = %d, want 1", got)
+	}
+	if got := strings.Count(rendered, "└"); got != 1 {
+		t.Fatalf("group bottom borders = %d, want 1", got)
+	}
+}
+
+func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
+
+	rendered := stripANSI(buffer.String(80))
+	if got := strings.Count(rendered, "┌"); got != 1 {
+		t.Fatalf("single tool top borders = %d, want 1", got)
+	}
+	if got := strings.Count(rendered, "└"); got != 1 {
+		t.Fatalf("single tool bottom borders = %d, want 1", got)
+	}
+}
+
+func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_2", map[string]any{"path": "README.md"}))
+
+	if got := len(buffer.segments); got != 2 {
+		t.Fatalf("segments = %d, want 2 separate segments", got)
+	}
+	rendered := stripANSI(buffer.String(100))
+	if got := strings.Count(rendered, "┌"); got != 2 {
+		t.Fatalf("mixed top borders = %d, want 2", got)
+	}
+}
+
+func TestRenderNonToolSegmentBreaksToolGrouping(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
+	buffer.AppendLine("note")
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_2", map[string]any{"command": "git status"}))
+
+	if got := len(buffer.segments); got != 3 {
+		t.Fatalf("segments = %d, want 3 with a non-tool separator", got)
+	}
+	rendered := stripANSI(buffer.String(100))
+	if got := strings.Count(rendered, "┌"); got != 2 {
+		t.Fatalf("separated top borders = %d, want 2", got)
+	}
+}
+
+func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
+	buffer := &contentBuffer{
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_2", map[string]any{"command": "git status"}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "bash", "call_2", "bad", errors.New("boom")))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "bash", "call_1", "ok", nil))
+
+	group := buffer.segments[0].toolGroupData
+	if group == nil {
+		t.Fatal("toolGroupData = nil, want grouped tool calls")
+	}
+	if got := group.entries[0].body; got != "ok" {
+		t.Fatalf("first grouped call body = %q, want ok", got)
+	}
+	if got := group.entries[0].meta; got != "✅" {
+		t.Fatalf("first grouped call meta = %q, want ✅", got)
+	}
+	if group.entries[0].hasError {
+		t.Fatal("first grouped call hasError = true, want false")
+	}
+	if got := group.entries[1].body; got != "bad" {
+		t.Fatalf("second grouped call body = %q, want bad", got)
+	}
+	if got := group.entries[1].meta; got != "❌" {
+		t.Fatalf("second grouped call meta = %q, want ❌", got)
+	}
+	if !group.entries[1].hasError {
+		t.Fatal("second grouped call hasError = false, want true")
 	}
 }
 

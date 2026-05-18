@@ -43,6 +43,28 @@ func TestBlendHex(t *testing.T) {
 	}
 }
 
+func TestToolBorderLineColors(t *testing.T) {
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "bash", got: ToolAmberLine, want: blendHex(AccentAmber, Bg, 0.30)},
+		{name: "read", got: ToolCyanLine, want: blendHex(ToolCyan, Bg, 0.30)},
+		{name: "write", got: ToolGrnLine, want: blendHex(ToolGrn, Bg, 0.30)},
+		{name: "grep", got: ToolMagLine, want: blendHex(ToolMag, Bg, 0.30)},
+		{name: "search", got: ToolBlueLine, want: blendHex(ToolBlue, Bg, 0.30)},
+		{name: "todo", got: WarnLine, want: blendHex(Warn, Bg, 0.30)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("%s = %q, want %q", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHexToRGB(t *testing.T) {
 	tests := []struct {
 		name  string
