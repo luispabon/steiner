@@ -140,11 +140,11 @@ func TestBraveSearcherSearch(t *testing.T) {
 			}))
 			defer server.Close()
 
-			searcher, err := NewBraveSearcher("test-api-key")
+			s, err := NewBraveSearcher("test-api-key")
 			if err != nil {
 				t.Fatalf("failed to create searcher: %v", err)
 			}
-
+			searcher := s.(*braveSearcher)
 			searcher.endpoint = server.URL
 
 			ctx := context.Background()
@@ -194,11 +194,11 @@ func TestBraveSearcherContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	searcher, err := NewBraveSearcher("test-api-key")
+	s, err := NewBraveSearcher("test-api-key")
 	if err != nil {
 		t.Fatalf("failed to create searcher: %v", err)
 	}
-
+	searcher := s.(*braveSearcher)
 	searcher.endpoint = server.URL
 
 	ctx, cancel := context.WithCancel(context.Background())

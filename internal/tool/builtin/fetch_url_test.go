@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/wonton/fetch"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )

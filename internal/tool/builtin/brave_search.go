@@ -12,7 +12,7 @@ import (
 	"github.com/deepnoodle-ai/wonton/web"
 )
 
-type BraveSearcher struct {
+type braveSearcher struct {
 	apiKey     string
 	httpClient *http.Client
 	endpoint   string
@@ -30,11 +30,12 @@ type braveResult struct {
 	Description string `json:"description"`
 }
 
-func NewBraveSearcher(apiKey string) (*BraveSearcher, error) {
+// NewBraveSearcher returns a web.Searcher backed by the Brave Search API.
+func NewBraveSearcher(apiKey string) (web.Searcher, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("brave searcher: api key is empty")
 	}
-	return &BraveSearcher{
+	return &braveSearcher{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
@@ -43,7 +44,7 @@ func NewBraveSearcher(apiKey string) (*BraveSearcher, error) {
 	}, nil
 }
 
-func (bs *BraveSearcher) Search(ctx context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
+func (bs *braveSearcher) Search(ctx context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
 	if input == nil {
 		return nil, fmt.Errorf("search: input is nil")
 	}
