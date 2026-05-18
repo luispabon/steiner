@@ -119,40 +119,7 @@ func (m *Model) handleLeftClick(termY int) {
 		}
 		if contentLine < cumulative+h {
 			seg := &m.content.segments[i]
-			switch seg.kind {
-			case segmentToolCall:
-				if seg.toolData != nil {
-					seg.toolData.collapsed = !seg.toolData.collapsed
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			case segmentToolCallGroup:
-				if seg.toolGroupData == nil {
-					return
-				}
-				entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, contentLine-cumulative, m.viewport.Width)
-				if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
-					return
-				}
-				entry := seg.toolGroupData.entries[entryIndex]
-				if entry == nil {
-					return
-				}
-				entry.collapsed = !entry.collapsed
-				seg.renderDirty = true
-				m.syncViewport()
-			case segmentDelegation:
-				if m.handleDelegationClick(seg, contentLine-cumulative) {
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			case segmentThinkingBlock:
-				if seg.thinkData != nil {
-					seg.thinkData.collapsed = !seg.thinkData.collapsed
-					seg.renderDirty = true
-					m.syncViewport()
-				}
-			}
+			m.handleSegmentClick(seg, contentLine-cumulative)
 			return
 		}
 		cumulative += h
@@ -362,4 +329,57 @@ func (m *Model) contextInfoStatus() string {
 		return "unknown_context"
 	}
 	return status
+}
+
+func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
+	switch seg.kind {
+	case segmentToolCall:
+		m.handleToolCallClick(seg)
+	case segmentToolCallGroup:
+		m.handleToolCallGroupClick(seg, rowInSegment)
+	case segmentDelegation:
+		m.handleDelegationSegmentClick(seg, rowInSegment)
+	case segmentThinkingBlock:
+		m.handleThinkingBlockClick(seg)
+	}
+}
+
+func (m *Model) handleToolCallClick(seg *contentSegment) {
+	if seg.toolData != nil {
+		seg.toolData.collapsed = !seg.toolData.collapsed
+		seg.renderDirty = true
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) {
+	if seg.toolGroupData == nil {
+		return
+	}
+	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width)
+	if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
+		return
+	}
+	entry := seg.toolGroupData.entries[entryIndex]
+	if entry == nil {
+		return
+	}
+	entry.collapsed = !entry.collapsed
+	seg.renderDirty = true
+	m.syncViewport()
+}
+
+func (m *Model) handleDelegationSegmentClick(seg *contentSegment, rowInSegment int) {
+	if m.handleDelegationClick(seg, rowInSegment) {
+		seg.renderDirty = true
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleThinkingBlockClick(seg *contentSegment) {
+	if seg.thinkData != nil {
+		seg.thinkData.collapsed = !seg.thinkData.collapsed
+		seg.renderDirty = true
+		m.syncViewport()
+	}
 }
