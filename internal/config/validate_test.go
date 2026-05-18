@@ -521,6 +521,35 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `sub_agent.agents contains unknown agent type "unknown"`,
 		},
+
+		// Search validation
+		{
+			name: "search disabled (empty backend)",
+			cfg: func() Config {
+				c := validBase()
+				c.Search = SearchConfig{Backend: ""}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "search backend unknown",
+			cfg: func() Config {
+				c := validBase()
+				c.Search = SearchConfig{Backend: "unknown"}
+				return c
+			}(),
+			wantErr: `search.backend "unknown" is not supported`,
+		},
+		{
+			name: "search backend searxng without url",
+			cfg: func() Config {
+				c := validBase()
+				c.Search = SearchConfig{Backend: "searxng", SearxngURL: ""}
+				return c
+			}(),
+			wantErr: `search.backend is "searxng" but search.searxng_url is not set`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -534,6 +563,162 @@ func TestValidate(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatalf("validate() error = nil, want %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSearchConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		backend string
+		url     string
+		setEnvs map[string]string
+		wantErr string
+	}{
+		{
+			name:    "google with env vars",
+			backend: "google",
+			setEnvs: map[string]string{
+				"GOOGLE_SEARCH_CX":      "test-cx",
+				"GOOGLE_SEARCH_API_KEY": "test-key",
+			},
+			wantErr: "",
+		},
+		{
+			name:    "google missing GOOGLE_SEARCH_CX",
+			backend: "google",
+			setEnvs: map[string]string{
+				"GOOGLE_SEARCH_API_KEY": "test-key",
+			},
+			wantErr: "GOOGLE_SEARCH_CX env var is not set",
+		},
+		{
+			name:    "google missing GOOGLE_SEARCH_API_KEY",
+			backend: "google",
+			setEnvs: map[string]string{
+				"GOOGLE_SEARCH_CX": "test-cx",
+			},
+			wantErr: "GOOGLE_SEARCH_API_KEY env var is not set",
+		},
+		{
+			name:    "kagi with env var",
+			backend: "kagi",
+			setEnvs: map[string]string{
+				"KAGI_API_KEY": "test-key",
+			},
+			wantErr: "",
+		},
+		{
+			name:    "kagi missing env var",
+			backend: "kagi",
+			setEnvs: map[string]string{},
+			wantErr: "KAGI_API_KEY env var is not set",
+		},
+		{
+			name:    "brave with env var",
+			backend: "brave",
+			setEnvs: map[string]string{
+				"BRAVE_API_KEY": "test-key",
+			},
+			wantErr: "",
+		},
+		{
+			name:    "brave missing env var",
+			backend: "brave",
+			setEnvs: map[string]string{},
+			wantErr: "BRAVE_API_KEY env var is not set",
+		},
+		{
+			name:    "searxng with url",
+			backend: "searxng",
+			url:     "http://localhost:8888",
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, value := range tt.setEnvs {
+				t.Setenv(key, value)
+			}
+
+			retry := RetryConfig{
+				Enabled:        true,
+				MaxAttempts:    3,
+				InitialBackoff: MustDuration("250ms"),
+				MaxBackoff:     MustDuration("5s"),
+				RetryAfterMax:  MustDuration("30s"),
+			}
+			cfg := Config{
+				Scheduler:    SchedulerConfig{Parallelism: 1},
+				DefaultModel: "default",
+				Providers: map[string]ProviderConfig{
+					"local": {
+						Type:    ProviderTypeOpenAICompat,
+						BaseURL: "http://localhost:11434/v1",
+					},
+				},
+				Models: map[string]ModelConfig{
+					"default": {
+						Provider: "local",
+						ID:       "qwen3-35b-a3b",
+						Retry:    retry,
+						Advanced: AdvancedConfig{
+							Limits: AdvancedLimitsConfig{
+								ContextWindow:   32768,
+								MaxOutputTokens: 8192,
+							},
+						},
+					},
+				},
+				Limits: LimitsConfig{
+					MaxTurns:           50,
+					MaxTokens:          500000,
+					ToolTimeoutDefault: MustDuration("30s"),
+					ToolTimeouts: map[string]Duration{
+						"bash": MustDuration("120s"),
+					},
+					ToolOutputMaxBytes: 65536,
+				},
+				Approval: ApprovalConfig{
+					Default:       ApprovalModeAuto,
+					ToolOverrides: map[string]*ApprovalMode{},
+				},
+				SubAgent: SubAgentConfig{Enabled: false},
+				Tools:    map[string]ToolConfig{},
+				ProjectContext: ProjectContextConfig{
+					MaxTokens: 2000,
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+					File:  "steiner.log",
+				},
+				ContextManagement: ContextManagementConfig{
+					Mode:               ContextModeNaive,
+					CompactionStrategy: CompactionStrategyDrop,
+					MaskingWindowTurns: 5,
+					ReadAnnotations:    true,
+					ScratchpadMode:     ScratchpadModeScaffoldOnly,
+				},
+				Search: SearchConfig{
+					Backend:    tt.backend,
+					SearxngURL: tt.url,
+				},
+			}
+
+			err := validate(cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validate() error = nil, want substring %q", tt.wantErr)
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("validate() error = %q, want substring %q", err.Error(), tt.wantErr)

@@ -736,3 +736,112 @@ func writeFile(t *testing.T, path, contents string) {
 		t.Fatalf("write %q: %v", path, err)
 	}
 }
+
+func TestLoadSearchConfigEmpty(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	projectDir := filepath.Join(tempDir, "project")
+	globalDir := filepath.Join(homeDir, ".config", "steiner")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+
+	mustMkdirAll(t, globalDir)
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
+  parallelism: 1
+default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+limits:
+  max_turns: 25
+approval:
+  default: auto
+`)
+
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: homeDir,
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Search.Backend != "" {
+		t.Fatalf("Search.Backend = %q, want empty", cfg.Search.Backend)
+	}
+	if cfg.Search.SearxngURL != "" {
+		t.Fatalf("Search.SearxngURL = %q, want empty", cfg.Search.SearxngURL)
+	}
+}
+
+func TestLoadSearchConfigDeserializes(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	projectDir := filepath.Join(tempDir, "project")
+	globalDir := filepath.Join(homeDir, ".config", "steiner")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+
+	mustMkdirAll(t, globalDir)
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
+  parallelism: 1
+default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+limits:
+  max_turns: 25
+approval:
+  default: auto
+search:
+  backend: searxng
+  searxng_url: http://localhost:8888
+`)
+
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: homeDir,
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Search.Backend != "searxng" {
+		t.Fatalf("Search.Backend = %q, want %q", cfg.Search.Backend, "searxng")
+	}
+	if cfg.Search.SearxngURL != "http://localhost:8888" {
+		t.Fatalf("Search.SearxngURL = %q, want %q", cfg.Search.SearxngURL, "http://localhost:8888")
+	}
+}
