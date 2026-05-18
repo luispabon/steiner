@@ -45,7 +45,7 @@ func (p *mutatePlanner) commit() error {
 		if err != nil {
 			rollbackErr := rollbackMutate(committed, snapshots)
 			if rollbackErr != nil {
-				return fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+				return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
 			return err
 		}
