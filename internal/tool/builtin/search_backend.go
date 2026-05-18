@@ -95,7 +95,7 @@ func (s *SearxngSearcher) Search(ctx context.Context, input *web.SearchInput) (*
 	if err != nil {
 		return nil, fmt.Errorf("search: http call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

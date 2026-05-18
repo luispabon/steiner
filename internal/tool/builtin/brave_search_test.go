@@ -136,7 +136,7 @@ func TestBraveSearcherSearch(t *testing.T) {
 				}
 
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.responseBody))
+				_, _ = w.Write([]byte(tt.responseBody))
 			}))
 			defer server.Close()
 
@@ -188,9 +188,9 @@ func TestBraveSearcherSearch(t *testing.T) {
 }
 
 func TestBraveSearcherContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"web": {"results": []}}`))
+		_, _ = w.Write([]byte(`{"web": {"results": []}}`))
 	}))
 	defer server.Close()
 

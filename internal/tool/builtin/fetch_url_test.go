@@ -22,9 +22,9 @@ func TestFetchURLTool(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("successful fetch returns content", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><head><title>Test Page</title><meta name="description" content="Test description"></head><body><p>Hello world</p></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><head><title>Test Page</title><meta name="description" content="Test description"></head><body><p>Hello world</p></body></html>`)
 		}))
 		defer server.Close()
 
@@ -104,9 +104,9 @@ func TestFetchURLTool(t *testing.T) {
 	})
 
 	t.Run("max_size limits content length", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><head><title>Test</title></head><body><p>`+strings.Repeat("x", 1000)+`</p></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><head><title>Test</title></head><body><p>`+strings.Repeat("x", 1000)+`</p></body></html>`)
 		}))
 		defer server.Close()
 

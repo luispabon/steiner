@@ -109,7 +109,7 @@ func TestSearxngSearcher(t *testing.T) {
 	})
 
 	t.Run("successful search maps results", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			resp := map[string]any{
 				"results": []map[string]string{
 					{
@@ -125,7 +125,7 @@ func TestSearxngSearcher(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -158,9 +158,9 @@ func TestSearxngSearcher(t *testing.T) {
 	})
 
 	t.Run("non-200 returns error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("not found"))
+			_, _ = w.Write([]byte("not found"))
 		}))
 		defer server.Close()
 
@@ -179,9 +179,9 @@ func TestSearxngSearcher(t *testing.T) {
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"results":[]}`))
+			_, _ = w.Write([]byte(`{"results":[]}`))
 		}))
 		defer server.Close()
 
@@ -207,7 +207,7 @@ func TestSearxngSearcher(t *testing.T) {
 			q := r.URL.Query()
 			count := q.Get("count")
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"results":[]}`))
+			_, _ = w.Write([]byte(`{"results":[]}`))
 
 			if count != "30" && count != "10" {
 				w.WriteHeader(http.StatusBadRequest)
