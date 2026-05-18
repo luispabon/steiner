@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,3 +213,79 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 // Ensure delegation package's AgentRunner interface is satisfied by agent.Runner
 // (compile-time check via assignment).
 var _ delegation.AgentRunner = agent.NewRunner()
+
+// failProvider is a provider stub that errors immediately on any call, so a
+// sub-agent run triggered in tests exits without blocking.
+type failProvider struct{}
+
+func (failProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, errors.New("fail")
+}
+func (failProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, errors.New("fail")
+}
+func (failProvider) SupportsUsageStats() bool { return false }
+
+// TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack guards the fix for
+// the sub-agent reasoning-echo regression: the modelResolver closure inside
+// buildActiveRegistry must call ResolveWithDiscovery (not Resolve) so that
+// ReasoningEchoBack is read from the models.dev cache. Without it,
+// stripReasoningContent removes the field that interleaved-reasoning models
+// (deepseek, kimi) require echoed back on every turn, causing a 400 on turn 2.
+func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
+	// Write a minimal models.dev cache marking the test model as interleaved
+	// reasoning (interleaved.field = "reasoning_content" → ReasoningEchoBack=true).
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+	cacheDir := filepath.Join(cacheRoot, "steiner", "model-metadata")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	cacheJSON := `{"testprov":{"models":{"reasoning-model":{"interleaved":{"field":"reasoning_content"}}}}}`
+	if err := os.WriteFile(filepath.Join(cacheDir, "models.dev.json"), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache): %v", err)
+	}
+	// expires_at far in the future so LoadBestEffort skips the network refresh.
+	metaJSON := `{"downloaded_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json","schema_version":"1"}`
+	if err := os.WriteFile(filepath.Join(cacheDir, "models.dev.meta.json"), []byte(metaJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta): %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
+		},
+	}
+	subAgentCfg := config.SubAgentConfig{
+		Enabled: true,
+		Agents: map[string]config.AgentConfig{
+			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
+		},
+	}
+
+	// providerFactory captures the ResolvedModel passed by modelResolver and
+	// returns a failProvider so the subsequent sub-agent run exits immediately.
+	var capturedModel provider.ResolvedModel
+	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+		capturedModel = rm
+		return failProvider{}, nil
+	}
+
+	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil)
+
+	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	if !ok {
+		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+	}
+
+	// Invoke the handler. modelResolver (and providerFactory) runs before the
+	// agent run starts, so the capture happens even though the run fails fast.
+	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+
+	if !capturedModel.ReasoningEchoBack {
+		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
+	}
+}
