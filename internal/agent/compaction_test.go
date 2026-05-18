@@ -189,10 +189,13 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	if got, want := outcome.State.Conversation[0].Role, MessageRoleSummary; got != want {
 		t.Fatalf("conversation[0].role = %q, want %q", got, want)
 	}
-	for _, needle := range []string{"turn 1 user", "turn 2 user", "turn 2 assistant"} {
+	for _, needle := range []string{"turn 2 user", "turn 2 assistant"} {
 		if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), needle) {
 			t.Fatalf("conversation missing retained content %q: %#v", needle, outcome.State.Conversation)
 		}
+	}
+	if messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 1 user") {
+		t.Fatalf("conversation retained older turn in raw transcript: %#v", outcome.State.Conversation)
 	}
 	if got, want := len(outcome.State.Context.RetainedSummaries), 1; got != want {
 		t.Fatalf("retained summaries = %d, want %d", got, want)
@@ -349,6 +352,82 @@ func TestSummarizeCompactorDoesNotRetainMessagesOnRecompaction(t *testing.T) {
 		if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), needle) {
 			t.Fatalf("conversation missing retained content %q: %#v", needle, outcome.State.Conversation)
 		}
+	}
+}
+
+func TestSummarizeCompactorSkipsEmptyNormalStageAndUsesEmergencySource(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "emergency handoff summary",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	state := RunState{
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "turn 1 user"},
+			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+			{Role: MessageRoleUser, Content: "turn 2 user"},
+			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+			{Role: MessageRoleUser, Content: "turn 3 user"},
+			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+		}),
+	}
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(
+		context.Background(),
+		RunRequest{
+			Provider:      providerStub,
+			ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:               100000,
+				MaxCompletionTokens:       256,
+				SafetyMarginTokens:        0,
+				SummaryMaxTokens:          128,
+				NormalSummaryMaxTokens:    128,
+				EmergencySummaryMaxTokens: 128,
+			},
+		},
+		state,
+		4,
+		candidate,
+	)
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := outcome.Mode, prompt.CompactionModeEmergency; got != want {
+		t.Fatalf("Mode = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
+	}
+	promptMessages := providerStub.requests[0].Messages
+	if !messageContentsContain(promptMessages, "turn 1 user") || !messageContentsContain(promptMessages, "turn 2 user") {
+		t.Fatalf("compaction prompt = %#v, want emergency source to include older turns", promptMessages)
+	}
+	if messageContentsContain(promptMessages, "turn 3 user") {
+		t.Fatal("compaction prompt retained latest turn, want it excluded from emergency source")
 	}
 }
 

@@ -261,6 +261,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	if !retainedFit.Fits {
 		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), compactionCannotSolveError(retainedFit)
 	}
+	if len(sourceMessages) == 0 {
+		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), nil
+	}
 
 	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
 	if err != nil {

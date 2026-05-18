@@ -1521,13 +1521,13 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := state.StopReason, StopReasonComplete; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if got, want := len(providerStub.requests), 3; got != want {
+	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
-	if got, want := len(state.Lineage.Generations), 3; got != want {
+	if got, want := len(state.Lineage.Generations), 2; got != want {
 		t.Fatalf("lineage generations = %d, want %d", got, want)
 	}
-	if got := len(state.Lineage.Generations[2].SummaryPrefix); got == 0 {
+	if got := len(state.Lineage.Generations[1].SummaryPrefix); got == 0 {
 		t.Fatal("latest summary prefix = empty, want retained compaction summary")
 	}
 
