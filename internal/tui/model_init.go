@@ -53,6 +53,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		showThinking:    cfg.ShowThinking,
 		accentPreset:    cfg.AccentPreset,
 		sidebarPosition: cfg.SidebarPosition,
+		mousePressX:     -1,
+		mousePressY:     -1,
 	}
 
 	m.configureModelState(cfg, accentHex)
