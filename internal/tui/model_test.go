@@ -295,7 +295,8 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 0})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: 0})
 
 	if dd.collapsed {
 		t.Fatal("delegation should expand on mouse click")
@@ -313,7 +314,8 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	if promptHeaderY < 0 {
 		t.Fatal("expected prompt header row")
 	}
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: promptHeaderY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: promptHeaderY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: promptHeaderY})
 
 	if dd.collapsed {
 		t.Fatal("delegation should stay expanded when prompt header toggles")
@@ -335,13 +337,48 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: nonToggleY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: nonToggleY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: nonToggleY})
 
 	if dd.collapsed {
 		t.Fatal("transcript/body click should not collapse delegation")
 	}
 	if !dd.promptCollapsed {
 		t.Fatal("transcript/body click should not toggle prompt subsection")
+	}
+}
+
+func TestModelMouseDragDoesNotToggle(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEvent(1, "body"), "child-1")})
+
+	dd := m.content.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if !dd.collapsed {
+		t.Fatal("delegation should start collapsed")
+	}
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+
+	// Press at (0,0), release at (10,0) — different X = drag, should NOT toggle
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 10, Y: 0})
+
+	if !dd.collapsed {
+		t.Fatal("drag (different X) should not toggle collapse")
+	}
+
+	// Press at (0,0), release at (0,2) — different Y = drag, should NOT toggle
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: 2})
+
+	if !dd.collapsed {
+		t.Fatal("drag (different Y) should not toggle collapse")
 	}
 }
 
