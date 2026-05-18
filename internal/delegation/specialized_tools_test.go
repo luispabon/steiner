@@ -2,11 +2,13 @@ package delegation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -15,12 +17,15 @@ import (
 // configurable mock runner.
 func minimalDeps(runner AgentRunner) SpecializedToolDeps {
 	return SpecializedToolDeps{
-		SubAgentCfg: config.SubAgentConfig{},
-		Provider:    stubProvider{},
-		ParentReg:   tool.NewRegistry(),
-		Runner:      runner,
-		Events:      noopEventSink{},
-		WorkDir:     "/tmp/work",
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     "/tmp/work",
+		},
+		ModelResolver: nil,
 	}
 }
 
@@ -196,12 +201,15 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 			}}
 
 			deps := SpecializedToolDeps{
-				SubAgentCfg: config.SubAgentConfig{},
-				Provider:    stubProvider{},
-				ParentReg:   tool.NewRegistry(allDefs...),
-				Runner:      runner,
-				Events:      noopEventSink{},
-				WorkDir:     "/tmp/work",
+				DelegateHandlerDeps: DelegateHandlerDeps{
+					SubAgentCfg: config.SubAgentConfig{},
+					Provider:    stubProvider{},
+					ParentReg:   tool.NewRegistry(allDefs...),
+					Runner:      runner,
+					Events:      noopEventSink{},
+					WorkDir:     "/tmp/work",
+				},
+				ModelResolver: nil,
 			}
 			def := SpecializedToolDef(agentType, deps)
 
@@ -238,5 +246,201 @@ func TestSpecializedHandler_ReturnsExecutionResult(t *testing.T) {
 	}
 	if _, ok := raw.(tool.ExecutionResult); !ok {
 		t.Errorf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+}
+
+func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
+	// Configure a model alias for a specific agent type.
+	// Provide a ModelResolver that records whether it was called and with what alias.
+	// Verify that the handler uses the resolved model.
+	agentType := AgentTypeExplore
+	expectedModelAlias := "custom-model"
+	resolverCalled := false
+	var resolverCalledWith string
+	var capturedReq agent.RunRequest
+
+	testProvider := stubProvider{}
+	testModel := provider.ResolvedModel{
+		Alias:           expectedModelAlias,
+		BackendModelID:  "backend-custom-model",
+		EffectiveLimits: provider.EffectiveLimits{ContextWindow: 8000, MaxOutputTokens: 2000},
+	}
+
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolverCalled = true
+		resolverCalledWith = alias
+		return testProvider, testModel, nil
+	}
+
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{
+				Agents: map[string]config.AgentConfig{
+					string(agentType): {Model: expectedModelAlias},
+				},
+			},
+			Provider:      stubProvider{},
+			ParentReg:     tool.NewRegistry(),
+			Runner:        runner,
+			Events:        noopEventSink{},
+			WorkDir:       "/tmp/work",
+			ResolvedModel: provider.ResolvedModel{BackendModelID: "parent-model"},
+		},
+		ModelResolver: modelResolver,
+	}
+
+	def := SpecializedToolDef(agentType, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resolverCalled {
+		t.Error("ModelResolver was not called")
+	}
+	if resolverCalledWith != expectedModelAlias {
+		t.Errorf("ModelResolver called with %q, want %q", resolverCalledWith, expectedModelAlias)
+	}
+	if capturedReq.ResolvedModel.Alias != expectedModelAlias {
+		t.Errorf("child RunRequest ResolvedModel.Alias=%q, want %q", capturedReq.ResolvedModel.Alias, expectedModelAlias)
+	}
+}
+
+func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
+	// No Agents entry for the agent type.
+	// ModelResolver is provided but should NOT be called.
+	// Should fall back to parent model.
+	agentType := AgentTypeExplore
+	resolverCalled := false
+
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolverCalled = true
+		return nil, provider.ResolvedModel{}, fmt.Errorf("should not be called")
+	}
+
+	var capturedReq agent.RunRequest
+	parentModel := provider.ResolvedModel{BackendModelID: "parent-model"}
+
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{
+				Agents: map[string]config.AgentConfig{}, // No entry for agentType
+			},
+			Provider:      stubProvider{},
+			ParentReg:     tool.NewRegistry(),
+			Runner:        runner,
+			Events:        noopEventSink{},
+			WorkDir:       "/tmp/work",
+			ResolvedModel: parentModel,
+		},
+		ModelResolver: modelResolver,
+	}
+
+	def := SpecializedToolDef(agentType, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resolverCalled {
+		t.Error("ModelResolver should not have been called")
+	}
+	if capturedReq.ResolvedModel.BackendModelID != parentModel.BackendModelID {
+		t.Errorf("child RunRequest BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, parentModel.BackendModelID)
+	}
+}
+
+func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
+	// Agents entry exists with a model alias, but ModelResolver is nil.
+	// Should fall back to parent model without error.
+	agentType := AgentTypeExplore
+	var capturedReq agent.RunRequest
+	parentModel := provider.ResolvedModel{BackendModelID: "parent-model"}
+
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{
+				Agents: map[string]config.AgentConfig{
+					string(agentType): {Model: "some-alias"},
+				},
+			},
+			Provider:      stubProvider{},
+			ParentReg:     tool.NewRegistry(),
+			Runner:        runner,
+			Events:        noopEventSink{},
+			WorkDir:       "/tmp/work",
+			ResolvedModel: parentModel,
+		},
+		ModelResolver: nil,
+	}
+
+	def := SpecializedToolDef(agentType, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedReq.ResolvedModel.BackendModelID != parentModel.BackendModelID {
+		t.Errorf("child RunRequest BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, parentModel.BackendModelID)
+	}
+}
+
+func TestSpecializedHandler_ModelResolverError(t *testing.T) {
+	// ModelResolver returns an error.
+	// Handler should return that error.
+	agentType := AgentTypeExplore
+	expectedAlias := "bad-model"
+	expectedErr := fmt.Errorf("model not found")
+
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		return nil, provider.ResolvedModel{}, expectedErr
+	}
+
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{
+				Agents: map[string]config.AgentConfig{
+					string(agentType): {Model: expectedAlias},
+				},
+			},
+			Provider:      stubProvider{},
+			ParentReg:     tool.NewRegistry(),
+			Runner:        runner,
+			Events:        noopEventSink{},
+			WorkDir:       "/tmp/work",
+			ResolvedModel: provider.ResolvedModel{BackendModelID: "parent-model"},
+		},
+		ModelResolver: modelResolver,
+	}
+
+	def := SpecializedToolDef(agentType, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+	if err == nil {
+		t.Fatal("expected error from ModelResolver")
+	}
+	if !strings.Contains(err.Error(), string(agentType)) {
+		t.Errorf("error %q should mention agent type %q", err.Error(), agentType)
+	}
+	if !strings.Contains(err.Error(), expectedAlias) {
+		t.Errorf("error %q should mention model alias %q", err.Error(), expectedAlias)
 	}
 }
