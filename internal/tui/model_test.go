@@ -295,8 +295,9 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: 0})
+	clickOffset := m.viewportContentTopOffset()
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickOffset})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickOffset})
 
 	if dd.collapsed {
 		t.Fatal("delegation should expand on mouse click")
@@ -314,8 +315,8 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	if promptHeaderY < 0 {
 		t.Fatal("expected prompt header row")
 	}
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: promptHeaderY})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: promptHeaderY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: promptHeaderY + clickOffset})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: promptHeaderY + clickOffset})
 
 	if dd.collapsed {
 		t.Fatal("delegation should stay expanded when prompt header toggles")
@@ -337,8 +338,8 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 
 	m.content.String(m.viewport.Width)
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: nonToggleY})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: nonToggleY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: nonToggleY + clickOffset})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: nonToggleY + clickOffset})
 
 	if dd.collapsed {
 		t.Fatal("transcript/body click should not collapse delegation")
@@ -414,20 +415,48 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 		t.Fatal("did not find divider row between grouped tool calls")
 	}
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: dividerRow})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: dividerRow})
+	clickOffset := m.viewportContentTopOffset()
+
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: dividerRow + clickOffset})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: dividerRow + clickOffset})
 	if !group.entries[0].collapsed || !group.entries[1].collapsed {
 		t.Fatal("divider click should not toggle any grouped entry")
 	}
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: rowForSecond})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: rowForSecond})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: rowForSecond + clickOffset})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: rowForSecond + clickOffset})
 
 	if !group.entries[0].collapsed {
 		t.Fatal("first grouped entry should remain collapsed")
 	}
 	if group.entries[1].collapsed {
 		t.Fatal("second grouped entry should expand on row click")
+	}
+}
+
+func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+
+	seg := m.content.segments[0].toolData
+	if seg == nil {
+		t.Fatal("toolData = nil, want standalone tool call")
+	}
+	if !seg.collapsed {
+		t.Fatal("standalone tool call should start collapsed")
+	}
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+	m.viewport.YOffset = 0
+
+	clickY := m.viewportContentTopOffset()
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickY})
+
+	if seg.collapsed {
+		t.Fatal("standalone tool call should expand on visible row click")
 	}
 }
 

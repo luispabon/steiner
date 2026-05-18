@@ -105,7 +105,7 @@ func (m *Model) handleLeftClick(termY int) {
 	// adjusted for scroll offset.
 	// content line = termY + m.viewport.YOffset
 	// (viewport renders from its YOffset in the scrollable content)
-	contentLine := termY + m.viewport.YOffset - m.contentTopPad
+	contentLine := termY + m.viewport.YOffset - m.contentTopPad - m.viewportContentTopOffset()
 
 	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
 		return
@@ -157,6 +157,13 @@ func (m *Model) handleLeftClick(termY int) {
 		}
 		cumulative += h
 	}
+}
+
+func (m Model) viewportContentTopOffset() int {
+	// ContentPane normally pads the viewport down by one row, and the scrollbar
+	// layout replaces that with a leading blank row, so content starts one row
+	// below the pane top in both cases.
+	return 1
 }
 
 func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, rowInSegment, width int) int {
