@@ -152,7 +152,7 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch preview.Kind {
 	case output.ToolPreviewKindEditDiff:
 		return "diff"
-	case output.ToolPreviewKindFileWrite, output.ToolPreviewKindReadFile:
+	case output.ToolPreviewKindFileWrite, output.ToolPreviewKindReadFile, output.ToolPreviewKindFetchURL, output.ToolPreviewKindWebSearch:
 		return "file"
 	case output.ToolPreviewKindGlobList:
 		return "glob"
