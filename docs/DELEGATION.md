@@ -55,7 +55,7 @@ Key design properties:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/delegation` | Contract types, tool definition, handler, bootstrapping, spawn logic, limits, result building |
+| `internal/delegation` | Contract types, tool definition, handler, bootstrapping, spawn logic, limits, result building, **specialized agent types and tool constructors** |
 | `internal/agent` | Conversation masking (delegate-aware), retention metadata on messages, runner interface |
 | `internal/tool` | `ToolRetention` struct, `ExecutionResult.Retention` field, `Registry.Clone()` |
 | `internal/prompt` | `delegationInstructions` preamble injected when delegation is enabled |
@@ -90,6 +90,65 @@ cloned.Register(delegation.DelegateToolDef(handler))
 ### Approval mode
 
 The delegate tool itself is registered with `ApprovalModeAuto` — no user confirmation needed to spawn a child. Child execution tools are also forced to `ApprovalModeAuto`.
+
+---
+
+## Specialized Delegate Tools
+
+Five specialized delegate tools are registered alongside the generic `delegate` tool. Each is a thin wrapper over the same delegation infrastructure — `BuildChildRun` + `SpawnDelegate` — with a baked-in system prompt, a narrower tool allowlist, and a simpler schema (single `task` parameter, no `context`/`system_prompt`/`max_turns`/`timeout` overrides).
+
+### Agent Types
+
+| Type | Role | Tool Allowlist | Default Model Tier |
+|------|------|----------------|-------------------|
+| `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls`, `scratchpad` | cheap |
+| `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url`, `scratchpad` | cheap |
+| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `write`, `edit`, `apply_patch`, `bash`, `scratchpad` | default |
+| `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls`, `scratchpad` | default |
+| `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash`, `scratchpad` | cheap |
+
+### Tool Schema (same for all types)
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task` | string | yes | Task description for the sub-agent |
+
+### Registration
+
+Specialized tools are registered in `buildActiveRegistry()` alongside the generic delegate tool when `SubAgent.Enabled` is true:
+
+```go
+for _, def := range delegation.AllSpecializedToolDefs(deps) {
+    cloned.Register(def)
+}
+```
+
+### Dummy Tools
+
+`web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry (`extendedBase`) is used as `ParentReg` for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
+
+### System Prompts
+
+Each type has a focused system prompt (200-400 tokens) that:
+- States the agent's role and capabilities
+- Specifies result format
+- Instructs scratchpad usage for intermediate findings
+- Is not shared between types
+
+### Model Selection
+
+Per-agent-type model configuration is available via `SubAgentConfig.Agents`:
+
+```yaml
+sub_agent:
+  agents:
+    explore:
+      model: fast
+    code:
+      model: default
+```
+
+Each type falls back to the global default model if no per-type override is configured.
 
 ---
 
@@ -264,6 +323,17 @@ sub_agent:
     - write
     - edit
     - bash
+  agents:                # per-type model overrides (optional)
+    explore:
+      model: fast
+    research:
+      model: fast
+    code:
+      model: default
+    plan:
+      model: default
+    verify:
+      model: fast
 ```
 
 `max_tokens` maps to `agent.Limits.MaxTokens`, which limits accumulated tracked child token usage. It is not an output-size cap.
@@ -274,10 +344,12 @@ sub_agent:
 
 When `DelegationEnabled` is true in prompt assembly options, `prompt.SystemPreamble()` prepends the `delegationInstructions` block to the system prompt. This provides the model with:
 
+- A quick-reference table of specialized delegate tools and when to use each
 - Classification heuristics (when to delegate vs work locally)
 - Task categories suited for delegation (investigation, research, implementation, verification, review)
 - Guidance on what makes a good delegation (self-contained, paths/constraints, success criteria)
-- Explicit constraints (sub-agents cannot delegate or ask the user)
+- Explicit constraints (sub-agents cannot delegate further or ask the user)
+- A note that `plan` is for focused sub-problem analysis, not top-level planning
 
 ---
 
@@ -309,3 +381,4 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 9. **Summary cap**: retention summaries capped at 1000 runes
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist
 11. **Enforced allow-list**: `allowed_tools` is enforced during child registry construction; only listed tools (minus `delegate`) are visible and executable by the child. All child exec registry tools are auto-approved within this enforced set.
+12. **Specialized tool allowlists**: each specialized type enforces a per-type tool allowlist that is narrower than the global `allowed_tools`
