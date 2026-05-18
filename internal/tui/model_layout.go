@@ -78,16 +78,23 @@ func (m *Model) scrollDown(lines int) {
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) {
-	if msg.Action != tea.MouseActionPress {
-		return
-	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		m.scrollUp(m.viewport.MouseWheelDelta)
-	case tea.MouseButtonWheelDown:
-		m.scrollDown(m.viewport.MouseWheelDelta)
-	case tea.MouseButtonLeft:
-		m.handleLeftClick(msg.Y)
+	switch msg.Action {
+	case tea.MouseActionPress:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollUp(m.viewport.MouseWheelDelta)
+		case tea.MouseButtonWheelDown:
+			m.scrollDown(m.viewport.MouseWheelDelta)
+		case tea.MouseButtonLeft:
+			m.mousePressX = msg.X
+			m.mousePressY = msg.Y
+		}
+	case tea.MouseActionRelease:
+		if msg.Button == tea.MouseButtonLeft && m.mousePressX == msg.X && m.mousePressY == msg.Y {
+			m.handleLeftClick(msg.Y)
+		}
+		m.mousePressX = -1
+		m.mousePressY = -1
 	}
 }
 
