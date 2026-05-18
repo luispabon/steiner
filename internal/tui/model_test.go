@@ -382,6 +382,55 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 	}
 }
 
+func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_2", map[string]any{"command": "git status"})})
+
+	group := m.content.segments[0].toolGroupData
+	if group == nil {
+		t.Fatal("toolGroupData = nil, want grouped tool calls")
+	}
+
+	m.content.String(m.viewport.Width)
+	m.contentTopPad = 0
+	m.viewport.YOffset = 0
+
+	rowForSecond := -1
+	dividerRow := -1
+	for row := 1; row < m.content.segmentHeights[0]-1; row++ {
+		switch idx := m.content.toolCallGroupEntryAtRow(group, row, m.viewport.Width); {
+		case idx == 1 && rowForSecond < 0:
+			rowForSecond = row
+		case idx < 0 && dividerRow < 0:
+			dividerRow = row
+		}
+	}
+	if rowForSecond < 0 {
+		t.Fatal("did not find row for second grouped tool call")
+	}
+	if dividerRow < 0 {
+		t.Fatal("did not find divider row between grouped tool calls")
+	}
+
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: dividerRow})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: dividerRow})
+	if !group.entries[0].collapsed || !group.entries[1].collapsed {
+		t.Fatal("divider click should not toggle any grouped entry")
+	}
+
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: rowForSecond})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: rowForSecond})
+
+	if !group.entries[0].collapsed {
+		t.Fatal("first grouped entry should remain collapsed")
+	}
+	if group.entries[1].collapsed {
+		t.Fatal("second grouped entry should expand on row click")
+	}
+}
+
 func TestModelHandlesContextCommandLocally(t *testing.T) {
 	ctrl := &testController{}
 

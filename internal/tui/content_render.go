@@ -75,6 +75,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 	switch segment.kind {
 	case segmentToolCall:
 		return b.renderToolCallSegment(segment, width)
+	case segmentToolCallGroup:
+		return b.renderToolCallGroup(segment.toolGroupData, width)
 	case segmentAssistantMarkdown:
 		return b.renderAssistantMarkdownSegment(segment, width)
 	case segmentAssistantProse:
