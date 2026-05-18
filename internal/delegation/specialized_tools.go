@@ -5,12 +5,16 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 // SpecializedToolDeps holds dependencies shared by all specialized delegate tools.
-// It is an alias for DelegateHandlerDeps so callers can use a single deps struct.
-type SpecializedToolDeps = DelegateHandlerDeps
+// It embeds DelegateHandlerDeps and adds a ModelResolver for per-type model resolution.
+type SpecializedToolDeps struct {
+	DelegateHandlerDeps
+	ModelResolver func(alias string) (provider.Provider, provider.ResolvedModel, error)
+}
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
 // The tool name matches the agent type string, uses ApprovalModeAuto,
@@ -73,13 +77,27 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		typedCfg := deps.SubAgentCfg
 		typedCfg.AllowedTools = AgentAllowedTools(agentType)
 
+		// Resolve per-type model if configured.
+		resolvedProvider := deps.Provider
+		resolvedModel := deps.ResolvedModel
+		if deps.ModelResolver != nil {
+			if ac, ok := deps.SubAgentCfg.Agents[string(agentType)]; ok && ac.Model != "" {
+				p, rm, err := deps.ModelResolver(ac.Model)
+				if err != nil {
+					return nil, fmt.Errorf("%s: resolve model %q: %w", agentType, ac.Model, err)
+				}
+				resolvedProvider = p
+				resolvedModel = rm
+			}
+		}
+
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:           deps.Provider,
+			Provider:           resolvedProvider,
 			ParentReg:          deps.ParentReg,
 			SubAgentCfg:        typedCfg,
 			Events:             deps.Events,
 			WorkDir:            deps.WorkDir,
-			ResolvedModel:      deps.ResolvedModel,
+			ResolvedModel:      resolvedModel,
 			MaxTokens:          deps.MaxTokens,
 			StreamingPreferred: deps.StreamingPreferred,
 		}, spec)

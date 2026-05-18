@@ -374,7 +374,7 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 2. **No approval prompts**: child tool execution is auto-approved
 3. **Naive context manager**: children get the default naive context manager, so they do not perform smart compaction or masking internally
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them
-5. **Single provider**: children use the same provider/model instance as the parent
+5. **Model resolution**: children use the parent provider/model by default; specialized per-type model aliases resolve to their configured provider/model before the child run is built
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent
 7. **Filesystem shared**: children operate in the same `WorkDir` as the parent
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children

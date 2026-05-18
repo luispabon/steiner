@@ -47,7 +47,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory)
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
@@ -170,7 +170,7 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // (web_search, fetch_url) so that child registries can filter them in via
 // their per-type allowlists. These stubs are not registered in the cloned
 // registry exposed to the parent model.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger) *tool.Registry {
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
@@ -183,7 +183,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	extendedBase.Register(tool.DummyWebSearchTool())
 	extendedBase.Register(tool.DummyFetchURLTool())
 
-	deps := delegation.DelegateHandlerDeps{
+	delegateDeps := delegation.DelegateHandlerDeps{
 		Provider:           prov,
 		ParentReg:          extendedBase,
 		SubAgentCfg:        subAgentCfg,
@@ -197,11 +197,31 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	}
 
 	// Register the generic delegate tool.
-	handler := delegation.NewDelegateHandler(deps)
+	handler := delegation.NewDelegateHandler(delegateDeps)
 	cloned.Register(delegation.DelegateToolDef(handler))
 
+	// Build a model resolver for specialized tools to use per-type model aliases.
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolved, err := provider.Resolve(cfg, alias)
+		if err != nil {
+			return nil, provider.ResolvedModel{}, err
+		}
+		if providerFactory == nil {
+			return prov, resolved, nil
+		}
+		p, err := providerFactory(resolved)
+		if err != nil {
+			return nil, provider.ResolvedModel{}, err
+		}
+		return p, resolved, nil
+	}
+
 	// Register a specialized tool for each agent type.
-	for _, def := range delegation.AllSpecializedToolDefs(deps) {
+	specializedDeps := delegation.SpecializedToolDeps{
+		DelegateHandlerDeps: delegateDeps,
+		ModelResolver:       modelResolver,
+	}
+	for _, def := range delegation.AllSpecializedToolDefs(specializedDeps) {
 		cloned.Register(def)
 	}
 

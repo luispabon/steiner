@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -58,8 +61,9 @@ func (noopSink) Emit(output.Event) {}
 
 func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
-	cfg := config.SubAgentConfig{Enabled: true}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+	subAgentCfg := config.SubAgentConfig{Enabled: true}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
 
 	found := false
 	for _, n := range reg.Names() {
@@ -82,8 +86,9 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 
 func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
-	cfg := config.SubAgentConfig{Enabled: true}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+	subAgentCfg := config.SubAgentConfig{Enabled: true}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
 
 	names := reg.Names()
 	nameSet := make(map[string]bool, len(names))
@@ -101,8 +106,9 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 
 func TestBuildActiveRegistry_DummyToolsNotExposedToParent(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
-	cfg := config.SubAgentConfig{Enabled: true}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+	subAgentCfg := config.SubAgentConfig{Enabled: true}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
 
 	for _, n := range reg.Names() {
 		if n == "web_search" || n == "fetch_url" {
@@ -113,8 +119,9 @@ func TestBuildActiveRegistry_DummyToolsNotExposedToParent(t *testing.T) {
 
 func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
-	cfg := config.SubAgentConfig{Enabled: false}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+	subAgentCfg := config.SubAgentConfig{Enabled: false}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
@@ -125,11 +132,64 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 
 func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
-	cfg := config.SubAgentConfig{Enabled: false}
-	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+	subAgentCfg := config.SubAgentConfig{Enabled: false}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
 	}
+}
+
+// TestAgentTypesSyncWithValidation ensures that the agent types in delegation.AllAgentTypes
+// are in sync with config validation. This prevents drift between the two duplicated lists.
+func TestAgentTypesSyncWithValidation(t *testing.T) {
+	// Each agent type from delegation.AllAgentTypes should validate without error.
+	for _, agentType := range delegation.AllAgentTypes() {
+		t.Run(string(agentType), func(t *testing.T) {
+			_, err := loadConfigWithSubAgentAgents(t, map[string]string{
+				string(agentType): "default",
+			})
+			if err != nil {
+				t.Fatalf("validation failed for agent type %q: %v", agentType, err)
+			}
+		})
+	}
+
+	t.Run("unknown_agent", func(t *testing.T) {
+		_, err := loadConfigWithSubAgentAgents(t, map[string]string{
+			"unknown_agent": "default",
+		})
+		if err == nil {
+			t.Fatal("validation should have failed for unknown agent type, but got no error")
+		}
+		if !strings.Contains(err.Error(), `sub_agent.agents contains unknown agent type "unknown_agent"`) {
+			t.Fatalf("error = %v, want unknown agent type validation error", err)
+		}
+	})
+}
+
+func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (config.Config, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "steiner.yaml")
+	var b strings.Builder
+	b.WriteString("sub_agent:\n  agents:\n")
+	for name, model := range agents {
+		b.WriteString("    ")
+		b.WriteString(name)
+		b.WriteString(":\n      model: ")
+		b.WriteString(model)
+		b.WriteString("\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return config.Load(config.LoadOptions{
+		ProjectConfigPath: path,
+		WorkingDir:        dir,
+		HomeDir:           dir,
+	})
 }
 
 // Ensure delegation package's AgentRunner interface is satisfied by agent.Runner
