@@ -104,6 +104,22 @@ func TestFetchURLTool(t *testing.T) {
 		}
 	})
 
+	t.Run("SSRF blocked private IP returns structured error result", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"url": "http://192.168.1.1/",
+		})
+		if err != nil {
+			t.Fatalf("expected structured error result, got hard error: %v", err)
+		}
+		fetchErr, ok := resultI.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", resultI)
+		}
+		if fetchErr.Error == "" {
+			t.Errorf("FetchURLError.Error is empty, want non-empty error message")
+		}
+	})
+
 	t.Run("max_size limits content length", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
