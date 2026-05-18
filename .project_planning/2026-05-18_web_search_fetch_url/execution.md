@@ -32,7 +32,7 @@
 | stage-2-step-1 | implemented | merged, cleaned up | commit 17e28e3, parallel |
 | stage-2-step-2 | implemented | merged, cleaned up | commit 41de9ca; also added fetch_url to builtins.go (stage-3 deviation) |
 | stage-2-step-3 | implemented | merged, cleaned up | commit 5f3a9cf |
-| stage-3-step-1 | running | step/stage-3-step-1 @ /tmp/claude/steiner-s3s1 | |
+| stage-3-step-1 | implemented | merged, cleaned up | conflict resolved; ResolveWithDiscovery fix included |
 
 ## Sub-Agents
 
