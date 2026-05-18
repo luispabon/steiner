@@ -106,6 +106,7 @@ func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 // Run starts the TUI program and waits for it to exit.
 func (a *App) Run(options ...tea.ProgramOption) error {
 	_, err := a.NewProgram(options...).Run()
+	os.Stdout.WriteString("\x1b[?1000l")
 	return err
 }
 
