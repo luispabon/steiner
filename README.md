@@ -241,16 +241,10 @@ Install local check tools:
 make install-check-tools
 ```
 
-Fast local loop:
+Run all checks:
 
 ```bash
-make quick-check
-```
-
-Full local/CI gate:
-
-```bash
-make ci-check
+make check
 ```
 
 Formatting:
