@@ -14,7 +14,7 @@ type mockSearcher struct {
 	err     error
 }
 
-func (m *mockSearcher) Search(ctx context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
+func (m *mockSearcher) Search(_ context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

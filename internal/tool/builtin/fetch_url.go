@@ -28,7 +28,7 @@ type FetchURLError struct {
 }
 
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
-func NewFetchURLTool(env Env) tool.ToolDef {
+func NewFetchURLTool(_ Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
 		Description:     "Fetch and convert a URL to markdown content. Returns structured result with title, description, and markdown content.",
