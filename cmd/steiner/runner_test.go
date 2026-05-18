@@ -63,7 +63,7 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
 
 	found := false
 	for _, n := range reg.Names() {
@@ -88,7 +88,7 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
 
 	names := reg.Names()
 	nameSet := make(map[string]bool, len(names))
@@ -96,23 +96,40 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// All agent types should have a corresponding specialized tool.
+	// All agent types should have a corresponding specialized tool, except research
+	// when no searcher is provided.
 	for _, agentType := range delegation.AllAgentTypes() {
+		if agentType == delegation.AgentTypeResearch {
+			continue // research is excluded when no searcher is provided
+		}
 		if !nameSet[string(agentType)] {
 			t.Errorf("specialized tool %q not found in registry; got %v", agentType, names)
 		}
 	}
 }
 
-func TestBuildActiveRegistry_DummyToolsNotExposedToParent(t *testing.T) {
+func TestBuildActiveRegistry_WebSearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
 
 	for _, n := range reg.Names() {
-		if n == "web_search" || n == "fetch_url" {
-			t.Errorf("dummy tool %q should not be exposed to the parent model", n)
+		if n == "web_search" {
+			t.Errorf("web_search should not be in registry when no search backend configured")
+		}
+	}
+}
+
+func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	subAgentCfg := config.SubAgentConfig{Enabled: true}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+
+	for _, n := range reg.Names() {
+		if n == "research" {
+			t.Errorf("research tool should not be in registry when no search backend configured")
 		}
 	}
 }
@@ -121,7 +138,7 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
@@ -134,7 +151,7 @@ func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
 	}
