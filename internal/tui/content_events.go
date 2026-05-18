@@ -24,6 +24,7 @@ const (
 	segmentUserMarkdown
 	segmentThinkingBlock
 	segmentToolCall
+	segmentToolCallGroup
 	segmentApprovalPill
 	segmentCompactionBanner
 	segmentInterrupted
@@ -51,6 +52,11 @@ type toolCallSegment struct {
 	writeTargetExistedBefore *bool
 	preview                  output.ToolPreview
 	displayPreview           *output.PreviewDocument
+}
+
+type toolCallGroupSegment struct {
+	tool    string
+	entries []*toolCallSegment
 }
 
 type approvalPillData struct {
@@ -122,6 +128,7 @@ type contentSegment struct {
 	text           string
 	thinkData      *thinkingBlockData      // non-nil only for segmentThinkingBlock
 	toolData       *toolCallSegment        // non-nil only for segmentToolCall
+	toolGroupData  *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
 	approvalData   *approvalPillData       // non-nil only for segmentApprovalPill
 	compactionData *compactionBannerData   // non-nil only for segmentCompactionBanner
 	delegData      *delegationDisplayState // non-nil only for segmentDelegation

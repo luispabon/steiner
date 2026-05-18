@@ -126,6 +126,21 @@ func (m *Model) handleLeftClick(termY int) {
 					seg.renderDirty = true
 					m.syncViewport()
 				}
+			case segmentToolCallGroup:
+				if seg.toolGroupData == nil {
+					return
+				}
+				entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, contentLine-cumulative, m.viewport.Width)
+				if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
+					return
+				}
+				entry := seg.toolGroupData.entries[entryIndex]
+				if entry == nil {
+					return
+				}
+				entry.collapsed = !entry.collapsed
+				seg.renderDirty = true
+				m.syncViewport()
 			case segmentDelegation:
 				if m.handleDelegationClick(seg, contentLine-cumulative) {
 					seg.renderDirty = true
@@ -142,6 +157,38 @@ func (m *Model) handleLeftClick(termY int) {
 		}
 		cumulative += h
 	}
+}
+
+func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, rowInSegment, width int) int {
+	if group == nil || rowInSegment <= 0 {
+		return -1
+	}
+	row := rowInSegment - 1
+	for i, tc := range group.entries {
+		frameRows := b.toolCallFrameRowCount(tc, width)
+		if row < frameRows {
+			return i
+		}
+		row -= frameRows
+		if i < len(group.entries)-1 {
+			if row == 0 {
+				return -1
+			}
+			row--
+		}
+	}
+	return -1
+}
+
+func (b *contentBuffer) toolCallFrameRowCount(tc *toolCallSegment, width int) int {
+	if tc == nil {
+		return 0
+	}
+	frame := b.renderToolCallFrame(tc, width)
+	if frame == "" {
+		return 0
+	}
+	return strings.Count(frame, "\n") + 1
 }
 
 func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) bool {
