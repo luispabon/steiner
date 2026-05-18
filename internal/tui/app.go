@@ -105,8 +105,16 @@ func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 
 // Run starts the TUI program and waits for it to exit.
 func (a *App) Run(options ...tea.ProgramOption) error {
+	defer a.Cleanup()
 	_, err := a.NewProgram(options...).Run()
 	return err
+}
+
+// Cleanup disables terminal mode 1000 (normal mouse tracking) which Init enables
+// but bubbletea does not restore on exit (it only cleans up mode 1002/1003).
+// Call this after the bubbletea program has fully exited.
+func (a *App) Cleanup() {
+	_, _ = os.Stdout.WriteString("\x1b[?1000l")
 }
 
 type runtimeEventMsg struct {

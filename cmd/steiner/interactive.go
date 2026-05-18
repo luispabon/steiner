@@ -43,6 +43,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	sess.DisplaySink().Set(tuiApp.EventSink())
 
 	p := tuiApp.NewProgram()
+	defer tuiApp.Cleanup()
 	if err := resumeInteractiveSession(cmd.Context(), sess, flags.resume, p, cmd.OutOrStdout(), &rt); err != nil {
 		return err
 	}
