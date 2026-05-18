@@ -20,7 +20,16 @@ If a field is not applicable, write "none". Never omit fields.`
 
 const delegationInstructions = `## Delegation
 
-Use ` + "`delegate`" + ` for separable work another agent can complete independently and summarize back.
+Prefer specialized delegate tools when the task fits. Fall back to ` + "`delegate`" + ` only when no type matches.
+
+| Tool | When to use |
+|------|-------------|
+| ` + "`explore`" + ` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |
+| ` + "`research`" + ` | Gather information: search the web, read docs, synthesize external sources |
+| ` + "`code`" + ` | Implement a scoped change: write code, run tests, fix errors |
+| ` + "`plan`" + ` | Analyze a specific sub-problem: evaluate options, tradeoffs, produce a recommendation |
+| ` + "`verify`" + ` | Run checks: tests, lint, build. Report pass/fail. No code changes |
+| ` + "`delegate`" + ` | Generic: when no specialized type fits, or when you need custom tool access or system prompt |
 
 Before starting a task locally, classify it. Delegate when the task is bounded and one of:
 - Investigation: find files, usages, patterns, duplication, bug locations, or design risks across multiple files.
@@ -36,15 +45,19 @@ Work locally when:
 - The task is too vague for an independent agent to know success.
 - The result would immediately require another delegation.
 
-When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output, and success criteria. Sub-agents cannot delegate or ask the user questions.
+All delegate tools take a single ` + "`task`" + ` parameter. Pass a self-contained task description with paths, constraints, and success criteria. Sub-agents cannot delegate further or ask the user questions.
+
+` + "`plan`" + ` is for focused sub-problem analysis, not overall task planning. Do not use it to delegate your own planning responsibilities.
 
 Examples:
 | Situation | Action |
 |-----------|--------|
-| Find DRY/refactoring opportunities across the codebase | Delegate: report files, repeated patterns, risks, and next steps. |
-| Fix a bug but location is unknown | Delegate: search likely areas and report exact files/code. |
-| Implement a small known change in one package | Delegate if ownership and tests are clear. |
-| Run broad verification while continuing local work | Delegate: run checks and summarize exact failures. |
+| Find DRY/refactoring opportunities across the codebase | ` + "`explore`" + `: report files, repeated patterns, risks, and next steps. |
+| Fix a bug but location is unknown | ` + "`explore`" + `: search likely areas and report exact files/code. |
+| Need to understand an external API or library | ` + "`research`" + `: gather docs, usage examples, and constraints. |
+| Implement a small known change in one package | ` + "`code`" + `: implement if ownership and tests are clear. |
+| Run broad verification while continuing local work | ` + "`verify`" + `: run checks and summarize exact failures. |
+| Evaluate two approaches to a design problem | ` + "`plan`" + `: analyze tradeoffs and recommend. |
 | Read one known file or inspect one known diff | Work locally. |`
 
 const defaultSystemPreamble = `Core rules:

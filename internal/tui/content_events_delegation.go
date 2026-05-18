@@ -304,6 +304,9 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
+	if dd.toolLabel == "" && isSpecializedDelegateTool(payload.Tool) {
+		dd.toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
+	}
 	seg.renderDirty = true
 	return true
 }
@@ -316,10 +319,15 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
 	promptText := delegatePromptText(payload.Arguments)
+	toolLabel := ""
+	if isSpecializedDelegateTool(payload.Tool) {
+		toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
+	}
 	idx := len(b.segments)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
+			toolLabel:       toolLabel,
 			taskPreview:     summary,
 			promptText:      promptText,
 			promptCollapsed: true,

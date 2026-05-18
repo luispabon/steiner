@@ -310,3 +310,114 @@ func TestCloneModelConfig(t *testing.T) {
 func pointerProviderType(pt ProviderType) *ProviderType {
 	return &pt
 }
+
+func agentConfigPatchMapPtr(v map[string]agentConfigPatch) *map[string]agentConfigPatch {
+	return &v
+}
+
+func TestApplySubAgentPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial SubAgentConfig
+		patch   subAgentPatch
+		want    SubAgentConfig
+	}{
+		{
+			name:    "sets enabled",
+			initial: SubAgentConfig{Enabled: false},
+			patch:   subAgentPatch{Enabled: boolPtr(true)},
+			want:    SubAgentConfig{Enabled: true},
+		},
+		{
+			name:    "sets max_turns and max_tokens",
+			initial: SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 1000},
+			patch:   subAgentPatch{MaxTurns: intPtr(10), MaxTokens: intPtr(2000)},
+			want:    SubAgentConfig{Enabled: true, MaxTurns: 10, MaxTokens: 2000},
+		},
+		{
+			name:    "nil fields leave values untouched",
+			initial: SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 1000},
+			patch:   subAgentPatch{},
+			want:    SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 1000},
+		},
+		{
+			name:    "sets allowed_tools",
+			initial: SubAgentConfig{AllowedTools: []string{"read"}},
+			patch:   subAgentPatch{AllowedTools: &[]string{"read", "bash"}},
+			want:    SubAgentConfig{AllowedTools: []string{"read", "bash"}},
+		},
+		{
+			name:    "adds new agent entry",
+			initial: SubAgentConfig{},
+			patch: subAgentPatch{
+				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
+					"code": {Model: stringPtr("fast-model")},
+				}),
+			},
+			want: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"code": {Model: "fast-model"},
+				},
+			},
+		},
+		{
+			name: "updates existing agent model",
+			initial: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"explore": {Model: "old-model"},
+				},
+			},
+			patch: subAgentPatch{
+				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
+					"explore": {Model: stringPtr("new-model")},
+				}),
+			},
+			want: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"explore": {Model: "new-model"},
+				},
+			},
+		},
+		{
+			name: "nil model in agent patch leaves model untouched",
+			initial: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"plan": {Model: "existing-model"},
+				},
+			},
+			patch: subAgentPatch{
+				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
+					"plan": {},
+				}),
+			},
+			want: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"plan": {Model: "existing-model"},
+				},
+			},
+		},
+		{
+			name: "nil agents patch leaves agents untouched",
+			initial: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"verify": {Model: "verify-model"},
+				},
+			},
+			patch: subAgentPatch{},
+			want: SubAgentConfig{
+				Agents: map[string]AgentConfig{
+					"verify": {Model: "verify-model"},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applySubAgentPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}

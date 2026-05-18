@@ -1,0 +1,238 @@
+stages:
+  - id: stage-1
+    objective: Extend config to support per-agent-type model selection and define agent type constants
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: |
+          Add AgentType string type and constants (explore, research, code, plan, verify) to internal/delegation.
+          Extend SubAgentConfig in internal/config with an Agents map keyed by agent type name, each entry holding
+          an optional model alias string. Add config validation for the new agents block. Update defaults to include
+          sensible fallbacks. Write tests for config loading, validation, and defaults.
+        scope: Agent type constants in delegation package; SubAgentConfig.Agents config field with validation and defaults
+        files:
+          - internal/delegation/agent_type.go
+          - internal/config/config.go
+          - internal/config/defaults.go
+          - internal/config/validate_runtime.go
+          - internal/config/patch.go
+          - internal/config/patch_model.go
+          - internal/config/*_test.go
+          - internal/delegation/*_test.go
+        constraints:
+          - AgentType is a string type in internal/delegation, not internal/config (avoid circular imports)
+          - Config references agent types by string name, not the typed constant
+          - Per-type config only has model alias for now (no per-type turn/token overrides)
+          - Validation must reject unknown agent type names
+          - Must not break existing SubAgentConfig fields (max_turns, max_tokens, allowed_tools, enabled)
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - internal/delegation/agent_type.go with AgentType type and constants
+          - Updated SubAgentConfig with Agents map
+          - Config validation for agents block
+          - Tests passing
+        acceptance:
+          - AgentType constants defined for all 5 types
+          - SubAgentConfig.Agents map parses from YAML correctly
+          - Unknown agent type names rejected by validation
+          - Existing SubAgentConfig behavior unchanged
+          - go test ./internal/config/... and go test ./internal/delegation/... pass
+        handoff: |
+          Added AgentType constants in internal/delegation/agent_type.go and extended SubAgentConfig
+          in internal/config/config.go with Agents map[string]AgentConfig where AgentConfig has Model string.
+          Config validation rejects unknown agent type names. Defaults are empty (fall back to global).
+          Tests cover parsing, validation, and defaults.
+        verification:
+          - go test ./internal/config/...
+          - go test ./internal/delegation/...
+          - go vet ./internal/config/ ./internal/delegation/
+
+  - id: stage-2
+    objective: Add per-type system prompts, tool allowlists, and specialized tool registration
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: |
+          Create per-agent-type system prompts and tool allowlists in internal/delegation.
+          Define a function or map that, given an AgentType, returns the system prompt string and
+          tool allowlist []string. System prompts should be short (200-400 tokens), role-focused,
+          and include result format instructions. All types include "scratchpad" in their allowlist.
+
+          Create dummy web_search and fetch_url tool definitions in internal/tool/ with stub handlers
+          that return a "not implemented" error message. These are real ToolDef entries with proper
+          schemas so they appear in the tool list for the research agent.
+
+          Write tests for prompt and allowlist lookups, and for dummy tool handler behavior.
+        scope: Per-type prompts, allowlists, and dummy tool stubs
+        files:
+          - internal/delegation/agent_type.go
+          - internal/delegation/agent_type_test.go
+          - internal/tool/dummy_tools.go
+          - internal/tool/dummy_tools_test.go
+        constraints:
+          - System prompts must be concise — small models need focused instructions
+          - explore and plan allowlists are read-only (no write/edit/bash/apply_patch)
+          - verify gets bash but not write/edit/apply_patch
+          - research gets web_search and fetch_url (dummy) but not write/edit/bash/apply_patch
+          - code gets full mutation tools
+          - All types get scratchpad
+          - Dummy tool handlers return a structured "not implemented" response, not a Go error
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Per-type system prompt and allowlist lookup functions
+          - Dummy web_search and fetch_url ToolDefs
+          - Tests for all of the above
+        acceptance:
+          - Each AgentType returns a non-empty system prompt and non-empty allowlist
+          - All allowlists include "scratchpad"
+          - explore and plan allowlists have no mutation tools
+          - research allowlist includes web_search and fetch_url
+          - Dummy tools return structured "not implemented" response (not error)
+          - go test ./internal/delegation/... and go test ./internal/tool/... pass
+        handoff: |
+          Per-type system prompts and tool allowlists defined via lookup functions in
+          internal/delegation/agent_type.go. Dummy web_search/fetch_url tools in
+          internal/tool/dummy_tools.go with stub handlers. All tested.
+        verification:
+          - go test ./internal/delegation/...
+          - go test ./internal/tool/...
+
+      - id: stage-2-step-2
+        objective: |
+          Create specialized delegate tool constructors in internal/delegation that produce
+          ToolDef entries for each agent type. Each tool:
+          - Has name matching the agent type (e.g. "explore", "research", "code", "plan", "verify")
+          - Has a description tailored to the agent type's role
+          - Has a schema with single required "task" string parameter
+          - Has a handler that builds a DelegationSpec with the type's system prompt,
+            resolves the model alias from config, passes the type's allowlist to
+            buildChildRegistries, and calls SpawnDelegate via the existing delegation infra
+          - Uses ApprovalModeAuto (same as existing delegate tool)
+
+          The handler must resolve the per-type model alias from SubAgentConfig.Agents,
+          falling back to the default provider if not configured.
+
+          Update cmd/steiner/tools.go to register these tools alongside the existing delegate
+          tool when sub_agent.enabled is true. Register dummy tools (web_search, fetch_url)
+          into the parent registry so they're available for child registry filtering.
+
+          Write tests for tool construction and handler wiring.
+        scope: Specialized delegate tool registration and handler wiring
+        files:
+          - internal/delegation/specialized_tools.go
+          - internal/delegation/specialized_tools_test.go
+          - cmd/steiner/tools.go
+        constraints:
+          - Must use existing BuildChildRun + SpawnDelegate path, not duplicate execution logic
+          - Must resolve model alias from config; if alias not found, use default provider
+          - Dummy tools must be registered in parent registry but only appear in research child's tool set
+          - The existing delegate tool registration must not change
+          - All specialized tools use ApprovalModeAuto
+        depends_on:
+          - stage-2-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Specialized tool constructors in internal/delegation/specialized_tools.go
+          - Updated cmd/steiner/tools.go with registration
+          - Tests for tool construction and basic handler behavior
+        acceptance:
+          - Each agent type produces a valid ToolDef with correct name, description, schema
+          - Handler resolves model from config, falls back to default
+          - Handler constructs DelegationSpec with correct system prompt
+          - Handler passes correct allowlist to child registry builder
+          - Dummy tools registered but only visible to research child
+          - go test ./internal/delegation/... and go build ./cmd/steiner pass
+        handoff: |
+          Specialized delegate tools registered via constructors in specialized_tools.go.
+          Each handler wraps existing delegation infra with per-type system prompt, allowlist,
+          and model resolution. cmd/steiner/tools.go registers all 5 types + dummy tools.
+        verification:
+          - go test ./internal/delegation/...
+          - go build ./cmd/steiner
+          - go vet ./...
+
+  - id: stage-3
+    objective: Add parent agent guidance and update documentation
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: |
+          Add delegation guidance to the parent agent's system prompt in internal/prompt/.
+          The guidance should tell the parent model:
+          - Prefer specific delegate types when the task fits
+          - When to use each type (explore for navigation, research for external info,
+            code for implementation, plan for sub-problem analysis, verify for checks)
+          - Fall back to generic delegate only when no type fits
+          - plan delegate is for narrow sub-problems, not overall task planning
+
+          Update docs/DELEGATION.md to document the new specialized delegate types,
+          their tool allowlists, system prompts, model config, and usage guidance.
+
+          Write tests for prompt content (verify guidance text is included in assembled prompt).
+        scope: Parent prompt guidance and documentation
+        files:
+          - internal/prompt/*.go
+          - internal/prompt/*_test.go
+          - docs/DELEGATION.md
+        constraints:
+          - Guidance must be concise — avoid bloating the parent system prompt
+          - Guidance is descriptive, not prescriptive — help the model choose, don't force
+          - Documentation must match implementation
+        depends_on:
+          - stage-2-step-2
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Parent prompt with delegation guidance
+          - Updated DELEGATION.md
+          - Tests for prompt content
+        acceptance:
+          - Parent system prompt includes delegation type guidance
+          - Guidance mentions all 5 types with when-to-use descriptions
+          - DELEGATION.md documents specialized types, allowlists, config
+          - go test ./internal/prompt/... passes
+        handoff: |
+          Parent agent prompt includes delegation guidance. DELEGATION.md updated
+          with specialized delegate documentation. Prompt tests verify guidance content.
+        verification:
+          - go test ./internal/prompt/...
+          - make quick-check
+
+  - id: stage-4
+    objective: Final integration verification
+    parallel: false
+    steps:
+      - id: stage-4-step-1
+        objective: |
+          Run full verification suite. Fix any issues found.
+          Ensure all tests pass, build succeeds, lint is clean.
+        scope: Full repo verification
+        files:
+          - "**/*.go"
+        constraints:
+          - No new lint warnings
+          - No test regressions
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Clean make check output
+        acceptance:
+          - make check passes
+          - No new lint warnings
+          - All existing tests still pass
+        handoff: All checks pass. Ready for review.
+        verification:
+          - make check

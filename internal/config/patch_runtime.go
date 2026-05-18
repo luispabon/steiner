@@ -19,6 +19,18 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.AllowedTools != nil {
 		dst.AllowedTools = append([]string(nil), (*patch.AllowedTools)...)
 	}
+	if patch.Agents != nil {
+		if dst.Agents == nil {
+			dst.Agents = make(map[string]AgentConfig)
+		}
+		for name, agentPatch := range *patch.Agents {
+			current := dst.Agents[name]
+			if agentPatch.Model != nil {
+				current.Model = *agentPatch.Model
+			}
+			dst.Agents[name] = current
+		}
+	}
 }
 
 func applyToolConfigPatch(cfg *Config, patch configPatch) {

@@ -225,7 +225,17 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 		disclosure = "▸"
 	}
 
-	left := disclosure + " " + b.styles.Accent.Bold(true).Render("delegate")
+	label := "delegate"
+	if dd.toolLabel != "" {
+		label = dd.toolLabel
+	}
+	var labelStyle lipgloss.Style
+	if dd.toolLabel != "" {
+		labelStyle = b.delegationToolLabelStyle()
+	} else {
+		labelStyle = b.styles.Accent.Bold(true)
+	}
+	left := disclosure + " " + labelStyle.Render(label)
 	if agentID != "" {
 		left += " " + b.styles.FgDim.Render(agentID)
 	}
@@ -253,6 +263,12 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 		header += strings.Repeat(" ", padding) + meta
 	}
 	return header
+}
+
+// delegationToolLabelStyle returns the lipgloss style used to render specialized
+// delegate tool labels (e.g. "explore", "research") in the delegation box header.
+func (b *contentBuffer) delegationToolLabelStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Bold(true)
 }
 
 func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState) (string, int) {

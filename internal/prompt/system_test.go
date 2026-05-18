@@ -56,7 +56,8 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	content := SystemPreamble("", false, true).Content
 	for _, want := range []string{
 		"## Delegation",
-		"Use `delegate` for separable work another agent can complete independently and summarize back.",
+		"Prefer specialized delegate tools when the task fits.",
+		"Fall back to `delegate` only when no type matches.",
 		"Before starting a task locally, classify it.",
 		"Investigation: find files, usages, patterns, duplication, bug locations, or design risks across multiple files.",
 		"Research: inspect docs, APIs, dependencies, repo history, or prior examples.",
@@ -65,10 +66,16 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Review: inspect code or changes for bugs, regressions, missing tests, or plan adherence.",
 		"One known tool call is enough: read one known file, grep one known pattern, list one known path, run `git diff`, `gofmt`, or a targeted test.",
 		"The task is too vague for an independent agent to know success.",
-		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
-		"success criteria.",
-		"Sub-agents cannot delegate or ask the user questions.",
-		"| Find DRY/refactoring opportunities across the codebase | Delegate: report files, repeated patterns, risks, and next steps. |",
+		"All delegate tools take a single `task` parameter.",
+		"Sub-agents cannot delegate further or ask the user questions.",
+		"`plan` is for focused sub-problem analysis, not overall task planning.",
+		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |",
+		"| `research` | Gather information: search the web, read docs, synthesize external sources |",
+		"| `code` | Implement a scoped change: write code, run tests, fix errors |",
+		"| `plan` | Analyze a specific sub-problem: evaluate options, tradeoffs, produce a recommendation |",
+		"| `verify` | Run checks: tests, lint, build. Report pass/fail. No code changes |",
+		"| `delegate` | Generic: when no specialized type fits, or when you need custom tool access or system prompt |",
+		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Read one known file or inspect one known diff | Work locally. |",
 	} {
 		if !strings.Contains(content, want) {
@@ -82,6 +89,8 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Reviewing or analysing code in files you have not yet read",
 		"Searching for information across many files (grep + read chains)",
 		"Performing a refactor with known, mechanical scope",
+		"Use `delegate` for separable work another agent can complete independently and summarize back.",
+		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)

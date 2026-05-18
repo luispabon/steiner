@@ -2263,6 +2263,142 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 	}
 }
 
+func TestIsSpecializedDelegateTool(t *testing.T) {
+	tests := []struct {
+		tool string
+		want bool
+	}{
+		{"explore", true},
+		{"research", true},
+		{"code", true},
+		{"plan", true},
+		{"verify", true},
+		// case-insensitive
+		{"Explore", true},
+		{"RESEARCH", true},
+		{"Code", true},
+		// whitespace trimmed
+		{" plan ", true},
+		// non-specialized tools
+		{"delegate", false},
+		{"bash", false},
+		{"read", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isSpecializedDelegateTool(tt.tool); got != tt.want {
+			t.Errorf("isSpecializedDelegateTool(%q) = %v, want %v", tt.tool, got, tt.want)
+		}
+	}
+}
+
+func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
+	tests := []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{
+			tool: "explore",
+			args: map[string]any{"task": "look into the auth module"},
+			want: "look into the auth module",
+		},
+		{
+			tool: "research",
+			args: map[string]any{"task": "find all usages of X"},
+			want: "find all usages of X",
+		},
+		{
+			tool: "code",
+			args: map[string]any{"task": "implement the retry logic"},
+			want: "implement the retry logic",
+		},
+		{
+			tool: "plan",
+			args: map[string]any{"task": "plan the migration"},
+			want: "plan the migration",
+		},
+		{
+			tool: "verify",
+			args: map[string]any{"task": "run all tests and confirm green"},
+			want: "run all tests and confirm green",
+		},
+	}
+	for _, tt := range tests {
+		got := summarizeArgs(tt.tool, tt.args)
+		if got != tt.want {
+			t.Errorf("summarizeArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
+		}
+	}
+}
+
+func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T) {
+	tools := []string{"explore", "research", "code", "plan", "verify"}
+	for _, tool := range tools {
+		t.Run(tool, func(t *testing.T) {
+			buffer := &contentBuffer{segments: make([]contentSegment, 0)}
+			buffer.AppendEvent(output.NewToolCallStartedEvent(1, tool, "call-1", map[string]any{"task": "do something"}))
+
+			if len(buffer.segments) != 1 {
+				t.Fatalf("segments count = %d, want 1 (single delegation box)", len(buffer.segments))
+			}
+			seg := buffer.segments[0]
+			if seg.kind != segmentDelegation {
+				t.Errorf("segment kind = %v, want segmentDelegation", seg.kind)
+			}
+			if seg.delegData == nil {
+				t.Fatal("delegData = nil, want delegation state")
+			}
+			if seg.delegData.toolLabel != tool {
+				t.Errorf("toolLabel = %q, want %q", seg.delegData.toolLabel, tool)
+			}
+		})
+	}
+}
+
+func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-1", map[string]any{"task": "map the codebase"}))
+
+	if len(buffer.segments) == 0 || buffer.segments[0].delegData == nil {
+		t.Fatal("expected delegation segment")
+	}
+	dd := buffer.segments[0].delegData
+	header := buffer.renderDelegationHeader(dd, 80)
+
+	if !strings.Contains(header, "explore") {
+		t.Errorf("delegation header %q missing tool label %q", header, "explore")
+	}
+	if strings.Contains(header, "delegate") {
+		t.Errorf("delegation header %q must not show %q for specialized tool", header, "delegate")
+	}
+}
+
+func TestDelegationHeaderKeepsDelegateLabelForBaseDelegate(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		collapseState: make(map[int]bool),
+	}
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call-2", map[string]any{"task": "do work"}))
+
+	if len(buffer.segments) == 0 || buffer.segments[0].delegData == nil {
+		t.Fatal("expected delegation segment")
+	}
+	dd := buffer.segments[0].delegData
+	if dd.toolLabel != "" {
+		t.Errorf("toolLabel = %q, want empty for base delegate tool", dd.toolLabel)
+	}
+	header := buffer.renderDelegationHeader(dd, 80)
+	if !strings.Contains(header, "delegate") {
+		t.Errorf("delegation header %q missing %q for base delegate", header, "delegate")
+	}
+}
+
 func lineHasHighlightedSpan(line output.PreviewLine) bool {
 	for _, span := range line.Spans {
 		if span.Type != chroma.Text {

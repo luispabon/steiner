@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 	patch, err := parseConfigPatch("test.yaml", `models:
@@ -69,5 +72,112 @@ func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 	}
 	if got, want := *model.PromptSuffix, "<|think_off|>"; got != want {
 		t.Fatalf("prompt_suffix = %q, want %q", got, want)
+	}
+}
+
+func TestParseConfigPatchSubAgentAgents(t *testing.T) {
+	patch, err := parseConfigPatch("test.yaml", `sub_agent:
+  enabled: true
+  max_turns: 10
+  max_tokens: 50000
+  agents:
+    code:
+      model: fast-model
+    explore:
+      model: thorough-model
+`)
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	if patch.SubAgent == nil {
+		t.Fatal("patch.SubAgent = nil, want parsed sub_agent patch")
+	}
+	if patch.SubAgent.Agents == nil {
+		t.Fatal("patch.SubAgent.Agents = nil, want parsed agents map")
+	}
+	agents := *patch.SubAgent.Agents
+	if got, want := len(agents), 2; got != want {
+		t.Fatalf("len(agents) = %d, want %d", got, want)
+	}
+	codeAgent, ok := agents["code"]
+	if !ok {
+		t.Fatal("agents[code] missing")
+	}
+	if codeAgent.Model == nil {
+		t.Fatal("agents[code].model = nil, want parsed model")
+	}
+	if got, want := *codeAgent.Model, "fast-model"; got != want {
+		t.Fatalf("agents[code].model = %q, want %q", got, want)
+	}
+	exploreAgent, ok := agents["explore"]
+	if !ok {
+		t.Fatal("agents[explore] missing")
+	}
+	if exploreAgent.Model == nil {
+		t.Fatal("agents[explore].model = nil, want parsed model")
+	}
+	if got, want := *exploreAgent.Model, "thorough-model"; got != want {
+		t.Fatalf("agents[explore].model = %q, want %q", got, want)
+	}
+}
+
+func TestSubAgentConfigYAMLParsing(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want SubAgentConfig
+	}{
+		{
+			name: "parses agents map",
+			yaml: `sub_agent:
+  enabled: true
+  max_turns: 5
+  max_tokens: 10000
+  agents:
+    code:
+      model: code-model
+    verify:
+      model: verify-model
+`,
+			want: SubAgentConfig{
+				Enabled:   true,
+				MaxTurns:  5,
+				MaxTokens: 10000,
+				Agents: map[string]AgentConfig{
+					"code":   {Model: "code-model"},
+					"verify": {Model: "verify-model"},
+				},
+			},
+		},
+		{
+			name: "empty agents map",
+			yaml: `sub_agent:
+  enabled: false
+  max_turns: 3
+  max_tokens: 5000
+`,
+			want: SubAgentConfig{
+				Enabled:   false,
+				MaxTurns:  3,
+				MaxTokens: 5000,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch("test.yaml", tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			if patch.SubAgent == nil {
+				t.Fatal("patch.SubAgent = nil, want parsed sub_agent patch")
+			}
+			// Apply patch to an empty SubAgentConfig to verify round-trip.
+			dst := SubAgentConfig{}
+			applySubAgentPatch(&dst, patch.SubAgent)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
 	}
 }

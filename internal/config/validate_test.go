@@ -481,6 +481,46 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `not supported`,
 		},
+
+		// Sub-agent Agents map validation
+		{
+			name: "subagent unknown agent type rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Agents = map[string]AgentConfig{
+					"bogus": {Model: "some-model"},
+				}
+				return c
+			}(),
+			wantErr: `sub_agent.agents contains unknown agent type "bogus"`,
+		},
+		{
+			name: "subagent known agent types accepted",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Agents = map[string]AgentConfig{
+					"explore":  {Model: "model-a"},
+					"research": {Model: "model-b"},
+					"code":     {Model: "model-c"},
+					"plan":     {Model: "model-d"},
+					"verify":   {Model: "model-e"},
+				}
+				return c
+			}(),
+			wantErr: ``,
+		},
+		{
+			name: "subagent agents validated even when disabled",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Enabled = false
+				c.SubAgent.Agents = map[string]AgentConfig{
+					"unknown": {Model: "some-model"},
+				}
+				return c
+			}(),
+			wantErr: `sub_agent.agents contains unknown agent type "unknown"`,
+		},
 	}
 
 	for _, tt := range tests {
