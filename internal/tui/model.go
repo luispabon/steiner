@@ -104,6 +104,8 @@ type Model struct {
 	interruptPending             bool
 	contentDirty                 bool
 	syncDebounceSeq              int
+	mousePressX                  int
+	mousePressY                  int
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
