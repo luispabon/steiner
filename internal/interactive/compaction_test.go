@@ -190,3 +190,36 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 		t.Fatalf("run finished error = %q, want %q", got, want)
 	}
 }
+
+func TestManualCompactionSkipsSingleTurnConversation(t *testing.T) {
+	var events []output.Event
+	s, err := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.SetConversation([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "investigate the bug"},
+		{Role: agent.MessageRoleAssistant, Content: "looking into it"},
+	})
+
+	s.manualCompaction(context.Background())
+
+	if got, want := len(events), 1; got != want {
+		t.Fatalf("event count = %d, want %d", got, want)
+	}
+	if got, want := events[0].Type, output.EventTypeContextReport; got != want {
+		t.Fatalf("events[0].Type = %q, want %q", got, want)
+	}
+	report, ok := events[0].Payload.(output.ContextReportEvent)
+	if !ok {
+		t.Fatalf("events[0].Payload type = %T, want output.ContextReportEvent", events[0].Payload)
+	}
+	if got, want := report.Content, "Nothing to compact yet; need at least two conversation turns."; got != want {
+		t.Fatalf("context report = %q, want %q", got, want)
+	}
+}

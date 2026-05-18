@@ -20,6 +20,10 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		s.events.Emit(output.NewContextReportEvent("No conversation to compact."))
 		return
 	}
+	if !manualCompactionHasSource(conversation) {
+		s.events.Emit(output.NewContextReportEvent("Nothing to compact yet; need at least two conversation turns."))
+		return
+	}
 
 	rm, err := provider.Resolve(s.deps.Config, s.deps.Config.DefaultModel)
 	if err != nil {
@@ -113,4 +117,24 @@ func (s *Session) emitCompactError(err error) {
 		Type:    output.EventTypeStopReason,
 		Payload: output.StopReasonEvent{Reason: fmt.Sprintf("Compaction error: %v", err)},
 	})
+}
+
+func manualCompactionHasSource(messages []agent.Message) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	turns := 0
+	inTurn := false
+	for _, message := range messages {
+		if message.Role == agent.MessageRoleUser {
+			turns++
+			inTurn = true
+			continue
+		}
+		if !inTurn {
+			turns++
+			inTurn = true
+		}
+	}
+	return turns > 1
 }
