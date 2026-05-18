@@ -222,6 +222,44 @@ Model fields:
 
 Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is `default_model`, one provider entry, one model entry that points at that provider, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
 
+## Sub-agent delegation
+
+`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
+
+- **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
+- **`research`** — gather and synthesise information from the codebase or web
+- **`code`** — implement a scoped change, run tests, report results
+- **`plan`** — analyse a sub-problem and produce a structured recommendation
+- **`verify`** — run checks (tests, linters, builds) and report pass/fail
+- **`delegate`** — generic sub-agent with custom system prompt, context, and per-invocation overrides
+
+### Configuration
+
+Sub-agents are configured under the `sub_agent` key in `config.yaml`:
+
+```yaml
+sub_agent:
+  enabled: true                  # set to false to remove sub-agent tools
+  max_turns: 30                  # default turn limit
+  max_tokens: 100000             # default output token budget
+  allowed_tools:                 # tools for generic `delegate` only
+    - read
+    - glob
+    - grep
+    - ls
+    - write
+    - edit
+    - bash
+    - scratchpad
+  agents:                        # per-type model overrides (optional)
+    code:
+      model: gpt-4o
+    research:
+      model: claude-sonnet-4
+```
+
+See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
+
 ## Development
 
 ### Build and test
