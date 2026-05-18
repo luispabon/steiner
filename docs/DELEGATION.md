@@ -103,7 +103,7 @@ Five specialized delegate tools are registered alongside the generic `delegate` 
 |------|------|----------------|-------------------|
 | `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls`, `scratchpad` | cheap |
 | `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url`, `scratchpad` | cheap |
-| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `write`, `edit`, `apply_patch`, `bash`, `scratchpad` | default |
+| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `scratchpad` | default |
 | `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls`, `scratchpad` | default |
 | `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash`, `scratchpad` | cheap |
 

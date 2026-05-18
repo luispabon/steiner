@@ -76,6 +76,7 @@ Before editing:
 
 While editing:
 - Touch only required files and lines.
+- Use the ` + "`mutate`" + ` tool for file mutations; do not use ` + "`apply_patch`" + `, ` + "`write`" + `, ` + "`edit`" + `, or shell redirection for edits.
 - Clean up only unused code introduced by your own changes.
 - Do not remove unrelated dead code.
 - Do not rewrite adjacent code, comments, formatting, or structure.

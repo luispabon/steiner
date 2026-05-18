@@ -21,6 +21,25 @@ type EditInput struct {
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
+// MutateInput is the typed input for the mutate tool.
+type MutateInput struct {
+	Operations []MutateOperation `json:"operations"`
+	DryRun     bool              `json:"dry_run,omitempty"`
+}
+
+// MutateOperation is one ordered file mutation in a mutate call.
+type MutateOperation struct {
+	Type       string `json:"type"`
+	Path       string `json:"path,omitempty"`
+	Content    string `json:"content,omitempty"`
+	OldString  string `json:"old_string,omitempty"`
+	NewString  string `json:"new_string,omitempty"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	From       string `json:"from,omitempty"`
+	To         string `json:"to,omitempty"`
+}
+
 // GlobInput is the typed input for the glob tool.
 type GlobInput struct {
 	Pattern string `json:"pattern"`

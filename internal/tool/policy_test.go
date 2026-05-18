@@ -432,6 +432,35 @@ func TestPolicy_ValidateToolInput_ApplyPatch(t *testing.T) {
 	}
 }
 
+func TestPolicy_ValidateToolInput_MutateNormalizesOperationPaths(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+
+	normalized, err := policy.ValidateToolInput("mutate", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "src/main.go", "content": "package main\n"},
+			map[string]any{"type": "move", "from": "src/main.go", "to": "cmd/main.go"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ValidateToolInput(mutate) error = %v", err)
+	}
+	ops, ok := normalized["operations"].([]any)
+	if !ok || len(ops) != 2 {
+		t.Fatalf("operations = %#v, want two normalized operations", normalized["operations"])
+	}
+	first := ops[0].(map[string]any)
+	if got, want := first["path"], "/project/src/main.go"; got != want {
+		t.Fatalf("first path = %v, want %q", got, want)
+	}
+	second := ops[1].(map[string]any)
+	if got, want := second["from"], "/project/src/main.go"; got != want {
+		t.Fatalf("second from = %v, want %q", got, want)
+	}
+	if got, want := second["to"], "/project/cmd/main.go"; got != want {
+		t.Fatalf("second to = %v, want %q", got, want)
+	}
+}
+
 func TestPolicy_PreviewToolInput_BlocksNonWritable(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{
 		ProjectRootOnly: true,

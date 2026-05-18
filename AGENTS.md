@@ -50,7 +50,7 @@ docs/                    Product/design docs and implementation notes
 ## Work loop
 
 1. Inspect nearby code, call sites, and the smallest relevant tests before editing.
-2. Prefer `apply_patch` for file mutations; fall back to `edit` for single exact replacements.
+2. Prefer `mutate` for file mutations; do not expose `apply_patch`, `write`, or `edit` to agents.
 3. Keep changes minimal and package boundaries intact.
 4. Ensure comprehensive unit and functional tests are written for any new functionality
 5. Run `gofmt -w <files>` after Go edits.
@@ -102,12 +102,10 @@ Go version: `1.25`.
 
 ## Built-in tools
 
-Steiner exposes these built-in tools, all backed by Dive:
+Steiner exposes these model-facing built-in tools:
 
 - `read` — read files with offset/limit pagination
-- `apply_patch` — apply one or more file mutations atomically (add, update, delete files)
-- `write` — overwrite whole files
-- `edit` — exact string replacement
+- `mutate` — apply one or more structured file mutations atomically (create, write, replace, line_replace, delete, move)
 - `glob` — find files by pattern
 - `grep` — search file contents with context
 - `ls` — list directories

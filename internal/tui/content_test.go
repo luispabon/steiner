@@ -2323,6 +2323,14 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 			args: map[string]any{"task": "run all tests and confirm green"},
 			want: "run all tests and confirm green",
 		},
+		{
+			tool: "mutate",
+			args: map[string]any{"operations": []any{
+				map[string]any{"type": "replace", "path": "internal/tool/builtin/mutate.go"},
+				map[string]any{"type": "move", "from": "old.go", "to": "new.go"},
+			}},
+			want: "internal/tool/builtin/mutate.go (+1 more)",
+		},
 	}
 	for _, tt := range tests {
 		got := summarizeArgs(tt.tool, tt.args)

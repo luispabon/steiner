@@ -198,7 +198,7 @@ File reads are the dominant source of context consumption (67-76% of total token
 - Turn number when last read
 - Byte/line range (offset + limit)
 - Modification timestamp at time of read
-- Write generation counter (incremented on every successful steiner-initiated `write`, `edit`, or `apply_patch` to this path)
+- Write generation counter (incremented on every successful steiner-initiated `mutate` operation affecting this path)
 
 When the model requests a file that was recently read and is unmodified since, steiner replaces the tool result with a short annotation:
 
@@ -211,14 +211,14 @@ This is the most aggressive option. The model can always re-read if it needs the
 **Modification detection** uses three checks (all must pass for the annotation to be served):
 
 1. **Filesystem mtime unchanged** — the file's modification time has not changed since the last read.
-2. **Write generation unchanged** — the in-memory generation counter for this path has not been incremented by a successful steiner-initiated `write`, `edit`, or `apply_patch`.
+2. **Write generation unchanged** — the in-memory generation counter for this path has not been incremented by a successful steiner-initiated `mutate`.
 3. **Original read still visible** — the turn containing the original read has not been masked by epoch-based masking or dropped by compaction. If masked or dropped, full content is returned instead.
 
-The generation counter is only bumped when a write-like tool **actually modifies a file**. That currently includes `write`, `edit`, and `apply_patch`. If the mutation fails (for example, an `edit` no-match or an `apply_patch` hunk failure), the generation is not bumped and the read cache remains valid. The generation counter is bumped synchronously before the tool result is returned, so it is always current.
+The generation counter is only bumped when a write-like tool **actually modifies a file**. Model-facing file mutation goes through `mutate`; hidden legacy tools such as `write`, `edit`, and `apply_patch` still participate in context tracking for internal compatibility. If the mutation fails, the generation is not bumped and the read cache remains valid. The generation counter is bumped synchronously before the tool result is returned, so it is always current.
 
 Invalidation:
 - External modifications (user editing outside steiner) change the file's mtime, which invalidates the tracking. The next read serves full content.
-- File writes, edits, and successful `apply_patch` calls by steiner increment the generation counter and invalidate tracking for that path.
+- Successful `mutate` calls by steiner increment the generation counter and invalidate tracking for affected paths.
 - File tracking state (including generation counters) persists across compaction (it lives in Go, not in conversation history).
 
 ### Prompt zone stability

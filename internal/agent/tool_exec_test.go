@@ -74,6 +74,18 @@ func TestRecordMutationForContextManager(t *testing.T) {
 		}
 	}
 
+	recordMutationForContextManager(cm, "mutate", nil, struct {
+		Paths []string `json:"paths"`
+	}{Paths: []string{"note.txt", "other.txt"}})
+	notePath, _ := normalizeTrackedPath("note.txt")
+	otherPath, _ := normalizeTrackedPath("other.txt")
+	if got, want := cm.fileTracker.generations[notePath], uint64(4); got != want {
+		t.Fatalf("note generation after mutate = %d, want %d", got, want)
+	}
+	if got, want := cm.fileTracker.generations[otherPath], uint64(1); got != want {
+		t.Fatalf("other generation after mutate = %d, want %d", got, want)
+	}
+
 	t.Run("edit with failed mutation does not bump generation", func(t *testing.T) {
 		cm := &SmartContextManager{}
 		recordMutationForContextManager(cm, "edit", map[string]any{"path": "note.txt"}, &failedMutation{})
@@ -87,6 +99,18 @@ func TestRecordMutationForContextManager(t *testing.T) {
 		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &failedMutation{})
 		if got := len(cm.fileTracker.generations); got != 0 {
 			t.Fatalf("generation entries after failed apply_patch = %d, want 0", got)
+		}
+	})
+
+	t.Run("mutate with failed mutation does not bump generation", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		result := struct {
+			Paths []string `json:"paths"`
+			*failedMutation
+		}{Paths: []string{"note.txt"}, failedMutation: &failedMutation{}}
+		recordMutationForContextManager(cm, "mutate", nil, result)
+		if got := len(cm.fileTracker.generations); got != 0 {
+			t.Fatalf("generation entries after failed mutate = %d, want 0", got)
 		}
 	})
 }

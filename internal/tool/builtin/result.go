@@ -68,6 +68,24 @@ type MoveResult struct {
 	To   string `json:"to"`
 }
 
+// MutateResult is the result from a mutate tool call.
+type MutateResult struct {
+	Paths             []string     `json:"paths"`
+	Created           []string     `json:"created,omitempty"`
+	Modified          []string     `json:"modified,omitempty"`
+	Deleted           []string     `json:"deleted,omitempty"`
+	Moved             []MoveResult `json:"moved,omitempty"`
+	DryRun            bool         `json:"dry_run,omitempty"`
+	OperationsApplied int          `json:"operations_applied"`
+	OperationsFailed  int          `json:"operations_failed,omitempty"`
+	Output            string       `json:"output"`
+}
+
+// WasMutated reports whether mutate actually modified the filesystem.
+func (r *MutateResult) WasMutated() bool {
+	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
+}
+
 // WasMutated reports whether apply_patch actually modified the file.
 func (r *ApplyPatchResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.HunksFailed == 0 && (r.HunksApplied > 0 || len(r.Paths) > 0)
