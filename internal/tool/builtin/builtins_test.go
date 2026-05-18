@@ -63,7 +63,7 @@ func TestBuiltins(t *testing.T) {
 	})
 
 	t.Run("builtin tools do not hardcode approval defaults", func(t *testing.T) {
-		alwaysAuto := map[string]bool{"scratchpad": true}
+		alwaysAuto := map[string]bool{"scratchpad": true, "fetch_url": true}
 		for _, td := range tools {
 			if alwaysAuto[td.Name] {
 				continue

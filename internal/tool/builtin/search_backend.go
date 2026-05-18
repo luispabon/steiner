@@ -35,8 +35,8 @@ func NewSearchBackend(cfg config.SearchConfig) (web.Searcher, error) {
 	}
 }
 
-// SearxngSearcher provides web search via SearXNG instance.
-type SearxngSearcher struct {
+// searxngSearcher provides web search via SearXNG instance.
+type searxngSearcher struct {
 	baseURL    string
 	httpClient *http.Client
 }
@@ -51,12 +51,12 @@ type searxngResult struct {
 	Content string `json:"content"`
 }
 
-// NewSearxngSearcher creates a new SearxNG searcher.
-func NewSearxngSearcher(baseURL string) (*SearxngSearcher, error) {
+// NewSearxngSearcher creates a new SearXNG searcher.
+func NewSearxngSearcher(baseURL string) (web.Searcher, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("searxng searcher: base url is empty")
 	}
-	return &SearxngSearcher{
+	return &searxngSearcher{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
@@ -65,7 +65,7 @@ func NewSearxngSearcher(baseURL string) (*SearxngSearcher, error) {
 }
 
 // Search performs a search query against SearXNG.
-func (s *SearxngSearcher) Search(ctx context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
+func (s *searxngSearcher) Search(ctx context.Context, input *web.SearchInput) (*web.SearchOutput, error) {
 	if input == nil {
 		return nil, fmt.Errorf("search: input is nil")
 	}
