@@ -88,6 +88,12 @@ type BashInput struct {
 	MaxOutputChars int    `json:"max_output_chars,omitempty"`
 }
 
+// FetchURLInput is the typed input for the fetch_url tool.
+type FetchURLInput struct {
+	URL     string `json:"url"`
+	MaxSize int    `json:"max_size,omitempty"`
+}
+
 const (
 	defaultReadLimit          = 200
 	maxReadLimit              = 1000
@@ -170,4 +176,14 @@ func NormalizeDisplayFile(in *DisplayFileInput) {
 		in.Limit = defaultDisplayFileLimit
 	}
 	in.Limit = min(in.Limit, maxDisplayFileLimit)
+}
+
+// NormalizeFetchURL applies defaults and caps to fetch_url input.
+func NormalizeFetchURL(in *FetchURLInput) {
+	if in.MaxSize <= 0 {
+		in.MaxSize = 500000
+	}
+	if in.MaxSize > 1000000 {
+		in.MaxSize = 1000000
+	}
 }
