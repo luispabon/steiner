@@ -114,7 +114,7 @@ func (a *App) Run(options ...tea.ProgramOption) error {
 // but bubbletea does not restore on exit (it only cleans up mode 1002/1003).
 // Call this after the bubbletea program has fully exited.
 func (a *App) Cleanup() {
-	os.Stdout.WriteString("\x1b[?1000l")
+	_, _ = os.Stdout.WriteString("\x1b[?1000l")
 }
 
 type runtimeEventMsg struct {

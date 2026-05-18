@@ -21,7 +21,7 @@ func mouseDowngradeCmd() tea.Msg {
 	// Downgrade from mode 1002 (cell motion tracking) to mode 1000 (normal tracking).
 	// Mode 1000 reports press/release/wheel but NOT drag motion,
 	// allowing the terminal to handle native text selection.
-	os.Stdout.WriteString("\x1b[?1002l\x1b[?1000h")
+	_, _ = os.Stdout.WriteString("\x1b[?1002l\x1b[?1000h")
 	return mouseDowngradedMsg{}
 }
 
