@@ -192,3 +192,16 @@ func FetchURLSchema() map[string]any {
 		"additionalProperties": false,
 	}
 }
+
+// WebSearchSchema returns the JSON schema for the web_search tool.
+func WebSearchSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{"type": "string", "description": "Search query"},
+			"limit": map[string]any{"type": "integer", "description": "Max results (default: 10)", "default": 10, "maximum": 30},
+		},
+		"required":             []string{"query"},
+		"additionalProperties": false,
+	}
+}

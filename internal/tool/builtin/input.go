@@ -94,6 +94,12 @@ type FetchURLInput struct {
 	MaxSize int    `json:"max_size,omitempty"`
 }
 
+// WebSearchInput is the typed input for the web_search tool.
+type WebSearchInput struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
 const (
 	defaultReadLimit          = 200
 	maxReadLimit              = 1000
@@ -185,5 +191,15 @@ func NormalizeFetchURL(in *FetchURLInput) {
 	}
 	if in.MaxSize > 1000000 {
 		in.MaxSize = 1000000
+	}
+}
+
+// NormalizeWebSearch applies defaults and caps to web_search input.
+func NormalizeWebSearch(in *WebSearchInput) {
+	if in.Limit <= 0 {
+		in.Limit = 10
+	}
+	if in.Limit > 30 {
+		in.Limit = 30
 	}
 }
