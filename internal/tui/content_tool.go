@@ -173,28 +173,6 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 	}
 }
 
-// toolTagBgHex returns the hex background color of a tool tag pill.
-func (b *contentBuffer) toolTagBgHex(tool string) string {
-	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "bash":
-		return theme.AccentAmber
-	case "read", "read_file":
-		return theme.ToolCyan
-	case "write", "write_file", "edit", "apply_patch":
-		return theme.ToolGrn
-	case "grep":
-		return theme.ToolMag
-	case "search":
-		return theme.ToolBlue
-	case "glob":
-		return theme.ToolBlue
-	case "todo":
-		return theme.Warn
-	default:
-		return theme.ToolBlue
-	}
-}
-
 func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
 	switch normalizeToolName(tool) {
 	case "bash":
