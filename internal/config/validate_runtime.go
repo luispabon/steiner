@@ -5,7 +5,22 @@ import (
 	"strings"
 )
 
+// validAgentTypes mirrors delegation.AllAgentTypes to avoid a circular import
+// (internal/delegation imports internal/config).
+var validAgentTypes = map[string]bool{
+	"explore":  true,
+	"research": true,
+	"code":     true,
+	"plan":     true,
+	"verify":   true,
+}
+
 func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
+	for name := range cfg.Agents {
+		if !validAgentTypes[name] {
+			*problems = append(*problems, fmt.Sprintf("sub_agent.agents contains unknown agent type %q", name))
+		}
+	}
 	if !cfg.Enabled {
 		return
 	}

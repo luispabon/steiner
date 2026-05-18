@@ -84,11 +84,16 @@ type approvalPatch struct {
 	ToolOverrides *map[string]*ApprovalMode `yaml:"tool_overrides"`
 }
 
+type agentConfigPatch struct {
+	Model *string `yaml:"model"`
+}
+
 type subAgentPatch struct {
-	Enabled      *bool     `yaml:"enabled"`
-	MaxTurns     *int      `yaml:"max_turns"`
-	MaxTokens    *int      `yaml:"max_tokens"`
-	AllowedTools *[]string `yaml:"allowed_tools"`
+	Enabled      *bool                        `yaml:"enabled"`
+	MaxTurns     *int                         `yaml:"max_turns"`
+	MaxTokens    *int                         `yaml:"max_tokens"`
+	AllowedTools *[]string                    `yaml:"allowed_tools"`
+	Agents       *map[string]agentConfigPatch `yaml:"agents"`
 }
 
 type toolPatch struct {

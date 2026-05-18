@@ -166,12 +166,19 @@ type ApprovalConfig struct {
 	ToolOverrides map[string]*ApprovalMode `yaml:"tool_overrides"`
 }
 
+// AgentConfig holds per-agent-type configuration.
+type AgentConfig struct {
+	// Model is an optional model alias override for this agent type.
+	Model string `yaml:"model"`
+}
+
 // SubAgentConfig controls delegated child-agent execution limits.
 type SubAgentConfig struct {
-	Enabled      bool     `yaml:"enabled"`
-	MaxTurns     int      `yaml:"max_turns"`
-	MaxTokens    int      `yaml:"max_tokens"`
-	AllowedTools []string `yaml:"allowed_tools"`
+	Enabled      bool                   `yaml:"enabled"`
+	MaxTurns     int                    `yaml:"max_turns"`
+	MaxTokens    int                    `yaml:"max_tokens"`
+	AllowedTools []string               `yaml:"allowed_tools"`
+	Agents       map[string]AgentConfig `yaml:"agents"`
 }
 
 // ToolConfig defines an externally configured tool.
