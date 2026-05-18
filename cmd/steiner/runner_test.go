@@ -97,11 +97,13 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// All agent types should have a corresponding specialized tool, except research
-	// when no searcher is provided.
+	// Research agent is excluded when no searcher is configured.
 	for _, agentType := range delegation.AllAgentTypes() {
 		if agentType == delegation.AgentTypeResearch {
-			continue // research is excluded when no searcher is provided
+			if nameSet[string(agentType)] {
+				t.Errorf("research tool should not be in registry when no searcher configured")
+			}
+			continue
 		}
 		if !nameSet[string(agentType)] {
 			t.Errorf("specialized tool %q not found in registry; got %v", agentType, names)
@@ -130,7 +132,7 @@ func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
 
 	for _, n := range reg.Names() {
 		if n == "research" {
-			t.Errorf("research tool should not be in registry when no search backend configured")
+			t.Errorf("research agent should not be in registry when no search backend configured")
 		}
 	}
 }

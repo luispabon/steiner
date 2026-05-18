@@ -151,13 +151,12 @@ func TestAllSpecializedToolDefs_ExcludeTypes(t *testing.T) {
 
 	want := len(AllAgentTypes()) - 1
 	if len(defs) != want {
-		t.Errorf("AllSpecializedToolDefs with exclusion returned %d defs, want %d", len(defs), want)
+		t.Errorf("AllSpecializedToolDefs with exclude returned %d defs, want %d", len(defs), want)
 	}
 
-	// Verify no def has name "research".
 	for _, def := range defs {
-		if def.Name == "research" {
-			t.Error("research tool should be excluded but was found")
+		if def.Name == string(AgentTypeResearch) {
+			t.Errorf("research agent should be excluded but was found in defs")
 		}
 	}
 }

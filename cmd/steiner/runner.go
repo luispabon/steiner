@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/wonton/web"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -169,10 +170,9 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
 //
-// An extended base registry is also built for child bootstrapping that includes
-// fetch_url (always present in base via Builtins) and conditionally web_search
-// when a search backend is configured. These tools are passed to children via
-// the per-type allowlists; the parent model only gets web_search if a searcher is available.
+// An extended base registry is also built that includes real tools (web_search
+// when a searcher is available, fetch_url always via Builtins) so child
+// registries can filter them in via their per-type allowlists.
 func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), searcher web.Searcher) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
@@ -181,8 +181,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	mt := maxTokens
 
 	// extendedBase is used as ParentReg for child agents.
-	// fetch_url is already in base (always registered via Builtins).
-	// Conditionally add web_search when a search backend is configured.
+	// fetch_url is always present (via Builtins). Conditionally add web_search.
 	extendedBase := base.Clone()
 	if searcher != nil {
 		extendedBase.Register(builtin.NewWebSearchTool(searcher))
@@ -226,14 +225,15 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		return p, resolved, nil
 	}
 
-	// Register a specialized tool for each agent type, skipping research if no searcher.
-	var excludeTypes []delegation.AgentType
-	if searcher == nil {
-		excludeTypes = []delegation.AgentType{delegation.AgentTypeResearch}
-	}
+	// Register a specialized tool for each agent type.
+	// Skip research agent when no search backend is configured.
 	specializedDeps := delegation.SpecializedToolDeps{
 		DelegateHandlerDeps: delegateDeps,
 		ModelResolver:       modelResolver,
+	}
+	var excludeTypes []delegation.AgentType
+	if searcher == nil {
+		excludeTypes = []delegation.AgentType{delegation.AgentTypeResearch}
 	}
 	for _, def := range delegation.AllSpecializedToolDefs(specializedDeps, excludeTypes) {
 		cloned.Register(def)
