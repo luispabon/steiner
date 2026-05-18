@@ -165,15 +165,27 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // buildActiveRegistry returns the registry to use for a run. When sub-agent
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
+//
+// An extended base registry is also built that includes dummy tool stubs
+// (web_search, fetch_url) so that child registries can filter them in via
+// their per-type allowlists. These stubs are not registered in the cloned
+// registry exposed to the parent model.
 func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
 	cloned := base.Clone()
 	mt := maxTokens
-	handler := delegation.NewDelegateHandler(delegation.DelegateHandlerDeps{
+
+	// extendedBase includes dummy stubs so child registries can filter them in.
+	// It is only used as ParentReg for child bootstrapping, not by the parent model.
+	extendedBase := base.Clone()
+	extendedBase.Register(tool.DummyWebSearchTool())
+	extendedBase.Register(tool.DummyFetchURLTool())
+
+	deps := delegation.DelegateHandlerDeps{
 		Provider:           prov,
-		ParentReg:          base,
+		ParentReg:          extendedBase,
 		SubAgentCfg:        subAgentCfg,
 		Events:             events,
 		Runner:             agent.NewRunner(),
@@ -182,7 +194,16 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		MaxTokens:          &mt,
 		StreamingPreferred: streamingPreferred,
 		TraceLogger:        traceLogger,
-	})
+	}
+
+	// Register the generic delegate tool.
+	handler := delegation.NewDelegateHandler(deps)
 	cloned.Register(delegation.DelegateToolDef(handler))
+
+	// Register a specialized tool for each agent type.
+	for _, def := range delegation.AllSpecializedToolDefs(deps) {
+		cloned.Register(def)
+	}
+
 	return cloned
 }

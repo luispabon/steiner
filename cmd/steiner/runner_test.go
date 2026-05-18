@@ -80,6 +80,37 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	cfg := config.SubAgentConfig{Enabled: true}
+	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+
+	names := reg.Names()
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+
+	// All agent types should have a corresponding specialized tool.
+	for _, agentType := range delegation.AllAgentTypes() {
+		if !nameSet[string(agentType)] {
+			t.Errorf("specialized tool %q not found in registry; got %v", agentType, names)
+		}
+	}
+}
+
+func TestBuildActiveRegistry_DummyToolsNotExposedToParent(t *testing.T) {
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	cfg := config.SubAgentConfig{Enabled: true}
+	reg := buildActiveRegistry(base, cfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil)
+
+	for _, n := range reg.Names() {
+		if n == "web_search" || n == "fetch_url" {
+			t.Errorf("dummy tool %q should not be exposed to the parent model", n)
+		}
+	}
+}
+
 func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	cfg := config.SubAgentConfig{Enabled: false}
