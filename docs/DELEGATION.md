@@ -129,7 +129,7 @@ Two registries are built from the parent:
 The request includes:
 - The parent's provider instance (same model, same endpoint)
 - A `tool.NewExecutor` wrapping the execution registry with auto-approval config
-- `ExtraParams` and `Thinking` config propagated from the parent's model config
+- `ExtraParams` and `PromptSuffix` propagated from the parent's model config
 - No explicit `ContextManager` — `agent.Runner` installs `NaiveContextManager`
 - No `Model` field — child provider requests rely on the active provider instance
 - No child `ModelBudget` or response `MaxTokens` field

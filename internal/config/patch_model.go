@@ -61,7 +61,6 @@ func cloneModelConfig(src ModelConfig) ModelConfig {
 	dst := src
 	dst.Params = copyStringAnyMap(src.Params)
 	dst.ExtraParams = copyStringAnyMap(src.ExtraParams)
-	dst.ThinkingParams = copyStringAnyMap(src.ThinkingParams)
 	return dst
 }
 
@@ -99,17 +98,8 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.ExtraParams != nil {
 		dst.ExtraParams = copyStringAnyMap(*patch.ExtraParams)
 	}
-	if patch.ThinkingEnabled != nil {
-		dst.ThinkingEnabled = *patch.ThinkingEnabled
-	}
-	if patch.ThinkingDisableMarker != nil {
-		dst.ThinkingDisableMarker = *patch.ThinkingDisableMarker
-	}
-	if patch.ThinkingScaffoldInference != nil {
-		dst.ThinkingScaffoldInference = *patch.ThinkingScaffoldInference
-	}
-	if patch.ThinkingParams != nil {
-		dst.ThinkingParams = copyStringAnyMap(*patch.ThinkingParams)
+	if patch.PromptSuffix != nil {
+		dst.PromptSuffix = *patch.PromptSuffix
 	}
 	if patch.Retry != nil {
 		applyRetryPatch(&dst.Retry, patch.Retry)

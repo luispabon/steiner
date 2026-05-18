@@ -127,7 +127,7 @@ models:
     id: openai/gpt-4.1-mini
 ```
 
-Example 4: tuned model with `params`, `extra_params`, and thinking disabled:
+Example 4: tuned model with `params`, `extra_params`, and a prompt suffix:
 
 ```yaml
 default_model: precise
@@ -148,7 +148,7 @@ models:
       frequency_penalty: 0
       metadata:
         profile: precise
-    thinking_enabled: false
+    prompt_suffix: <|think_off|>
 ```
 
 Example 5: advanced overrides with explicit limits:
@@ -195,8 +195,7 @@ models:
   review:
     provider: local
     id: qwen3-32b
-    thinking_scaffold_inference: true
-    thinking_params:
+    extra_params:
       thinking:
         type: enabled
         budget_tokens: 16000
@@ -216,7 +215,7 @@ Model fields:
 * `id`: backend model identifier sent to the provider
 * `params`: normalized generation params
 * `extra_params`: provider-specific request fields merged on top of `params`
-* `thinking_enabled`, `thinking_disable_marker`, `thinking_scaffold_inference`, `thinking_params`: reasoning controls
+* `prompt_suffix`: optional text appended to the last user message for each model request
 * `retry`: retry policy for model requests
 * `prompts`: per-model prompt overrides
 * `advanced.limits`: prompt budgeting and output token limits

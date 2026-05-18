@@ -6,17 +6,8 @@ func defaultConfig() Config {
 		BaseURL: "http://localhost:11434/v1",
 	}
 	defaultModel := ModelConfig{
-		Provider:                  "local",
-		ID:                        "qwen3-35b-a3b",
-		ThinkingEnabled:           true,
-		ThinkingDisableMarker:     "<|think_off|>",
-		ThinkingScaffoldInference: false,
-		ThinkingParams: map[string]any{
-			"thinking": map[string]any{
-				"type":          "enabled",
-				"budget_tokens": 10000,
-			},
-		},
+		Provider: "local",
+		ID:       "qwen3-35b-a3b",
 		Retry: RetryConfig{
 			Enabled:        true,
 			MaxAttempts:    3,

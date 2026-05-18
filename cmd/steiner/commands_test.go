@@ -318,6 +318,7 @@ models:
     extra_params:
       reasoning:
         effort: medium
+    prompt_suffix: <|think_off|>
 `)
 
 	cmd := newRootCommand()
@@ -347,6 +348,7 @@ models:
 		"  emergency_summary_token_budget: 5120",
 		"params: {\"temperature\":0.2}",
 		"extra_params: {\"reasoning\":{\"effort\":\"medium\"}}",
+		"prompt_suffix: \"<|think_off|>\"",
 		"tokenizer:",
 		"  strategy: tiktoken",
 		"  confidence: high",

@@ -15,6 +15,7 @@ func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
         enabled: false
       metadata:
         tier: offline
+    prompt_suffix: <|think_off|>
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -62,5 +63,11 @@ func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 	}
 	if got, want := metadata["tier"], "offline"; got != want {
 		t.Fatalf("extra_params[metadata][tier] = %v, want %v", got, want)
+	}
+	if model.PromptSuffix == nil {
+		t.Fatal("model.PromptSuffix = nil, want parsed prompt_suffix")
+	}
+	if got, want := *model.PromptSuffix, "<|think_off|>"; got != want {
+		t.Fatalf("prompt_suffix = %q, want %q", got, want)
 	}
 }

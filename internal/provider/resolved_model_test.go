@@ -23,13 +23,10 @@ func TestResolve(t *testing.T) {
 		},
 		Models: map[string]config.ModelConfig{
 			"mymodel": {
-				Provider:                  "local",
-				ID:                        "llama3",
-				ExtraParams:               map[string]any{"temperature": 0.8},
-				ThinkingEnabled:           true,
-				ThinkingDisableMarker:     "nothink",
-				ThinkingScaffoldInference: true,
-				ThinkingParams:            map[string]any{"budget_tokens": 1024},
+				Provider:     "local",
+				ID:           "llama3",
+				ExtraParams:  map[string]any{"temperature": 0.8},
+				PromptSuffix: "nothink",
 				Advanced: config.AdvancedConfig{
 					Limits: config.AdvancedLimitsConfig{
 						ContextWindow:   128000,
@@ -71,20 +68,11 @@ func TestResolve(t *testing.T) {
 				if rm.Confidence != "high" {
 					t.Errorf("Confidence=%q, want high", rm.Confidence)
 				}
-				if !rm.ThinkingEnabled {
-					t.Error("ThinkingEnabled=false, want true")
-				}
-				if rm.ThinkingDisableMarker != "nothink" {
-					t.Errorf("ThinkingDisableMarker=%q, want nothink", rm.ThinkingDisableMarker)
-				}
-				if !rm.ThinkingScaffoldInference {
-					t.Error("ThinkingScaffoldInference=false, want true")
+				if rm.PromptSuffix != "nothink" {
+					t.Errorf("PromptSuffix=%q, want nothink", rm.PromptSuffix)
 				}
 				if rm.ReasoningEchoBack {
 					t.Error("ReasoningEchoBack=true, want false (no discovery)")
-				}
-				if v, ok := rm.ThinkingParams["budget_tokens"]; !ok || v != 1024 {
-					t.Errorf("ThinkingParams[budget_tokens]=%v, want 1024", v)
 				}
 				if v, ok := rm.ExtraParams["temperature"]; !ok || v != 0.8 {
 					t.Errorf("ExtraParams[temperature]=%v, want 0.8", v)
@@ -746,28 +734,19 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		modelID         string
-		thinkingEnabled bool
-		wantEchoBack    bool
+		name         string
+		modelID      string
+		wantEchoBack bool
 	}{
 		{
-			name:            "thinking enabled + interleaved reasoning_content",
-			modelID:         "deepseek-r1",
-			thinkingEnabled: true,
-			wantEchoBack:    true,
+			name:         "interleaved reasoning_content",
+			modelID:      "deepseek-r1",
+			wantEchoBack: true,
 		},
 		{
-			name:            "thinking disabled + interleaved reasoning_content",
-			modelID:         "deepseek-r1",
-			thinkingEnabled: false,
-			wantEchoBack:    true,
-		},
-		{
-			name:            "thinking enabled + no interleaved field",
-			modelID:         "gpt-4o",
-			thinkingEnabled: true,
-			wantEchoBack:    false,
+			name:         "no interleaved field",
+			modelID:      "gpt-4o",
+			wantEchoBack: false,
 		},
 	}
 
@@ -779,9 +758,9 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 				},
 				Models: map[string]config.ModelConfig{
 					"test": {
-						Provider:        "local",
-						ID:              tt.modelID,
-						ThinkingEnabled: tt.thinkingEnabled,
+						Provider:     "local",
+						ID:           tt.modelID,
+						PromptSuffix: "<|think_off|>",
 					},
 				},
 			}

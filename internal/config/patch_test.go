@@ -158,25 +158,19 @@ func TestApplyModelPatch(t *testing.T) {
 			},
 		},
 		{
-			name: "sets thinking fields",
+			name: "sets prompt suffix",
 			initial: ModelConfig{
-				Provider:                  "local",
-				ID:                        "model",
-				ThinkingEnabled:           false,
-				ThinkingDisableMarker:     "",
-				ThinkingScaffoldInference: false,
+				Provider:     "local",
+				ID:           "model",
+				PromptSuffix: "old",
 			},
 			patch: modelPatch{
-				ThinkingEnabled:           boolPtr(true),
-				ThinkingDisableMarker:     stringPtr("<|think_off|>"),
-				ThinkingScaffoldInference: boolPtr(true),
+				PromptSuffix: stringPtr("<|think_off|>"),
 			},
 			want: ModelConfig{
-				Provider:                  "local",
-				ID:                        "model",
-				ThinkingEnabled:           true,
-				ThinkingDisableMarker:     "<|think_off|>",
-				ThinkingScaffoldInference: true,
+				Provider:     "local",
+				ID:           "model",
+				PromptSuffix: "<|think_off|>",
 			},
 		},
 		{
@@ -288,11 +282,11 @@ func TestApplyModelPatch(t *testing.T) {
 
 func TestCloneModelConfig(t *testing.T) {
 	original := ModelConfig{
-		Provider:       "local",
-		ID:             "test-model",
-		Params:         map[string]any{"key": "value"},
-		ExtraParams:    map[string]any{"extra": "param"},
-		ThinkingParams: map[string]any{"thinking": "enabled"},
+		Provider:     "local",
+		ID:           "test-model",
+		Params:       map[string]any{"key": "value"},
+		ExtraParams:  map[string]any{"extra": "param"},
+		PromptSuffix: "<|think_off|>",
 	}
 
 	cloned := cloneModelConfig(original)
@@ -310,11 +304,6 @@ func TestCloneModelConfig(t *testing.T) {
 	cloned.ExtraParams["extra"] = "modified"
 	if original.ExtraParams["extra"] == "modified" {
 		t.Fatal("cloneModelConfig() did not copy ExtraParams map separately")
-	}
-
-	cloned.ThinkingParams["thinking"] = "modified"
-	if original.ThinkingParams["thinking"] == "modified" {
-		t.Fatal("cloneModelConfig() did not copy ThinkingParams map separately")
 	}
 }
 

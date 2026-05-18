@@ -365,11 +365,5 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 }
 
 func buildTurnChatRequest(req RunRequest, chatRequest provider.ChatRequest) provider.ChatRequest {
-	tc := thinkingCfg{
-		enabled:           req.ResolvedModel.ThinkingEnabled,
-		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
-		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
-		params:            req.ResolvedModel.ThinkingParams,
-	}
-	return applyThinking(tc, chatRequest)
+	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatRequest)
 }

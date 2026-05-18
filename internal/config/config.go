@@ -113,17 +113,14 @@ type SchedulerConfig struct {
 
 // ModelConfig configures a model instance.
 type ModelConfig struct {
-	Provider                  string         `yaml:"provider"`
-	ID                        string         `yaml:"id"`
-	Params                    map[string]any `yaml:"params"`
-	ExtraParams               map[string]any `yaml:"extra_params"`
-	ThinkingEnabled           bool           `yaml:"thinking_enabled"`
-	ThinkingDisableMarker     string         `yaml:"thinking_disable_marker"`
-	ThinkingScaffoldInference bool           `yaml:"thinking_scaffold_inference"`
-	ThinkingParams            map[string]any `yaml:"thinking_params"`
-	Retry                     RetryConfig    `yaml:"retry"`
-	Prompts                   ModelPrompts   `yaml:"prompts"`
-	Advanced                  AdvancedConfig `yaml:"advanced"`
+	Provider     string         `yaml:"provider"`
+	ID           string         `yaml:"id"`
+	Params       map[string]any `yaml:"params"`
+	ExtraParams  map[string]any `yaml:"extra_params"`
+	PromptSuffix string         `yaml:"prompt_suffix"`
+	Retry        RetryConfig    `yaml:"retry"`
+	Prompts      ModelPrompts   `yaml:"prompts"`
+	Advanced     AdvancedConfig `yaml:"advanced"`
 }
 
 // RetryConfig controls retry behaviour for model requests.

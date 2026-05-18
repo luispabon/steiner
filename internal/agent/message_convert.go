@@ -7,14 +7,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// thinkingCfg carries thinking parameters without coupling to config.ModelConfig.
-type thinkingCfg struct {
-	enabled           bool
-	disableMarker     string
-	scaffoldInference bool
-	params            map[string]any
-}
-
 // ToProviderMessages converts a slice of agent Messages to provider Messages.
 func ToProviderMessages(messages []Message) []provider.Message {
 	if len(messages) == 0 {
@@ -116,13 +108,7 @@ func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantConte
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
 	}
-	tc := thinkingCfg{
-		enabled:           req.ResolvedModel.ThinkingEnabled && req.ResolvedModel.ThinkingScaffoldInference,
-		disableMarker:     req.ResolvedModel.ThinkingDisableMarker,
-		scaffoldInference: req.ResolvedModel.ThinkingScaffoldInference,
-		params:            req.ResolvedModel.ThinkingParams,
-	}
-	return applyThinking(tc, chatReq)
+	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatReq)
 }
 
 func scaffoldInferenceUserPrompt(scaffoldState, assistantContent string) string {
@@ -300,66 +286,38 @@ func LastAssistantMessage(msgs []Message) (Message, bool) {
 	return Message{}, false
 }
 
-// hasThinkingMarker reports whether the last user message contains marker.
-func hasThinkingMarker(messages []provider.Message, marker string) bool {
+// hasPromptSuffix reports whether the last user message already contains suffix.
+func hasPromptSuffix(messages []provider.Message, suffix string) bool {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != provider.MessageRoleUser {
 			continue
 		}
-		return strings.Contains(messages[i].Content, marker)
+		return strings.Contains(messages[i].Content, suffix)
 	}
 	return false
 }
 
-// appendThinkingMarker returns a copy of messages with marker appended to the
+// appendPromptSuffix returns a copy of messages with suffix appended to the
 // last user message. If there is no user message, messages is returned as-is.
-func appendThinkingMarker(messages []provider.Message, marker string) []provider.Message {
+func appendPromptSuffix(messages []provider.Message, suffix string) []provider.Message {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != provider.MessageRoleUser {
 			continue
 		}
 		out := make([]provider.Message, len(messages))
 		copy(out, messages)
-		out[i].Content = out[i].Content + " " + marker
+		out[i].Content = strings.TrimSpace(out[i].Content + " " + suffix)
 		return out
 	}
 	return messages
 }
 
-// mergeThinkingParams returns a new map with base merged first, then params on
-// top (params wins on collision).
-func mergeThinkingParams(base, params map[string]any) map[string]any {
-	out := make(map[string]any, len(base)+len(params))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range params {
-		out[k] = v
-	}
-	return out
-}
-
-// applyThinking returns req with thinking params injected or suppressed
-// according to cfg. When thinking is disabled and a disable marker is
-// configured, the marker is appended to the last user message so the model
-// knows not to think.
-func applyThinking(cfg thinkingCfg, req provider.ChatRequest) provider.ChatRequest {
-	if cfg.disableMarker != "" {
-		if !cfg.enabled {
-			if !hasThinkingMarker(req.Messages, cfg.disableMarker) {
-				req.Messages = appendThinkingMarker(req.Messages, cfg.disableMarker)
-			}
-			return req
-		}
-		if hasThinkingMarker(req.Messages, cfg.disableMarker) {
-			return req
-		}
-	}
-	if !cfg.enabled {
+// applyPromptSuffix appends suffix to the last user message without duplicating it.
+func applyPromptSuffix(suffix string, req provider.ChatRequest) provider.ChatRequest {
+	suffix = strings.TrimSpace(suffix)
+	if suffix == "" || hasPromptSuffix(req.Messages, suffix) {
 		return req
 	}
-	if len(cfg.params) > 0 {
-		req.ExtraParams = mergeThinkingParams(req.ExtraParams, cfg.params)
-	}
+	req.Messages = appendPromptSuffix(req.Messages, suffix)
 	return req
 }

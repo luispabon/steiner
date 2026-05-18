@@ -49,7 +49,7 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 
 func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	if _, err := fmt.Fprintf(out,
-		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  confidence: %s\n  context_window: %d\n  max_output_tokens: %d\nderived_policy:\n  compaction_threshold: %.2f\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\nparams: %s\nextra_params: %s\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
+		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  confidence: %s\n  context_window: %d\n  max_output_tokens: %d\nderived_policy:\n  compaction_threshold: %.2f\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\nparams: %s\nextra_params: %s\nprompt_suffix: %q\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
 		rm.Alias,
 		rm.ProviderAlias,
 		rm.BackendModelID,
@@ -64,6 +64,7 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 		rm.EffectiveLimits.EmergencySummaryMaxTokens,
 		formatJSONMap(rm.Params),
 		formatJSONMap(rm.ExtraParams),
+		rm.PromptSuffix,
 		rm.TokenizerStrategy,
 		rm.TokenizerConfidence,
 	); err != nil {

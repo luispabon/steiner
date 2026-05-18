@@ -164,7 +164,7 @@ func TestOpenAIRequestMarshalJSONMergeOrderPrecedence(t *testing.T) {
 	}
 }
 
-func TestOpenAIRequestMarshalJSONPreservesThinkingDisabledExtraParams(t *testing.T) {
+func TestOpenAIRequestMarshalJSONPreservesReasoningExtraParams(t *testing.T) {
 	req := openAIRequest{
 		Model:    "gpt-4",
 		Messages: []openAIMessage{{Role: "user", Content: "hello"}},

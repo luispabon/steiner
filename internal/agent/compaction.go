@@ -600,13 +600,14 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 }
 
 func buildConversationRequest(req RunRequest, messages []Message) provider.ChatRequest {
-	return provider.ChatRequest{
+	request := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    ToProviderMessages(messages),
 		Tools:       cloneProviderTools(req.Tools),
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   req.MaxTokens,
 	}
+	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
 }
 
 func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
@@ -622,7 +623,7 @@ func buildCompactionRequestWithMode(req RunRequest, state RunState, candidate Co
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   compactionMaxTokensForMode(maxTokens),
 	}
-	return request, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode)
+	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request), fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode)
 }
 
 func retainRecentTurns(messages []Message, retainTurns int) []Message {

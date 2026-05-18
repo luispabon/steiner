@@ -26,25 +26,22 @@ type EffectiveLimits struct {
 // ResolvedModel is the runtime object combining provider and model config
 // with resolved metadata.
 type ResolvedModel struct {
-	Alias                     string
-	ProviderAlias             string
-	ProviderConfig            config.ProviderConfig
-	BackendModelID            string
-	EffectiveLimits           EffectiveLimits
-	Params                    map[string]any
-	ExtraParams               map[string]any
-	ThinkingEnabled           bool
-	ThinkingDisableMarker     string
-	ThinkingScaffoldInference bool
-	ThinkingParams            map[string]any
-	ReasoningEchoBack         bool
-	Prompts                   config.ModelPrompts
-	Retry                     config.RetryConfig
-	MetadataSource            string
-	Confidence                string
-	TokenizerStrategy         string
-	TokenizerConfidence       string
-	Warnings                  []string
+	Alias               string
+	ProviderAlias       string
+	ProviderConfig      config.ProviderConfig
+	BackendModelID      string
+	EffectiveLimits     EffectiveLimits
+	Params              map[string]any
+	ExtraParams         map[string]any
+	PromptSuffix        string
+	ReasoningEchoBack   bool
+	Prompts             config.ModelPrompts
+	Retry               config.RetryConfig
+	MetadataSource      string
+	Confidence          string
+	TokenizerStrategy   string
+	TokenizerConfidence string
+	Warnings            []string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias.
@@ -64,23 +61,20 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
 
 	return ResolvedModel{
-		Alias:                     alias,
-		ProviderAlias:             modelCfg.Provider,
-		ProviderConfig:            provCfg,
-		BackendModelID:            modelCfg.ID,
-		EffectiveLimits:           limits,
-		Params:                    modelCfg.Params,
-		ExtraParams:               modelCfg.ExtraParams,
-		ThinkingEnabled:           modelCfg.ThinkingEnabled,
-		ThinkingDisableMarker:     modelCfg.ThinkingDisableMarker,
-		ThinkingScaffoldInference: modelCfg.ThinkingScaffoldInference,
-		ThinkingParams:            modelCfg.ThinkingParams,
-		Prompts:                   modelCfg.Prompts,
-		Retry:                     modelCfg.Retry,
-		MetadataSource:            "config",
-		Confidence:                "high",
-		TokenizerStrategy:         tokenizerStrategy,
-		TokenizerConfidence:       tokenizerConfidence,
+		Alias:               alias,
+		ProviderAlias:       modelCfg.Provider,
+		ProviderConfig:      provCfg,
+		BackendModelID:      modelCfg.ID,
+		EffectiveLimits:     limits,
+		Params:              modelCfg.Params,
+		ExtraParams:         modelCfg.ExtraParams,
+		PromptSuffix:        modelCfg.PromptSuffix,
+		Prompts:             modelCfg.Prompts,
+		Retry:               modelCfg.Retry,
+		MetadataSource:      "config",
+		Confidence:          "high",
+		TokenizerStrategy:   tokenizerStrategy,
+		TokenizerConfidence: tokenizerConfidence,
 	}, nil
 }
 
