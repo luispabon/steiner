@@ -318,7 +318,7 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 	agentType := AgentTypeExplore
 	resolverCalled := false
 
-	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+	modelResolver := func(_ string) (provider.Provider, provider.ResolvedModel, error) {
 		resolverCalled = true
 		return nil, provider.ResolvedModel{}, fmt.Errorf("should not be called")
 	}
@@ -407,11 +407,11 @@ func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 	expectedAlias := "bad-model"
 	expectedErr := fmt.Errorf("model not found")
 
-	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+	modelResolver := func(_ string) (provider.Provider, provider.ResolvedModel, error) {
 		return nil, provider.ResolvedModel{}, expectedErr
 	}
 
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}}
 
