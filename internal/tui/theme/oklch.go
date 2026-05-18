@@ -139,6 +139,14 @@ var (
 	RemovedSoft = blendHex(Removed, Bg, 0.09)     // 9% removed + 91% bg
 	WarnSoft    = blendHex(Warn, Bg, 0.07)        // 7% warn + 93% bg
 	AccentLine  = blendHex(AccentAmber, Bg, 0.35) // 35% accent + 65% bg
+
+	// Muted tool border colors (blended with Bg)
+	ToolAmberLine = blendHex(AccentAmber, Bg, 0.30) // 30% bash + 70% bg
+	ToolCyanLine  = blendHex(ToolCyan, Bg, 0.30)    // 30% read + 70% bg
+	ToolGrnLine   = blendHex(ToolGrn, Bg, 0.30)     // 30% write + 70% bg
+	ToolMagLine   = blendHex(ToolMag, Bg, 0.30)     // 30% grep + 70% bg
+	ToolBlueLine  = blendHex(ToolBlue, Bg, 0.30)    // 30% search/glob + 70% bg
+	WarnLine      = blendHex(Warn, Bg, 0.30)        // 30% todo + 70% bg
 )
 
 // AccentPresets maps accent preset names to their hex values

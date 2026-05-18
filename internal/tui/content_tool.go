@@ -162,6 +162,8 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagWrite
 	case "grep":
 		return b.styles.ToolTagGrep
+	case "search":
+		return b.styles.ToolTagSearch
 	case "glob":
 		return b.styles.ToolTagGlob
 	case "todo":
@@ -182,6 +184,8 @@ func (b *contentBuffer) toolTagBgHex(tool string) string {
 		return theme.ToolGrn
 	case "grep":
 		return theme.ToolMag
+	case "search":
+		return theme.ToolBlue
 	case "glob":
 		return theme.ToolBlue
 	case "todo":
@@ -191,11 +195,32 @@ func (b *contentBuffer) toolTagBgHex(tool string) string {
 	}
 }
 
+func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
+	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "bash":
+		return b.styles.ToolBorderBash
+	case "read", "read_file":
+		return b.styles.ToolBorderRead
+	case "write", "write_file", "edit", "apply_patch":
+		return b.styles.ToolBorderWrite
+	case "grep":
+		return b.styles.ToolBorderGrep
+	case "search":
+		return b.styles.ToolBorderSearch
+	case "glob":
+		return b.styles.ToolBorderGlob
+	case "todo":
+		return b.styles.ToolBorderTodo
+	default:
+		return b.styles.ToolBorderDefault
+	}
+}
+
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 	tagStyle := b.toolTagStyle(tc.tool)
 	tag := tagStyle.Render(tc.tool)
 	tagWidth := lipgloss.Width(tag)
-	tagBgColor := b.toolTagBgHex(tc.tool)
+	borderStyle := b.toolBorderStyle(tc.tool)
 	disclosure := "▾"
 	if tc.collapsed {
 		disclosure = "▸"
@@ -231,7 +256,7 @@ func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
 		Background(lipgloss.Color(theme.BgElev)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(tagBgColor))
+		BorderForeground(borderStyle.GetForeground())
 
 	if tc.collapsed {
 		boxWidth := width - 2
