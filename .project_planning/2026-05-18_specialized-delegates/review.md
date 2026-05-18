@@ -13,7 +13,8 @@ Feature branch `cl/2026-05-18_specialized-delegates` vs main. All files touched 
 - Repository state: full diff from main, all new/changed files
 
 Branch: `cl/2026-05-18_specialized-delegates`
-Review status: **fail**
+Initial review status: **fail**
+Final review status: **pass_with_notes**
 
 ---
 
@@ -40,6 +41,8 @@ Review status: **fail**
 6. Add tests: configured alias resolves correctly, missing alias falls back, unknown alias returns error.
 7. Resolve DELEGATION.md contradiction (constraint #5 "Single provider" vs per-type model config).
 
+**Resolution:** fixed by review-fix commit `cc3ade7` and merged into the feature branch by `de2f875`.
+
 ### Non-blocking
 
 #### NB-1: Unrelated commit on feature branch
@@ -50,9 +53,13 @@ Review status: **fail**
 
 `validate_runtime.go:10-16` manually mirrors `delegation.AllAgentTypes()` to avoid a circular import. Comment documents the intent. No cross-package test ensures the two lists stay in sync. If a new agent type is added to `AllAgentTypes()` but not to `validAgentTypes`, config validation would reject it. Low risk for v1 since the two files changed in the same step.
 
+**Resolution:** fixed by adding a cross-package validation sync test in `cmd/steiner/runner_test.go`.
+
 #### NB-3: DELEGATION.md internal contradiction
 
 Constraint #5 (line 377): "Single provider: children use the same provider/model instance as the parent." Lines 139-151: documents per-type model config. These contradict each other. Both will need updating when B-1 is fixed.
+
+**Resolution:** fixed by updating constraint #5 to describe parent provider/model fallback plus per-type model alias overrides.
 
 ### Informational
 
@@ -99,6 +106,9 @@ Add a test in `cmd/steiner/runner_test.go` that verifies `config.validAgentTypes
 
 ## Fixes Applied
 
+- Review-fix sub-agent `019e3c8b-8669-7f93-afb4-426fa0c04f83` completed branch `review-fix/b1-specialized-models` with commit `cc3ade7`.
+- Temporary review-fix branch merged into `cl/2026-05-18_specialized-delegates` with merge commit `de2f875`.
+- Review-fix sub-agent was closed, the temporary worktree `.review-worktrees/b1-specialized-models` was removed, the temporary branch `review-fix/b1-specialized-models` was deleted, and the transfer stash was dropped.
 - Embedded `DelegateHandlerDeps` in `SpecializedToolDeps` and added a `ModelResolver` dependency for per-type aliases.
 - Updated specialized delegate handlers to resolve configured `sub_agent.agents.<type>.model` aliases through `ModelResolver`, falling back to the parent provider/model when unset or when no resolver is available.
 - Updated `cmd/steiner` registry wiring to build a resolver from `provider.Resolve(cfg, alias)` plus the runtime provider factory, and pass it into specialized tool definitions.
@@ -114,6 +124,13 @@ Add a test in `cmd/steiner/runner_test.go` that verifies `config.validAgentTypes
 - `go build ./...`
 - `make quick-check`
 
+Reviewer rerun after merge on `cl/2026-05-18_specialized-delegates`:
+
+- `go test ./internal/delegation/... ./cmd/steiner/...` — pass
+- `go vet ./...` — pass
+- `go build ./...` — pass
+- `make quick-check` — pass
+
 ## Final Status
 
-**pass** — B-1 fixed and verification passed.
+**pass_with_notes** — B-1 fixed and verification passed. Remaining notes are non-blocking: NB-1 is acknowledged as already in `origin/main`; I-2 remains a pre-existing `govulncheck` availability note from execution.
