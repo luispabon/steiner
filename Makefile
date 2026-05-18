@@ -15,7 +15,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build-binaries test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check quick-check ci-check
+.PHONY: build-binaries test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check
 
 build-binaries:
 	mkdir -p $(BIN_DIR)
@@ -77,11 +77,7 @@ vuln:
 	}
 	govulncheck ./...
 
-quick-check: fmt-check imports-check build-binaries test vet
-
-check: quick-check lint vuln
-
-ci-check: tidy-check check test-race build-binaries
+check: tidy-check fmt-check imports-check build-binaries test test-race vet lint vuln
 
 format:
 	gofmt -w $(GO_FILES)

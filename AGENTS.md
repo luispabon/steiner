@@ -69,12 +69,10 @@ Commands:
 	go vet ./...
 	golangci-lint run ./...
 	govulncheck ./...
-	make quick-check
 	make check
-	make ci-check
 	make build-binaries
 	```
-Before finalizing Go changes, run `make quick-check` at minimum. For larger changes, run `make check`. Before merging, run `make ci-check` where practical. If a check cannot run, report the exact command and failure.
+Before finalizing Go changes, run `make check`. If a check cannot run, report the exact command and failure.
 
 Go version: `1.25`.
 
