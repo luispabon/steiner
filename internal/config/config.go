@@ -89,6 +89,12 @@ type AdvancedConfig struct {
 	Limits AdvancedLimitsConfig `yaml:"limits"`
 }
 
+// SearchConfig configures web search integration.
+type SearchConfig struct {
+	Backend    string `yaml:"backend"`
+	SearxngURL string `yaml:"searxng_url"`
+}
+
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler         SchedulerConfig           `yaml:"scheduler"`
@@ -104,6 +110,7 @@ type Config struct {
 	Logging           LoggingConfig             `yaml:"logging"`
 	Debug             DebugConfig               `yaml:"debug"`
 	ContextManagement ContextManagementConfig   `yaml:"context_management"`
+	Search            SearchConfig              `yaml:"search"`
 }
 
 // SchedulerConfig controls provider concurrency.

@@ -13,4 +13,5 @@ func applyPatch(cfg *Config, patch configPatch) {
 	applyLoggingConfigPatch(cfg, patch)
 	applyDebugConfigPatch(cfg, patch)
 	applyContextManagementConfigPatch(cfg, patch)
+	applySearchConfigPatch(cfg, patch)
 }

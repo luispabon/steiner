@@ -15,6 +15,7 @@ type configPatch struct {
 	Logging           *loggingPatch             `yaml:"logging"`
 	Debug             *debugPatch               `yaml:"debug"`
 	ContextManagement *contextManagementPatch   `yaml:"context_management"`
+	Search            *searchPatch              `yaml:"search"`
 }
 
 type providerPatch struct {
@@ -129,4 +130,9 @@ type loggingPatch struct {
 
 type debugPatch struct {
 	ShowInternalScaffoldInference *bool `yaml:"show_internal_scaffold_inference"`
+}
+
+type searchPatch struct {
+	Backend    *string `yaml:"backend"`
+	SearxngURL *string `yaml:"searxng_url"`
 }
