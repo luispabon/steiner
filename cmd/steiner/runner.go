@@ -6,12 +6,15 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/deepnoodle-ai/wonton/web"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 type cliRunner struct {
@@ -47,7 +50,8 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory)
+	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, searcher)
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
@@ -166,22 +170,22 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // delegation is enabled the base registry is cloned and the delegate tool is
 // registered into the clone so that the base registry stays clean.
 //
-// An extended base registry is also built that includes dummy tool stubs
-// (web_search, fetch_url) so that child registries can filter them in via
-// their per-type allowlists. These stubs are not registered in the cloned
-// registry exposed to the parent model.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) *tool.Registry {
+// An extended base registry is also built that includes real tools (web_search
+// when a searcher is available, fetch_url always via Builtins) so child
+// registries can filter them in via their per-type allowlists.
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), searcher web.Searcher) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
 	cloned := base.Clone()
 	mt := maxTokens
 
-	// extendedBase includes dummy stubs so child registries can filter them in.
-	// It is only used as ParentReg for child bootstrapping, not by the parent model.
+	// extendedBase is used as ParentReg for child agents.
+	// fetch_url is always present (via Builtins). Conditionally add web_search.
 	extendedBase := base.Clone()
-	extendedBase.Register(tool.DummyWebSearchTool())
-	extendedBase.Register(tool.DummyFetchURLTool())
+	if searcher != nil {
+		extendedBase.Register(builtin.NewWebSearchTool(searcher))
+	}
 
 	delegateDeps := delegation.DelegateHandlerDeps{
 		Provider:           prov,
@@ -200,6 +204,11 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	handler := delegation.NewDelegateHandler(delegateDeps)
 	cloned.Register(delegation.DelegateToolDef(handler))
 
+	// Conditionally expose web_search to the parent model.
+	if searcher != nil {
+		cloned.Register(builtin.NewWebSearchTool(searcher))
+	}
+
 	// Build a model resolver for specialized tools to use per-type model aliases.
 	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
 		resolved, err := provider.Resolve(cfg, alias)
@@ -217,11 +226,16 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	}
 
 	// Register a specialized tool for each agent type.
+	// Skip research agent when no search backend is configured.
 	specializedDeps := delegation.SpecializedToolDeps{
 		DelegateHandlerDeps: delegateDeps,
 		ModelResolver:       modelResolver,
 	}
-	for _, def := range delegation.AllSpecializedToolDefs(specializedDeps) {
+	var excludeTypes []delegation.AgentType
+	if searcher == nil {
+		excludeTypes = []delegation.AgentType{delegation.AgentTypeResearch}
+	}
+	for _, def := range delegation.AllSpecializedToolDefs(specializedDeps, excludeTypes) {
 		cloned.Register(def)
 	}
 

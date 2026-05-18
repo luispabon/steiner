@@ -118,7 +118,7 @@ func TestAllSpecializedToolDefs_Count(t *testing.T) {
 		return successRunState(), nil
 	}})
 
-	defs := AllSpecializedToolDefs(deps)
+	defs := AllSpecializedToolDefs(deps, nil)
 
 	want := len(AllAgentTypes())
 	if len(defs) != want {
@@ -138,6 +138,25 @@ func TestAllSpecializedToolDefs_Count(t *testing.T) {
 	for _, def := range defs {
 		if !ValidAgentType(def.Name) {
 			t.Errorf("tool name %q is not a valid agent type", def.Name)
+		}
+	}
+}
+
+func TestAllSpecializedToolDefs_ExcludeTypes(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+
+	defs := AllSpecializedToolDefs(deps, []AgentType{AgentTypeResearch})
+
+	want := len(AllAgentTypes()) - 1
+	if len(defs) != want {
+		t.Errorf("AllSpecializedToolDefs with exclude returned %d defs, want %d", len(defs), want)
+	}
+
+	for _, def := range defs {
+		if def.Name == string(AgentTypeResearch) {
+			t.Errorf("research agent should be excluded but was found in defs")
 		}
 	}
 }

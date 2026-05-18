@@ -117,12 +117,17 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 	}
 }
 
-// AllSpecializedToolDefs returns ToolDefs for all recognized agent types.
-func AllSpecializedToolDefs(deps SpecializedToolDeps) []tool.ToolDef {
-	types := AllAgentTypes()
-	defs := make([]tool.ToolDef, len(types))
-	for i, t := range types {
-		defs[i] = SpecializedToolDef(t, deps)
+// AllSpecializedToolDefs returns ToolDefs for recognized agent types, skipping any in excludeTypes.
+func AllSpecializedToolDefs(deps SpecializedToolDeps, excludeTypes []AgentType) []tool.ToolDef {
+	excluded := make(map[AgentType]bool, len(excludeTypes))
+	for _, t := range excludeTypes {
+		excluded[t] = true
+	}
+	var defs []tool.ToolDef
+	for _, t := range AllAgentTypes() {
+		if !excluded[t] {
+			defs = append(defs, SpecializedToolDef(t, deps))
+		}
 	}
 	return defs
 }
