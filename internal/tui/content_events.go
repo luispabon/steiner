@@ -99,6 +99,7 @@ type delegationTranscriptEntry struct {
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
 	agentID         string
+	toolLabel       string // specialized tool name (e.g. "explore"), empty means "delegate"
 	taskPreview     string // truncated to ~80 chars
 	promptText      string
 	promptCollapsed bool

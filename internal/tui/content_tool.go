@@ -10,12 +10,28 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// specializedDelegateTools is the set of tool names that are specialized delegates
+// and should be rendered as a single delegation box in the TUI.
+// Keep this list in sync with internal/delegation agent types — do not import that package.
+var specializedDelegateTools = map[string]bool{
+	"explore":  true,
+	"research": true,
+	"code":     true,
+	"plan":     true,
+	"verify":   true,
+}
+
+// isSpecializedDelegateTool reports whether tool is a specialized delegate tool.
+func isSpecializedDelegateTool(tool string) bool {
+	return specializedDelegateTools[strings.ToLower(strings.TrimSpace(tool))]
+}
+
 // summarizeArgs extracts a human-readable summary from tool arguments
 func summarizeArgs(tool string, args map[string]any) string {
 	if args == nil {
 		return tool
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "delegate") {
+	if strings.EqualFold(strings.TrimSpace(tool), "delegate") || isSpecializedDelegateTool(tool) {
 		return summarizeDelegateArgs(args)
 	}
 	if strings.EqualFold(strings.TrimSpace(tool), "apply_patch") {

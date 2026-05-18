@@ -13,7 +13,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		if strings.EqualFold(payload.Tool, "display_file") {
 			return
 		}
-		if strings.EqualFold(payload.Tool, "delegate") {
+		if strings.EqualFold(payload.Tool, "delegate") || isSpecializedDelegateTool(payload.Tool) {
 			b.handleParentDelegateToolCallStarted(payload)
 			return
 		}
