@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +67,7 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	found := false
 	for _, n := range reg.Names() {
@@ -89,7 +92,7 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	names := reg.Names()
 	nameSet := make(map[string]bool, len(names))
@@ -115,7 +118,7 @@ func TestBuildActiveRegistry_WebSearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
 		if n == "web_search" {
@@ -128,7 +131,7 @@ func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
 		if n == "research" {
@@ -141,7 +144,7 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
@@ -154,7 +157,7 @@ func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
 	}
@@ -276,7 +279,7 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 		return failProvider{}, nil
 	}
 
-	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil)
+	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil, nil)
 
 	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
 	if !ok {
@@ -289,5 +292,64 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 
 	if !capturedModel.ReasoningEchoBack {
 		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
+	}
+}
+
+func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             "openrouter/reasoning-model",
+					"context_length": 262144,
+					"top_provider": map[string]any{
+						"max_completion_tokens": 16384,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+		},
+		Models: map[string]config.ModelConfig{
+			"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
+		},
+	}
+	subAgentCfg := config.SubAgentConfig{
+		Enabled: true,
+		Agents: map[string]config.AgentConfig{
+			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
+		},
+	}
+
+	var capturedModel provider.ResolvedModel
+	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+		capturedModel = rm
+		return failProvider{}, nil
+	}
+
+	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, srv.Client(), nil)
+
+	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	if !ok {
+		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+	}
+
+	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+
+	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
+		t.Fatalf("captured context window = %d, want %d", got, want)
+	}
+	if got, want := capturedModel.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("captured max output tokens = %d, want %d", got, want)
 	}
 }
