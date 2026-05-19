@@ -2,12 +2,40 @@ package interactive
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
+
+type compactionTestProvider struct {
+	requests []provider.ChatRequest
+}
+
+func (p *compactionTestProvider) ChatCompletion(_ context.Context, request provider.ChatRequest) (provider.ChatResponse, error) {
+	p.requests = append(p.requests, request)
+	return provider.ChatResponse{
+		Message: provider.Message{
+			Role:    provider.MessageRoleAssistant,
+			Content: "summary",
+		},
+		FinishReason: "stop",
+	}, nil
+}
+
+func (p *compactionTestProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *compactionTestProvider) SupportsUsageStats() bool {
+	return false
+}
 
 func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
 	var events []output.Event
@@ -221,5 +249,77 @@ func TestManualCompactionSkipsSingleTurnConversation(t *testing.T) {
 	}
 	if got, want := report.Content, "Nothing to compact yet; need at least two conversation turns."; got != want {
 		t.Fatalf("context report = %q, want %q", got, want)
+	}
+}
+
+func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
+	t.Parallel()
+
+	const discoveredContextWindow = 262144
+	const discoveredMaxTokens = 8192
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             "openrouter/test-model",
+					"context_length": discoveredContextWindow,
+					"top_provider": map[string]any{
+						"max_completion_tokens": discoveredMaxTokens,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	prov := &compactionTestProvider{}
+	var captured provider.ResolvedModel
+
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			DefaultModel: "test",
+			Providers: map[string]config.ProviderConfig{
+				"openrouter": {
+					Type:    config.ProviderTypeOpenRouter,
+					BaseURL: srv.URL,
+				},
+			},
+			Models: map[string]config.ModelConfig{
+				"test": {
+					Provider: "openrouter",
+					ID:       "openrouter/test-model",
+				},
+			},
+		},
+		HTTPClient: srv.Client(),
+		ProviderFactory: func(rm provider.ResolvedModel) (provider.Provider, error) {
+			captured = rm
+			return prov, nil
+		},
+	})
+
+	s.SetConversation([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "first request"},
+		{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		{Role: agent.MessageRoleUser, Content: "second request"},
+		{Role: agent.MessageRoleAssistant, Content: "second answer"},
+	})
+
+	s.manualCompaction(context.Background())
+
+	if got, want := captured.EffectiveLimits.ContextWindow, discoveredContextWindow; got != want {
+		t.Fatalf("resolved context window = %d, want %d", got, want)
+	}
+	if got, want := captured.EffectiveLimits.MaxOutputTokens, discoveredMaxTokens; got != want {
+		t.Fatalf("resolved max output tokens = %d, want %d", got, want)
+	}
+	if got, want := len(prov.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 }
