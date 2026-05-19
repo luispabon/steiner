@@ -120,8 +120,19 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
 	offset := m.inputChromeHeight(contentWidth) + m.activityRowHeight(contentWidth)
+
+	// When the sidebar occupies the left side, push the slash overlay right so
+	// it appears above the prompt box rather than over the sidebar.
+	xOffset := 0
+	if m.width-contentWidth > 1 && m.sidebarPosition != "right" {
+		xOffset = m.width - contentWidth
+	}
+
+	if m.slashOverlay.open {
+		base = m.slashOverlay.PlaceBottomAnchoredAt(base, m.slashOverlay.View(), offset, xOffset)
+	}
 	if m.filePicker.open {
-		base = m.filePicker.PlaceBottomAnchored(base, m.filePicker.View(), offset)
+		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
 	}
 	if m.sessionPicker.open {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)

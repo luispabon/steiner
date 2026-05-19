@@ -62,6 +62,7 @@ type Model struct {
 	autoScroll                   bool
 	contentTopPad                int
 	skillNames                   []string
+	skillDescriptions            map[string]string
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int
@@ -82,6 +83,7 @@ type Model struct {
 	accentPreset                 string
 	sidebarPosition              string
 	palette                      paletteModel
+	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
@@ -106,10 +108,12 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	primaryModel                 string
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
-	m.status.model = modelName
+	m.primaryModel = strings.TrimSpace(modelName)
+	m.status.model = m.primaryModel
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
 	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
@@ -124,7 +128,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 }
 
 func (m *Model) syncSidebar() {
-	m.sidebar.model = strings.TrimSpace(m.status.model)
+	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
@@ -218,6 +222,17 @@ func cloneModelContexts(src map[string]int) map[string]int {
 		return nil
 	}
 	dst := make(map[string]int, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
 	for k, v := range src {
 		dst[k] = v
 	}

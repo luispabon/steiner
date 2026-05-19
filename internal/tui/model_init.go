@@ -45,26 +45,27 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:        external,
-		autoScroll:      true,
-		skillNames:      append([]string(nil), cfg.SkillNames...),
-		enabledSkills:   enabledSkills,
-		modelNames:      append([]string(nil), cfg.ModelNames...),
-		modelContexts:   cloneModelContexts(cfg.ModelContexts),
-		modelBaseURLs:   cloneModelBaseURLs(cfg.ModelBaseURLs),
-		controller:      cfg.Controller,
-		activeTheme:     resolveTheme(cfg.Theme),
-		styles:          theme.BuildStyles(accentHex),
-		inputHistory:    []string{},
-		historyIdx:      0,
-		historyDraft:    "",
-		fileHistory:     []string{},
-		fileHistoryIdx:  -1,
-		showThinking:    cfg.ShowThinking,
-		accentPreset:    cfg.AccentPreset,
-		sidebarPosition: cfg.SidebarPosition,
-		mousePressX:     -1,
-		mousePressY:     -1,
+		external:          external,
+		autoScroll:        true,
+		skillNames:        append([]string(nil), cfg.SkillNames...),
+		skillDescriptions: cloneStringMap(cfg.SkillDescriptions),
+		enabledSkills:     enabledSkills,
+		modelNames:        append([]string(nil), cfg.ModelNames...),
+		modelContexts:     cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:     cloneModelBaseURLs(cfg.ModelBaseURLs),
+		controller:        cfg.Controller,
+		activeTheme:       resolveTheme(cfg.Theme),
+		styles:            theme.BuildStyles(accentHex),
+		inputHistory:      []string{},
+		historyIdx:        0,
+		historyDraft:      "",
+		fileHistory:       []string{},
+		fileHistoryIdx:    -1,
+		showThinking:      cfg.ShowThinking,
+		accentPreset:      cfg.AccentPreset,
+		sidebarPosition:   cfg.SidebarPosition,
+		mousePressX:       -1,
+		mousePressY:       -1,
 	}
 
 	m.configureModelState(cfg, accentHex)
@@ -101,8 +102,9 @@ func resolveTheme(name string) theme.Theme {
 }
 
 func (m *Model) configureModelState(cfg Config, accentHex string) {
-	m.status.model = strings.TrimSpace(cfg.Model)
-	m.sidebar.model = strings.TrimSpace(cfg.Model)
+	m.primaryModel = strings.TrimSpace(cfg.Model)
+	m.status.model = m.primaryModel
+	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
@@ -145,6 +147,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker.width = m.width
 	m.sessionPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
+
+	m.slashOverlay = newSlashOverlay(m.styles)
+	m.slashOverlay.width = m.width
+	m.slashOverlay.height = m.height
 }
 
 func buildDefaultPaletteItems() []paletteItem {

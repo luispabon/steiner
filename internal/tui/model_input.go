@@ -18,7 +18,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	}
 
-	action := parseInput(value, m.enabledSkills)
+	action := parseInputWithSkills(value, m.enabledSkills, m.skillNames)
 	if action.quit {
 		return m, tea.Quit
 	}
@@ -57,6 +57,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
+	}
+	if action.invokeSkill != "" {
+		return m.executeInvokeSkillAction(action.invokeSkill, action.invokeSkillArgs)
 	}
 	if action.submit != "" {
 		return m.executeSubmitAction(value, action.submit)
@@ -313,4 +316,62 @@ func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, 
 	m.historyIdx = 0
 	m.syncViewport()
 	return m, nil
+}
+
+func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
+	// Enable the skill if not already enabled
+	if !m.enabledSkills[skillName] {
+		m.enabledSkills[skillName] = true
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skillName, Enabled: true}); err != nil {
+				m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			}
+		}
+		m.content.AppendLine(fmt.Sprintf("status: skill %s enabled", skillName))
+	}
+
+	// If args are provided, submit them as a prompt; otherwise just enable the skill
+	if args != "" {
+		return m.executeSubmitAction(args, args)
+	}
+
+	m.input.Reset()
+	m.historyIdx = 0
+	m.syncSidebar()
+	m.syncViewport()
+	return m, nil
+}
+
+// buildSlashOverlayItems builds a list of all available slash commands and skills for the overlay.
+func (m Model) buildSlashOverlayItems() []slashOverlayItem {
+	var items []slashOverlayItem
+
+	// Built-in commands
+	builtins := []slashOverlayItem{
+		{command: "/clear", name: "Clear conversation", desc: "reset the current session", source: ""},
+		{command: "/compact", name: "Compact context", desc: "trigger compaction", source: ""},
+		{command: "/config", name: "Inspect config", desc: "show configuration", source: ""},
+		{command: "/context", name: "Inspect context", desc: "inspect last request", source: ""},
+		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
+		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},
+		{command: "/model", name: "Switch model", desc: "change the language model", source: ""},
+		{command: "/models", name: "List models", desc: "show available models", source: ""},
+		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
+		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
+		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
+		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
+		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
+	}
+	items = append(items, builtins...)
+
+	// Add available skills as direct invocation items
+	for _, skillName := range m.skillNames {
+		items = append(items, slashOverlayItem{
+			command: "/" + skillName,
+			desc:    strings.TrimSpace(m.skillDescriptions[skillName]),
+			isSkill: true,
+		})
+	}
+
+	return items
 }

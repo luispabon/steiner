@@ -116,7 +116,9 @@ func (f filePickerOverlay) View() string {
 		return ""
 	}
 
-	innerWidth := f.InnerWidth()
+	innerWidth := f.filePickerInnerWidth()
+	const selectionPrefix = "> "
+	const idlePrefix = "  "
 
 	prefix := f.styles.Accent.Render("@")
 	queryDisplay := f.query
@@ -144,9 +146,15 @@ func (f filePickerOverlay) View() string {
 			row = fileStyle.Render(entry)
 		}
 		if i == f.selection {
-			lines = append(lines, f.styles.AccentBg.MaxWidth(innerWidth).Render(row))
+			lines = append(lines, lipgloss.NewStyle().
+				Width(innerWidth).
+				MaxWidth(innerWidth).
+				Render(f.styles.Accent.Render(selectionPrefix)+row))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerWidth).Render(row))
+			lines = append(lines, lipgloss.NewStyle().
+				Width(innerWidth).
+				MaxWidth(innerWidth).
+				Render(idlePrefix+row))
 		}
 	}
 
@@ -154,11 +162,21 @@ func (f filePickerOverlay) View() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("... and %d more", len(f.candidates)-(f.scrollOffset+maxDisplay))))
 	}
 
-	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
-	lines = append(lines, f.Divider(), f.RenderFooter(footerText))
-
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return theme.WithBg(f.Render(overlayStyles{box: f.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
+	rendered := f.styles.PaletteOverlay.Width(innerWidth).Padding(1, 1).Render(body)
+	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+}
+
+func (f filePickerOverlay) filePickerInnerWidth() int {
+	const maxOverlayInner = 90
+	inner := f.InnerWidth()
+	if inner > maxOverlayInner {
+		inner = maxOverlayInner
+	}
+	if inner < 40 {
+		inner = 40
+	}
+	return inner
 }
 
 func filterSearchPickerEntries[T any](allEntries []T, query string, matches func(T, string) bool) []T {

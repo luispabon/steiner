@@ -29,7 +29,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		HomeDir:                   homeDir,
 		ProjectRoot:               projectRoot,
-		SkillsRoot:                skillsRoot,
+		SkillsRoots:               []string{skillsRoot},
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "how do I fix this?"}, {Role: provider.MessageRoleAssistant, Content: "use the tools"}},
 		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result"}},
 		ProjectContextBudgetBytes: 1024,
@@ -94,7 +94,7 @@ func TestAssembleLoadsExplicitSkills(t *testing.T) {
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		HomeDir:                   homeDir,
 		ProjectRoot:               projectRoot,
-		SkillsRoot:                skillsRoot,
+		SkillsRoots:               []string{skillsRoot},
 		SkillNames:                []string{"codex"},
 		ProjectContextBudgetBytes: 1,
 	})

@@ -73,17 +73,61 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 		return b.applyDelegationToolCallFinished(dd, event)
 	case output.EventTypeStopReason:
 		return b.applyDelegationStopReason(dd, event)
+	case output.EventTypeModelCallStarted:
+		return b.applyDelegationModelCallStarted(dd, event)
+	case output.EventTypeContextDiagnostics:
+		return b.applyDelegationContextDiagnostics(dd, event)
 	case output.EventTypeTurnStarted,
 		output.EventTypeTurnFinished,
-		output.EventTypeModelCallStarted,
 		output.EventTypeModelCallFinished,
-		output.EventTypeAPIRequest,
-		output.EventTypeAPIResponse,
-		output.EventTypeContextDiagnostics:
+		output.EventTypeAPIResponse:
 		return true
+	case output.EventTypeAPIRequest:
+		return b.applyDelegationAPIRequest(dd, event)
 	default:
 		return false
 	}
+}
+
+func (b *contentBuffer) applyDelegationModelCallStarted(dd *delegationDisplayState, event output.Event) bool {
+	payload, ok := event.Payload.(output.ModelCallStartedEvent)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(payload.Model) != "" {
+		dd.modelName = strings.TrimSpace(payload.Model)
+	}
+	return true
+}
+
+func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, event output.Event) bool {
+	payload, ok := event.Payload.(output.APIRequestEvent)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(payload.Model) != "" {
+		dd.modelName = strings.TrimSpace(payload.Model)
+	}
+	return true
+}
+
+func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayState, event output.Event) bool {
+	payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+	if !ok {
+		return false
+	}
+	if payload.ContextUsagePercent > 0 {
+		dd.contextFillPct = payload.ContextUsagePercent
+	}
+	if payload.PromptTokens > 0 {
+		dd.promptTokens = payload.PromptTokens
+	}
+	if payload.ContextWindow > 0 {
+		dd.contextWindow = payload.ContextWindow
+	} else if payload.ContextTokens > 0 {
+		dd.contextWindow = payload.ContextTokens
+	}
+	return true
 }
 
 func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState, event output.Event) bool {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -239,6 +240,9 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	if agentID != "" {
 		left += " " + b.styles.FgDim.Render(agentID)
 	}
+	if dd.status == "active" && dd.contextFillPct > 0 {
+		left += " " + b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct))))
+	}
 
 	gap := 0
 	if metaWidth > 0 {
@@ -475,4 +479,74 @@ func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDispl
 		break
 	}
 	return false
+}
+
+func (b *contentBuffer) renderDelegationFooterSeparator(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return b.styles.FgDim.Render(strings.Repeat("─", width))
+}
+
+func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) string {
+	parts := make([]string, 0, 5)
+	if badge := renderModelBadge(b.styles, dd.modelName); badge != "" {
+		parts = append(parts, badge)
+	}
+	if dd.turnCount > 0 {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Turns: %d", dd.turnCount)))
+	}
+	if dd.tokenCount > 0 {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tokens: %d", dd.tokenCount)))
+	}
+	duration := strings.TrimSpace(dd.elapsed)
+	if duration == "" && dd.status == "active" && dd.startTime > 0 {
+		duration = formatElapsed(dd.startTime, nanoNow())
+	}
+	if duration != "" {
+		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
+	}
+	status := strings.TrimSpace(dd.resultStatus)
+	if status == "" {
+		status = dd.status
+	}
+	if status != "" {
+		parts = append(parts, b.renderDelegationStatsStatus(status))
+	}
+	if dd.contextFillPct > 0 {
+		ctx := fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct)))
+		if dd.promptTokens > 0 && dd.contextWindow > 0 {
+			ctx += fmt.Sprintf(" (%s / %s)", formatCompactCount(dd.promptTokens), formatCompactCount(dd.contextWindow))
+		}
+		parts = append(parts, b.styles.FgDim.Render(ctx))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "    ")
+}
+
+func (b *contentBuffer) renderDelegationStatsStatus(status string) string {
+	label := b.styles.FgDim.Render("Status: ")
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "complete":
+		return label + b.styles.SuccessStyle.Render(status)
+	case "failed", "error":
+		return label + b.styles.ErrorStyle.Render(status)
+	default:
+		return label + status
+	}
+}
+
+func formatCompactCount(value int) string {
+	switch {
+	case value >= 1_000_000:
+		return fmt.Sprintf("%.1fm", float64(value)/1_000_000)
+	case value >= 10_000:
+		return fmt.Sprintf("%dk", int(math.Round(float64(value)/1_000)))
+	case value >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(value)/1_000)
+	default:
+		return fmt.Sprintf("%d", value)
+	}
 }

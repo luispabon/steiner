@@ -105,12 +105,16 @@ func (o OverlayShell) Render(styles overlayStyles, body string) string {
 // just above the input area, left-aligned.  inputHeight is the number of rows
 // occupied by the input + status rows at the bottom of the base view.
 func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int) string {
+	return o.PlaceBottomAnchoredAt(base, overlay, inputHeight, 0)
+}
+
+// PlaceBottomAnchoredAt is like PlaceBottomAnchored but shifts the overlay
+// right by xOffset columns, preserving the base content in the left margin.
+// Use this when the content area is offset from the terminal edge (e.g. sidebar on the left).
+func (o OverlayShell) PlaceBottomAnchoredAt(base, overlay string, inputHeight, xOffset int) string {
 	baseLines := strings.Split(base, "\n")
 	olLines := strings.Split(overlay, "\n")
 
-	// Use terminal height rather than base string height so overlays are
-	// positioned correctly even when the base overflows (e.g. sidebar content
-	// taller than the terminal).
 	height := o.height
 	if height < 1 {
 		height = len(baseLines)
@@ -123,8 +127,14 @@ func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int)
 	for i := 0; i < len(olLines) && startY+i < len(baseLines); i++ {
 		idx := startY + i
 		olWidth := lipgloss.Width(olLines[i])
-		baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
-		baseLines[idx] = olLines[i] + baseRight
+		if xOffset <= 0 {
+			baseRight := ansi.TruncateLeft(baseLines[idx], olWidth, "")
+			baseLines[idx] = olLines[i] + baseRight
+		} else {
+			left := padOverlayLine(ansi.Cut(baseLines[idx], 0, xOffset), xOffset)
+			baseRight := ansi.TruncateLeft(baseLines[idx], xOffset+olWidth, "")
+			baseLines[idx] = left + olLines[i] + baseRight
+		}
 	}
 	return strings.Join(baseLines, "\n")
 }

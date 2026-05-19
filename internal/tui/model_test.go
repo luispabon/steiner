@@ -257,6 +257,35 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
+	m := newModel(Config{
+		SkillNames:        []string{"review"},
+		SkillDescriptions: map[string]string{"review": "Review changes for bugs and regressions."},
+	}, nil)
+
+	items := m.buildSlashOverlayItems()
+
+	var reviewItem *slashOverlayItem
+	for i := range items {
+		if items[i].command == "/review" {
+			reviewItem = &items[i]
+			break
+		}
+	}
+	if reviewItem == nil {
+		t.Fatal("expected /review item in slash overlay")
+	}
+	if reviewItem.name != "" {
+		t.Fatalf("review item name = %q, want empty", reviewItem.name)
+	}
+	if reviewItem.desc != "Review changes for bugs and regressions." {
+		t.Fatalf("review item desc = %q, want skill description", reviewItem.desc)
+	}
+	if !reviewItem.isSkill {
+		t.Fatal("expected review item to be marked as a skill")
+	}
+}
+
 func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 	ctrl := &testController{}
 
@@ -698,6 +727,38 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 		if !strings.Contains(row, want) {
 			t.Fatalf("activity row = %q, want %q", row, want)
 		}
+	}
+}
+
+func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
+	m := newModel(Config{Model: "main-model"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	statusLine := stripANSI(m.status.view(m.viewport.Width))
+	if !strings.Contains(statusLine, "model main-model") {
+		t.Fatalf("status line = %q, want primary model badge", statusLine)
+	}
+	if strings.Contains(statusLine, "other-runtime-model") {
+		t.Fatalf("status line = %q, want no runtime model override", statusLine)
+	}
+}
+
+func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
+	m := newModel(Config{
+		ModelNames: []string{"deepseek-v4-flash", "qwen3-coder-30b"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
+
+	m.input.SetValue("/model d")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got, want := m.input.Value(), "/model deepseek-v4-flash"; got != want {
+		t.Fatalf("input after tab = %q, want %q", got, want)
+	}
+	if got := len(m.completionCandidates); got == 0 {
+		t.Fatal("completionCandidates = 0, want cached candidates")
 	}
 }
 

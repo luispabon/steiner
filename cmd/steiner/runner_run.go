@@ -113,7 +113,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 	return prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
 		ProjectRoot:               r.runtime.workDir,
-		SkillsRoot:                prompt.DefaultSkillsRoot(r.runtime.homeDir),
+		SkillsRoots:               prompt.SkillRoots(r.runtime.homeDir, r.runtime.workDir),
 		SkillNames:                append([]string(nil), skillNames...),
 		ModelBudget:               modelBudget,
 		PromptOverrides:           prompts,

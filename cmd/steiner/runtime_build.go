@@ -60,8 +60,13 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 }
 
 func runtimeHTTPClient() *http.Client {
+	// No client-level timeout — streams can run indefinitely (Timeout = 0).
+	// Transport.ResponseHeaderTimeout defaults to 30s as a safety net so a
+	// stuck server doesn't hang forever. If a provider needs more time for
+	// slow prompt processing, set its config timeout — it propagates to
+	// both client.Timeout and Transport.ResponseHeaderTimeout.
 	return &http.Client{
-		Timeout: 0, // no deadline on body reads — streams can run indefinitely
+		Timeout: 0,
 		Transport: &http.Transport{
 			MaxIdleConns:          1,
 			IdleConnTimeout:       90 * time.Second,
@@ -109,20 +114,29 @@ func buildRuntimeRegistry(cfg config.Config) (string, *tool.Registry, error) {
 	return workDir, registry, nil
 }
 
-func discoverRuntimeSkills(ctx context.Context) (string, []string, error) {
+func discoverRuntimeSkills(ctx context.Context) (string, []string, map[string]string, map[string]string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
 	}
-	loadedSkills, err := skill.Loader{RootDir: prompt.DefaultSkillsRoot(homeDir)}.Discover(ctx)
+	workDir, err := os.Getwd()
 	if err != nil {
-		return "", nil, err
+		workDir = ""
+	}
+	roots := prompt.SkillRoots(homeDir, workDir)
+	loadedSkills, err := skill.Loader{RootDirs: roots}.Discover(ctx)
+	if err != nil {
+		return "", nil, nil, nil, err
 	}
 	skillNames := make([]string, 0, len(loadedSkills))
+	skillSources := make(map[string]string, len(loadedSkills))
+	skillDescriptions := make(map[string]string, len(loadedSkills))
 	for _, loaded := range loadedSkills {
 		skillNames = append(skillNames, loaded.Name)
+		skillSources[loaded.Name] = loaded.Source
+		skillDescriptions[loaded.Name] = loaded.Summary
 	}
-	return homeDir, skillNames, nil
+	return homeDir, skillNames, skillSources, skillDescriptions, nil
 }
 
 func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store, error) {

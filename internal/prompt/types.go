@@ -120,7 +120,7 @@ type AssemblyOptions struct {
 	ProjectRoot               string
 	GlobalAgentsPath          string
 	ProjectAgentsPath         string
-	SkillsRoot                string
+	SkillsRoots               []string
 	SkillNames                []string
 	Tools                     []provider.ToolSpec
 	ModelBudget               ModelTokenBudget

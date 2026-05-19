@@ -21,9 +21,15 @@ type inputAction struct {
 	setAccent            string
 	toggleThinking       bool
 	requestSessionPicker bool
+	invokeSkill          string // skill name for direct invocation
+	invokeSkillArgs      string // optional args to pass with skill invocation
 }
 
-func parseInput(value string, enabledSkills map[string]bool) inputAction {
+func parseInput(value string) inputAction {
+	return parseInputWithSkills(value, nil, nil)
+}
+
+func parseInputWithSkills(value string, enabledSkills map[string]bool, skillNames []string) inputAction {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return inputAction{}
@@ -32,34 +38,66 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 		return inputAction{submit: trimmed}
 	}
 
-	switch trimmed {
-	case "/exit":
-		return inputAction{quit: true}
-	case "/clear":
-		return inputAction{clear: true}
-	case "/compact":
-		return inputAction{compaction: true}
-	case "/config":
-		return inputAction{inspectConfig: true}
-	case "/context":
-		return inputAction{inspectContext: true}
-	case "/resume":
-		return inputAction{requestSessionPicker: true}
-	case "/skills":
-		return inputAction{listSkills: true}
-	case "/models":
-		return inputAction{listModels: true}
-	case "/thinking":
-		return inputAction{toggleThinking: true}
-	case "/ls":
-		return inputAction{listFiles: true}
+	// Try built-in commands first
+	if action, ok := parseBuiltinCommand(trimmed); ok {
+		return action
 	}
 
 	if action, ok := parseArgumentCommand(trimmed, enabledSkills); ok {
 		return action
 	}
 
+	if action, ok := parseSkillInvocation(trimmed, skillNames); ok {
+		return action
+	}
+
 	return inputAction{submit: trimmed}
+}
+
+// parseBuiltinCommand handles simple single-word slash commands.
+func parseBuiltinCommand(trimmed string) (inputAction, bool) {
+	switch trimmed {
+	case "/exit":
+		return inputAction{quit: true}, true
+	case "/clear":
+		return inputAction{clear: true}, true
+	case "/compact":
+		return inputAction{compaction: true}, true
+	case "/config":
+		return inputAction{inspectConfig: true}, true
+	case "/context":
+		return inputAction{inspectContext: true}, true
+	case "/resume":
+		return inputAction{requestSessionPicker: true}, true
+	case "/skills":
+		return inputAction{listSkills: true}, true
+	case "/models":
+		return inputAction{listModels: true}, true
+	case "/thinking":
+		return inputAction{toggleThinking: true}, true
+	case "/ls":
+		return inputAction{listFiles: true}, true
+	default:
+		return inputAction{}, false
+	}
+}
+
+// parseSkillInvocation checks if the input is a direct skill invocation.
+func parseSkillInvocation(trimmed string, skillNames []string) (inputAction, bool) {
+	for _, skillName := range skillNames {
+		command := "/" + skillName
+		switch {
+		case trimmed == command:
+			return inputAction{invokeSkill: skillName}, true
+		case strings.HasPrefix(trimmed, command+" "):
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, command))
+			return inputAction{
+				invokeSkill:     skillName,
+				invokeSkillArgs: rest,
+			}, true
+		}
+	}
+	return inputAction{}, false
 }
 
 func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputAction, bool) {

@@ -3,7 +3,7 @@ package tui
 import "testing"
 
 func TestParseInputHandlesContextCommand(t *testing.T) {
-	action := parseInput("/context", nil)
+	action := parseInput("/context")
 	if !action.inspectContext {
 		t.Fatal("inspectContext = false, want true")
 	}
@@ -13,7 +13,7 @@ func TestParseInputHandlesContextCommand(t *testing.T) {
 }
 
 func TestParseInputHandlesConfigCommand(t *testing.T) {
-	action := parseInput("/config", nil)
+	action := parseInput("/config")
 	if !action.inspectConfig {
 		t.Fatal("inspectConfig = false, want true")
 	}
@@ -33,7 +33,7 @@ func TestBuildCompletionCandidatesIncludesContext(t *testing.T) {
 }
 
 func TestParseInputHandlesResumeCommand(t *testing.T) {
-	action := parseInput("/resume", nil)
+	action := parseInput("/resume")
 	if !action.requestSessionPicker {
 		t.Fatal("requestSessionPicker = false, want true")
 	}
@@ -44,7 +44,7 @@ func TestParseInputHandlesResumeCommand(t *testing.T) {
 
 func TestParseInputHandlesListFiles(t *testing.T) {
 	t.Run("no path defaults to working directory", func(t *testing.T) {
-		action := parseInput("/ls", nil)
+		action := parseInput("/ls")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
 		}
@@ -54,7 +54,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("with path argument", func(t *testing.T) {
-		action := parseInput("/ls internal/", nil)
+		action := parseInput("/ls internal/")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
 		}
@@ -64,7 +64,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("submits as text without slash", func(t *testing.T) {
-		action := parseInput("ls", nil)
+		action := parseInput("ls")
 		if action.listFiles {
 			t.Fatal("listFiles = true, want false for text without slash")
 		}
@@ -84,6 +84,68 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("candidates = %#v, want /ls included", got)
+		}
+	})
+}
+
+func TestParseInputHandlesSkillInvocation(t *testing.T) {
+	t.Run("direct invocation", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill", nil, []string{"mykill"})
+		if action.invokeSkill != "mykill" {
+			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "" {
+			t.Fatalf("invokeSkillArgs = %q, want empty", action.invokeSkillArgs)
+		}
+	})
+
+	t.Run("invocation with args", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill some args here", nil, []string{"mykill"})
+		if action.invokeSkill != "mykill" {
+			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "some args here" {
+			t.Fatalf("invokeSkillArgs = %q, want 'some args here'", action.invokeSkillArgs)
+		}
+	})
+
+	t.Run("unknown skill is submitted as text", func(t *testing.T) {
+		action := parseInputWithSkills("/unknownSkill", nil, []string{"mykill"})
+		if action.submit != "/unknownSkill" {
+			t.Fatalf("submit = %q, want /unknownSkill", action.submit)
+		}
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
+		}
+	})
+
+	t.Run("prefix match does not invoke different skill", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill-extra", nil, []string{"mykill"})
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
+		}
+		if action.submit != "/mykill-extra" {
+			t.Fatalf("submit = %q, want /mykill-extra", action.submit)
+		}
+	})
+
+	t.Run("similar skill names resolve exactly", func(t *testing.T) {
+		action := parseInputWithSkills("/reviewer arg", nil, []string{"review", "reviewer"})
+		if action.invokeSkill != "reviewer" {
+			t.Fatalf("invokeSkill = %q, want reviewer", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "arg" {
+			t.Fatalf("invokeSkillArgs = %q, want arg", action.invokeSkillArgs)
+		}
+	})
+
+	t.Run("slash-skill still works", func(t *testing.T) {
+		action := parseInputWithSkills("/skill mykill", nil, []string{"mykill"})
+		if action.toggleSkill != "mykill" {
+			t.Fatalf("toggleSkill = %q, want mykill", action.toggleSkill)
+		}
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
 		}
 	})
 }
