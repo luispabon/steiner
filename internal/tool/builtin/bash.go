@@ -72,11 +72,18 @@ func NewBashTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			var output string
-			if diveOutput.Stderr != "" {
-				output = diveOutput.Stderr + "\n" + diveOutput.Stdout
-			} else {
-				output = diveOutput.Stdout
+			var output strings.Builder
+			stdout := strings.TrimSuffix(diveOutput.Stdout, "\n")
+			stderr := strings.TrimSpace(diveOutput.Stderr)
+			if stdout != "" {
+				output.WriteString(stdout)
+			}
+			if stderr != "" {
+				if output.Len() > 0 {
+					output.WriteString("\n")
+				}
+				output.WriteString("[stderr]\n")
+				output.WriteString(stderr)
 			}
 
 			truncated := false
@@ -90,7 +97,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			return &BashResult{
 				ExitCode:  diveOutput.ReturnCode,
 				Truncated: truncated,
-				Output:    output,
+				Output:    output.String(),
 				Message:   message,
 			}, nil
 		},
