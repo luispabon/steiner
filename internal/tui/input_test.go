@@ -87,3 +87,45 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 		}
 	})
 }
+
+func TestParseInputHandlesSkillInvocation(t *testing.T) {
+	t.Run("direct invocation", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill", nil, []string{"mykill"})
+		if action.invokeSkill != "mykill" {
+			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "" {
+			t.Fatalf("invokeSkillArgs = %q, want empty", action.invokeSkillArgs)
+		}
+	})
+
+	t.Run("invocation with args", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill some args here", nil, []string{"mykill"})
+		if action.invokeSkill != "mykill" {
+			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "some args here" {
+			t.Fatalf("invokeSkillArgs = %q, want 'some args here'", action.invokeSkillArgs)
+		}
+	})
+
+	t.Run("unknown skill is submitted as text", func(t *testing.T) {
+		action := parseInputWithSkills("/unknownSkill", nil, []string{"mykill"})
+		if action.submit != "/unknownSkill" {
+			t.Fatalf("submit = %q, want /unknownSkill", action.submit)
+		}
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
+		}
+	})
+
+	t.Run("slash-skill still works", func(t *testing.T) {
+		action := parseInputWithSkills("/skill mykill", nil, []string{"mykill"})
+		if action.toggleSkill != "mykill" {
+			t.Fatalf("toggleSkill = %q, want mykill", action.toggleSkill)
+		}
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
+		}
+	})
+}

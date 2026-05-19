@@ -82,6 +82,7 @@ type Model struct {
 	accentPreset                 string
 	sidebarPosition              string
 	palette                      paletteModel
+	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay

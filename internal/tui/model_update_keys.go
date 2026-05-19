@@ -38,6 +38,9 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.palette, cmd = m.palette.Update(msg)
 		return true, m, cmd
+	case m.slashOverlay.open:
+		next, cmd := m.handleSlashOverlayKey(msg)
+		return true, next, cmd
 	case m.fileList.open:
 		var cmd tea.Cmd
 		m.fileList, cmd = m.fileList.Update(msg)
@@ -148,6 +151,17 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if msg.Type == tea.KeyRunes {
 		for _, r := range msg.Runes {
+			if r == '/' && strings.TrimSpace(m.input.Value()) == "" {
+				// Open slash overlay when "/" is typed at start of input
+				items := m.buildSlashOverlayItems()
+				m.slashOverlay = m.slashOverlay.Open(items)
+				m.slashOverlay.width = m.width
+				m.slashOverlay.height = m.height
+				// Add "/" to query to seed the overlay
+				m.slashOverlay.query = "/"
+				m.slashOverlay.filterCandidates()
+				return m, nil
+			}
 			if r != '@' {
 				continue
 			}
@@ -273,15 +287,7 @@ func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
-	if len(m.completionCandidates) == 0 {
-		m.completionCandidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
-		m.completionIdx = 0
-	}
-	if len(m.completionCandidates) == 0 {
-		return m, nil
-	}
-	m.input.SetValue(m.completionCandidates[m.completionIdx])
-	m.completionIdx = (m.completionIdx + 1) % len(m.completionCandidates)
+	// Slash input is handled by the overlay, not tab completion
 	return m, nil
 }
 
@@ -320,4 +326,22 @@ func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.slashOverlay = m.slashOverlay.Close()
+	case tea.KeyEnter:
+		if selected := m.slashOverlay.SelectedItem(); selected != nil {
+			m.slashOverlay = m.slashOverlay.Close()
+			m.input.SetValue(selected.command + " ")
+			m.input.CursorEnd()
+		}
+	default:
+		var cmd tea.Cmd
+		m.slashOverlay, cmd = m.slashOverlay.Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
