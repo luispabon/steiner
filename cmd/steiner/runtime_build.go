@@ -114,7 +114,12 @@ func discoverRuntimeSkills(ctx context.Context) (string, []string, error) {
 	if err != nil {
 		homeDir = ""
 	}
-	loadedSkills, err := skill.Loader{RootDir: prompt.DefaultSkillsRoot(homeDir)}.Discover(ctx)
+	workDir, err := os.Getwd()
+	if err != nil {
+		workDir = ""
+	}
+	roots := prompt.SkillRoots(homeDir, workDir)
+	loadedSkills, err := skill.Loader{RootDirs: roots}.Discover(ctx)
 	if err != nil {
 		return "", nil, err
 	}

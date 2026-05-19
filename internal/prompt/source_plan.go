@@ -100,8 +100,8 @@ func (a assembler) planSourceAssembly() sourcePlan {
 				Kind:      plannedSourceSkills,
 				Placement: plannedSourcePlacementCore,
 				Apply: func(ctx context.Context, state *assemblyState) error {
-					skillRoot := skillRoot(opts)
-					skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDir: skillRoot}, opts.SkillNames)
+					skillRoots := skillRoots(opts)
+					skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots}, opts.SkillNames)
 					if err != nil {
 						return err
 					}
@@ -149,10 +149,9 @@ func agentPaths(opts AssemblyOptions) (string, string) {
 	return globalAgentsPath, projectAgentsPath
 }
 
-func skillRoot(opts AssemblyOptions) string {
-	skillRoot := opts.SkillsRoot
-	if skillRoot == "" {
-		skillRoot = DefaultSkillsRoot(opts.HomeDir)
+func skillRoots(opts AssemblyOptions) []string {
+	if len(opts.SkillsRoots) > 0 {
+		return opts.SkillsRoots
 	}
-	return skillRoot
+	return SkillRoots(opts.HomeDir, opts.ProjectRoot)
 }

@@ -437,15 +437,15 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 			Context: ContextState{},
 		}
 		base := prompt.AssemblyOptions{
-			HomeDir:    "/home",
-			SkillsRoot: "/skills",
+			HomeDir:     "/home",
+			SkillsRoots: []string{"/skills"},
 		}
 		result := assemblyOptions(base, state)
 		if result.HomeDir != "/home" {
 			t.Errorf("expected /home, got %s", result.HomeDir)
 		}
-		if result.SkillsRoot != "/skills" {
-			t.Errorf("expected /skills, got %s", result.SkillsRoot)
+		if len(result.SkillsRoots) != 1 || result.SkillsRoots[0] != "/skills" {
+			t.Errorf("expected [/skills], got %v", result.SkillsRoots)
 		}
 	})
 }
