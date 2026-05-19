@@ -131,7 +131,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
 	}
 
-	summaryCtx, summaryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	summaryCtx, summaryCancel := context.WithTimeout(childCtx, 30*time.Second)
 	defer summaryCancel()
 	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {

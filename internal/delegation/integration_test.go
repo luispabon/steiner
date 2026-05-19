@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1639,19 +1638,16 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 	}
 }
 
-func TestSummaryUsesDetachedContext(t *testing.T) {
-	spec := makeSpec("detached-ctx-agent", 10000)
+func TestSummaryUsesChildContext(t *testing.T) {
+	spec := makeSpec("child-ctx-agent", 10000)
 
-	var summaryCtxDone bool
 	runner := &presetRunner{
 		states: []agent.RunState{
 			completeState("task done"),
-			completeState("summary text"),
 		},
-	}
-
-	ctxCheckRunner := &contextCheckRunner{
-		inner: runner,
+		errors: []error{
+			context.Canceled,
+		},
 	}
 
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
@@ -1662,17 +1658,17 @@ func TestSummaryUsesDetachedContext(t *testing.T) {
 	parentCtx, parentCancel := context.WithCancel(context.Background())
 	parentCancel()
 
-	_, err := SpawnDelegate(parentCtx, spec, req, ctxCheckRunner, output.NoopSink{}, nil)
+	result, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			t.Skip("parent context cancellation propagated to runner.Run — expected if childCtx == ctx")
-		}
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	summaryCtxDone = ctxCheckRunner.summaryCtxErr != nil
-	if summaryCtxDone {
-		t.Error("summary context was cancelled — should use detached context")
+	delResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatal("expected DelegationResult")
+	}
+	if delResult.Status != StatusCancelled {
+		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
 	}
 }
 
