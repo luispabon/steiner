@@ -16,10 +16,10 @@
 
 | Step | Status | Model | Notes |
 |------|--------|-------|-------|
-| stage-1-step-1 | implemented | haiku | Multi-root Loader |
-| stage-2-step-1 | implemented | haiku | Wire prompt/CLI |
-| stage-3-step-1 | implemented | haiku | Slash overlay TUI |
-| stage-3-step-2 | pending | haiku | Source metadata |
+| stage-1-step-1 | complete | haiku | Multi-root Loader |
+| stage-2-step-1 | complete | haiku | Wire prompt/CLI |
+| stage-3-step-1 | complete | haiku | Slash overlay TUI |
+| stage-3-step-2 | complete | haiku | Source metadata |
 
 ## Execution Log
 
@@ -38,6 +38,16 @@
 - Outcome: merged → cl/2026-05-19_skills_support, worktree + branch deleted
 - Status: **implemented**
 
+### Verification Pass 001 — Fix lint
+- Failures: gocyclo on Discover (loader.go) + parseInputWithSkills (input.go), unparam on parseInput
+- Fix plan: fix_plan_verification_pass_001.md
+- Sub-agent: haiku
+- Temp branch: fix/verification-pass-001 (worktree: /tmp/claude/steiner-fix1)
+- Commit: 9dd54e6 "fix: reduce cyclomatic complexity and fix unparam lint warnings"
+- Extracted helpers: discoverEntry in loader.go; parseBuiltinCommand, parseArgumentCommand, parseSkillInvocation in input.go; removed enabledSkills param from parseInput
+- Rerun `make check`: 0 lint issues. govulncheck missing (env issue, not code) — all other checks pass.
+- Status: **PASSING** (except govulncheck tool not installed)
+
 ### stage-3-step-1 — Slash overlay TUI
 - Sub-agent: haiku (cheaper than sonnet)
 - Temp branch: step/stage-3-step-1 (worktree: /tmp/claude/steiner-s3s1)
@@ -54,3 +64,18 @@
 - Note: agent also updated internal/interactive/compaction.go and internal/agent/message_convert_test.go (needed for SkillsRoots migration — not listed in plan files but correct)
 - Outcome: merged → cl/2026-05-19_skills_support, worktree + branch deleted
 - Status: **implemented**
+
+### stage-3-step-2 — Source metadata wiring
+- Sub-agent: haiku (cheaper than sonnet)
+- Temp branch: step/stage-3-step-2 (worktree: /tmp/claude/steiner-s3s2)
+- Commit: fe34034 "feat: wire skill source metadata from discover through to TUI config"
+- Changes: internal/skill/loader.go (Source field on Skill struct), internal/skill/loader_test.go, cmd/steiner/runtime_build.go, runtime.go, interactive_session.go
+- Outcome: merged → cl/2026-05-19_skills_support, worktree + branch deleted
+- Status: **complete (verification passing)**
+
+## Final Executor State
+- All 4 planned steps: **complete**
+- Verification: `make check` passes (0 lint issues, all tests pass, build compiles, race passes)
+- Exception: govulncheck not installed in environment (env issue — run `make install-check-tools`)
+- Working tree: clean
+- Awaiting manual verification
