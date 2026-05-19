@@ -113,13 +113,14 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 			return err
 		}
 
-		select {
-		case <-ctx.Done():
-			return filepath.SkipAll
-		default:
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
-		relPath, _ := filepath.Rel(root, path)
+		relPath, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return fmt.Errorf("rel path: %w", relErr)
+		}
 		relPath = filepath.ToSlash(relPath)
 
 		skipDir, skipFile := grepShouldSkipEntry(path, relPath, d, excluder, filterGlob, exts)
@@ -140,7 +141,10 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 		return nil
 	})
 
-	if walkErr != nil && !errors.Is(walkErr, filepath.SkipAll) {
+	if walkErr != nil {
+		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+			return nil, walkErr
+		}
 		return nil, fmt.Errorf("walk: %w", walkErr)
 	}
 
