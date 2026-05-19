@@ -157,10 +157,12 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.slashOverlay = m.slashOverlay.Open(items)
 				m.slashOverlay.width = m.width
 				m.slashOverlay.height = m.height
-				// Add "/" to query to seed the overlay
 				m.slashOverlay.query = "/"
 				m.slashOverlay.filterCandidates()
-				return m, nil
+				// Mirror "/" into the input box so typed text is visible
+				var cmd tea.Cmd
+				m.input, cmd = m.input.Update(msg)
+				return m, cmd
 			}
 			if r != '@' {
 				continue
@@ -332,12 +334,29 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.slashOverlay = m.slashOverlay.Close()
+		m.input.SetValue("")
 	case tea.KeyEnter:
 		if selected := m.slashOverlay.SelectedItem(); selected != nil {
 			m.slashOverlay = m.slashOverlay.Close()
 			m.input.SetValue(selected.command + " ")
 			m.input.CursorEnd()
 		}
+	case tea.KeyRunes:
+		// Mirror typed characters into both overlay filter and input box
+		var overlayCmd, inputCmd tea.Cmd
+		m.slashOverlay, overlayCmd = m.slashOverlay.Update(msg)
+		m.input, inputCmd = m.input.Update(msg)
+		return m, tea.Batch(overlayCmd, inputCmd)
+	case tea.KeyBackspace:
+		// Mirror backspace into both overlay filter and input box;
+		// close overlay if filter becomes empty (user deleted the "/")
+		var overlayCmd, inputCmd tea.Cmd
+		m.slashOverlay, overlayCmd = m.slashOverlay.Update(msg)
+		if m.slashOverlay.query == "" {
+			m.slashOverlay = m.slashOverlay.Close()
+		}
+		m.input, inputCmd = m.input.Update(msg)
+		return m, tea.Batch(overlayCmd, inputCmd)
 	default:
 		var cmd tea.Cmd
 		m.slashOverlay, cmd = m.slashOverlay.Update(msg)

@@ -74,7 +74,7 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if !entry.IsDir() {
+			if !entryIsDir(root, entry) {
 				continue
 			}
 			skill, ok, err := l.discoverEntry(ctx, root, entry.Name(), source, seen)
@@ -166,6 +166,18 @@ func (l Loader) LoadMany(ctx context.Context, names []string) ([]Skill, error) {
 		skills = append(skills, skill)
 	}
 	return skills, nil
+}
+
+// entryIsDir reports whether a directory entry is a directory, following symlinks.
+func entryIsDir(root string, entry os.DirEntry) bool {
+	if entry.IsDir() {
+		return true
+	}
+	if entry.Type()&os.ModeSymlink != 0 {
+		info, err := os.Stat(filepath.Join(root, entry.Name()))
+		return err == nil && info.IsDir()
+	}
+	return false
 }
 
 func validateSkillName(name string) error {

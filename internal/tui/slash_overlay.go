@@ -140,13 +140,28 @@ func (s slashOverlay) SelectedItem() *slashOverlayItem {
 	return nil
 }
 
+// slashOverlayInnerWidth computes the inner content width for the overlay,
+// capped at 90 to keep it compact above the prompt box.
+func (s slashOverlay) slashOverlayInnerWidth() int {
+	const maxOverlayInner = 90
+	inner := s.InnerWidth()
+	if inner > maxOverlayInner {
+		inner = maxOverlayInner
+	}
+	if inner < 40 {
+		inner = 40
+	}
+	return inner
+}
+
 // View renders the overlay.
 func (s slashOverlay) View() string {
 	if !s.open {
 		return ""
 	}
 
-	innerWidth := s.InnerWidth()
+	innerW := s.slashOverlayInnerWidth()
+	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerW))
 
 	// Header showing the slash prefix and query
 	prefix := s.styles.Accent.Render("/")
@@ -156,25 +171,19 @@ func (s slashOverlay) View() string {
 			Foreground(lipgloss.Color(theme.FgMute)).
 			Render("commands & skills…")
 	}
-	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
-	divider := s.Divider()
+	headerLine := lipgloss.NewStyle().Width(innerW).Render(prefix + " " + queryDisplay)
 
 	lines := []string{headerLine, divider}
 
 	// Render candidate items
+	cmdStyle := s.styles.Accent
+	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute))
+	sourceStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgFaint)).Italic(true)
+
 	for i := s.scrollOffset; i < min(s.scrollOffset+slashOverlayMaxDisplay, len(s.candidates)); i++ {
 		item := s.candidates[i]
-		var row string
 
-		// Format: "/command  name | desc [source]"
-		cmdStyle := s.styles.Accent
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute))
-		sourceStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.FgFaint)).
-			Italic(true)
-
-		// Build the row
 		parts := []string{cmdStyle.Render(item.command)}
 		if item.name != "" {
 			parts = append(parts, nameStyle.Render(item.name))
@@ -185,13 +194,12 @@ func (s slashOverlay) View() string {
 		if item.source != "" {
 			parts = append(parts, sourceStyle.Render("["+item.source+"]"))
 		}
-
-		row = strings.Join(parts, "  ")
+		row := strings.Join(parts, "  ")
 
 		if i == s.selection {
-			lines = append(lines, s.styles.AccentBg.MaxWidth(innerWidth).Render(row))
+			lines = append(lines, s.styles.PaletteItemActive.Width(innerW).Render(row))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerWidth).Render(row))
+			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerW).Render(row))
 		}
 	}
 
@@ -201,10 +209,7 @@ func (s slashOverlay) View() string {
 			Render(fmt.Sprintf("... and %d more", len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay))))
 	}
 
-	// Footer help text
-	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
-	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
-
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return theme.WithBg(s.Render(overlayStyles{box: s.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
+	rendered := s.styles.PaletteOverlay.Width(innerW).Padding(1, 1).Render(body)
+	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 }
