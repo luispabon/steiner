@@ -3,7 +3,7 @@ package tui
 import "testing"
 
 func TestParseInputHandlesContextCommand(t *testing.T) {
-	action := parseInput("/context", nil)
+	action := parseInput("/context")
 	if !action.inspectContext {
 		t.Fatal("inspectContext = false, want true")
 	}
@@ -13,7 +13,7 @@ func TestParseInputHandlesContextCommand(t *testing.T) {
 }
 
 func TestParseInputHandlesConfigCommand(t *testing.T) {
-	action := parseInput("/config", nil)
+	action := parseInput("/config")
 	if !action.inspectConfig {
 		t.Fatal("inspectConfig = false, want true")
 	}
@@ -33,7 +33,7 @@ func TestBuildCompletionCandidatesIncludesContext(t *testing.T) {
 }
 
 func TestParseInputHandlesResumeCommand(t *testing.T) {
-	action := parseInput("/resume", nil)
+	action := parseInput("/resume")
 	if !action.requestSessionPicker {
 		t.Fatal("requestSessionPicker = false, want true")
 	}
@@ -44,7 +44,7 @@ func TestParseInputHandlesResumeCommand(t *testing.T) {
 
 func TestParseInputHandlesListFiles(t *testing.T) {
 	t.Run("no path defaults to working directory", func(t *testing.T) {
-		action := parseInput("/ls", nil)
+		action := parseInput("/ls")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
 		}
@@ -54,7 +54,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("with path argument", func(t *testing.T) {
-		action := parseInput("/ls internal/", nil)
+		action := parseInput("/ls internal/")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
 		}
@@ -64,7 +64,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("submits as text without slash", func(t *testing.T) {
-		action := parseInput("ls", nil)
+		action := parseInput("ls")
 		if action.listFiles {
 			t.Fatal("listFiles = true, want false for text without slash")
 		}

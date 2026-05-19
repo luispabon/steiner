@@ -77,19 +77,14 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 			if !entry.IsDir() {
 				continue
 			}
-			name := entry.Name()
-			if seen[name] {
-				continue
+			skill, ok, err := l.discoverEntry(ctx, root, entry.Name(), source, seen)
+			if err != nil {
+				return nil, err
 			}
-			path := filepath.Join(root, name, "SKILL.md")
-			if _, err := os.Stat(path); err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				return nil, fmt.Errorf("stat skill %s: %w", path, err)
+			if ok {
+				skills = append(skills, skill)
+				seen[skill.Name] = true
 			}
-			skills = append(skills, Skill{Name: name, Path: path, Source: source})
-			seen[name] = true
 		}
 	}
 
@@ -98,6 +93,25 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 	})
 
 	return skills, nil
+}
+
+// discoverEntry validates a directory entry and builds a Skill if valid.
+// Returns (Skill, ok, error) where ok indicates if the entry should be added.
+func (l Loader) discoverEntry(ctx context.Context, root, name, source string, seen map[string]bool) (Skill, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return Skill{}, false, err
+	}
+	if seen[name] {
+		return Skill{}, false, nil
+	}
+	path := filepath.Join(root, name, "SKILL.md")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return Skill{}, false, nil
+		}
+		return Skill{}, false, fmt.Errorf("stat skill %s: %w", path, err)
+	}
+	return Skill{Name: name, Path: path, Source: source}, true, nil
 }
 
 // Load reads a single skill document by name.
