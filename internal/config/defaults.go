@@ -4,6 +4,7 @@ func defaultConfig() Config {
 	defaultProvider := ProviderConfig{
 		Type:    ProviderTypeOpenAICompat,
 		BaseURL: "http://localhost:11434/v1",
+		Timeout: MustDuration("30s"),
 	}
 	defaultModel := ModelConfig{
 		Provider: "local",

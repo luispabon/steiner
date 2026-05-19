@@ -60,8 +60,13 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 }
 
 func runtimeHTTPClient() *http.Client {
+	// No client-level timeout — streams can run indefinitely (Timeout = 0).
+	// Transport.ResponseHeaderTimeout defaults to 30s as a safety net so a
+	// stuck server doesn't hang forever. If a provider needs more time for
+	// slow prompt processing, set its config timeout — it propagates to
+	// both client.Timeout and Transport.ResponseHeaderTimeout.
 	return &http.Client{
-		Timeout: 0, // no deadline on body reads — streams can run indefinitely
+		Timeout: 0,
 		Transport: &http.Transport{
 			MaxIdleConns:          1,
 			IdleConnTimeout:       90 * time.Second,

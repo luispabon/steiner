@@ -73,6 +73,17 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 	if cfg.Timeout > 0 {
 		cloned := *client
 		cloned.Timeout = cfg.Timeout
+		if cloned.Transport != nil {
+			if transport, ok := cloned.Transport.(*http.Transport); ok {
+				transportClone := transport.Clone()
+				transportClone.ResponseHeaderTimeout = cfg.Timeout
+				cloned.Transport = transportClone
+			}
+		} else {
+			cloned.Transport = &http.Transport{
+				ResponseHeaderTimeout: cfg.Timeout,
+			}
+		}
 		client = &cloned
 	}
 	provider := &OpenAICompat{
