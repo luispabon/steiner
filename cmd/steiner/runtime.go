@@ -39,6 +39,7 @@ type cliRuntime struct {
 	registry         *tool.Registry
 	toolNames        []string
 	skillNames       []string
+	skillSources     map[string]string // skill name -> "project"/"user"/"global"
 	workDir          string
 	homeDir          string
 	stdin            io.Reader
@@ -77,7 +78,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	homeDir, skillNames, err := discoverRuntimeSkills(ctx)
+	homeDir, skillNames, skillSources, err := discoverRuntimeSkills(ctx)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -95,6 +96,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		registry:         registry,
 		toolNames:        registry.Names(),
 		skillNames:       skillNames,
+		skillSources:     skillSources,
 		workDir:          workDir,
 		homeDir:          homeDir,
 		stdin:            cmd.InOrStdin(),

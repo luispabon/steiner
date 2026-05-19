@@ -109,7 +109,7 @@ func buildRuntimeRegistry(cfg config.Config) (string, *tool.Registry, error) {
 	return workDir, registry, nil
 }
 
-func discoverRuntimeSkills(ctx context.Context) (string, []string, error) {
+func discoverRuntimeSkills(ctx context.Context) (string, []string, map[string]string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
@@ -121,13 +121,15 @@ func discoverRuntimeSkills(ctx context.Context) (string, []string, error) {
 	roots := prompt.SkillRoots(homeDir, workDir)
 	loadedSkills, err := skill.Loader{RootDirs: roots}.Discover(ctx)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	skillNames := make([]string, 0, len(loadedSkills))
+	skillSources := make(map[string]string, len(loadedSkills))
 	for _, loaded := range loadedSkills {
 		skillNames = append(skillNames, loaded.Name)
+		skillSources[loaded.Name] = loaded.Source
 	}
-	return homeDir, skillNames, nil
+	return homeDir, skillNames, skillSources, nil
 }
 
 func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store, error) {

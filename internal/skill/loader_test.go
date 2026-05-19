@@ -396,3 +396,139 @@ func TestValidateSkillName(t *testing.T) {
 		}
 	}
 }
+
+func TestLoaderDiscoverSourceSingleRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "alpha instructions")
+
+	loader := Loader{RootDirs: []string{root}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d, want 1", len(discovered))
+	}
+	if discovered[0].Source != "project" {
+		t.Fatalf("discovered[0].Source = %q, want %q", discovered[0].Source, "project")
+	}
+}
+
+func TestLoaderDiscoverSourceMultipleRoots(t *testing.T) {
+	t.Parallel()
+
+	root1 := t.TempDir()
+	mustSkill(t, root1, "alpha", "alpha from root1")
+
+	root2 := t.TempDir()
+	mustSkill(t, root2, "beta", "beta from root2")
+
+	root3 := t.TempDir()
+	mustSkill(t, root3, "gamma", "gamma from root3")
+
+	loader := Loader{RootDirs: []string{root1, root2, root3}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 3 {
+		t.Fatalf("len(discovered) = %d, want 3", len(discovered))
+	}
+
+	tests := []struct {
+		index      int
+		name       string
+		wantSource string
+	}{
+		{0, "alpha", "project"},
+		{1, "beta", "user"},
+		{2, "gamma", "global"},
+	}
+
+	for _, tt := range tests {
+		if discovered[tt.index].Name != tt.name {
+			t.Fatalf("discovered[%d].Name = %q, want %q", tt.index, discovered[tt.index].Name, tt.name)
+		}
+		if discovered[tt.index].Source != tt.wantSource {
+			t.Fatalf("discovered[%d].Source = %q, want %q", tt.index, discovered[tt.index].Source, tt.wantSource)
+		}
+	}
+}
+
+func TestLoaderDiscoverSourceWithConflict(t *testing.T) {
+	t.Parallel()
+
+	root1 := t.TempDir()
+	mustSkill(t, root1, "shared", "shared from root1")
+
+	root2 := t.TempDir()
+	mustSkill(t, root2, "shared", "shared from root2")
+
+	loader := Loader{RootDirs: []string{root1, root2}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d, want 1", len(discovered))
+	}
+
+	// Shared skill should come from root1 (index 0) with "project" source
+	if discovered[0].Name != "shared" {
+		t.Fatalf("discovered[0].Name = %q, want %q", discovered[0].Name, "shared")
+	}
+	if discovered[0].Source != "project" {
+		t.Fatalf("discovered[0].Source = %q, want %q", discovered[0].Source, "project")
+	}
+}
+
+func TestLoaderDiscoverSourceMoreThanThreeRoots(t *testing.T) {
+	t.Parallel()
+
+	root1 := t.TempDir()
+	mustSkill(t, root1, "alpha", "alpha from root1")
+
+	root2 := t.TempDir()
+	mustSkill(t, root2, "beta", "beta from root2")
+
+	root3 := t.TempDir()
+	mustSkill(t, root3, "gamma", "gamma from root3")
+
+	root4 := t.TempDir()
+	mustSkill(t, root4, "delta", "delta from root4")
+
+	loader := Loader{RootDirs: []string{root1, root2, root3, root4}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 4 {
+		t.Fatalf("len(discovered) = %d, want 4", len(discovered))
+	}
+
+	tests := []struct {
+		index      int
+		name       string
+		wantSource string
+	}{
+		{0, "alpha", "project"},
+		{1, "beta", "user"},
+		{2, "delta", "root3"},
+		{3, "gamma", "global"},
+	}
+
+	for _, tt := range tests {
+		if discovered[tt.index].Name != tt.name {
+			t.Fatalf("discovered[%d].Name = %q, want %q", tt.index, discovered[tt.index].Name, tt.name)
+		}
+		if discovered[tt.index].Source != tt.wantSource {
+			t.Fatalf("discovered[%d].Source = %q, want %q", tt.index, discovered[tt.index].Source, tt.wantSource)
+		}
+	}
+}
