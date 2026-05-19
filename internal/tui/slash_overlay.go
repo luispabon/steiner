@@ -18,6 +18,7 @@ type slashOverlayItem struct {
 	name    string // e.g. "Clear conversation", "Awesome Skill"
 	desc    string // e.g. "reset the current session", "does cool things"
 	source  string // "" for built-in commands, "project"/"user"/"global" for skills
+	isSkill bool
 }
 
 // slashOverlay is a bottom-anchored overlay that appears when the user types "/" and
@@ -161,6 +162,9 @@ func (s slashOverlay) View() string {
 	}
 
 	innerW := s.slashOverlayInnerWidth()
+	const selectionPrefix = "> "
+	const idlePrefix = "  "
+	contentW := max(0, innerW-lipgloss.Width(selectionPrefix)-5)
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerW))
 
 	// Header showing the slash prefix and query
@@ -184,22 +188,51 @@ func (s slashOverlay) View() string {
 	for i := s.scrollOffset; i < min(s.scrollOffset+slashOverlayMaxDisplay, len(s.candidates)); i++ {
 		item := s.candidates[i]
 
-		parts := []string{cmdStyle.Render(item.command)}
-		if item.name != "" {
-			parts = append(parts, nameStyle.Render(item.name))
+		var row string
+		var plainRow string
+		if item.isSkill {
+			plainParts := []string{item.command}
+			parts := []string{cmdStyle.Render(item.command)}
+			descWidth := contentW - lipgloss.Width(item.command)
+			if item.desc != "" && descWidth > 2 {
+				desc := truncateOverlayText(item.desc, descWidth-2)
+				plainParts = append(plainParts, desc)
+				parts = append(parts, descStyle.Render(desc))
+			}
+			plainRow = strings.Join(plainParts, "  ")
+			row = strings.Join(parts, "  ")
+		} else {
+			parts := []string{cmdStyle.Render(item.command)}
+			if item.name != "" {
+				parts = append(parts, nameStyle.Render(item.name))
+			}
+			if item.desc != "" {
+				parts = append(parts, "|", descStyle.Render(item.desc))
+			}
+			if item.source != "" {
+				parts = append(parts, sourceStyle.Render("["+item.source+"]"))
+			}
+			row = strings.Join(parts, "  ")
 		}
-		if item.desc != "" {
-			parts = append(parts, "|", descStyle.Render(item.desc))
-		}
-		if item.source != "" {
-			parts = append(parts, sourceStyle.Render("["+item.source+"]"))
-		}
-		row := strings.Join(parts, "  ")
 
 		if i == s.selection {
-			lines = append(lines, s.styles.PaletteItemActive.Width(innerW).Render(row))
+			if item.isSkill {
+				lines = append(lines, s.renderSkillRow(s.styles.Accent.Render(selectionPrefix), row, selectionPrefix+plainRow, innerW))
+			} else {
+				lines = append(lines, lipgloss.NewStyle().
+					Width(innerW).
+					MaxWidth(innerW).
+					Render(s.styles.Accent.Render(selectionPrefix)+row))
+			}
 		} else {
-			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerW).Render(row))
+			if item.isSkill {
+				lines = append(lines, s.renderSkillRow(idlePrefix, row, idlePrefix+plainRow, innerW))
+			} else {
+				lines = append(lines, lipgloss.NewStyle().
+					Width(innerW).
+					MaxWidth(innerW).
+					Render(idlePrefix+row))
+			}
 		}
 	}
 
@@ -212,4 +245,31 @@ func (s slashOverlay) View() string {
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	rendered := s.styles.PaletteOverlay.Width(innerW).Padding(1, 1).Render(body)
 	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+}
+
+func truncateOverlayText(text string, width int) string {
+	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if width <= 0 || text == "" {
+		return ""
+	}
+	if lipgloss.Width(text) <= width {
+		return text
+	}
+	if width == 1 {
+		return "…"
+	}
+	runes := []rune(text)
+	for len(runes) > 0 {
+		candidate := string(runes) + "…"
+		if lipgloss.Width(candidate) <= width {
+			return candidate
+		}
+		runes = runes[:len(runes)-1]
+	}
+	return "…"
+}
+
+func (s slashOverlay) renderSkillRow(prefixRendered, rowRendered, plain string, width int) string {
+	pad := max(0, width-lipgloss.Width(plain))
+	return prefixRendered + rowRendered + strings.Repeat(" ", pad)
 }

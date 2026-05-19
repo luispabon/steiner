@@ -487,6 +487,25 @@ func TestLoaderDiscoverSourceWithConflict(t *testing.T) {
 	}
 }
 
+func TestLoaderDiscoverExtractsSummary(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "# Alpha\n\nUse when the user asks for alpha workflows.\n\n## Details\nMore text.")
+
+	loader := Loader{RootDirs: []string{root}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d, want 1", len(discovered))
+	}
+	if discovered[0].Summary != "Use when the user asks for alpha workflows." {
+		t.Fatalf("discovered[0].Summary = %q, want extracted summary", discovered[0].Summary)
+	}
+}
+
 func TestLoaderDiscoverSourceMoreThanThreeRoots(t *testing.T) {
 	t.Parallel()
 

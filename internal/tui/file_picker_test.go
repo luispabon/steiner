@@ -478,6 +478,56 @@ func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
 	}
 }
 
+func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
+	f.selection = 1
+
+	plain := stripANSI(f.View())
+	lines := strings.Split(plain, "\n")
+
+	var selectedLine string
+	var unselectedLine string
+	for _, line := range lines {
+		if strings.Contains(line, "beta.go") {
+			selectedLine = line
+		}
+		if strings.Contains(line, "alpha.txt") {
+			unselectedLine = line
+		}
+	}
+
+	if !strings.Contains(selectedLine, "> beta.go") {
+		t.Fatalf("selected line = %q, want visible selection marker", selectedLine)
+	}
+	if strings.Contains(unselectedLine, "> alpha.txt") {
+		t.Fatalf("unselected line = %q, want no selection marker", unselectedLine)
+	}
+	if !strings.Contains(unselectedLine, "  alpha.txt") {
+		t.Fatalf("unselected line = %q, want aligned empty prefix", unselectedLine)
+	}
+}
+
+func TestFilePickerOverlay_ViewOmitsFooterHelpRow(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.open = true
+	f.width = 80
+	f.height = 24
+	f.candidates = []string{"alpha.txt", "beta.go"}
+
+	plain := stripANSI(f.View())
+	for _, unwanted := range []string{"select", "navigate", "close"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("view = %q, want no footer help text %q", plain, unwanted)
+		}
+	}
+}
+
 func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -490,6 +540,33 @@ func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 
 func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 	m := newModel(Config{WorkingDir: ".", Model: "test-model", SidebarPosition: "right"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.sidebar.expanded = true
+
+	if !m.sidebar.Visible(m.width) {
+		t.Fatal("sidebar should be visible at width 120")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	if !m.filePicker.open {
+		t.Fatal("expected file picker to open after @")
+	}
+
+	view := m.View()
+
+	if !strings.Contains(view, "CONTEXT") {
+		t.Fatal("expected sidebar CONTEXT label to survive file picker overlay")
+	}
+	if !strings.Contains(view, "steiner") {
+		t.Fatal("expected sidebar brand name to survive file picker overlay")
+	}
+	if !strings.Contains(view, "test-model") {
+		t.Fatal("expected sidebar model name to survive file picker overlay")
+	}
+}
+
+func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
+	m := newModel(Config{WorkingDir: ".", Model: "test-model"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
 	m.sidebar.expanded = true
 

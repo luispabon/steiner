@@ -257,6 +257,35 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
+	m := newModel(Config{
+		SkillNames:        []string{"review"},
+		SkillDescriptions: map[string]string{"review": "Review changes for bugs and regressions."},
+	}, nil)
+
+	items := m.buildSlashOverlayItems()
+
+	var reviewItem *slashOverlayItem
+	for i := range items {
+		if items[i].command == "/review" {
+			reviewItem = &items[i]
+			break
+		}
+	}
+	if reviewItem == nil {
+		t.Fatal("expected /review item in slash overlay")
+	}
+	if reviewItem.name != "" {
+		t.Fatalf("review item name = %q, want empty", reviewItem.name)
+	}
+	if reviewItem.desc != "Review changes for bugs and regressions." {
+		t.Fatalf("review item desc = %q, want skill description", reviewItem.desc)
+	}
+	if !reviewItem.isSkill {
+		t.Fatal("expected review item to be marked as a skill")
+	}
+}
+
 func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 	ctrl := &testController{}
 

@@ -32,26 +32,27 @@ type cliFlags struct {
 }
 
 type cliRuntime struct {
-	cfg              config.Config
-	provider         provider.Provider
-	providerFactory  func(provider.ResolvedModel) (provider.Provider, error)
-	httpClient       *http.Client
-	registry         *tool.Registry
-	toolNames        []string
-	skillNames       []string
-	skillSources     map[string]string // skill name -> "project"/"user"/"global"
-	workDir          string
-	homeDir          string
-	stdin            io.Reader
-	human            *output.Stream
-	status           *output.Stream
-	events           output.EventSink
-	sharedInput      *bufio.Reader
-	approvalIn       *bufio.Reader
-	closeFn          func() error
-	historyWriter    *history.Writer
-	sessionStore     *session.Store
-	delegationLogger *delegation.TraceLogger
+	cfg               config.Config
+	provider          provider.Provider
+	providerFactory   func(provider.ResolvedModel) (provider.Provider, error)
+	httpClient        *http.Client
+	registry          *tool.Registry
+	toolNames         []string
+	skillNames        []string
+	skillSources      map[string]string // skill name -> "project"/"user"/"global"
+	skillDescriptions map[string]string // skill name -> short summary
+	workDir           string
+	homeDir           string
+	stdin             io.Reader
+	human             *output.Stream
+	status            *output.Stream
+	events            output.EventSink
+	sharedInput       *bufio.Reader
+	approvalIn        *bufio.Reader
+	closeFn           func() error
+	historyWriter     *history.Writer
+	sessionStore      *session.Store
+	delegationLogger  *delegation.TraceLogger
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -78,7 +79,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	homeDir, skillNames, skillSources, err := discoverRuntimeSkills(ctx)
+	homeDir, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -90,25 +91,26 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	closeFn = joinClosers(closeFn, approvalClose)
 
 	return cliRuntime{
-		cfg:              cfg,
-		providerFactory:  providerFactory,
-		httpClient:       httpClient,
-		registry:         registry,
-		toolNames:        registry.Names(),
-		skillNames:       skillNames,
-		skillSources:     skillSources,
-		workDir:          workDir,
-		homeDir:          homeDir,
-		stdin:            cmd.InOrStdin(),
-		human:            output.NewStream(cmd.OutOrStdout()),
-		status:           output.NewStream(cmd.ErrOrStderr()),
-		events:           events,
-		sharedInput:      sharedInput,
-		approvalIn:       approvalInput,
-		closeFn:          closeFn,
-		historyWriter:    historyWriter,
-		sessionStore:     sessionStore,
-		delegationLogger: delegationLogger,
+		cfg:               cfg,
+		providerFactory:   providerFactory,
+		httpClient:        httpClient,
+		registry:          registry,
+		toolNames:         registry.Names(),
+		skillNames:        skillNames,
+		skillSources:      skillSources,
+		skillDescriptions: skillDescriptions,
+		workDir:           workDir,
+		homeDir:           homeDir,
+		stdin:             cmd.InOrStdin(),
+		human:             output.NewStream(cmd.OutOrStdout()),
+		status:            output.NewStream(cmd.ErrOrStderr()),
+		events:            events,
+		sharedInput:       sharedInput,
+		approvalIn:        approvalInput,
+		closeFn:           closeFn,
+		historyWriter:     historyWriter,
+		sessionStore:      sessionStore,
+		delegationLogger:  delegationLogger,
 	}, nil
 }
 

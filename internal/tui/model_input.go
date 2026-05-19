@@ -366,19 +366,10 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 
 	// Add available skills as direct invocation items
 	for _, skillName := range m.skillNames {
-		source := ""
-		if m.enabledSkills[skillName] {
-			source = "(enabled)"
-		}
-		// Map skill name to source if available
-		if skillSrc, ok := m.modelBaseURLs[skillName]; ok {
-			source = skillSrc
-		}
 		items = append(items, slashOverlayItem{
 			command: "/" + skillName,
-			name:    skillName,
-			desc:    "invoke skill directly",
-			source:  source,
+			desc:    strings.TrimSpace(m.skillDescriptions[skillName]),
+			isSkill: true,
 		})
 	}
 

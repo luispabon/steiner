@@ -132,7 +132,7 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 		base = m.slashOverlay.PlaceBottomAnchoredAt(base, m.slashOverlay.View(), offset, xOffset)
 	}
 	if m.filePicker.open {
-		base = m.filePicker.PlaceBottomAnchored(base, m.filePicker.View(), offset)
+		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
 	}
 	if m.sessionPicker.open {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)

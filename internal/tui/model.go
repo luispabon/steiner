@@ -62,6 +62,7 @@ type Model struct {
 	autoScroll                   bool
 	contentTopPad                int
 	skillNames                   []string
+	skillDescriptions            map[string]string
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int
@@ -219,6 +220,17 @@ func cloneModelContexts(src map[string]int) map[string]int {
 		return nil
 	}
 	dst := make(map[string]int, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
 	for k, v := range src {
 		dst[k] = v
 	}

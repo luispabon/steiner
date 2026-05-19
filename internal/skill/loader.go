@@ -24,6 +24,7 @@ type Skill struct {
 	Content  string
 	ByteSize int
 	Source   string // "project", "user", "global" or root-based identifier
+	Summary  string
 }
 
 // Discover lists skills available under the configured root directories.
@@ -111,7 +112,11 @@ func (l Loader) discoverEntry(ctx context.Context, root, name, source string, se
 		}
 		return Skill{}, false, fmt.Errorf("stat skill %s: %w", path, err)
 	}
-	return Skill{Name: name, Path: path, Source: source}, true, nil
+	summary, err := discoverSummary(path)
+	if err != nil {
+		return Skill{}, false, fmt.Errorf("read skill summary %s: %w", path, err)
+	}
+	return Skill{Name: name, Path: path, Source: source, Summary: summary}, true, nil
 }
 
 // Load reads a single skill document by name.
@@ -191,4 +196,35 @@ func validateSkillName(name string) error {
 		return fmt.Errorf("invalid skill name %q", name)
 	}
 	return nil
+}
+
+func discoverSummary(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	content := string(data)
+	inCodeFence := false
+	for _, raw := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "```") {
+			inCodeFence = !inCodeFence
+			continue
+		}
+		if inCodeFence {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimLeft(line, "-*0123456789. ")
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			return line, nil
+		}
+	}
+	return "", nil
 }

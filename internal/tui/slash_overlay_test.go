@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -256,5 +257,73 @@ func TestSlashOverlaySourceIndicator(t *testing.T) {
 	}
 	if overlay.allItems[2].source != "user" {
 		t.Fatalf("item 2 source = %q, want user", overlay.allItems[2].source)
+	}
+}
+
+func TestSlashOverlayViewMarksSelectedRowWithPrefix(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+	overlay := newSlashOverlay(styles)
+
+	items := []slashOverlayItem{
+		{command: "/compact", name: "Compact", desc: "compact context", source: ""},
+		{command: "/config", name: "Config", desc: "show config", source: ""},
+	}
+
+	overlay = overlay.Open(items)
+	overlay.query = "/"
+
+	plain := stripANSI(overlay.View())
+	lines := strings.Split(plain, "\n")
+
+	var selectedLine string
+	var unselectedLine string
+	for _, line := range lines {
+		if strings.Contains(line, "/compact") {
+			selectedLine = line
+		}
+		if strings.Contains(line, "/config") {
+			unselectedLine = line
+		}
+	}
+
+	if !strings.Contains(selectedLine, "> /compact") {
+		t.Fatalf("selected line = %q, want visible selection marker", selectedLine)
+	}
+	if strings.Contains(unselectedLine, "> /config") {
+		t.Fatalf("unselected line = %q, want no selection marker", unselectedLine)
+	}
+	if !strings.Contains(unselectedLine, "  /config") {
+		t.Fatalf("unselected line = %q, want aligned empty prefix", unselectedLine)
+	}
+}
+
+func TestSlashOverlayViewRendersSkillRowsAsCommandAndDescriptionOnly(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+	overlay := newSlashOverlay(styles)
+
+	items := []slashOverlayItem{
+		{
+			command: "/review",
+			name:    "review",
+			desc:    "Review changes for bugs and regressions.",
+			source:  "project",
+			isSkill: true,
+		},
+	}
+
+	overlay = overlay.Open(items)
+
+	plain := stripANSI(overlay.View())
+	if !strings.Contains(plain, "/review  Review changes for bugs…") {
+		t.Fatalf("overlay view = %q, want command plus truncated description", plain)
+	}
+	if strings.Contains(plain, "[project]") {
+		t.Fatalf("overlay view = %q, want no source badge for skill row", plain)
+	}
+	if strings.Contains(plain, "/review  review") {
+		t.Fatalf("overlay view = %q, want no duplicated skill slug", plain)
+	}
+	if strings.Contains(plain, "\n│ essions.") {
+		t.Fatalf("overlay view = %q, want skill description to stay on one line", plain)
 	}
 }
