@@ -181,6 +181,48 @@ func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
 	}
 }
 
+func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	// Main agent context diagnostics set the baseline.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
+	if got := m.status.context; got != "ctx 100/4096" {
+		t.Fatalf("status.context = %q, want ctx 100/4096", got)
+	}
+	if got := m.sidebar.promptUsed; got != 100 {
+		t.Fatalf("sidebar.promptUsed = %d, want 100", got)
+	}
+	if got := m.sidebar.contextBudget; got != 4096 {
+		t.Fatalf("sidebar.contextBudget = %d, want 4096", got)
+	}
+
+	// Sub-agent scoped context diagnostics must not overwrite main agent values.
+	scoped := output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 2000, 8192, 50, 70, 32, 2100, "ok", false), "child-1")
+	m = updateModel(t, m, runtimeEventMsg{Event: scoped})
+	if got := m.status.context; got != "ctx 100/4096" {
+		t.Fatalf("status.context = %q, want ctx 100/4096 after scoped event", got)
+	}
+	if got := m.sidebar.promptUsed; got != 100 {
+		t.Fatalf("sidebar.promptUsed = %d, want 100 after scoped event", got)
+	}
+	if got := m.sidebar.contextBudget; got != 4096 {
+		t.Fatalf("sidebar.contextBudget = %d, want 4096 after scoped event", got)
+	}
+
+	// Main agent resumes and updates context fill normally.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 2, 150, 4096, 5, 70, 32, 180, "ok", false)})
+	if got := m.status.context; got != "ctx 150/4096" {
+		t.Fatalf("status.context = %q, want ctx 150/4096 after resume", got)
+	}
+	if got := m.sidebar.promptUsed; got != 150 {
+		t.Fatalf("sidebar.promptUsed = %d, want 150 after resume", got)
+	}
+}
+
 func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	ctrl := &testController{}
 
