@@ -134,19 +134,18 @@ func (s *Session) CurrentModelConfig() config.ModelConfig {
 	return s.deps.Config.Models[s.deps.Config.DefaultModel]
 }
 
-// Conversation returns the current conversation message slice. Callers must
-// not mutate the returned slice; use SetConversation to replace it.
+// Conversation returns a defensive copy of the current conversation.
 func (s *Session) Conversation() []agent.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.conversation
+	return cloneMessages(s.conversation)
 }
 
-// SetConversation replaces the current conversation with the given messages.
+// SetConversation replaces the current conversation with a defensive copy.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.conversation = conversation
+	s.conversation = cloneMessages(conversation)
 }
 
 // SetRunner replaces the session's run executor. This allows the CLI adapter
