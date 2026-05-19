@@ -2420,6 +2420,69 @@ func hasANSIBackground(s string) bool {
 	return strings.Contains(s, "\x1b[48;2;") || strings.Contains(s, "\x1b[48;5;")
 }
 
+func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, "result"))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := stripANSI(buffer.String(100))
+	for _, want := range []string{"Turns: 5", "Tokens: 1234", "Duration:", "Status: complete"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, "result"))
+
+	// collapsed (default) — stats footer must not appear
+	rendered := stripANSI(buffer.String(100))
+	for _, unexpected := range []string{"Turns: 5", "Tokens: 1234", "Status: complete"} {
+		if strings.Contains(rendered, unexpected) {
+			t.Errorf("collapsed delegation render should not contain %q:\n%s", unexpected, rendered)
+		}
+	}
+}
+
+func TestDelegationStatsFooterShowsContextFill(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "plan work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewContextTokenBudgetEvent("", 1, 80000, 200000, 42.5, 90.0, 0, 0, "", false),
+		"agent-1",
+	))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 3, 500, ""))
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := stripANSI(buffer.String(100))
+	if !strings.Contains(rendered, "Ctx: 43%") {
+		t.Errorf("expanded delegation render missing context fill %q:\n%s", "Ctx: 43%", rendered)
+	}
+}
+
 func useTrueColor(t *testing.T) {
 	t.Helper()
 

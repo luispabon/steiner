@@ -110,9 +110,10 @@ type delegationDisplayState struct {
 	spinnerFrame    int    // index into spinnerFrames
 	status          string // "active" | "complete" | "failed"
 	// result fields (Complete)
-	resultStatus string
-	turnCount    int
-	tokenCount   int
+	resultStatus   string
+	turnCount      int
+	tokenCount     int
+	contextFillPct float64 // last known context window occupancy %, 0 if unknown
 	// failure field
 	errMsg string
 	// output text and visibility

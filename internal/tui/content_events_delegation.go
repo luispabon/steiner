@@ -73,13 +73,17 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 		return b.applyDelegationToolCallFinished(dd, event)
 	case output.EventTypeStopReason:
 		return b.applyDelegationStopReason(dd, event)
+	case output.EventTypeContextDiagnostics:
+		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok && payload.ContextUsagePercent > 0 {
+			dd.contextFillPct = payload.ContextUsagePercent
+		}
+		return true
 	case output.EventTypeTurnStarted,
 		output.EventTypeTurnFinished,
 		output.EventTypeModelCallStarted,
 		output.EventTypeModelCallFinished,
 		output.EventTypeAPIRequest,
-		output.EventTypeAPIResponse,
-		output.EventTypeContextDiagnostics:
+		output.EventTypeAPIResponse:
 		return true
 	default:
 		return false

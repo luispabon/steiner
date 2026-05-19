@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -239,6 +240,9 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	if agentID != "" {
 		left += " " + b.styles.FgDim.Render(agentID)
 	}
+	if dd.status == "active" && dd.contextFillPct > 0 {
+		left += " " + b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct))))
+	}
 
 	gap := 0
 	if metaWidth > 0 {
@@ -475,4 +479,31 @@ func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDispl
 		break
 	}
 	return false
+}
+
+func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) string {
+	var parts []string
+	if dd.turnCount > 0 {
+		parts = append(parts, fmt.Sprintf("Turns: %d", dd.turnCount))
+	}
+	if dd.tokenCount > 0 {
+		parts = append(parts, fmt.Sprintf("Tokens: %d", dd.tokenCount))
+	}
+	if dd.elapsed != "" {
+		parts = append(parts, "Duration: "+dd.elapsed)
+	}
+	status := strings.TrimSpace(dd.resultStatus)
+	if status == "" {
+		status = dd.status
+	}
+	if status != "" {
+		parts = append(parts, "Status: "+status)
+	}
+	if dd.contextFillPct > 0 {
+		parts = append(parts, fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct))))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return b.styles.FgDim.Render(strings.Join(parts, "    "))
 }
