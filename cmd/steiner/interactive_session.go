@@ -64,6 +64,7 @@ func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
 		MaxTurns:                      0,
 		Version:                       version,
 		SkillNames:                    rt.skillNames,
+		SkillSources:                  rt.skillSources,
 		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
 		Controller:                    sess,
 	}

@@ -23,6 +23,7 @@ type Skill struct {
 	Path     string
 	Content  string
 	ByteSize int
+	Source   string // "project", "user", "global" or root-based identifier
 }
 
 // Discover lists skills available under the configured root directories.
@@ -37,7 +38,7 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 	seen := make(map[string]bool)
 	var skills []Skill
 
-	for _, root := range l.RootDirs {
+	for i, root := range l.RootDirs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -45,6 +46,20 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 		root := strings.TrimSpace(root)
 		if root == "" {
 			continue
+		}
+
+		// Determine source label based on root index:
+		// 0 -> "project", 1 -> "user", 2 -> "global", >2 -> "root<N>"
+		var source string
+		switch i {
+		case 0:
+			source = "project"
+		case 1:
+			source = "user"
+		case 2:
+			source = "global"
+		default:
+			source = fmt.Sprintf("root%d", i)
 		}
 
 		entries, err := os.ReadDir(root)
@@ -73,7 +88,7 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 				}
 				return nil, fmt.Errorf("stat skill %s: %w", path, err)
 			}
-			skills = append(skills, Skill{Name: name, Path: path})
+			skills = append(skills, Skill{Name: name, Path: path, Source: source})
 			seen[name] = true
 		}
 	}
