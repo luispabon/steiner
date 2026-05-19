@@ -43,96 +43,127 @@ func (a assembler) planSourceAssembly() sourcePlan {
 
 	return sourcePlan{
 		Steps: []sourcePlanStep{
-			// Static sources first — stable prefix maximizes KV cache
-			// reuse in local inference servers (llama.cpp, LM Studio).
-			{
-				Kind:      plannedSourcePreamble,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					if opts.CachedPreamble != "" {
-						state.appendBlock(ContextBlock{
-							Source:   ContextSourcePreamble,
-							Content:  opts.CachedPreamble,
-							ByteSize: len(opts.CachedPreamble),
-						})
-						return nil
-					}
-					state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled))
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceAgents,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					globalAgentsPath, projectAgentsPath := agentPaths(opts)
+			preambleStep(opts),
+			agentsStep(opts),
+			projectContextStep(opts, policy),
+			skillsStep(opts),
+			conversationStep(opts),
+			toolSummariesStep(opts, policy),
+		},
+	}
+}
 
-					agentBlocks, err := loadAgents(globalAgentsPath, projectAgentsPath)
-					if err != nil {
-						return err
-					}
-					for _, block := range agentBlocks {
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceProjectContext,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					projectContext, err := gatherProjectContext(ProjectContextOptions{
-						Root:        opts.ProjectRoot,
-						BudgetBytes: policy.Budgets.ProjectContextBytes,
-						ExtraFiles:  opts.ProjectContextExtraFiles,
-						IgnoreFiles: opts.ProjectContextIgnoreFiles,
-					})
-					if err != nil {
-						return err
-					}
-					for _, block := range projectContext {
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceSkills,
-				Placement: plannedSourcePlacementCore,
-				Apply: func(ctx context.Context, state *assemblyState) error {
-					skillRoots := skillRoots(opts)
-					skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots}, opts.SkillNames)
-					if err != nil {
-						return err
-					}
-					for _, block := range skillBlocks {
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
-			{
-				Kind:        plannedSourceConversation,
-				Placement:   plannedSourcePlacementConversation,
-				PassThrough: true,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					for _, message := range opts.Conversation {
-						state.appendMessage(message)
-					}
-					return nil
-				},
-			},
-			{
-				Kind:      plannedSourceToolSummaries,
-				Placement: plannedSourcePlacementToolSummaries,
-				Apply: func(_ context.Context, state *assemblyState) error {
-					for _, toolResult := range opts.ToolResults {
-						block := summarizeToolMessage(toolResult, policy.ToolSummary)
-						state.appendBlock(block)
-					}
-					return nil
-				},
-			},
+// appendBlocks appends each block in blocks to state.
+func appendBlocks(state *assemblyState, blocks []ContextBlock) {
+	for _, block := range blocks {
+		state.appendBlock(block)
+	}
+}
+
+// preambleStep returns the step that loads the system preamble.
+// Static sources first — stable prefix maximizes KV cache reuse in local
+// inference servers (llama.cpp, LM Studio).
+func preambleStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourcePreamble,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			if opts.CachedPreamble != "" {
+				state.appendBlock(ContextBlock{
+					Source:   ContextSourcePreamble,
+					Content:  opts.CachedPreamble,
+					ByteSize: len(opts.CachedPreamble),
+				})
+				return nil
+			}
+			state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled))
+			return nil
+		},
+	}
+}
+
+// agentsStep returns the step that loads global and project agent definitions.
+func agentsStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourceAgents,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			globalAgentsPath, projectAgentsPath := agentPaths(opts)
+
+			agentBlocks, err := loadAgents(globalAgentsPath, projectAgentsPath)
+			if err != nil {
+				return err
+			}
+			appendBlocks(state, agentBlocks)
+			return nil
+		},
+	}
+}
+
+// projectContextStep returns the step that gathers project context files.
+func projectContextStep(opts AssemblyOptions, policy AssemblyPolicy) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourceProjectContext,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			projectContext, err := gatherProjectContext(ProjectContextOptions{
+				Root:        opts.ProjectRoot,
+				BudgetBytes: policy.Budgets.ProjectContextBytes,
+				ExtraFiles:  opts.ProjectContextExtraFiles,
+				IgnoreFiles: opts.ProjectContextIgnoreFiles,
+			})
+			if err != nil {
+				return err
+			}
+			appendBlocks(state, projectContext)
+			return nil
+		},
+	}
+}
+
+// skillsStep returns the step that loads skill blocks.
+func skillsStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourceSkills,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(ctx context.Context, state *assemblyState) error {
+			skillRoots := skillRoots(opts)
+			skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots}, opts.SkillNames)
+			if err != nil {
+				return err
+			}
+			appendBlocks(state, skillBlocks)
+			return nil
+		},
+	}
+}
+
+// conversationStep returns the step that appends conversation messages.
+func conversationStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:        plannedSourceConversation,
+		Placement:   plannedSourcePlacementConversation,
+		PassThrough: true,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			for _, message := range opts.Conversation {
+				state.appendMessage(message)
+			}
+			return nil
+		},
+	}
+}
+
+// toolSummariesStep returns the step that summarizes tool results.
+func toolSummariesStep(opts AssemblyOptions, policy AssemblyPolicy) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourceToolSummaries,
+		Placement: plannedSourcePlacementToolSummaries,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			for _, toolResult := range opts.ToolResults {
+				block := summarizeToolMessage(toolResult, policy.ToolSummary)
+				state.appendBlock(block)
+			}
+			return nil
 		},
 	}
 }
