@@ -179,3 +179,29 @@ func ApplyPatchSchema() map[string]any {
 		},
 	}
 }
+
+// FetchURLSchema returns the JSON schema for the fetch_url tool.
+func FetchURLSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"url":      map[string]any{"type": "string", "description": "URL to fetch"},
+			"max_size": map[string]any{"type": "integer", "description": "Max content length in runes", "default": 500000, "maximum": 1000000},
+		},
+		"required":             []string{"url"},
+		"additionalProperties": false,
+	}
+}
+
+// WebSearchSchema returns the JSON schema for the web_search tool.
+func WebSearchSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{"type": "string", "description": "Search query"},
+			"limit": map[string]any{"type": "integer", "description": "Max results (default: 10)", "default": 10, "maximum": 30},
+		},
+		"required":             []string{"query"},
+		"additionalProperties": false,
+	}
+}

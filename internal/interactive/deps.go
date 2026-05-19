@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -49,6 +50,7 @@ type Dependencies struct {
 	Config          config.Config
 	Provider        provider.Provider
 	ProviderFactory func(provider.ResolvedModel) (provider.Provider, error)
+	HTTPClient      *http.Client
 	HomeDir         string
 	WorkDir         string
 }

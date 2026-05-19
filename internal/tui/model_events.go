@@ -28,6 +28,22 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.content.AppendEvent(event)
 	}
 
+	// Sub-agent events update delegation transcript segments only.
+	// They must not overwrite the main agent's sidebar, status bar,
+	// or activity state.
+	if event.Scope.AgentID != "" {
+		var cmds []tea.Cmd
+		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
+			cmds = append(cmds, gitRefreshCmd(m.git))
+		}
+		if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
+			m.contentDirty = true
+			m.syncDebounceSeq++
+			cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
+		}
+		return tea.Batch(cmds...)
+	}
+
 	switch payload := event.Payload.(type) {
 	case output.HistoryLoadedEvent:
 		if len(payload.Prompts) > 0 {

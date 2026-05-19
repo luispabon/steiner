@@ -222,12 +222,85 @@ Model fields:
 
 Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is `default_model`, one provider entry, one model entry that points at that provider, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
 
+## Web search
+
+The `web_search` tool lets the model search the web and return URL, title, and description results. It is not available by default — it must be enabled by setting `search.backend` in the config.
+
+### Supported backends
+
+| Backend | Config key | Auth |
+|---------|------------|------|
+| **Google** | `google` | `GOOGLE_SEARCH_CX` + `GOOGLE_SEARCH_API_KEY` env vars |
+| **Kagi** | `kagi` | `KAGI_API_KEY` env var |
+| **Brave** | `brave` | `BRAVE_API_KEY` env var |
+| **SearXNG** | `searxng` | `search.searxng_url` config key (self-hosted, no API key) |
+
+Setting `search.backend` to `""` (or omitting the `search` block entirely) disables the `web_search` tool. The model will not have access to web search.
+
+### Config example
+
+```yaml
+search:
+  backend: google          # one of: google, kagi, brave, searxng
+  # searxng_url: http://localhost:8888   # required when backend is "searxng"
+```
+
+#### Per-backend environment variables
+
+**Google:**
+```bash
+export GOOGLE_SEARCH_CX=your_custom_search_engine_id
+export GOOGLE_SEARCH_API_KEY=your_google_api_key
+```
+
+**Kagi:**
+```bash
+export KAGI_API_KEY=your_kagi_api_key
+```
+
+**Brave:**
+```bash
+export BRAVE_API_KEY=your_brave_api_key
+```
+
+**SearXNG:** no API key required. Point `search.searxng_url` at your instance.
+
+### How it works
+
+The search config is loaded from the `search` block in `config.yaml` (or the equivalent `STEINER_SEARCH_*` env vars). At startup `NewSearchBackend` dispatches on `search.backend` and creates the corresponding `web.Searcher` implementation.
+
+When a searcher is available:
+- The `web_search` tool is registered in the active tool registry (visible to the main model).
+- The `research` sub-agent also gains `web_search` in its allowlist.
+
+When no searcher is available (`search.backend` is unset):
+- The `web_search` tool is not registered at all — the model never sees it.
+- The `research` sub-agent exclude `web_search` from its available tools.
+
+### All providers config example
+
+This example shows all four backends configured across different config layers (only one can be active at a time — set `search.backend` to pick):
+
+```yaml
+# Only one backend is active at a time, selected by search.backend.
+# Environment variables must be set for the selected backend (see above).
+search:
+  backend: brave            # change to google, kagi, or searxng as needed
+  searxng_url: http://localhost:8888   # only used when backend is "searxng"
+```
+
+### Notes
+
+- The `web_search` tool is separate from the model provider — it uses its own HTTP client and does not route through the model provider configuration.
+- SearXNG is self-hosted and has no API key; any public or private instance URL works.
+- Brave caps results at 20. All other backends cap at 30 (the global limit is adjustable per invocation via the `limit` parameter, up to 30).
+
 ## Sub-agent delegation
 
 `steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
 
 - **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
-- **`research`** — gather and synthesise information from the codebase or web
+- **`research`** — gather and synthesise information from the codebase or web (only available with a `web_search` backend configured)
 - **`code`** — implement a scoped change, run tests, report results
 - **`plan`** — analyse a sub-problem and produce a structured recommendation
 - **`verify`** — run checks (tests, linters, builds) and report pass/fail

@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/deepnoodle-ai/dive v1.4.0
+	github.com/deepnoodle-ai/wonton v0.0.29
 	github.com/gobwas/glob v0.2.3
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.9.1
@@ -28,7 +29,6 @@ require (
 	github.com/charmbracelet/x/exp/slice v0.0.0-20250327172914-2fdc97757edf // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
-	github.com/deepnoodle-ai/wonton v0.0.29 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gorilla/css v1.0.1 // indirect

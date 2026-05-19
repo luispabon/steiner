@@ -25,7 +25,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	rm, err := provider.Resolve(s.deps.Config, s.deps.Config.DefaultModel)
+	rm, err := provider.ResolveWithDiscovery(s.deps.Config, s.CurrentModelAlias(), s.deps.HTTPClient)
 	if err != nil {
 		s.emitCompactError(fmt.Errorf("resolve model: %w", err))
 		return

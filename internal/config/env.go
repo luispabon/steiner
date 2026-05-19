@@ -54,25 +54,63 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 		cfg.Models[name] = m
 	}
 
-	if err := applyEnvIntOverride(&cfg.Scheduler.Parallelism, "STEINER_SCHEDULER_PARALLELISM", lookup); err != nil {
+	if err := applyEnvIntOverrides(cfg, lookup); err != nil {
 		return err
 	}
-	if err := applyEnvIntOverride(&cfg.Limits.MaxTurns, "STEINER_MAX_TURNS", lookup); err != nil {
-		return err
+	applyEnvLoggingOverrides(cfg, lookup)
+	applyEnvSearchOverrides(cfg, lookup)
+
+	return nil
+}
+
+func applyEnvIntOverrides(cfg *Config, lookup func(string) (string, bool)) error {
+	overrides := []struct {
+		target *int
+		name   string
+	}{
+		{&cfg.Scheduler.Parallelism, "STEINER_SCHEDULER_PARALLELISM"},
+		{&cfg.Limits.MaxTurns, "STEINER_MAX_TURNS"},
+		{&cfg.Limits.MaxTokens, "STEINER_MAX_TOKENS"},
+		{&cfg.Limits.ToolOutputMaxBytes, "STEINER_TOOL_OUTPUT_MAX_BYTES"},
 	}
-	if err := applyEnvIntOverride(&cfg.Limits.MaxTokens, "STEINER_MAX_TOKENS", lookup); err != nil {
-		return err
+	for _, o := range overrides {
+		if err := applyEnvIntOverride(o.target, o.name, lookup); err != nil {
+			return err
+		}
 	}
-	if err := applyEnvIntOverride(&cfg.Limits.ToolOutputMaxBytes, "STEINER_TOOL_OUTPUT_MAX_BYTES", lookup); err != nil {
-		return err
-	}
+	return nil
+}
+
+func applyEnvLoggingOverrides(cfg *Config, lookup func(string) (string, bool)) {
 	if value, ok := lookup("STEINER_LOG_LEVEL"); ok {
 		cfg.Logging.Level = value
 	}
 	if value, ok := lookup("STEINER_LOG_FILE"); ok {
 		cfg.Logging.File = value
 	}
-	return nil
+}
+
+func applyEnvSearchOverrides(cfg *Config, lookup func(string) (string, bool)) {
+	if cfg.Search.GoogleCx == "" {
+		if v, ok := lookup("GOOGLE_SEARCH_CX"); ok {
+			cfg.Search.GoogleCx = v
+		}
+	}
+	if cfg.Search.GoogleAPIKey == "" {
+		if v, ok := lookup("GOOGLE_SEARCH_API_KEY"); ok {
+			cfg.Search.GoogleAPIKey = v
+		}
+	}
+	if cfg.Search.KagiAPIKey == "" {
+		if v, ok := lookup("KAGI_API_KEY"); ok {
+			cfg.Search.KagiAPIKey = v
+		}
+	}
+	if cfg.Search.BraveAPIKey == "" {
+		if v, ok := lookup("BRAVE_API_KEY"); ok {
+			cfg.Search.BraveAPIKey = v
+		}
+	}
 }
 
 func expandEnvToken(input string, i int, lookup func(string) (string, bool), b *strings.Builder) (int, bool) {

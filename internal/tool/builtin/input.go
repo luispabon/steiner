@@ -88,6 +88,18 @@ type BashInput struct {
 	MaxOutputChars int    `json:"max_output_chars,omitempty"`
 }
 
+// FetchURLInput is the typed input for the fetch_url tool.
+type FetchURLInput struct {
+	URL     string `json:"url"`
+	MaxSize int    `json:"max_size,omitempty"`
+}
+
+// WebSearchInput is the typed input for the web_search tool.
+type WebSearchInput struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
 const (
 	defaultReadLimit          = 200
 	maxReadLimit              = 1000
@@ -170,4 +182,24 @@ func NormalizeDisplayFile(in *DisplayFileInput) {
 		in.Limit = defaultDisplayFileLimit
 	}
 	in.Limit = min(in.Limit, maxDisplayFileLimit)
+}
+
+// NormalizeFetchURL applies defaults and caps to fetch_url input.
+func NormalizeFetchURL(in *FetchURLInput) {
+	if in.MaxSize <= 0 {
+		in.MaxSize = 500000
+	}
+	if in.MaxSize > 1000000 {
+		in.MaxSize = 1000000
+	}
+}
+
+// NormalizeWebSearch applies defaults and caps to web_search input.
+func NormalizeWebSearch(in *WebSearchInput) {
+	if in.Limit <= 0 {
+		in.Limit = 10
+	}
+	if in.Limit > 30 {
+		in.Limit = 30
+	}
 }

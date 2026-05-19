@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/lexers"
 )
 
 // FormatFilePreview formats file contents using the default preview line limit.
@@ -15,6 +16,37 @@ func FormatFilePreview(path, contents string) PreviewDocument {
 // FormatFilePreviewWithLimit formats file contents using the provided preview line limit.
 func FormatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDocument {
 	return formatFilePreviewWithLimit(path, contents, lineLimit)
+}
+
+// FormatFilePreviewWithLanguage formats file contents with an explicit language hint.
+func FormatFilePreviewWithLanguage(path, language, contents string) PreviewDocument {
+	return formatFilePreviewWithLimitAndLanguage(path, language, contents, defaultPreviewLineLimit)
+}
+
+func formatFilePreviewWithLimitAndLanguage(path, language, contents string, lineLimit int) PreviewDocument {
+	var lexer chroma.Lexer
+	if language != "" && language != "plain" {
+		if l := lexers.Get(language); l != nil {
+			lexer = chroma.Coalesce(l)
+		}
+	}
+	if lexer == nil {
+		syntax := DetectPreviewSyntax(path, contents)
+		lexer = syntax.Lexer
+		language = syntax.Language
+	}
+	lines, truncated := formatHighlightedText(contents, lexer, PreviewLineKindText, lineLimit)
+	if truncated {
+		lines = append(lines, truncationLine(lineLimit))
+	}
+	return PreviewDocument{
+		Kind:      PreviewFormatKindFile,
+		Path:      path,
+		Language:  language,
+		Lines:     lines,
+		Truncated: truncated,
+		LineLimit: lineLimit,
+	}
 }
 
 // FormatEditDiffPreview formats an edit diff using the default preview line limit.

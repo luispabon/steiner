@@ -15,6 +15,7 @@ type configPatch struct {
 	Logging           *loggingPatch             `yaml:"logging"`
 	Debug             *debugPatch               `yaml:"debug"`
 	ContextManagement *contextManagementPatch   `yaml:"context_management"`
+	Search            *searchPatch              `yaml:"search"`
 }
 
 type providerPatch struct {
@@ -129,4 +130,13 @@ type loggingPatch struct {
 
 type debugPatch struct {
 	ShowInternalScaffoldInference *bool `yaml:"show_internal_scaffold_inference"`
+}
+
+type searchPatch struct {
+	Backend      *string `yaml:"backend"`
+	SearxngURL   *string `yaml:"searxng_url"`
+	GoogleCx     *string `yaml:"google_cx"`
+	GoogleAPIKey *string `yaml:"google_api_key"`
+	KagiAPIKey   *string `yaml:"kagi_api_key"`
+	BraveAPIKey  *string `yaml:"brave_api_key"`
 }

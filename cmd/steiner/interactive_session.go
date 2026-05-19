@@ -25,6 +25,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		Config:          rt.cfg,
 		Provider:        rt.provider,
 		ProviderFactory: rt.providerFactory,
+		HTTPClient:      rt.httpClient,
 		HomeDir:         rt.homeDir,
 		WorkDir:         rt.workDir,
 		SessionStore:    rt.sessionStore,

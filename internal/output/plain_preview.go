@@ -88,6 +88,10 @@ func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) 
 		return FormatFilePreview(preview.Path, preview.Contents), true
 	case ToolPreviewKindReadFile:
 		return FormatFilePreview(preview.Path, normalizeReadPreviewContents(preview.Contents, 0)), true
+	case ToolPreviewKindFetchURL:
+		return FormatFilePreviewWithLanguage(preview.Path, preview.Language, preview.Contents), true
+	case ToolPreviewKindWebSearch:
+		return FormatFilePreviewWithLanguage(preview.Path, preview.Language, preview.Contents), true
 	default:
 		return PreviewDocument{}, false
 	}
@@ -315,6 +319,13 @@ func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
 			}
 		case ToolPreviewKindReadFile:
 			label = "read file preview"
+		case ToolPreviewKindFetchURL:
+			label = "fetched page preview"
+		case ToolPreviewKindWebSearch:
+			if preview.Returned >= 0 {
+				return fmt.Sprintf("search results - %d results", preview.Returned)
+			}
+			return "search results"
 		}
 		if doc.Path != "" {
 			return fmt.Sprintf("%s · %s · %d lines", doc.Path, label, previewDocumentLineCount(doc))

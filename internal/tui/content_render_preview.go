@@ -307,6 +307,10 @@ func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocum
 		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
 	case output.ToolPreviewKindReadFile:
 		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
+	case output.ToolPreviewKindFetchURL:
+		return output.FormatFilePreviewWithLanguage(tc.preview.Path, tc.preview.Language, tc.preview.Contents)
+	case output.ToolPreviewKindWebSearch:
+		return output.FormatFilePreviewWithLanguage(tc.preview.Path, tc.preview.Language, tc.preview.Contents)
 	default:
 		return output.PreviewDocument{}
 	}
@@ -331,6 +335,16 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 		if doc.Language != "" && doc.Language != "plain" {
 			label += " · " + doc.Language
 		}
+	case tc.preview.Kind == output.ToolPreviewKindFetchURL:
+		label = "fetched page preview"
+		if doc.Language != "" && doc.Language != "plain" {
+			label += " · " + doc.Language
+		}
+	case tc.preview.Kind == output.ToolPreviewKindWebSearch:
+		if tc.preview.Returned >= 0 {
+			return b.styles.FgDim.Render(fmt.Sprintf("search results - %d results", tc.preview.Returned))
+		}
+		return b.styles.FgDim.Render("search results")
 	}
 	lineCount := previewContentLineCount(doc)
 	if doc.Path != "" {

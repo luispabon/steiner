@@ -21,6 +21,10 @@ const (
 	ToolPreviewKindPatch = "patch"
 	// ToolPreviewKindPlain is a fallback preview with no structured rendering.
 	ToolPreviewKindPlain = "plain"
+	// ToolPreviewKindFetchURL is a fetch_url tool result preview.
+	ToolPreviewKindFetchURL = "fetch_url"
+	// ToolPreviewKindWebSearch is a web_search tool result preview.
+	ToolPreviewKindWebSearch = "web_search"
 )
 
 // ToolPreviewListEntry is one filesystem entry in a list-style preview.
@@ -97,6 +101,10 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 		return buildMutatePreview(result)
 	case "apply_patch":
 		return buildApplyPatchPreview(result)
+	case "fetch_url":
+		return buildFetchURLPreview(result)
+	case "web_search":
+		return buildWebSearchPreview(result)
 	default:
 		return plainToolPreview()
 	}

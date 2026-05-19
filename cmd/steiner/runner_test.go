@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,7 +67,7 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	found := false
 	for _, n := range reg.Names() {
@@ -88,7 +92,7 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	names := reg.Names()
 	nameSet := make(map[string]bool, len(names))
@@ -96,23 +100,42 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// All agent types should have a corresponding specialized tool.
+	// Research agent is excluded when no searcher is configured.
 	for _, agentType := range delegation.AllAgentTypes() {
+		if agentType == delegation.AgentTypeResearch {
+			if nameSet[string(agentType)] {
+				t.Errorf("research tool should not be in registry when no searcher configured")
+			}
+			continue
+		}
 		if !nameSet[string(agentType)] {
 			t.Errorf("specialized tool %q not found in registry; got %v", agentType, names)
 		}
 	}
 }
 
-func TestBuildActiveRegistry_DummyToolsNotExposedToParent(t *testing.T) {
+func TestBuildActiveRegistry_WebSearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
-		if n == "web_search" || n == "fetch_url" {
-			t.Errorf("dummy tool %q should not be exposed to the parent model", n)
+		if n == "web_search" {
+			t.Errorf("web_search should not be in registry when no search backend configured")
+		}
+	}
+}
+
+func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	subAgentCfg := config.SubAgentConfig{Enabled: true}
+	cfg := config.Config{}
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+
+	for _, n := range reg.Names() {
+		if n == "research" {
+			t.Errorf("research agent should not be in registry when no search backend configured")
 		}
 	}
 }
@@ -121,7 +144,7 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
@@ -134,7 +157,7 @@ func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil)
+	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
 	}
@@ -195,3 +218,138 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 // Ensure delegation package's AgentRunner interface is satisfied by agent.Runner
 // (compile-time check via assignment).
 var _ delegation.AgentRunner = agent.NewRunner()
+
+// failProvider is a provider stub that errors immediately on any call, so a
+// sub-agent run triggered in tests exits without blocking.
+type failProvider struct{}
+
+func (failProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, errors.New("fail")
+}
+func (failProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, errors.New("fail")
+}
+func (failProvider) SupportsUsageStats() bool { return false }
+
+// TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack guards the fix for
+// the sub-agent reasoning-echo regression: the modelResolver closure inside
+// buildActiveRegistry must call ResolveWithDiscovery (not Resolve) so that
+// ReasoningEchoBack is read from the models.dev cache. Without it,
+// stripReasoningContent removes the field that interleaved-reasoning models
+// (deepseek, kimi) require echoed back on every turn, causing a 400 on turn 2.
+func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
+	// Write a minimal models.dev cache marking the test model as interleaved
+	// reasoning (interleaved.field = "reasoning_content" → ReasoningEchoBack=true).
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+	cacheDir := filepath.Join(cacheRoot, "steiner", "model-metadata")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	cacheJSON := `{"testprov":{"models":{"reasoning-model":{"interleaved":{"field":"reasoning_content"}}}}}`
+	if err := os.WriteFile(filepath.Join(cacheDir, "models.dev.json"), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache): %v", err)
+	}
+	// expires_at far in the future so LoadBestEffort skips the network refresh.
+	metaJSON := `{"downloaded_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json","schema_version":"1"}`
+	if err := os.WriteFile(filepath.Join(cacheDir, "models.dev.meta.json"), []byte(metaJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta): %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
+		},
+	}
+	subAgentCfg := config.SubAgentConfig{
+		Enabled: true,
+		Agents: map[string]config.AgentConfig{
+			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
+		},
+	}
+
+	// providerFactory captures the ResolvedModel passed by modelResolver and
+	// returns a failProvider so the subsequent sub-agent run exits immediately.
+	var capturedModel provider.ResolvedModel
+	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+		capturedModel = rm
+		return failProvider{}, nil
+	}
+
+	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil, nil)
+
+	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	if !ok {
+		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+	}
+
+	// Invoke the handler. modelResolver (and providerFactory) runs before the
+	// agent run starts, so the capture happens even though the run fails fast.
+	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+
+	if !capturedModel.ReasoningEchoBack {
+		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
+	}
+}
+
+func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             "openrouter/reasoning-model",
+					"context_length": 262144,
+					"top_provider": map[string]any{
+						"max_completion_tokens": 16384,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+		},
+		Models: map[string]config.ModelConfig{
+			"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
+		},
+	}
+	subAgentCfg := config.SubAgentConfig{
+		Enabled: true,
+		Agents: map[string]config.AgentConfig{
+			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
+		},
+	}
+
+	var capturedModel provider.ResolvedModel
+	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+		capturedModel = rm
+		return failProvider{}, nil
+	}
+
+	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, srv.Client(), nil)
+
+	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	if !ok {
+		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+	}
+
+	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+
+	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
+		t.Fatalf("captured context window = %d, want %d", got, want)
+	}
+	if got, want := capturedModel.EffectiveLimits.MaxOutputTokens, 16384; got != want {
+		t.Fatalf("captured max output tokens = %d, want %d", got, want)
+	}
+}
