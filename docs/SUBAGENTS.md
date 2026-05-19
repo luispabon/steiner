@@ -17,6 +17,10 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees six a
 
 The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation.
 
+### Note - `research` agent availability
+
+The `research` agent won't be available until a `web_search` backend is configured. See [README.md](../README.md) for details on how to configure a `web_search` backend.
+
 ## Safety
 
 - A sub-agent **cannot delegate further** — the `delegate` tool is always stripped from child registries.
