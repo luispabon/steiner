@@ -573,64 +573,55 @@ func TestValidate(t *testing.T) {
 
 func TestSearchConfigValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		backend string
-		url     string
-		setEnvs map[string]string
-		wantErr string
+		name         string
+		backend      string
+		url          string
+		googleCx     string
+		googleAPIKey string
+		kagiAPIKey   string
+		braveAPIKey  string
+		wantErr      string
 	}{
 		{
-			name:    "google with env vars",
-			backend: "google",
-			setEnvs: map[string]string{
-				"GOOGLE_SEARCH_CX":      "test-cx",
-				"GOOGLE_SEARCH_API_KEY": "test-key",
-			},
-			wantErr: "",
+			name:         "google with env vars",
+			backend:      "google",
+			googleCx:     "test-cx",
+			googleAPIKey: "test-key",
+			wantErr:      "",
 		},
 		{
-			name:    "google missing GOOGLE_SEARCH_CX",
-			backend: "google",
-			setEnvs: map[string]string{
-				"GOOGLE_SEARCH_API_KEY": "test-key",
-			},
-			wantErr: "GOOGLE_SEARCH_CX env var is not set",
+			name:         "google missing google_cx",
+			backend:      "google",
+			googleAPIKey: "test-key",
+			wantErr:      "google_cx is not set",
 		},
 		{
-			name:    "google missing GOOGLE_SEARCH_API_KEY",
-			backend: "google",
-			setEnvs: map[string]string{
-				"GOOGLE_SEARCH_CX": "test-cx",
-			},
-			wantErr: "GOOGLE_SEARCH_API_KEY env var is not set",
+			name:     "google missing google_api_key",
+			backend:  "google",
+			googleCx: "test-cx",
+			wantErr:  "google_api_key is not set",
 		},
 		{
-			name:    "kagi with env var",
-			backend: "kagi",
-			setEnvs: map[string]string{
-				"KAGI_API_KEY": "test-key",
-			},
-			wantErr: "",
+			name:       "kagi with env var",
+			backend:    "kagi",
+			kagiAPIKey: "test-key",
+			wantErr:    "",
 		},
 		{
 			name:    "kagi missing env var",
 			backend: "kagi",
-			setEnvs: map[string]string{},
-			wantErr: "KAGI_API_KEY env var is not set",
+			wantErr: "kagi_api_key is not set",
 		},
 		{
-			name:    "brave with env var",
-			backend: "brave",
-			setEnvs: map[string]string{
-				"BRAVE_API_KEY": "test-key",
-			},
-			wantErr: "",
+			name:        "brave with env var",
+			backend:     "brave",
+			braveAPIKey: "test-key",
+			wantErr:     "",
 		},
 		{
 			name:    "brave missing env var",
 			backend: "brave",
-			setEnvs: map[string]string{},
-			wantErr: "BRAVE_API_KEY env var is not set",
+			wantErr: "brave_api_key is not set",
 		},
 		{
 			name:    "searxng with url",
@@ -642,10 +633,6 @@ func TestSearchConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, value := range tt.setEnvs {
-				t.Setenv(key, value)
-			}
-
 			retry := RetryConfig{
 				Enabled:        true,
 				MaxAttempts:    3,
@@ -705,8 +692,12 @@ func TestSearchConfigValidation(t *testing.T) {
 					ScratchpadMode:     ScratchpadModeScaffoldOnly,
 				},
 				Search: SearchConfig{
-					Backend:    tt.backend,
-					SearxngURL: tt.url,
+					Backend:      tt.backend,
+					SearxngURL:   tt.url,
+					GoogleCx:     tt.googleCx,
+					GoogleAPIKey: tt.googleAPIKey,
+					KagiAPIKey:   tt.kagiAPIKey,
+					BraveAPIKey:  tt.braveAPIKey,
 				},
 			}
 

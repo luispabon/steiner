@@ -47,8 +47,7 @@ func TestNewSearchBackend(t *testing.T) {
 		},
 		{
 			name:     "brave backend with API key returns BraveSearcher",
-			config:   config.SearchConfig{Backend: "brave"},
-			envSetup: map[string]string{"BRAVE_API_KEY": "test-key"},
+			config:   config.SearchConfig{Backend: "brave", BraveAPIKey: "test-key"},
 			wantType: "*BraveSearcher",
 		},
 		{

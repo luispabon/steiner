@@ -91,8 +91,12 @@ type AdvancedConfig struct {
 
 // SearchConfig configures web search integration.
 type SearchConfig struct {
-	Backend    string `yaml:"backend"`
-	SearxngURL string `yaml:"searxng_url"`
+	Backend      string `yaml:"backend"`
+	SearxngURL   string `yaml:"searxng_url"`
+	GoogleCx     string `yaml:"google_cx"`
+	GoogleAPIKey string `yaml:"google_api_key"`
+	KagiAPIKey   string `yaml:"kagi_api_key"`
+	BraveAPIKey  string `yaml:"brave_api_key"`
 }
 
 // Config is the complete application configuration.

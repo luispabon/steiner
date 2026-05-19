@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 
 	"github.com/deepnoodle-ai/dive/experimental/toolkit/google"
@@ -27,7 +26,7 @@ func NewSearchBackend(cfg config.SearchConfig) (web.Searcher, error) {
 	case "kagi":
 		return kagi.New()
 	case "brave":
-		return NewBraveSearcher(os.Getenv("BRAVE_API_KEY"))
+		return NewBraveSearcher(cfg.BraveAPIKey)
 	case "searxng":
 		return NewSearxngSearcher(cfg.SearxngURL)
 	default:

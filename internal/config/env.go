@@ -72,6 +72,29 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	if value, ok := lookup("STEINER_LOG_FILE"); ok {
 		cfg.Logging.File = value
 	}
+
+	// Resolve search API keys from environment variables if not set in config.
+	if cfg.Search.GoogleCx == "" {
+		if v, ok := lookup("GOOGLE_SEARCH_CX"); ok {
+			cfg.Search.GoogleCx = v
+		}
+	}
+	if cfg.Search.GoogleAPIKey == "" {
+		if v, ok := lookup("GOOGLE_SEARCH_API_KEY"); ok {
+			cfg.Search.GoogleAPIKey = v
+		}
+	}
+	if cfg.Search.KagiAPIKey == "" {
+		if v, ok := lookup("KAGI_API_KEY"); ok {
+			cfg.Search.KagiAPIKey = v
+		}
+	}
+	if cfg.Search.BraveAPIKey == "" {
+		if v, ok := lookup("BRAVE_API_KEY"); ok {
+			cfg.Search.BraveAPIKey = v
+		}
+	}
+
 	return nil
 }
 
