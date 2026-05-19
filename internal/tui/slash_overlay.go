@@ -1,0 +1,210 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
+)
+
+const slashOverlayMaxDisplay = 10
+
+// slashOverlayItem represents a single command or skill in the slash overlay.
+type slashOverlayItem struct {
+	command string // e.g. "/clear", "/skillname"
+	name    string // e.g. "Clear conversation", "Awesome Skill"
+	desc    string // e.g. "reset the current session", "does cool things"
+	source  string // "" for built-in commands, "project"/"user"/"global" for skills
+}
+
+// slashOverlay is a bottom-anchored overlay that appears when the user types "/" and
+// provides quick access to built-in commands and available skills.
+type slashOverlay struct {
+	OverlayShell
+	query        string
+	allItems     []slashOverlayItem
+	candidates   []slashOverlayItem
+	selection    int
+	scrollOffset int
+	styles       theme.Styles
+}
+
+func newSlashOverlay(styles theme.Styles) slashOverlay {
+	return slashOverlay{styles: styles}
+}
+
+// Open initializes the slash overlay with items and opens it.
+// items should be built-in commands + skills.
+func (s slashOverlay) Open(items []slashOverlayItem) slashOverlay {
+	s.OverlayShell = s.openShell()
+	s.query = ""
+	s.selection = 0
+	s.scrollOffset = 0
+	s.allItems = append([]slashOverlayItem(nil), items...)
+	s.candidates = append([]slashOverlayItem(nil), s.allItems...)
+	return s
+}
+
+// Close closes the slash overlay.
+func (s slashOverlay) Close() slashOverlay {
+	s.OverlayShell = s.closeShell()
+	return s
+}
+
+// Update handles key input for the overlay.
+func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
+	if !s.open {
+		return s, nil
+	}
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return s, nil
+	}
+
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		return s.Close(), nil
+	case tea.KeyEnter:
+		// Selection will be handled by the parent
+		return s, nil
+	case tea.KeyUp:
+		if s.selection > 0 {
+			s.selection--
+		}
+		s.scrollIntoView()
+		return s, nil
+	case tea.KeyDown:
+		if s.selection < len(s.candidates)-1 {
+			s.selection++
+		}
+		s.scrollIntoView()
+		return s, nil
+	case tea.KeyBackspace:
+		if len(s.query) > 0 {
+			s.query = s.query[:len(s.query)-1]
+			s.filterCandidates()
+		}
+		return s, nil
+	case tea.KeyRunes:
+		s.query += keyMsg.String()
+		s.filterCandidates()
+		return s, nil
+	default:
+		return s, nil
+	}
+}
+
+// filterCandidates updates the list of candidates based on the current query.
+// Matches command, name, and desc fields.
+func (s *slashOverlay) filterCandidates() {
+	s.scrollOffset = 0
+	s.selection = 0
+
+	q := strings.ToLower(strings.TrimSpace(s.query))
+	if q == "" {
+		s.candidates = append([]slashOverlayItem(nil), s.allItems...)
+		return
+	}
+
+	s.candidates = nil
+	for _, item := range s.allItems {
+		if strings.Contains(strings.ToLower(item.command), q) ||
+			strings.Contains(strings.ToLower(item.name), q) ||
+			strings.Contains(strings.ToLower(item.desc), q) {
+			s.candidates = append(s.candidates, item)
+		}
+	}
+}
+
+// scrollIntoView adjusts the scroll offset to ensure the selection is visible.
+func (s *slashOverlay) scrollIntoView() {
+	if s.selection >= s.scrollOffset+slashOverlayMaxDisplay {
+		s.scrollOffset = s.selection - slashOverlayMaxDisplay + 1
+	}
+	if s.selection < s.scrollOffset {
+		s.scrollOffset = s.selection
+	}
+	if s.scrollOffset < 0 {
+		s.scrollOffset = 0
+	}
+}
+
+// SelectedItem returns the currently selected item, or nil if none.
+func (s slashOverlay) SelectedItem() *slashOverlayItem {
+	if s.selection >= 0 && s.selection < len(s.candidates) {
+		return &s.candidates[s.selection]
+	}
+	return nil
+}
+
+// View renders the overlay.
+func (s slashOverlay) View() string {
+	if !s.open {
+		return ""
+	}
+
+	innerWidth := s.InnerWidth()
+
+	// Header showing the slash prefix and query
+	prefix := s.styles.Accent.Render("/")
+	queryDisplay := s.query
+	if queryDisplay == "" {
+		queryDisplay = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.FgMute)).
+			Render("commands & skills…")
+	}
+	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
+	divider := s.Divider()
+
+	lines := []string{headerLine, divider}
+
+	// Render candidate items
+	for i := s.scrollOffset; i < min(s.scrollOffset+slashOverlayMaxDisplay, len(s.candidates)); i++ {
+		item := s.candidates[i]
+		var row string
+
+		// Format: "/command  name | desc [source]"
+		cmdStyle := s.styles.Accent
+		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute))
+		sourceStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.FgFaint)).
+			Italic(true)
+
+		// Build the row
+		parts := []string{cmdStyle.Render(item.command)}
+		if item.name != "" {
+			parts = append(parts, nameStyle.Render(item.name))
+		}
+		if item.desc != "" {
+			parts = append(parts, "|", descStyle.Render(item.desc))
+		}
+		if item.source != "" {
+			parts = append(parts, sourceStyle.Render("["+item.source+"]"))
+		}
+
+		row = strings.Join(parts, "  ")
+
+		if i == s.selection {
+			lines = append(lines, s.styles.AccentBg.MaxWidth(innerWidth).Render(row))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().MaxWidth(innerWidth).Render(row))
+		}
+	}
+
+	if len(s.candidates) > s.scrollOffset+slashOverlayMaxDisplay {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.FgMute)).
+			Render(fmt.Sprintf("... and %d more", len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay))))
+	}
+
+	// Footer help text
+	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
+	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
+
+	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return theme.WithBg(s.Render(overlayStyles{box: s.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
+}

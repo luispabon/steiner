@@ -41,6 +41,7 @@ type Config struct {
 	WorkingDir                    string
 	MaxTurns                      int
 	SkillNames                    []string
+	SkillSources                  map[string]string // skill name -> "project"/"user"/"global"
 	Theme                         string
 	AccentPreset                  string
 	ShowThinking                  bool

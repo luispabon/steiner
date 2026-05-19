@@ -145,6 +145,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker.width = m.width
 	m.sessionPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
+
+	m.slashOverlay = newSlashOverlay(m.styles)
+	m.slashOverlay.width = m.width
+	m.slashOverlay.height = m.height
 }
 
 func buildDefaultPaletteItems() []paletteItem {

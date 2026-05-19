@@ -120,6 +120,9 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
 	offset := m.inputChromeHeight(contentWidth) + m.activityRowHeight(contentWidth)
+	if m.slashOverlay.open {
+		base = m.slashOverlay.PlaceBottomAnchored(base, m.slashOverlay.View(), offset)
+	}
 	if m.filePicker.open {
 		base = m.filePicker.PlaceBottomAnchored(base, m.filePicker.View(), offset)
 	}

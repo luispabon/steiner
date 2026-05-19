@@ -21,9 +21,15 @@ type inputAction struct {
 	setAccent            string
 	toggleThinking       bool
 	requestSessionPicker bool
+	invokeSkill          string // skill name for direct invocation
+	invokeSkillArgs      string // optional args to pass with skill invocation
 }
 
 func parseInput(value string, enabledSkills map[string]bool) inputAction {
+	return parseInputWithSkills(value, enabledSkills, nil)
+}
+
+func parseInputWithSkills(value string, enabledSkills map[string]bool, skillNames []string) inputAction {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return inputAction{}
@@ -57,6 +63,17 @@ func parseInput(value string, enabledSkills map[string]bool) inputAction {
 
 	if action, ok := parseArgumentCommand(trimmed, enabledSkills); ok {
 		return action
+	}
+
+	// Check if this is a direct skill invocation (/skillname or /skillname args)
+	for _, skillName := range skillNames {
+		if strings.HasPrefix(trimmed, "/"+skillName) {
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "/"+skillName))
+			return inputAction{
+				invokeSkill:     skillName,
+				invokeSkillArgs: rest,
+			}
+		}
 	}
 
 	return inputAction{submit: trimmed}
