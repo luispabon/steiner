@@ -1,0 +1,266 @@
+stages:
+  - id: stage-1
+    objective: Multi-root skill discovery — extend Loader to scan multiple directories with precedence-based deduplication
+    parallel: false
+    steps:
+      - id: stage-1-step-1
+        objective: |
+          Refactor internal/skill/Loader to accept multiple root directories and discover skills across all of them
+          with precedence-based deduplication (first root wins on name conflict).
+
+          Current Loader has a single RootDir string field. Change to RootDirs []string.
+          Discover() scans each root in order, collecting skills. If a skill name was already seen
+          from a higher-precedence root, skip it. Return merged, deduplicated, sorted list.
+
+          Load() and LoadMany() need to search across roots (find first root containing the skill).
+
+          Update loader_test.go with table-driven tests covering:
+          - Single root (backward compat)
+          - Multiple roots with no overlap
+          - Multiple roots with name conflict (precedence)
+          - Empty roots, missing directories
+          - Mixed: some roots exist, some don't
+        scope: internal/skill/loader.go and internal/skill/loader_test.go only
+        files:
+          - internal/skill/loader.go
+          - internal/skill/loader_test.go
+        constraints:
+          - Keep Skill struct unchanged
+          - Keep validateSkillName unchanged
+          - Discover must remain context-aware
+          - Do not break the existing Loader API pattern — callers construct Loader with fields, call methods
+        depends_on: []
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Loader struct with RootDirs []string
+          - Discover returns precedence-merged skills
+          - Load/LoadMany search across roots
+        acceptance:
+          - go test ./internal/skill/... passes
+          - Tests cover single-root, multi-root, precedence, missing dirs
+          - No changes outside internal/skill/
+        handoff: |
+          Refactor internal/skill/Loader from single RootDir string to RootDirs []string.
+          Discover() scans roots in order, deduplicates by name (first root wins).
+          Load() searches roots in order for the named skill.
+          Update all tests. Keep Skill struct and validateSkillName unchanged.
+        verification:
+          - go test ./internal/skill/...
+
+  - id: stage-2
+    objective: Wire multi-root discovery into prompt assembly and CLI startup
+    parallel: false
+    steps:
+      - id: stage-2-step-1
+        objective: |
+          Update prompt package and CLI wiring to use multi-root skill discovery.
+
+          1. internal/prompt/skills.go:
+             - Replace DefaultSkillsRoot(homeDir string) string with SkillRoots(homeDir, projectRoot string) []string
+             - Returns [projectRoot/.steiner/skills, homeDir/.config/steiner/skills, homeDir/.agents/skills]
+               (only non-empty paths included)
+             - Update loadSkillBlocks to accept a multi-root Loader (already takes skill.Loader which now has RootDirs)
+
+          2. internal/prompt/types.go:
+             - Change AssemblyOptions.SkillsRoot string to SkillsRoots []string
+
+          3. internal/prompt/assemble.go (or wherever assembly uses SkillsRoot):
+             - Update to construct skill.Loader{RootDirs: opts.SkillsRoots} instead of {RootDir: opts.SkillsRoot}
+
+          4. cmd/steiner/runtime_build.go:
+             - Update discoverRuntimeSkills to use prompt.SkillRoots and skill.Loader{RootDirs: roots}
+
+          5. Update prompt assembly tests (assemble_test.go) to use SkillsRoots []string
+
+          6. Grep for any other references to SkillsRoot or DefaultSkillsRoot and update them.
+        scope: Wiring changes across prompt, cmd/steiner packages
+        files:
+          - internal/prompt/skills.go
+          - internal/prompt/types.go
+          - internal/prompt/assemble*.go
+          - internal/prompt/assemble_test.go
+          - cmd/steiner/runtime_build.go
+          - cmd/steiner/runner_run.go
+          - cmd/steiner/runner.go
+        constraints:
+          - Do not change skill injection behavior — skills still become ContextSourceSkill user-role messages
+          - Do not change the interactive session or TUI yet
+          - Ensure backward compat — if only ~/.config/steiner/skills exists, behavior is identical to before
+        depends_on:
+          - stage-1-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - SkillRoots() returns ordered list of skill directories
+          - AssemblyOptions uses SkillsRoots []string
+          - CLI startup discovers skills from all three roots
+        acceptance:
+          - go test ./internal/prompt/... passes
+          - go build ./... compiles
+          - Existing skill tests still pass with updated field names
+        handoff: |
+          Replace DefaultSkillsRoot with SkillRoots(homeDir, projectRoot) returning three paths.
+          Change AssemblyOptions.SkillsRoot to SkillsRoots []string.
+          Update all construction sites: prompt assembly, CLI wiring, tests.
+          Grep for all references to SkillsRoot/DefaultSkillsRoot to ensure none are missed.
+        verification:
+          - go test ./internal/prompt/...
+          - go build ./...
+
+  - id: stage-3
+    objective: Slash-command overlay and /skillname invocation in TUI
+    parallel: false
+    steps:
+      - id: stage-3-step-1
+        objective: |
+          Build a new slash-command overlay that appears when the user types "/" and
+          implement /skillname direct invocation.
+
+          1. New file: internal/tui/slash_overlay.go
+             - slashOverlay struct embedding OverlayShell
+             - Holds all candidate items: built-in commands + available skills
+             - Each item has: command string, name string, desc string, source string (for skills: "project"/"user"/"global")
+             - Filter by typed prefix (fuzzy or prefix match on command/name/desc)
+             - Render: bottom-anchored overlay using OverlayShell pattern
+             - Arrow keys navigate, Enter selects, Esc dismisses, typing filters
+             - Show skill source indicator (project/user/global) for skill items
+             - Show section headers or visual separation between built-in commands and skills
+
+          2. Update internal/tui/model.go:
+             - Add slashOverlay field to Model struct
+             - Model needs to know available skill names AND which root they came from (for source indicator)
+             - Add SkillSources map[string]string to tui.Config (name -> "project"/"user"/"global")
+
+          3. Update internal/tui/model_init.go:
+             - Initialize slashOverlay in initializeOverlays
+             - Build overlay items from built-in commands + skillNames
+
+          4. Update internal/tui/model_update_keys.go:
+             - Add slashOverlay to handleOverlayKeyMsg
+             - When "/" is typed in the composer (handleComposerKeyMsg), open the slash overlay
+
+          5. Update internal/tui/model_input.go:
+             - When slash overlay selects a skill: enable it via SetSkillEnabled and optionally submit args
+             - When slash overlay selects a built-in command: execute it (reuse existing parseInput logic)
+
+          6. Update internal/tui/input.go:
+             - parseInput should recognize /skillname as a skill invocation when the name matches a known skill
+             - Add invokeSkill and invokeSkillArgs fields to inputAction
+             - Keep /skill -name for deactivation
+
+          7. New file: internal/tui/slash_overlay_test.go
+             - Test overlay filtering, selection, source indicators
+             - Test /skillname parsing in input.go
+
+          8. Update internal/tui/input_test.go:
+             - Add test cases for /skillname invocation
+             - Add test cases for /skillname with args
+
+          9. Remove tab-cycling completion for / prefix (buildCompletionCandidates still used for non-/ if needed,
+             but handleTabKey should delegate to slash overlay when input starts with /)
+
+          10. Update help.go to mention the slash overlay and /skillname invocation
+        scope: TUI overlay, input parsing, key handling
+        files:
+          - internal/tui/slash_overlay.go
+          - internal/tui/slash_overlay_test.go
+          - internal/tui/model.go
+          - internal/tui/model_init.go
+          - internal/tui/model_update_keys.go
+          - internal/tui/model_input.go
+          - internal/tui/input.go
+          - internal/tui/input_test.go
+          - internal/tui/help.go
+          - internal/tui/app.go
+        constraints:
+          - Follow existing overlay patterns (OverlayShell, bottom-anchored placement)
+          - Keep overlay.go and OverlayShell unchanged
+          - Keep file under ~300 lines; split if needed
+          - Slash overlay must not interfere with other overlays (file picker, palette, etc.)
+          - Use existing theme styles; do not add new theme constants unless necessary
+          - /skill -name must still work for deactivation
+        depends_on:
+          - stage-2-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Slash overlay appears on / keypress
+          - /skillname enables skill and optionally submits args
+          - Built-in commands work through overlay
+          - Skill source indicator visible
+        acceptance:
+          - go test ./internal/tui/... passes
+          - Overlay renders correctly (manual TUI test)
+          - /skillname activates skill
+          - /skillname args activates skill and submits args as user message
+          - /skill -name still deactivates
+          - Built-in /commands still work
+          - Esc dismisses overlay
+          - Tab no longer cycles / completions (overlay handles it)
+        handoff: |
+          Build slash_overlay.go as a new bottom-anchored overlay using OverlayShell.
+          Items: built-in commands + available skills with source indicators.
+          Wire into model_update_keys.go overlay handling.
+          Trigger on "/" typed in composer. Filter as user types.
+          On skill selection: enable via SetSkillEnabled, submit args if present.
+          On command selection: execute via existing parseInput/handleEnter logic.
+          Update input.go to recognize /skillname (check against known skill names).
+          Add invokeSkill/invokeSkillArgs to inputAction.
+          Remove tab-cycling for / prefix. Update help text. Write tests.
+        verification:
+          - go test ./internal/tui/...
+
+      - id: stage-3-step-2
+        objective: |
+          Wire skill sources (project/user/global indicators) from CLI startup through
+          to the TUI config, and pass project root to SkillRoots.
+
+          1. cmd/steiner/runtime_build.go:
+             - discoverRuntimeSkills should also return a map[string]string of skill name -> source
+             - Source is derived from which root the skill was found in
+
+          2. internal/skill/loader.go:
+             - Add a DiscoverWithSources method (or extend Discover to return source info)
+             - Each discovered Skill gets a Source field ("project", "user", "global") based on root index
+
+          3. cmd/steiner/interactive_session.go:
+             - Pass SkillSources to tui.Config
+
+          4. Update cliRuntime struct if needed to carry skillSources
+
+          5. Tests for source tracking in loader_test.go
+        scope: Wiring skill source metadata from discovery to TUI
+        files:
+          - internal/skill/loader.go
+          - internal/skill/loader_test.go
+          - cmd/steiner/runtime_build.go
+          - cmd/steiner/interactive_session.go
+          - cmd/steiner/runtime.go
+        constraints:
+          - Source labels must be stable strings usable in TUI rendering
+          - Do not change the core Discover/Load API signature if avoidable — add Source field to Skill struct
+        depends_on:
+          - stage-3-step-1
+        parallel_group: null
+        can_run_in_parallel: false
+        suggested_model: cheap-good
+        outputs:
+          - Skill struct has Source field
+          - TUI receives skill source metadata
+          - Overlay shows source indicators
+        acceptance:
+          - go test ./internal/skill/... passes
+          - go build ./... compiles
+          - Source field populated correctly based on root precedence
+        handoff: |
+          Add Source string field to skill.Skill struct. Populate during Discover based on
+          which root directory the skill came from. Map root index to label:
+          index 0 = "project", index 1 = "user", index 2 = "global" (based on RootDirs order).
+          Wire through cliRuntime and tui.Config.SkillSources so the slash overlay can display it.
+        verification:
+          - go test ./internal/skill/...
+          - go build ./...
