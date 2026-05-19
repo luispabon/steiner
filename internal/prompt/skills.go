@@ -7,12 +7,19 @@ import (
 	"github.com/luispabon/steiner/internal/skill"
 )
 
-// DefaultSkillsRoot returns the default skill installation directory.
-func DefaultSkillsRoot(homeDir string) string {
-	if homeDir == "" {
-		return ""
+// SkillRoots returns the skill discovery directories in search order.
+// Returns [projectRoot+"/.steiner/skills", homeDir+"/.config/steiner/skills", homeDir+"/.agents/skills"].
+// Only non-empty paths are included. projectRoot can be empty (skipped if so).
+func SkillRoots(homeDir, projectRoot string) []string {
+	var roots []string
+	if projectRoot != "" {
+		roots = append(roots, filepath.Join(projectRoot, ".steiner", "skills"))
 	}
-	return filepath.Join(homeDir, ".config", "steiner", "skills")
+	if homeDir != "" {
+		roots = append(roots, filepath.Join(homeDir, ".config", "steiner", "skills"))
+		roots = append(roots, filepath.Join(homeDir, ".agents", "skills"))
+	}
+	return roots
 }
 
 func loadSkillBlocks(ctx context.Context, loader skill.Loader, names []string) ([]ContextBlock, error) {

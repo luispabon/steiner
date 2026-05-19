@@ -77,7 +77,7 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
 		HomeDir:     homeDir,
 		ProjectRoot: projectRoot,
-		SkillsRoot:  skillsRoot,
+		SkillsRoots: []string{skillsRoot},
 		SkillNames:  []string{"codex"},
 		ContextState: DurableContextState{
 			RetainedSummaries: []DurableSummaryEntry{

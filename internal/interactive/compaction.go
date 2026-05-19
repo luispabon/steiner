@@ -55,7 +55,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	assembly := prompt.AssemblyOptions{
 		HomeDir:         s.deps.HomeDir,
 		ProjectRoot:     s.deps.WorkDir,
-		SkillsRoot:      prompt.DefaultSkillsRoot(s.deps.HomeDir),
+		SkillsRoots:     prompt.SkillRoots(s.deps.HomeDir, s.deps.WorkDir),
 		ModelBudget:     modelBudget,
 		PromptOverrides: rm.Prompts,
 	}
