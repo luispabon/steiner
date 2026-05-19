@@ -18,7 +18,7 @@
 |------|--------|-------|-------|
 | stage-1-step-1 | implemented | haiku | Multi-root Loader |
 | stage-2-step-1 | implemented | haiku | Wire prompt/CLI |
-| stage-3-step-1 | pending | haiku | Slash overlay TUI |
+| stage-3-step-1 | implemented | haiku | Slash overlay TUI |
 | stage-3-step-2 | pending | haiku | Source metadata |
 
 ## Execution Log
@@ -35,6 +35,14 @@
 - Temp branch: step/stage-1-step-1 (worktree: /tmp/claude/steiner-s1s1)
 - Commit: e0a4f66 "refactor: make Loader.RootDir multi-root with precedence discovery"
 - Changes: internal/skill/loader.go, internal/skill/loader_test.go (only)
+- Outcome: merged → cl/2026-05-19_skills_support, worktree + branch deleted
+- Status: **implemented**
+
+### stage-3-step-1 — Slash overlay TUI
+- Sub-agent: haiku (cheaper than sonnet)
+- Temp branch: step/stage-3-step-1 (worktree: /tmp/claude/steiner-s3s1)
+- Commit: 07200e2 "feat: implement slash command overlay for direct skill invocation"
+- Changes: slash_overlay.go (new), slash_overlay_test.go (new), model.go, model_init.go, model_update_keys.go, model_input.go, model_view.go, input.go, input_test.go, app.go, help.go
 - Outcome: merged → cl/2026-05-19_skills_support, worktree + branch deleted
 - Status: **implemented**
 
