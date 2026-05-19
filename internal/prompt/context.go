@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,11 @@ func gatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 
 	candidates := append([]string(nil), opts.ExtraFiles...)
 
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project root: %w", err)
+	}
+
 	for _, candidate := range candidates {
 		if remaining <= 0 {
 			break
@@ -50,7 +56,15 @@ func gatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 			continue
 		}
 
-		path := filepath.Join(root, relative)
+		path := filepath.Join(rootAbs, relative)
+		relToRoot, err := filepath.Rel(rootAbs, path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve project context path %s: %w", candidate, err)
+		}
+		if relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("project context path %q escapes project root", candidate)
+		}
+
 		info, err := os.Stat(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -62,9 +76,17 @@ func gatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(path)
+		f, err := os.Open(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(f, int64(remaining+1)))
+		closeErr := f.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read %s: %w", path, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close %s: %w", path, closeErr)
 		}
 		if len(data) == 0 {
 			blocks = append(blocks, ContextBlock{
