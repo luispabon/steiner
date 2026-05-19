@@ -506,6 +506,25 @@ func TestLoaderDiscoverExtractsSummary(t *testing.T) {
 	}
 }
 
+func TestLoaderDiscoverExtractsSummaryAfterFrontmatter(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "alpha", "---\nname: alpha\ndescription: Review changes for bugs and regressions.\n---\n\nReview changes for bugs and regressions.\n\nMore text.")
+
+	loader := Loader{RootDirs: []string{root}}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d, want 1", len(discovered))
+	}
+	if discovered[0].Summary != "Review changes for bugs and regressions." {
+		t.Fatalf("discovered[0].Summary = %q, want extracted description line", discovered[0].Summary)
+	}
+}
+
 func TestLoaderDiscoverSourceMoreThanThreeRoots(t *testing.T) {
 	t.Parallel()
 

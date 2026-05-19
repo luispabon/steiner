@@ -119,6 +119,26 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 		}
 	})
 
+	t.Run("prefix match does not invoke different skill", func(t *testing.T) {
+		action := parseInputWithSkills("/mykill-extra", nil, []string{"mykill"})
+		if action.invokeSkill != "" {
+			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
+		}
+		if action.submit != "/mykill-extra" {
+			t.Fatalf("submit = %q, want /mykill-extra", action.submit)
+		}
+	})
+
+	t.Run("similar skill names resolve exactly", func(t *testing.T) {
+		action := parseInputWithSkills("/reviewer arg", nil, []string{"review", "reviewer"})
+		if action.invokeSkill != "reviewer" {
+			t.Fatalf("invokeSkill = %q, want reviewer", action.invokeSkill)
+		}
+		if action.invokeSkillArgs != "arg" {
+			t.Fatalf("invokeSkillArgs = %q, want arg", action.invokeSkillArgs)
+		}
+	})
+
 	t.Run("slash-skill still works", func(t *testing.T) {
 		action := parseInputWithSkills("/skill mykill", nil, []string{"mykill"})
 		if action.toggleSkill != "mykill" {

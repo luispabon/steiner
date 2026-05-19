@@ -85,8 +85,12 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 // parseSkillInvocation checks if the input is a direct skill invocation.
 func parseSkillInvocation(trimmed string, skillNames []string) (inputAction, bool) {
 	for _, skillName := range skillNames {
-		if strings.HasPrefix(trimmed, "/"+skillName) {
-			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "/"+skillName))
+		command := "/" + skillName
+		switch {
+		case trimmed == command:
+			return inputAction{invokeSkill: skillName}, true
+		case strings.HasPrefix(trimmed, command+" "):
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, command))
 			return inputAction{
 				invokeSkill:     skillName,
 				invokeSkillArgs: rest,

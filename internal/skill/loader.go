@@ -204,8 +204,12 @@ func discoverSummary(path string) (string, error) {
 		return "", err
 	}
 	content := string(data)
+	lines := strings.Split(content, "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		lines = skipFrontmatter(lines[1:])
+	}
 	inCodeFence := false
-	for _, raw := range strings.Split(content, "\n") {
+	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -227,4 +231,13 @@ func discoverSummary(path string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func skipFrontmatter(lines []string) []string {
+	for i, raw := range lines {
+		if strings.TrimSpace(raw) == "---" {
+			return lines[i+1:]
+		}
+	}
+	return lines
 }
