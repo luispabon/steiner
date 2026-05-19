@@ -11,8 +11,10 @@ import (
 )
 
 // Loader discovers and loads skill documents from disk.
+// RootDirs defines the precedence order for skill discovery:
+// earlier entries have higher priority when a skill name appears in multiple roots.
 type Loader struct {
-	RootDir string
+	RootDirs []string
 }
 
 // Skill describes a discovered skill document on disk.
@@ -23,41 +25,57 @@ type Skill struct {
 	ByteSize int
 }
 
-// Discover lists skills available under the configured root directory.
+// Discover lists skills available under the configured root directories.
+// Skills are scanned in RootDirs precedence order; if a skill name appears
+// in multiple roots, only the first occurrence is returned.
+// Results are returned sorted by name.
 func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	root := strings.TrimSpace(l.RootDir)
-	if root == "" {
-		return nil, nil
-	}
 
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read skills root %s: %w", root, err)
-	}
+	seen := make(map[string]bool)
+	var skills []Skill
 
-	skills := make([]Skill, 0, len(entries))
-	for _, entry := range entries {
+	for _, root := range l.RootDirs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !entry.IsDir() {
+
+		root := strings.TrimSpace(root)
+		if root == "" {
 			continue
 		}
-		name := entry.Name()
-		path := filepath.Join(root, name, "SKILL.md")
-		if _, err := os.Stat(path); err != nil {
+
+		entries, err := os.ReadDir(root)
+		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return nil, fmt.Errorf("stat skill %s: %w", path, err)
+			return nil, fmt.Errorf("read skills root %s: %w", root, err)
 		}
-		skills = append(skills, Skill{Name: name, Path: path})
+
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if seen[name] {
+				continue
+			}
+			path := filepath.Join(root, name, "SKILL.md")
+			if _, err := os.Stat(path); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, fmt.Errorf("stat skill %s: %w", path, err)
+			}
+			skills = append(skills, Skill{Name: name, Path: path})
+			seen[name] = true
+		}
 	}
 
 	sort.SliceStable(skills, func(i, j int) bool {
@@ -68,36 +86,47 @@ func (l Loader) Discover(ctx context.Context) ([]Skill, error) {
 }
 
 // Load reads a single skill document by name.
+// Searches RootDirs in order and returns the first match found.
 func (l Loader) Load(ctx context.Context, name string) (Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return Skill{}, err
-	}
-	root := strings.TrimSpace(l.RootDir)
-	if root == "" {
-		return Skill{}, fmt.Errorf("skills root is required")
 	}
 	if err := validateSkillName(name); err != nil {
 		return Skill{}, err
 	}
 
-	path := filepath.Join(root, name, "SKILL.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return Skill{}, fmt.Errorf("skill %q not found under %s", name, root)
+	for _, root := range l.RootDirs {
+		if err := ctx.Err(); err != nil {
+			return Skill{}, err
 		}
-		return Skill{}, fmt.Errorf("load skill %s: %w", path, err)
+
+		root := strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+
+		path := filepath.Join(root, name, "SKILL.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return Skill{}, fmt.Errorf("load skill %s: %w", path, err)
+		}
+
+		return Skill{
+			Name:     name,
+			Path:     path,
+			Content:  string(data),
+			ByteSize: len(data),
+		}, nil
 	}
 
-	return Skill{
-		Name:     name,
-		Path:     path,
-		Content:  string(data),
-		ByteSize: len(data),
-	}, nil
+	return Skill{}, fmt.Errorf("skill %q not found in any root", name)
 }
 
 // LoadMany reads multiple skill documents by name.
+// Searches RootDirs in order for each name and returns the first match.
 func (l Loader) LoadMany(ctx context.Context, names []string) ([]Skill, error) {
 	skills := make([]Skill, 0, len(names))
 	for _, name := range names {
