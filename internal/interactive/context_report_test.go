@@ -1,4 +1,4 @@
-package output
+package interactive
 
 import (
 	"context"

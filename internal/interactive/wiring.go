@@ -17,7 +17,7 @@ type snapshotSink struct {
 
 func (s *snapshotSink) Emit(event output.Event) {
 	if payload, ok := event.Payload.(output.APIRequestEvent); ok {
-		s.store.Store(output.RequestContextSnapshot(payload))
+		s.store.Store(RequestContextSnapshot(payload))
 	}
 }
 

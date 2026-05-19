@@ -1,4 +1,4 @@
-package output
+package interactive
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -178,7 +179,7 @@ func messageMatchKey(message provider.Message) string {
 }
 
 func previewText(text string) string {
-	return TruncateWithEllipsis(text, 48)
+	return output.TruncateWithEllipsis(text, 48)
 }
 
 func blockPathLabel(path, fallback string) string {

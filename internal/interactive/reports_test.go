@@ -52,7 +52,7 @@ func TestRequestContextReportWithSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession failed: %v", err)
 	}
-	s.snapshots.Store(output.RequestContextSnapshot{
+	s.snapshots.Store(RequestContextSnapshot{
 		Model: "test-model",
 	})
 
@@ -117,7 +117,7 @@ func TestRequestContextReportBuildError(t *testing.T) {
 		t.Fatalf("NewSession failed: %v", err)
 	}
 
-	s.snapshots.Store(output.RequestContextSnapshot{
+	s.snapshots.Store(RequestContextSnapshot{
 		Model: "test-model",
 		Messages: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: "hello"},

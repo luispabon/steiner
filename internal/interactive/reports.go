@@ -13,7 +13,7 @@ import (
 
 func (s *Session) emitContextReport(ctx context.Context) {
 	if snapshot, ok := s.snapshots.Snapshot(); ok {
-		report, err := output.BuildContextReport(ctx, snapshot)
+		report, err := BuildContextReport(ctx, snapshot)
 		if err != nil {
 			s.events.Emit(output.NewContextReportEvent("Context report unavailable.\n\n" + err.Error()))
 			return
