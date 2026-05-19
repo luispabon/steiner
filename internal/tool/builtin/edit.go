@@ -36,6 +36,10 @@ func NewEditTool(env Env) tool.ToolDef {
 			if err != nil {
 				return nil, fmt.Errorf("edit: %w", err)
 			}
+			info, err := os.Stat(absPath)
+			if err != nil {
+				return nil, fmt.Errorf("edit: stat %q: %w", in.Path, err)
+			}
 
 			if isBinary(content) {
 				return &MutationResult{
@@ -75,7 +79,11 @@ func NewEditTool(env Env) tool.ToolDef {
 				replaced = bytes.Replace(content, oldBytes, newBytes, 1)
 			}
 
-			if err := os.WriteFile(absPath, replaced, 0o644); err != nil {
+			mode := info.Mode().Perm()
+			if mode == 0 {
+				mode = 0o644
+			}
+			if err := os.WriteFile(absPath, replaced, mode); err != nil {
 				return nil, fmt.Errorf("edit: write %q: %w", in.Path, err)
 			}
 
