@@ -1671,30 +1671,3 @@ func TestSummaryUsesChildContext(t *testing.T) {
 		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
 	}
 }
-
-type contextCheckRunner struct {
-	inner         *presetRunner
-	summaryCtxErr error
-}
-
-func (r *contextCheckRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
-	r.inner.reqs = append(r.inner.reqs, req)
-	i := r.inner.calls
-	r.inner.calls++
-
-	if i > 0 {
-		r.summaryCtxErr = ctx.Err()
-	}
-
-	var st agent.RunState
-	if i < len(r.inner.states) {
-		st = r.inner.states[i]
-	} else if len(r.inner.states) > 0 {
-		st = r.inner.states[len(r.inner.states)-1]
-	}
-	var err error
-	if i < len(r.inner.errors) {
-		err = r.inner.errors[i]
-	}
-	return st, err
-}
