@@ -29,7 +29,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := newModelInput()
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
 	for _, name := range cfg.SkillNames {
-		enabledSkills[name] = true
+		enabledSkills[name] = false
 	}
 
 	accentHex := theme.AccentPresets[cfg.AccentPreset]

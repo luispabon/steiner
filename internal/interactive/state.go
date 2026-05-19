@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -57,11 +56,11 @@ type Skills struct {
 }
 
 // NewSkills creates a Skills tracker with the given skill names, all initially
-// enabled in the order provided.
+// disabled in the order provided.
 func NewSkills(skillNames []string) *Skills {
 	enabled := make(map[string]bool, len(skillNames))
 	for _, name := range skillNames {
-		enabled[name] = true
+		enabled[name] = false
 	}
 	return &Skills{
 		enabled: enabled,
@@ -103,17 +102,17 @@ func (s *Skills) Snapshot() []string {
 // context snapshot during an interactive session.
 type SnapshotStore struct {
 	mu       sync.RWMutex
-	snapshot *output.RequestContextSnapshot
+	snapshot *RequestContextSnapshot
 }
 
 // Store saves a deep copy of the given snapshot.
-func (s *SnapshotStore) Store(snapshot output.RequestContextSnapshot) {
+func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cloned := output.RequestContextSnapshot{
+	cloned := RequestContextSnapshot{
 		Model:       snapshot.Model,
 		Messages:    append([]provider.Message(nil), snapshot.Messages...),
 		Tools:       append([]provider.ToolSpec(nil), snapshot.Tools...),
@@ -126,16 +125,16 @@ func (s *SnapshotStore) Store(snapshot output.RequestContextSnapshot) {
 
 // Snapshot returns the stored snapshot if one exists, with a boolean
 // indicating whether data was available.
-func (s *SnapshotStore) Snapshot() (output.RequestContextSnapshot, bool) {
+func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 	if s == nil {
-		return output.RequestContextSnapshot{}, false
+		return RequestContextSnapshot{}, false
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.snapshot == nil {
-		return output.RequestContextSnapshot{}, false
+		return RequestContextSnapshot{}, false
 	}
-	cloned := output.RequestContextSnapshot{
+	cloned := RequestContextSnapshot{
 		Model:       s.snapshot.Model,
 		Messages:    append([]provider.Message(nil), s.snapshot.Messages...),
 		Tools:       append([]provider.ToolSpec(nil), s.snapshot.Tools...),

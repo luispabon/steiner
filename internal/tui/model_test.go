@@ -231,8 +231,8 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	if !m.enabledSkills["review"] {
-		t.Fatal("expected configured skills to start enabled")
+	if m.enabledSkills["review"] {
+		t.Fatal("expected configured skills to start disabled")
 	}
 
 	m.input.SetValue("fix the bug")
@@ -243,17 +243,17 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 
 	m.input.SetValue("/skill review")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.enabledSkills["review"] {
-		t.Fatal("expected review skill to be disabled")
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be enabled")
 	}
 	if ctrl.countSetSkillEnabled() != 1 {
 		t.Fatalf("skill toggle count = %d, want 1", ctrl.countSetSkillEnabled())
 	}
 
-	m.input.SetValue("/skill +review")
+	m.input.SetValue("/skill -review")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.enabledSkills["review"] {
-		t.Fatal("expected review skill to be enabled")
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be disabled")
 	}
 }
 

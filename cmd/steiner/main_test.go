@@ -1053,10 +1053,11 @@ func testRuntimeConfig(alias string) config.Config {
 
 func TestInteractiveSkillsSnapshotTracksEnabledSubset(t *testing.T) {
 	skills := interactive.NewSkills([]string{"review", "debug", "test"})
-	if got, want := skills.Snapshot(), []string{"review", "debug", "test"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("initial Snapshot() = %v, want %v", got, want)
+	if got := skills.Snapshot(); len(got) != 0 {
+		t.Fatalf("initial Snapshot() = %v, want none enabled", got)
 	}
 
+	skills.Set("review", true)
 	skills.Set("debug", false)
 	skills.Set("test", false)
 	if got, want := skills.Snapshot(), []string{"review"}; !reflect.DeepEqual(got, want) {
@@ -1228,7 +1229,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		if !ok {
 			return
 		}
-		store.Store(output.RequestContextSnapshot(payload))
+		store.Store(interactive.RequestContextSnapshot(payload))
 	})
 
 	providerStub := &fakeProvider{

@@ -82,8 +82,8 @@ func TestNewSessionWithSkillNames(t *testing.T) {
 		t.Fatal("NewSession returned nil session")
 	}
 	names := s.Skills().Snapshot()
-	if got, want := len(names), 2; got != want {
-		t.Fatalf("skill count = %d, want %d", got, want)
+	if got := len(names); got != 0 {
+		t.Fatalf("initial enabled skill count = %d, want 0", got)
 	}
 }
 
@@ -124,9 +124,11 @@ func TestActiveRunControllerClear(t *testing.T) {
 func TestSkillsSnapshot(t *testing.T) {
 	t.Parallel()
 	skills := NewSkills([]string{"a", "b", "c"})
-	if got, want := len(skills.Snapshot()), 3; got != want {
-		t.Fatalf("initial snapshot length = %d, want %d", got, want)
+	if got := len(skills.Snapshot()); got != 0 {
+		t.Fatalf("initial snapshot length = %d, want 0", got)
 	}
+	skills.Set("a", true)
+	skills.Set("c", true)
 	skills.Set("b", false)
 	skills.Set("d", true)
 	got := skills.Snapshot()
@@ -155,7 +157,7 @@ func TestSnapshotStoreStoreAndSnapshot(t *testing.T) {
 		t.Fatal("expected ok=false for empty store")
 	}
 
-	store.Store(output.RequestContextSnapshot{
+	store.Store(RequestContextSnapshot{
 		Model: "test-model",
 	})
 	snapshot, ok := store.Snapshot()
@@ -761,6 +763,13 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 		SkillNames: []string{"review", "test"},
 	})
 
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
+		t.Fatalf("Handle(SetSkillEnabled enable review) = %v, want nil", err)
+	}
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "test", Enabled: true}); err != nil {
+		t.Fatalf("Handle(SetSkillEnabled enable test) = %v, want nil", err)
+	}
+
 	snap := s.Skills().Snapshot()
 	if len(snap) != 2 {
 		t.Fatalf("initial skills = %v, want 2", snap)
@@ -774,6 +783,24 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	snap = s.Skills().Snapshot()
 	if len(snap) != 1 || snap[0] != "test" {
 		t.Fatalf("skills after disable = %v, want [test]", snap)
+	}
+}
+
+func TestSubmitPromptDoesNotPassSkillsUntilEnabled(t *testing.T) {
+	t.Parallel()
+	var gotSkillNames []string
+	s := testNewSession(t, Dependencies{
+		SkillNames: []string{"review"},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+			gotSkillNames = append([]string(nil), skillNames...)
+			return conversation, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hey")
+
+	if len(gotSkillNames) != 0 {
+		t.Fatalf("runner skill names = %v, want none", gotSkillNames)
 	}
 }
 
