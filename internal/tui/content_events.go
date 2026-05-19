@@ -113,6 +113,8 @@ type delegationDisplayState struct {
 	resultStatus   string
 	turnCount      int
 	tokenCount     int
+	promptTokens   int
+	contextWindow  int
 	contextFillPct float64 // last known context window occupancy %, 0 if unknown
 	// failure field
 	errMsg string

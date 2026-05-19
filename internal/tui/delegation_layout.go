@@ -17,6 +17,7 @@ const (
 	delegationRowPromptBody
 	delegationRowTranscript
 	delegationRowOutput
+	delegationRowSeparator
 	delegationRowStats
 	delegationRowBorderBottom
 	delegationRowHint
@@ -64,10 +65,11 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 		for _, line := range b.renderDelegationOutput(dd, headerWidth) {
 			rows = append(rows, delegationRow{kind: delegationRowOutput, text: line})
 		}
-		if dd.status == "complete" || dd.status == "partial" {
-			if row := b.renderDelegationStatsRow(dd); row != "" {
-				rows = append(rows, delegationRow{kind: delegationRowStats, text: row})
-			}
+		if row := b.renderDelegationStatsRow(dd); row != "" {
+			rows = append(rows,
+				delegationRow{kind: delegationRowSeparator, text: b.renderDelegationFooterSeparator(headerWidth)},
+				delegationRow{kind: delegationRowStats, text: row},
+			)
 		}
 	}
 	rows = append(rows,

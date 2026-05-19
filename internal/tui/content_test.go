@@ -2429,15 +2429,22 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(
+		output.NewContextTokenBudgetEvent("", 1, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
+		"agent-1",
+	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, "result"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	for _, want := range []string{"Turns: 5", "Tokens: 1234", "Duration:", "Status: complete"} {
+	for _, want := range []string{"Turns: 5", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1% (2.4k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}
+	}
+	if !strings.Contains(rendered, "────────────────") {
+		t.Errorf("expanded delegation render missing footer separator:\n%s", rendered)
 	}
 }
 
@@ -2461,7 +2468,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 	}
 }
 
-func TestDelegationStatsFooterShowsContextFill(t *testing.T) {
+func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2474,12 +2481,13 @@ func TestDelegationStatsFooterShowsContextFill(t *testing.T) {
 		output.NewContextTokenBudgetEvent("", 1, 80000, 200000, 42.5, 90.0, 0, 0, "", false),
 		"agent-1",
 	))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 3, 500, ""))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	if !strings.Contains(rendered, "Ctx: 43%") {
-		t.Errorf("expanded delegation render missing context fill %q:\n%s", "Ctx: 43%", rendered)
+	for _, want := range []string{"Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expanded active delegation render missing %q:\n%s", want, rendered)
+		}
 	}
 }
 

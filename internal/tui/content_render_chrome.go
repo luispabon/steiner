@@ -481,29 +481,69 @@ func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDispl
 	return false
 }
 
+func (b *contentBuffer) renderDelegationFooterSeparator(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return b.styles.FgDim.Render(strings.Repeat("─", width))
+}
+
 func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) string {
-	var parts []string
+	parts := make([]string, 0, 5)
 	if dd.turnCount > 0 {
 		parts = append(parts, fmt.Sprintf("Turns: %d", dd.turnCount))
 	}
 	if dd.tokenCount > 0 {
 		parts = append(parts, fmt.Sprintf("Tokens: %d", dd.tokenCount))
 	}
-	if dd.elapsed != "" {
-		parts = append(parts, "Duration: "+dd.elapsed)
+	duration := strings.TrimSpace(dd.elapsed)
+	if duration == "" && dd.status == "active" && dd.startTime > 0 {
+		duration = formatElapsed(dd.startTime, nanoNow())
+	}
+	if duration != "" {
+		parts = append(parts, "Duration: "+duration)
 	}
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
 		status = dd.status
 	}
 	if status != "" {
-		parts = append(parts, "Status: "+status)
+		parts = append(parts, b.renderDelegationStatsStatus(status))
 	}
 	if dd.contextFillPct > 0 {
-		parts = append(parts, fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct))))
+		ctx := fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct)))
+		if dd.promptTokens > 0 && dd.contextWindow > 0 {
+			ctx += fmt.Sprintf(" (%s / %s)", formatCompactCount(dd.promptTokens), formatCompactCount(dd.contextWindow))
+		}
+		parts = append(parts, ctx)
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return b.styles.FgDim.Render(strings.Join(parts, "    "))
+}
+
+func (b *contentBuffer) renderDelegationStatsStatus(status string) string {
+	label := "Status: "
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "complete":
+		return label + b.styles.SuccessStyle.Render(status)
+	case "failed", "error":
+		return label + b.styles.ErrorStyle.Render(status)
+	default:
+		return label + status
+	}
+}
+
+func formatCompactCount(value int) string {
+	switch {
+	case value >= 1_000_000:
+		return fmt.Sprintf("%.1fm", float64(value)/1_000_000)
+	case value >= 10_000:
+		return fmt.Sprintf("%dk", int(math.Round(float64(value)/1_000)))
+	case value >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(value)/1_000)
+	default:
+		return fmt.Sprintf("%d", value)
+	}
 }

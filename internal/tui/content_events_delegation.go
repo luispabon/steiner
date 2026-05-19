@@ -74,8 +74,18 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 	case output.EventTypeStopReason:
 		return b.applyDelegationStopReason(dd, event)
 	case output.EventTypeContextDiagnostics:
-		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok && payload.ContextUsagePercent > 0 {
-			dd.contextFillPct = payload.ContextUsagePercent
+		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok {
+			if payload.ContextUsagePercent > 0 {
+				dd.contextFillPct = payload.ContextUsagePercent
+			}
+			if payload.PromptTokens > 0 {
+				dd.promptTokens = payload.PromptTokens
+			}
+			if payload.ContextWindow > 0 {
+				dd.contextWindow = payload.ContextWindow
+			} else if payload.ContextTokens > 0 {
+				dd.contextWindow = payload.ContextTokens
+			}
 		}
 		return true
 	case output.EventTypeTurnStarted,
