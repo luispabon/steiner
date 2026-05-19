@@ -490,18 +490,21 @@ func (b *contentBuffer) renderDelegationFooterSeparator(width int) string {
 
 func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) string {
 	parts := make([]string, 0, 5)
+	if badge := renderModelBadge(b.styles, dd.modelName); badge != "" {
+		parts = append(parts, badge)
+	}
 	if dd.turnCount > 0 {
-		parts = append(parts, fmt.Sprintf("Turns: %d", dd.turnCount))
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Turns: %d", dd.turnCount)))
 	}
 	if dd.tokenCount > 0 {
-		parts = append(parts, fmt.Sprintf("Tokens: %d", dd.tokenCount))
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tokens: %d", dd.tokenCount)))
 	}
 	duration := strings.TrimSpace(dd.elapsed)
 	if duration == "" && dd.status == "active" && dd.startTime > 0 {
 		duration = formatElapsed(dd.startTime, nanoNow())
 	}
 	if duration != "" {
-		parts = append(parts, "Duration: "+duration)
+		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
 	}
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
@@ -515,16 +518,16 @@ func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) str
 		if dd.promptTokens > 0 && dd.contextWindow > 0 {
 			ctx += fmt.Sprintf(" (%s / %s)", formatCompactCount(dd.promptTokens), formatCompactCount(dd.contextWindow))
 		}
-		parts = append(parts, ctx)
+		parts = append(parts, b.styles.FgDim.Render(ctx))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return b.styles.FgDim.Render(strings.Join(parts, "    "))
+	return strings.Join(parts, "    ")
 }
 
 func (b *contentBuffer) renderDelegationStatsStatus(status string) string {
-	label := "Status: "
+	label := b.styles.FgDim.Render("Status: ")
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "complete":
 		return label + b.styles.SuccessStyle.Render(status)

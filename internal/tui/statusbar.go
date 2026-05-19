@@ -27,9 +27,7 @@ func (s statusState) view(width int) string {
 
 	// Segment 1: model (stable left)
 	if s.model != "" {
-		label := s.styles.FgMute.Render("model ")
-		val := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(s.model)
-		parts = append(parts, label+val)
+		parts = append(parts, renderModelBadge(s.styles, s.model))
 	}
 
 	// Segments 2-5: stable commands and navigation

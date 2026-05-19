@@ -58,10 +58,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.interruptPending = false
 		m.compacting = false
 		m.content.inCompaction = false
-		if payload.Model != "" {
-			m.status.model = payload.Model
-			m.sidebar.model = payload.Model
-		}
 		if payload.MaxTurns > 0 {
 			m.sidebar.maxTurns = payload.MaxTurns
 		}
@@ -76,10 +72,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
 		m.sidebar.currentTurn = payload.Turn
-		if payload.Model != "" {
-			m.status.model = payload.Model
-			m.sidebar.model = payload.Model
-		}
 		m.activity = m.activity.waiting("waiting on model", turnLabel(payload.Turn))
 	case output.ModelCallStartedEvent:
 		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))

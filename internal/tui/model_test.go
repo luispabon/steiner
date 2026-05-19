@@ -730,6 +730,38 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 	}
 }
 
+func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
+	m := newModel(Config{Model: "main-model"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+
+	statusLine := stripANSI(m.status.view(m.viewport.Width))
+	if !strings.Contains(statusLine, "model main-model") {
+		t.Fatalf("status line = %q, want primary model badge", statusLine)
+	}
+	if strings.Contains(statusLine, "other-runtime-model") {
+		t.Fatalf("status line = %q, want no runtime model override", statusLine)
+	}
+}
+
+func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
+	m := newModel(Config{
+		ModelNames: []string{"deepseek-v4-flash", "qwen3-coder-30b"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
+
+	m.input.SetValue("/model d")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got, want := m.input.Value(), "/model deepseek-v4-flash"; got != want {
+		t.Fatalf("input after tab = %q, want %q", got, want)
+	}
+	if got := len(m.completionCandidates); got == 0 {
+		t.Fatal("completionCandidates = 0, want cached candidates")
+	}
+}
+
 func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})

@@ -289,7 +289,19 @@ func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
-	// Slash input is handled by the overlay, not tab completion
+	candidates := m.completionCandidates
+	if len(candidates) == 0 {
+		candidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
+		if len(candidates) == 0 {
+			return m, nil
+		}
+		m.completionCandidates = candidates
+		m.completionIdx = 0
+	} else {
+		m.completionIdx = (m.completionIdx + 1) % len(candidates)
+	}
+	m.input.SetValue(candidates[m.completionIdx])
+	m.input.CursorEnd()
 	return m, nil
 }
 

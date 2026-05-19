@@ -108,10 +108,12 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	primaryModel                 string
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
-	m.status.model = modelName
+	m.primaryModel = strings.TrimSpace(modelName)
+	m.status.model = m.primaryModel
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
 	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
@@ -126,7 +128,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 }
 
 func (m *Model) syncSidebar() {
-	m.sidebar.model = strings.TrimSpace(m.status.model)
+	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch

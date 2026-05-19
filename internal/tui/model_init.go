@@ -102,8 +102,9 @@ func resolveTheme(name string) theme.Theme {
 }
 
 func (m *Model) configureModelState(cfg Config, accentHex string) {
-	m.status.model = strings.TrimSpace(cfg.Model)
-	m.sidebar.model = strings.TrimSpace(cfg.Model)
+	m.primaryModel = strings.TrimSpace(cfg.Model)
+	m.status.model = m.primaryModel
+	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)

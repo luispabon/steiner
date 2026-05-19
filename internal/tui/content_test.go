@@ -11,6 +11,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -1659,7 +1660,7 @@ func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
 		t.Fatalf("group entries = %d, want 2", got)
 	}
 
-	rendered := stripANSI(buffer.String(100))
+	rendered := stripANSI(buffer.String(140))
 	if !strings.Contains(rendered, "pwd") || !strings.Contains(rendered, "git status") {
 		t.Fatalf("rendered grouped tool output %q missing commands", rendered)
 	}
@@ -1700,7 +1701,7 @@ func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 	if got := len(buffer.segments); got != 2 {
 		t.Fatalf("segments = %d, want 2 separate segments", got)
 	}
-	rendered := stripANSI(buffer.String(100))
+	rendered := stripANSI(buffer.String(140))
 	if got := strings.Count(rendered, "┌"); got != 2 {
 		t.Fatalf("mixed top borders = %d, want 2", got)
 	}
@@ -2429,6 +2430,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "qwen3-coder-30b", 12), "agent-1"))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewContextTokenBudgetEvent("", 1, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
 		"agent-1",
@@ -2438,7 +2440,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	for _, want := range []string{"Turns: 5", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1% (2.4k / 200k)"} {
+	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1% (2.4k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}
@@ -2478,13 +2480,17 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "plan work"))
 	buffer.AppendEvent(output.WithAgentScope(
+		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}),
+		"agent-1",
+	))
+	buffer.AppendEvent(output.WithAgentScope(
 		output.NewContextTokenBudgetEvent("", 1, 80000, 200000, 42.5, 90.0, 0, 0, "", false),
 		"agent-1",
 	))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	for _, want := range []string{"Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
+	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded active delegation render missing %q:\n%s", want, rendered)
 		}
