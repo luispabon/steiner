@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -58,7 +58,10 @@ func NewReadTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			totalLines, _ := countFileLines(absPath)
+			totalLines, err := countFileLines(absPath)
+			if err != nil {
+				return nil, fmt.Errorf("read: count lines for %q: %w", in.Path, err)
+			}
 
 			outputLines := strings.Split(contentText, "\n")
 			if len(outputLines) > 0 && outputLines[len(outputLines)-1] == "" {
@@ -91,21 +94,16 @@ func NewReadTool(env Env) tool.ToolDef {
 
 // countFileLines returns the number of lines in a file.
 func countFileLines(path string) (int, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("open file: %w", err)
+		return 0, fmt.Errorf("read file: %w", err)
 	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	scanner := bufio.NewScanner(f)
-	count := 0
-	for scanner.Scan() {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	count := bytes.Count(data, []byte{'\n'})
+	if data[len(data)-1] != '\n' {
 		count++
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("scan file: %w", err)
 	}
 	return count, nil
 }
