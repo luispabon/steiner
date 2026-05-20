@@ -126,6 +126,8 @@ Use Steiner's specialised tools directly:
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, and non-goals.
 
+Outside Steiner, spawn the cheapest capable sub-agent/profile available.
+
 ## Verification After Fixes
 
 Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
@@ -163,6 +165,7 @@ Use commit messages for PR/MR summaries. Do not broad-diff the branch against `o
 
 Build the PR/MR body from:
 
+- the `## Overview` section of `overview.md`
 - non-merge commit messages created for the loop
 - final review status and any residual risks from the current review
 
