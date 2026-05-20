@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Run the review pass.
 4. If blocking findings exist, ask approval for one consolidated fix plan.
-5. Run approved review-fix work through isolated sub-agents when available.
+5. Run approved review-fix work through isolated Steiner delegation when available.
 6. Rerun relevant checks.
 7. Repeat only if new blocking findings remain.
 8. Mark final status.
@@ -98,11 +98,11 @@ Do not edit code before a review pass has produced concrete findings and the use
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 
-Safe isolated execution is available only when the runtime can delegate to sub-agents, create git worktrees, create temporary branches, and the repository state is clean enough to provision them safely.
+Safe isolated execution is available only when Steiner delegation tools are available, git worktrees and temporary branches can be created, and the repository state is clean enough to provision them safely.
 
 When safe isolated execution is available, run the approved fix pass in a dedicated temporary branch and worktree. The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
 
-The review-fix sub-agent must:
+The review-fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
 - commit its changes on the temporary branch
@@ -115,7 +115,7 @@ Review-fix work is sequential. Do not parallelize it.
 
 ## Steiner Delegation
 
-When running in Steiner, use specialised tools directly:
+Use Steiner's specialised tools directly:
 
 - `explore({"task": "..."})` for targeted review discovery
 - `code({"task": "..."})` for approved review-fix passes
@@ -125,8 +125,6 @@ When running in Steiner, use specialised tools directly:
 - `delegate({...})` only when no specialised profile fits
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, and non-goals.
-
-Outside Steiner, spawn the cheapest capable sub-agent/profile available.
 
 ## Verification After Fixes
 

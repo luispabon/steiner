@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated sub-agent/worktree execution when available. Use when planning is complete and the task should be implemented from the planner's artifacts.
+description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated Steiner delegation/worktree execution when available. Use when planning is complete and the task should be implemented from the planner's artifacts.
 ---
 
 # Coding Loop Executor
@@ -42,7 +42,7 @@ Stop and report blockers instead of widening scope.
 - active branch
 - loaded verification strategy or explicit overrides
 - current, completed, blocked, and skipped steps
-- sub-agents used and their step ids
+- Steiner delegated agents used and their step ids
 - verification commands and results
 - deviations, blockers, and manual verification notes
 - final reviewer handoff status
@@ -107,19 +107,19 @@ The executor owns orchestration:
 - step scheduling
 - `execution.md` updates
 - temporary branch and worktree provisioning
-- sub-agent dispatch
+- Steiner delegation dispatch
 - merge/conflict handling
 - temporary branch and worktree cleanup
 - verification orchestration
 - reviewer handoff
 
-Implementation edits, verification-failure fixes, and manual-verification issue fixes belong to delegated coding agents whenever safe isolated execution is available.
+Implementation edits, verification-failure fixes, and manual-verification issue fixes belong to Steiner `code` delegates whenever safe isolated execution is available.
 
 ## Isolated Worktree Model
 
 The feature branch is owned by the executor. Sub-agents must not work directly on it.
 
-Safe isolated execution is available only when the runtime can delegate to sub-agents, create git worktrees, create temporary branches, and the repository state is clean enough to provision them safely.
+Safe isolated execution is available only when Steiner delegation tools are available, git worktrees and temporary branches can be created, and the repository state is clean enough to provision them safely.
 
 When safe isolated execution is available, each implementation or fix pass runs in a dedicated worktree attached to a temporary branch created from the current feature branch.
 
@@ -127,12 +127,12 @@ The executor must:
 
 1. create the temporary branch and worktree
 2. delegate the scoped task inside that worktree
-3. require the sub-agent to commit on the temporary branch
+3. require the delegated agent to commit on the temporary branch
 4. review the result against the step contract
 5. merge it back to the feature branch
 6. run required verification for that point in the flow
 7. update `execution.md`
-8. close the sub-agent
+8. close the delegated agent
 9. delete the worktree and merged temporary branch
 
 Sub-agents must not merge, rebase, clean up executor-owned git state, or commit directly to the feature branch.
@@ -141,7 +141,7 @@ If safe isolated execution is unavailable, execute directly only as a fallback. 
 
 ## Steiner Delegation
 
-When running in Steiner, use specialised tools directly:
+Use Steiner's specialised tools directly:
 
 - `explore({"task": "..."})` for read-only discovery needed before implementation
 - `code({"task": "..."})` for implementation or fix passes
@@ -161,9 +161,7 @@ Every delegated task must be tight and self-contained. Include:
 - expected output and commit expectations
 - verification to run or report
 
-Do not pass broad conversation history or vague prompts. Do not make the sub-agent rediscover context the main agent already has.
-
-Outside Steiner, spawn the cheapest capable sub-agent/profile available.
+Do not pass broad conversation history or vague prompts. Do not make the delegated agent rediscover context the main agent already has.
 
 ## Verification Policy
 

@@ -101,9 +101,7 @@ Research happens before `overview.md`, never after it.
 
 If research is approved, the planner must delegate it. Do not replace the research phase with the planner's own reasoning.
 
-When running in Steiner, call the specialised `research` tool with exactly one self-contained `task`. If `research` is unavailable, report that and ask whether to continue without research or use the best available fallback.
-
-Outside Steiner, spawn the cheapest capable research sub-agent/profile available.
+Call Steiner's `research` tool with exactly one self-contained `task`. If `research` is unavailable, report that and ask whether to continue without research or use the best available fallback.
 
 The research task must be tight and include:
 
@@ -182,7 +180,7 @@ Optional fields:
 
 - `depends_on`: only when a real dependency exists
 - `parallel_group`: only when parallel execution is safe and worth the coordination cost
-- `delegate_profile`: `explore`, `research`, `code`, `plan`, `verify`, or generic fallback
+- `delegate_profile`: `explore`, `research`, `code`, `plan`, `verify`, or `delegate`
 
 Keep steps large enough to be worth delegating. Avoid atomizing work into tiny mechanical steps.
 
@@ -190,7 +188,7 @@ Serial execution is the default. Parallel execution is exceptional and must be e
 
 ## Delegation Guidance
 
-When running in Steiner, refer to specialised model-facing tools by name:
+Use Steiner's specialised model-facing tools by name:
 
 - `explore` for read-only codebase discovery
 - `research` for current, external, or codebase research
@@ -199,9 +197,7 @@ When running in Steiner, refer to specialised model-facing tools by name:
 - `verify` for check-only verification
 - `delegate` only when no specialised profile fits
 
-Every delegated task must be self-contained and include relevant context already known by the main agent. Do not make sub-agents rediscover context unnecessarily.
-
-Outside Steiner, use the cheapest capable sub-agent/profile available.
+Every Steiner delegated task must be self-contained and include relevant context already known by the main agent. Do not make delegated agents rediscover context unnecessarily.
 
 ## Handoff
 
