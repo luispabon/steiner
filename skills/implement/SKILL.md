@@ -195,3 +195,5 @@ Reviewer handoff requires:
 Failed verification blocks reviewer handoff by default. Proceed to review with known blockers only if the user explicitly asks for review of a blocked implementation, and record that exception in `execution.md`.
 
 Commit the final executor state before handing off to review.
+
+Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /review .project_planning/FEATURE on an empty context.`

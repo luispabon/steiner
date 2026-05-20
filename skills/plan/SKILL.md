@@ -201,4 +201,6 @@ Every Steiner delegated task must be self-contained and include relevant context
 
 ## Handoff
 
-Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Tell the user the planning folder path and that implementation should load `overview.md` and `plan.yaml` from that branch.
+Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`.
+
+Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /implement .project_planning/FEATURE on an empty context.`
