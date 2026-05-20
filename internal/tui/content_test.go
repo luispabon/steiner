@@ -2497,6 +2497,132 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	}
 }
 
+func TestBuildMutateLinesRendersOperations(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+
+	tc := &toolCallSegment{
+		tool:     "mutate",
+		bodyKind: "mutate",
+		preview: output.ToolPreview{
+			Kind:         output.ToolPreviewKindMutate,
+			HunksApplied: 3,
+			HunksFailed:  1,
+			MutateOperations: []output.ToolPreviewMutateOperation{
+				{Type: "create", Path: "new.go", Content: "package main\n"},
+				{Type: "replace", Path: "existing.go", OldString: "old", NewString: "new"},
+				{Type: "line_replace", Path: "line.go", Line: 5, OldString: "foo", NewString: "bar"},
+				{Type: "delete", Path: "old.go"},
+				{Type: "move", From: "a.go", To: "b.go"},
+			},
+		},
+	}
+
+	lines := buffer.buildMutateLines(tc, 80)
+	got := stripANSI(strings.Join(lines, "\n"))
+
+	// Summary
+	if !strings.Contains(got, "5 operations") {
+		t.Fatalf("missing operation count summary: %q", got)
+	}
+	if !strings.Contains(got, "3 applied") {
+		t.Fatalf("missing applied count: %q", got)
+	}
+	if !strings.Contains(got, "1 failed") {
+		t.Fatalf("missing failed count: %q", got)
+	}
+
+	// Badges and paths
+	if !strings.Contains(got, "new.go") {
+		t.Fatalf("missing create path: %q", got)
+	}
+	if !strings.Contains(got, "existing.go") {
+		t.Fatalf("missing replace path: %q", got)
+	}
+	if !strings.Contains(got, "line.go") {
+		t.Fatalf("missing line_replace path: %q", got)
+	}
+	if !strings.Contains(got, "old.go") {
+		t.Fatalf("missing delete path: %q", got)
+	}
+	if !strings.Contains(got, "a.go") || !strings.Contains(got, "b.go") {
+		t.Fatalf("missing move paths: %q", got)
+	}
+
+	// Create should have syntax-highlighted content (package main)
+	if !strings.Contains(got, "package main") {
+		t.Fatalf("missing create file content: %q", got)
+	}
+
+	// Replace should show diff lines
+	if !strings.Contains(got, "- old") {
+		t.Fatalf("missing replace old line: %q", got)
+	}
+	if !strings.Contains(got, "+ new") {
+		t.Fatalf("missing replace new line: %q", got)
+	}
+
+	// line_replace should show line number and diff
+	if !strings.Contains(got, "- foo") {
+		t.Fatalf("missing line_replace old: %q", got)
+	}
+	if !strings.Contains(got, "+ bar") {
+		t.Fatalf("missing line_replace new: %q", got)
+	}
+
+	// delete should NOT have content block (no rule lines after header)
+	// move should NOT have content block
+}
+
+func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+
+	tc := &toolCallSegment{
+		tool:     "mutate",
+		body:     `{"message":"ok"}`,
+		bodyKind: "mutate",
+		preview: output.ToolPreview{
+			Kind:             output.ToolPreviewKindMutate,
+			MutateOperations: nil,
+		},
+	}
+
+	lines := buffer.buildMutateLines(tc, 80)
+	got := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(got, `{"message":"ok"}`) {
+		t.Fatalf("expected plain JSON fallback, got: %q", got)
+	}
+}
+
+func TestBuildMutateLinesWriteShowsModifiedBadge(t *testing.T) {
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+
+	tc := &toolCallSegment{
+		tool:     "mutate",
+		bodyKind: "mutate",
+		preview: output.ToolPreview{
+			Kind: output.ToolPreviewKindMutate,
+			MutateOperations: []output.ToolPreviewMutateOperation{
+				{Type: "write", Path: "file.go", Content: "package foo\n"},
+			},
+		},
+	}
+
+	lines := buffer.buildMutateLines(tc, 80)
+	got := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(got, "package foo") {
+		t.Fatalf("missing write file content: %q", got)
+	}
+	if !strings.Contains(got, "file.go") {
+		t.Fatalf("missing write path: %q", got)
+	}
+}
+
 func useTrueColor(t *testing.T) {
 	t.Helper()
 

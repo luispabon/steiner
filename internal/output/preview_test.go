@@ -474,41 +474,56 @@ func TestBuildApplyPatchPreview(t *testing.T) {
 func TestBuildMutatePreview(t *testing.T) {
 	tests := []struct {
 		name   string
+		args   map[string]any
 		result string
 		want   ToolPreview
 	}{
 		{
-			name:   "created modified deleted and moved",
+			name: "created modified deleted and moved",
+			args: map[string]any{
+				"operations": []any{
+					map[string]any{"type": "create", "path": "new.go", "content": "package main\n"},
+					map[string]any{"type": "replace", "path": "existing.go", "old_string": "old", "new_string": "new"},
+					map[string]any{"type": "delete", "path": "old.go"},
+					map[string]any{"type": "move", "from": "a.go", "to": "b.go"},
+				},
+			},
 			result: `{"created":["new.go"],"modified":["existing.go"],"deleted":["old.go"],"moved":[{"from":"a.go","to":"b.go"}],"operations_applied":4,"operations_failed":0,"output":"Success."}`,
 			want: ToolPreview{
-				Kind:          ToolPreviewKindPatch,
+				Kind:          ToolPreviewKindMutate,
 				PatchAdded:    []string{"new.go"},
 				PatchModified: []string{"existing.go"},
 				PatchDeleted:  []string{"old.go"},
 				PatchMoved:    []ToolPreviewPatchMove{{From: "a.go", To: "b.go"}},
 				HunksApplied:  4,
 				HunksFailed:   0,
+				MutateOperations: []ToolPreviewMutateOperation{
+					{Type: "create", Path: "new.go", Content: "package main\n"},
+					{Type: "replace", Path: "existing.go", OldString: "old", NewString: "new"},
+					{Type: "delete", Path: "old.go"},
+					{Type: "move", From: "a.go", To: "b.go"},
+				},
 			},
 		},
 		{
 			name:   "failed operation",
 			result: `{"operations_applied":1,"operations_failed":1,"output":"mutate: no match"}`,
 			want: ToolPreview{
-				Kind:         ToolPreviewKindPatch,
+				Kind:         ToolPreviewKindMutate,
 				PatchMoved:   []ToolPreviewPatchMove{},
 				HunksApplied: 1,
 				HunksFailed:  1,
 			},
 		},
 		{
-			name:   "invalid json still returns patch kind",
+			name:   "invalid json still returns mutate kind",
 			result: `not json`,
-			want:   ToolPreview{Kind: ToolPreviewKindPatch},
+			want:   ToolPreview{Kind: ToolPreviewKindMutate},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildMutatePreview(tt.result)
+			got := buildMutatePreview(tt.args, tt.result)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("buildMutatePreview() = %#v, want %#v", got, tt.want)
 			}

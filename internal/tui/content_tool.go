@@ -164,6 +164,8 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 		return "bash"
 	case output.ToolPreviewKindPatch:
 		return "patch"
+	case output.ToolPreviewKindMutate:
+		return "mutate"
 	case output.ToolPreviewKindPlain:
 		if strings.EqualFold(strings.TrimSpace(tool), "bash") {
 			return "bash"
@@ -184,11 +186,13 @@ func inferBodyKind(tool, body string) string {
 		return "bash"
 	case "read", "read_file":
 		return "file"
-	case "edit", "write", "write_file", "mutate":
+	case "edit", "write", "write_file":
 		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
 			return "diff"
 		}
 		return "plain"
+	case "mutate":
+		return "mutate"
 	default:
 		return "plain"
 	}
@@ -399,6 +403,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		lines = b.buildFilePreviewLines(tc, rowWidth-2)
 	case "patch":
 		lines = b.buildPatchLines(tc)
+	case "mutate":
+		lines = b.buildMutateLines(tc, rowWidth-2)
 	default:
 		lines = b.buildPlainLines(tc)
 	}
