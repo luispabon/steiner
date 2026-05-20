@@ -1,0 +1,94 @@
+steps:
+  - id: step-1
+    title: Create skills embed package
+    scope: >
+      New file skills/embed.go with package skills, //go:embed */SKILL.md directive,
+      and exported FS variable. Thin package — embed only, no logic.
+    files:
+      - skills/embed.go
+    constraints:
+      - No logic beyond the embed directive and FS export
+      - Package name must be "skills"
+      - Embed pattern must capture */SKILL.md (subdirectory/file)
+    acceptance:
+      - skills.FS is an exported embed.FS
+      - go build ./skills/... succeeds
+      - Embedded FS contains plan/SKILL.md, implement/SKILL.md, review/SKILL.md
+    verification:
+      - go build ./skills/...
+
+  - id: step-2
+    title: Add frontmatter parsing to skill package
+    scope: >
+      New file internal/skill/frontmatter.go with a function that extracts name and
+      description from YAML frontmatter in SKILL.md content. Update discoverSummary
+      to prefer frontmatter description over first-prose-line heuristic. Update Skill
+      struct if needed (Summary already exists). Tests for frontmatter parsing: with
+      frontmatter, without, malformed, empty description, description-only.
+    files:
+      - internal/skill/frontmatter.go
+      - internal/skill/frontmatter_test.go
+      - internal/skill/loader.go
+      - internal/skill/loader_test.go
+    constraints:
+      - Use gopkg.in/yaml.v3 (already a dependency)
+      - Fall back to existing first-prose-line heuristic when no frontmatter or no description
+      - Do not change Skill struct fields — Summary already serves this purpose
+      - Existing tests must continue to pass (backward compatible)
+    acceptance:
+      - Frontmatter description extracted and used as Summary when present
+      - Skills without frontmatter still get first-prose-line summary
+      - Existing loader tests pass unchanged or with minimal adjustment
+    verification:
+      - go test ./internal/skill/...
+
+  - id: step-3
+    title: Extend Loader for bundled skills
+    scope: >
+      Add BundledFS fs.FS field to Loader. Update Discover to walk BundledFS first,
+      mark bundled skills with source "bundled", add names to seen map before scanning
+      filesystem roots. Update Load/LoadMany to check BundledFS first. Log slog.Warn
+      on collision (filesystem skill has same name as bundled). Tests for: bundled-only
+      discovery, bundled+filesystem mixed, collision warning, bundled Load/LoadMany,
+      nil BundledFS (backward compat).
+    files:
+      - internal/skill/loader.go
+      - internal/skill/loader_test.go
+    depends_on:
+      - step-2
+    constraints:
+      - Bundled skills are highest priority — always win over filesystem
+      - Collision warning via slog.Warn only, no error
+      - nil BundledFS must work identically to current behavior (backward compat)
+      - Bundled skill Path is the embedded path (e.g. "plan/SKILL.md"), not a filesystem path
+      - Source label is "bundled"
+    acceptance:
+      - Bundled skills appear in Discover results with source "bundled"
+      - Filesystem skills with same name as bundled are shadowed
+      - Collision produces slog.Warn log entry
+      - Load("plan") returns bundled version even if filesystem version exists
+      - Loader with nil BundledFS behaves identically to current
+    verification:
+      - go test ./internal/skill/...
+
+  - id: step-4
+    title: Wire bundled FS into composition root
+    scope: >
+      Update discoverRuntimeSkills in cmd/steiner/runtime_build.go to pass skills.FS
+      to the Loader's BundledFS field. Update any tests in cmd/steiner/ that construct
+      Loaders if needed.
+    files:
+      - cmd/steiner/runtime_build.go
+    depends_on:
+      - step-1
+      - step-3
+    constraints:
+      - Only change the Loader construction site
+      - Do not add logic to cmd/steiner beyond wiring
+    acceptance:
+      - steiner skills lists bundled skills (plan, implement, review)
+      - steiner builds successfully
+      - Bundled skills appear with source "bundled" in discovery
+    verification:
+      - go build ./cmd/steiner/...
+      - go test ./cmd/steiner/...
