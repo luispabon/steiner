@@ -365,6 +365,35 @@ func TestBuildChildPromptDefaultSystemPromptMentionsScratchpad(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+	}
+
+	spec := DelegationSpec{
+		Task:    "investigate this file",
+		AgentID: "child-no-skills",
+		Limits:  DelegationLimits{MaxTurns: 5},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+
+	if len(req.Prompt.SkillNames) != 0 {
+		t.Fatalf("Prompt.SkillNames = %v, want empty", req.Prompt.SkillNames)
+	}
+}
+
 func TestBuildChildRunAllowedTools(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
