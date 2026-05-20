@@ -111,8 +111,6 @@ func splitLinesPreserveEndings(text string) []string {
 }
 
 func unifiedTextDiff(path, before, after string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "--- %s\n+++ %s\n", path, path)
 	beforeLines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(before, "\r\n", "\n"), "\n"), "\n")
 	afterLines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(after, "\r\n", "\n"), "\n"), "\n")
 	if before == "" {
@@ -121,18 +119,7 @@ func unifiedTextDiff(path, before, after string) string {
 	if after == "" {
 		afterLines = nil
 	}
-	fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", max(1, len(beforeLines)), max(1, len(afterLines)))
-	for _, line := range beforeLines {
-		b.WriteString("-")
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	for _, line := range afterLines {
-		b.WriteString("+")
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return formatUnifiedHunks(path, beforeLines, afterLines, 3)
 }
 
 func appendUnique(values []string, value string) []string {
