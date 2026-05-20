@@ -16,6 +16,7 @@ The reviewer is the final gate for the loop.
 - Require one argument: the feature planning folder.
 - Require `overview.md`, `plan.yaml`, and `execution.md`.
 - Stop if artifacts are missing, conflict materially, or show execution did not reach reviewer handoff.
+- If execution reached reviewer handoff only by explicit user request despite known blockers, review the blocked implementation only within that stated purpose.
 - Derive the expected branch as `cl/YYYY-MM-DD_FEATURE_NAME`.
 - Require the expected branch to exist and be clean before review starts, except for safe reviewer artifact initialization.
 - Treat planner and executor artifacts as immutable inputs unless the user explicitly requests replanning or artifact correction.
@@ -26,20 +27,23 @@ Follow this sequence:
 
 1. Validate artifacts and branch state.
 2. Check out the expected feature branch.
-3. Create or resume compact `review.md`.
-4. Run the review pass.
-5. If blocking findings exist, ask approval for one consolidated fix plan.
-6. Run approved review-fix work through isolated sub-agents when available.
-7. Rerun relevant checks.
-8. Repeat only if new blocking findings remain.
-9. Mark final status.
-10. Offer closeout actions: planning-doc cleanup and PR/MR creation.
+3. Run the review pass.
+4. If blocking findings exist, ask approval for one consolidated fix plan.
+5. Run approved review-fix work through isolated sub-agents when available.
+6. Rerun relevant checks.
+7. Repeat only if new blocking findings remain.
+8. Mark final status.
+9. Offer closeout actions: planning-doc cleanup and PR/MR creation.
 
 Stop and report blockers instead of widening scope.
 
 ## Review Artifact
 
-`review.md` is a compact final-state file under the planning folder. It should record:
+`review.md` is optional.
+
+Do not create `review.md` by default. Create it only when the user chooses to keep planning docs or declines planning-doc deletion during closeout.
+
+When created, `review.md` is a compact final-state file under the planning folder. It should record:
 
 - scope and inputs reviewed
 - review status: `fail`, `pass_with_notes`, or `pass`
@@ -68,7 +72,7 @@ Focus on:
 - correctness against accepted intent
 - maintainability issues that materially affect correctness or future work
 
-Review touched files and directly adjacent regression-risk areas. Do not broadly re-review unrelated code.
+Review touched files and directly adjacent regression-risk areas: call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code.
 
 Prefer evidence over speculation. Findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
 
@@ -94,7 +98,9 @@ Do not edit code before a review pass has produced concrete findings and the use
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 
-When safe isolated execution is available, run the approved fix pass in a dedicated temporary branch and worktree. The reviewer owns provisioning, merge, verification, cleanup, and `review.md` updates.
+Safe isolated execution is available only when the runtime can delegate to sub-agents, create git worktrees, create temporary branches, and the repository state is clean enough to provision them safely.
+
+When safe isolated execution is available, run the approved fix pass in a dedicated temporary branch and worktree. The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
 
 The review-fix sub-agent must:
 
@@ -103,7 +109,7 @@ The review-fix sub-agent must:
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-If safe isolated execution is unavailable, direct fixes are allowed only as a fallback and must keep the same approved fix-pass boundary.
+If safe isolated execution is unavailable, direct fixes are allowed only as a fallback. Record the reason if `review.md` exists, and keep the same approved fix-pass boundary.
 
 Review-fix work is sequential. Do not parallelize it.
 
@@ -149,23 +155,33 @@ If the user chooses cleanup:
 
 - delete `.project_planning/YYYY-MM-DD_FEATURE_NAME/`
 - commit the deletion unless the user explicitly asks otherwise
-- record the cleanup result in `review.md` before deletion, or include the cleanup result in the closeout message if `review.md` is deleted
+- include the cleanup result in the closeout message
 
-If PR/MR creation is also requested, preserve any needed summary details before deleting planning docs.
+If the user declines cleanup, create or update `review.md` with the final review and closeout state.
 
 ## PR Or MR Preparation
 
-Use commit messages and loop artifacts for PR/MR summaries. Do not broad-diff the branch against `origin/main` by default.
+Use commit messages for PR/MR summaries. Do not broad-diff the branch against `origin/main` by default.
 
 Build the PR/MR body from:
 
-- the `## Overview` section of `overview.md`
 - non-merge commit messages created for the loop
-- relevant deviations, residual risks, and final status from `execution.md` and `review.md`
+- final review status and any residual risks from the current review
 
-Inspect targeted diffs only if commit messages or artifacts are missing, vague, contradictory, or clearly insufficient.
+Use loop artifacts only as fallback if they still exist and commit messages are missing, vague, contradictory, or clearly insufficient.
 
-Detect the remote provider from the current branch tracking remote or `origin`. Use only known provider flows:
+Inspect targeted diffs only if commit messages and available artifacts are insufficient.
+
+Detect the remote provider from the current branch tracking remote or `origin`.
+
+Choose the target branch in this order:
+
+1. upstream or tracking base if clearly known
+2. `origin/main`
+3. `origin/master`
+4. ask the user
+
+Use only known provider flows:
 
 - GitHub: push if needed, then `gh pr create --title <title> --body <body> --base <target> --head <branch>`
 - GitLab: `git push -o merge_request.create -o merge_request.target=<target> <remote> <branch>`

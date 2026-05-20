@@ -53,6 +53,14 @@ Do not maintain a verbose event log. Keep it sufficient for reviewer handoff.
 
 Parse `plan.yaml` as a flat list of implementation steps.
 
+The top level must be:
+
+```yaml
+steps:
+  - id: step-1
+    title: ...
+```
+
 Expected step fields:
 
 - `id`
@@ -111,6 +119,8 @@ Implementation edits, verification-failure fixes, and manual-verification issue 
 
 The feature branch is owned by the executor. Sub-agents must not work directly on it.
 
+Safe isolated execution is available only when the runtime can delegate to sub-agents, create git worktrees, create temporary branches, and the repository state is clean enough to provision them safely.
+
 When safe isolated execution is available, each implementation or fix pass runs in a dedicated worktree attached to a temporary branch created from the current feature branch.
 
 The executor must:
@@ -127,7 +137,7 @@ The executor must:
 
 Sub-agents must not merge, rebase, clean up executor-owned git state, or commit directly to the feature branch.
 
-If safe isolated execution is unavailable, execute directly only as a fallback while preserving the same step boundaries.
+If safe isolated execution is unavailable, execute directly only as a fallback. Record the reason in `execution.md` and preserve the same step boundaries.
 
 ## Steiner Delegation
 
@@ -170,6 +180,8 @@ By default, defer automated verification until all implementation steps are impl
 
 When safe fix mode is available and appropriate, prefer fix mode over check-only mode.
 
+Fix mode is safe only when it is scoped to touched or relevant files, non-destructive, compatible with repo policy and approval requirements, and its changes can be reviewed before commit.
+
 Failures must be fixed or reported as blockers. Do not widen scope for unrelated pre-existing warnings.
 
 ## Handoff
@@ -177,9 +189,11 @@ Failures must be fixed or reported as blockers. Do not widen scope for unrelated
 Reviewer handoff requires:
 
 - all planned steps are implemented
-- required verification is passing or blockers are clearly reported
+- required verification is passing
 - `execution.md` is updated with compact final state
 - temporary branches/worktrees are cleaned up
 - feature branch working tree is clean
+
+Failed verification blocks reviewer handoff by default. Proceed to review with known blockers only if the user explicitly asks for review of a blocked implementation, and record that exception in `execution.md`.
 
 Commit the final executor state before handing off to review.

@@ -36,13 +36,15 @@ Allowed planning artifacts:
 
 Do not write artifacts outside `.project_planning/YYYY-MM-DD_FEATURE_NAME/`.
 
-Planning is execution-ready only when `overview.md` and `plan.yaml` exist, the planning branch exists, and the latest planning artifacts have been committed.
+The planner owns the loop feature branch. Before writing the first planning artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME`. Use that same branch for planning, implementation, review, and closeout.
+
+Planning is execution-ready only when `overview.md` and `plan.yaml` exist on `cl/YYYY-MM-DD_FEATURE_NAME` and the latest planning artifacts have been committed.
 
 ## Intake And Clarification
 
-If the user only invokes the skill name or gives an underspecified request, ask for the minimum high-level description needed before doing anything else.
+If the user only invokes the skill name or gives no actionable task, ask for the minimum high-level description needed before doing anything else.
 
-First, explore nearby code and repo instructions for facts that can answer obvious questions. Do not ask the user for information that local inspection can discover.
+Once there is an actionable task, explore nearby code and repo instructions for facts that can answer obvious questions. Do not ask the user for information that local inspection can discover.
 
 Clarify until you can reliably determine:
 
@@ -111,7 +113,9 @@ The research task must be tight and include:
 - expected output format
 - non-goals and scope boundaries
 
-Research is complete only when the delegated researcher has produced a research artifact in the planning directory and the planner has reviewed it.
+The delegated researcher is read-only. Research is complete when the delegated result has been received and reviewed by the planner.
+
+If a persisted research artifact is useful, the planner writes `research.md` or `research_001.md` from the delegated result. Do not require the researcher to write files.
 
 ## Research Output Contract
 
@@ -151,6 +155,19 @@ Present the overview to the user and wait for explicit approval before writing `
 
 `plan.yaml` must be a flat implementation-step plan. Do not use stage/step nesting.
 
+Use this top-level YAML shape:
+
+```yaml
+steps:
+  - id: step-1
+    title: ...
+    scope: ...
+    files: []
+    constraints: []
+    acceptance: []
+    verification: []
+```
+
 Each step should include:
 
 - `id`
@@ -188,4 +205,4 @@ Outside Steiner, use the cheapest capable sub-agent/profile available.
 
 ## Handoff
 
-Commit the final planning artifacts on the planning branch. Tell the user the planning folder path and that implementation should load `overview.md` and the flat `plan.yaml`.
+Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Tell the user the planning folder path and that implementation should load `overview.md` and `plan.yaml` from that branch.
