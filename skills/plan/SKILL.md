@@ -42,7 +42,9 @@ Planning is execution-ready only when `overview.md` and `plan.yaml` exist, the p
 
 If the user only invokes the skill name or gives an underspecified request, ask for the minimum high-level description needed before doing anything else.
 
-Clarify only enough to determine:
+First, explore nearby code and repo instructions for facts that can answer obvious questions. Do not ask the user for information that local inspection can discover.
+
+Clarify until you can reliably determine:
 
 - goals, constraints, assumptions, and likely code areas
 - external dependencies or current information needs
@@ -51,6 +53,20 @@ Clarify only enough to determine:
 - whether the request is understood well enough to produce a reliable overview
 
 Do not ask implementation-detail questions before the overview checkpoint unless they materially affect scope, architecture, or research.
+
+Use the lightest clarification style that is safe for the task.
+
+For straightforward, repo-local work, ask only the questions needed to avoid a misleading overview.
+
+For ambiguous, domain-heavy, architectural, hard-to-reverse, terminology-sensitive, high-risk, or tradeoff-heavy work, switch to grill mode:
+
+- ask one high-impact question at a time
+- provide the recommended answer or default with each question
+- wait for the user's answer before asking the next question
+- challenge vague or overloaded terms by proposing a precise meaning
+- test important assumptions with concrete scenarios
+- call out contradictions between the user's description and discovered code
+- stop grilling once the planner can state the goal, success criteria, scope boundaries, constraints, risks, and key tradeoffs clearly
 
 ## Research Decision
 
