@@ -97,7 +97,7 @@ func (o OverlayShell) RenderFooter(footerText string) string {
 // The caller is responsible for assembling body lines (header, divider, list,
 // footer divider, footer) before calling Render.
 func (o OverlayShell) Render(styles overlayStyles, body string) string {
-	return styles.box.Width(o.InnerWidth()).Padding(1, 1).Render(body)
+	return styles.box.Width(o.InnerWidth()+2).Padding(1, 1).Render(body)
 }
 
 // PlaceBottomAnchored composites the overlay string over the base view string

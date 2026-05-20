@@ -163,7 +163,7 @@ func (f filePickerOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := f.styles.PaletteOverlay.Width(innerWidth).Padding(1, 1).Render(body)
+	rendered := f.styles.PaletteOverlay.Width(innerWidth+2).Padding(1, 1).Render(body)
 	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 }
 
