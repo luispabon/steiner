@@ -21,6 +21,7 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/skills"
 )
 
 func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
@@ -124,7 +125,7 @@ func discoverRuntimeSkills(ctx context.Context) (string, []string, map[string]st
 		workDir = ""
 	}
 	roots := prompt.SkillRoots(homeDir, workDir)
-	loadedSkills, err := skill.Loader{RootDirs: roots}.Discover(ctx)
+	loadedSkills, err := skill.Loader{RootDirs: roots, BundledFS: skills.FS}.Discover(ctx)
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
