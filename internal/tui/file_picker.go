@@ -130,7 +130,7 @@ func (f filePickerOverlay) View() string {
 		}
 	}
 	headerLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + " " + queryDisplay)
-	divider := f.Divider()
+	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
 
 	lines := []string{headerLine, divider}
 
