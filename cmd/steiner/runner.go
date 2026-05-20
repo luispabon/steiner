@@ -52,7 +52,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
 	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
+	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, r.runtime.homeDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
 	reason := string(state.StopReason)
@@ -174,7 +174,7 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // An extended base registry is also built that includes real tools (web_search
 // when a searcher is available, fetch_url always via Builtins) so child
 // registries can filter them in via their per-type allowlists.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) *tool.Registry {
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) *tool.Registry {
 	if !subAgentCfg.Enabled {
 		return base
 	}
@@ -189,16 +189,18 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	}
 
 	delegateDeps := delegation.DelegateHandlerDeps{
-		Provider:           prov,
-		ParentReg:          extendedBase,
-		SubAgentCfg:        subAgentCfg,
-		Events:             events,
-		Runner:             agent.NewRunner(),
-		WorkDir:            workDir,
-		ResolvedModel:      rm,
-		MaxTokens:          &mt,
-		StreamingPreferred: streamingPreferred,
-		TraceLogger:        traceLogger,
+		Provider:             prov,
+		ParentReg:            extendedBase,
+		SubAgentCfg:          subAgentCfg,
+		Events:               events,
+		Runner:               agent.NewRunner(),
+		WorkDir:              workDir,
+		HomeDir:              homeDir,
+		ProjectContextConfig: cfg.ProjectContext,
+		ResolvedModel:        rm,
+		MaxTokens:            &mt,
+		StreamingPreferred:   streamingPreferred,
+		TraceLogger:          traceLogger,
 	}
 
 	// Register the generic delegate tool.

@@ -92,14 +92,16 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:           resolvedProvider,
-			ParentReg:          deps.ParentReg,
-			SubAgentCfg:        typedCfg,
-			Events:             deps.Events,
-			WorkDir:            deps.WorkDir,
-			ResolvedModel:      resolvedModel,
-			MaxTokens:          deps.MaxTokens,
-			StreamingPreferred: deps.StreamingPreferred,
+			Provider:             resolvedProvider,
+			ParentReg:            deps.ParentReg,
+			SubAgentCfg:          typedCfg,
+			Events:               deps.Events,
+			WorkDir:              deps.WorkDir,
+			HomeDir:              deps.HomeDir,
+			ProjectContextConfig: deps.ProjectContextConfig,
+			ResolvedModel:        resolvedModel,
+			MaxTokens:            deps.MaxTokens,
+			StreamingPreferred:   deps.StreamingPreferred,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

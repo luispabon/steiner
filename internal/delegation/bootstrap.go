@@ -14,14 +14,16 @@ import (
 
 // BootstrapDeps holds the dependencies needed to assemble a child agent run request.
 type BootstrapDeps struct {
-	Provider           provider.Provider
-	ParentReg          *tool.Registry
-	SubAgentCfg        config.SubAgentConfig
-	Events             output.EventSink
-	WorkDir            string
-	ResolvedModel      provider.ResolvedModel
-	MaxTokens          *int
-	StreamingPreferred bool
+	Provider             provider.Provider
+	ParentReg            *tool.Registry
+	SubAgentCfg          config.SubAgentConfig
+	Events               output.EventSink
+	WorkDir              string
+	HomeDir              string
+	ProjectContextConfig config.ProjectContextConfig
+	ResolvedModel        provider.ResolvedModel
+	MaxTokens            *int
+	StreamingPreferred   bool
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -46,7 +48,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
 	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred)
@@ -64,7 +66,9 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // buildChildPrompt assembles the prompt.AssemblyOptions for a child agent.
 // The child system prompt is supplied as the preamble override instead of a
 // conversation message so the assembled provider request has one system message.
-func buildChildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
+// Project context (AGENTS.md, configured extra files) is included so child
+// agents inherit project conventions without the parent forwarding them.
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig) prompt.AssemblyOptions {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive."
@@ -76,7 +80,12 @@ func buildChildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
 	}
 
 	return prompt.AssemblyOptions{
-		PromptOverrides: config.ModelPrompts{System: systemPrompt},
+		PromptOverrides:           config.ModelPrompts{System: systemPrompt},
+		HomeDir:                   homeDir,
+		ProjectRoot:               workDir,
+		ProjectContextExtraFiles:  pcc.ExtraFiles,
+		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
+		ProjectContextBudgetBytes: pcc.MaxTokens,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},

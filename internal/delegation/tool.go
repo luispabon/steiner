@@ -52,16 +52,18 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 
 // DelegateHandlerDeps holds dependencies for the delegate tool handler.
 type DelegateHandlerDeps struct {
-	Provider           provider.Provider
-	ParentReg          *tool.Registry
-	SubAgentCfg        config.SubAgentConfig
-	Events             output.EventSink
-	Runner             AgentRunner
-	WorkDir            string
-	ResolvedModel      provider.ResolvedModel
-	MaxTokens          *int
-	StreamingPreferred bool
-	TraceLogger        *TraceLogger
+	Provider             provider.Provider
+	ParentReg            *tool.Registry
+	SubAgentCfg          config.SubAgentConfig
+	Events               output.EventSink
+	Runner               AgentRunner
+	WorkDir              string
+	HomeDir              string
+	ProjectContextConfig config.ProjectContextConfig
+	ResolvedModel        provider.ResolvedModel
+	MaxTokens            *int
+	StreamingPreferred   bool
+	TraceLogger          *TraceLogger
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -97,14 +99,16 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:           deps.Provider,
-			ParentReg:          deps.ParentReg,
-			SubAgentCfg:        deps.SubAgentCfg,
-			Events:             deps.Events,
-			WorkDir:            deps.WorkDir,
-			ResolvedModel:      deps.ResolvedModel,
-			MaxTokens:          deps.MaxTokens,
-			StreamingPreferred: deps.StreamingPreferred,
+			Provider:             deps.Provider,
+			ParentReg:            deps.ParentReg,
+			SubAgentCfg:          deps.SubAgentCfg,
+			Events:               deps.Events,
+			WorkDir:              deps.WorkDir,
+			HomeDir:              deps.HomeDir,
+			ProjectContextConfig: deps.ProjectContextConfig,
+			ResolvedModel:        deps.ResolvedModel,
+			MaxTokens:            deps.MaxTokens,
+			StreamingPreferred:   deps.StreamingPreferred,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
