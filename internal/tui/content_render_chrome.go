@@ -61,11 +61,11 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 
 	bar := b.styles.Accent.Render("│")
 
-	accentSoft := lipgloss.Color(theme.AccentSoft)
+	accentSoft := b.styles.AccentSoft.GetForeground()
 	bgElev2C := lipgloss.Color(theme.BgElev2)
 	fgMuteC := lipgloss.Color(theme.FgMute)
 	fgDimC := lipgloss.Color(theme.FgDim)
-	accentC := lipgloss.Color(theme.AccentAmber)
+	accentC := b.styles.AccentColor
 
 	btnApprove := lipgloss.NewStyle().Background(accentSoft).Foreground(fgMuteC).Render("[y]") +
 		lipgloss.NewStyle().Background(accentSoft).Foreground(accentC).Render(" approve")

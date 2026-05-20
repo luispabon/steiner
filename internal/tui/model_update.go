@@ -132,6 +132,10 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.activity = m.activity.withStyles(m.styles)
 	m.applyInputStyles()
 	m.palette.styles = m.styles
+	m.slashOverlay.styles = m.styles
+	m.fileList.styles = m.styles
+	m.filePicker.styles = m.styles
+	m.sessionPicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
 	}

@@ -97,7 +97,7 @@ func (f fileListOverlay) View() string {
 	case len(f.entries) == 0:
 		lines = append(lines, "(empty)")
 	default:
-		dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber))
+		dirStyle := f.styles.Accent
 		fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 		displayCount := min(len(f.entries), maxDisplay)
 		for _, entry := range f.entries[:displayCount] {

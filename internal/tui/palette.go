@@ -120,7 +120,7 @@ func (p paletteModel) View() string {
 
 	maxItems := 10
 	lines := []string{inputLine, divider}
-	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentAmber))
+	accentStyle := p.styles.Accent
 	fgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute))
 	for i, item := range p.filtered {
