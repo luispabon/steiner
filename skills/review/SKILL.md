@@ -126,8 +126,6 @@ Use Steiner's specialised tools directly:
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, and non-goals.
 
-Outside Steiner, spawn the cheapest capable sub-agent/profile available.
-
 ## Verification After Fixes
 
 Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
