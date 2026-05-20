@@ -54,8 +54,8 @@ func TestEditTool(t *testing.T) {
 		if got, want := string(data), "hello world\nreplaced\nbaz qux\n"; got != want {
 			t.Fatalf("file content = %q, want %q", got, want)
 		}
-		if got, want := result.Output, "edit: replaced 1 occurrence"; got != want {
-			t.Fatalf("Output = %q, want %q", got, want)
+		if !strings.Contains(result.Output, "edit: replaced 1 occurrence") {
+			t.Fatalf("Output = %q, want replaced prefix", result.Output)
 		}
 	})
 
@@ -103,8 +103,8 @@ func TestEditTool(t *testing.T) {
 		if !strings.Contains(result.Output, "context:") {
 			t.Fatalf("Output = %q, want context preview", result.Output)
 		}
-		if !strings.Contains(result.Output, "suggestion: reread a slightly wider region around the target text") {
-			t.Fatalf("Output = %q, want reread suggestion", result.Output)
+		if !strings.Contains(result.Output, "suggestion: use line_replace with a line number for whitespace-sensitive edits") {
+			t.Fatalf("Output = %q, want whitespace-specific suggestion", result.Output)
 		}
 	})
 
@@ -141,8 +141,8 @@ func TestEditTool(t *testing.T) {
 		if got, want := string(data), "hi\nhi\nworld\n"; got != want {
 			t.Fatalf("file content = %q, want %q", got, want)
 		}
-		if got, want := result.Output, "edit: replaced 2 occurrences"; got != want {
-			t.Fatalf("Output = %q, want %q", got, want)
+		if !strings.Contains(result.Output, "edit: replaced 2 occurrences") {
+			t.Fatalf("Output = %q, want replaced prefix", result.Output)
 		}
 	})
 

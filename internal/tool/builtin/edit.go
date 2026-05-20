@@ -62,6 +62,7 @@ func applyEditMutation(content []byte, in EditInput, info os.FileInfo, absPath, 
 	case matchCount > 1 && !in.ReplaceAll:
 		return &MutationResult{Path: relPath, Output: buildAmbiguousDiagnostics("edit", "old_string", content, in.OldString, matchCount)}, nil
 	}
+	before := string(content)
 	var replaced []byte
 	if in.ReplaceAll {
 		replaced = bytes.ReplaceAll(content, oldBytes, newBytes)
@@ -75,7 +76,11 @@ func applyEditMutation(content []byte, in EditInput, info os.FileInfo, absPath, 
 	if err := os.WriteFile(absPath, replaced, mode); err != nil {
 		return nil, fmt.Errorf("edit: write %q: %w", in.Path, err)
 	}
-	return &MutationResult{Path: relPath, Output: editOutputMessage(in.ReplaceAll, matchCount), Mutated: true}, nil
+	msg := editOutputMessage(in.ReplaceAll, matchCount)
+	if diff := unifiedTextDiff(relPath, before, string(replaced)); diff != "" {
+		msg = msg + "\n" + diff
+	}
+	return &MutationResult{Path: relPath, Output: msg, Mutated: true}, nil
 }
 
 func editOutputMessage(replaceAll bool, matchCount int) string {
@@ -89,7 +94,8 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%s: no match for %s", prefix, subject))
 
-	if normalizedWhitespaceMatchExists(content, oldText) {
+	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
+	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
 	}
 
@@ -101,7 +107,11 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 		lines = append(lines, fmt.Sprintf("%s: no nearby exact anchor found", prefix))
 	}
 
-	lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
+	if hasWhitespaceMismatch {
+		lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with a line number for whitespace-sensitive edits, or reread the file for exact content", prefix))
+	} else {
+		lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
+	}
 	return strings.Join(lines, "\n")
 }
 
