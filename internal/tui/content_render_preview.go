@@ -306,7 +306,9 @@ func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocum
 	case output.ToolPreviewKindFileWrite:
 		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
 	case output.ToolPreviewKindReadFile:
-		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
+		doc := output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
+		doc.StartLine = tc.preview.StartLine
+		return doc
 	case output.ToolPreviewKindFetchURL:
 		return output.FormatFilePreviewWithLanguage(tc.preview.Path, tc.preview.Language, tc.preview.Contents)
 	case output.ToolPreviewKindWebSearch:
@@ -317,7 +319,21 @@ func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocum
 }
 
 func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.PreviewDocument) string {
-	label := "file preview"
+	label, useRange := computeFilePreviewLabel(tc, doc)
+	if useRange {
+		return b.styles.FgDim.Render(buildOffsetCaption(doc, label))
+	}
+	if tc.preview.Kind == output.ToolPreviewKindWebSearch {
+		return b.styles.FgDim.Render(label)
+	}
+	lineCount := previewContentLineCount(doc)
+	if doc.Path != "" {
+		return b.styles.FgDim.Render(fmt.Sprintf("%s · %s · %d lines", doc.Path, label, lineCount))
+	}
+	return b.styles.FgDim.Render(fmt.Sprintf("%s · %d lines", label, lineCount))
+}
+
+func computeFilePreviewLabel(tc *toolCallSegment, doc output.PreviewDocument) (label string, useRange bool) {
 	switch {
 	case tc.displayPreview != nil:
 		label = "display file preview"
@@ -335,6 +351,9 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 		if doc.Language != "" && doc.Language != "plain" {
 			label += " · " + doc.Language
 		}
+		if doc.StartLine > 1 {
+			useRange = true
+		}
 	case tc.preview.Kind == output.ToolPreviewKindFetchURL:
 		label = "fetched page preview"
 		if doc.Language != "" && doc.Language != "plain" {
@@ -342,25 +361,35 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 		}
 	case tc.preview.Kind == output.ToolPreviewKindWebSearch:
 		if tc.preview.Returned >= 0 {
-			return b.styles.FgDim.Render(fmt.Sprintf("search results - %d results", tc.preview.Returned))
+			label = fmt.Sprintf("search results - %d results", tc.preview.Returned)
+		} else {
+			label = "search results"
 		}
-		return b.styles.FgDim.Render("search results")
+		return label, false
 	}
+	return label, useRange
+}
+
+func buildOffsetCaption(doc output.PreviewDocument, label string) string {
 	lineCount := previewContentLineCount(doc)
 	if doc.Path != "" {
-		return b.styles.FgDim.Render(fmt.Sprintf("%s · %s · %d lines", doc.Path, label, lineCount))
+		return fmt.Sprintf("%s · %s · lines %d–%d", doc.Path, label, doc.StartLine, doc.StartLine+lineCount-1)
 	}
-	return b.styles.FgDim.Render(fmt.Sprintf("%s · %d lines", label, lineCount))
+	return fmt.Sprintf("%s · lines %d–%d", label, doc.StartLine, doc.StartLine+lineCount-1)
 }
 
 func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []string {
 	lines := make([]string, 0, len(doc.Lines))
+	startLine := doc.StartLine
+	if startLine <= 0 {
+		startLine = 1
+	}
 	for i, line := range doc.Lines {
 		if line.Kind == output.PreviewLineKindTruncated {
 			lines = append(lines, b.renderPreviewLine(line))
 			continue
 		}
-		gutter := b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", i+1))
+		gutter := b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", startLine+i))
 		lines = append(lines, gutter+b.renderPreviewLine(line))
 	}
 	return lines

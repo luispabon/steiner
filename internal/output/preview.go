@@ -84,6 +84,7 @@ type ToolPreview struct {
 	Returned         int
 	NextOffset       int
 	OutputMode       string
+	StartLine        int
 	Entries          []ToolPreviewListEntry
 	GrepFiles        []ToolPreviewGrepFile
 	PatchAdded       []string

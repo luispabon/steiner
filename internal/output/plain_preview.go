@@ -87,7 +87,9 @@ func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) 
 	case ToolPreviewKindFileWrite:
 		return FormatFilePreview(preview.Path, preview.Contents), true
 	case ToolPreviewKindReadFile:
-		return FormatFilePreview(preview.Path, normalizeReadPreviewContents(preview.Contents, 0)), true
+		doc := FormatFilePreview(preview.Path, normalizeReadPreviewContents(preview.Contents, 0))
+		doc.StartLine = preview.StartLine
+		return doc, true
 	case ToolPreviewKindFetchURL:
 		return FormatFilePreviewWithLanguage(preview.Path, preview.Language, preview.Contents), true
 	case ToolPreviewKindWebSearch:
@@ -218,6 +220,10 @@ func renderDisplayFileCaption(payload DisplayFilePayload) string {
 		label = fmt.Sprintf("%s · %s", label, payload.Preview.Language)
 	}
 	if payload.Path != "" {
+		if payload.Offset > 1 && payload.Preview.StartLine > 0 {
+			lineCount := previewDocumentLineCount(payload.Preview)
+			return fmt.Sprintf("%s · %s · lines %d–%d", payload.Path, label, payload.Preview.StartLine, payload.Preview.StartLine+lineCount-1)
+		}
 		return fmt.Sprintf("%s · %s · %d lines", payload.Path, label, previewDocumentLineCount(payload.Preview))
 	}
 	return fmt.Sprintf("%s · %d lines", label, previewDocumentLineCount(payload.Preview))
@@ -319,6 +325,10 @@ func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
 			}
 		case ToolPreviewKindReadFile:
 			label = "read file preview"
+			if doc.StartLine > 1 {
+				lineCount := previewDocumentLineCount(doc)
+				return fmt.Sprintf("%s · %s · lines %d–%d", doc.Path, label, doc.StartLine, doc.StartLine+lineCount-1)
+			}
 		case ToolPreviewKindFetchURL:
 			label = "fetched page preview"
 		case ToolPreviewKindWebSearch:

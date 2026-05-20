@@ -57,9 +57,10 @@ func buildReadPreview(arguments map[string]any, result string) ToolPreview {
 		return plainToolPreview()
 	}
 	return ToolPreview{
-		Kind:     ToolPreviewKindReadFile,
-		Path:     path,
-		Language: previewLanguage(path),
-		Contents: normalizeReadPreviewContents(payload.Output, payload.StartLine),
+		Kind:      ToolPreviewKindReadFile,
+		Path:      path,
+		Language:  previewLanguage(path),
+		Contents:  normalizeReadPreviewContents(payload.Output, payload.StartLine),
+		StartLine: payload.StartLine,
 	}
 }

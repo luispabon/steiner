@@ -74,6 +74,7 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			preview := output.FormatFilePreviewWithLimit(displayPath, contents, in.Limit)
 			preview.Truncated = truncated
 			preview.LineLimit = in.Limit
+			preview.StartLine = in.Offset
 
 			env.EventSink.Emit(output.NewDisplayFileEvent(output.DisplayFilePayload{
 				Path:    displayPath,

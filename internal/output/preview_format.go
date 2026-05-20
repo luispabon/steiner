@@ -53,6 +53,9 @@ type PreviewDocument struct {
 	Lines     []PreviewLine
 	Truncated bool
 	LineLimit int
+	// StartLine is the 1-based file line number of the first line in the preview.
+	// Zero means "not set" (start at 1).
+	StartLine int `json:"start_line,omitempty"`
 }
 
 // PreviewSyntax describes the detected syntax highlighting for a preview.

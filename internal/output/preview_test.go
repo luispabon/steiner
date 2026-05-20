@@ -199,10 +199,11 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 			result: `{"path":"README.md","start_line":1,"output":"1 # Heading\n2\n3 Body line\n"}`,
 			want: ToolPreview{
-				Kind:     ToolPreviewKindReadFile,
-				Path:     "README.md",
-				Language: "markdown",
-				Contents: "# Heading\n\nBody line\n",
+				Kind:      ToolPreviewKindReadFile,
+				Path:      "README.md",
+				Language:  "markdown",
+				Contents:  "# Heading\n\nBody line\n",
+				StartLine: 1,
 			},
 		},
 		{
@@ -213,10 +214,11 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 			result: `{"path":"main.go","start_line":1,"output":"1 package main\n2\n3 func main() {\n4 \t\tfmt.Println(\"hi\")\n5 }\n"}`,
 			want: ToolPreview{
-				Kind:     ToolPreviewKindReadFile,
-				Path:     "main.go",
-				Language: "go",
-				Contents: "package main\n\nfunc main() {\n\t\tfmt.Println(\"hi\")\n}\n",
+				Kind:      ToolPreviewKindReadFile,
+				Path:      "main.go",
+				Language:  "go",
+				StartLine: 1,
+				Contents:  "package main\n\nfunc main() {\n\t\tfmt.Println(\"hi\")\n}\n",
 			},
 		},
 		{
