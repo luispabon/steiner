@@ -1,10 +1,15 @@
 package skill
 
 import (
+	"bytes"
 	"context"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestLoaderDiscoverAndLoadMany(t *testing.T) {
@@ -522,6 +527,185 @@ func TestLoaderDiscoverExtractsSummaryAfterFrontmatter(t *testing.T) {
 	}
 	if discovered[0].Summary != "Review changes for bugs and regressions." {
 		t.Fatalf("discovered[0].Summary = %q, want extracted description line", discovered[0].Summary)
+	}
+}
+
+func makeTestBundledFS(t *testing.T, skills map[string]string) fs.FS {
+	t.Helper()
+	m := make(fstest.MapFS)
+	for name, content := range skills {
+		m[name+"/SKILL.md"] = &fstest.MapFile{Data: []byte(content)}
+	}
+	return m
+}
+
+func TestLoaderDiscoverBundledOnly(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"implement": "implement instructions",
+		"plan":      "plan instructions",
+	})
+
+	loader := Loader{BundledFS: bfs}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 2 {
+		t.Fatalf("len(discovered) = %d, want 2", len(discovered))
+	}
+	if discovered[0].Name != "implement" || discovered[0].Source != "bundled" {
+		t.Fatalf("discovered[0] = {%s, %s}, want {implement, bundled}", discovered[0].Name, discovered[0].Source)
+	}
+	if discovered[1].Name != "plan" || discovered[1].Source != "bundled" {
+		t.Fatalf("discovered[1] = {%s, %s}, want {plan, bundled}", discovered[1].Name, discovered[1].Source)
+	}
+}
+
+func TestLoaderDiscoverBundledAndFilesystem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "custom", "custom instructions")
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan": "bundled plan",
+	})
+
+	loader := Loader{RootDirs: []string{root}, BundledFS: bfs}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 2 {
+		t.Fatalf("len(discovered) = %d, want 2", len(discovered))
+	}
+	// sorted: custom, plan
+	if discovered[0].Name != "custom" || discovered[0].Source != "project" {
+		t.Fatalf("discovered[0] = {%s, %s}, want {custom, project}", discovered[0].Name, discovered[0].Source)
+	}
+	if discovered[1].Name != "plan" || discovered[1].Source != "bundled" {
+		t.Fatalf("discovered[1] = {%s, %s}, want {plan, bundled}", discovered[1].Name, discovered[1].Source)
+	}
+}
+
+func TestLoaderDiscoverBundledShadowsFilesystem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "plan", "filesystem plan")
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan": "bundled plan",
+	})
+
+	loader := Loader{RootDirs: []string{root}, BundledFS: bfs}
+	discovered, err := loader.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d, want 1", len(discovered))
+	}
+	if discovered[0].Source != "bundled" {
+		t.Fatalf("Source = %q, want bundled", discovered[0].Source)
+	}
+	if discovered[0].Content != "" {
+		t.Fatalf("Discover() should not populate Content, got non-empty")
+	}
+}
+
+func TestLoaderDiscoverBundledCollisionWarning(t *testing.T) {
+	// Not parallel — modifies slog default.
+
+	root := t.TempDir()
+	mustSkill(t, root, "plan", "filesystem plan")
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan": "bundled plan",
+	})
+
+	var logBuf bytes.Buffer
+	h := slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})
+	old := slog.Default()
+	slog.SetDefault(slog.New(h))
+	defer slog.SetDefault(old)
+
+	loader := Loader{RootDirs: []string{root}, BundledFS: bfs}
+	if _, err := loader.Discover(context.Background()); err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if !strings.Contains(logBuf.String(), "plan") {
+		t.Fatalf("expected warn log mentioning 'plan', got: %s", logBuf.String())
+	}
+}
+
+func TestLoaderLoadBundled(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan": "plan instructions",
+	})
+
+	loader := Loader{BundledFS: bfs}
+	s, err := loader.Load(context.Background(), "plan")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if s.Name != "plan" || s.Source != "bundled" || s.Content != "plan instructions" {
+		t.Fatalf("Load() = %+v, want name=plan source=bundled content=plan instructions", s)
+	}
+	if s.Path != "plan/SKILL.md" {
+		t.Fatalf("Load() Path = %q, want plan/SKILL.md", s.Path)
+	}
+}
+
+func TestLoaderLoadBundledPriorityOverFilesystem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustSkill(t, root, "plan", "filesystem plan")
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan": "bundled plan",
+	})
+
+	loader := Loader{RootDirs: []string{root}, BundledFS: bfs}
+	s, err := loader.Load(context.Background(), "plan")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if s.Source != "bundled" || s.Content != "bundled plan" {
+		t.Fatalf("Load() should prefer bundled, got source=%q content=%q", s.Source, s.Content)
+	}
+}
+
+func TestLoaderLoadManyBundled(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeTestBundledFS(t, map[string]string{
+		"plan":      "plan instructions",
+		"implement": "implement instructions",
+	})
+
+	loader := Loader{BundledFS: bfs}
+	loaded, err := loader.LoadMany(context.Background(), []string{"plan", "implement"})
+	if err != nil {
+		t.Fatalf("LoadMany() error = %v", err)
+	}
+
+	if len(loaded) != 2 {
+		t.Fatalf("len(loaded) = %d, want 2", len(loaded))
+	}
+	if loaded[0].Source != "bundled" || loaded[1].Source != "bundled" {
+		t.Fatalf("LoadMany() sources = [%s, %s], want both bundled", loaded[0].Source, loaded[1].Source)
 	}
 }
 
