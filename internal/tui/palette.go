@@ -157,7 +157,7 @@ func (p paletteModel) View() string {
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	box := p.styles.PaletteOverlay.
-		Width(innerWidth).
+		Width(innerWidth+2).
 		Padding(1, 1).
 		Render(body)
 

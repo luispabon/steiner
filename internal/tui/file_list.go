@@ -130,7 +130,7 @@ func (f fileListOverlay) View() string {
 		footer,
 	)
 	box := f.styles.PaletteOverlay.
-		Width(innerWidth).
+		Width(innerWidth+2).
 		Padding(1, 1).
 		Render(body)
 

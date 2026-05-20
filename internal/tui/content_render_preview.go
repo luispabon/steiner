@@ -398,7 +398,7 @@ func (b *contentBuffer) renderFilePreviewDocument(doc output.PreviewDocument) []
 func (b *contentBuffer) renderDiffPreviewDocument(doc output.PreviewDocument, width int) []string {
 	lines := make([]string, 0, len(doc.Lines))
 	oldLine, newLine := 1, 1
-	rule := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", max(1, width)))
+	rule := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", max(1, width-2)))
 	for _, line := range doc.Lines {
 		switch line.Kind {
 		case output.PreviewLineKindHeader:
