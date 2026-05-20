@@ -11,12 +11,8 @@ func buildApplyPatchPreview(result string) ToolPreview {
 	return buildPatchPreview(result, patchPreviewSpec{})
 }
 
-func buildMutatePreview(result string) ToolPreview {
-	return buildPatchPreview(result, patchPreviewSpec{
-		addedField:   func(payload patchPreviewPayload) []string { return payload.Created },
-		appliedCount: func(payload patchPreviewPayload) int { return payload.OperationsApplied },
-		failedCount:  func(payload patchPreviewPayload) int { return payload.OperationsFailed },
-	})
+func buildMutatePreview(arguments map[string]any, result string) ToolPreview {
+	return buildMutatePreviewImpl(arguments, result)
 }
 
 type patchPreviewMove struct {

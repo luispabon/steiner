@@ -419,3 +419,91 @@ func (b *contentBuffer) renderDiffRow(line output.PreviewLine, lineNo int, sign 
 	}
 	return sb.String()
 }
+
+func (b *contentBuffer) buildMutateLines(tc *toolCallSegment, width int) []string {
+	if len(tc.preview.MutateOperations) == 0 {
+		return b.buildPlainLines(tc)
+	}
+
+	var lines []string
+
+	// Result summary
+	if tc.preview.HunksApplied > 0 || tc.preview.HunksFailed > 0 {
+		summary := fmt.Sprintf("%d operations", len(tc.preview.MutateOperations))
+		summary += fmt.Sprintf(" · %d applied", tc.preview.HunksApplied)
+		if tc.preview.HunksFailed > 0 {
+			summary += fmt.Sprintf(" · %d failed", tc.preview.HunksFailed)
+		}
+		lines = append(lines, b.styles.FgDim.Render(summary))
+	}
+
+	addedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffAddedBg)).
+		Foreground(lipgloss.Color(theme.Added))
+	removedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffRemovedBg)).
+		Foreground(lipgloss.Color(theme.Removed))
+
+	rule := b.styles.FgMute.Render(strings.Repeat("─", max(1, width-2)))
+
+	for _, op := range tc.preview.MutateOperations {
+		lines = append(lines, "") // blank separator
+
+		switch op.Type {
+		case "create", "write":
+			badge := b.styles.Added.Render("A")
+			if op.Type == "write" {
+				badge = b.styles.Warn.Render("M")
+			}
+			header := badge + " " + b.styles.FgDim.Render(op.Path)
+			lines = append(lines, header)
+			lines = append(lines, rule)
+
+			doc := output.FormatFilePreview(op.Path, op.Content)
+			lines = append(lines, b.renderFilePreviewDocument(doc)...)
+			lines = append(lines, rule)
+
+		case "replace":
+			badge := b.styles.Warn.Render("M")
+			header := badge + " " + b.styles.FgDim.Render(op.Path)
+			lines = append(lines, header)
+			lines = append(lines, rule)
+
+			oldLines := strings.Split(op.OldString, "\n")
+			newLines := strings.Split(op.NewString, "\n")
+			maxLen := max(len(oldLines), len(newLines))
+			for i := 0; i < maxLen; i++ {
+				if i < len(oldLines) {
+					lines = append(lines, removedBg.Render("- "+oldLines[i]))
+				}
+				if i < len(newLines) {
+					lines = append(lines, addedBg.Render("+ "+newLines[i]))
+				}
+			}
+			lines = append(lines, rule)
+
+		case "line_replace":
+			badge := b.styles.Warn.Render("M")
+			header := badge + " " + b.styles.FgDim.Render(op.Path)
+			lines = append(lines, header)
+			lines = append(lines, rule)
+
+			lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
+			lines = append(lines, lineNo+"  "+removedBg.Render("- "+op.OldString))
+			lines = append(lines, lineNo+"  "+addedBg.Render("+ "+op.NewString))
+			lines = append(lines, rule)
+
+		case "delete":
+			badge := b.styles.Removed.Render("D")
+			header := badge + " " + b.styles.FgDim.Render(op.Path)
+			lines = append(lines, header)
+
+		case "move":
+			badge := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Render("R")
+			header := badge + " " + b.styles.FgDim.Render(op.From) + " " + b.styles.FgFaint.Render("→") + " " + b.styles.FgDim.Render(op.To)
+			lines = append(lines, header)
+		}
+	}
+
+	return lines
+}

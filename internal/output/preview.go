@@ -17,8 +17,10 @@ const (
 	ToolPreviewKindGrep = "grep"
 	// ToolPreviewKindBash is a shell command preview.
 	ToolPreviewKindBash = "bash"
-	// ToolPreviewKindPatch is an apply_patch or mutate preview.
+	// ToolPreviewKindPatch is an apply_patch preview.
 	ToolPreviewKindPatch = "patch"
+	// ToolPreviewKindMutate is a mutate tool result preview.
+	ToolPreviewKindMutate = "mutate"
 	// ToolPreviewKindPlain is a fallback preview with no structured rendering.
 	ToolPreviewKindPlain = "plain"
 	// ToolPreviewKindFetchURL is a fetch_url tool result preview.
@@ -39,6 +41,18 @@ type ToolPreviewPatchMove struct {
 	To   string
 }
 
+// ToolPreviewMutateOperation carries one operation for mutate rendering.
+type ToolPreviewMutateOperation struct {
+	Type      string
+	Path      string
+	From      string
+	To        string
+	Content   string
+	OldString string
+	NewString string
+	Line      int
+}
+
 // ToolPreviewGrepMatch is one matching line in a grep preview.
 type ToolPreviewGrepMatch struct {
 	LineNumber int
@@ -54,30 +68,31 @@ type ToolPreviewGrepFile struct {
 
 // ToolPreview is the normalized preview payload for tool results.
 type ToolPreview struct {
-	Kind          string
-	Path          string
-	Language      string
-	Before        string
-	After         string
-	Contents      string
-	Created       bool
-	Command       string
-	Output        string
-	Message       string
-	ExitCode      int
-	Truncated     bool
-	HasMore       bool
-	Returned      int
-	NextOffset    int
-	OutputMode    string
-	Entries       []ToolPreviewListEntry
-	GrepFiles     []ToolPreviewGrepFile
-	PatchAdded    []string
-	PatchModified []string
-	PatchDeleted  []string
-	PatchMoved    []ToolPreviewPatchMove
-	HunksApplied  int
-	HunksFailed   int
+	Kind             string
+	Path             string
+	Language         string
+	Before           string
+	After            string
+	Contents         string
+	Created          bool
+	Command          string
+	Output           string
+	Message          string
+	ExitCode         int
+	Truncated        bool
+	HasMore          bool
+	Returned         int
+	NextOffset       int
+	OutputMode       string
+	Entries          []ToolPreviewListEntry
+	GrepFiles        []ToolPreviewGrepFile
+	PatchAdded       []string
+	PatchModified    []string
+	PatchDeleted     []string
+	PatchMoved       []ToolPreviewPatchMove
+	HunksApplied     int
+	HunksFailed      int
+	MutateOperations []ToolPreviewMutateOperation
 }
 
 // BuildToolPreview builds a structured preview for a tool result when supported.
@@ -98,7 +113,7 @@ func BuildToolPreview(tool string, arguments map[string]any, result string, writ
 	case "bash":
 		return buildBashPreview(arguments, result)
 	case "mutate":
-		return buildMutatePreview(result)
+		return buildMutatePreview(arguments, result)
 	case "apply_patch":
 		return buildApplyPatchPreview(result)
 	case "fetch_url":
