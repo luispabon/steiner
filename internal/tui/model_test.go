@@ -389,6 +389,86 @@ func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
 	}
 }
 
+func TestComposerTokenAtCursor(t *testing.T) {
+	t.Run("finds slash token at cursor", func(t *testing.T) {
+		token, start, end, ok := composerTokenAtCursor("/con", len([]rune("/con")), '/')
+		if !ok {
+			t.Fatal("expected slash token to be found")
+		}
+		if token != "/con" || start != 0 || end != 4 {
+			t.Fatalf("got token=%q start=%d end=%d, want /con 0 4", token, start, end)
+		}
+	})
+
+	t.Run("finds at token after leading text", func(t *testing.T) {
+		value := "check @inte"
+		token, start, end, ok := composerTokenAtCursor(value, len([]rune(value)), '@')
+		if !ok {
+			t.Fatal("expected @ token to be found")
+		}
+		if token != "@inte" {
+			t.Fatalf("token = %q, want @inte", token)
+		}
+		if got := value[start:end]; got != "@inte" {
+			t.Fatalf("slice = %q, want @inte", got)
+		}
+	})
+
+	t.Run("ignores non-matching token", func(t *testing.T) {
+		if _, _, _, ok := composerTokenAtCursor("plain text", len([]rune("plain text")), '@'); ok {
+			t.Fatal("expected no @ token")
+		}
+	})
+}
+
+func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if got := m.input.Value(); got != "/co" {
+		t.Fatalf("input value = %q, want /co", got)
+	}
+	if !m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to stay open")
+	}
+	if got := m.slashOverlay.query; got != "/co" {
+		t.Fatalf("slash query = %q, want /co", got)
+	}
+	foundConfig := false
+	foundContext := false
+	for _, candidate := range m.slashOverlay.candidates {
+		if candidate.command == "/config" {
+			foundConfig = true
+		}
+		if candidate.command == "/context" {
+			foundContext = true
+		}
+	}
+	if !foundConfig || !foundContext {
+		t.Fatalf("candidates = %#v, want /config and /context present", m.slashOverlay.candidates)
+	}
+}
+
+func TestModelSlashOverlayEscRemovesActiveToken(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to close on Esc")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want empty after Esc", got)
+	}
+}
+
 func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 	ctrl := &testController{}
 
@@ -1776,7 +1856,7 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := m.View()
+	view := stripANSI(m.View())
 	// The file picker should appear in the view (not be hidden)
 	if !strings.Contains(view, "@") {
 		t.Fatal("expected file picker content in View()")
@@ -1785,8 +1865,8 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	if !strings.Contains(view, "─") {
 		t.Fatal("expected divider in View()")
 	}
-	if !strings.Contains(view, "ask steiner") {
-		t.Fatal("expected composer placeholder in View()")
+	if !strings.Contains(view, "@") {
+		t.Fatal("expected composer text in View()")
 	}
 	if !strings.Contains(view, "┃") {
 		t.Fatal("expected accented composer border in View()")

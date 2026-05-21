@@ -100,6 +100,23 @@ func TestFilePickerOverlay_EmptyQueryShowsAll(t *testing.T) {
 	}
 }
 
+func TestFilePickerOverlay_SyncQueryFiltersCandidates(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f = f.Open(".")
+	if len(f.candidates) == 0 {
+		t.Skip("no entries to filter")
+	}
+
+	f.syncQuery(".go")
+	if f.query != ".go" {
+		t.Fatalf("query = %q, want .go", f.query)
+	}
+	if len(f.candidates) == 0 {
+		t.Fatal("expected at least one candidate matching .go")
+	}
+}
+
 func TestFilePickerOverlay_Navigation(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
@@ -268,6 +285,41 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	val := m.input.Value()
 	if !strings.HasPrefix(val, selected+" ") && val != selected {
 		t.Fatalf("expected input to start with %q, got %q", selected+" ", val)
+	}
+}
+
+func TestModelFilePicker_TypingUpdatesComposerAndPickerQuery(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if got := m.input.Value(); got != "@go" {
+		t.Fatalf("input value = %q, want @go", got)
+	}
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to stay open")
+	}
+	if got := m.filePicker.query; got != "go" {
+		t.Fatalf("picker query = %q, want go", got)
+	}
+}
+
+func TestModelFilePicker_EscRemovesActiveToken(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to close on Esc")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want empty after Esc", got)
 	}
 }
 
@@ -552,16 +604,16 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := m.View()
+	view := stripANSI(m.View())
 
-	if !strings.Contains(view, "CONTEXT") {
-		t.Fatal("expected sidebar CONTEXT label to survive file picker overlay")
+	if !strings.Contains(view, "REPOSITORY") {
+		t.Fatal("expected sidebar repository section to survive file picker overlay")
 	}
-	if !strings.Contains(view, "steiner") {
-		t.Fatal("expected sidebar brand name to survive file picker overlay")
+	if !strings.Contains(view, "workdir.") {
+		t.Fatal("expected sidebar workdir row to survive file picker overlay")
 	}
-	if !strings.Contains(view, "test-model") {
-		t.Fatal("expected sidebar model name to survive file picker overlay")
+	if !strings.Contains(view, "branch tmp/step-1") {
+		t.Fatal("expected sidebar branch row to survive file picker overlay")
 	}
 }
 
@@ -579,13 +631,10 @@ func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := m.View()
+	view := stripANSI(m.View())
 
-	if !strings.Contains(view, "CONTEXT") {
-		t.Fatal("expected sidebar CONTEXT label to survive file picker overlay")
-	}
-	if !strings.Contains(view, "steiner") {
-		t.Fatal("expected sidebar brand name to survive file picker overlay")
+	if !strings.Contains(view, "REPOSITORY") {
+		t.Fatal("expected sidebar repository section to survive file picker overlay")
 	}
 	if !strings.Contains(view, "test-model") {
 		t.Fatal("expected sidebar model name to survive file picker overlay")

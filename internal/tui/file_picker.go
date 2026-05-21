@@ -85,6 +85,11 @@ func (f filePickerOverlay) Close() filePickerOverlay {
 	return f
 }
 
+func (f *filePickerOverlay) syncQuery(query string) {
+	f.query = query
+	f.filter()
+}
+
 func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 	if !f.IsOpen() {
 		return f, nil

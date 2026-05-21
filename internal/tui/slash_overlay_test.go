@@ -66,6 +66,27 @@ func TestSlashOverlayFilterByCommand(t *testing.T) {
 	}
 }
 
+func TestSlashOverlaySyncQueryUsesSlashToken(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+	overlay := newSlashOverlay(styles)
+
+	items := []slashOverlayItem{
+		{command: "/clear", name: "Clear", desc: "reset", source: ""},
+		{command: "/config", name: "Config", desc: "show config", source: ""},
+		{command: "/context", name: "Context", desc: "inspect context", source: ""},
+	}
+
+	overlay = overlay.Open(items)
+	overlay.syncQuery("/co")
+
+	if overlay.query != "/co" {
+		t.Fatalf("query = %q, want /co", overlay.query)
+	}
+	if len(overlay.candidates) != 2 {
+		t.Fatalf("candidates count = %d, want 2", len(overlay.candidates))
+	}
+}
+
 func TestSlashOverlayFilterByName(t *testing.T) {
 	styles := theme.Default().LipGlossStyles()
 	overlay := newSlashOverlay(styles)

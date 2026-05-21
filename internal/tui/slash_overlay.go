@@ -55,6 +55,11 @@ func (s slashOverlay) Close() slashOverlay {
 	return s
 }
 
+func (s *slashOverlay) syncQuery(query string) {
+	s.query = query
+	s.filterCandidates()
+}
+
 // Update handles key input for the overlay.
 func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 	if !s.IsOpen() {
@@ -105,6 +110,7 @@ func (s *slashOverlay) filterCandidates() {
 	s.selection = 0
 
 	q := strings.ToLower(strings.TrimSpace(s.query))
+	q = strings.TrimPrefix(q, "/")
 	if q == "" {
 		s.candidates = append([]slashOverlayItem(nil), s.allItems...)
 		return
@@ -169,7 +175,7 @@ func (s slashOverlay) View() string {
 
 	// Header showing the slash prefix and query
 	prefix := s.styles.Accent.Render("/")
-	queryDisplay := s.query
+	queryDisplay := strings.TrimPrefix(s.query, "/")
 	if queryDisplay == "" {
 		queryDisplay = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.FgMute)).
