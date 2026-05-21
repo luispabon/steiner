@@ -9,11 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-type stringMatchResult struct {
-	value          string
-	matchedIndexes []int
-}
-
 type slashOverlayMatch struct {
 	commandIndexes []int
 	nameIndexes    []int

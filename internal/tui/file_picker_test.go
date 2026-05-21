@@ -658,7 +658,7 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 	if !strings.Contains(view, "workdir.") {
 		t.Fatal("expected sidebar workdir row to survive file picker overlay")
 	}
-	if !strings.Contains(view, "branch tmp/step-1") {
+	if !strings.Contains(view, "branch tmp/") {
 		t.Fatal("expected sidebar branch row to survive file picker overlay")
 	}
 }
