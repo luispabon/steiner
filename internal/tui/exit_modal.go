@@ -22,7 +22,7 @@ type exitModalState struct {
 }
 
 func openExitModal(width, height int) exitModalState {
-	shell := OverlayShell{}
+	shell := OverlayShell{}.WithPreferredWidth(60)
 	shell = shell.WithDimensions(width, height).WithTitle("exit").openShell()
 	return exitModalState{
 		OverlayShell:   shell,
@@ -45,15 +45,7 @@ func (m *Model) renderExitModal() string {
 	s := m.exitModal
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
-	overlayWidth := 60
-	if overlayWidth > m.width-4 {
-		overlayWidth = m.width - 4
-	}
-	if overlayWidth < 40 {
-		overlayWidth = 40
-	}
-	innerWidth := overlayWidth - 4
-	contentWidth := max(1, innerWidth-2)
+	contentWidth := max(1, s.InnerWidth()-2)
 
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.Fg)).
@@ -88,7 +80,7 @@ func (m *Model) renderExitModal() string {
 		divider,
 		footer,
 	)
-	box := m.styles.PaletteOverlay.Width(innerWidth).Padding(0, 1).Render(content)
+	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
 	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }
 

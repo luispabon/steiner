@@ -107,11 +107,11 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	switch {
-	case m.contextOverlay.open:
+	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
 	case m.scratchpadOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.scratchpadOverlay.renderScratchpadOverlay(), m.width, m.height)
-	case m.exitModal.open:
+	case m.exitModal.IsOpen():
 		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
 	default:
 		return base
@@ -128,13 +128,13 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 		xOffset = m.width - contentWidth
 	}
 
-	if m.slashOverlay.open {
+	if m.slashOverlay.IsOpen() {
 		base = m.slashOverlay.PlaceBottomAnchoredAt(base, m.slashOverlay.View(), offset, xOffset)
 	}
-	if m.filePicker.open {
+	if m.filePicker.IsOpen() {
 		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
 	}
-	if m.sessionPicker.open {
+	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
 	}
 	return base

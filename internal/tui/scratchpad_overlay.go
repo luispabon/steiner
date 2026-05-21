@@ -25,7 +25,7 @@ type scratchpadOverlayState struct {
 // openScratchpadOverlay returns a copy of the state with the overlay open and
 // fields populated from the current sidebar scratchpad values.
 func (s scratchpadOverlayState) openScratchpadOverlay(width, height int, intent, decisions, openItems, next string, styles theme.Styles) scratchpadOverlayState {
-	shell := OverlayShell{}
+	shell := OverlayShell{}.WithPreferredWidth(80)
 	shell = shell.WithDimensions(width, height).openShell()
 	return scratchpadOverlayState{
 		OverlayShell: shell,
@@ -39,7 +39,7 @@ func (s scratchpadOverlayState) openScratchpadOverlay(width, height int, intent,
 
 // reflow splits the scratchpad content into lines and resets scroll bounds.
 func (s scratchpadOverlayState) reflow() scratchpadOverlayState {
-	innerWidth := s.scratchpadInnerWidth()
+	innerWidth := s.InnerWidth()
 	var bodyLines []string
 	anyField := s.intent != "" || s.decisions != "" || s.next != "" || s.openItems != ""
 	if !anyField {
@@ -105,18 +105,9 @@ func (s scratchpadOverlayState) closeScratchpadOverlay() scratchpadOverlayState 
 // overlay before scrolling is needed.
 const scratchpadMaxLines = 20
 
-// scratchpadOverlayWidth returns the fixed overlay width (matching context overlay approach).
-const scratchpadOverlayWidth = 80
-
-// scratchpadInnerWidth returns the inner content width.
-func (s scratchpadOverlayState) scratchpadInnerWidth() int {
-	// Subtract border (2) and padding (2) = 4.
-	return scratchpadOverlayWidth - 4
-}
-
 // renderScratchpadOverlay builds the rendered scratchpad overlay string.
 func (s scratchpadOverlayState) renderScratchpadOverlay() string {
-	innerWidth := s.scratchpadInnerWidth()
+	innerWidth := s.InnerWidth()
 
 	// Title
 	titleStyle := lipgloss.NewStyle().
@@ -164,8 +155,7 @@ func (s scratchpadOverlayState) renderScratchpadOverlay() string {
 		BorderForeground(lipgloss.Color(theme.BorderSoft)).
 		Padding(1, 2)
 
-	box := boxStyle.Width(scratchpadOverlayWidth).Render(full)
-	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(boxStyle, full, lipgloss.Color(theme.BgElev))
 }
 
 // renderField renders a single scratchpad field with label and wrapped value.
