@@ -174,12 +174,11 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	m.palette.width = msg.Width
-	m.palette.height = msg.Height
-	m.fileList.width = msg.Width
-	m.fileList.height = msg.Height
+	m.palette.OverlayShell = m.palette.WithDimensions(msg.Width, msg.Height)
+	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
+
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
-	if m.contextOverlay.open {
+	if m.contextOverlay.IsOpen() {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
@@ -188,6 +187,15 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
 	}
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
+
+	// Use content area width for bottom-anchored overlays so they don't
+	// overflow into the sidebar area.
+	contentW := msg.Width
+	if m.sidebar.Visible(msg.Width) {
+		contentW = msg.Width - sidebarWidth - 1
+	}
+	m.filePicker.OverlayShell = m.filePicker.WithDimensions(contentW, msg.Height)
+	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
 	m.layout()
 	return m, nil
 }

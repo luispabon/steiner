@@ -99,19 +99,19 @@ func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) stri
 
 func (m Model) renderOverlayView(base string, contentWidth int) string {
 	switch {
-	case m.palette.open:
+	case m.palette.IsOpen():
 		return composeCenteredOverlay(base, m.palette.View(), m.width, m.height)
-	case m.fileList.open:
+	case m.fileList.IsOpen():
 		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
 	}
 
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	switch {
-	case m.contextOverlay.open:
+	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
 	case m.scratchpadOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.scratchpadOverlay.renderScratchpadOverlay(), m.width, m.height)
-	case m.exitModal.open:
+	case m.exitModal.IsOpen():
 		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
 	default:
 		return base
@@ -119,7 +119,7 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 }
 
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
-	offset := m.inputChromeHeight(contentWidth) + m.activityRowHeight(contentWidth)
+	offset := m.bottomChromeHeight(contentWidth)
 
 	// When the sidebar occupies the left side, push the slash overlay right so
 	// it appears above the prompt box rather than over the sidebar.
@@ -128,13 +128,13 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 		xOffset = m.width - contentWidth
 	}
 
-	if m.slashOverlay.open {
+	if m.slashOverlay.IsOpen() {
 		base = m.slashOverlay.PlaceBottomAnchoredAt(base, m.slashOverlay.View(), offset, xOffset)
 	}
-	if m.filePicker.open {
+	if m.filePicker.IsOpen() {
 		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
 	}
-	if m.sessionPicker.open {
+	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
 	}
 	return base
@@ -207,6 +207,14 @@ func (m Model) renderInputView(contentWidth int) string {
 
 func (m Model) inputChromeHeight(contentWidth int) int {
 	return lipgloss.Height(m.renderInputView(contentWidth))
+}
+
+func (m Model) bottomChromeHeight(contentWidth int) int {
+	return 1 + // hDivider
+		m.approvalTrayHeight(contentWidth) +
+		m.activityRowHeight(contentWidth) +
+		m.inputChromeHeight(contentWidth) +
+		1 // status bar
 }
 
 func (m Model) activityRowHeight(_ int) int {

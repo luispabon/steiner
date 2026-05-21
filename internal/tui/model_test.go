@@ -558,8 +558,8 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(reportContent)})
 
 	// Overlay should open immediately with report content, not transcript.
-	if !m.contextOverlay.open {
-		t.Fatal("contextOverlay.open = false, want overlay open after context report event")
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after context report event")
 	}
 	if !strings.Contains(m.contextOverlay.content, "Last Request Context") {
 		t.Fatalf("contextOverlay.content = %q, want report content", m.contextOverlay.content)
@@ -570,8 +570,8 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 
 	// Esc should close the overlay.
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.contextOverlay.open {
-		t.Fatal("contextOverlay.open = true, want overlay closed after Esc")
+	if m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed after Esc")
 	}
 }
 
@@ -599,8 +599,8 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	reportContent := "```yaml\nmodel:\n  model: gpt-test\n```"
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConfigReportEvent(reportContent)})
 
-	if !m.contextOverlay.open {
-		t.Fatal("contextOverlay.open = false, want overlay open after config report event")
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after config report event")
 	}
 	if got := m.contextOverlay.title; got != "Config" {
 		t.Fatalf("contextOverlay.title = %q, want Config", got)
@@ -625,8 +625,8 @@ func main() {}
 		Preview: preview,
 	})})
 
-	if m.contextOverlay.open {
-		t.Fatal("contextOverlay.open = true, want no overlay for display_file")
+	if m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = true, want no overlay for display_file")
 	}
 	content := m.content.String(m.viewport.Width)
 	for _, want := range []string{"display file preview", "snippet.go", "package main"} {
@@ -1258,8 +1258,8 @@ func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 	if ctrl.countInterruptActiveRun() != 0 {
 		t.Fatalf("interrupt count = %d, want 0 (idle, not active run)", ctrl.countInterruptActiveRun())
 	}
-	if !updated.exitModal.open {
-		t.Fatal("exitModal.open = false, want modal open")
+	if !updated.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 	if cmd != nil {
 		t.Fatal("expected no quit command when opening exit modal")
@@ -1283,8 +1283,8 @@ func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 	if ctrl.countRequestExit() != 0 {
 		t.Fatalf("exit request count = %d, want 0 before confirmation", ctrl.countRequestExit())
 	}
-	if !updated.exitModal.open {
-		t.Fatal("exitModal.open = false, want modal open")
+	if !updated.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 	if cmd != nil {
 		t.Fatal("expected no quit command when opening exit modal")
@@ -1311,16 +1311,16 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
-	if !m.exitModal.open {
-		t.Fatal("exitModal.open = false, want modal open")
+	if !m.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	updated := m
 
-	if updated.exitModal.open {
-		t.Fatal("exitModal.open = true, want modal closed")
+	if updated.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = true, want modal closed")
 	}
 	if ctrl.countRequestExit() != 0 {
 		t.Fatalf("exit request count = %d, want 0", ctrl.countRequestExit())
@@ -1335,8 +1335,8 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
-	if !m.exitModal.open {
-		t.Fatal("exitModal.open = false, want modal open")
+	if !m.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -1345,8 +1345,8 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 	if ctrl.countRequestExit() != 1 {
 		t.Fatalf("exit request count = %d, want 1", ctrl.countRequestExit())
 	}
-	if !updated.exitModal.open {
-		t.Fatal("exitModal.open = false, want modal to remain open until runtime quits")
+	if !updated.exitModal.IsOpen() {
+		t.Fatal("exitModal.IsOpen() = false, want modal to remain open until runtime quits")
 	}
 }
 
@@ -1630,7 +1630,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 
 	m.input.SetValue("/ls")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.fileList.open {
+	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls")
 	}
 	if m.fileList.root != "." {
@@ -1641,7 +1641,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.fileList.open {
+	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Esc")
 	}
 }
@@ -1652,7 +1652,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 
 	m.input.SetValue("/ls .")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.fileList.open {
+	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls .")
 	}
 	if len(m.fileList.entries) == 0 {
@@ -1660,7 +1660,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.fileList.open {
+	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Enter")
 	}
 }
@@ -1670,7 +1670,7 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 

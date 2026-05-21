@@ -13,12 +13,12 @@ import (
 func TestFilePickerOverlay_NewClose(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	if f.open {
+	if f.IsOpen() {
 		t.Fatal("expected picker to start closed")
 	}
 
 	f = f.Open(".")
-	if !f.open {
+	if !f.IsOpen() {
 		t.Fatal("expected picker to be open after Open()")
 	}
 	if len(f.allEntries) == 0 {
@@ -26,7 +26,7 @@ func TestFilePickerOverlay_NewClose(t *testing.T) {
 	}
 
 	f = f.Close()
-	if f.open {
+	if f.IsOpen() {
 		t.Fatal("expected picker to be closed after Close()")
 	}
 }
@@ -46,7 +46,7 @@ func TestFilePickerOverlay_ViewNonEmpty(t *testing.T) {
 	f.width = 80
 	f.height = 24
 	f = f.Open(".")
-	if !f.open {
+	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
 	view := f.View()
@@ -59,7 +59,7 @@ func TestFilePickerOverlay_QueryFiltersCandidates(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
-	if !f.open {
+	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
 
@@ -132,12 +132,12 @@ func TestFilePickerOverlay_EscCloses(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
-	if !f.open {
+	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
 
 	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if updated.open {
+	if updated.IsOpen() {
 		t.Fatal("expected picker to close on Esc")
 	}
 }
@@ -146,12 +146,12 @@ func TestFilePickerOverlay_EnterDoesNotClose(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
-	if !f.open {
+	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
 
 	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !updated.open {
+	if !updated.IsOpen() {
 		t.Fatal("expected picker to stay open on Enter (handled by caller)")
 	}
 }
@@ -226,7 +226,7 @@ func TestModelFilePicker_OpensOnAt(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 }
@@ -236,12 +236,12 @@ func TestModelFilePicker_EscCloses(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.filePicker.open {
+	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close on Esc")
 	}
 }
@@ -251,7 +251,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open")
 	}
 	if len(m.filePicker.candidates) == 0 {
@@ -261,7 +261,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	selected := m.filePicker.candidates[m.filePicker.selection]
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.filePicker.open {
+	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after Enter")
 	}
 
@@ -274,7 +274,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.candidates = make([]string, 20)
 	for i := range 20 {
 		f.candidates[i] = string(rune('a' + i))
@@ -317,7 +317,7 @@ func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.candidates = make([]string, 20)
 	for i := range 20 {
 		f.candidates[i] = string(rune('a' + i))
@@ -340,7 +340,7 @@ func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
 func TestFilePickerOverlay_FilterResetsScrollOffset(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.allEntries = make([]string, 20)
 	for i := range 20 {
 		f.allEntries[i] = string(rune('a' + i))
@@ -374,7 +374,7 @@ func TestFilePickerOverlay_OpenResetsScrollOffset(t *testing.T) {
 func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	// Use distinctive candidates that won't appear in UI chrome text.
@@ -405,7 +405,7 @@ func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
 func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = make([]string, 10)
@@ -425,7 +425,7 @@ func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
@@ -445,7 +445,7 @@ func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
 func TestFilePickerOverlay_EmptyQueryShowsPlaceholderWhenNoCandidates(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = nil
@@ -459,7 +459,7 @@ func TestFilePickerOverlay_EmptyQueryShowsPlaceholderWhenNoCandidates(t *testing
 func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
@@ -481,7 +481,7 @@ func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
 func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = []string{"alpha.txt", "beta.go", "gamma.md"}
@@ -515,7 +515,7 @@ func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
 func TestFilePickerOverlay_ViewOmitsFooterHelpRow(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.width = 80
 	f.height = 24
 	f.candidates = []string{"alpha.txt", "beta.go"}
@@ -533,7 +533,7 @@ func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
-	if m.filePicker.open {
+	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to stay closed on non-@")
 	}
 }
@@ -548,7 +548,7 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
@@ -575,7 +575,7 @@ func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	if !m.filePicker.open {
+	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 

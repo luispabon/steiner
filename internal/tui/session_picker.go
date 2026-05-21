@@ -47,7 +47,7 @@ func (s sessionPickerOverlay) Close() sessionPickerOverlay {
 }
 
 func (s sessionPickerOverlay) Update(msg tea.Msg) (sessionPickerOverlay, tea.Cmd) {
-	if !s.open {
+	if !s.IsOpen() {
 		return s, nil
 	}
 	switch updateSearchPicker(&s.query, &s.selection, &s.scrollOffset, &s.candidates, s.allEntries, msg, func(query string, entries []session.IndexEntry) []session.IndexEntry {
@@ -65,7 +65,7 @@ func (s sessionPickerOverlay) Update(msg tea.Msg) (sessionPickerOverlay, tea.Cmd
 }
 
 func (s sessionPickerOverlay) View() string {
-	if !s.open {
+	if !s.IsOpen() {
 		return ""
 	}
 
@@ -103,7 +103,7 @@ func (s sessionPickerOverlay) View() string {
 	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return theme.WithBg(s.Render(overlayStyles{box: s.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(s.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
 func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidth int) string {

@@ -42,26 +42,26 @@ func (m Model) recentWheelMouseInput() bool {
 
 func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	switch {
-	case m.exitModal.open:
+	case m.exitModal.IsOpen():
 		next, cmd := m.handleExitModalKey(msg)
 		return true, next, cmd
-	case m.palette.open:
+	case m.palette.IsOpen():
 		var cmd tea.Cmd
 		m.palette, cmd = m.palette.Update(msg)
 		return true, m, cmd
-	case m.slashOverlay.open:
+	case m.slashOverlay.IsOpen():
 		next, cmd := m.handleSlashOverlayKey(msg)
 		return true, next, cmd
-	case m.fileList.open:
+	case m.fileList.IsOpen():
 		var cmd tea.Cmd
 		m.fileList, cmd = m.fileList.Update(msg)
 		return true, m, cmd
-	case m.contextOverlay.open:
+	case m.contextOverlay.IsOpen():
 		return true, m.handleContextOverlayKey(msg), nil
-	case m.filePicker.open:
+	case m.filePicker.IsOpen():
 		next, cmd := m.handleFilePickerKey(msg)
 		return true, next, cmd
-	case m.sessionPicker.open:
+	case m.sessionPicker.IsOpen():
 		next, cmd := m.handleSessionPickerKey(msg)
 		return true, next, cmd
 	case m.scratchpadOverlay.IsOpen():
@@ -124,8 +124,6 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 		return true, m.openExitModal(), nil
 	case tea.KeyCtrlP:
 		m.palette = m.palette.Open()
-		m.palette.width = m.width
-		m.palette.height = m.height
 		return true, m, nil
 	case tea.KeyCtrlB:
 		m.sidebar.Toggle()

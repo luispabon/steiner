@@ -37,7 +37,7 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(report)})
 
-	if !m.contextOverlay.open {
+	if !m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = closed, want open after context report")
 	}
 	if got := m.contextOverlay.title; got != "Context Report" {
@@ -69,7 +69,7 @@ func TestContextOverlayRendersConfigYAMLWithSyntaxHighlighting(t *testing.T) {
 	report := "```yaml\nmodel:\n  base_url: http://localhost:11434/v1\n  context_size: 8192\n```"
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConfigReportEvent(report)})
 
-	if !m.contextOverlay.open {
+	if !m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = closed, want open after config report")
 	}
 	if got := m.contextOverlay.title; got != "Config" {
@@ -94,13 +94,13 @@ func TestContextOverlayClosesOnEsc(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent("# Heading")})
-	if !m.contextOverlay.open {
+	if !m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = closed, want open after context report")
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
-	if m.contextOverlay.open {
+	if m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = open, want closed after Esc")
 	}
 }
