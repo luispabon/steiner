@@ -1,0 +1,224 @@
+steps:
+  - id: step-1
+    title: Bug fixes — handleWindowSizeMsg gap + bottom-anchored offset
+    scope: |
+      Fix two positioning bugs in the TUI overlay system:
+      1. `filePicker` and `slashOverlay` are never updated when terminal dimensions change
+         (missing from `handleWindowSizeMsg`). They stay stuck at the init-time 80×24
+         fallback instead of receiving real terminal dimensions.
+      2. Bottom-anchored overlay offset under-counts by 1 row: `renderBottomAnchoredOverlays`
+         computes `offset = inputChromeHeight + activityRowHeight`, missing the hDivider(1)
+         and statusBar(1) rows. The `-1` fudge in `PlaceBottomAnchoredAt` covers one row
+         but the position is still off by 1.
+    files:
+      - internal/tui/model_update.go
+      - internal/tui/model_view.go
+      - internal/tui/overlay.go
+      - internal/tui/overlay_test.go
+    constraints:
+      - Minimal diff — only fix the two bugs, no API changes or refactoring.
+      - Must not change behavior of any other overlay.
+    acceptance:
+      - After a terminal resize, `filePicker` and `slashOverlay` reflect new dimensions.
+      - Bottom-anchored overlays (filePicker, slashOverlay, sessionPicker) render at
+        the correct vertical position (no overlap with status bar).
+      - Existing centered overlays (palette, fileList, contextOverlay, scratchpadOverlay,
+        exitModal) render unchanged.
+    verification:
+      - `go test ./internal/tui/...` passes.
+      - `go build ./...` passes.
+      - `go vet ./...` passes.
+      - New test `TestPlaceBottomAnchoredAtPosition` verifies overlay bottom edge
+        sits at `height - offset`.
+      - Existing `TestComposeCenteredOverlayKeepsBaseContentOutsideOverlay` still passes.
+    delegate_profile: code
+
+  - id: step-2
+    title: OverlayShell width enhancement — preferredWidth + Render signature
+    scope: |
+      Enhance `OverlayShell` with `preferredWidth` so overlays can declare their ideal
+      width through the shell instead of hardcoding width logic in each overlay.
+
+      Changes:
+      1. Add `preferredWidth int` field to `OverlayShell` struct.
+      2. Add `WithPreferredWidth(w int) OverlayShell` builder method.
+      3. Update `overlayWidth()`: if `preferredWidth > 0`, use it clamped to [40, width-4];
+         otherwise use current behavior (width-4, min 40).
+      4. Add `RenderWithBg(box lipgloss.Style, body string, bg lipgloss.Color) string`
+         that combines `Render()` + `theme.WithBg()`.
+      5. Simplify `Render()` signature — take `lipgloss.Style` instead of `overlayStyles`.
+         The `overlayStyles` struct wraps a single field; remove it.
+      6. Update the sole caller of `Render()` in `session_picker.go` to pass
+         `s.styles.PaletteOverlay` directly instead of `overlayStyles{box: ...}`.
+      7. Add `WithPreferredWidth` test cases (dynamic, preferred, clamped-small, clamped-large).
+    files:
+      - internal/tui/overlay.go
+      - internal/tui/session_picker.go
+      - internal/tui/overlay_test.go
+    constraints:
+      - `preferredWidth == 0` must produce identical behavior to current code (backward compat).
+      - `Render()` callers that pass `overlayStyles{box: style}` must be updated.
+    acceptance:
+      - All overlays using `Render()` (sessionPicker) work correctly after signature change.
+      - `InnerWidth()` returns correct value when `preferredWidth` is set.
+      - Tests pass for dynamic width, preferred width, and clamping boundaries.
+    verification:
+      - `go test ./internal/tui/...` passes.
+      - `go build ./...` passes.
+      - `go vet ./...` passes.
+    delegate_profile: code
+
+  - id: step-3
+    title: Migrate paletteModel to embed OverlayShell
+    scope: |
+      Replace `paletteModel`'s own `open`/`width`/`height` fields with an embedded
+      `OverlayShell`, using the shell's helpers for state management and frame rendering.
+
+      Changes:
+      1. Embed `OverlayShell` in `paletteModel`, remove `open`/`width`/`height` fields.
+      2. Use `p.WithPreferredWidth(60)` in `newPalette`.
+      3. Use `p.openShell()` / `p.closeShell()` in `Open()` / `Close()`.
+      4. Use `p.IsOpen()` instead of `p.open` in `Update()`.
+      5. Replace manual width calculation and frame rendering in `View()`:
+         use `p.InnerWidth()`, `p.Divider()`, `p.RenderFooter()`, `FooterChip()`,
+         and `p.RenderWithBg()`.
+      6. Update `handleWindowSizeMsg` to use `m.palette.WithDimensions(...)`.
+      7. Update `renderOverlayView` to use `m.palette.IsOpen()`.
+      8. Update any direct `.open` access in `model_update_keys.go` to `.IsOpen()`.
+    files:
+      - internal/tui/palette.go
+      - internal/tui/model_update.go
+      - internal/tui/model_init.go
+      - internal/tui/model_view.go
+      - internal/tui/model_update_keys.go
+    constraints:
+      - Content rendering (items, filtering, scrolling, styling) must stay identical.
+      - The palette's `Update()` key handling must be unchanged.
+      - Manual test: Ctrl+P opens, filters, selects, closes.
+    acceptance:
+      - paletteModel compiles without `open`/`width`/`height` fields.
+      - `newPalette` creates a palette with `preferredWidth=60`.
+      - All tests pass.
+      - Direct field access `.open` / `.width` / `.height` on palette is eliminated.
+    verification:
+      - `go test ./internal/tui/...` passes.
+      - `go build ./...` passes.
+      - `go vet ./...` passes.
+      - `grep -rn '\.open' internal/tui/palette.go` returns nothing.
+    delegate_profile: code
+
+  - id: step-4
+    title: Migrate fileListOverlay to embed OverlayShell
+    scope: |
+      Same pattern as palette migration: replace `fileListOverlay`'s own
+      `open`/`width`/`height` fields with an embedded `OverlayShell`.
+
+      Changes:
+      1. Embed `OverlayShell` in `fileListOverlay`, remove `open`/`width`/`height` fields.
+         Remove `err` string field (dead code — error is rendered through content, not
+         stored as a separate field in the pattern seen in palette).
+      2. Use `f.WithPreferredWidth(70)` in `newFileListOverlay`.
+      3. Use `f.openShell()` / `f.closeShell()` in `Open()` / `Close()`.
+      4. Replace manual width calculation and frame rendering in `View()`:
+         use `f.InnerWidth()`, `f.Divider()`, `f.RenderFooter()`, `FooterChip()`,
+         and `f.RenderWithBg()`.
+      5. Update `handleWindowSizeMsg` to use `m.fileList.WithDimensions(...)`.
+      6. Update `renderOverlayView` to use `m.fileList.IsOpen()`.
+      7. Update `model_init.go` if direct field access exists there.
+      8. Update `file_list_test.go` for new struct shape.
+    files:
+      - internal/tui/file_list.go
+      - internal/tui/file_list_test.go
+      - internal/tui/model_update.go
+      - internal/tui/model_init.go
+      - internal/tui/model_view.go
+    constraints:
+      - Content rendering must stay identical.
+      - Manual test: `/ls` opens, shows files, closes.
+    acceptance:
+      - fileListOverlay compiles without `open`/`width`/`height`/`err` fields.
+      - All tests pass.
+      - Direct field access `.open` / `.width` / `.height` on fileList is eliminated.
+    verification:
+      - `go test ./internal/tui/...` passes.
+      - `go build ./...` passes.
+      - `go vet ./...` passes.
+    delegate_profile: code
+
+  - id: step-5
+    title: Consolidate remaining overlays + cleanup
+    scope: |
+      Migrate exitModal, contextOverlay, and scratchpadOverlay to use `RenderWithBg()`
+      via `preferredWidth`. Remove dead code. Unify all remaining `.open` → `.IsOpen()`.
+
+      Changes:
+
+      **exitModal**:
+      - Add `WithPreferredWidth(60)` in `openExitModal`.
+      - In `renderExitModal`, remove manual width clamping (lines 48-55), use
+        `s.InnerWidth()` and keep own render call (different padding: `Padding(0, 1)`
+        vs shell's `Padding(1, 1)`).
+
+      **contextOverlay**:
+      - Remove `fixedWidth` field from struct.
+      - Remove `contextOverlayWidth` const.
+      - Add `WithPreferredWidth(120)` in `openContextOverlay`.
+      - Replace `contextInnerWidth()` with `s.InnerWidth()`.
+      - In `renderContextOverlay`, replace manual box + `theme.WithBg` with
+        `s.RenderWithBg(...)`.
+      - Remove `contextDivider()` and `contextRenderFooter()` — use shell versions.
+
+      **scratchpadOverlay**:
+      - Remove `scratchpadOverlayWidth` const.
+      - Remove `scratchpadInnerWidth()` method.
+      - Add `WithPreferredWidth(80)` in `openScratchpadOverlay`.
+      - In `renderScratchpadOverlay`, replace manual box + `theme.WithBg` with
+        `s.RenderWithBg(...)`. Keep existing usage of `s.Divider()` and `s.RenderFooter()`.
+
+      **renderOverlayView** (model_view.go):
+      - Unify all `.open` → `.IsOpen()`:
+        `m.palette.open` → `m.palette.IsOpen()`
+        `m.fileList.open` → `m.fileList.IsOpen()`
+        `m.contextOverlay.open` → `m.contextOverlay.IsOpen()`
+        `m.exitModal.open` → `m.exitModal.IsOpen()`
+        `m.slashOverlay.open` → `m.slashOverlay.IsOpen()`
+        `m.filePicker.open` → `m.filePicker.IsOpen()`
+        `m.sessionPicker.open` → `m.sessionPicker.IsOpen()`
+
+      **Dead code removal**:
+      - Remove `overlayStyles` struct (overlay.go).
+      - Remove `contextOverlayWidth` const (context_overlay.go).
+      - Remove `scratchpadOverlayWidth` const (scratchpad_overlay.go).
+      - Remove `scratchpadInnerWidth()` method (scratchpad_overlay.go).
+      - Remove `contextInnerWidth()` method (context_overlay.go).
+      - Remove `contextDivider()` and `contextRenderFooter()` (context_overlay.go).
+      - Remove `fixedWidth` field from contextOverlayState.
+    files:
+      - internal/tui/exit_modal.go
+      - internal/tui/context_overlay.go
+      - internal/tui/scratchpad_overlay.go
+      - internal/tui/model_view.go
+      - internal/tui/overlay.go
+    constraints:
+      - exitModal keeps its own render call (different padding). Don't try to force it
+        through `Render()`.
+      - contextOverlay and scratchpadOverlay use `Padding(1, 2)` in their manual boxes.
+        The shell's `Render()` uses `Padding(1, 1)`. When switching to `RenderWithBg()`,
+        the border padding may differ — apply desired padding to the style passed to
+        `RenderWithBg()` rather than changing the shell's behavior.
+      - Manual tests: verify context overlay scrolling and scratchpad overlay scrolling
+        after width changes (InnerWidth replaces hardcoded widths).
+    acceptance:
+      - All dead code removed (grep for deleted identifiers returns nothing).
+      - All `.open` field accesses replaced with `.IsOpen()`.
+      - exitModal renders correctly with `Padding(0, 1)`.
+      - contextOverlay and scratchpadOverlay render with correct border/padding via
+        `RenderWithBg()`.
+      - Context overlay content width matches expected behavior (120-char preferred).
+      - Scratchpad overlay width matches expected behavior (80-char preferred).
+    verification:
+      - `go test ./internal/tui/...` passes.
+      - `go build ./...` passes.
+      - `go vet ./...` passes.
+      - `make check` passes.
+    delegate_profile: code
