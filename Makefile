@@ -1,6 +1,6 @@
 BIN_DIR := bin
 GO_FILES := $(shell git ls-files '*.go')
-VERSION := $(shell date -u +%y%m%d%H%M)-$(shell git rev-parse --short HEAD 2>/dev/null || echo "nogit")
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 LDFLAGS := -ldflags="-X main.version=$(VERSION)"
 
 GOLANGCI_LINT_VERSION := v2.12.2
