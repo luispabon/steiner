@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -64,6 +65,7 @@ type DelegateHandlerDeps struct {
 	MaxTokens            *int
 	StreamingPreferred   bool
 	TraceLogger          *TraceLogger
+	SessionStore         *SessionStore
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -115,7 +117,10 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 		spec.Limits = limits
 
-		result, _, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		result, state, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		if err == nil && deps.SessionStore != nil {
+			saveChildSession(deps.SessionStore, spec, req, state)
+		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {
 				return result, nil
@@ -124,4 +129,15 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 		return result, nil
 	}
+}
+
+func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState) {
+	store.Save(&ChildSession{
+		Spec:          spec,
+		Request:       req,
+		Conversation:  state.Conversation,
+		TurnCount:     state.TurnCount,
+		TokenCount:    state.TokenCount,
+		ToolCallCount: countToolCalls(state.Conversation),
+	})
 }
