@@ -32,6 +32,7 @@ func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
 			Model:       flags.model,
 			Verbose:     flags.verbose,
 			ContextMode: config.ContextMode(flags.contextMode),
+			CavemanMode: &flags.caveman,
 		},
 	})
 }

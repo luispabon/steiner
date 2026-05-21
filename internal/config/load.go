@@ -15,6 +15,7 @@ type CLIOverrides struct {
 	Model       string
 	Verbose     bool
 	ContextMode ContextMode
+	CavemanMode *bool
 }
 
 // LoadOptions contains options for loading configuration.

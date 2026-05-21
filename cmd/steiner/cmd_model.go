@@ -33,6 +33,7 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 					Model:       flags.model,
 					Verbose:     flags.verbose,
 					ContextMode: config.ContextMode(flags.contextMode),
+					CavemanMode: &flags.caveman,
 				},
 			})
 			if err != nil {

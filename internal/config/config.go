@@ -114,6 +114,7 @@ type Config struct {
 	Logging           LoggingConfig             `yaml:"logging"`
 	Debug             DebugConfig               `yaml:"debug"`
 	ContextManagement ContextManagementConfig   `yaml:"context_management"`
+	CavemanMode       bool                      `yaml:"caveman_mode"`
 	Search            SearchConfig              `yaml:"search"`
 }
 

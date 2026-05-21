@@ -29,6 +29,7 @@ type cliFlags struct {
 	maxTurns        int
 	enableStreaming bool
 	contextMode     string
+	caveman         bool
 	resume          string
 }
 
