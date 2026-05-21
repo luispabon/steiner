@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +25,68 @@ func (s slashOverlaySource) String(i int) string {
 
 func (s slashOverlaySource) Len() int { return len(s) }
 
+// scoreStringMatch computes a custom relevance score for a fuzzy match.
+// Higher scores indicate better matches. Exact and prefix substring matches
+// are heavily boosted, followed by consecutive runs, word boundaries, and
+// early match position.
+func scoreStringMatch(str string, lowerQuery string, matchedIndexes []int) int {
+	if len(matchedIndexes) == 0 {
+		return 0
+	}
+
+	lowerStr := strings.ToLower(str)
+	score := 0
+
+	// Exact substring bonus
+	if strings.Contains(lowerStr, lowerQuery) {
+		score += 100000
+		// Prefix bonus
+		if strings.HasPrefix(lowerStr, lowerQuery) {
+			score += 50000
+		}
+	}
+
+	// Consecutive character run bonus
+	score += consecutiveScore(matchedIndexes) * 100
+
+	// Word boundary / first character bonuses
+	for _, idx := range matchedIndexes {
+		if idx == 0 {
+			score += 1000
+			continue
+		}
+		switch str[idx-1] {
+		case ' ', '_', '-', '/', '.', '\\':
+			score += 300
+		}
+	}
+
+	// Penalize late first match
+	score -= matchedIndexes[0] * 10
+
+	return score
+}
+
+// consecutiveScore rewards contiguous matched characters. Longer runs
+// produce quadratically higher scores.
+func consecutiveScore(indexes []int) int {
+	if len(indexes) == 0 {
+		return 0
+	}
+	score := 0
+	runLen := 1
+	for i := 1; i < len(indexes); i++ {
+		if indexes[i] == indexes[i-1]+1 {
+			runLen++
+		} else {
+			score += runLen * runLen
+			runLen = 1
+		}
+	}
+	score += runLen * runLen
+	return score
+}
+
 func fuzzyMatchStrings(entries []string, query string) ([]string, [][]int) {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -31,13 +94,91 @@ func fuzzyMatchStrings(entries []string, query string) ([]string, [][]int) {
 	}
 
 	matches := fuzzy.Find(q, entries)
+
+	type scoredMatch struct {
+		match fuzzy.Match
+		score int
+	}
+
+	scored := make([]scoredMatch, len(matches))
+	lowerQ := strings.ToLower(q)
+	for i, match := range matches {
+		scored[i] = scoredMatch{
+			match: match,
+			score: scoreStringMatch(entries[match.Index], lowerQ, match.MatchedIndexes),
+		}
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
 	results := make([]string, 0, len(matches))
 	indexes := make([][]int, 0, len(matches))
-	for _, match := range matches {
-		results = append(results, entries[match.Index])
-		indexes = append(indexes, append([]int(nil), match.MatchedIndexes...))
+	for _, s := range scored {
+		results = append(results, entries[s.match.Index])
+		indexes = append(indexes, append([]int(nil), s.match.MatchedIndexes...))
 	}
 	return results, indexes
+}
+
+// scoreSlashMatch computes a field-aware relevance score for slash overlay items.
+// Matches in the command field are weighted highest, followed by name, then description.
+func scoreSlashMatch(item slashOverlayItem, query string, matchData slashOverlayMatch) int {
+	lowerQ := strings.ToLower(query)
+	score := 0
+
+	// Command field scoring — highest priority
+	if len(matchData.commandIndexes) > 0 {
+		lowerCmd := strings.ToLower(item.command)
+		if strings.Contains(lowerCmd, lowerQ) {
+			score += 500000
+			if strings.HasPrefix(lowerCmd, lowerQ) {
+				score += 250000
+			} else if strings.HasPrefix(lowerCmd, "/"+lowerQ) {
+				score += 200000
+			}
+		}
+		score += consecutiveScore(matchData.commandIndexes) * 10
+
+		for _, idx := range matchData.commandIndexes {
+			if idx == 0 {
+				score += 2000
+				continue
+			}
+			if idx == 1 && item.command[0] == '/' {
+				score += 2000
+				continue
+			}
+			switch item.command[idx-1] {
+			case ' ', '_', '-':
+				score += 500
+			}
+		}
+	}
+
+	// Name field scoring — medium priority
+	if len(matchData.nameIndexes) > 0 {
+		lowerName := strings.ToLower(item.name)
+		if strings.Contains(lowerName, lowerQ) {
+			score += 100000
+			if strings.HasPrefix(lowerName, lowerQ) {
+				score += 50000
+			}
+		}
+		score += consecutiveScore(matchData.nameIndexes) * 5
+	}
+
+	// Description field scoring — lowest priority
+	if len(matchData.descIndexes) > 0 {
+		lowerDesc := strings.ToLower(item.desc)
+		if strings.Contains(lowerDesc, lowerQ) {
+			score += 50000
+		}
+		score += consecutiveScore(matchData.descIndexes)
+	}
+
+	return score
 }
 
 func fuzzyMatchSlashItems(items []slashOverlayItem, query string) ([]slashOverlayItem, []slashOverlayMatch) {
@@ -47,12 +188,33 @@ func fuzzyMatchSlashItems(items []slashOverlayItem, query string) ([]slashOverla
 	}
 
 	matches := fuzzy.FindFrom(q, slashOverlaySource(items))
+
+	type scoredSlashMatch struct {
+		match     fuzzy.Match
+		matchData slashOverlayMatch
+		score     int
+	}
+
+	scored := make([]scoredSlashMatch, len(matches))
+	for i, match := range matches {
+		item := items[match.Index]
+		matchData := splitSlashOverlayMatch(item, match.MatchedIndexes)
+		scored[i] = scoredSlashMatch{
+			match:     match,
+			matchData: matchData,
+			score:     scoreSlashMatch(item, q, matchData),
+		}
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
 	results := make([]slashOverlayItem, 0, len(matches))
 	matchData := make([]slashOverlayMatch, 0, len(matches))
-	for _, match := range matches {
-		item := items[match.Index]
-		results = append(results, item)
-		matchData = append(matchData, splitSlashOverlayMatch(item, match.MatchedIndexes))
+	for _, s := range scored {
+		results = append(results, items[s.match.Index])
+		matchData = append(matchData, s.matchData)
 	}
 	return results, matchData
 }
