@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -79,6 +80,35 @@ func TestDecodeInput(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatal("expected error for unknown field")
+		}
+	})
+
+	t.Run("unknown_field_error_contains_field_name", func(t *testing.T) {
+		_, err := decodeInput[ReadInput](map[string]any{
+			"path": "test.txt",
+			"op":   "read",
+		})
+		if err == nil {
+			t.Fatal("expected error for unknown field")
+		}
+		if !strings.Contains(err.Error(), "op") {
+			t.Fatalf("error = %q, want to contain %q", err.Error(), "op")
+		}
+	})
+
+	t.Run("unknown_field_error_lists_valid_fields", func(t *testing.T) {
+		_, err := decodeInput[ReadInput](map[string]any{
+			"path": "test.txt",
+			"op":   "read",
+		})
+		if err == nil {
+			t.Fatal("expected error for unknown field")
+		}
+		if !strings.Contains(err.Error(), "valid fields:") {
+			t.Fatalf("error = %q, want to contain %q", err.Error(), "valid fields:")
+		}
+		if !strings.Contains(err.Error(), "path") {
+			t.Fatalf("error = %q, want to contain %q", err.Error(), "path")
 		}
 	})
 

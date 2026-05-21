@@ -241,17 +241,6 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "unsupported type",
 		},
 		{
-			name: "line replace empty old string",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("x\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "", "new_string": "y"}}},
-			wantError: "old_string is empty",
-		},
-		{
 			name: "create existing file",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -767,6 +756,88 @@ func TestMutateOutputIsBounded(t *testing.T) {
 	}
 	if !strings.Contains(got.Output, "<truncated>") {
 		t.Fatalf("Output missing truncation marker")
+	}
+}
+
+func TestMutateLineReplaceWholeLineReplacement(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial string
+		line    int
+		newStr  string
+		want    string
+	}{
+		{name: "LF terminated", initial: "alpha\nbeta\ngamma\n", line: 2, newStr: "BETA", want: "alpha\nBETA\ngamma\n"},
+		{name: "CRLF terminated", initial: "alpha\r\nbeta\r\ngamma\r\n", line: 2, newStr: "BETA", want: "alpha\r\nBETA\r\ngamma\r\n"},
+		{name: "last line no trailing newline", initial: "alpha\nbeta", line: 2, newStr: "BETA", want: "alpha\nBETA"},
+		{name: "first line", initial: "alpha\nbeta\ngamma\n", line: 1, newStr: "ALPHA", want: "ALPHA\nbeta\ngamma\n"},
+		{name: "single line file", initial: "only\n", line: 1, newStr: "replaced", want: "replaced\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "note.txt")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{
+					map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(tt.line), "old_string": "", "new_string": tt.newStr},
+				},
+			})
+			if got.OperationsFailed != 0 {
+				t.Fatalf("mutate failed: %#v", got)
+			}
+			assertFile(t, path, tt.want)
+		})
+	}
+}
+
+func TestMutateLineReplaceWholeLinePreservesOtherLines(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	initial := "line1\nline2\nline3\nline4\nline5\n"
+	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "", "new_string": "LINE3"},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	assertFile(t, path, "line1\nline2\nLINE3\nline4\nline5\n")
+}
+
+func TestMutateTabVsSpaceGoFileScenario(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.go")
+	content := "type Config struct {\n\tworkDir    string\n\tlogLevel   int\n\tverbose    bool\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":       "replace",
+				"path":       "config.go",
+				"old_string": "    workDir    string",
+				"new_string": "\tworkDir    string",
+			},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+	}
+	if !strings.Contains(got.Output, "normalized whitespace match exists") {
+		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
+	}
+	if !strings.Contains(got.Output, "nearest anchor at line 2") {
+		t.Fatalf("Output missing anchor at line 2:\n%s", got.Output)
 	}
 }
 
