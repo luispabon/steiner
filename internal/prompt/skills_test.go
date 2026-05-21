@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -104,5 +105,50 @@ func TestLoadSkillBlocksMissingName(t *testing.T) {
 	_, err := loadSkillBlocks(context.Background(), loader, []string{"nonexistent"})
 	if err == nil {
 		t.Fatalf("loadSkillBlocks() expected error for missing skill")
+	}
+}
+
+func TestSkillFramingBlock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		names []string
+		want  string
+	}{
+		{
+			name:  "multiple skills",
+			names: []string{"plan", "review"},
+			want:  "Enabled: plan, review",
+		},
+		{
+			name:  "single skill",
+			names: []string{"plan"},
+			want:  "Enabled: plan",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			block := skillFramingBlock(tc.names)
+			if got, want := block.Source, ContextSourceSkill; got != want {
+				t.Fatalf("block source = %q, want %q", got, want)
+			}
+			if !strings.Contains(block.Content, "## Active Skills") {
+				t.Fatalf("block content missing heading: %q", block.Content)
+			}
+			if !strings.Contains(block.Content, tc.want) {
+				t.Fatalf("block content = %q, want substring %q", block.Content, tc.want)
+			}
+			if !strings.Contains(block.Content, "must follow when the user's request matches its domain") {
+				t.Fatalf("block content missing workflow directive: %q", block.Content)
+			}
+			if len(tc.names) == 1 && strings.Contains(block.Content, "plan,") {
+				t.Fatalf("single skill content has trailing comma: %q", block.Content)
+			}
+		})
 	}
 }

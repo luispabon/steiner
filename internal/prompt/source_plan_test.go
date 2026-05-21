@@ -101,6 +101,7 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceSkill,
+		ContextSourceSkill,
 		ContextSourceToolSummary,
 	}; !sourcesEqual(got, want) {
 		t.Fatalf("block sources = %v, want %v", got, want)
