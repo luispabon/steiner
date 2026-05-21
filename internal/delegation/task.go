@@ -128,7 +128,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	})
 
 	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.Output))
+		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.ToolCallCount, result.Output))
 	}
 
 	summaryCtx, summaryCancel := context.WithTimeout(childCtx, 30*time.Second)
@@ -179,11 +179,12 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	})
 
 	result := DelegationResult{
-		AgentID:    spec.AgentID,
-		Status:     status,
-		TurnCount:  state.TurnCount,
-		TokenCount: state.TokenCount,
-		Error:      err.Error(),
+		AgentID:       spec.AgentID,
+		Status:        status,
+		TurnCount:     state.TurnCount,
+		TokenCount:    state.TokenCount,
+		ToolCallCount: countToolCalls(state.Conversation),
+		Error:         err.Error(),
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content

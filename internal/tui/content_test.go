@@ -56,7 +56,7 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 }
 
 func TestAppendEventDelegationComplete(t *testing.T) {
-	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, "")
+	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, 0, "")
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -143,7 +143,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		},
 		{
 			name:  "delegation_complete",
-			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100, ""),
+			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100, 0, ""),
 		},
 		{
 			name:  "delegation_failed",
@@ -200,8 +200,13 @@ func TestFormatDelegationEvent(t *testing.T) {
 		},
 		{
 			name:      "complete",
-			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, ""),
+			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, 0, ""),
 			wantMatch: "delegate: complete test-agent (2 turns)",
+		},
+		{
+			name:      "complete_has_tool_calls",
+			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, 3, ""),
+			wantMatch: "delegate: complete test-agent (2 turns, 3 tool calls)",
 		},
 		{
 			name:      "failed",
@@ -291,7 +296,7 @@ func TestDelegationLifecycle(t *testing.T) {
 	}
 
 	// Complete delegation.
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600, ""))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600, 0, ""))
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after complete, want false")
 	}
@@ -348,7 +353,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50, "result text"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50, 0, "result text"))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
@@ -432,7 +437,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	}
 	longOutput := strings.Repeat("x", 650) + "tail marker"
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("long-agent", "done", 1, 50, longOutput))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("long-agent", "done", 1, 50, 0, longOutput))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -458,9 +463,9 @@ func TestDelegationBlockRendering(t *testing.T) {
 		{
 			name: "complete_has_turns",
 			setup: func(b *contentBuffer) {
-				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300, ""))
+				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300, 3, ""))
 			},
-			checks: []string{"c-agent", "7 turns"},
+			checks: []string{"c-agent", "7 turns", "3 tool calls"},
 		},
 		{
 			name: "failed_has_agent_id",
@@ -537,7 +542,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		output.NewToolCallFinishedEvent(1, "bash", "call_1", "ok", nil),
 		"child-1",
 	))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, 0, "final child output"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -564,7 +569,7 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", prompt))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "final child output"))
 
 	buffer.ToggleLastDelegationOutput()
 	dd := buffer.segments[0].delegData
@@ -626,7 +631,7 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
 		"task": "",
 	}))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "final child output"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -665,7 +670,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, ""))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, ""))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -1504,7 +1509,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "inspect files"), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, 0, "final child output"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(80))
@@ -2436,14 +2441,17 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 		"agent-1",
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, "result"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, 3, "result"))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1% (2.4k / 200k)"} {
+	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1%"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}
+	}
+	if !strings.Contains(rendered, "2.4k / 200k") {
+		t.Errorf("expanded delegation render missing context capacity:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "────────────────") {
 		t.Errorf("expanded delegation render missing footer separator:\n%s", rendered)
@@ -2459,7 +2467,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, "result"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, 0, "result"))
 
 	// collapsed (default) — stats footer must not appear
 	rendered := stripANSI(buffer.String(100))

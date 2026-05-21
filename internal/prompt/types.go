@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"io/fs"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -116,10 +118,14 @@ type DurableContextState struct {
 
 // AssemblyOptions configures prompt assembly for a run.
 type AssemblyOptions struct {
-	HomeDir                   string
-	ProjectRoot               string
-	GlobalAgentsPath          string
-	ProjectAgentsPath         string
+	HomeDir           string
+	ProjectRoot       string
+	GlobalAgentsPath  string
+	ProjectAgentsPath string
+	// SkillsBundledFS is the optional embedded filesystem for bundled skills
+	// (e.g. skills.FS from the go:embed in the skills package).
+	SkillsBundledFS fs.FS
+	// SkillsRoots
 	SkillsRoots               []string
 	SkillNames                []string
 	Tools                     []provider.ToolSpec

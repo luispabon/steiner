@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 
@@ -41,6 +42,7 @@ type cliRuntime struct {
 	skillNames        []string
 	skillSources      map[string]string // skill name -> "project"/"user"/"global"
 	skillDescriptions map[string]string // skill name -> short summary
+	skillBundledFS    fs.FS             // embedded bundled skill documents
 	workDir           string
 	homeDir           string
 	stdin             io.Reader
@@ -79,7 +81,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	homeDir, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx)
+	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -99,6 +101,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillNames:        skillNames,
 		skillSources:      skillSources,
 		skillDescriptions: skillDescriptions,
+		skillBundledFS:    skillBundledFS,
 		workDir:           workDir,
 		homeDir:           homeDir,
 		stdin:             cmd.InOrStdin(),

@@ -18,6 +18,16 @@ func buildResultWithTrace(agentID string, state agent.RunState, spec DelegationS
 	return buildResultInternal(agentID, state, spec, tc)
 }
 
+func countToolCalls(conversation []agent.Message) int {
+	n := 0
+	for _, msg := range conversation {
+		if msg.Role == agent.MessageRoleAssistant {
+			n += len(msg.ToolCalls)
+		}
+	}
+	return n
+}
+
 func buildResultInternal(agentID string, state agent.RunState, spec DelegationSpec, tc *traceCollector) DelegationResult {
 	_ = spec
 	output := ""
@@ -26,10 +36,11 @@ func buildResultInternal(agentID string, state agent.RunState, spec DelegationSp
 	}
 
 	result := DelegationResult{
-		AgentID:    agentID,
-		Output:     output,
-		TurnCount:  state.TurnCount,
-		TokenCount: state.TokenCount,
+		AgentID:       agentID,
+		Output:        output,
+		TurnCount:     state.TurnCount,
+		TokenCount:    state.TokenCount,
+		ToolCallCount: countToolCalls(state.Conversation),
 	}
 
 	rawReason := string(state.StopReason)
