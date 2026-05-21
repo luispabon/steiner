@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -1554,6 +1555,72 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 	if m.viewport.Height != 5 {
 		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
+	}
+}
+
+func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
+	tests := []string{
+		"[<65;174;45M",
+		"<65;174;45m",
+		"[<65",
+		"[<65;174",
+		"<65;174",
+		"65;174;45M",
+	}
+
+	for _, fragment := range tests {
+		t.Run(fragment, func(t *testing.T) {
+			m := newModel(Config{WorkingDir: "."}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+			m.input.SetValue("seed")
+
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(fragment)})
+
+			if got := m.input.Value(); got != "seed" {
+				t.Fatalf("input value = %q, want unchanged", got)
+			}
+		})
+	}
+}
+
+func TestModelAllowsNormalRuneInputNearMouseLikeText(t *testing.T) {
+	tests := []string{"[", "[abc", "<tag>", "65;foo"}
+
+	for _, text := range tests {
+		t.Run(text, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)})
+
+			if got := m.input.Value(); got != text {
+				t.Fatalf("input value = %q, want %q", got, text)
+			}
+		})
+	}
+}
+
+func TestModelIgnoresBareBracketMousePrefixAfterWheel(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[[[")})
+
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input value = %q, want empty after wheel leak prefix", got)
+	}
+}
+
+func TestModelAllowsBareBracketOutsideRecentWheelWindow(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.lastWheelMouseAt = time.Now().Add(-time.Second)
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[")})
+
+	if got := m.input.Value(); got != "[" {
+		t.Fatalf("input value = %q, want [", got)
 	}
 }
 

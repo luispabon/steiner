@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,9 @@ import (
 )
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if shouldIgnoreLeakedMouseRunes(msg, m.recentWheelMouseInput()) {
+		return m, nil
+	}
 	if handled, next, cmd := m.handleOverlayKeyMsg(msg); handled {
 		return next, cmd
 	}
@@ -27,6 +31,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	return m.handleComposerKeyMsg(msg)
+}
+
+func (m Model) recentWheelMouseInput() bool {
+	if m.lastWheelMouseAt.IsZero() {
+		return false
+	}
+	return time.Since(m.lastWheelMouseAt) <= 200*time.Millisecond
 }
 
 func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {

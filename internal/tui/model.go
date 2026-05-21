@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -108,6 +109,7 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	lastWheelMouseAt             time.Time
 	primaryModel                 string
 }
 

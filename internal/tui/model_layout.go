@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -82,8 +83,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 	case tea.MouseActionPress:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
+			m.lastWheelMouseAt = time.Now()
 			m.scrollUp(m.viewport.MouseWheelDelta)
 		case tea.MouseButtonWheelDown:
+			m.lastWheelMouseAt = time.Now()
 			m.scrollDown(m.viewport.MouseWheelDelta)
 		case tea.MouseButtonLeft:
 			m.mousePressX = msg.X
