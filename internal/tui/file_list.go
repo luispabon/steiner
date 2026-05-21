@@ -14,23 +14,22 @@ import (
 )
 
 type fileListOverlay struct {
-	open    bool
+	OverlayShell
 	root    string
 	entries []string
-	err     string
 	styles  theme.Styles
-	width   int
-	height  int
 }
 
 func newFileListOverlay(styles theme.Styles) fileListOverlay {
-	return fileListOverlay{styles: styles}
+	return fileListOverlay{
+		OverlayShell: OverlayShell{}.WithPreferredWidth(70),
+		styles:       styles,
+	}
 }
 
 func (f fileListOverlay) Open(root string) fileListOverlay {
-	f.open = true
+	f.OverlayShell = f.openShell()
 	f.root = root
-	f.err = ""
 	f.entries = nil
 
 	excluder := tool.NewPathExcluder(nil, nil)
@@ -59,41 +58,30 @@ func (f fileListOverlay) Open(root string) fileListOverlay {
 		return nil
 	})
 	if err != nil {
-		f.err = fmt.Sprintf("error: %v", err)
+		f.entries = []string{fmt.Sprintf("error: %v", err)}
 	}
 
 	return f
 }
 
 func (f fileListOverlay) Close() fileListOverlay {
-	f.open = false
+	f.OverlayShell = f.closeShell()
 	return f
 }
 
 func (f fileListOverlay) View() string {
-	if !f.open {
+	if !f.IsOpen() {
 		return ""
 	}
 
-	overlayWidth := 70
-	if overlayWidth > f.width-4 {
-		overlayWidth = f.width - 4
-	}
-	if overlayWidth < 40 {
-		overlayWidth = 40
-	}
-	innerWidth := overlayWidth - 4
-
 	header := fmt.Sprintf("Files: %s", f.root)
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.BorderSoft)).
-		Render(strings.Repeat("─", innerWidth))
+	divider := f.Divider()
 
 	maxDisplay := 30
 	var lines []string
 	switch {
-	case f.err != "":
-		lines = append(lines, f.styles.ErrorStyle.Render(f.err))
+	case len(f.entries) > 0 && strings.HasPrefix(f.entries[0], "error:"):
+		lines = append(lines, f.styles.ErrorStyle.Render(f.entries[0]))
 	case len(f.entries) == 0:
 		lines = append(lines, "(empty)")
 	default:
@@ -114,13 +102,8 @@ func (f fileListOverlay) View() string {
 		}
 	}
 
-	footerDivider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.BorderSoft)).
-		Render(strings.Repeat("─", innerWidth))
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.FgMute)).
-		Width(innerWidth).
-		Render(fmt.Sprintf("esc/enter to close  |  %d entries", len(f.entries)))
+	footerDivider := f.Divider()
+	footer := f.RenderFooter(fmt.Sprintf("esc/enter to close  |  %d entries", len(f.entries)))
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -129,16 +112,11 @@ func (f fileListOverlay) View() string {
 		footerDivider,
 		footer,
 	)
-	box := f.styles.PaletteOverlay.
-		Width(innerWidth+2).
-		Padding(1, 1).
-		Render(body)
-
-	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+	return f.RenderWithBg(f.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
 func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {
-	if !f.open {
+	if !f.IsOpen() {
 		return f, nil
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)

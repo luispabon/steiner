@@ -237,8 +237,7 @@ func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 		root = m.sidebar.workingDir
 	}
 	m.fileList = m.fileList.Open(root)
-	m.fileList.width = m.width
-	m.fileList.height = m.height
+	m.fileList.OverlayShell = m.fileList.WithDimensions(m.width, m.height)
 	m.input.Reset()
 	m.historyIdx = 0
 	return m, nil

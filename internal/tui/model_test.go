@@ -1630,7 +1630,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 
 	m.input.SetValue("/ls")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.fileList.open {
+	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls")
 	}
 	if m.fileList.root != "." {
@@ -1641,7 +1641,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.fileList.open {
+	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Esc")
 	}
 }
@@ -1652,7 +1652,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 
 	m.input.SetValue("/ls .")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.fileList.open {
+	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls .")
 	}
 	if len(m.fileList.entries) == 0 {
@@ -1660,7 +1660,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.fileList.open {
+	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Enter")
 	}
 }

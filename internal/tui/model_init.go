@@ -135,8 +135,7 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.palette.OverlayShell = m.palette.WithDimensions(m.width, m.height)
 
 	m.fileList = newFileListOverlay(m.styles)
-	m.fileList.width = m.width
-	m.fileList.height = m.height
+	m.fileList.OverlayShell = m.fileList.WithDimensions(m.width, m.height)
 
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width

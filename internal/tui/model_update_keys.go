@@ -52,7 +52,7 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	case m.slashOverlay.open:
 		next, cmd := m.handleSlashOverlayKey(msg)
 		return true, next, cmd
-	case m.fileList.open:
+	case m.fileList.IsOpen():
 		var cmd tea.Cmd
 		m.fileList, cmd = m.fileList.Update(msg)
 		return true, m, cmd

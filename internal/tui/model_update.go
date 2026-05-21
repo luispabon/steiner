@@ -175,8 +175,8 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
 	m.palette.OverlayShell = m.palette.WithDimensions(msg.Width, msg.Height)
-	m.fileList.width = msg.Width
-	m.fileList.height = msg.Height
+	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
+
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
 	if m.contextOverlay.open {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
