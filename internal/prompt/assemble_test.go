@@ -417,17 +417,17 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 }
 
 // makeBundledFS builds a test fs.FS with the given skill name and content.
-func makeBundledFS(t *testing.T, name, content string) fs.FS {
+func makeBundledFS(t *testing.T, content string) fs.FS {
 	t.Helper()
 	return fstest.MapFS{
-		name + "/SKILL.md": &fstest.MapFile{Data: []byte(content)},
+		"codex/SKILL.md": &fstest.MapFile{Data: []byte(content)},
 	}
 }
 
 func TestAssembleLoadsBundledSkills(t *testing.T) {
 	t.Parallel()
 
-	bfs := makeBundledFS(t, "codex", "bundled skill instructions")
+	bfs := makeBundledFS(t, "bundled skill instructions")
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		SkillsBundledFS: bfs,
@@ -466,7 +466,7 @@ func TestAssembleLoadsBundledSkills(t *testing.T) {
 func TestAssembleBundledSkillWithoutFilesystemRoots(t *testing.T) {
 	t.Parallel()
 
-	bfs := makeBundledFS(t, "codex", "bundled-only skill")
+	bfs := makeBundledFS(t, "bundled-only skill")
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		HomeDir:         t.TempDir(),
@@ -495,7 +495,7 @@ func TestAssembleBundledSkillPrecedenceOverFilesystem(t *testing.T) {
 	skillsRoot := t.TempDir()
 	mustWrite(t, filepath.Join(skillsRoot, "codex"), "SKILL.md", "filesystem version")
 
-	bfs := makeBundledFS(t, "codex", "bundled version")
+	bfs := makeBundledFS(t, "bundled version")
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		SkillsBundledFS: bfs,
@@ -520,7 +520,7 @@ func TestAssembleBundledSkillPrecedenceOverFilesystem(t *testing.T) {
 func TestAssembleBundledSkillsAreNotImplicit(t *testing.T) {
 	t.Parallel()
 
-	bfs := makeBundledFS(t, "codex", "should not appear")
+	bfs := makeBundledFS(t, "should not appear")
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
 		SkillsBundledFS: bfs,
