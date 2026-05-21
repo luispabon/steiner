@@ -1,0 +1,81 @@
+name: release
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            binary_ext: ""
+          - os: linux
+            arch: arm64
+            binary_ext: ""
+          - os: darwin
+            arch: amd64
+            binary_ext: ""
+          - os: darwin
+            arch: arm64
+            binary_ext: ""
+          - os: windows
+            arch: amd64
+            binary_ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-X main.version=${VERSION}" -o "dist/${BINARY}" ./cmd/steiner
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: steiner-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          gh release create "${{ github.ref_name }}" ./dist/*/* --generate-notes --title "v${VERSION}"
