@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -400,5 +401,146 @@ func TestGenerateAgentID_UniqueUnderRace(t *testing.T) {
 			t.Fatalf("duplicate id %q", id)
 		}
 		seen[id] = struct{}{}
+	}
+}
+
+func TestToolHandler_SavesChildSession(t *testing.T) {
+	origIDGen := idGen
+	idGen = func() string { return "child-save" }
+	defer func() { idGen = origIDGen }()
+
+	store := NewSessionStore()
+	state := agent.RunState{
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "do something"},
+			{
+				Role:    agent.MessageRoleAssistant,
+				Content: "working",
+				ToolCalls: []agent.ToolCall{
+					{ID: "call-1", Name: "read", Arguments: map[string]any{"path": "a.go"}},
+					{ID: "call-2", Name: "grep", Arguments: map[string]any{"pattern": "x"}},
+				},
+			},
+			{Role: agent.MessageRoleAssistant, Content: "done"},
+		},
+		TurnCount:  3,
+		TokenCount: 42,
+		StopReason: agent.StopReasonComplete,
+	}
+
+	var (
+		capturedReq    agent.RunRequest
+		capturedReqSet bool
+	)
+	deps := DelegateHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{},
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(),
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if !capturedReqSet {
+				capturedReq = req
+				capturedReqSet = true
+			}
+			return state, nil
+		}},
+		Events:       noopEventSink{},
+		WorkDir:      "/tmp/work",
+		SessionStore: store,
+	}
+	handler := NewDelegateHandler(deps)
+
+	_, err := handler(context.Background(), map[string]any{
+		"task":          "do something",
+		"context":       "extra context",
+		"system_prompt": "be careful",
+		"max_turns":     float64(4),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	session, ok := store.Get("child-save")
+	if !ok {
+		t.Fatal("child session was not saved")
+	}
+	if session.Spec.AgentID != "child-save" {
+		t.Fatalf("Spec.AgentID = %q, want %q", session.Spec.AgentID, "child-save")
+	}
+	if session.Spec.Task != "do something" {
+		t.Fatalf("Spec.Task = %q, want %q", session.Spec.Task, "do something")
+	}
+	if session.Spec.Context != "extra context" {
+		t.Fatalf("Spec.Context = %q, want %q", session.Spec.Context, "extra context")
+	}
+	if session.Spec.SystemPrompt != "be careful" {
+		t.Fatalf("Spec.SystemPrompt = %q, want %q", session.Spec.SystemPrompt, "be careful")
+	}
+	if !reflect.DeepEqual(session.Request, capturedReq) {
+		t.Fatal("saved request does not match child run request")
+	}
+	if !reflect.DeepEqual(session.Conversation, state.Conversation) {
+		t.Fatalf("Conversation = %#v, want %#v", session.Conversation, state.Conversation)
+	}
+	if session.TurnCount != state.TurnCount {
+		t.Fatalf("TurnCount = %d, want %d", session.TurnCount, state.TurnCount)
+	}
+	if session.TokenCount != state.TokenCount {
+		t.Fatalf("TokenCount = %d, want %d", session.TokenCount, state.TokenCount)
+	}
+	if session.ToolCallCount != 2 {
+		t.Fatalf("ToolCallCount = %d, want 2", session.ToolCallCount)
+	}
+}
+
+func TestToolHandler_SavesSessionForStructuredFailure(t *testing.T) {
+	origIDGen := idGen
+	idGen = func() string { return "child-error" }
+	defer func() { idGen = origIDGen }()
+
+	store := NewSessionStore()
+	var (
+		capturedReq    agent.RunRequest
+		capturedReqSet bool
+	)
+	deps := DelegateHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{},
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(),
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if !capturedReqSet {
+				capturedReq = req
+				capturedReqSet = true
+			}
+			return agent.RunState{}, context.DeadlineExceeded
+		}},
+		Events:       noopEventSink{},
+		WorkDir:      "/tmp/work",
+		SessionStore: store,
+	}
+	handler := NewDelegateHandler(deps)
+
+	_, err := handler(context.Background(), map[string]any{"task": "do something"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	session, ok := store.Get("child-error")
+	if !ok {
+		t.Fatal("session was not saved for structured failure")
+	}
+	if !reflect.DeepEqual(session.Request, capturedReq) {
+		t.Fatal("saved request does not match child run request")
+	}
+	if len(session.Conversation) != 0 {
+		t.Fatalf("Conversation length = %d, want 0", len(session.Conversation))
+	}
+	if session.TurnCount != 0 {
+		t.Fatalf("TurnCount = %d, want 0", session.TurnCount)
+	}
+	if session.TokenCount != 0 {
+		t.Fatalf("TokenCount = %d, want 0", session.TokenCount)
+	}
+	if session.ToolCallCount != 0 {
+		t.Fatalf("ToolCallCount = %d, want 0", session.ToolCallCount)
 	}
 }
