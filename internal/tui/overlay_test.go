@@ -95,3 +95,29 @@ func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlayShellOverlayWidth(t *testing.T) {
+	tests := []struct {
+		name      string
+		preferred int
+		termWidth int
+		wantWidth int
+		wantInner int
+	}{
+		{name: "dynamic (no preferred)", preferred: 0, termWidth: 120, wantWidth: 116, wantInner: 112},
+		{name: "preferred width", preferred: 60, termWidth: 120, wantWidth: 60, wantInner: 56},
+		{name: "clamped-small", preferred: 10, termWidth: 120, wantWidth: 40, wantInner: 36},
+		{name: "clamped-large", preferred: 200, termWidth: 120, wantWidth: 116, wantInner: 112},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shell := OverlayShell{width: tt.termWidth, preferredWidth: tt.preferred}
+			if got := shell.overlayWidth(); got != tt.wantWidth {
+				t.Errorf("overlayWidth() = %d, want %d", got, tt.wantWidth)
+			}
+			if got := shell.InnerWidth(); got != tt.wantInner {
+				t.Errorf("InnerWidth() = %d, want %d", got, tt.wantInner)
+			}
+		})
+	}
+}

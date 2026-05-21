@@ -103,7 +103,7 @@ func (s sessionPickerOverlay) View() string {
 	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return theme.WithBg(s.Render(overlayStyles{box: s.styles.PaletteOverlay}, body), lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(s.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
 func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidth int) string {

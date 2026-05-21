@@ -26,6 +26,9 @@ type OverlayShell struct {
 	height int
 	// title is displayed in the overlay header.
 	title string
+	// preferredWidth is the ideal width for this overlay, clamped to [40, width-4].
+	// 0 means use the default (width-4, min 40).
+	preferredWidth int
 }
 
 // IsOpen reports whether the overlay is currently visible.
@@ -46,6 +49,12 @@ func (o OverlayShell) WithTitle(title string) OverlayShell {
 	return o
 }
 
+// WithPreferredWidth returns a copy of the overlay shell with the given preferred width.
+func (o OverlayShell) WithPreferredWidth(w int) OverlayShell {
+	o.preferredWidth = w
+	return o
+}
+
 // open returns a copy of the shell in the open state.
 func (o OverlayShell) openShell() OverlayShell {
 	o.open = true
@@ -61,6 +70,9 @@ func (o OverlayShell) closeShell() OverlayShell {
 // overlayWidth computes the width of the framed box from the terminal width.
 func (o OverlayShell) overlayWidth() int {
 	w := o.width - 4
+	if o.preferredWidth > 0 && o.preferredWidth < w {
+		w = o.preferredWidth
+	}
 	if w < 40 {
 		w = 40
 	}
@@ -96,8 +108,14 @@ func (o OverlayShell) RenderFooter(footerText string) string {
 // bordered box with padding — and returns the complete framed overlay string.
 // The caller is responsible for assembling body lines (header, divider, list,
 // footer divider, footer) before calling Render.
-func (o OverlayShell) Render(styles overlayStyles, body string) string {
-	return styles.box.Width(o.InnerWidth()+2).Padding(1, 1).Render(body)
+func (o OverlayShell) Render(box lipgloss.Style, body string) string {
+	return box.Width(o.InnerWidth()+2).Padding(1, 1).Render(body)
+}
+
+// RenderWithBg renders the overlay body with the given box style and wraps it
+// with the provided background color.
+func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg lipgloss.Color) string {
+	return theme.WithBg(o.Render(box, body), bg)
 }
 
 // PlaceBottomAnchored composites the overlay string over the base view string
@@ -214,9 +232,4 @@ func padOverlayLine(line string, width int) string {
 		return line
 	}
 	return line + strings.Repeat(" ", width-lineWidth)
-}
-
-// overlayStyles bundles the lipgloss styles a concrete overlay passes to Render.
-type overlayStyles struct {
-	box lipgloss.Style
 }
