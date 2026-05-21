@@ -309,6 +309,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 		if dd.turnCount > 0 {
 			meta = append(meta, pluralTurns(dd.turnCount))
 		}
+		if dd.toolCallCount > 0 {
+			meta = append(meta, pluralToolCalls(dd.toolCallCount))
+		}
 		if dd.tokenCount > 0 {
 			meta = append(meta, fmt.Sprintf("%d tokens", dd.tokenCount))
 		}
@@ -495,6 +498,9 @@ func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) str
 	}
 	if dd.turnCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Turns: %d", dd.turnCount)))
+	}
+	if dd.toolCallCount > 0 {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tool Calls: %d", dd.toolCallCount)))
 	}
 	if dd.tokenCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tokens: %d", dd.tokenCount)))

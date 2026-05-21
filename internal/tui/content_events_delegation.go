@@ -439,6 +439,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			dd.resultStatus = payload.Status
 			dd.turnCount = payload.TurnCount
 			dd.tokenCount = payload.TokenCount
+			dd.toolCallCount = payload.ToolCallCount
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
 		}
@@ -449,13 +450,14 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			agentID:      payload.AgentID,
-			status:       "complete",
-			resultStatus: payload.Status,
-			turnCount:    payload.TurnCount,
-			tokenCount:   payload.TokenCount,
-			output:       payload.Output,
-			collapsed:    true,
+			agentID:       payload.AgentID,
+			status:        "complete",
+			resultStatus:  payload.Status,
+			turnCount:     payload.TurnCount,
+			tokenCount:    payload.TokenCount,
+			toolCallCount: payload.ToolCallCount,
+			output:        payload.Output,
+			collapsed:     true,
 		},
 		renderDirty: true,
 	})

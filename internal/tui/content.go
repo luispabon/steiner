@@ -71,7 +71,12 @@ func formatDelegationEvent(event output.Event) string {
 		return "delegate: starting"
 	case output.EventTypeDelegationComplete:
 		if payload, ok := event.Payload.(output.DelegationCompleteEvent); ok {
-			return "delegate: complete " + payload.AgentID + " (" + pluralTurns(payload.TurnCount) + ")"
+			summary := "delegate: complete " + payload.AgentID + " (" + pluralTurns(payload.TurnCount)
+			if payload.ToolCallCount > 0 {
+				summary += ", " + pluralToolCalls(payload.ToolCallCount)
+			}
+			summary += ")"
+			return summary
 		}
 		return "delegate: complete"
 	case output.EventTypeDelegationFailed:
@@ -89,6 +94,13 @@ func pluralTurns(count int) string {
 		return "1 turn"
 	}
 	return fmt.Sprintf("%d turns", count)
+}
+
+func pluralToolCalls(count int) string {
+	if count == 1 {
+		return "1 tool call"
+	}
+	return fmt.Sprintf("%d tool calls", count)
 }
 
 func (b *contentBuffer) appendLine(line string) {

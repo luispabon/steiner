@@ -378,16 +378,17 @@ func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.
-func NewDelegationCompleteEvent(agentID, status string, turns, tokens int, output string) Event {
+func NewDelegationCompleteEvent(agentID, status string, turns, tokens, toolCalls int, output string) Event {
 	return Event{
 		Type:      EventTypeDelegationComplete,
 		Timestamp: time.Now().UTC(),
 		Payload: DelegationCompleteEvent{
-			AgentID:    agentID,
-			Status:     status,
-			TurnCount:  turns,
-			TokenCount: tokens,
-			Output:     output,
+			AgentID:       agentID,
+			Status:        status,
+			TurnCount:     turns,
+			TokenCount:    tokens,
+			ToolCallCount: toolCalls,
+			Output:        output,
 		},
 	}
 }

@@ -82,6 +82,9 @@ type DelegationResult struct {
 	// Error is populated if the delegation failed.
 	Error string `json:"error,omitempty"`
 
+	// ToolCallCount is the number of tool calls the child executed across all turns.
+	ToolCallCount int `json:"tool_call_count"`
+
 	// Trace captures lifecycle events for delegation diagnostics.
 	Trace []TraceEntry `json:"trace,omitempty"`
 }

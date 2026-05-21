@@ -113,6 +113,7 @@ type delegationDisplayState struct {
 	resultStatus   string
 	turnCount      int
 	tokenCount     int
+	toolCallCount  int
 	modelName      string
 	promptTokens   int
 	contextWindow  int
