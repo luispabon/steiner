@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
@@ -166,11 +168,10 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.slashOverlay = m.slashOverlay.Open(items)
 				m.slashOverlay.width = m.width
 				m.slashOverlay.height = m.height
-				m.slashOverlay.query = "/"
-				m.slashOverlay.filterCandidates()
 				// Mirror "/" into the input box so typed text is visible
 				var cmd tea.Cmd
 				m.input, cmd = m.input.Update(msg)
+				m.syncSlashOverlayWithComposer()
 				return m, cmd
 			}
 			if r != '@' {
@@ -181,13 +182,40 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				root = "."
 			}
 			m.filePicker = m.filePicker.Open(root)
-			return m, nil
+			m.filePicker.width = m.width
+			m.filePicker.height = m.height
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			m.syncFilePickerWithComposer()
+			return m, cmd
 		}
 	}
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m = m.maybeReopenPickers()
 	return m, cmd
+}
+
+func (m Model) maybeReopenPickers() Model {
+	if !m.filePicker.IsOpen() && len(m.filePicker.allEntries) > 0 {
+		if _, _, _, ok := m.activeComposerToken('@'); ok {
+			m.filePicker.OverlayShell = m.filePicker.openShell()
+			m.filePicker.width = m.width
+			m.filePicker.height = m.height
+			m.syncFilePickerWithComposer()
+		}
+	}
+
+	if !m.slashOverlay.IsOpen() && len(m.slashOverlay.allItems) > 0 {
+		if _, start, _, ok := m.activeComposerToken('/'); ok && start == 0 {
+			m.slashOverlay.OverlayShell = m.slashOverlay.openShell()
+			m.slashOverlay.width = m.width
+			m.slashOverlay.height = m.height
+			m.syncSlashOverlayWithComposer()
+		}
+	}
+	return m
 }
 
 func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -254,16 +282,22 @@ func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) tea.Model {
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
+		m.replaceComposerToken('@', "")
 		m.filePicker = m.filePicker.Close()
-	case tea.KeyEnter:
+	case tea.KeyEnter, tea.KeyTab:
 		if m.filePicker.selection >= 0 && len(m.filePicker.candidates) > 0 {
 			selected := m.filePicker.candidates[m.filePicker.selection]
+			m.replaceComposerToken('@', selected+" ")
 			m.filePicker = m.filePicker.Close()
-			m.input.InsertString(selected + " ")
 		}
-	default:
+	case tea.KeyUp, tea.KeyDown:
 		var cmd tea.Cmd
 		m.filePicker, cmd = m.filePicker.Update(msg)
+		return m, cmd
+	default:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.syncFilePickerWithComposer()
 		return m, cmd
 	}
 	return m, nil
@@ -354,34 +388,112 @@ func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
+		m.replaceComposerToken('/', "")
 		m.slashOverlay = m.slashOverlay.Close()
-		m.input.SetValue("")
-	case tea.KeyEnter:
+	case tea.KeyEnter, tea.KeyTab:
 		if selected := m.slashOverlay.SelectedItem(); selected != nil {
-			m.slashOverlay = m.slashOverlay.Close()
-			m.input.SetValue(selected.command + " ")
-			m.input.CursorEnd()
-		}
-	case tea.KeyRunes:
-		// Mirror typed characters into both overlay filter and input box
-		var overlayCmd, inputCmd tea.Cmd
-		m.slashOverlay, overlayCmd = m.slashOverlay.Update(msg)
-		m.input, inputCmd = m.input.Update(msg)
-		return m, tea.Batch(overlayCmd, inputCmd)
-	case tea.KeyBackspace:
-		// Mirror backspace into both overlay filter and input box;
-		// close overlay if filter becomes empty (user deleted the "/")
-		var overlayCmd, inputCmd tea.Cmd
-		m.slashOverlay, overlayCmd = m.slashOverlay.Update(msg)
-		if m.slashOverlay.query == "" {
+			m.replaceComposerToken('/', selected.command+" ")
 			m.slashOverlay = m.slashOverlay.Close()
 		}
-		m.input, inputCmd = m.input.Update(msg)
-		return m, tea.Batch(overlayCmd, inputCmd)
-	default:
+	case tea.KeyUp, tea.KeyDown:
 		var cmd tea.Cmd
 		m.slashOverlay, cmd = m.slashOverlay.Update(msg)
 		return m, cmd
+	default:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.syncSlashOverlayWithComposer()
+		return m, cmd
 	}
 	return m, nil
+}
+
+func (m *Model) syncSlashOverlayWithComposer() {
+	if !m.slashOverlay.IsOpen() {
+		return
+	}
+	token, _, _, ok := m.activeComposerToken('/')
+	if !ok {
+		m.slashOverlay = m.slashOverlay.Close()
+		return
+	}
+	m.slashOverlay.syncQuery(token)
+}
+
+func (m *Model) syncFilePickerWithComposer() {
+	if !m.filePicker.IsOpen() {
+		return
+	}
+	token, _, _, ok := m.activeComposerToken('@')
+	if !ok {
+		m.filePicker = m.filePicker.Close()
+		return
+	}
+	m.filePicker.syncQuery(strings.TrimPrefix(token, "@"))
+}
+
+func (m *Model) replaceComposerToken(prefix rune, replacement string) {
+	_, start, end, ok := m.activeComposerToken(prefix)
+	if !ok {
+		return
+	}
+	value := []rune(m.input.Value())
+	next := string(value[:start]) + replacement + string(value[end:])
+	m.input.SetValue(next)
+	m.input.CursorEnd()
+}
+
+func (m Model) activeComposerToken(prefix rune) (string, int, int, bool) {
+	value := m.input.Value()
+	cursor := composerCursorOffset(m.input)
+	return composerTokenAtCursor(value, cursor, prefix)
+}
+
+func composerCursorOffset(input textarea.Model) int {
+	lines := strings.Split(input.Value(), "\n")
+	line := input.Line()
+	if line < 0 {
+		line = 0
+	}
+	if line >= len(lines) {
+		line = len(lines) - 1
+	}
+	offset := 0
+	for i := 0; i < line; i++ {
+		offset += len([]rune(lines[i])) + 1
+	}
+	lineInfo := input.LineInfo()
+	col := lineInfo.StartColumn + lineInfo.ColumnOffset
+	lineRunes := []rune(lines[line])
+	if col < 0 {
+		col = 0
+	}
+	if col > len(lineRunes) {
+		col = len(lineRunes)
+	}
+	return offset + col
+}
+
+func composerTokenAtCursor(value string, cursor int, prefix rune) (string, int, int, bool) {
+	runes := []rune(value)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+
+	start := cursor
+	for start > 0 && !unicode.IsSpace(runes[start-1]) {
+		start--
+	}
+	if start >= len(runes) || runes[start] != prefix {
+		return "", 0, 0, false
+	}
+
+	end := cursor
+	for end < len(runes) && !unicode.IsSpace(runes[end]) {
+		end++
+	}
+	return string(runes[start:end]), start, end, true
 }

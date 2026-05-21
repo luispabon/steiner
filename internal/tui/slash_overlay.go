@@ -28,6 +28,7 @@ type slashOverlay struct {
 	query        string
 	allItems     []slashOverlayItem
 	candidates   []slashOverlayItem
+	matchIndexes []slashOverlayMatch
 	selection    int
 	scrollOffset int
 	styles       theme.Styles
@@ -46,6 +47,7 @@ func (s slashOverlay) Open(items []slashOverlayItem) slashOverlay {
 	s.scrollOffset = 0
 	s.allItems = append([]slashOverlayItem(nil), items...)
 	s.candidates = append([]slashOverlayItem(nil), s.allItems...)
+	s.matchIndexes = make([]slashOverlayMatch, len(s.candidates))
 	return s
 }
 
@@ -53,6 +55,11 @@ func (s slashOverlay) Open(items []slashOverlayItem) slashOverlay {
 func (s slashOverlay) Close() slashOverlay {
 	s.OverlayShell = s.closeShell()
 	return s
+}
+
+func (s *slashOverlay) syncQuery(query string) {
+	s.query = query
+	s.filterCandidates()
 }
 
 // Update handles key input for the overlay.
@@ -103,21 +110,7 @@ func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 func (s *slashOverlay) filterCandidates() {
 	s.scrollOffset = 0
 	s.selection = 0
-
-	q := strings.ToLower(strings.TrimSpace(s.query))
-	if q == "" {
-		s.candidates = append([]slashOverlayItem(nil), s.allItems...)
-		return
-	}
-
-	s.candidates = nil
-	for _, item := range s.allItems {
-		if strings.Contains(strings.ToLower(item.command), q) ||
-			strings.Contains(strings.ToLower(item.name), q) ||
-			strings.Contains(strings.ToLower(item.desc), q) {
-			s.candidates = append(s.candidates, item)
-		}
-	}
+	s.candidates, s.matchIndexes = fuzzyMatchSlashItems(s.allItems, s.query)
 }
 
 // scrollIntoView adjusts the scroll offset to ensure the selection is visible.
@@ -169,7 +162,7 @@ func (s slashOverlay) View() string {
 
 	// Header showing the slash prefix and query
 	prefix := s.styles.Accent.Render("/")
-	queryDisplay := s.query
+	queryDisplay := strings.TrimPrefix(s.query, "/")
 	if queryDisplay == "" {
 		queryDisplay = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.FgMute)).
@@ -187,27 +180,31 @@ func (s slashOverlay) View() string {
 
 	for i := s.scrollOffset; i < min(s.scrollOffset+slashOverlayMaxDisplay, len(s.candidates)); i++ {
 		item := s.candidates[i]
+		matchData := slashOverlayMatch{}
+		if i < len(s.matchIndexes) {
+			matchData = s.matchIndexes[i]
+		}
 
 		var row string
 		var plainRow string
 		if item.isSkill {
 			plainParts := []string{item.command}
-			parts := []string{cmdStyle.Render(item.command)}
+			parts := []string{renderMatchedText(item.command, matchData.commandIndexes, cmdStyle, s.styles.AccentColor)}
 			descWidth := contentW - lipgloss.Width(item.command)
 			if item.desc != "" && descWidth > 2 {
 				desc := truncateOverlayText(item.desc, descWidth-2)
 				plainParts = append(plainParts, desc)
-				parts = append(parts, descStyle.Render(desc))
+				parts = append(parts, renderMatchedText(desc, matchData.descIndexes, descStyle, s.styles.AccentColor))
 			}
 			plainRow = strings.Join(plainParts, "  ")
 			row = strings.Join(parts, "  ")
 		} else {
-			parts := []string{cmdStyle.Render(item.command)}
+			parts := []string{renderMatchedText(item.command, matchData.commandIndexes, cmdStyle, s.styles.AccentColor)}
 			if item.name != "" {
-				parts = append(parts, nameStyle.Render(item.name))
+				parts = append(parts, renderMatchedText(item.name, matchData.nameIndexes, nameStyle, s.styles.AccentColor))
 			}
 			if item.desc != "" {
-				parts = append(parts, "|", descStyle.Render(item.desc))
+				parts = append(parts, "|", renderMatchedText(item.desc, matchData.descIndexes, descStyle, s.styles.AccentColor))
 			}
 			if item.source != "" {
 				parts = append(parts, sourceStyle.Render("["+item.source+"]"))
@@ -217,9 +214,9 @@ func (s slashOverlay) View() string {
 
 		if i == s.selection {
 			if item.isSkill {
-				lines = append(lines, s.renderSkillRow(s.styles.Accent.Render(selectionPrefix), row, selectionPrefix+plainRow, innerW))
+				lines = append(lines, s.styles.PaletteItemActive.Render(s.renderSkillRow(s.styles.Accent.Render(selectionPrefix), row, selectionPrefix+plainRow, innerW)))
 			} else {
-				lines = append(lines, lipgloss.NewStyle().
+				lines = append(lines, s.styles.PaletteItemActive.
 					Width(innerW).
 					MaxWidth(innerW).
 					Render(s.styles.Accent.Render(selectionPrefix)+row))

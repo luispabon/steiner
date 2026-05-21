@@ -13,6 +13,7 @@ require (
 	github.com/deepnoodle-ai/wonton v0.0.29
 	github.com/gobwas/glob v0.2.3
 	github.com/muesli/termenv v0.16.0
+	github.com/sahilm/fuzzy v0.1.1
 	github.com/spf13/cobra v1.9.1
 	github.com/tiktoken-go/tokenizer v0.7.0
 	golang.org/x/sync v0.20.0

@@ -21,6 +21,7 @@ type filePickerOverlay struct {
 	query        string
 	allEntries   []string
 	candidates   []string
+	matchIndexes [][]int
 	selection    int
 	scrollOffset int
 	styles       theme.Styles
@@ -46,6 +47,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 	f.scrollOffset = 0
 	f.allEntries = nil
 	f.candidates = nil
+	f.matchIndexes = nil
 
 	excluder := tool.NewPathExcluder(nil, nil)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -77,6 +79,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 	}
 
 	f.candidates = append([]string(nil), f.allEntries...)
+	f.matchIndexes = make([][]int, len(f.candidates))
 	return f
 }
 
@@ -85,14 +88,19 @@ func (f filePickerOverlay) Close() filePickerOverlay {
 	return f
 }
 
+func (f *filePickerOverlay) syncQuery(query string) {
+	f.query = query
+	f.filter()
+}
+
 func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 	if !f.IsOpen() {
 		return f, nil
 	}
 	switch updateSearchPicker(&f.query, &f.selection, &f.scrollOffset, &f.candidates, f.allEntries, msg, func(query string, entries []string) []string {
-		return filterSearchPickerEntries(entries, query, func(entry string, loweredQuery string) bool {
-			return strings.Contains(strings.ToLower(entry), loweredQuery)
-		})
+		results, matchIndexes := fuzzyMatchStrings(entries, query)
+		f.matchIndexes = matchIndexes
+		return results
 	}) {
 	case searchPickerClosed:
 		return f.Close(), nil
@@ -106,9 +114,7 @@ func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
 func (f *filePickerOverlay) filter() {
 	f.scrollOffset = 0
 	f.selection = 0
-	f.candidates = filterSearchPickerEntries(f.allEntries, f.query, func(entry string, loweredQuery string) bool {
-		return strings.Contains(strings.ToLower(entry), loweredQuery)
-	})
+	f.candidates, f.matchIndexes = fuzzyMatchStrings(f.allEntries, f.query)
 }
 
 func (f filePickerOverlay) View() string {
@@ -139,14 +145,18 @@ func (f filePickerOverlay) View() string {
 
 	for i := f.scrollOffset; i < min(f.scrollOffset+maxDisplay, len(f.candidates)); i++ {
 		entry := f.candidates[i]
+		matchedIndexes := []int(nil)
+		if i < len(f.matchIndexes) {
+			matchedIndexes = f.matchIndexes[i]
+		}
 		var row string
 		if strings.HasSuffix(entry, "/") {
-			row = dirStyle.Render(entry)
+			row = renderMatchedText(entry, matchedIndexes, dirStyle, f.styles.AccentColor)
 		} else {
-			row = fileStyle.Render(entry)
+			row = renderMatchedText(entry, matchedIndexes, fileStyle, f.styles.AccentColor)
 		}
 		if i == f.selection {
-			lines = append(lines, lipgloss.NewStyle().
+			lines = append(lines, f.styles.PaletteItemActive.
 				Width(innerWidth).
 				MaxWidth(innerWidth).
 				Render(f.styles.Accent.Render(selectionPrefix)+row))
@@ -177,20 +187,6 @@ func (f filePickerOverlay) filePickerInnerWidth() int {
 		inner = 40
 	}
 	return inner
-}
-
-func filterSearchPickerEntries[T any](allEntries []T, query string, matches func(T, string) bool) []T {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return append([]T(nil), allEntries...)
-	}
-	result := make([]T, 0, len(allEntries))
-	for _, entry := range allEntries {
-		if matches(entry, q) {
-			result = append(result, entry)
-		}
-	}
-	return result
 }
 
 func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int, candidates *[]T, allEntries []T, msg tea.Msg, filter func(string, []T) []T) searchPickerUpdateResult {
