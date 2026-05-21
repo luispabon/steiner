@@ -58,8 +58,8 @@ func TestSlashOverlayFilterByCommand(t *testing.T) {
 	overlay.query = "/co"
 	overlay.filterCandidates()
 
-	if len(overlay.candidates) != 2 {
-		t.Fatalf("candidates count = %d, want 2 (for /co prefix)", len(overlay.candidates))
+	if len(overlay.candidates) < 2 {
+		t.Fatalf("candidates count = %d, want at least 2 fuzzy matches", len(overlay.candidates))
 	}
 	if overlay.candidates[0].command != "/config" {
 		t.Fatalf("first candidate = %q, want /config", overlay.candidates[0].command)
@@ -84,6 +84,9 @@ func TestSlashOverlaySyncQueryUsesSlashToken(t *testing.T) {
 	}
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("candidates count = %d, want 2", len(overlay.candidates))
+	}
+	if len(overlay.matchIndexes) != len(overlay.candidates) {
+		t.Fatalf("match indexes = %d, want %d", len(overlay.matchIndexes), len(overlay.candidates))
 	}
 }
 
@@ -186,11 +189,43 @@ func TestSlashOverlayTypeToFilter(t *testing.T) {
 	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
 	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 
-	if len(overlay.candidates) != 2 {
-		t.Fatalf("after typing 'co': candidates count = %d, want 2", len(overlay.candidates))
+	if len(overlay.candidates) < 2 {
+		t.Fatalf("after typing 'co': candidates count = %d, want at least 2", len(overlay.candidates))
 	}
 	if overlay.selection != 0 {
 		t.Fatalf("after filter: selection = %d, want 0", overlay.selection)
+	}
+}
+
+func TestSlashOverlayFuzzyQueryMatchesAbbreviatedCommand(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+	overlay := newSlashOverlay(styles)
+
+	items := []slashOverlayItem{
+		{command: "/context", name: "Context", desc: "inspect current context", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
+		{command: "/config", name: "Config", desc: "show config", source: ""},
+	}
+
+	overlay = overlay.Open(items)
+	overlay.syncQuery("/ctxt")
+
+	if len(overlay.candidates) == 0 {
+		t.Fatal("expected fuzzy matches for abbreviated slash query")
+	}
+	found := false
+	for i, candidate := range overlay.candidates {
+		if candidate.command != "/context" {
+			continue
+		}
+		found = true
+		if len(overlay.matchIndexes[i].commandIndexes) == 0 && len(overlay.matchIndexes[i].descIndexes) == 0 && len(overlay.matchIndexes[i].nameIndexes) == 0 {
+			t.Fatal("expected match indexes for /context candidate")
+		}
+		break
+	}
+	if !found {
+		t.Fatalf("candidates = %#v, want /context to be matched", overlay.candidates)
 	}
 }
 
@@ -346,5 +381,31 @@ func TestSlashOverlayViewRendersSkillRowsAsCommandAndDescriptionOnly(t *testing.
 	}
 	if strings.Contains(plain, "\n│ essions.") {
 		t.Fatalf("overlay view = %q, want skill description to stay on one line", plain)
+	}
+}
+
+func TestSlashOverlayViewHighlightsMatchedCharacters(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+	overlay := newSlashOverlay(styles)
+	overlay.OverlayShell = overlay.openShell()
+	overlay.width = 80
+	overlay.height = 24
+	overlay.candidates = []slashOverlayItem{
+		{command: "/context", name: "Context", desc: "inspect current context", source: ""},
+	}
+	overlay.matchIndexes = []slashOverlayMatch{{
+		commandIndexes: []int{1, 4, 6},
+		nameIndexes:    []int{0, 3},
+		descIndexes:    []int{0, 8},
+	}}
+	overlay.query = "/ctxt"
+
+	view := overlay.View()
+	plain := stripANSI(view)
+	if !strings.Contains(plain, "/context") {
+		t.Fatalf("view = %q, want candidate text", plain)
+	}
+	if strings.Contains(view, "/context  Context  |  inspect current context") {
+		t.Fatalf("raw view = %q, want inline escape sequences inside matched candidate", view)
 	}
 }

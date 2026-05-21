@@ -115,6 +115,32 @@ func TestFilePickerOverlay_SyncQueryFiltersCandidates(t *testing.T) {
 	if len(f.candidates) == 0 {
 		t.Fatal("expected at least one candidate matching .go")
 	}
+	if len(f.matchIndexes) != len(f.candidates) {
+		t.Fatalf("match indexes = %d, want %d", len(f.matchIndexes), len(f.candidates))
+	}
+}
+
+func TestFilePickerOverlay_FuzzyQueryRanksAbbreviatedPathMatches(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.OverlayShell = f.openShell()
+	f.allEntries = []string{
+		"internal/tui/file_picker.go",
+		"internal/tool/file_policy.go",
+		"docs/picker-notes.md",
+	}
+
+	f.syncQuery("ifpg")
+
+	if len(f.candidates) == 0 {
+		t.Fatal("expected fuzzy matches for abbreviated path query")
+	}
+	if got := f.candidates[0]; got != "internal/tui/file_picker.go" {
+		t.Fatalf("top candidate = %q, want internal/tui/file_picker.go", got)
+	}
+	if len(f.matchIndexes[0]) == 0 {
+		t.Fatal("expected matched indexes for top candidate")
+	}
 }
 
 func TestFilePickerOverlay_Navigation(t *testing.T) {
@@ -561,6 +587,26 @@ func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
 	}
 	if !strings.Contains(unselectedLine, "  alpha.txt") {
 		t.Fatalf("unselected line = %q, want aligned empty prefix", unselectedLine)
+	}
+}
+
+func TestFilePickerOverlay_ViewHighlightsMatchedCharacters(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.OverlayShell = f.openShell()
+	f.width = 80
+	f.height = 24
+	f.candidates = []string{"internal/tui/file_picker.go"}
+	f.matchIndexes = [][]int{{0, 9, 13, 18}}
+	f.query = "ifpg"
+
+	view := f.View()
+	plain := stripANSI(view)
+	if !strings.Contains(plain, "internal/tui/file_picker.go") {
+		t.Fatalf("view = %q, want candidate text", plain)
+	}
+	if strings.Contains(view, "internal/tui/file_picker.go") {
+		t.Fatalf("raw view = %q, want inline escape sequences inside matched candidate", view)
 	}
 }
 

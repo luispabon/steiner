@@ -22,6 +22,30 @@ func bgEscape(bg lipgloss.Color) string {
 	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
 }
 
+func fgEscape(fg lipgloss.Color) string {
+	hex := strings.TrimPrefix(string(fg), "#")
+	if len(hex) != 6 {
+		return ""
+	}
+	r, _ := strconv.ParseInt(hex[0:2], 16, 64)
+	g, _ := strconv.ParseInt(hex[2:4], 16, 64)
+	b, _ := strconv.ParseInt(hex[4:6], 16, 64)
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+}
+
+// HighlightMatch wraps text in explicit ANSI emphasis so matched glyphs stay
+// visible even when rendering without an attached TTY profile.
+func HighlightMatch(text string, fg lipgloss.Color) string {
+	if text == "" {
+		return ""
+	}
+	seq := "\x1b[1;4m"
+	if fgSeq := fgEscape(fg); fgSeq != "" {
+		seq += fgSeq
+	}
+	return seq + text + "\x1b[0m"
+}
+
 // WithBg ensures every line in s has its background set to bg.
 // It re-applies the background after every ANSI reset sequence (\x1b[0m)
 // and at the start of each logical line. Idempotent for the same bg.
