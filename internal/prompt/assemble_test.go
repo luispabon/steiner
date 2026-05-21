@@ -104,28 +104,32 @@ func TestAssembleLoadsExplicitSkills(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	foundSkill := false
+	foundSkillBlocks := 0
+	var contentBlock ContextBlock
 	for _, block := range assembly.Blocks {
 		if block.Source == ContextSourceSkill {
-			foundSkill = true
-			if got, want := block.Content, "skill instructions"; got != want {
-				t.Fatalf("skill block content = %q, want %q", got, want)
+			foundSkillBlocks++
+			if strings.Contains(block.Content, "skill instructions") {
+				contentBlock = block
 			}
 		}
 	}
-	if !foundSkill {
-		t.Fatalf("expected skill block to be present")
+	if got, want := foundSkillBlocks, 2; got != want {
+		t.Fatalf("found %d skill blocks, want %d", got, want)
+	}
+	if !strings.Contains(contentBlock.Content, "skill instructions") {
+		t.Fatalf("skill content block not found")
 	}
 
-	gotIndex := messageIndexByContent(t, assembly.Messages, "skill instructions")
+	gotIndex := messageIndexContaining(assembly.Messages, "skill instructions")
 	if gotIndex < 0 {
 		t.Fatalf("skill message not found")
 	}
 	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
 		t.Fatalf("skill message role = %q, want user", got)
 	}
-	if got, want := assembly.Messages[gotIndex].Name, filepath.Base(filepath.Join(skillsRoot, "codex", "SKILL.md")); got != want {
-		t.Fatalf("skill message name = %q, want %q", got, want)
+	if got := assembly.Messages[gotIndex].Content; !strings.Contains(got, "## Active Skills") {
+		t.Fatalf("skill message content missing framing block: %q", got)
 	}
 }
 
@@ -438,17 +442,21 @@ func TestAssembleLoadsBundledSkills(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	foundSkill := false
+	foundSkillBlocks := 0
+	var contentBlock ContextBlock
 	for _, block := range assembly.Blocks {
 		if block.Source == ContextSourceSkill {
-			foundSkill = true
-			if got, want := block.Content, "bundled skill instructions"; got != want {
-				t.Fatalf("skill block content = %q, want %q", got, want)
+			foundSkillBlocks++
+			if strings.Contains(block.Content, "bundled skill instructions") {
+				contentBlock = block
 			}
 		}
 	}
-	if !foundSkill {
-		t.Fatalf("expected skill block to be present")
+	if got, want := foundSkillBlocks, 2; got != want {
+		t.Fatalf("found %d skill blocks, want %d", got, want)
+	}
+	if !strings.Contains(contentBlock.Content, "bundled skill instructions") {
+		t.Fatalf("skill content block not found")
 	}
 
 	gotIndex := messageIndexContaining(assembly.Messages, "bundled skill instructions")
@@ -458,8 +466,8 @@ func TestAssembleLoadsBundledSkills(t *testing.T) {
 	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
 		t.Fatalf("skill message role = %q, want user", got)
 	}
-	if got, want := assembly.Messages[gotIndex].Name, "SKILL.md"; got != want {
-		t.Fatalf("skill message name = %q, want %q", got, want)
+	if got := assembly.Messages[gotIndex].Content; !strings.Contains(got, "## Active Skills") {
+		t.Fatalf("skill message content missing framing block: %q", got)
 	}
 }
 
