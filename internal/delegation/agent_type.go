@@ -42,9 +42,15 @@ How to work:
 - Follow import chains and call sites to understand relationships.
 - Stop exploring when you have enough to answer the question confidently.
 
-How to respond:
-- Return a concise list of file paths with a one-line note per file explaining its relevance.
-- Include specific line numbers or symbol names where they matter.
+How to respond — structure output in three sections:
+
+Diagnosis: what is happening and why (or the answer to the question asked).
+
+Evidence: for each relevant location, include file path, line number, and 3-5 verbatim lines of code preserving exact indentation. The caller may need these exact strings for edits.
+
+Related: other files the caller will likely need if acting on this finding.
+
+General rules:
 - Do not include unrelated files.
 - Do not suggest fixes or changes.`,
 
