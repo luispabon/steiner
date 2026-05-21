@@ -645,6 +645,18 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 		t.Fatal("sidebar should be visible at width 120")
 	}
 
+	beforeView := stripANSI(m.View())
+	branchRow := ""
+	for _, line := range strings.Split(beforeView, "\n") {
+		if idx := strings.Index(line, "branch "); idx >= 0 {
+			branchRow = strings.TrimSpace(line[idx:])
+			break
+		}
+	}
+	if branchRow == "" {
+		t.Fatal("expected sidebar branch row before opening file picker overlay")
+	}
+
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
@@ -658,8 +670,8 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 	if !strings.Contains(view, "workdir.") {
 		t.Fatal("expected sidebar workdir row to survive file picker overlay")
 	}
-	if !strings.Contains(view, "branch tmp/") {
-		t.Fatal("expected sidebar branch row to survive file picker overlay")
+	if !strings.Contains(view, branchRow) {
+		t.Fatalf("expected sidebar branch row %q to survive file picker overlay", branchRow)
 	}
 }
 
