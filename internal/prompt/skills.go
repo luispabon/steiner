@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/skill"
 )
@@ -42,4 +43,16 @@ func loadSkillBlocks(ctx context.Context, loader skill.Loader, names []string) (
 		})
 	}
 	return blocks, nil
+}
+
+func skillFramingBlock(names []string) ContextBlock {
+	content := "## Active Skills\n\n" +
+		"The user has explicitly enabled the skills below for this session. Each skill defines a workflow you must follow when the user's request matches its domain. Skills govern your working process - they do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. The user can override a skill's workflow with an explicit instruction.\n\n" +
+		"Enabled: " + strings.Join(names, ", ")
+
+	return ContextBlock{
+		Source:   ContextSourceSkill,
+		Content:  content,
+		ByteSize: len(content),
+	}
 }

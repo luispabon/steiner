@@ -6,7 +6,7 @@ const (
 	defaultPreambleBudgetBytes      = 4096
 	defaultGlobalAgentsBudgetBytes  = 2048
 	defaultProjectAgentsBudgetBytes = 8192
-	defaultSkillBudgetBytes         = 2048
+	defaultSkillBudgetBytes         = 16384
 	defaultToolResultBudgetBytes    = 2048
 	defaultToolSummaryBudgetBytes   = 1024
 	defaultCompactionSummaryBytes   = 1024

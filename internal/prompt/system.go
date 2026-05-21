@@ -92,6 +92,8 @@ Verification:
 - If checks fail, fix only task-related failures.
 - If checks cannot be run, say exactly why and what should be run.
 
+When skills are enabled, follow the matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. The user can override a skill explicitly.
+
 Final response:
 - Summarize what changed.
 - List verification performed and results.

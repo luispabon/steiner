@@ -132,6 +132,9 @@ func skillsStep(opts AssemblyOptions) sourcePlanStep {
 			if err != nil {
 				return err
 			}
+			if len(skillBlocks) > 0 {
+				skillBlocks = append([]ContextBlock{skillFramingBlock(opts.SkillNames)}, skillBlocks...)
+			}
 			appendBlocks(state, skillBlocks)
 			return nil
 		},
