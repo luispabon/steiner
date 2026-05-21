@@ -86,7 +86,7 @@ func (f filePickerOverlay) Close() filePickerOverlay {
 }
 
 func (f filePickerOverlay) Update(msg tea.Msg) (filePickerOverlay, tea.Cmd) {
-	if !f.open {
+	if !f.IsOpen() {
 		return f, nil
 	}
 	switch updateSearchPicker(&f.query, &f.selection, &f.scrollOffset, &f.candidates, f.allEntries, msg, func(query string, entries []string) []string {
@@ -112,7 +112,7 @@ func (f *filePickerOverlay) filter() {
 }
 
 func (f filePickerOverlay) View() string {
-	if !f.open {
+	if !f.IsOpen() {
 		return ""
 	}
 

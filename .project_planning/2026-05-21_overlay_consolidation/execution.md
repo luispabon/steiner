@@ -32,6 +32,10 @@
 | step-4 | child-6 | complete — fileListOverlay migrated to embed OverlayShell |
 | step-5 | child-7 | complete — exitModal/contextOverlay/scratchpadOverlay consolidated, .open → .IsOpen() unified, dead code removed |
 
+## Post-Review Fix
+
+- Fixed remaining `.open` → `.IsOpen()` discrepancy in `filePicker`, `sessionPicker`, and `slashOverlay` internal methods. All external callers already used `.IsOpen()`; this completes the unification.
+
 ## Deviations & Blockers
 
 - Step-1 code agent used content-width instead of full terminal width for filePicker/slashOverlay dimensions (to avoid sidebar overflow). Correct decision.

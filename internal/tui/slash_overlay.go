@@ -57,7 +57,7 @@ func (s slashOverlay) Close() slashOverlay {
 
 // Update handles key input for the overlay.
 func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
-	if !s.open {
+	if !s.IsOpen() {
 		return s, nil
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -157,7 +157,7 @@ func (s slashOverlay) slashOverlayInnerWidth() int {
 
 // View renders the overlay.
 func (s slashOverlay) View() string {
-	if !s.open {
+	if !s.IsOpen() {
 		return ""
 	}
 
