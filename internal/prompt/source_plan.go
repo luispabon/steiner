@@ -128,7 +128,7 @@ func skillsStep(opts AssemblyOptions) sourcePlanStep {
 		Placement: plannedSourcePlacementCore,
 		Apply: func(ctx context.Context, state *assemblyState) error {
 			skillRoots := skillRoots(opts)
-			skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots}, opts.SkillNames)
+			skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots, BundledFS: opts.SkillsBundledFS}, opts.SkillNames)
 			if err != nil {
 				return err
 			}

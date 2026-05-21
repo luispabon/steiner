@@ -115,6 +115,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectRoot:               r.runtime.workDir,
 		SkillsRoots:               prompt.SkillRoots(r.runtime.homeDir, r.runtime.workDir),
 		SkillNames:                append([]string(nil), skillNames...),
+		SkillsBundledFS:           r.runtime.skillBundledFS,
 		ModelBudget:               modelBudget,
 		PromptOverrides:           prompts,
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,

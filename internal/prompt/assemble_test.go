@@ -3,10 +3,12 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
@@ -411,6 +413,130 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 	}
 	if got := strings.Contains(promptMessages[0].Content, "emergency handoff"); !got {
 		t.Fatalf("system prompt = %q, want emergency handoff instruction", promptMessages[0].Content)
+	}
+}
+
+// makeBundledFS builds a test fs.FS with the given skill name and content.
+func makeBundledFS(t *testing.T, name, content string) fs.FS {
+	t.Helper()
+	return fstest.MapFS{
+		name + "/SKILL.md": &fstest.MapFile{Data: []byte(content)},
+	}
+}
+
+func TestAssembleLoadsBundledSkills(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeBundledFS(t, "codex", "bundled skill instructions")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		SkillsBundledFS: bfs,
+		SkillNames:      []string{"codex"},
+		Conversation:    []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	foundSkill := false
+	for _, block := range assembly.Blocks {
+		if block.Source == ContextSourceSkill {
+			foundSkill = true
+			if got, want := block.Content, "bundled skill instructions"; got != want {
+				t.Fatalf("skill block content = %q, want %q", got, want)
+			}
+		}
+	}
+	if !foundSkill {
+		t.Fatalf("expected skill block to be present")
+	}
+
+	gotIndex := messageIndexContaining(assembly.Messages, "bundled skill instructions")
+	if gotIndex < 0 {
+		t.Fatalf("skill message not found")
+	}
+	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
+		t.Fatalf("skill message role = %q, want user", got)
+	}
+	if got, want := assembly.Messages[gotIndex].Name, "SKILL.md"; got != want {
+		t.Fatalf("skill message name = %q, want %q", got, want)
+	}
+}
+
+func TestAssembleBundledSkillWithoutFilesystemRoots(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeBundledFS(t, "codex", "bundled-only skill")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir:         t.TempDir(),
+		ProjectRoot:     t.TempDir(),
+		SkillsBundledFS: bfs,
+		SkillsRoots:     nil,
+		SkillNames:      []string{"codex"},
+		Conversation:    []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	gotIndex := messageIndexContaining(assembly.Messages, "bundled-only skill")
+	if gotIndex < 0 {
+		t.Fatalf("skill message not found")
+	}
+	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
+		t.Fatalf("skill message role = %q, want user", got)
+	}
+}
+
+func TestAssembleBundledSkillPrecedenceOverFilesystem(t *testing.T) {
+	t.Parallel()
+
+	skillsRoot := t.TempDir()
+	mustWrite(t, filepath.Join(skillsRoot, "codex"), "SKILL.md", "filesystem version")
+
+	bfs := makeBundledFS(t, "codex", "bundled version")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		SkillsBundledFS: bfs,
+		SkillsRoots:     []string{skillsRoot},
+		SkillNames:      []string{"codex"},
+		Conversation:    []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	gotIndex := messageIndexContaining(assembly.Messages, "bundled version")
+	if gotIndex < 0 {
+		t.Fatalf("skill message with bundled content not found")
+	}
+
+	if idx := messageIndexContaining(assembly.Messages, "filesystem version"); idx >= 0 {
+		t.Fatalf("found filesystem version at message %d, expected bundled to shadow it", idx)
+	}
+}
+
+func TestAssembleBundledSkillsAreNotImplicit(t *testing.T) {
+	t.Parallel()
+
+	bfs := makeBundledFS(t, "codex", "should not appear")
+
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		SkillsBundledFS: bfs,
+		Conversation:    []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	for _, block := range assembly.Blocks {
+		if block.Source == ContextSourceSkill {
+			t.Fatalf("unexpected skill block when SkillNames is empty: %q", block.Content)
+		}
+	}
+	if idx := messageIndexContaining(assembly.Messages, "should not appear"); idx >= 0 {
+		t.Fatalf("skill content found at message %d when SkillNames was empty", idx)
 	}
 }
 
