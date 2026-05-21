@@ -151,7 +151,7 @@ func TestBasicDelegationResult(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestDelegationEvents(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := &scopedEventRunner{}
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := &failingRunner{err: fmt.Errorf("initial child run failed")}
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{}, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 	runner := &summaryFailRunner{}
 
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 	// Sleep past the spec timeout so childCtx is expired before summary
 	time.Sleep(30 * time.Millisecond)
 
-	result, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -759,7 +759,7 @@ func TestNestingPrevention(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, childProv, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	// The agent should propagate a failure: the delegate tool is unknown to the
 	// child executor. SpawnDelegate either returns an error, or the state has a
 	// non-complete stop reason captured in the result.
@@ -967,7 +967,7 @@ func TestExtensionTriggersWhenMidWork(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1007,7 +1007,7 @@ func TestNoExtensionWhenComplete(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1041,7 +1041,7 @@ func TestNoExtensionWhenNoToolCalls(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1072,7 +1072,7 @@ func TestExtensionCapAtFive(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1107,7 +1107,7 @@ func TestExtensionMaxTurnsBumped(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1140,7 +1140,7 @@ func TestExtensionEventEmitted(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1188,7 +1188,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
@@ -1260,7 +1260,7 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
@@ -1306,7 +1306,7 @@ func TestSummaryTurnDoesNotEmitEvents(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1361,7 +1361,7 @@ func TestSummaryUsesFullConversation(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1405,7 +1405,7 @@ func TestDelegationResultSummaryPopulated(t *testing.T) {
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
 	runner := agent.NewRunner()
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1542,7 +1542,7 @@ func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	_, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
+	_, _, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1608,7 +1608,7 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false)
 
-	result, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1658,7 +1658,7 @@ func TestSummaryUsesChildContext(t *testing.T) {
 	parentCtx, parentCancel := context.WithCancel(context.Background())
 	parentCancel()
 
-	result, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
+	result, _, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

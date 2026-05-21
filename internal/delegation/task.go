@@ -48,7 +48,7 @@ func truncateTaskPreview(s string, max int) string {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger) (tool.ExecutionResult, error) {
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger) (tool.ExecutionResult, agent.RunState, error) {
 	tc := newTraceCollector(spec.AgentID, spec.Task)
 
 	childCtx := ctx
@@ -78,7 +78,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
-		return failedDelegateExecution(spec, state, err, tc, logger), nil
+		return failedDelegateExecution(spec, state, err, tc, logger), state, nil
 	}
 
 	extensionsGranted := 0
@@ -111,7 +111,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 			if events != nil {
 				events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extensionErr.Error()))
 			}
-			return failedDelegateExecution(spec, state, extensionErr, tc, logger), nil
+			return failedDelegateExecution(spec, state, extensionErr, tc, logger), state, nil
 		}
 		state = nextState
 	}
@@ -157,7 +157,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		},
 	}
 
-	return executionResult, nil
+	return executionResult, state, nil
 }
 
 func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
