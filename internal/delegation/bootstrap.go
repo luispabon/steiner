@@ -94,16 +94,17 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 
 // buildChildRegistries produces both the visible tool registry (tools the model
 // can request) and the execution registry (tools the child agent can actually
-// execute) from the parent registry. The named tool (typically "delegate") is
-// always excluded from both, even if it appears in allowedTools. If allowedTools
-// is non-empty, only listed tools are included. If empty, no tools are included.
+// execute) from the parent registry. Delegation control tools are always
+// excluded from both, even if they appear in allowedTools. If allowedTools is
+// non-empty, only listed tools are included. If empty, no tools are included.
 // Execution tools are set to auto-approval mode.
 func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.Registry, *tool.Registry) {
 	if parent == nil {
 		empty := tool.NewRegistry()
 		return empty, empty
 	}
-	visible := parent.Subset(allowedTools, []string{DelegateToolName}, "")
-	exec := parent.Subset(allowedTools, []string{DelegateToolName}, config.ApprovalModeAuto)
+	excluded := []string{DelegateToolName, FollowUpToolName}
+	visible := parent.Subset(allowedTools, excluded, "")
+	exec := parent.Subset(allowedTools, excluded, config.ApprovalModeAuto)
 	return visible, exec
 }

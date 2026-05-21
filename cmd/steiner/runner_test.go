@@ -70,20 +70,26 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	found := false
+	foundFollowUp := false
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName {
 			found = true
-			break
+		}
+		if n == delegation.FollowUpToolName {
+			foundFollowUp = true
 		}
 	}
 	if !found {
 		t.Errorf("delegate tool not found in registry when sub_agent.enabled=true; got %v", reg.Names())
 	}
+	if !foundFollowUp {
+		t.Errorf("follow_up tool not found in registry when sub_agent.enabled=true; got %v", reg.Names())
+	}
 
 	// base registry must not be polluted
 	for _, n := range base.Names() {
-		if n == delegation.DelegateToolName {
-			t.Error("delegate tool leaked into base registry")
+		if n == delegation.DelegateToolName || n == delegation.FollowUpToolName {
+			t.Errorf("delegation tool %q leaked into base registry", n)
 		}
 	}
 }
@@ -147,8 +153,8 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
 
 	for _, n := range reg.Names() {
-		if n == delegation.DelegateToolName {
-			t.Errorf("delegate tool present in registry when sub_agent.enabled=false")
+		if n == delegation.DelegateToolName || n == delegation.FollowUpToolName {
+			t.Errorf("delegation tool %q present in registry when sub_agent.enabled=false", n)
 		}
 	}
 }

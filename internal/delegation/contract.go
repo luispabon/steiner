@@ -85,6 +85,9 @@ type DelegationResult struct {
 	// ToolCallCount is the number of tool calls the child executed across all turns.
 	ToolCallCount int `json:"tool_call_count"`
 
+	// FollowUpCount is the number of successful follow-up turns resumed for this child.
+	FollowUpCount int `json:"follow_up_count,omitempty"`
+
 	// Trace captures lifecycle events for delegation diagnostics.
 	Trace []TraceEntry `json:"trace,omitempty"`
 }
