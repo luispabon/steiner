@@ -132,6 +132,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 func (m *Model) syncSidebar() {
 	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
+	m.sidebar.activeSkill = m.activeSkillName()
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
 		m.sidebar.dirty = snap.dirty
@@ -139,6 +140,18 @@ func (m *Model) syncSidebar() {
 		m.sidebar.modifiedFiles = append([]gitModifiedFile(nil), snap.modifiedFiles...)
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
+}
+
+func (m *Model) activeSkillName() string {
+	if m == nil {
+		return ""
+	}
+	for _, name := range m.skillNames {
+		if m.enabledSkills[name] {
+			return name
+		}
+	}
+	return ""
 }
 
 func appendStatusContext(base, fragment string) string {

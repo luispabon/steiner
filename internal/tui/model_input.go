@@ -201,17 +201,7 @@ func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
-	m.enabledSkills[skill] = enable
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enable}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
-	state := "disabled"
-	if enable {
-		state = "enabled"
-	}
-	m.content.AppendLine(fmt.Sprintf("status: skill %s %s", skill, state))
+	m = m.updateSkillState(skill, enable)
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncSidebar()
@@ -318,16 +308,8 @@ func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, 
 }
 
 func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
-	// Enable the skill if not already enabled
-	if !m.enabledSkills[skillName] {
-		m.enabledSkills[skillName] = true
-		if m.controller != nil {
-			if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skillName, Enabled: true}); err != nil {
-				m.content.AppendLine(fmt.Sprintf("status: %v", err))
-			}
-		}
-		m.content.AppendLine(fmt.Sprintf("status: skill %s enabled", skillName))
-	}
+	m = m.updateSkillState(skillName, true)
+	m.syncSidebar()
 
 	// If args are provided, submit them as a prompt; otherwise just enable the skill
 	if args != "" {
@@ -339,6 +321,45 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 	m.syncSidebar()
 	m.syncViewport()
 	return m, nil
+}
+
+func (m Model) updateSkillState(skill string, enable bool) Model {
+	if m.enabledSkills == nil {
+		m.enabledSkills = make(map[string]bool, len(m.skillNames))
+	}
+
+	if enable {
+		for _, name := range m.skillNames {
+			if name == skill || !m.enabledSkills[name] {
+				continue
+			}
+			m.enabledSkills[name] = false
+			m.sendSkillEnabledAction(name, false)
+			m.content.AppendLine(fmt.Sprintf("status: skill %s disabled", name))
+		}
+		if !m.enabledSkills[skill] {
+			m.enabledSkills[skill] = true
+			m.sendSkillEnabledAction(skill, true)
+			m.content.AppendLine(fmt.Sprintf("status: skill %s enabled", skill))
+		}
+		return m
+	}
+
+	if m.enabledSkills[skill] {
+		m.enabledSkills[skill] = false
+		m.sendSkillEnabledAction(skill, false)
+		m.content.AppendLine(fmt.Sprintf("status: skill %s disabled", skill))
+	}
+	return m
+}
+
+func (m Model) sendSkillEnabledAction(skill string, enabled bool) {
+	if m.controller == nil {
+		return
+	}
+	if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enabled}); err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: %v", err))
+	}
 }
 
 // buildSlashOverlayItems builds a list of all available slash commands and skills for the overlay.

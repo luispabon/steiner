@@ -15,6 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // testController records all actions received by Handle for test verification.
@@ -61,6 +62,18 @@ func (c *testController) submitApprovals() []interactive.SubmitApproval {
 	var result []interactive.SubmitApproval
 	for _, a := range c.actions {
 		if v, ok := a.(interactive.SubmitApproval); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func (c *testController) skillEnabledActions() []interactive.SetSkillEnabled {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SetSkillEnabled
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SetSkillEnabled); ok {
 			result = append(result, v)
 		}
 	}
@@ -250,11 +263,100 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	if ctrl.countSetSkillEnabled() != 1 {
 		t.Fatalf("skill toggle count = %d, want 1", ctrl.countSetSkillEnabled())
 	}
+	if got := m.sidebar.activeSkill; got != "review" {
+		t.Fatalf("sidebar.activeSkill = %q, want review", got)
+	}
 
 	m.input.SetValue("/skill -review")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
+	}
+	if got := m.sidebar.activeSkill; got != "" {
+		t.Fatalf("sidebar.activeSkill = %q, want empty", got)
+	}
+}
+
+func TestSkillExclusivity(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		SkillNames: []string{"review", "test"},
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/skill test")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.enabledSkills["test"] {
+		t.Fatal("expected test skill to be enabled")
+	}
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to stay disabled")
+	}
+	if got := m.sidebar.activeSkill; got != "test" {
+		t.Fatalf("sidebar.activeSkill = %q, want test", got)
+	}
+
+	m.input.SetValue("/review")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be enabled")
+	}
+	if m.enabledSkills["test"] {
+		t.Fatal("expected test skill to be disabled when review is invoked")
+	}
+	if got := m.sidebar.activeSkill; got != "review" {
+		t.Fatalf("sidebar.activeSkill = %q, want review", got)
+	}
+
+	m.input.SetValue("/skill -review")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be disabled")
+	}
+	if m.enabledSkills["test"] {
+		t.Fatal("expected test skill to remain disabled")
+	}
+	if got := m.sidebar.activeSkill; got != "" {
+		t.Fatalf("sidebar.activeSkill = %q, want empty", got)
+	}
+
+	gotActions := ctrl.skillEnabledActions()
+	wantActions := []interactive.SetSkillEnabled{
+		{Name: "test", Enabled: true},
+		{Name: "test", Enabled: false},
+		{Name: "review", Enabled: true},
+		{Name: "review", Enabled: false},
+	}
+	if len(gotActions) != len(wantActions) {
+		t.Fatalf("skill actions = %#v, want %#v", gotActions, wantActions)
+	}
+	for i := range wantActions {
+		if gotActions[i] != wantActions[i] {
+			t.Fatalf("skill actions[%d] = %#v, want %#v", i, gotActions[i], wantActions[i])
+		}
+	}
+}
+
+func TestSidebarSkillSection(t *testing.T) {
+	styles := theme.Default().LipGlossStyles()
+
+	sidebar := sidebarState{
+		activeSkill: "review",
+		styles:      styles,
+	}
+	joined := strings.Join(sidebar.lines(38, 50), "\n")
+	if !strings.Contains(joined, "SKILL") {
+		t.Fatalf("sidebar = %q, want skill section", joined)
+	}
+	if !strings.Contains(joined, "review") {
+		t.Fatalf("sidebar = %q, want active skill name", joined)
+	}
+
+	empty := sidebarState{styles: styles}
+	if joined := strings.Join(empty.lines(38, 50), "\n"); strings.Contains(joined, "SKILL") {
+		t.Fatalf("sidebar = %q, want no skill section", joined)
 	}
 }
 
