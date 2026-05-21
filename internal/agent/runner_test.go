@@ -1492,7 +1492,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               1024,
+			ContextSize:               1043,
 			MaxCompletionTokens:       32,
 			SummaryMaxTokens:          32,
 			NormalSummaryMaxTokens:    32,
