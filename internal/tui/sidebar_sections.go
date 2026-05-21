@@ -38,6 +38,9 @@ func (s sidebarState) staticLines(width int) []string {
 	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
 	lines = append(lines, s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width))))
 	lines = append(lines, s.modelSection(width)...)
+	if strings.TrimSpace(s.activeSkill) != "" {
+		lines = append(lines, s.skillSection(width)...)
+	}
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.scratchpadSection(width)...)
 	lines = append(lines, s.repositorySection(width)...)
@@ -69,6 +72,15 @@ func (s sidebarState) contextSection(width int) []string {
 		s.tokenBarLine(width),
 		s.tokenUsageLine(width),
 		s.compactDotLine(),
+	}
+}
+
+func (s sidebarState) skillSection(width int) []string {
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	return []string{
+		"",
+		cardLabel("skill", s.styles),
+		cardField("active", fgBright, fitText(safeText(s.activeSkill), width-7), s.styles),
 	}
 }
 

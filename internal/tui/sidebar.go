@@ -35,6 +35,7 @@ type sidebarState struct {
 	ahead         int
 	modifiedFiles []gitModifiedFile
 	workingDir    string
+	activeSkill   string
 	styles        theme.Styles
 	tickCount     int
 
