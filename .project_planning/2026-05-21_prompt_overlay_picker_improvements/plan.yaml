@@ -1,0 +1,66 @@
+steps:
+  - id: step-1
+    title: Rework picker input flow around the composer
+    scope: Keep prompt text as the source of truth while slash and file pickers are open, and derive picker query state from the active composer token instead of overlay-local typing state.
+    files:
+      - internal/tui/model_update_keys.go
+      - internal/tui/model_input.go
+      - internal/tui/slash_overlay.go
+      - internal/tui/file_picker.go
+      - internal/tui/model_test.go
+      - internal/tui/file_picker_test.go
+      - internal/tui/slash_overlay_test.go
+    constraints:
+      - Preserve existing enter, escape, and arrow-key behavior for overlays.
+      - Do not move picker behavior outside internal/tui.
+      - Avoid breaking normal prompt submission and command parsing.
+    acceptance:
+      - Typing after / continues updating the composer while the slash overlay refreshes from the prompt text.
+      - Typing after @ continues updating the composer while the file picker refreshes from the prompt text.
+      - Overlay close and selection behavior remain consistent with current interaction patterns.
+    verification:
+      - go test ./internal/tui -run 'TestModel.*|TestFilePickerOverlay.*|TestSlashOverlay.*'
+
+  - id: step-2
+    title: Add library-backed fuzzy ranking and match highlighting
+    scope: Integrate github.com/sahilm/fuzzy for ranked matching in slash and file pickers, and use returned match indexes to highlight matched characters in rendered rows.
+    files:
+      - go.mod
+      - go.sum
+      - internal/tui/slash_overlay.go
+      - internal/tui/file_picker.go
+      - internal/tui/theme/style.go
+      - internal/tui/file_picker_test.go
+      - internal/tui/slash_overlay_test.go
+    constraints:
+      - Use github.com/sahilm/fuzzy as the default matcher.
+      - Keep the existing Bubble Tea overlay UI rather than replacing it.
+      - Keep highlighting readable for both selected and unselected rows.
+    acceptance:
+      - Slash and file pickers use ranked fuzzy results rather than substring-only filtering.
+      - Non-prefix abbreviated queries can match relevant commands and file paths.
+      - Matching characters are visually highlighted in picker rows using library-provided match positions.
+    verification:
+      - go test ./internal/tui -run 'TestFilePickerOverlay.*|TestSlashOverlay.*'
+
+  - id: step-3
+    title: Broaden regression coverage and finalize verification
+    scope: Add or adjust tests for routing, ranking, insertion, and highlighted rendering, then run repo-level verification required for Go changes.
+    files:
+      - internal/tui/model_test.go
+      - internal/tui/file_picker_test.go
+      - internal/tui/slash_overlay_test.go
+    constraints:
+      - Prefer targeted tests first, then broaden.
+      - Report any unavailable toolchain dependency or failing command exactly.
+      - Finish with repo-mandated verification before closeout.
+    acceptance:
+      - Tests cover prompt-driven picker updates, fuzzy result behavior, and highlight rendering expectations.
+      - Broader TUI regressions remain green.
+      - Final verification includes repo-required checks.
+    verification:
+      - gofmt -w <files>
+      - goimports -w <files>
+      - go test ./internal/tui -run 'TestModel.*|TestFilePickerOverlay.*|TestSlashOverlay.*'
+      - go test ./...
+      - make check
