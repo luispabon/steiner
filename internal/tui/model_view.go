@@ -119,7 +119,7 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 }
 
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
-	offset := m.inputChromeHeight(contentWidth) + m.activityRowHeight(contentWidth)
+	offset := m.bottomChromeHeight(contentWidth)
 
 	// When the sidebar occupies the left side, push the slash overlay right so
 	// it appears above the prompt box rather than over the sidebar.
@@ -207,6 +207,14 @@ func (m Model) renderInputView(contentWidth int) string {
 
 func (m Model) inputChromeHeight(contentWidth int) int {
 	return lipgloss.Height(m.renderInputView(contentWidth))
+}
+
+func (m Model) bottomChromeHeight(contentWidth int) int {
+	return 1 + // hDivider
+		m.approvalTrayHeight(contentWidth) +
+		m.activityRowHeight(contentWidth) +
+		m.inputChromeHeight(contentWidth) +
+		1 // status bar
 }
 
 func (m Model) activityRowHeight(_ int) int {

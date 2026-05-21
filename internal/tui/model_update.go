@@ -188,6 +188,15 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
 	}
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
+
+	// Use content area width for bottom-anchored overlays so they don't
+	// overflow into the sidebar area.
+	contentW := msg.Width
+	if m.sidebar.Visible(msg.Width) {
+		contentW = msg.Width - sidebarWidth - 1
+	}
+	m.filePicker.OverlayShell = m.filePicker.WithDimensions(contentW, msg.Height)
+	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
 	m.layout()
 	return m, nil
 }
