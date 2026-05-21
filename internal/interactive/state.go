@@ -81,6 +81,34 @@ func (s *Skills) Set(name string, enabled bool) {
 	s.enabled[name] = enabled
 }
 
+// Reset disables all tracked skills.
+func (s *Skills) Reset() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name := range s.enabled {
+		s.enabled[name] = false
+	}
+}
+
+// Active returns the first enabled skill in order, or an empty string when no
+// skills are enabled.
+func (s *Skills) Active() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, name := range s.order {
+		if s.enabled[name] {
+			return name
+		}
+	}
+	return ""
+}
+
 // Snapshot returns the names of all currently enabled skills in order.
 func (s *Skills) Snapshot() []string {
 	if s == nil {

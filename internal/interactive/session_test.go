@@ -143,6 +143,60 @@ func TestSkillsSnapshot(t *testing.T) {
 	}
 }
 
+func TestSkillsReset(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil safe", func(_ *testing.T) {
+		var skills *Skills
+		skills.Reset()
+	})
+
+	t.Run("clears enabled skills", func(t *testing.T) {
+		skills := NewSkills([]string{"a", "b", "c"})
+		skills.Set("a", true)
+		skills.Set("c", true)
+		skills.Set("unknown", true)
+
+		skills.Reset()
+
+		if got := skills.Snapshot(); len(got) != 0 {
+			t.Fatalf("snapshot after reset = %v, want empty", got)
+		}
+		if got := skills.Active(); got != "" {
+			t.Fatalf("active after reset = %q, want empty", got)
+		}
+	})
+}
+
+func TestSkillsActive(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil safe", func(t *testing.T) {
+		var skills *Skills
+		if got := skills.Active(); got != "" {
+			t.Fatalf("active on nil = %q, want empty", got)
+		}
+	})
+
+	t.Run("returns first enabled skill in order", func(t *testing.T) {
+		skills := NewSkills([]string{"a", "b", "c"})
+		skills.Set("c", true)
+		skills.Set("a", true)
+
+		if got, want := skills.Active(), "a"; got != want {
+			t.Fatalf("active = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("returns empty when none enabled", func(t *testing.T) {
+		skills := NewSkills([]string{"a", "b"})
+
+		if got := skills.Active(); got != "" {
+			t.Fatalf("active = %q, want empty", got)
+		}
+	})
+}
+
 func TestSkillsSetNilSafe(t *testing.T) {
 	t.Parallel()
 	var s *Skills
