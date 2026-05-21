@@ -19,27 +19,26 @@ type paletteItem struct {
 }
 
 type paletteModel struct {
-	open     bool
+	OverlayShell
 	query    string
 	items    []paletteItem
 	filtered []paletteItem
 	cursor   int
 	styles   theme.Styles
-	width    int
-	height   int
 }
 
 func newPalette(styles theme.Styles, items []paletteItem) paletteModel {
 	p := paletteModel{
-		styles: styles,
-		items:  items,
+		OverlayShell: OverlayShell{}.WithPreferredWidth(60),
+		styles:       styles,
+		items:        items,
 	}
 	p.filtered = append([]paletteItem(nil), items...)
 	return p
 }
 
 func (p paletteModel) Open() paletteModel {
-	p.open = true
+	p.OverlayShell = p.openShell()
 	p.query = ""
 	p.cursor = 0
 	p.filtered = append([]paletteItem(nil), p.items...)
@@ -47,12 +46,12 @@ func (p paletteModel) Open() paletteModel {
 }
 
 func (p paletteModel) Close() paletteModel {
-	p.open = false
+	p.OverlayShell = p.closeShell()
 	return p
 }
 
 func (p paletteModel) Update(msg tea.Msg) (paletteModel, tea.Cmd) {
-	if !p.open {
+	if !p.IsOpen() {
 		return p, nil
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -96,16 +95,7 @@ func (p paletteModel) Update(msg tea.Msg) (paletteModel, tea.Cmd) {
 }
 
 func (p paletteModel) View() string {
-	// Total visual width of the modal (including border)
-	overlayWidth := 60
-	if overlayWidth > p.width-4 {
-		overlayWidth = p.width - 4
-	}
-	if overlayWidth < 40 {
-		overlayWidth = 40
-	}
-	// Inner content area: subtract 1-cell border + 1-cell padding each side
-	innerWidth := overlayWidth - 4
+	innerWidth := p.InnerWidth()
 
 	// Input row: ⌘ prefix + query or placeholder
 	prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render("⌘ ")
@@ -116,7 +106,7 @@ func (p paletteModel) View() string {
 		queryDisplay = p.styles.PaletteInput.Render(queryDisplay)
 	}
 	inputLine := lipgloss.NewStyle().Width(innerWidth).Render(prefix + queryDisplay)
-	divider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
+	divider := p.Divider()
 
 	maxItems := 10
 	lines := []string{inputLine, divider}
@@ -147,21 +137,13 @@ func (p paletteModel) View() string {
 	}
 
 	// Footer
-	footerDivider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(strings.Repeat("─", innerWidth))
-	chip := func(k string) string {
-		return lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev2)).Foreground(lipgloss.Color(theme.FgFaint)).Padding(0, 1).Render(k)
-	}
-	footerText := chip("↵") + " run   " + chip("↑↓") + " navigate   " + chip("esc") + " close"
-	footerLine := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(innerWidth).Render(footerText)
+	footerDivider := p.Divider()
+	footerText := FooterChip("↵") + " run   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
+	footerLine := p.RenderFooter(footerText)
 	lines = append(lines, footerDivider, footerLine)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	box := p.styles.PaletteOverlay.
-		Width(innerWidth+2).
-		Padding(1, 1).
-		Render(body)
-
-	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+	return p.RenderWithBg(p.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
 func (p *paletteModel) filter() {

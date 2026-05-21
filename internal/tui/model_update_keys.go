@@ -45,7 +45,7 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	case m.exitModal.open:
 		next, cmd := m.handleExitModalKey(msg)
 		return true, next, cmd
-	case m.palette.open:
+	case m.palette.IsOpen():
 		var cmd tea.Cmd
 		m.palette, cmd = m.palette.Update(msg)
 		return true, m, cmd
@@ -124,8 +124,6 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 		return true, m.openExitModal(), nil
 	case tea.KeyCtrlP:
 		m.palette = m.palette.Open()
-		m.palette.width = m.width
-		m.palette.height = m.height
 		return true, m, nil
 	case tea.KeyCtrlB:
 		m.sidebar.Toggle()

@@ -174,8 +174,7 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	m.palette.width = msg.Width
-	m.palette.height = msg.Height
+	m.palette.OverlayShell = m.palette.WithDimensions(msg.Width, msg.Height)
 	m.fileList.width = msg.Width
 	m.fileList.height = msg.Height
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)

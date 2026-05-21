@@ -132,8 +132,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 
 func (m *Model) initializeOverlays(cfg Config) {
 	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
-	m.palette.width = m.width
-	m.palette.height = m.height
+	m.palette.OverlayShell = m.palette.WithDimensions(m.width, m.height)
 
 	m.fileList = newFileListOverlay(m.styles)
 	m.fileList.width = m.width
