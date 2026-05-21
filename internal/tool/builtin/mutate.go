@@ -192,20 +192,22 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	if op.Line <= 0 {
 		return fmt.Errorf("mutate: operation %d line_replace: line must be >= 1", index)
 	}
-	if op.OldString == "" {
-		return fmt.Errorf("mutate: operation %d line_replace: old_string is empty", index)
-	}
 	lines := splitLinesPreserveEndings(string(state.content))
 	if op.Line > len(lines) {
 		return fmt.Errorf("mutate: operation %d line_replace: line %d is outside file with %d lines", index, op.Line, len(lines))
 	}
 	line := lines[op.Line-1]
 	lineText := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-	if count := strings.Count(lineText, op.OldString); count != 1 {
-		return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
-	}
+	lineEnding := line[len(lineText):]
 	before := string(state.content)
-	lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
+	if op.OldString == "" {
+		lines[op.Line-1] = op.NewString + lineEnding
+	} else {
+		if count := strings.Count(lineText, op.OldString); count != 1 {
+			return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
+		}
+		lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
+	}
 	state.content = []byte(strings.Join(lines, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)

@@ -3,6 +3,7 @@ package builtin
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -62,7 +63,12 @@ func decodeReflect(t reflect.Type, raw map[string]any) (reflect.Value, error) {
 
 	for key := range raw {
 		if _, ok := known[key]; !ok {
-			return v, fmt.Errorf("decode input: unknown field %q", key)
+			validFields := make([]string, 0, len(known))
+			for name := range known {
+				validFields = append(validFields, name)
+			}
+			sort.Strings(validFields)
+			return v, fmt.Errorf("decode input: unknown field %q; valid fields: %s", key, strings.Join(validFields, ", "))
 		}
 	}
 

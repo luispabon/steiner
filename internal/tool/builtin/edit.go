@@ -97,9 +97,15 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
+		if matchedText, _, ok := extractNormalizedMatch(content, oldText); ok {
+			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
+			lines = append(lines, fmt.Sprintf("  %q", matchedText))
+		}
 	}
 
+	anchorLineNum := 0
 	if anchorStart, anchorEnd, lineNum, preview, ok := findDiagnosticAnchor(content, oldText); ok {
+		anchorLineNum = lineNum
 		lines = append(lines, fmt.Sprintf("%s: nearest anchor at line %d, bytes %d-%d", prefix, lineNum, anchorStart+1, anchorEnd))
 		lines = append(lines, fmt.Sprintf("%s: context:", prefix))
 		lines = append(lines, previewContext(content, lineNum, preview)...)
@@ -108,7 +114,11 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	}
 
 	if hasWhitespaceMismatch {
-		lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with a line number for whitespace-sensitive edits, or reread the file for exact content", prefix))
+		if anchorLineNum > 0 {
+			lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with line %d for whitespace-sensitive edits, or reread the file for exact content", prefix, anchorLineNum))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with a line number for whitespace-sensitive edits, or reread the file for exact content", prefix))
+		}
 	} else {
 		lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
 	}
@@ -136,6 +146,24 @@ func normalizedWhitespaceMatchExists(content []byte, oldText string) bool {
 	}
 	contentNorm := strings.Join(strings.Fields(string(content)), " ")
 	return strings.Contains(contentNorm, oldNorm)
+}
+
+func extractNormalizedMatch(content []byte, oldText string) (matchedText string, lineNum int, ok bool) {
+	oldNorm := strings.Join(strings.Fields(oldText), " ")
+	if oldNorm == "" {
+		return "", 0, false
+	}
+	oldLineCount := len(strings.Split(strings.TrimRight(oldText, "\n"), "\n"))
+
+	fileLines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	for start := 0; start+oldLineCount <= len(fileLines); start++ {
+		window := fileLines[start : start+oldLineCount]
+		windowNorm := strings.Join(strings.Fields(strings.Join(window, "\n")), " ")
+		if windowNorm == oldNorm {
+			return strings.Join(window, "\n"), start + 1, true
+		}
+	}
+	return "", 0, false
 }
 
 func findDiagnosticAnchor(content []byte, oldText string) (int, int, int, string, bool) {
