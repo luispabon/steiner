@@ -208,10 +208,11 @@ func TestBuildChildRegistries(t *testing.T) {
 			tool.ToolDef{Name: "read"},
 			tool.ToolDef{Name: "write"},
 			tool.ToolDef{Name: "delegate"},
+			tool.ToolDef{Name: "follow_up"},
 			tool.ToolDef{Name: "grep"},
 		)
 
-		visible, exec := buildChildRegistries(parent, []string{"read", "write", "grep"})
+		visible, exec := buildChildRegistries(parent, []string{"read", "write", "grep", "follow_up"})
 
 		if visible == nil || exec == nil {
 			t.Fatal("registries should not be nil")
@@ -222,8 +223,8 @@ func TestBuildChildRegistries(t *testing.T) {
 			t.Errorf("visible has %d tools, want 3: %v", len(visibleNames), visibleNames)
 		}
 		for _, name := range visibleNames {
-			if name == "delegate" {
-				t.Error("visible registry should not contain delegate tool")
+			if name == "delegate" || name == "follow_up" {
+				t.Errorf("visible registry should not contain delegation control tool %q", name)
 			}
 		}
 
@@ -232,8 +233,8 @@ func TestBuildChildRegistries(t *testing.T) {
 			t.Errorf("exec has %d tools, want 3: %v", len(execNames), execNames)
 		}
 		for _, name := range execNames {
-			if name == "delegate" {
-				t.Error("exec registry should not contain delegate tool")
+			if name == "delegate" || name == "follow_up" {
+				t.Errorf("exec registry should not contain delegation control tool %q", name)
 			}
 		}
 	})

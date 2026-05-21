@@ -37,12 +37,13 @@ func TestDelegationSpecFields(t *testing.T) {
 
 func TestDelegationResultFields(t *testing.T) {
 	result := DelegationResult{
-		AgentID:    "agent-123",
-		Status:     StatusComplete,
-		Output:     "test output",
-		TurnCount:  5,
-		TokenCount: 1000,
-		Error:      "",
+		AgentID:       "agent-123",
+		Status:        StatusComplete,
+		Output:        "test output",
+		TurnCount:     5,
+		TokenCount:    1000,
+		FollowUpCount: 2,
+		Error:         "",
 	}
 
 	if result.AgentID != "agent-123" {
@@ -62,6 +63,9 @@ func TestDelegationResultFields(t *testing.T) {
 	}
 	if result.TokenCount != 1000 {
 		t.Errorf("expected TokenCount=1000, got %d", result.TokenCount)
+	}
+	if result.FollowUpCount != 2 {
+		t.Errorf("expected FollowUpCount=2, got %d", result.FollowUpCount)
 	}
 }
 

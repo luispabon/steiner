@@ -180,6 +180,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 	}
 	cloned := base.Clone()
 	mt := maxTokens
+	store := delegation.NewSessionStore()
 
 	// extendedBase is used as ParentReg for child agents.
 	// fetch_url is always present (via Builtins). Conditionally add web_search.
@@ -201,11 +202,13 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		MaxTokens:            &mt,
 		StreamingPreferred:   streamingPreferred,
 		TraceLogger:          traceLogger,
+		SessionStore:         store,
 	}
 
 	// Register the generic delegate tool.
 	handler := delegation.NewDelegateHandler(delegateDeps)
 	cloned.Register(delegation.DelegateToolDef(handler))
+	cloned.Register(delegation.FollowUpToolDef(delegation.NewFollowUpHandler(delegateDeps)))
 
 	// Conditionally expose web_search to the parent model.
 	if searcher != nil {
