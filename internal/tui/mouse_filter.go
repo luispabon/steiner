@@ -6,11 +6,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func shouldIgnoreLeakedMouseRunes(msg tea.KeyMsg) bool {
+func shouldIgnoreLeakedMouseRunes(msg tea.KeyMsg, recentWheel bool) bool {
 	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
 		return false
 	}
-	return isLeakedMouseFragment(string(msg.Runes))
+	fragment := string(msg.Runes)
+	return isLeakedMouseFragment(fragment) || (recentWheel && isLeakedMousePrefixFragment(fragment))
 }
 
 func isLeakedMouseFragment(fragment string) bool {
@@ -81,6 +82,20 @@ func mouseFragmentShapeAllowed(prefix, suffix string, partCount int) bool {
 		}
 	case "":
 		return partCount == 3 && (suffix == "M" || suffix == "m")
+	default:
+		return false
+	}
+}
+
+func isLeakedMousePrefixFragment(fragment string) bool {
+	if fragment == "" || strings.TrimSpace(fragment) != fragment {
+		return false
+	}
+	switch {
+	case strings.Trim(fragment, "[") == "":
+		return true
+	case fragment == "[<":
+		return true
 	default:
 		return false
 	}
