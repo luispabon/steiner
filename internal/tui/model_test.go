@@ -2032,3 +2032,147 @@ func writeRepoFile(t *testing.T, repo, name, content string) {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
+
+func TestModelFilePicker_TabInsertsPath(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to open")
+	}
+	if len(m.filePicker.candidates) == 0 {
+		t.Skip("no candidates")
+	}
+
+	selected := m.filePicker.candidates[m.filePicker.selection]
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to close after Tab")
+	}
+
+	val := m.input.Value()
+	if !strings.HasPrefix(val, selected+" ") && val != selected {
+		t.Fatalf("expected input to start with %q, got %q", selected+" ", val)
+	}
+}
+
+func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to open")
+	}
+	if len(m.slashOverlay.candidates) == 0 {
+		t.Skip("no candidates")
+	}
+
+	selected := m.slashOverlay.candidates[m.slashOverlay.selection]
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to close after Tab")
+	}
+
+	val := m.input.Value()
+	if !strings.HasPrefix(val, selected.command+" ") {
+		t.Fatalf("expected input to start with %q, got %q", selected.command+" ", val)
+	}
+}
+
+func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker open after @go")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to close after space")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to re-open after backspace")
+	}
+	if got := m.filePicker.query; got != "go" {
+		t.Fatalf("picker query = %q, want go", got)
+	}
+}
+
+func TestModelSlashOverlay_ReopensAfterSpaceBackspace(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if !m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay open after /co")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to close after space")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if !m.slashOverlay.IsOpen() {
+		t.Fatal("expected slash overlay to re-open after backspace")
+	}
+}
+
+func TestModelFilePicker_ReopensOnLeftArrow(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker open after @go")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to close after space")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to re-open after left arrow")
+	}
+}
+
+func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
+	m := newModel(Config{WorkingDir: "."}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+
+	if !m.filePicker.IsOpen() {
+		t.Fatal("expected file picker open after @g")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to close on Esc")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.filePicker.IsOpen() {
+		t.Fatal("expected file picker to NOT re-open after Esc removed the token")
+	}
+}
