@@ -191,6 +191,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		return nil
 	case ClearConversation:
 		s.SetConversation(nil)
+		s.skills.Reset()
 		return nil
 	case RequestContextReport:
 		s.emitContextReport(ctx)

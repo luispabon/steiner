@@ -497,16 +497,20 @@ func TestInterruptActiveRunCancelsRun(t *testing.T) {
 	}
 }
 
-func TestClearConversationClearsConversation(t *testing.T) {
+func TestClearConversationResetsSkills(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
+	s.Skills().Set("skill-a", true)
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("Handle(ClearConversation) = %v, want nil", err)
 	}
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("conversation after ClearConversation = %v, want nil", got)
+	}
+	if got := s.Skills().Snapshot(); len(got) != 0 {
+		t.Fatalf("enabled skills after ClearConversation = %v, want empty", got)
 	}
 }
 
