@@ -11,7 +11,6 @@ type inputAction struct {
 	inspectContext       bool
 	inspectConfig        bool
 	listSkills           bool
-	listModels           bool
 	listFiles            bool
 	listFilesPath        string
 	submit               string
@@ -21,6 +20,7 @@ type inputAction struct {
 	setAccent            string
 	toggleThinking       bool
 	requestSessionPicker bool
+	openModelPicker      bool
 	invokeSkill          string // skill name for direct invocation
 	invokeSkillArgs      string // optional args to pass with skill invocation
 	cavemanToggle        bool
@@ -72,8 +72,8 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{requestSessionPicker: true}, true
 	case "/skills":
 		return inputAction{listSkills: true}, true
-	case "/models":
-		return inputAction{listModels: true}, true
+	case "/model":
+		return inputAction{openModelPicker: true}, true
 	case "/thinking":
 		return inputAction{toggleThinking: true}, true
 	case "/caveman":
@@ -151,16 +151,13 @@ func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
 }
 
 // buildCompletionCandidates returns all candidates matching the current input prefix.
-// Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
+// Candidates are built-in slash commands plus "/skill <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
-	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/resume", "/skills", "/skill", "/ls", "/models", "/model", "/thinking",
+	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
 		"/caveman",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
-	}
-	for _, name := range modelNames {
-		base = append(base, "/model "+name)
 	}
 	var matches []string
 	for _, c := range base {

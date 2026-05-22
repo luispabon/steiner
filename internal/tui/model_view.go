@@ -137,6 +137,9 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
 	}
+	if m.modelPicker.IsOpen() {
+		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
+	}
 	return base
 }
 
