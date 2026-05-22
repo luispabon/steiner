@@ -202,6 +202,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		ResolvedModel:        rm,
 		MaxTokens:            &mt,
 		StreamingPreferred:   streamingPreferred,
+		CavemanMode:          cfg.CavemanMode,
 		TraceLogger:          traceLogger,
 		SessionStore:         store,
 	}
