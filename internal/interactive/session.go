@@ -219,15 +219,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 		s.approvalCoordinator.Submit(a)
 		return nil
 	case ToggleCavemanMode:
-		s.mu.Lock()
-		s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
-		state := "off"
-		if s.deps.Config.CavemanMode {
-			state = "on"
-		}
-		s.mu.Unlock()
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
-		return nil
+		return s.handleToggleCavemanMode()
 	case SwitchModel:
 		s.mu.Lock()
 		if _, ok := s.deps.Config.Models[a.Name]; !ok {
@@ -246,6 +238,18 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	default:
 		return fmt.Errorf("handle: unknown action type %T", action)
 	}
+}
+
+func (s *Session) handleToggleCavemanMode() error {
+	s.mu.Lock()
+	s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
+	state := "off"
+	if s.deps.Config.CavemanMode {
+		state = "on"
+	}
+	s.mu.Unlock()
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
+	return nil
 }
 
 // Run enters the interactive session loop. It loads history if a writer is

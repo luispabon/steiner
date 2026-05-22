@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -245,7 +246,14 @@ func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 func (m Model) executeToggleCavemanModeAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
-	return m, func() tea.Msg { return paletteToggleCavemanModeMsg{} }
+	if m.controller != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.controller.Handle(ctx, interactive.ToggleCavemanMode{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
+	}
+	return m, nil
 }
 
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
