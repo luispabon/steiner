@@ -58,6 +58,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		SkillsRoots:     prompt.SkillRoots(s.deps.HomeDir, s.deps.WorkDir),
 		ModelBudget:     modelBudget,
 		PromptOverrides: rm.Prompts,
+		CavemanMode:     s.deps.Config.CavemanMode,
 	}
 
 	compactReq := agent.RunRequest{
@@ -66,6 +67,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		ModelBudget:   modelBudget,
 		ResolvedModel: rm,
 		Events:        s.events,
+		CavemanMode:   s.deps.Config.CavemanMode,
 	}
 
 	newConv, err := s.runManualCompaction(ctx, rm.BackendModelID, func(runCtx context.Context) ([]agent.Message, error) {

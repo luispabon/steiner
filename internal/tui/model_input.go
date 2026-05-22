@@ -46,6 +46,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.toggleThinking {
 		return m.executeToggleThinkingAction()
 	}
+	if action.cavemanToggle {
+		return m.executeToggleCavemanModeAction()
+	}
 	if action.setAccent != "" {
 		return m.executeSetAccentAction(action.setAccent)
 	}
@@ -239,6 +242,12 @@ func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
 }
 
+func (m Model) executeToggleCavemanModeAction() (tea.Model, tea.Cmd) {
+	m.input.Reset()
+	m.historyIdx = 0
+	return m, func() tea.Msg { return paletteToggleCavemanModeMsg{} }
+}
+
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
@@ -379,6 +388,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
+		{command: "/caveman-toggle", name: "Toggle caveman mode", desc: "switch terse prompting on/off", source: ""},
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
 	}

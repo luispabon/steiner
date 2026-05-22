@@ -28,6 +28,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePaletteClearMsg(msg)
 	case paletteToggleThinkingMsg:
 		return m.handlePaletteToggleThinkingMsg(msg)
+	case paletteToggleCavemanModeMsg:
+		return m.handlePaletteToggleCavemanModeMsg(msg)
 	case paletteSwitchModelMsg:
 		return m.handlePaletteSwitchModelMsg(msg)
 	case paletteSetAccentMsg:
@@ -97,6 +99,18 @@ func (m Model) handlePaletteToggleThinkingMsg(_ paletteToggleThinkingMsg) (tea.M
 		}
 	}
 	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) handlePaletteToggleCavemanModeMsg(_ paletteToggleCavemanModeMsg) (tea.Model, tea.Cmd) {
+	if m.controller == nil {
+		return m, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.controller.Handle(ctx, interactive.ToggleCavemanMode{}); err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: %v", err))
+	}
 	return m, nil
 }
 

@@ -35,6 +35,8 @@ type paletteSetAccentMsg struct{ preset string }
 
 type paletteToggleThinkingMsg struct{}
 
+type paletteToggleCavemanModeMsg struct{}
+
 type paletteSwitchModelMsg struct{ name string }
 
 type paletteClearMsg struct{}
