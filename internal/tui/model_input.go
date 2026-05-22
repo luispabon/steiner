@@ -137,6 +137,9 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	for name := range m.enabledSkills {
+		m.enabledSkills[name] = false
+	}
 	if m.sidebar.contextBudget > 0 {
 		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 	} else {

@@ -292,6 +292,34 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 }
 
+func TestClearResetsActiveSkill(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		SkillNames: []string{"review"},
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/skill review")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be enabled")
+	}
+	if got := m.sidebar.activeSkill; got != "review" {
+		t.Fatalf("sidebar.activeSkill = %q, want review", got)
+	}
+
+	m.input.SetValue("/clear")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be disabled after /clear")
+	}
+	if got := m.sidebar.activeSkill; got != "" {
+		t.Fatalf("sidebar.activeSkill = %q, want empty after /clear", got)
+	}
+}
+
 func TestSkillExclusivity(t *testing.T) {
 	ctrl := &testController{}
 
