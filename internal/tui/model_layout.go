@@ -90,12 +90,26 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 			m.lastWheelMouseAt = time.Now()
 			m.scrollDown(m.viewport.MouseWheelDelta)
 		case tea.MouseButtonLeft:
+			start := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+			m.selection = selectionState{start: start, end: start, active: true}
 			m.mousePressX = msg.X
 			m.mousePressY = msg.Y
 		}
+	case tea.MouseActionMotion:
+		if m.mousePressX >= 0 {
+			end := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+			m.selection.end = end
+		}
 	case tea.MouseActionRelease:
-		if msg.Button == tea.MouseButtonLeft && m.mousePressX == msg.X && m.mousePressY == msg.Y {
-			m.handleLeftClick(msg.Y)
+		if msg.Button == tea.MouseButtonLeft {
+			if m.mousePressX == msg.X && m.mousePressY == msg.Y {
+				// click without drag — clear selection and handle click as before
+				m.selection = m.selection.clear()
+				m.handleLeftClick(msg.Y)
+			} else {
+				// drag release — finalize selection (keep visible)
+				m.selection.active = false
+			}
 		}
 		m.mousePressX = -1
 		m.mousePressY = -1
