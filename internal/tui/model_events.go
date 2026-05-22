@@ -15,13 +15,16 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	}
 
-	// Context report events open the overlay instead of going into the transcript.
+	// Context report events: short single-line content goes to the transcript;
+	// long or multi-line content opens the overlay.
 	if event.Type == output.EventTypeContextReport {
 		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
-			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+			if strings.Contains(payload.Content, "\n") || len(payload.Content) > 100 {
+				m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+				m.syncViewport()
+				return nil
+			}
 		}
-		m.syncViewport()
-		return nil
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded && event.Type != output.EventTypeScratchpadUpdated {
