@@ -122,12 +122,13 @@ const (
 	DiffAddedBg   = "#1F2A24" // dim green tint for + diff rows
 	DiffRemovedBg = "#2A2122" // dim red tint for - diff rows
 
-	ToolBlue   = "#5fafff" // search, glob
-	ToolCyan   = "#5fd7d7" // read
-	ToolGrn    = "#87d75f" // write, bash ok
-	ToolMag    = "#d75fd7" // grep
-	Black      = "#000000" // tag chip foreground
-	SyntaxBlue = "#5f8fff" // keyword blue (file preview)
+	ToolBlue       = "#5fafff" // search, glob
+	ToolCyan       = "#5fd7d7" // read
+	ToolGrn        = "#87d75f" // write, bash ok
+	ToolMag        = "#d75fd7" // grep
+	DelegateViolet = "#9D8DF1" // research delegate
+	Black          = "#000000" // tag chip foreground
+	SyntaxBlue     = "#5f8fff" // keyword blue (file preview)
 )
 
 // Soft fill colors (blended with Bg)
@@ -147,6 +148,10 @@ var (
 	ToolMagLine   = blendHex(ToolMag, Bg, 0.30)     // 30% grep + 70% bg
 	ToolBlueLine  = blendHex(ToolBlue, Bg, 0.30)    // 30% search/glob + 70% bg
 	WarnLine      = blendHex(Warn, Bg, 0.30)        // 30% todo + 70% bg
+
+	// Muted delegation border colors (blended with Bg, per agent type)
+	DelegateVioletLine   = blendHex(DelegateViolet, Bg, 0.30) // research
+	DelegateThinkingLine = blendHex(Thinking, Bg, 0.30)       // plan
 )
 
 // AccentPresets maps accent preset names to their hex values

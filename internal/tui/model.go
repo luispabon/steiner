@@ -88,6 +88,7 @@ type Model struct {
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
+	modelPicker                  modelPickerOverlay
 	contextOverlay               contextOverlayState
 	scratchpadOverlay            scratchpadOverlayState
 	exitModal                    exitModalState
@@ -109,6 +110,8 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	selection                    selectionState
+	screenLines                  *[]string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 }

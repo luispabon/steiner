@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ func (m *Model) scrollDown(lines int) {
 	}
 }
 
-func (m *Model) handleMouse(msg tea.MouseMsg) {
+func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.Action {
 	case tea.MouseActionPress:
 		switch msg.Button {
@@ -89,16 +90,35 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 			m.lastWheelMouseAt = time.Now()
 			m.scrollDown(m.viewport.MouseWheelDelta)
 		case tea.MouseButtonLeft:
+			start := selectionPoint{line: msg.Y, col: msg.X}
+			m.selection = selectionState{start: start, end: start, active: true}
 			m.mousePressX = msg.X
 			m.mousePressY = msg.Y
 		}
+	case tea.MouseActionMotion:
+		if m.mousePressX >= 0 {
+			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
+		}
 	case tea.MouseActionRelease:
-		if msg.Button == tea.MouseButtonLeft && m.mousePressX == msg.X && m.mousePressY == msg.Y {
-			m.handleLeftClick(msg.Y)
+		if msg.Button == tea.MouseButtonLeft {
+			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
+			if m.mousePressX != msg.X || m.mousePressY != msg.Y {
+				m.selection.active = false
+				text := extractText(*m.screenLines, m.selection)
+				if text != "" {
+					m.mousePressX = -1
+					m.mousePressY = -1
+					return copyToClipboard(text)
+				}
+			} else {
+				m.selection = m.selection.clear()
+				m.handleLeftClick(msg.Y)
+			}
 		}
 		m.mousePressX = -1
 		m.mousePressY = -1
 	}
+	return nil
 }
 
 func (m *Model) handleLeftClick(termY int) {

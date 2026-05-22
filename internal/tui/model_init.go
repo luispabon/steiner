@@ -15,16 +15,6 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-type mouseDowngradedMsg struct{}
-
-func mouseDowngradeCmd() tea.Msg {
-	// Downgrade from mode 1002 (cell motion tracking) to mode 1000 (normal tracking).
-	// Mode 1000 reports press/release/wheel but NOT drag motion,
-	// allowing the terminal to handle native text selection.
-	_, _ = os.Stdout.WriteString("\x1b[?1002l\x1b[?1000h")
-	return mouseDowngradedMsg{}
-}
-
 func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := newModelInput()
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
@@ -66,6 +56,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebarPosition:   cfg.SidebarPosition,
 		mousePressX:       -1,
 		mousePressY:       -1,
+		screenLines:       new([]string),
 	}
 
 	m.configureModelState(cfg, accentHex)
@@ -146,6 +137,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
 
+	m.modelPicker = newModelPickerOverlay(m.styles)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width
 	m.slashOverlay.height = m.height
@@ -203,7 +198,7 @@ func tickCmd() tea.Cmd {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), tea.HideCursor, mouseDowngradeCmd}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), tea.HideCursor}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}

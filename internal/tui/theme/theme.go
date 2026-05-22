@@ -78,6 +78,22 @@ type Styles struct {
 	ToolBorderGlob    lipgloss.Style // glob (blue)
 	ToolBorderGrep    lipgloss.Style // grep (magenta)
 
+	// Delegate tool tag styles (per agent type)
+	DelegateTagDefault  lipgloss.Style
+	DelegateTagExplore  lipgloss.Style
+	DelegateTagResearch lipgloss.Style
+	DelegateTagCode     lipgloss.Style
+	DelegateTagPlan     lipgloss.Style
+	DelegateTagVerify   lipgloss.Style
+
+	// Delegate tool border styles (per agent type)
+	DelegateBorderDefault  lipgloss.Style
+	DelegateBorderExplore  lipgloss.Style
+	DelegateBorderResearch lipgloss.Style
+	DelegateBorderCode     lipgloss.Style
+	DelegateBorderPlan     lipgloss.Style
+	DelegateBorderVerify   lipgloss.Style
+
 	// Diff colors
 	Added   lipgloss.Style // added lines (green)
 	Removed lipgloss.Style // removed lines (red)
@@ -112,6 +128,9 @@ type Styles struct {
 
 	// Scrollbar
 	Scrollbar lipgloss.Style
+
+	// SelectionStyle is used to highlight mouse-selected text in the viewport.
+	SelectionStyle lipgloss.Style
 }
 
 // BuildStyles builds a full Styles from an accent hex color string.
@@ -172,6 +191,20 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		ToolBorderGlob:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
 		ToolBorderGrep:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
 
+		DelegateTagDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
+		DelegateTagExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
+		DelegateTagResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
+		DelegateTagCode:     lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
+		DelegateTagPlan:     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
+		DelegateTagVerify:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
+
+		DelegateBorderDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
+		DelegateBorderExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
+		DelegateBorderResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
+		DelegateBorderCode:     lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
+		DelegateBorderPlan:     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
+		DelegateBorderVerify:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
+
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
 		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(Warn)),
@@ -192,6 +225,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		Scrollbar: lipgloss.NewStyle().
 			Background(lipgloss.Color(BgElev)).
 			Foreground(lipgloss.Color(BorderSoft)),
+
+		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
 
 		InputFocusBorder: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).

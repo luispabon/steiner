@@ -220,6 +220,6 @@ func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	m.handleMouse(msg)
-	return m, nil
+	cmd := m.handleMouse(msg)
+	return m, cmd
 }

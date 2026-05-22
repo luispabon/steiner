@@ -41,8 +41,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.toggleSkill != "" {
 		return m.executeToggleSkillAction(action.toggleSkill, action.toggleEnable)
 	}
-	if action.listModels {
-		return m.executeListModelsAction()
+	if action.openModelPicker {
+		return m.executeOpenModelPickerAction()
 	}
 	if action.toggleThinking {
 		return m.executeToggleThinkingAction()
@@ -216,15 +216,13 @@ func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, t
 	return m, nil
 }
 
-func (m Model) executeListModelsAction() (tea.Model, tea.Cmd) {
-	if len(m.modelNames) == 0 {
-		m.content.AppendLine("status: no named models configured")
-	} else {
-		m.content.AppendLine("status: models " + strings.Join(m.modelNames, ", "))
-	}
-	m.input.Reset()
+func (m Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
+	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+	m.input.SetValue("/model ")
+	m.input.CursorEnd()
 	m.historyIdx = 0
-	m.syncViewport()
 	return m, nil
 }
 
@@ -394,8 +392,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/context", name: "Inspect context", desc: "inspect last request", source: ""},
 		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
 		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},
-		{command: "/model", name: "Switch model", desc: "change the language model", source: ""},
-		{command: "/models", name: "List models", desc: "show available models", source: ""},
+		{command: "/model", name: "Switch model", desc: "pick a language model", source: ""},
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},

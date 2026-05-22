@@ -19,7 +19,15 @@ func (m Model) View() string {
 	}
 
 	base := m.renderBaseView(contentWidth, sidebarVisible)
-	return m.renderOverlayView(base, contentWidth)
+	result := m.renderOverlayView(base, contentWidth)
+
+	if m.screenLines != nil {
+		*m.screenLines = strings.Split(ansi.Strip(result), "\n")
+	}
+	if m.selection.hasSelection() {
+		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle)
+	}
+	return result
 }
 
 func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
@@ -136,6 +144,9 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	}
 	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
+	}
+	if m.modelPicker.IsOpen() {
+		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
 	}
 	return base
 }

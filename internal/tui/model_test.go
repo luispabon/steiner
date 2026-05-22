@@ -977,10 +977,11 @@ func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
 
-	m.input.SetValue("/model d")
+	m.input.SetValue("/model")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
 
-	if got, want := m.input.Value(), "/model deepseek-v4-flash"; got != want {
+	// /model (no args) should be a completion candidate
+	if got, want := m.input.Value(), "/model"; got != want {
 		t.Fatalf("input after tab = %q, want %q", got, want)
 	}
 	if got := len(m.completionCandidates); got == 0 {

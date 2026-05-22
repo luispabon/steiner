@@ -66,6 +66,9 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	case m.sessionPicker.IsOpen():
 		next, cmd := m.handleSessionPickerKey(msg)
 		return true, next, cmd
+	case m.modelPicker.IsOpen():
+		next, cmd := m.handleModelPickerKey(msg)
+		return true, next, cmd
 	case m.scratchpadOverlay.IsOpen():
 		return true, m.handleScratchpadOverlayKey(msg), nil
 	default:
@@ -150,9 +153,21 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	case tea.KeyPgDown:
 		m.scrollDown(max(1, m.viewport.Height))
 		return true, m, nil
+	case tea.KeyEsc:
+		return m.handleSelectionEscKey()
 	default:
 		return false, m, nil
 	}
+}
+
+// handleSelectionEscKey clears an active selection when Esc is pressed.
+// Returns false (not consumed) when no selection exists so Esc can fall through.
+func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
+	if m.selection.hasSelection() {
+		m.selection = m.selection.clear()
+		return true, m, nil
+	}
+	return false, m, nil
 }
 
 func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -325,6 +340,27 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.modelPicker = m.modelPicker.Close()
+		m.input.Reset()
+		m.historyIdx = 0
+	case tea.KeyEnter:
+		if name := m.modelPicker.SelectedName(); name != "" {
+			m.modelPicker = m.modelPicker.Close()
+			m.input.Reset()
+			m.historyIdx = 0
+			return m.executeModelAction(name)
+		}
+	default:
+		var cmd tea.Cmd
+		m.modelPicker, cmd = m.modelPicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
 func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	current := m.input.Value()
 	if !strings.HasPrefix(current, "/") {
@@ -402,6 +438,14 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		if val := m.input.Value(); strings.TrimRight(val, " ") == "/model" && strings.HasSuffix(val, " ") {
+			m.slashOverlay = m.slashOverlay.Close()
+			m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+			m.modelPicker.width = m.width
+			m.modelPicker.height = m.height
+			m.historyIdx = 0
+			return m, cmd
+		}
 		m.syncSlashOverlayWithComposer()
 		return m, cmd
 	}

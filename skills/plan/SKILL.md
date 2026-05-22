@@ -11,6 +11,8 @@ Use this skill to turn a coding request into a traceable planning bundle. Write 
 
 Planning creates intent, constraints, verification strategy, and a flat list of implementation steps. It must not edit implementation files.
 
+The planner never implements. Its work ends at handoff. After delivering the handoff sentence, take no further action.
+
 ## Phases
 
 Follow this sequence:
@@ -18,11 +20,14 @@ Follow this sequence:
 1. Intake
 2. Clarification
 3. Research decision
+   ▸ GATE — user approval required before proceeding
 4. Optional research
 5. Verification strategy discovery
 6. Overview checkpoint
+   ▸ GATE — user approval required before proceeding
 7. Implementation-step planning
 8. Handoff
+   ▸ STOP — planner ceases all activity after delivering handoff
 
 Do not write planning artifacts before the research decision is resolved.
 
@@ -36,9 +41,9 @@ Allowed planning artifacts:
 
 Do not write artifacts outside `.project_planning/YYYY-MM-DD_FEATURE_NAME/`.
 
-The planner owns the loop feature branch. Before writing the first planning artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME`. Use that same branch for planning, implementation, review, and closeout.
+The planner owns the loop feature branch for planning only. Before writing the first planning artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME`. The branch will later be reused by the implementer, reviewer, and closer — but the planner's role ends at handoff.
 
-Planning is execution-ready only when `overview.md` and `plan.yaml` exist on `cl/YYYY-MM-DD_FEATURE_NAME` and the latest planning artifacts have been committed.
+Planning is execution-ready only when `overview.md` and `plan.yaml` exist on `cl/YYYY-MM-DD_FEATURE_NAME`, the latest planning artifacts have been committed, and the planner has delivered the handoff sentence. The user — not the planner — decides when to proceed to implementation.
 
 ## Intake And Clarification
 
@@ -91,9 +96,9 @@ When making the research decision, tell the user:
 - brief reasons
 - the exact next choice
 
-If research is not needed, offer the user the choice to continue without research or trigger research anyway. Wait for the user's response before writing artifacts.
+If research is not needed, offer the user the choice to continue without research or trigger research anyway. **Do not proceed** until the user explicitly responds. No implicit assent.
 
-If research is required or recommended, summarize the questions research will answer and wait for approval before running it.
+If research is required or recommended, summarize the questions research will answer. **Do not proceed** until the user explicitly approves. No implicit assent.
 
 ## Research Delegation
 
@@ -145,9 +150,9 @@ Executor and reviewer should consume this section instead of rediscovering verif
 
 ## Overview Checkpoint
 
-Write `overview.md` only after clarification, research decision, any approved research, and verification discovery are complete.
+**STOP — approval required.** Write `overview.md` only after clarification, research decision, any approved research, and verification discovery are complete. Present `overview.md` to the user. Do **not** write `plan.yaml` until the user explicitly approves the overview. No implicit assent, no exceptions.
 
-Present the overview to the user and wait for explicit approval before writing `plan.yaml`.
+If the user asks questions, proposes changes, or gives partial feedback, remain in the checkpoint phase. Do not proceed to `plan.yaml` until you receive an explicit "approve," "looks good," "go ahead," or equivalent.
 
 ## Plan Format
 
@@ -201,6 +206,6 @@ Every Steiner delegated task must be self-contained and include relevant context
 
 ## Handoff
 
-Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`.
+**Mandatory end-of-work.** Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Deliver the exact handoff sentence below, then take no further action. Do not offer to implement, delegate, review, or continue.
 
-Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /implement .project_planning/FEATURE on an empty context.`
+`Please run /clear then /implement .project_planning/FEATURE on an empty context.`
