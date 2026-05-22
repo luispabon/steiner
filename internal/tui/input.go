@@ -76,7 +76,7 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{listModels: true}, true
 	case "/thinking":
 		return inputAction{toggleThinking: true}, true
-	case "/caveman-toggle":
+	case "/caveman":
 		return inputAction{cavemanToggle: true}, true
 	case "/ls":
 		return inputAction{listFiles: true}, true
@@ -154,7 +154,7 @@ func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
 // Candidates are built-in slash commands plus "/skill <name>" and "/model <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
 	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/resume", "/skills", "/skill", "/ls", "/models", "/model", "/thinking",
-		"/caveman-toggle",
+		"/caveman",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

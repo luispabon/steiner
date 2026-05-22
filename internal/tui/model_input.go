@@ -396,7 +396,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
-		{command: "/caveman-toggle", name: "Toggle caveman mode", desc: "switch terse prompting on/off", source: ""},
+		{command: "/caveman", name: "Toggle caveman mode", desc: "switch terse prompting on/off", source: ""},
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
 	}

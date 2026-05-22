@@ -59,7 +59,7 @@ func renderHelp(styles theme.Styles, width int) string {
 				{"ctrl+x", "toggle delegation output"},
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
-				{"/caveman-toggle", "toggle caveman mode"},
+				{"/caveman", "toggle caveman mode"},
 				{"/context", "inspect last request"},
 				{"/resume", "resume a previous session"},
 				{"/accent <preset>", "switch accent color"},
