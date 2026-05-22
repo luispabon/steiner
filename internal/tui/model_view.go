@@ -66,6 +66,9 @@ func (m Model) renderMainColumn(contentWidth int) string {
 
 func (m Model) renderViewportView(contentWidth int) string {
 	viewportInner := m.viewport.View()
+	if m.selection.hasSelection() {
+		viewportInner = applyHighlight(viewportInner, m.viewport.YOffset, m.selection, m.styles.SelectionStyle, m.viewport.Width)
+	}
 	scrollbar := m.renderScrollbar()
 	viewportContent := viewportInner
 	paneStyle := m.styles.ContentPane

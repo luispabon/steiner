@@ -123,7 +123,7 @@ func applyHighlight(viewportOutput string, yOffset int, state selectionState, se
 // via OSC52 (works over SSH/tmux).
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
-		fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text))
+		_, _ = fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text))
 		return nil
 	}
 }

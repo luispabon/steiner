@@ -128,6 +128,9 @@ type Styles struct {
 
 	// Scrollbar
 	Scrollbar lipgloss.Style
+
+	// SelectionStyle is used to highlight mouse-selected text in the viewport.
+	SelectionStyle lipgloss.Style
 }
 
 // BuildStyles builds a full Styles from an accent hex color string.
@@ -222,6 +225,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		Scrollbar: lipgloss.NewStyle().
 			Background(lipgloss.Color(BgElev)).
 			Foreground(lipgloss.Color(BorderSoft)),
+
+		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
 
 		InputFocusBorder: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).

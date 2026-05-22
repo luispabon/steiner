@@ -152,7 +152,7 @@ func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
 
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
-func buildCompletionCandidates(prefix string, skillNames []string, modelNames []string) []string {
+func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {
 	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
 		"/caveman",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
