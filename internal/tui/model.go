@@ -110,6 +110,8 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	selection                    selectionState
+	viewportLines                []string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 }

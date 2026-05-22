@@ -54,6 +54,7 @@ func (m *Model) syncViewport() {
 			Render(strings.Repeat(" ", m.viewport.Width))
 		rendered = strings.Repeat(padLine+"\n", pad) + rendered
 	}
+	m.viewportLines = strings.Split(rendered, "\n")
 	m.viewport.SetContent(rendered)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
