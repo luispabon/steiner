@@ -61,7 +61,7 @@ type cliRuntime struct {
 var buildRuntime = defaultBuildRuntime
 
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-	cfg, err := loadRuntimeConfig(flags)
+	cfg, err := loadRuntimeConfig(cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}

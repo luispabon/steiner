@@ -50,7 +50,5 @@ func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Pro
 		CavemanMode:        cavemanMode,
 	}
 
-	promptOpts.CavemanMode = cavemanMode
-
 	return req
 }

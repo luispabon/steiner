@@ -88,6 +88,102 @@ models:
 	}
 }
 
+func TestCommandsConfigCavemanDefaultTrue(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	writeFile(t, configPath, `default_model: test
+providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  test:
+    provider: local
+    id: test-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+    advanced:
+      limits:
+        max_output_tokens: 64
+        context_window: 4096
+`)
+	t.Setenv("HOME", filepath.Join(tempDir, "home"))
+
+	// No --caveman flag — should preserve default true
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--config", configPath, "config"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got config.Config
+	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
+	}
+	if !got.CavemanMode {
+		t.Fatal("config command without --caveman: CavemanMode = false, want true (default)")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestCommandsConfigCavemanOverrideFalse(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	writeFile(t, configPath, `default_model: test
+providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  test:
+    provider: local
+    id: test-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+    advanced:
+      limits:
+        max_output_tokens: 64
+        context_window: 4096
+`)
+	t.Setenv("HOME", filepath.Join(tempDir, "home"))
+
+	// --caveman=false should override to false
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--config", configPath, "--caveman=false", "config"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got config.Config
+	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
+	}
+	if got.CavemanMode {
+		t.Fatal("config command with --caveman=false: CavemanMode = true, want false")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestCommandsTools(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })

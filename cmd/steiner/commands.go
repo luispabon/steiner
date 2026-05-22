@@ -87,13 +87,17 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 		Short: "Print the resolved configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cavemanOverride := (*bool)(nil)
+			if cmd.Flags().Changed("caveman") {
+				cavemanOverride = &flags.caveman
+			}
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
 					ConfigPath:  flags.configPath,
 					Model:       flags.model,
 					Verbose:     flags.verbose,
 					ContextMode: config.ContextMode(flags.contextMode),
-					CavemanMode: &flags.caveman,
+					CavemanMode: cavemanOverride,
 				},
 			})
 			if err != nil {
