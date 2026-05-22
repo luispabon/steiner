@@ -34,6 +34,11 @@ type RunRequest struct {
 	// When false, ChatCompletion is tried first and streaming is used only as a
 	// fallback. Interactive mode sets this to true; --exec defaults to false.
 	StreamingPreferred bool
+
+	// CavemanMode makes the model speak tersely like a caveman to reduce
+	// token usage. When true, system/compaction/child prompts are prepended
+	// with terse-style instructions.
+	CavemanMode bool
 }
 
 // Runner executes the main turn loop for an agent run.
@@ -142,6 +147,8 @@ func postIngestionState(ctx context.Context, req RunRequest, state RunState) (Ru
 func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
+	// Plumb caveman mode through to prompt assembly.
+	basePrompt.CavemanMode = req.CavemanMode
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
 	if preambler, ok := req.ContextManager.(PreambleProvider); ok {

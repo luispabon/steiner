@@ -145,6 +145,11 @@ type AssemblyOptions struct {
 	// (PromptOverrides.System, ScratchpadEnabled, and DelegationEnabled) are
 	// session-constants, so caching once per session is safe.
 	CachedPreamble string
+
+	// CavemanMode makes the model speak tersely like a caveman to reduce
+	// token usage. When true, system/compaction/child prompts are prepended
+	// with terse-style instructions.
+	CavemanMode bool
 }
 
 // Assembly is the rendered prompt plus its contributing context blocks.
