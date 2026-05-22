@@ -19,5 +19,5 @@ cl/2026-05-22_caveman_mode
 - step-3: complete (Update prompt assembly for caveman system and compaction prompts)
 - step-4: complete (Wire CLI caveman flag and runtime closure into cliRunner)
 - step-5: complete (Inherit caveman mode in sub-agent delegation)
-- step-6: running (Add interactive toggle and TUI command)
-- step-7: pending (Final verification and format)
+- step-6: complete (Add interactive toggle and TUI command)
+- step-7: running (Final verification and format)
