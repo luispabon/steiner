@@ -297,7 +297,7 @@ search:
 
 ## Sub-agent delegation
 
-`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
+`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
 
 - **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
 - **`research`** — gather and synthesise information from the codebase or web (only available with a `web_search` backend configured)
@@ -305,6 +305,7 @@ search:
 - **`plan`** — analyse a sub-problem and produce a structured recommendation
 - **`verify`** — run checks (tests, linters, builds) and report pass/fail
 - **`delegate`** — generic sub-agent with custom system prompt, context, and per-invocation overrides
+- **`follow_up`** — resume an existing sub-agent session by ID with a new user message; preserves conversation history while resetting the child's budget to fresh defaults
 
 ### Configuration
 
