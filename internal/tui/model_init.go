@@ -56,6 +56,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebarPosition:   cfg.SidebarPosition,
 		mousePressX:       -1,
 		mousePressY:       -1,
+		screenLines:       new([]string),
 	}
 
 	m.configureModelState(cfg, accentHex)

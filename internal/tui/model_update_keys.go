@@ -153,25 +153,11 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	case tea.KeyPgDown:
 		m.scrollDown(max(1, m.viewport.Height))
 		return true, m, nil
-	case tea.KeyRunes:
-		return m.handleSelectionCopyKey(msg)
 	case tea.KeyEsc:
 		return m.handleSelectionEscKey()
 	default:
 		return false, m, nil
 	}
-}
-
-// handleSelectionCopyKey copies selected viewport text to clipboard when y or c is pressed
-// and a selection is active. Returns false (not consumed) when no selection exists.
-func (m Model) handleSelectionCopyKey(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
-	if (msg.String() == "y" || msg.String() == "c") && m.selection.hasSelection() {
-		text := extractText(m.viewportLines, m.selection)
-		if text != "" {
-			return true, m, copyToClipboard(text)
-		}
-	}
-	return false, m, nil
 }
 
 // handleSelectionEscKey clears an active selection when Esc is pressed.

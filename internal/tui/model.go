@@ -111,7 +111,7 @@ type Model struct {
 	mousePressX                  int
 	mousePressY                  int
 	selection                    selectionState
-	viewportLines                []string
+	screenLines                  *[]string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 }

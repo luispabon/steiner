@@ -41,25 +41,8 @@ func (s selectionState) clear() selectionState {
 	return selectionState{}
 }
 
-// termToContent maps terminal coordinates to content-space (viewport-line, col).
-// termY, termX are 0-indexed terminal cell coordinates.
-// yOffset is viewport.YOffset (scroll offset).
-// sidebarVisible and sidebarPosition describe sidebar layout.
-func termToContent(termX, termY, yOffset int, sidebarVisible bool, sidebarPosition string) selectionPoint {
-	contentLine := (termY - 1) + yOffset // PaddingTop(1) of ContentPane
-	leftPad := 3                         // PaddingLeft(3) of ContentPane
-	if sidebarVisible && sidebarPosition != "right" {
-		leftPad += sidebarWidth + 1
-	}
-	contentCol := termX - leftPad
-	if contentCol < 0 {
-		contentCol = 0
-	}
-	return selectionPoint{line: contentLine, col: contentCol}
-}
-
 // extractText extracts plain text from lines for the given selection state.
-// lines are the raw viewport lines (may contain ANSI sequences).
+// Lines may be pre-stripped or contain ANSI sequences (stripped internally).
 // Column values are visual column positions (terminal cells), not byte offsets.
 func extractText(lines []string, state selectionState) string {
 	if !state.hasSelection() {
@@ -109,30 +92,31 @@ func truncateByWidth(s string, start, end int) string {
 	return s[byteStart:byteEnd]
 }
 
-// applyHighlight post-processes a viewport.View() output string, applying
-// selStyle highlight to the selected segment of each visible line.
-// yOffset is viewport.YOffset; viewportWidth is viewport.Width.
-func applyHighlight(viewportOutput string, yOffset int, state selectionState, selStyle lipgloss.Style, viewportWidth int) string {
+// applyScreenHighlight applies selStyle highlight to screen-space coordinates.
+func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.Style) string {
 	if !state.hasSelection() {
-		return viewportOutput
+		return frame
 	}
 	start, end := state.canonical()
-	lines := strings.Split(viewportOutput, "\n")
+	lines := strings.Split(frame, "\n")
 	for i, line := range lines {
-		contentLine := yOffset + i
-		if contentLine < start.line || contentLine > end.line {
+		if i < start.line || i > end.line {
 			continue
 		}
-		startCol, endCol := 0, viewportWidth
-		if contentLine == start.line {
+		lineWidth := ansi.StringWidth(line)
+		startCol, endCol := 0, lineWidth
+		if i == start.line {
 			startCol = start.col
 		}
-		if contentLine == end.line {
+		if i == end.line {
 			endCol = end.col
+		}
+		if startCol >= endCol {
+			continue
 		}
 		before := ansi.Cut(line, 0, startCol)
 		mid := selStyle.Render(ansi.Strip(ansi.Cut(line, startCol, endCol)))
-		after := ansi.Cut(line, endCol, viewportWidth)
+		after := ansi.Cut(line, endCol, lineWidth)
 		lines[i] = before + mid + after
 	}
 	return strings.Join(lines, "\n")

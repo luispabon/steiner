@@ -55,7 +55,6 @@ func (m *Model) syncViewport() {
 			Render(strings.Repeat(" ", m.viewport.Width))
 		rendered = strings.Repeat(padLine+"\n", pad) + rendered
 	}
-	m.viewportLines = strings.Split(rendered, "\n")
 	m.viewport.SetContent(rendered)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
@@ -91,24 +90,21 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			m.lastWheelMouseAt = time.Now()
 			m.scrollDown(m.viewport.MouseWheelDelta)
 		case tea.MouseButtonLeft:
-			start := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+			start := selectionPoint{line: msg.Y, col: msg.X}
 			m.selection = selectionState{start: start, end: start, active: true}
 			m.mousePressX = msg.X
 			m.mousePressY = msg.Y
 		}
 	case tea.MouseActionMotion:
 		if m.mousePressX >= 0 {
-			end := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
-			m.selection.end = end
+			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
 		}
 	case tea.MouseActionRelease:
 		if msg.Button == tea.MouseButtonLeft {
-			end := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
-			m.selection.end = end
+			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
 			if m.mousePressX != msg.X || m.mousePressY != msg.Y {
 				m.selection.active = false
-				text := extractText(m.viewportLines, m.selection)
-
+				text := extractText(*m.screenLines, m.selection)
 				if text != "" {
 					m.mousePressX = -1
 					m.mousePressY = -1

@@ -19,7 +19,15 @@ func (m Model) View() string {
 	}
 
 	base := m.renderBaseView(contentWidth, sidebarVisible)
-	return m.renderOverlayView(base, contentWidth)
+	result := m.renderOverlayView(base, contentWidth)
+
+	if m.screenLines != nil {
+		*m.screenLines = strings.Split(ansi.Strip(result), "\n")
+	}
+	if m.selection.hasSelection() {
+		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle)
+	}
+	return result
 }
 
 func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
@@ -66,9 +74,6 @@ func (m Model) renderMainColumn(contentWidth int) string {
 
 func (m Model) renderViewportView(contentWidth int) string {
 	viewportInner := m.viewport.View()
-	if m.selection.hasSelection() {
-		viewportInner = applyHighlight(viewportInner, m.viewport.YOffset, m.selection, m.styles.SelectionStyle, m.viewport.Width)
-	}
 	scrollbar := m.renderScrollbar()
 	viewportContent := viewportInner
 	paneStyle := m.styles.ContentPane
