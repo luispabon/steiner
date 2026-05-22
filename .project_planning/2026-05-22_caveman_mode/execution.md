@@ -15,8 +15,8 @@ cl/2026-05-22_caveman_mode
 ## Step States
 
 - step-1: complete (Add CavemanMode to config layer)
-- step-2: running (Plumb CavemanMode through RunRequest and agent loop)
-- step-3: pending (Update prompt assembly for caveman system and compaction prompts)
+- step-2: complete (Plumb CavemanMode through RunRequest and agent loop)
+- step-3: running (Update prompt assembly for caveman system and compaction prompts)
 - step-4: pending (Wire CLI caveman flag and runtime closure into cliRunner)
 - step-5: pending (Inherit caveman mode in sub-agent delegation)
 - step-6: pending (Add interactive toggle and TUI command)

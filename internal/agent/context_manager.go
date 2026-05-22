@@ -45,7 +45,7 @@ type EventSinkSetter interface {
 
 // PreambleProvider returns a cached system preamble string.
 type PreambleProvider interface {
-	CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string
+	CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) string
 }
 
 // ToolResultIngestor processes tool results for context shaping.

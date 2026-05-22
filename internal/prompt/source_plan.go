@@ -76,7 +76,7 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 				})
 				return nil
 			}
-			state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled))
+			state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled, opts.CavemanMode))
 			return nil
 		},
 	}

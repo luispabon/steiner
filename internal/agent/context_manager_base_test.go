@@ -39,8 +39,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var manager baseContextManager
-			first := manager.CachedSystemPreamble(tc.override, tc.scratchpadEnabled, tc.delegationEnabled)
-			second := manager.CachedSystemPreamble(tc.secondOverride, tc.secondScratchpad, tc.secondDelegation)
+			first := manager.CachedSystemPreamble(tc.override, tc.scratchpadEnabled, tc.delegationEnabled, false)
+			second := manager.CachedSystemPreamble(tc.secondOverride, tc.secondScratchpad, tc.secondDelegation, false)
 			if first == "" {
 				t.Fatal("first preamble = empty, want content")
 			}

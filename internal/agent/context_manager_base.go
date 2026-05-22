@@ -17,9 +17,9 @@ type baseContextManager struct {
 	events                output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) string {
 	if b.cachedPreamble == "" {
-		b.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled).Content
+		b.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled, cavemanMode).Content
 	}
 	return b.cachedPreamble
 }

@@ -15,7 +15,30 @@ const (
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
 	compactionPromptEmergencyInstruction = "This is an emergency handoff. Be shorter and more lossy than usual while preserving the essential task, the current state, and any irreversible decisions."
-	compactionPromptInstructionBody      = `You are compacting the current working context for a coding agent.
+	compactionPromptCavemanBody          = `You compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.
+
+Include:
+1. Task and Goal — user request, end state, success criteria, constraints, assumptions.
+2. Current Repository State — repo, branch, files changed, code structure, uncommitted changes, external services.
+3. Work Completed — what implemented, commands run, tests executed, results, commits.
+4. Key Findings and Decisions — technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.
+5. Problems Encountered — errors, root causes, fixes, workarounds, rejected approaches.
+6. Remaining Work — next actions, files to change, tests needed, blockers, open questions, risks.
+7. Verification and Acceptance — commands to prove completion, expected outcomes, manual checks, verification limitations.
+8. User Preferences and Interaction Context — style, tone, conventions, promises, things to avoid repeating.
+
+Rules:
+- Be factual and specific.
+- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.
+- Prefer concrete detail over vague summaries.
+- Do not include irrelevant chat, pleasantries, or speculation.
+- Do not expose secrets. Refer by purpose only.
+- Do not include hidden reasoning. Summarize conclusions only.
+- Do not claim completion unless implemented and verified.
+- If work partially complete, describe exact safest continuation point.
+- If uncertain, say what is uncertain and why.
+- Write for immediate continuation by coding agent.`
+	compactionPromptInstructionBody = `You are compacting the current working context for a coding agent.
 
 The conversation history will be replaced by your summary. Another agent instance must be able to resume the task from your summary alone, without repeating investigation, losing important decisions, or corrupting unfinished work.
 
@@ -113,13 +136,16 @@ const (
 )
 
 // BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode) []provider.Message {
+func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, cavemanMode bool) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
 		return nil
 	}
 
 	systemContent := compactionPromptSystem()
+	if cavemanMode {
+		systemContent = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody
+	}
 	if override != "" {
 		systemContent = override
 	}

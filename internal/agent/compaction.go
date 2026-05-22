@@ -616,7 +616,7 @@ func buildCompactionRequest(req RunRequest, state RunState, candidate Conversati
 
 func buildCompactionRequestWithMode(req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, string) {
 	source := ToProviderMessages(candidate.Messages)
-	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction, mode)
+	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction, mode, req.Prompt.CavemanMode)
 	request := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    messages,

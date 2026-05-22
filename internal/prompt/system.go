@@ -2,6 +2,8 @@ package prompt
 
 import "strings"
 
+const cavemanStyleInstruction = `Speak tersely. Drop articles, filler words, pleasantries, and hedging. Use short synonyms. Keep code blocks and errors exact.`
+
 const identity = "You are steiner, a lean coding agent."
 
 const scratchpadInstructions = `## Scratchpad
@@ -100,7 +102,7 @@ Final response:
 - Mention any assumptions, skipped checks, or unrelated issues noticed.`
 
 // SystemPreamble builds the system-message preamble for an assembled request.
-func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) ContextBlock {
+func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {
 		content = override
@@ -113,6 +115,10 @@ func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled b
 	}
 
 	content = identity + "\n\n" + content
+
+	if cavemanMode {
+		content = cavemanStyleInstruction + "\n\n" + content
+	}
 
 	return ContextBlock{
 		Source:   ContextSourcePreamble,

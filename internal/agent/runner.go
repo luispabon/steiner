@@ -156,6 +156,7 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 			basePrompt.PromptOverrides.System,
 			basePrompt.ScratchpadEnabled,
 			basePrompt.DelegationEnabled,
+			basePrompt.CavemanMode,
 		)
 	}
 	return basePrompt
