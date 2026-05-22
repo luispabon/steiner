@@ -59,6 +59,7 @@ Key environment variables:
 * `STEINER_SCHEDULER_PARALLELISM`
 * `STEINER_MAX_TURNS`
 * `STEINER_MAX_TOKENS`
+* `STEINER_CAVEMAN_MODE`
 * `STEINER_LOG_LEVEL`
 * `STEINER_LOG_FILE`
 * `STEINER_TOOL_OUTPUT_MAX_BYTES`
@@ -333,6 +334,36 @@ sub_agent:
 ```
 
 See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
+
+## Caveman mode
+
+Caveman mode makes the model speak tersely, stripping filler, articles, pleasantries, and hedging. Reduces tokens and response length while keeping technical content intact.
+
+**Disabled by default.** Enable explicitly via config, env var, CLI flag, or `/caveman` slash command in interactive mode.
+
+```yaml
+# config.yaml
+caveman_mode: true
+```
+
+```bash
+# environment
+STEINER_CAVEMAN_MODE=true
+
+# CLI flag
+--caveman
+```
+
+In interactive TUI, toggle on/off with `/caveman`. The toggle persists for the session.
+
+When enabled, caveman-style instructions are injected into:
+
+- **System preamble** — the main agent prompt instructs the model to respond tersely
+- **Compaction prompts** — compaction summaries are written in caveman style to maximise information per token
+- **Sub-agent prompts** — delegated agents inherit the terseness instruction
+- **Scaffold inference** — internal scaffold generation also follows caveman style
+
+Caveman mode is purely a prompt-layer transformation. It does not change tool behavior, approval gates, or any other config.
 
 ## Development
 

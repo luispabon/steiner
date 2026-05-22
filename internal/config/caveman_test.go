@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-func TestDefaultConfigCavemanModeTrue(t *testing.T) {
+func TestDefaultConfigCavemanModeFalse(t *testing.T) {
 	cfg := defaultConfig()
-	if !cfg.CavemanMode {
-		t.Fatal("defaultConfig().CavemanMode = false, want true")
+	if cfg.CavemanMode {
+		t.Fatal("defaultConfig().CavemanMode = true, want false")
 	}
 }
 
-func TestLoadCavemanModeDefaultsToTrue(t *testing.T) {
+func TestLoadCavemanModeDefaultsToFalse(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 	cwd, err := os.Getwd()
@@ -28,8 +28,8 @@ func TestLoadCavemanModeDefaultsToTrue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !cfg.CavemanMode {
-		t.Fatal("Load().CavemanMode = false, want true (default)")
+	if cfg.CavemanMode {
+		t.Fatal("Load().CavemanMode = true, want false (default)")
 	}
 }
 
@@ -104,7 +104,7 @@ func TestLoadCavemanModeCLIOverrideNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !cfg.CavemanMode {
-		t.Fatal("Load() with CLIOverrides{CavemanMode: nil} = false, want true (default)")
+	if cfg.CavemanMode {
+		t.Fatal("Load() with CLIOverrides{CavemanMode: nil} = true, want false (default)")
 	}
 }

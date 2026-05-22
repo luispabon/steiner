@@ -80,6 +80,6 @@ func defaultConfig() Config {
 			ReadAnnotations:    true,
 			ScratchpadMode:     ScratchpadModeScaffoldOnly,
 		},
-		CavemanMode: true,
+		CavemanMode: false,
 	}
 }

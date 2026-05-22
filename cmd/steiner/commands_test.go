@@ -88,7 +88,7 @@ models:
 	}
 }
 
-func TestCommandsConfigCavemanDefaultTrue(t *testing.T) {
+func TestCommandsConfigCavemanDefaultFalse(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 	writeFile(t, configPath, `default_model: test
@@ -113,7 +113,7 @@ models:
 `)
 	t.Setenv("HOME", filepath.Join(tempDir, "home"))
 
-	// No --caveman flag — should preserve default true
+	// No --caveman flag — should preserve default false
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -128,8 +128,8 @@ models:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if !got.CavemanMode {
-		t.Fatal("config command without --caveman: CavemanMode = false, want true (default)")
+	if got.CavemanMode {
+		t.Fatal("config command without --caveman: CavemanMode = true, want false (default)")
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
