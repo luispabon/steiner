@@ -102,18 +102,20 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		}
 	case tea.MouseActionRelease:
 		if msg.Button == tea.MouseButtonLeft {
-			if m.mousePressX == msg.X && m.mousePressY == msg.Y {
-				// click without drag — clear selection and handle click as before
-				m.selection = m.selection.clear()
-				m.handleLeftClick(msg.Y)
-			} else {
-				// drag release — finalize and copy to clipboard immediately
+			end := termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+			m.selection.end = end
+			if m.selection.start != m.selection.end {
+				// drag — finalize and copy to clipboard immediately
 				m.selection.active = false
 				if text := extractText(m.viewportLines, m.selection); text != "" {
 					m.mousePressX = -1
 					m.mousePressY = -1
 					return copyToClipboard(text)
 				}
+			} else {
+				// click — clear selection and handle click as before
+				m.selection = m.selection.clear()
+				m.handleLeftClick(msg.Y)
 			}
 		}
 		m.mousePressX = -1
