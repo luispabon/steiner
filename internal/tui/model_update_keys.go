@@ -165,7 +165,7 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 // handleSelectionCopyKey copies selected viewport text to clipboard when y or c is pressed
 // and a selection is active. Returns false (not consumed) when no selection exists.
 func (m Model) handleSelectionCopyKey(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
-	if (msg.String() == "y" || msg.String() == "c") && m.selection.hasSelection() && !m.input.Focused() {
+	if (msg.String() == "y" || msg.String() == "c") && m.selection.hasSelection() {
 		text := extractText(m.viewportLines, m.selection)
 		if text != "" {
 			return true, m, copyToClipboard(text)

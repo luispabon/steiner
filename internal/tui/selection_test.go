@@ -223,6 +223,18 @@ func TestExtractText(t *testing.T) {
 			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
 			want:  "",
 		},
+		{
+			name:  "multi-byte characters use visual column positions",
+			lines: []string{"│ The user just said hello"},
+			state: selectionState{start: selectionPoint{0, 16}, end: selectionPoint{0, 20}},
+			want:  "said",
+		},
+		{
+			name:  "em dash is single visual column",
+			lines: []string{"foo — bar"},
+			state: selectionState{start: selectionPoint{0, 6}, end: selectionPoint{0, 9}},
+			want:  "bar",
+		},
 	}
 
 	for _, tc := range tests {

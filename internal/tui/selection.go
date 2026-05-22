@@ -1,13 +1,17 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
 
 type selectionPoint struct {
@@ -56,6 +60,7 @@ func termToContent(termX, termY, yOffset int, sidebarVisible bool, sidebarPositi
 
 // extractText extracts plain text from lines for the given selection state.
 // lines are the raw viewport lines (may contain ANSI sequences).
+// Column values are visual column positions (terminal cells), not byte offsets.
 func extractText(lines []string, state selectionState) string {
 	if !state.hasSelection() {
 		return ""
@@ -67,27 +72,41 @@ func extractText(lines []string, state selectionState) string {
 			continue
 		}
 		raw := ansi.Strip(lines[i])
-		startCol, endCol := 0, len(raw)
+		sc := 0
+		ec := len([]rune(raw))
 		if i == start.line {
-			if start.col < len(raw) {
-				startCol = start.col
-			} else {
-				startCol = len(raw)
-			}
+			sc = start.col
 		}
 		if i == end.line {
-			if end.col < len(raw) {
-				endCol = end.col
-			} else {
-				endCol = len(raw)
-			}
+			ec = end.col
 		}
-		if startCol > endCol {
-			startCol = endCol
-		}
-		parts = append(parts, raw[startCol:endCol])
+		parts = append(parts, truncateByWidth(raw, sc, ec))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// truncateByWidth extracts the substring between visual columns start and end.
+func truncateByWidth(s string, start, end int) string {
+	if start >= end {
+		return ""
+	}
+	col := 0
+	byteStart := len(s)
+	byteEnd := len(s)
+	for i, r := range s {
+		if col >= end {
+			byteEnd = i
+			break
+		}
+		if col >= start && byteStart == len(s) {
+			byteStart = i
+		}
+		col += runewidth.RuneWidth(r)
+	}
+	if byteStart > byteEnd {
+		byteStart = byteEnd
+	}
+	return s[byteStart:byteEnd]
 }
 
 // applyHighlight post-processes a viewport.View() output string, applying
@@ -119,11 +138,44 @@ func applyHighlight(viewportOutput string, yOffset int, state selectionState, se
 	return strings.Join(lines, "\n")
 }
 
-// copyToClipboard returns a tea.Cmd that writes text to the system clipboard
-// via OSC52 (works over SSH/tmux).
+// copyToClipboard returns a tea.Cmd that writes text to the system clipboard.
+// Tries wl-copy (Wayland), xclip, xsel, then falls back to OSC52.
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
+		if clipboardExec(text) {
+			return nil
+		}
 		_, _ = fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text))
 		return nil
 	}
+}
+
+func clipboardExec(text string) bool {
+	type candidate struct {
+		name string
+		args []string
+		env  string
+	}
+	candidates := []candidate{
+		{"wl-copy", nil, "WAYLAND_DISPLAY"},
+		{"xclip", []string{"-selection", "clipboard"}, "DISPLAY"},
+		{"xsel", []string{"--clipboard", "--input"}, "DISPLAY"},
+	}
+	for _, c := range candidates {
+		if c.env != "" && os.Getenv(c.env) == "" {
+			continue
+		}
+		path, err := exec.LookPath(c.name)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, path, c.args...)
+		cmd.Stdin = strings.NewReader(text)
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
 }
