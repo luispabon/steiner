@@ -79,7 +79,7 @@ func (m *Model) scrollDown(lines int) {
 	}
 }
 
-func (m *Model) handleMouse(msg tea.MouseMsg) {
+func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.Action {
 	case tea.MouseActionPress:
 		switch msg.Button {
@@ -107,13 +107,19 @@ func (m *Model) handleMouse(msg tea.MouseMsg) {
 				m.selection = m.selection.clear()
 				m.handleLeftClick(msg.Y)
 			} else {
-				// drag release — finalize selection (keep visible)
+				// drag release — finalize and copy to clipboard immediately
 				m.selection.active = false
+				if text := extractText(m.viewportLines, m.selection); text != "" {
+					m.mousePressX = -1
+					m.mousePressY = -1
+					return copyToClipboard(text)
+				}
 			}
 		}
 		m.mousePressX = -1
 		m.mousePressY = -1
 	}
+	return nil
 }
 
 func (m *Model) handleLeftClick(termY int) {
