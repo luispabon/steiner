@@ -26,6 +26,7 @@ type cliRunner struct {
 	streamingPreferred bool
 	currentModel       func() config.ModelConfig
 	currentAlias       func() string
+	cavemanMode        func() bool
 }
 
 type runResult struct {

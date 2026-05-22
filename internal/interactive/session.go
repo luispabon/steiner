@@ -127,6 +127,13 @@ func (s *Session) CurrentModelAlias() string {
 	return s.deps.Config.DefaultModel
 }
 
+// CavemanMode returns whether caveman-style terse prompting is enabled.
+func (s *Session) CavemanMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config.CavemanMode
+}
+
 // CurrentModelConfig returns the currently active model config.
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
