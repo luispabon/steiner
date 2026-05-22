@@ -1,0 +1,163 @@
+steps:
+  - id: step-1
+    title: Selection core — types, coordinate mapping, text extraction, highlight
+    scope: |
+      New file internal/tui/selection.go with:
+      - selectionPoint{line, col int} value type
+      - selectionState{start, end selectionPoint, active bool} value type with methods:
+          hasSelection() bool — start != end or active
+          canonical() (start, end selectionPoint) — normalise so start <= end
+          clear() selectionState — zero value
+      - termToContent(termX, termY, yOffset, sidebarVisible bool, sidebarPosition string) selectionPoint
+          maps terminal coordinates to content-space (line, col)
+          contentLine = (termY - 1) + yOffset   // PaddingTop(1)
+          leftPad = 3 + (sidebarWidth+1 if sidebarVisible && sidebarPosition!="right" else 0)
+          contentCol = termX - leftPad
+      - extractText(lines []string, state selectionState) string
+          strip ANSI from each selected line, extract column range, join with newlines
+          use ansi.Strip from charmbracelet/x/ansi
+      - applyHighlight(viewportOutput string, yOffset int, state selectionState, selStyle lipgloss.Style, viewportWidth int) string
+          split viewportOutput by "\n" (H visible lines, line i = content line yOffset+i)
+          for each line overlapping canonical selection:
+            before = ansi.Cut(line, 0, startCol)
+            mid    = selStyle.Render(ansi.Strip(ansi.Cut(line, startCol, endCol)))
+            after  = ansi.Cut(line, endCol, viewportWidth)
+            result = before + mid + after
+          rejoin with "\n"
+      New file internal/tui/selection_test.go with table-driven tests for:
+      - termToContent: various sidebar positions and scroll offsets
+      - extractText: single-line, multi-line, reversed start/end
+      - applyHighlight: no selection, partial line, full line, multi-line
+    files:
+      - internal/tui/selection.go
+      - internal/tui/selection_test.go
+    constraints:
+      - No new imports outside charmbracelet/x/ansi and charmbracelet/lipgloss (both already in go.mod)
+      - Keep selectionState as a value type (no pointer), all methods return new value
+      - sidebarWidth constant is defined in internal/tui — use it directly (same package)
+      - applyHighlight must not modify lines outside the selection range
+    acceptance:
+      - All selection_test.go tests pass
+      - go vet ./internal/tui/... clean
+    verification:
+      - go test ./internal/tui/... -run TestTermToContent
+      - go test ./internal/tui/... -run TestExtractText
+      - go test ./internal/tui/... -run TestApplyHighlight
+
+  - id: step-2
+    title: Model state — add selection + viewportLines cache
+    scope: |
+      internal/tui/model.go:
+      - Add field: selection selectionState
+      - Add field: viewportLines []string
+
+      internal/tui/model_layout.go (syncViewport):
+      - After building rendered string and before m.viewport.SetContent(rendered):
+          m.viewportLines = strings.Split(rendered, "\n")
+      - No other logic changes.
+    files:
+      - internal/tui/model.go
+      - internal/tui/model_layout.go
+    depends_on: step-1
+    constraints:
+      - viewportLines is a slice of the same string passed to viewport.SetContent — keep them in sync
+      - Do not change syncViewport logic beyond adding the cache line
+    acceptance:
+      - go build ./... clean
+      - Existing model tests still pass
+    verification:
+      - go build ./...
+      - go test ./internal/tui/...
+
+  - id: step-3
+    title: Mouse mode + drag event handling
+    scope: |
+      internal/tui/model_init.go:
+      - Remove mouseDowngradeCmd from the Init() tea.Batch call
+      - Delete the mouseDowngradeCmd function and mouseDowngradedMsg type entirely
+      - Add mouseDowngradedMsg handling removal from model_update.go if it is handled there
+
+      internal/tui/model_input.go (handleMouse):
+      - MouseActionPress + Left:
+          start = termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+          m.selection = selectionState{start: start, end: start, active: true}
+          record m.mousePressX/Y as before
+      - MouseActionMotion (any button, while left held — check m.mousePressX >= 0):
+          end = termToContent(msg.X, msg.Y, m.viewport.YOffset, m.sidebar.Visible(m.width), m.sidebarPosition)
+          m.selection.end = end
+      - MouseActionRelease + Left:
+          if same position as press (click, not drag): clear selection (m.selection = m.selection.clear()), handle left click as before
+          else: m.selection.active = false (finalize — keep selection visible)
+          reset m.mousePressX/Y = -1
+
+      internal/tui/model_update.go (handleMouseMsg):
+      - Currently calls m.handleMouse(msg) and returns m, nil
+      - handleMouse is a pointer receiver on *Model — this already mutates the local m correctly
+      - No routing change needed; motion events are already routed to handleMouseMsg via the tea.MouseMsg case
+    files:
+      - internal/tui/model_init.go
+      - internal/tui/model_input.go
+      - internal/tui/model_update.go
+    depends_on: step-2
+    constraints:
+      - Motion handling must guard on m.mousePressX >= 0 to avoid updating selection when no button is pressed
+      - Do not change wheel scroll logic
+      - handleLeftClick (overlay/scroll logic) is still called on same-position click release
+    acceptance:
+      - go build ./... clean
+      - Drag events update m.selection without panic (verify via manual test or unit test stub)
+    verification:
+      - go build ./...
+      - go test ./internal/tui/...
+
+  - id: step-4
+    title: Highlight rendering + copy/clear key bindings
+    scope: |
+      internal/tui/theme (find BuildStyles or Styles struct):
+      - Add a SelectionBg color constant (e.g. a muted blue-grey, "#3a4a5a" or similar)
+      - Add SelectionStyle lipgloss.Style field to Styles struct, built in BuildStyles
+
+      internal/tui/model_view.go (renderViewportView):
+      - After viewportInner := m.viewport.View()
+      - If m.selection.hasSelection():
+            viewportInner = applyHighlight(viewportInner, m.viewport.YOffset, m.selection, m.styles.SelectionStyle, m.viewport.Width)
+
+      internal/tui/model_update_keys.go:
+      - In handleNavigationKeyMsg (or a new handleSelectionKeyMsg called from handleKeyMsg before handleComposerKeyMsg):
+        case key.Matches(msg, key.NewBinding(key.WithKeys("y", "c"))):
+          if m.selection.hasSelection() && !m.input.Focused():
+            text := extractText(m.viewportLines, m.selection)
+            if text != "":
+              return m, copyToClipboard(text)
+        case tea.KeyEsc (when !activeConversation && m.selection.hasSelection()):
+          m.selection = m.selection.clear()
+          return m, nil
+
+      New unexported copyToClipboard(text string) tea.Cmd in selection.go or model_update_keys.go:
+        return func() tea.Msg {
+          fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text))
+          return nil
+        }
+    files:
+      - internal/tui/theme/styles.go   # (or whichever file has BuildStyles/Styles)
+      - internal/tui/model_view.go
+      - internal/tui/model_update_keys.go
+      - internal/tui/selection.go      # add copyToClipboard if placed here
+    depends_on: step-3
+    constraints:
+      - y/c copy must not fire when input is focused (composer has focus)
+      - Esc clear must not interfere with existing Esc-to-interrupt-conversation logic
+        (check hasSelection first, short-circuit before conversation-interrupt path)
+      - copyToClipboard writes to os.Stdout inside a tea.Cmd goroutine — acceptable for OSC52
+      - SelectionStyle should use a bg color that is readable over both light and dark content
+    acceptance:
+      - Drag in viewport shows visual highlight
+      - y/c copies selected text to clipboard (verify with paste)
+      - Esc clears selection
+      - Existing keyboard tests pass
+      - make check passes
+    verification:
+      - gofmt -w <changed files>
+      - go build ./...
+      - go test ./internal/tui/...
+      - make check
