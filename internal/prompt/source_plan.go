@@ -68,15 +68,20 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 		Kind:      plannedSourcePreamble,
 		Placement: plannedSourcePlacementCore,
 		Apply: func(_ context.Context, state *assemblyState) error {
+			var block ContextBlock
 			if opts.CachedPreamble != "" {
-				state.appendBlock(ContextBlock{
+				block = ContextBlock{
 					Source:   ContextSourcePreamble,
 					Content:  opts.CachedPreamble,
 					ByteSize: len(opts.CachedPreamble),
-				})
-				return nil
+				}
+			} else {
+				block = SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled, opts.CavemanMode)
 			}
-			state.appendBlock(SystemPreamble(opts.PromptOverrides.System, opts.ScratchpadEnabled, opts.DelegationEnabled, opts.CavemanMode))
+			// Bypass budget: append directly to blocks and messages so the system
+			// preamble is never truncated.
+			state.blocks = append(state.blocks, block)
+			state.messages = append(state.messages, blockMessage(block))
 			return nil
 		},
 	}

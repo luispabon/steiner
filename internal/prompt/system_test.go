@@ -137,7 +137,7 @@ func TestSystemPreambleCavemanMode(t *testing.T) {
 	t.Parallel()
 
 	content := SystemPreamble("", false, false, true).Content
-	if !strings.Contains(content, "Speak tersely.") {
+	if !strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}
 }
