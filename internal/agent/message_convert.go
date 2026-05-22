@@ -99,7 +99,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 }
 
 func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantContent string) provider.ChatRequest {
-	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false).Content
+	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false, req.Prompt.CavemanMode).Content
 	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
 	chatReq := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,

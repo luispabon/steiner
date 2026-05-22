@@ -11,44 +11,41 @@ import (
 )
 
 func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
-	tests := []struct {
-		name              string
-		override          string
-		scratchpadEnabled bool
-		delegationEnabled bool
-		secondOverride    string
-		secondScratchpad  bool
-		secondDelegation  bool
-	}{
-		{
-			name:              "caches first preamble",
-			override:          "alpha",
-			scratchpadEnabled: true,
-			secondOverride:    "beta",
-		},
-		{
-			name:              "caches delegation variant",
-			override:          "",
-			delegationEnabled: true,
-			secondOverride:    "ignored",
-			secondScratchpad:  true,
-			secondDelegation:  false,
-		},
-	}
+	t.Run("cache hit with same parameters", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("alpha", true, false, false)
+		second := manager.CachedSystemPreamble("alpha", true, false, false)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second != first {
+			t.Fatalf("second preamble = %q, want cached %q", second, first)
+		}
+	})
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var manager baseContextManager
-			first := manager.CachedSystemPreamble(tc.override, tc.scratchpadEnabled, tc.delegationEnabled)
-			second := manager.CachedSystemPreamble(tc.secondOverride, tc.secondScratchpad, tc.secondDelegation)
-			if first == "" {
-				t.Fatal("first preamble = empty, want content")
-			}
-			if second != first {
-				t.Fatalf("second preamble = %q, want cached %q", second, first)
-			}
-		})
-	}
+	t.Run("cache miss with different cavemanMode", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", true, true, false)
+		second := manager.CachedSystemPreamble("", true, true, true)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when cavemanMode changes")
+		}
+	})
+
+	t.Run("cache miss with different override", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("alpha", true, false, false)
+		second := manager.CachedSystemPreamble("beta", true, false, false)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when override changes")
+		}
+	})
 }
 
 func TestBaseContextManagerRecordMutation(t *testing.T) {

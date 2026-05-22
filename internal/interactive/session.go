@@ -127,6 +127,13 @@ func (s *Session) CurrentModelAlias() string {
 	return s.deps.Config.DefaultModel
 }
 
+// CavemanMode returns whether caveman-style terse prompting is enabled.
+func (s *Session) CavemanMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config.CavemanMode
+}
+
 // CurrentModelConfig returns the currently active model config.
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
@@ -211,6 +218,8 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	case SubmitApproval:
 		s.approvalCoordinator.Submit(a)
 		return nil
+	case ToggleCavemanMode:
+		return s.handleToggleCavemanMode()
 	case SwitchModel:
 		s.mu.Lock()
 		if _, ok := s.deps.Config.Models[a.Name]; !ok {
@@ -229,6 +238,18 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	default:
 		return fmt.Errorf("handle: unknown action type %T", action)
 	}
+}
+
+func (s *Session) handleToggleCavemanMode() error {
+	s.mu.Lock()
+	s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
+	state := "off"
+	if s.deps.Config.CavemanMode {
+		state = "on"
+	}
+	s.mu.Unlock()
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
+	return nil
 }
 
 // Run enters the interactive session loop. It loads history if a writer is

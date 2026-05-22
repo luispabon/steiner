@@ -2,6 +2,9 @@ package config
 
 // applyPatch applies a config patch to the config.
 func applyPatch(cfg *Config, patch configPatch) {
+	if patch.CavemanMode != nil {
+		cfg.CavemanMode = *patch.CavemanMode
+	}
 	applySchedulerConfigPatch(cfg, patch)
 	applyModelConfigPatch(cfg, patch)
 	applyLimitsConfigPatch(cfg, patch)

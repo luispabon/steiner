@@ -1,10 +1,10 @@
 # Sub-agent delegation
 
-`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
+`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
 
 ## Available agents
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees six additional tools alongside the built-in ones:
+Sub-agent delegation is **enabled by default**. When it is, the model sees seven additional tools alongside the built-in ones:
 
 | Tool       | What it does                                                                     | Extra params                                               | Can mutate?            |
 |------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
@@ -14,8 +14,21 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees six a
 | `plan`     | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
 | `verify`   | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
 | `delegate` | Generic sub-agent with full customisation                                        | `task`, `context`, `system_prompt`, `max_turns`, `timeout` | Depends on config      |
+| `follow_up`| Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation.
+The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history.
+
+### follow_up
+
+The `follow_up` tool is a companion to `delegate`. It lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.
+
+Key behaviours:
+
+- **Preserves conversation** — the child's prior message history is retained and the new message is appended.
+- **Resets budget** — each follow-up resets the child's turn and token budgets to the configured defaults (not the remaining budget from the prior run).
+- **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
+- **Auto-approved** — like `delegate`, the `follow_up` tool is approval mode `auto` (no user gate).
+- **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
 
 ### Note - `research` agent availability
 

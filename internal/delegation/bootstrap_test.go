@@ -145,7 +145,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{})
+			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -172,7 +172,7 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{})
+	}, "/tmp/work", "", config.ProjectContextConfig{}, false)
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -360,7 +360,7 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPromptMentionsScratchpad(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{})
+	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
 	if !strings.Contains(opts.PromptOverrides.System, "scratchpad") {
 		t.Errorf("default system prompt does not mention scratchpad: %q", opts.PromptOverrides.System)
 	}

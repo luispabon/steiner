@@ -90,10 +90,36 @@ func TestContextOverlayRendersConfigYAMLWithSyntaxHighlighting(t *testing.T) {
 	}
 }
 
+func TestContextOverlayOpensForLongContextReport(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Single line longer than 100 chars should open the overlay.
+	longLine := strings.Repeat("x", 101)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(longLine)})
+
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("context overlay = closed, want open for long single-line context report")
+	}
+}
+
+func TestContextOverlayOpensForMultiLineContextReport(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Multi-line report should open the overlay.
+	report := "line one\nline two"
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(report)})
+
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("context overlay = closed, want open for multi-line context report")
+	}
+}
+
 func TestContextOverlayClosesOnEsc(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent("# Heading")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent("# Heading\n\nContent with newline.")})
 	if !m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = closed, want open after context report")
 	}

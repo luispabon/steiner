@@ -68,6 +68,9 @@ func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
 	m.sidebar.scratchpadDecisions = ""
 	m.sidebar.scratchpadOpen = ""
 	m.sidebar.scratchpadNext = ""
+	for name := range m.enabledSkills {
+		m.enabledSkills[name] = false
+	}
 	if m.sidebar.contextBudget > 0 {
 		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 	} else {

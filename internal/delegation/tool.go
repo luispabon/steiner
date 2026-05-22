@@ -64,6 +64,7 @@ type DelegateHandlerDeps struct {
 	ResolvedModel        provider.ResolvedModel
 	MaxTokens            *int
 	StreamingPreferred   bool
+	CavemanMode          bool
 	TraceLogger          *TraceLogger
 	SessionStore         *SessionStore
 }

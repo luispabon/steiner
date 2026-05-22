@@ -25,6 +25,7 @@ var (
 	_ Action = SwitchModel{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
+	_ Action = ToggleCavemanMode{}
 	_ Action = LoadSession{}
 	_ Action = requestSessionPicker{}
 )
@@ -812,6 +813,33 @@ func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
 	}
 	if got, want := s.CurrentModelAlias(), "fast"; got != want {
 		t.Fatalf("CurrentModelAlias() after switch = %q, want %q", got, want)
+	}
+}
+
+func TestHandleToggleCavemanMode(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			CavemanMode: false,
+		},
+	})
+
+	if got := s.CavemanMode(); got != false {
+		t.Fatalf("CavemanMode() before toggle = %v, want false", got)
+	}
+
+	if err := s.Handle(context.Background(), ToggleCavemanMode{}); err != nil {
+		t.Fatalf("Handle(ToggleCavemanMode) = %v, want nil", err)
+	}
+	if got := s.CavemanMode(); got != true {
+		t.Fatalf("CavemanMode() after first toggle = %v, want true", got)
+	}
+
+	if err := s.Handle(context.Background(), ToggleCavemanMode{}); err != nil {
+		t.Fatalf("Handle(ToggleCavemanMode) = %v, want nil", err)
+	}
+	if got := s.CavemanMode(); got != false {
+		t.Fatalf("CavemanMode() after second toggle = %v, want false", got)
 	}
 }
 

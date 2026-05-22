@@ -57,6 +57,7 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	if err := applyEnvIntOverrides(cfg, lookup); err != nil {
 		return err
 	}
+	applyEnvBoolOverrides(cfg, lookup)
 	applyEnvLoggingOverrides(cfg, lookup)
 	applyEnvSearchOverrides(cfg, lookup)
 
@@ -79,6 +80,12 @@ func applyEnvIntOverrides(cfg *Config, lookup func(string) (string, bool)) error
 		}
 	}
 	return nil
+}
+
+func applyEnvBoolOverrides(cfg *Config, lookup func(string) (string, bool)) {
+	if value, ok := lookup("STEINER_CAVEMAN_MODE"); ok {
+		cfg.CavemanMode = value == "true" || value == "1"
+	}
 }
 
 func applyEnvLoggingOverrides(cfg *Config, lookup func(string) (string, bool)) {

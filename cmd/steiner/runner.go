@@ -26,6 +26,7 @@ type cliRunner struct {
 	streamingPreferred bool
 	currentModel       func() config.ModelConfig
 	currentAlias       func() string
+	cavemanMode        func() bool
 }
 
 type runResult struct {
@@ -201,6 +202,7 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		ResolvedModel:        rm,
 		MaxTokens:            &mt,
 		StreamingPreferred:   streamingPreferred,
+		CavemanMode:          cfg.CavemanMode,
 		TraceLogger:          traceLogger,
 		SessionStore:         store,
 	}

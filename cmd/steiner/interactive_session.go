@@ -81,11 +81,11 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runMode:            "interactive",
 		streamingPreferred: true,
 		currentAlias:       sess.CurrentModelAlias,
+		cavemanMode:        sess.CavemanMode,
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})
 }
-
 func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, resumeID string, p *tea.Program, out io.Writer, rt *cliRuntime) error {
 	if resumeID == "" {
 		return nil

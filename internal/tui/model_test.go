@@ -176,6 +176,21 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
+	m := newModel(Config{Model: "gpt-test"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Short single-line context report should go to the transcript, not the overlay.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent("Caveman mode: on")})
+
+	if m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed for short context report")
+	}
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "Caveman mode: on") {
+		t.Fatalf("content = %q, want context report text in transcript", got)
+	}
+}
+
 func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
 	m := newModel(Config{
 		Model:         "gemma4",
@@ -274,6 +289,34 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 	if got := m.sidebar.activeSkill; got != "" {
 		t.Fatalf("sidebar.activeSkill = %q, want empty", got)
+	}
+}
+
+func TestClearResetsActiveSkill(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		SkillNames: []string{"review"},
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/skill review")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be enabled")
+	}
+	if got := m.sidebar.activeSkill; got != "review" {
+		t.Fatalf("sidebar.activeSkill = %q, want review", got)
+	}
+
+	m.input.SetValue("/clear")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.enabledSkills["review"] {
+		t.Fatal("expected review skill to be disabled after /clear")
+	}
+	if got := m.sidebar.activeSkill; got != "" {
+		t.Fatalf("sidebar.activeSkill = %q, want empty after /clear", got)
 	}
 }
 

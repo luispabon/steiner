@@ -190,13 +190,13 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Blocks[0].Content, "You a"; got != want {
+	if got, want := assembly.Blocks[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
 		t.Fatalf("preamble block content = %q, want %q", got, want)
 	}
-	if !assembly.Blocks[0].Truncated {
-		t.Fatalf("expected preamble block to be truncated")
+	if assembly.Blocks[0].Truncated {
+		t.Fatalf("expected preamble block not to be truncated (bypasses budget)")
 	}
-	if got, want := assembly.Blocks[0].ByteSize, 5; got != want {
+	if got, want := assembly.Blocks[0].ByteSize, 60; got != want {
 		t.Fatalf("preamble block bytes = %d, want %d", got, want)
 	}
 
@@ -214,7 +214,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
-	wantContent := "You a\n\nglob"
+	wantContent := "You are steiner, a lean coding agent.\n\nsystem prompt content\n\nglob"
 	if got := assembly.Messages[0].Content; got != wantContent {
 		t.Fatalf("merged system message content = %q, want %q", got, wantContent)
 	}
@@ -382,7 +382,7 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		RetainedSummaries: []DurableSummaryEntry{
 			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
 		},
-	}, "", CompactionModeNormal)
+	}, "", CompactionModeNormal, false)
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}
@@ -411,7 +411,7 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 
 	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
 		{Role: provider.MessageRoleUser, Content: "keep only what matters"},
-	}, DurableContextState{}, "", CompactionModeEmergency)
+	}, DurableContextState{}, "", CompactionModeEmergency, false)
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}

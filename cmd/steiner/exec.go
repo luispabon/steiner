@@ -47,6 +47,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		maxTurns:           execMaxTurns,
 		runMode:            "exec",
 		streamingPreferred: flags.enableStreaming,
+		cavemanMode:        func() bool { return rt.cfg.CavemanMode },
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil)
 	if err != nil {
 		return err

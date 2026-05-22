@@ -12,16 +12,30 @@ type baseContextManager struct {
 	fileTracker           FileTracker
 	readAnnotations       bool
 	annotationsConfigured bool
-	cachedPreamble        string
-	minVisibleTurn        int
-	events                output.EventSink
+	cachedPreamble        struct {
+		content           string
+		override          string
+		scratchpadEnabled bool
+		delegationEnabled bool
+		cavemanMode       bool
+	}
+	minVisibleTurn int
+	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool) string {
-	if b.cachedPreamble == "" {
-		b.cachedPreamble = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled).Content
+func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) string {
+	if b.cachedPreamble.content == "" ||
+		b.cachedPreamble.override != override ||
+		b.cachedPreamble.scratchpadEnabled != scratchpadEnabled ||
+		b.cachedPreamble.delegationEnabled != delegationEnabled ||
+		b.cachedPreamble.cavemanMode != cavemanMode {
+		b.cachedPreamble.content = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled, cavemanMode).Content
+		b.cachedPreamble.override = override
+		b.cachedPreamble.scratchpadEnabled = scratchpadEnabled
+		b.cachedPreamble.delegationEnabled = delegationEnabled
+		b.cachedPreamble.cavemanMode = cavemanMode
 	}
-	return b.cachedPreamble
+	return b.cachedPreamble.content
 }
 
 func (b *baseContextManager) RecordMutation(path string) {

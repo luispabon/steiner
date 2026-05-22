@@ -55,6 +55,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().StringVar(&flags.contextMode, "context-mode", "", "context management mode: naive or smart (overrides config)")
+	rootCmd.PersistentFlags().BoolVar(&flags.caveman, "caveman", false, "enable caveman mode (overrides config)")
 	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
 	rootCmd.Flag("resume").NoOptDefVal = ""
 
@@ -86,12 +87,17 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 		Short: "Print the resolved configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cavemanOverride := (*bool)(nil)
+			if cmd.Flags().Changed("caveman") {
+				cavemanOverride = &flags.caveman
+			}
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
 					ConfigPath:  flags.configPath,
 					Model:       flags.model,
 					Verbose:     flags.verbose,
 					ContextMode: config.ContextMode(flags.contextMode),
+					CavemanMode: cavemanOverride,
 				},
 			})
 			if err != nil {

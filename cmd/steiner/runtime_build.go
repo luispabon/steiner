@@ -25,13 +25,18 @@ import (
 	"github.com/luispabon/steiner/skills"
 )
 
-func loadRuntimeConfig(flags *cliFlags) (config.Config, error) {
+func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, error) {
+	cavemanOverride := (*bool)(nil)
+	if cmd.Flags().Changed("caveman") {
+		cavemanOverride = &flags.caveman
+	}
 	return config.Load(config.LoadOptions{
 		CLI: config.CLIOverrides{
 			ConfigPath:  flags.configPath,
 			Model:       flags.model,
 			Verbose:     flags.verbose,
 			ContextMode: config.ContextMode(flags.contextMode),
+			CavemanMode: cavemanOverride,
 		},
 	})
 }

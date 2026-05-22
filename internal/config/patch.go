@@ -2,6 +2,7 @@ package config
 
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
+	CavemanMode       *bool                     `yaml:"caveman_mode"`
 	Scheduler         *schedulerPatch           `yaml:"scheduler"`
 	DefaultModel      *string                   `yaml:"default_model"`
 	Providers         *map[string]providerPatch `yaml:"providers"`

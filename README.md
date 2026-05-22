@@ -59,6 +59,7 @@ Key environment variables:
 * `STEINER_SCHEDULER_PARALLELISM`
 * `STEINER_MAX_TURNS`
 * `STEINER_MAX_TOKENS`
+* `STEINER_CAVEMAN_MODE`
 * `STEINER_LOG_LEVEL`
 * `STEINER_LOG_FILE`
 * `STEINER_TOOL_OUTPUT_MAX_BYTES`
@@ -297,7 +298,7 @@ search:
 
 ## Sub-agent delegation
 
-`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
+`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
 
 - **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
 - **`research`** — gather and synthesise information from the codebase or web (only available with a `web_search` backend configured)
@@ -305,6 +306,7 @@ search:
 - **`plan`** — analyse a sub-problem and produce a structured recommendation
 - **`verify`** — run checks (tests, linters, builds) and report pass/fail
 - **`delegate`** — generic sub-agent with custom system prompt, context, and per-invocation overrides
+- **`follow_up`** — resume an existing sub-agent session by ID with a new user message; preserves conversation history while resetting the child's budget to fresh defaults
 
 ### Configuration
 
@@ -332,6 +334,36 @@ sub_agent:
 ```
 
 See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
+
+## Caveman mode
+
+Caveman mode makes the model speak tersely, stripping filler, articles, pleasantries, and hedging. Reduces tokens and response length while keeping technical content intact.
+
+**Disabled by default.** Enable explicitly via config, env var, CLI flag, or `/caveman` slash command in interactive mode.
+
+```yaml
+# config.yaml
+caveman_mode: true
+```
+
+```bash
+# environment
+STEINER_CAVEMAN_MODE=true
+
+# CLI flag
+--caveman
+```
+
+In interactive TUI, toggle on/off with `/caveman`. The toggle persists for the session.
+
+When enabled, caveman-style instructions are injected into:
+
+- **System preamble** — the main agent prompt instructs the model to respond tersely
+- **Compaction prompts** — compaction summaries are written in caveman style to maximise information per token
+- **Sub-agent prompts** — delegated agents inherit the terseness instruction
+- **Scaffold inference** — internal scaffold generation also follows caveman style
+
+Caveman mode is purely a prompt-layer transformation. It does not change tool behavior, approval gates, or any other config.
 
 ## Development
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -45,6 +46,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.toggleThinking {
 		return m.executeToggleThinkingAction()
+	}
+	if action.cavemanToggle {
+		return m.executeToggleCavemanModeAction()
 	}
 	if action.setAccent != "" {
 		return m.executeSetAccentAction(action.setAccent)
@@ -133,6 +137,9 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	for name := range m.enabledSkills {
+		m.enabledSkills[name] = false
+	}
 	if m.sidebar.contextBudget > 0 {
 		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 	} else {
@@ -237,6 +244,19 @@ func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
+}
+
+func (m Model) executeToggleCavemanModeAction() (tea.Model, tea.Cmd) {
+	m.input.Reset()
+	m.historyIdx = 0
+	if m.controller != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.controller.Handle(ctx, interactive.ToggleCavemanMode{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
+	}
+	return m, nil
 }
 
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
@@ -379,6 +399,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
+		{command: "/caveman", name: "Toggle caveman mode", desc: "switch terse prompting on/off", source: ""},
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
 	}
