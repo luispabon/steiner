@@ -196,4 +196,5 @@ Failed verification blocks reviewer handoff by default. Proceed to review with k
 
 Commit the final executor state before handing off to review.
 
-Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /review .project_planning/FEATURE on an empty context.`
+Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /review .steiner/plans/FEATURE on an empty context.`
+
