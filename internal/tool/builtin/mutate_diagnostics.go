@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText string) string {
+func buildNoMatchDiagnostics(prefix string, content []byte, oldText string) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: no match for %s", prefix, subject))
+	lines = append(lines, fmt.Sprintf("%s: no match for old_string", prefix))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	var matchLineNum int
@@ -47,9 +47,9 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	return strings.Join(lines, "\n")
 }
 
-func buildAmbiguousDiagnostics(prefix, subject string, content []byte, oldText string, matchCount int) string {
+func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, matchCount int) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: ambiguous match for %s (found %d occurrences)", prefix, subject, matchCount))
+	lines = append(lines, fmt.Sprintf("%s: ambiguous match for old_string (found %d occurrences)", prefix, matchCount))
 
 	if matchStart, matchEnd, lineNum, preview, ok := findExactMatchPreview(content, oldText); ok {
 		lines = append(lines, fmt.Sprintf("%s: closest occurrence at line %d, bytes %d-%d", prefix, lineNum, matchStart+1, matchEnd))
@@ -209,11 +209,4 @@ func truncatePreviewLine(s string, limit int) string {
 		return s[:limit]
 	}
 	return s[:limit-3] + "..."
-}
-
-func editOutputMessage(replaceAll bool, matchCount int) string {
-	if !replaceAll || matchCount == 1 {
-		return "edit: replaced 1 occurrence"
-	}
-	return fmt.Sprintf("edit: replaced %d occurrences", matchCount)
 }

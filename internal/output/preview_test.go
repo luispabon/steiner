@@ -119,64 +119,13 @@ func TestNormalizeReadPreviewContents(t *testing.T) {
 }
 
 func TestBuildToolPreview(t *testing.T) {
-	writeExisted := true
-	writeMissing := false
-
 	tests := []struct {
-		name    string
-		tool    string
-		args    map[string]any
-		result  string
-		existed *bool
-		want    ToolPreview
+		name   string
+		tool   string
+		args   map[string]any
+		result string
+		want   ToolPreview
 	}{
-		{
-			name: "edit diff",
-			tool: "edit",
-			args: map[string]any{
-				"path":       "internal/tui/content.go",
-				"old_string": "before()",
-				"new_string": "after()",
-			},
-			want: ToolPreview{
-				Kind:     ToolPreviewKindEditDiff,
-				Path:     "internal/tui/content.go",
-				Language: "go",
-				Before:   "before()",
-				After:    "after()",
-			},
-		},
-		{
-			name: "write created",
-			tool: "write",
-			args: map[string]any{
-				"path":    "notes.md",
-				"content": "# hi\n",
-			},
-			existed: &writeMissing,
-			want: ToolPreview{
-				Kind:     ToolPreviewKindFileWrite,
-				Path:     "notes.md",
-				Language: "markdown",
-				Contents: "# hi\n",
-				Created:  true,
-			},
-		},
-		{
-			name: "write updated",
-			tool: "write",
-			args: map[string]any{
-				"path":    "notes.md",
-				"content": "# hi\n",
-			},
-			existed: &writeExisted,
-			want: ToolPreview{
-				Kind:     ToolPreviewKindFileWrite,
-				Path:     "notes.md",
-				Language: "markdown",
-				Contents: "# hi\n",
-			},
-		},
 		{
 			name: "read file",
 			tool: "read",
@@ -394,80 +343,13 @@ func TestBuildToolPreview(t *testing.T) {
 				Message:   "output truncated at 12 characters",
 			},
 		},
-		{
-			name: "missing critical data falls back to plain",
-			tool: "edit",
-			args: map[string]any{
-				"path":       "x.go",
-				"old_string": "before()",
-			},
-			want: ToolPreview{Kind: ToolPreviewKindPlain},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := BuildToolPreview(tt.tool, tt.args, tt.result, tt.existed)
+			got := BuildToolPreview(tt.tool, tt.args, tt.result)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("BuildToolPreview() = %#v, want %#v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBuildApplyPatchPreview(t *testing.T) {
-	tests := []struct {
-		name   string
-		result string
-		want   ToolPreview
-	}{
-		{
-			name:   "add and modify",
-			result: `{"added":["new.go"],"modified":["existing.go"],"deleted":null,"moved":null,"hunks_applied":2,"hunks_failed":0,"output":"Success."}`,
-			want: ToolPreview{
-				Kind:          ToolPreviewKindPatch,
-				PatchAdded:    []string{"new.go"},
-				PatchModified: []string{"existing.go"},
-				PatchDeleted:  nil,
-				PatchMoved:    []ToolPreviewPatchMove{},
-				HunksApplied:  2,
-				HunksFailed:   0,
-			},
-		},
-		{
-			name:   "delete only",
-			result: `{"added":null,"modified":null,"deleted":["old.go"],"moved":null,"hunks_applied":1,"hunks_failed":0,"output":"Success."}`,
-			want: ToolPreview{
-				Kind:          ToolPreviewKindPatch,
-				PatchAdded:    nil,
-				PatchModified: nil,
-				PatchDeleted:  []string{"old.go"},
-				PatchMoved:    []ToolPreviewPatchMove{},
-				HunksApplied:  1,
-				HunksFailed:   0,
-			},
-		},
-		{
-			name:   "move file",
-			result: `{"added":null,"modified":null,"deleted":null,"moved":[{"from":"a.go","to":"b.go"}],"hunks_applied":1,"hunks_failed":0,"output":"Success."}`,
-			want: ToolPreview{
-				Kind:         ToolPreviewKindPatch,
-				PatchMoved:   []ToolPreviewPatchMove{{From: "a.go", To: "b.go"}},
-				HunksApplied: 1,
-				HunksFailed:  0,
-			},
-		},
-		{
-			name:   "invalid json still returns patch kind",
-			result: `not json`,
-			want:   ToolPreview{Kind: ToolPreviewKindPatch},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildApplyPatchPreview(tt.result)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("buildApplyPatchPreview() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}

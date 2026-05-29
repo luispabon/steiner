@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -471,112 +469,6 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 }
 
 //nolint:gocyclo
-func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing.T) {
-	dir := t.TempDir()
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(oldWD)
-	})
-
-	target := filepath.Join(dir, "created.txt")
-	providerStub := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{
-				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					ToolCalls: []provider.ToolCall{
-						{
-							ID:   "call_1",
-							Name: "write",
-							Arguments: map[string]any{
-								"path":    target,
-								"content": "hello\n",
-							},
-						},
-					},
-				},
-				FinishReason: "tool_calls",
-				Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
-			},
-			{
-				Message: provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: "done",
-				},
-				FinishReason: "stop",
-				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
-			},
-		},
-	}
-
-	executor := &fakeExecutor{
-		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
-			return tool.ExecutionResult{
-				Value: map[string]any{
-					"path":          input["path"],
-					"bytes_written": len(input["content"].(string)),
-				},
-			}, nil
-		},
-	}
-
-	var events []output.Event
-	_, err = NewRunner().Run(context.Background(), RunRequest{
-		Provider: providerStub,
-		Executor: executor,
-		Prompt: prompt.AssemblyOptions{
-			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "write file"}},
-		},
-		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
-		Limits:        Limits{MaxTurns: 2, MaxTokens: 50},
-		Events:        output.SinkFunc(func(event output.Event) { events = append(events, event) }),
-	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-
-	second := providerStub.requests[1]
-	if got, want := second.Messages[len(second.Messages)-1].Content, fmt.Sprintf(`{"bytes_written":6,"path":"%s"}`, target); got != want {
-		t.Fatalf("tool result content = %q, want %q", got, want)
-	}
-
-	var started output.ToolCallStartedEvent
-	var finished output.ToolCallFinishedEvent
-	for _, event := range events {
-		switch payload := event.Payload.(type) {
-		case output.ToolCallStartedEvent:
-			started = payload
-		case output.ToolCallFinishedEvent:
-			finished = payload
-		}
-	}
-
-	if started.WriteTargetExistedBefore == nil || *started.WriteTargetExistedBefore {
-		t.Fatalf("WriteTargetExistedBefore = %v, want false", started.WriteTargetExistedBefore)
-	}
-	if got, want := finished.Result, fmt.Sprintf(`{"bytes_written":6,"path":"%s"}`, target); got != want {
-		t.Fatalf("finished result = %q, want %q", got, want)
-	}
-	if got, want := finished.Preview.Kind, output.ToolPreviewKindFileWrite; got != want {
-		t.Fatalf("preview kind = %q, want %q", got, want)
-	}
-	if got, want := finished.Preview.Path, target; got != want {
-		t.Fatalf("preview path = %q, want %q", got, want)
-	}
-	if got, want := finished.Preview.Contents, "hello\n"; got != want {
-		t.Fatalf("preview contents = %q, want %q", got, want)
-	}
-	if !finished.Preview.Created {
-		t.Fatalf("preview created = false, want true")
-	}
-}
-
 func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	providerStub := &fakeProvider{
 		streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {

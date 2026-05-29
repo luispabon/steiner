@@ -34,9 +34,6 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "delegate") || isSpecializedDelegateTool(tool) {
 		return summarizeDelegateArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "apply_patch") {
-		return summarizePatchArgs(args)
-	}
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
@@ -123,36 +120,10 @@ func summarizeMutateArgs(args map[string]any) string {
 	return path
 }
 
-// summarizePatchArgs extracts the first affected file path from a patch document.
-func summarizePatchArgs(args map[string]any) string {
-	patch, _ := args["patch"].(string)
-	var first string
-	var count int
-	for _, line := range strings.Split(patch, "\n") {
-		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: "} {
-			if strings.HasPrefix(line, prefix) {
-				count++
-				if first == "" {
-					first = strings.TrimSpace(strings.TrimPrefix(line, prefix))
-				}
-			}
-		}
-	}
-	if first == "" {
-		return "apply_patch"
-	}
-	if count > 1 {
-		return fmt.Sprintf("%s (+%d more)", first, count-1)
-	}
-	return first
-}
-
 // previewBodyKind determines how to render the tool body using structured preview data first.
 func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch preview.Kind {
-	case output.ToolPreviewKindEditDiff:
-		return "diff"
-	case output.ToolPreviewKindFileWrite, output.ToolPreviewKindReadFile, output.ToolPreviewKindFetchURL, output.ToolPreviewKindWebSearch:
+	case output.ToolPreviewKindReadFile, output.ToolPreviewKindFetchURL, output.ToolPreviewKindWebSearch:
 		return "file"
 	case output.ToolPreviewKindGlobList:
 		return "glob"
@@ -162,8 +133,6 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 		return "grep"
 	case output.ToolPreviewKindBash:
 		return "bash"
-	case output.ToolPreviewKindPatch:
-		return "patch"
 	case output.ToolPreviewKindMutate:
 		return "mutate"
 	case output.ToolPreviewKindPlain:
@@ -180,17 +149,12 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 }
 
 // inferBodyKind determines how to render the tool body when only the raw result is available.
-func inferBodyKind(tool, body string) string {
+func inferBodyKind(tool, _ string) string {
 	switch tool {
 	case "bash":
 		return "bash"
 	case "read", "read_file":
 		return "file"
-	case "edit", "write", "write_file":
-		if strings.HasPrefix(strings.TrimSpace(body), "@@") || strings.Contains(body, "\n@@") {
-			return "diff"
-		}
-		return "plain"
 	case "mutate":
 		return "mutate"
 	default:
@@ -204,7 +168,7 @@ func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
 		return b.styles.ToolTagBash
 	case "read", "read_file":
 		return b.styles.ToolTagRead
-	case "write", "write_file", "edit", "apply_patch", "mutate":
+	case "mutate":
 		return b.styles.ToolTagWrite
 	case "grep":
 		return b.styles.ToolTagGrep
@@ -225,7 +189,7 @@ func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
 		return b.styles.ToolBorderBash
 	case "read", "read_file":
 		return b.styles.ToolBorderRead
-	case "write", "write_file", "edit", "apply_patch", "mutate":
+	case "mutate":
 		return b.styles.ToolBorderWrite
 	case "grep":
 		return b.styles.ToolBorderGrep
@@ -352,17 +316,6 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 			width += lipgloss.Width(diffMeta)
 		}
 	}
-	if tc.bodyKind == "patch" && (tc.preview.HunksApplied > 0 || tc.preview.HunksFailed > 0) {
-		patchMeta := b.styles.Added.Render(fmt.Sprintf("%d applied", tc.preview.HunksApplied))
-		if tc.preview.HunksFailed > 0 {
-			patchMeta += " " + b.styles.Removed.Render(fmt.Sprintf("%d failed", tc.preview.HunksFailed))
-		}
-		if len(parts) > 0 {
-			width++
-		}
-		parts = append(parts, patchMeta)
-		width += lipgloss.Width(patchMeta)
-	}
 	if tc.meta != "" {
 		var styled string
 		if tc.hasError {
@@ -397,12 +350,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		lines = b.buildLSLines(tc)
 	case "grep":
 		lines = b.buildGrepLines(tc)
-	case "diff":
-		lines = b.buildDiffPreviewLines(tc, rowWidth-2)
 	case "file":
 		lines = b.buildFilePreviewLines(tc, rowWidth-2)
-	case "patch":
-		lines = b.buildPatchLines(tc)
 	case "mutate":
 		lines = b.buildMutateLines(tc, rowWidth-2)
 	default:

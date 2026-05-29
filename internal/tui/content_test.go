@@ -1048,53 +1048,6 @@ func TestPluralTurns(t *testing.T) {
 	}
 }
 
-func TestAppendEventToolPreviewUsesStructuredData(t *testing.T) {
-	buffer := &contentBuffer{
-		segments:      make([]contentSegment, 0),
-		collapseState: make(map[int]bool),
-	}
-
-	before := false
-	buffer.AppendEvent(output.NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
-		"path":    "notes.md",
-		"content": "hello\nworld\n",
-	}, &before))
-	buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil, output.ToolPreview{
-		Kind:     output.ToolPreviewKindFileWrite,
-		Path:     "explicit-notes.md",
-		Language: "markdown",
-		Contents: "explicit\npreview\n",
-		Created:  true,
-	}))
-
-	if len(buffer.segments) != 1 {
-		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
-	}
-
-	seg := buffer.segments[0].toolData
-	if seg == nil {
-		t.Fatalf("tool segment is nil")
-	}
-	if got, want := seg.bodyKind, "file"; got != want {
-		t.Fatalf("bodyKind = %q, want %q", got, want)
-	}
-	if got, want := seg.preview.Kind, output.ToolPreviewKindFileWrite; got != want {
-		t.Fatalf("preview kind = %q, want %q", got, want)
-	}
-	if seg.writeTargetExistedBefore == nil || *seg.writeTargetExistedBefore {
-		t.Fatalf("writeTargetExistedBefore = %v, want false", seg.writeTargetExistedBefore)
-	}
-	if got, want := seg.preview.Path, "explicit-notes.md"; got != want {
-		t.Fatalf("preview path = %q, want %q", got, want)
-	}
-	if got, want := seg.preview.Contents, "explicit\npreview\n"; got != want {
-		t.Fatalf("preview contents = %q, want %q", got, want)
-	}
-	if !seg.preview.Created {
-		t.Fatalf("preview created = false, want true")
-	}
-}
-
 func TestAppendEventDisplayFileUsesExplicitPreviewDocument(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -1179,28 +1132,23 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
-		"path":       "main.go",
-		"old_string": "oldLine()",
-		"new_string": "newLine()",
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{
+		"path": "main.go",
 	}))
-	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "read", "call_1", `{"path":"main.go","output":"package main\n"}`, nil))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].toolData == nil {
 		t.Fatalf("tool segments = %#v, want one populated tool segment", buffer.segments)
 	}
 	seg := buffer.segments[0].toolData
-	if got, want := seg.preview.Kind, output.ToolPreviewKindEditDiff; got != want {
+	if got, want := seg.preview.Kind, output.ToolPreviewKindReadFile; got != want {
 		t.Fatalf("preview kind = %q, want %q", got, want)
 	}
-	if got, want := seg.bodyKind, "diff"; got != want {
+	if got, want := seg.bodyKind, "file"; got != want {
 		t.Fatalf("bodyKind = %q, want %q", got, want)
 	}
-	if got, want := seg.preview.Before, "oldLine()"; got != want {
-		t.Fatalf("preview before = %q, want %q", got, want)
-	}
-	if got, want := seg.preview.After, "newLine()"; got != want {
-		t.Fatalf("preview after = %q, want %q", got, want)
+	if got, want := seg.preview.Path, "main.go"; got != want {
+		t.Fatalf("preview path = %q, want %q", got, want)
 	}
 }
 
@@ -1591,22 +1539,21 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 		{
 			kind: segmentToolCall,
 			toolData: &toolCallSegment{
-				tool:      "write",
+				tool:      "read",
 				args:      "notes.md",
 				bodyKind:  "file",
 				collapsed: false,
 				preview: output.ToolPreview{
-					Kind:     output.ToolPreviewKindFileWrite,
+					Kind:     output.ToolPreviewKindReadFile,
 					Path:     "notes.md",
 					Contents: "hello\nworld\n",
-					Created:  true,
 				},
 			},
 		},
 	}
 
 	got := buffer.String(80)
-	for _, want := range []string{"new file preview", "notes.md", "hello", "world"} {
+	for _, want := range []string{"read file preview", "notes.md", "hello", "world"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered preview %q missing %q", got, want)
 		}
@@ -1625,7 +1572,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 	}{
 		{name: "bash", tool: "bash", want: lipgloss.Color(theme.ToolAmberLine)},
 		{name: "read", tool: "read", want: lipgloss.Color(theme.ToolCyanLine)},
-		{name: "write", tool: "write", want: lipgloss.Color(theme.ToolGrnLine)},
+		{name: "mutate", tool: "mutate", want: lipgloss.Color(theme.ToolGrnLine)},
 		{name: "grep", tool: "grep", want: lipgloss.Color(theme.ToolMagLine)},
 		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
 		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
@@ -1922,40 +1869,6 @@ func TestRenderToolPreviewKeepsGoSyntaxStyling(t *testing.T) {
 	}
 }
 
-func TestRenderToolPreviewUsesStructuredDiffPreview(t *testing.T) {
-	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
-		collapseState: make(map[int]bool),
-	}
-	buffer.segments = []contentSegment{
-		{
-			kind: segmentToolCall,
-			toolData: &toolCallSegment{
-				tool:      "edit",
-				args:      "internal/tui/content.go",
-				bodyKind:  "diff",
-				collapsed: false,
-				preview: output.ToolPreview{
-					Kind:   output.ToolPreviewKindEditDiff,
-					Path:   "internal/tui/content.go",
-					Before: "fmt.Println(\"old\")\n",
-					After:  "fmt.Println(\"new\")\n",
-				},
-			},
-		},
-	}
-
-	got := buffer.String(100)
-	for _, want := range []string{"edit", "internal/tui/content.go", "+1", "-1", "old", "new"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("rendered diff %q missing %q", got, want)
-		}
-	}
-	if strings.Contains(got, "[edit]") {
-		t.Fatalf("rendered diff %q unexpectedly duplicated nested edit header", got)
-	}
-}
-
 func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
 	useTrueColor(t)
 
@@ -2002,32 +1915,6 @@ func TestRenderToolPreviewTrimsSharedMarkdownHeadingInDiffs(t *testing.T) {
 	}
 	if !hasANSIBackground(lines[2]) || !hasANSIBackground(lines[3]) {
 		t.Fatalf("markdown diff lines lost row backgrounds: removed=%q added=%q", lines[2], lines[3])
-	}
-}
-
-func TestRenderEditToolHeaderShowsDiffCountsBeforeCompletion(t *testing.T) {
-	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
-		collapseState: make(map[int]bool),
-	}
-
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
-		"path":       "POEM.md",
-		"old_string": "old line\n",
-		"new_string": "new line\n",
-	}))
-
-	if len(buffer.segments) != 1 || buffer.segments[0].toolData == nil {
-		t.Fatalf("tool segments = %#v, want one populated tool segment", buffer.segments)
-	}
-	buffer.segments[0].toolData.collapsed = false
-
-	got := buffer.String(100)
-	if !strings.Contains(got, "+1") || !strings.Contains(got, "-1") {
-		t.Fatalf("rendered diff header %q missing early diff counts", got)
-	}
-	if strings.Contains(got, "✅") {
-		t.Fatalf("rendered diff header %q unexpectedly shows completion meta before finish", got)
 	}
 }
 

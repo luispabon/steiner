@@ -827,13 +827,16 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
+	mutateWriteArgs := map[string]any{
+		"operations": []any{map[string]any{"type": "write", "path": "note.txt", "content": "one\n"}},
+	}
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
 				Message: provider.Message{
 					Role: provider.MessageRoleAssistant,
 					ToolCalls: []provider.ToolCall{
-						{ID: "call_w1", Name: "write", Arguments: map[string]any{"path": "note.txt", "content": "one\n"}},
+						{ID: "call_w1", Name: "mutate", Arguments: mutateWriteArgs},
 					},
 				},
 				FinishReason: "tool_calls",
@@ -853,7 +856,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 				Message: provider.Message{
 					Role: provider.MessageRoleAssistant,
 					ToolCalls: []provider.ToolCall{
-						{ID: "call_w2", Name: "write", Arguments: map[string]any{"path": "note.txt", "content": "one\n"}},
+						{ID: "call_w2", Name: "mutate", Arguments: mutateWriteArgs},
 					},
 				},
 				FinishReason: "tool_calls",
@@ -884,24 +887,30 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
 			switch toolName {
-			case "write":
-				content, _ := input["content"].(string)
-				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-					return nil, err
-				}
-				info, err := os.Stat(path)
-				if err != nil {
-					return nil, err
-				}
-				if preservedModTime.IsZero() {
-					preservedModTime = info.ModTime()
-				} else if err := os.Chtimes(path, preservedModTime, preservedModTime); err != nil {
-					return nil, err
+			case "mutate":
+				ops, _ := input["operations"].([]any)
+				for _, rawOp := range ops {
+					op, _ := rawOp.(map[string]any)
+					content, _ := op["content"].(string)
+					if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+						return nil, err
+					}
+					info, err := os.Stat(path)
+					if err != nil {
+						return nil, err
+					}
+					if preservedModTime.IsZero() {
+						preservedModTime = info.ModTime()
+					} else if err := os.Chtimes(path, preservedModTime, preservedModTime); err != nil {
+						return nil, err
+					}
 				}
 				return tool.ExecutionResult{
 					Value: map[string]any{
-						"path":          "note.txt",
-						"bytes_written": len(content),
+						"paths":              []string{"note.txt"},
+						"modified":           []string{"note.txt"},
+						"operations_applied": 1,
+						"operations_failed":  0,
 					},
 				}, nil
 			case "read":
