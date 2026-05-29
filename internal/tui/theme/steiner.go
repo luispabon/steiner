@@ -85,12 +85,12 @@ func BuildGlamourStyleSheet(accentHex string) glamour.TermRendererOption {
 	cfg.CodeBlock.BackgroundColor = ptrStr(BgElev) // code fences: bg-elev background
 	cfg.Code.BackgroundColor = ptrStr(BgElev2)     // inline code: dim bg
 	cfg.Code.Color = ptrStr(accentHex)             // inline code: accent text
-	cfg.Heading.Color = ptrStr(Fg)
+	cfg.Heading.Color = ptrStr(accentHex)
 	cfg.Heading.Bold = ptrBool(true)
 	cfg.Link.Color = ptrStr(accentHex)
 	cfg.Emph.Color = ptrStr(FgDim)
 	cfg.Emph.Italic = ptrBool(true)
-	cfg.Strong.Color = ptrStr(Fg)
+	cfg.Strong.Color = ptrStr(accentHex)
 	cfg.Strong.Bold = ptrBool(true)
 
 	return glamour.WithStyles(cfg)
