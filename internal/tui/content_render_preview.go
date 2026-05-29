@@ -71,6 +71,56 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	return lines
 }
 
+func (b *contentBuffer) buildPatchLines(tc *toolCallSegment) []string {
+	patch, _ := tc.rawArgs["patch"].(string)
+	if strings.TrimSpace(patch) == "" {
+		return b.buildPlainLines(tc)
+	}
+
+	addedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffAddedBg)).
+		Foreground(lipgloss.Color(theme.Added))
+	removedBg := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffRemovedBg)).
+		Foreground(lipgloss.Color(theme.Removed))
+
+	rawLines := strings.Split(strings.TrimRight(patch, "\n"), "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		switch {
+		case strings.HasPrefix(line, "*** Add File:"):
+			lines = append(lines, b.styles.Added.Render(line))
+		case strings.HasPrefix(line, "*** Delete File:"):
+			lines = append(lines, b.styles.Removed.Render(line))
+		case strings.HasPrefix(line, "*** Update File:"):
+			lines = append(lines, b.styles.FgDim.Render(line))
+		case line == "*** Begin Patch" || line == "*** End Patch":
+			lines = append(lines, b.styles.FgFaint.Render(line))
+		case strings.HasPrefix(line, "@@"):
+			lines = append(lines, b.styles.FgFaint.Render(line))
+		case strings.HasPrefix(line, "+"):
+			lines = append(lines, addedBg.Render(line))
+		case strings.HasPrefix(line, "-"):
+			lines = append(lines, removedBg.Render(line))
+		default:
+			lines = append(lines, b.styles.FgDim.Render(line))
+		}
+	}
+
+	p := tc.preview
+	if p.HunksApplied > 0 || p.HunksFailed > 0 {
+		applied := b.styles.Added.Render(fmt.Sprintf("%d applied", p.HunksApplied))
+		failed := b.styles.Removed.Render(fmt.Sprintf("%d failed", p.HunksFailed))
+		lines = append(lines, b.styles.FgFaint.Render("─────"))
+		if p.HunksFailed > 0 {
+			lines = append(lines, applied+" · "+failed)
+		} else {
+			lines = append(lines, applied)
+		}
+	}
+	return lines
+}
+
 func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
 	return b.buildListLines(tc.preview.Path, "glob results", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
 }
@@ -232,11 +282,29 @@ func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []
 	return lines
 }
 
+func (b *contentBuffer) buildDiffPreviewLines(tc *toolCallSegment, width int) []string {
+	doc := b.previewDocument(tc)
+	if doc.Kind != output.PreviewFormatKindEditDiff {
+		return b.buildPlainLines(tc)
+	}
+
+	lines := make([]string, 0, len(doc.Lines)+1)
+	lines = append(lines, b.renderDiffPreviewDocument(doc, width)...)
+	if doc.Truncated {
+		lines = append(lines, b.styles.FgMute.Render("… output truncated"))
+	}
+	return lines
+}
+
 func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
 	if tc.displayPreview != nil {
 		return *tc.displayPreview
 	}
 	switch tc.preview.Kind {
+	case output.ToolPreviewKindEditDiff:
+		return output.FormatEditDiffPreview(tc.preview.Path, tc.preview.Before, tc.preview.After)
+	case output.ToolPreviewKindFileWrite:
+		return output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
 	case output.ToolPreviewKindReadFile:
 		doc := output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
 		doc.StartLine = tc.preview.StartLine
@@ -271,6 +339,12 @@ func computeFilePreviewLabel(tc *toolCallSegment, doc output.PreviewDocument) (l
 		label = "display file preview"
 		if doc.Language != "" && doc.Language != "plain" {
 			label += " · " + doc.Language
+		}
+	case tc.preview.Kind == output.ToolPreviewKindFileWrite:
+		if tc.preview.Created {
+			label = "new file preview"
+		} else {
+			label = "updated file contents preview"
 		}
 	case tc.preview.Kind == output.ToolPreviewKindReadFile:
 		label = "read file preview"

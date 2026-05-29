@@ -6,6 +6,21 @@ import (
 	"strings"
 )
 
+func toolVerb(toolName string) string {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "edit":
+		return "edited"
+	case "write":
+		return "wrote"
+	case "apply_patch":
+		return "patched"
+	case "mutate":
+		return "mutated"
+	default:
+		return "updated"
+	}
+}
+
 func isTestCommand(command string) bool {
 	command = strings.ToLower(strings.TrimSpace(command))
 	if command == "" {
@@ -39,8 +54,33 @@ func (t *FileTracker) updateWorkingFile(path, lastAction string) workingFileUpda
 	}
 }
 
-func (t *FileTracker) observeMutationHeuristics(input map[string]any, content string) (workingFileUpdate, []string) {
-	return t.observeMutateHeuristics(input, content)
+func (t *FileTracker) observeMutationHeuristics(toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
+	var result struct {
+		Path   string `json:"path"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return workingFileUpdate{}, nil
+	}
+	if strings.EqualFold(strings.TrimSpace(toolName), "mutate") {
+		return t.observeMutateHeuristics(input, content)
+	}
+	path := sanitizeScratchpadPath(result.Path)
+	if path == "" && input != nil {
+		if rawPath, ok := input["path"].(string); ok {
+			path = sanitizeScratchpadPath(rawPath)
+		}
+	}
+	var update workingFileUpdate
+	if path != "" {
+		update = t.updateWorkingFile(path, fmt.Sprintf("%s %s: %s", toolVerb(toolName), path, summarizeTextPreview(result.Output, 96)))
+		t.BumpGeneration(path)
+	}
+	var facts []string
+	if toolName == "edit" {
+		facts = append(facts, fmt.Sprintf("edited %s: %s", path, summarizeTextPreview(result.Output, 96)))
+	}
+	return update, facts
 }
 
 func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) (workingFileUpdate, []string) {
@@ -122,8 +162,8 @@ func (t *FileTracker) ObserveToolResult(_ int, toolName string, input map[string
 			observation.Action = "annotated"
 		}
 		return t.observeReadHeuristics(result, observation, content)
-	case "mutate":
-		return t.observeMutationHeuristics(input, content)
+	case "edit", "write", "apply_patch", "mutate":
+		return t.observeMutationHeuristics(toolName, input, content)
 	case "bash":
 		return t.observeBashHeuristics(input, content)
 	default:

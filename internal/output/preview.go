@@ -3,6 +3,10 @@ package output
 import "strings"
 
 const (
+	// ToolPreviewKindEditDiff is a diff preview produced by edit-like tools.
+	ToolPreviewKindEditDiff = "edit_diff"
+	// ToolPreviewKindFileWrite is a full-file preview produced by write-like tools.
+	ToolPreviewKindFileWrite = "file_write"
 	// ToolPreviewKindReadFile is a read-file preview.
 	ToolPreviewKindReadFile = "read_file"
 	// ToolPreviewKindGlobList is a glob results preview.
@@ -13,6 +17,8 @@ const (
 	ToolPreviewKindGrep = "grep"
 	// ToolPreviewKindBash is a shell command preview.
 	ToolPreviewKindBash = "bash"
+	// ToolPreviewKindPatch is an apply_patch preview.
+	ToolPreviewKindPatch = "patch"
 	// ToolPreviewKindMutate is a mutate tool result preview.
 	ToolPreviewKindMutate = "mutate"
 	// ToolPreviewKindPlain is a fallback preview with no structured rendering.
@@ -27,6 +33,12 @@ const (
 type ToolPreviewListEntry struct {
 	Path  string
 	IsDir bool
+}
+
+// ToolPreviewPatchMove describes a renamed file in a patch result.
+type ToolPreviewPatchMove struct {
+	From string
+	To   string
 }
 
 // ToolPreviewMutateOperation carries one operation for mutate rendering.
@@ -73,16 +85,24 @@ type ToolPreview struct {
 	NextOffset       int
 	OutputMode       string
 	StartLine        int
-	HunksApplied     int
-	HunksFailed      int
 	Entries          []ToolPreviewListEntry
 	GrepFiles        []ToolPreviewGrepFile
+	PatchAdded       []string
+	PatchModified    []string
+	PatchDeleted     []string
+	PatchMoved       []ToolPreviewPatchMove
+	HunksApplied     int
+	HunksFailed      int
 	MutateOperations []ToolPreviewMutateOperation
 }
 
 // BuildToolPreview builds a structured preview for a tool result when supported.
-func BuildToolPreview(tool string, arguments map[string]any, result string) ToolPreview {
+func BuildToolPreview(tool string, arguments map[string]any, result string, writeTargetExistedBefore *bool) ToolPreview {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "edit":
+		return buildEditPreview(arguments)
+	case "write", "write_file":
+		return buildWritePreview(arguments, writeTargetExistedBefore)
 	case "read", "read_file":
 		return buildReadPreview(arguments, result)
 	case "glob":
@@ -95,6 +115,8 @@ func BuildToolPreview(tool string, arguments map[string]any, result string) Tool
 		return buildBashPreview(arguments, result)
 	case "mutate":
 		return buildMutatePreview(arguments, result)
+	case "apply_patch":
+		return buildApplyPatchPreview(result)
 	case "fetch_url":
 		return buildFetchURLPreview(result)
 	case "web_search":

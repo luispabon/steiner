@@ -154,7 +154,8 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 	if call.Name == "scratchpad" {
 		scratchpadCalled = true
 	}
-	emitEvent(in.Request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+	writeTargetExistedBefore := writeTargetExistedBefore(call.Name, call.Arguments)
+	emitEvent(in.Request.Events, output.NewToolCallStartedEventWithPreviewState(turn, call.Name, call.ID, cloneInput(call.Arguments), writeTargetExistedBefore))
 
 	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
@@ -163,25 +164,25 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 		return state, scratchpadCalled, turnOutcome{State: cancelled, Stop: true}
 	}
 
-	toolMessage := p.buildToolMessage(in, turn, call, result, err)
+	toolMessage := p.buildToolMessage(in, turn, call, result, err, writeTargetExistedBefore)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	return state, scratchpadCalled, turnOutcome{}
 }
 
-func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error) Message {
+func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error, writeTargetExistedBefore *bool) Message {
 	var toolContent string
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
 		toolContent = formatToolError(err)
-		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
+		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
 	} else {
 		recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
 		toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
-		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
+		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent, writeTargetExistedBefore)
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 	}
 	toolMessage := Message{

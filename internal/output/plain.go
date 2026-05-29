@@ -59,8 +59,10 @@ type PlainRenderer struct {
 }
 
 type retainedToolCall struct {
-	tool      string
-	arguments map[string]any
+	tool                        string
+	arguments                   map[string]any
+	writeTargetExistedBefore    bool
+	hasWriteTargetExistedBefore bool
 }
 
 // StreamOption configures a PlainRenderer.
@@ -231,6 +233,10 @@ func (r *PlainRenderer) rememberToolCallLocked(payload ToolCallStartedEvent) {
 		tool:      payload.Tool,
 		arguments: cloneMap(payload.Arguments),
 	}
+	if payload.WriteTargetExistedBefore != nil {
+		state.writeTargetExistedBefore = *payload.WriteTargetExistedBefore
+		state.hasWriteTargetExistedBefore = true
+	}
 	r.toolCalls[payload.CallID] = state
 }
 
@@ -256,7 +262,12 @@ func (r *PlainRenderer) previewRenderDataLocked(payload ToolCallFinishedEvent) (
 		return ToolPreview{}, PreviewDocument{}, false
 	}
 
-	preview := BuildToolPreview(state.tool, state.arguments, payload.Result)
+	var existedBefore *bool
+	if state.hasWriteTargetExistedBefore {
+		existed := state.writeTargetExistedBefore
+		existedBefore = &existed
+	}
+	preview := BuildToolPreview(state.tool, state.arguments, payload.Result, existedBefore)
 	doc, ok := previewDocumentForToolPayload(preview)
 	if !ok {
 		return ToolPreview{}, PreviewDocument{}, false

@@ -82,6 +82,10 @@ func isContextDiagnosticEvent(event Event) bool {
 
 func previewDocumentForToolPayload(preview ToolPreview) (PreviewDocument, bool) {
 	switch preview.Kind {
+	case ToolPreviewKindEditDiff:
+		return FormatEditDiffPreview(preview.Path, preview.Before, preview.After), true
+	case ToolPreviewKindFileWrite:
+		return FormatFilePreview(preview.Path, preview.Contents), true
 	case ToolPreviewKindReadFile:
 		doc := FormatFilePreview(preview.Path, normalizeReadPreviewContents(preview.Contents, 0))
 		doc.StartLine = preview.StartLine
@@ -313,6 +317,12 @@ func renderPreviewCaption(preview ToolPreview, doc PreviewDocument) string {
 	case PreviewFormatKindFile:
 		label := "file preview"
 		switch preview.Kind {
+		case ToolPreviewKindFileWrite:
+			if preview.Created {
+				label = "new file preview"
+			} else {
+				label = "updated file contents preview"
+			}
 		case ToolPreviewKindReadFile:
 			label = "read file preview"
 			if doc.StartLine > 1 {

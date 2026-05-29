@@ -546,15 +546,34 @@ func TestRunnerPreservesToolResultContentWhileEmittingInternalPreview(t *testing
 		t.Fatalf("tool result content = %q, want %q", got, want)
 	}
 
+	var started output.ToolCallStartedEvent
 	var finished output.ToolCallFinishedEvent
 	for _, event := range events {
-		if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
+		switch payload := event.Payload.(type) {
+		case output.ToolCallStartedEvent:
+			started = payload
+		case output.ToolCallFinishedEvent:
 			finished = payload
 		}
 	}
 
+	if started.WriteTargetExistedBefore == nil || *started.WriteTargetExistedBefore {
+		t.Fatalf("WriteTargetExistedBefore = %v, want false", started.WriteTargetExistedBefore)
+	}
 	if got, want := finished.Result, fmt.Sprintf(`{"bytes_written":6,"path":"%s"}`, target); got != want {
 		t.Fatalf("finished result = %q, want %q", got, want)
+	}
+	if got, want := finished.Preview.Kind, output.ToolPreviewKindFileWrite; got != want {
+		t.Fatalf("preview kind = %q, want %q", got, want)
+	}
+	if got, want := finished.Preview.Path, target; got != want {
+		t.Fatalf("preview path = %q, want %q", got, want)
+	}
+	if got, want := finished.Preview.Contents, "hello\n"; got != want {
+		t.Fatalf("preview contents = %q, want %q", got, want)
+	}
+	if !finished.Preview.Created {
+		t.Fatalf("preview created = false, want true")
 	}
 }
 

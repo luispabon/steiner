@@ -84,7 +84,7 @@ Before editing:
 
 While editing:
 - Touch only required files and lines.
-- Use the ` + "`mutate`" + ` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Use the ` + "`mutate`" + ` tool for file mutations; do not use ` + "`apply_patch`" + `, ` + "`write`" + `, ` + "`edit`" + `, or shell redirection for edits.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
 - Do not rewrite adjacent code, comments, formatting, or structure.
