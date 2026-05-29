@@ -25,4 +25,9 @@ type turnOutcome struct {
 	// executeToolCalls within a single advance call. Internal use only;
 	// never consumed by Runner.Run.
 	Response *provider.ChatResponse
+
+	// DetectedReasoningEchoBack is set when the model returned reasoning_content
+	// but ReasoningEchoBack was not set on the request. Runner.Run uses this to
+	// enable echo-back for subsequent turns.
+	DetectedReasoningEchoBack bool
 }

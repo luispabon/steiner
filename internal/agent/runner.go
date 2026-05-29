@@ -93,6 +93,9 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			cancel()
 		}
 		state = outcome.State
+		if outcome.DetectedReasoningEchoBack {
+			req.ResolvedModel.ReasoningEchoBack = true
+		}
 		if outcome.Error != nil {
 			return state, outcome.Error
 		}

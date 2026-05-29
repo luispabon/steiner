@@ -60,7 +60,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
 
-	return ResolvedModel{
+	rm := ResolvedModel{
 		Alias:               alias,
 		ProviderAlias:       modelCfg.Provider,
 		ProviderConfig:      provCfg,
@@ -75,7 +75,11 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		Confidence:          "high",
 		TokenizerStrategy:   tokenizerStrategy,
 		TokenizerConfidence: tokenizerConfidence,
-	}, nil
+	}
+	if modelCfg.Advanced.ReasoningEchoBack != nil {
+		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack
+	}
+	return rm, nil
 }
 
 // ResolveWithDiscovery resolves a model like Resolve but also attempts provider
@@ -90,7 +94,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	modelCfg := cfg.Models[alias]
 	adv := modelCfg.Advanced.Limits
 
-	// Load models.dev metadata early (needed for reasoning echo back regardless of limits).
+	// Load models.dev metadata early (needed for reasoning echo back and limits).
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
 	defer cacheCancel()
@@ -98,7 +102,10 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
 		modelsDevInfo = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
 	}
-	rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
+	// Apply models.dev reasoning echo back only when config does not override it.
+	if modelCfg.Advanced.ReasoningEchoBack == nil {
+		rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
+	}
 
 	if limitsFullyConfigured(adv) {
 		return rm, nil

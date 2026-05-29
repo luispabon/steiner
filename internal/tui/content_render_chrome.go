@@ -234,7 +234,7 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	if dd.toolLabel != "" {
 		labelStyle = b.delegationToolLabelStyle(dd.toolLabel)
 	} else {
-		labelStyle = b.styles.Accent.Bold(true)
+		labelStyle = b.styles.DelegateTagDefault
 	}
 	left := disclosure + " " + labelStyle.Render(label)
 	if agentID != "" {

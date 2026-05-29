@@ -105,7 +105,11 @@ func handleStreamChoice(state *openAIStreamState, choice openAIChoice, emit func
 	if err := handleStreamChoiceContent(state, choice.Delta.Content, emit); err != nil {
 		return err
 	}
-	if err := handleStreamChoiceReasoning(state, choice.Delta.ReasoningContent, emit); err != nil {
+	var reasoningDelta string
+	if choice.Delta.ReasoningContent != nil {
+		reasoningDelta = *choice.Delta.ReasoningContent
+	}
+	if err := handleStreamChoiceReasoning(state, reasoningDelta, emit); err != nil {
 		return err
 	}
 	if err := handleStreamChoiceToolCalls(state, choice.Delta.ToolCalls); err != nil {

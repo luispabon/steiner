@@ -1628,3 +1628,87 @@ func TestRunnerSmartContextManagerSanitizesRecentToolCallSummaries(t *testing.T)
 		t.Fatalf("recent tool call summary = %q, want sanitized command fragment", got.Context.RecentToolCalls[0])
 	}
 }
+
+// TestRunnerDetectedReasoningEchoBack_PersistsAcrossTurns verifies that when
+// the model returns reasoning_content on turn 1 with ReasoningEchoBack=false,
+// the runner enables ReasoningEchoBack for turn 2 so reasoning is preserved.
+func TestRunnerDetectedReasoningEchoBack_PersistsAcrossTurns(t *testing.T) {
+	// Turn 1: model responds with reasoning_content and a tool call.
+	// Turn 2: model responds with a final answer.
+	// We assert that the turn-2 request preserved reasoning in the conversation.
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:             provider.MessageRoleAssistant,
+					ReasoningContent: "thinking about the task",
+					ToolCalls: []provider.ToolCall{
+						{
+							ID:        "call_1",
+							Name:      "bash",
+							Arguments: map[string]any{"command": "echo hi"},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 10, CompletionTokens: 10},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+			},
+		},
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{"output": "hi"}, nil
+		},
+	}
+
+	runner := NewRunner()
+	_, err := runner.Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Tools: []provider.ToolSpec{
+			{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}}},
+		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "run something"}},
+			ProjectContextBudgetBytes: 128,
+		},
+		ResolvedModel: provider.ResolvedModel{
+			BackendModelID:    "test-model",
+			ReasoningEchoBack: false, // starts false — runner must flip it after turn 1
+		},
+		MaxTokens:   intPtr(256),
+		ModelBudget: prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 256},
+		Limits:      Limits{MaxTurns: 4, MaxTokens: 500},
+		Events:      output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(providerStub.requests) < 2 {
+		t.Fatalf("expected at least 2 provider requests, got %d", len(providerStub.requests))
+	}
+
+	// The second request must include the assistant message from turn 1 with
+	// reasoning_content preserved (not stripped).
+	turn2Req := providerStub.requests[1]
+	var foundReasoning bool
+	for _, msg := range turn2Req.Messages {
+		if msg.Role == provider.MessageRoleAssistant && msg.ReasoningContent != "" {
+			foundReasoning = true
+			break
+		}
+	}
+	if !foundReasoning {
+		t.Fatal("turn-2 request missing reasoning_content in assistant message; ReasoningEchoBack was not applied")
+	}
+}

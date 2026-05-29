@@ -87,7 +87,9 @@ func (c *Cache) Load() ([]byte, error) {
 func (c *Cache) LoadBestEffort(ctx context.Context) ([]byte, error) {
 	if !c.IsFresh() {
 		if err := c.Refresh(ctx); err != nil {
-			return nil, fmt.Errorf("refresh cache: %w", err)
+			// Fall back to stale cache — the data file may exist even if
+			// metadata save failed during a previous refresh.
+			return c.Load()
 		}
 	}
 	return c.Load()

@@ -86,7 +86,8 @@ type AdvancedLimitsConfig struct {
 
 // AdvancedConfig holds advanced model-specific configuration.
 type AdvancedConfig struct {
-	Limits AdvancedLimitsConfig `yaml:"limits"`
+	Limits            AdvancedLimitsConfig `yaml:"limits"`
+	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
 }
 
 // SearchConfig configures web search integration.

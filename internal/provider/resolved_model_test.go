@@ -796,3 +796,111 @@ type alwaysFailTransport struct{}
 func (alwaysFailTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("offline")
 }
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
+	tests := []struct {
+		name     string
+		override *bool
+		want     bool
+	}{
+		{name: "nil uses default false", override: nil, want: false},
+		{name: "explicit true sets true", override: boolPtr(true), want: true},
+		{name: "explicit false sets false", override: boolPtr(false), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+				},
+				Models: map[string]config.ModelConfig{
+					"mymodel": {
+						Provider: "local",
+						ID:       "llama3",
+						Advanced: config.AdvancedConfig{
+							ReasoningEchoBack: tt.override,
+						},
+					},
+				},
+			}
+
+			rm, err := Resolve(cfg, "mymodel")
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if rm.ReasoningEchoBack != tt.want {
+				t.Errorf("ReasoningEchoBack = %v, want %v", rm.ReasoningEchoBack, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	// Seed a cache where the model has ReasoningEchoBack=true from models.dev.
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"opencode-go":{"models":{"kimi-k2":{"interleaved":{"field":"reasoning_content"}}}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		override *bool
+		want     bool
+	}{
+		{
+			name:     "config override false suppresses models.dev true",
+			override: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "config override true agrees with models.dev",
+			override: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "nil falls through to models.dev",
+			override: nil,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
+				},
+				Models: map[string]config.ModelConfig{
+					"kimi": {
+						Provider: "opencode-go",
+						ID:       "kimi-k2",
+						Advanced: config.AdvancedConfig{
+							ReasoningEchoBack: tt.override,
+						},
+					},
+				},
+			}
+
+			rm, err := ResolveWithDiscovery(cfg, "kimi", nil)
+			if err != nil {
+				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			}
+			if rm.ReasoningEchoBack != tt.want {
+				t.Errorf("ReasoningEchoBack = %v, want %v", rm.ReasoningEchoBack, tt.want)
+			}
+		})
+	}
+}

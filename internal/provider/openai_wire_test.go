@@ -7,6 +7,110 @@ import (
 
 func intPtr(v int) *int { return &v }
 
+func TestToOpenAIMessage_SetsReasoningContentPointerWhenPresent(t *testing.T) {
+	msg := Message{
+		Role:             MessageRoleAssistant,
+		Content:          "answer",
+		ReasoningContent: "my reasoning",
+	}
+	wire, err := toOpenAIMessage(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessage() error = %v", err)
+	}
+	if wire.ReasoningContent == nil {
+		t.Fatal("ReasoningContent = nil, want non-nil pointer")
+	}
+	if *wire.ReasoningContent != "my reasoning" {
+		t.Fatalf("*ReasoningContent = %q, want %q", *wire.ReasoningContent, "my reasoning")
+	}
+}
+
+func TestToOpenAIMessage_SetsReasoningContentNilWhenAbsent(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleAssistant,
+		Content: "answer",
+	}
+	wire, err := toOpenAIMessage(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessage() error = %v", err)
+	}
+	if wire.ReasoningContent != nil {
+		t.Fatalf("ReasoningContent = %v, want nil", *wire.ReasoningContent)
+	}
+}
+
+func TestNormalizeMessage_DereferencesReasoningContentPointer(t *testing.T) {
+	reasoning := "step by step"
+	wire := openAIMessage{
+		Role:             "assistant",
+		Content:          "done",
+		ReasoningContent: &reasoning,
+	}
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.ReasoningContent != "step by step" {
+		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "step by step")
+	}
+}
+
+func TestNormalizeMessage_ReasoningContentNilProducesEmptyString(t *testing.T) {
+	wire := openAIMessage{
+		Role:    "assistant",
+		Content: "done",
+	}
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.ReasoningContent != "" {
+		t.Fatalf("ReasoningContent = %q, want empty string", out.ReasoningContent)
+	}
+}
+
+func TestOpenAIMessageMarshalJSON_NilReasoningContentOmitted(t *testing.T) {
+	msg := openAIMessage{
+		Role:    "assistant",
+		Content: "hello",
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := m["reasoning_content"]; ok {
+		t.Fatal("reasoning_content present in JSON, want absent when nil")
+	}
+}
+
+func TestOpenAIMessageMarshalJSON_EmptyStringReasoningContentPresent(t *testing.T) {
+	empty := ""
+	msg := openAIMessage{
+		Role:             "assistant",
+		Content:          "hello",
+		ReasoningContent: &empty,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	val, ok := m["reasoning_content"]
+	if !ok {
+		t.Fatal("reasoning_content absent from JSON, want present as empty string")
+	}
+	if val != "" {
+		t.Fatalf("reasoning_content = %v, want empty string", val)
+	}
+}
+
 func TestOpenAIRequestMarshalJSONFlattensExtraParams(t *testing.T) {
 	req := openAIRequest{
 		Model:    "gpt-4",
