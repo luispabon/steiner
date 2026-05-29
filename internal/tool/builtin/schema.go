@@ -55,6 +55,7 @@ func MutateSchema() map[string]any {
 			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences for replace", "default": false},
 			"line":        map[string]any{"type": "integer", "description": "1-based line number for line_replace", "minimum": 1},
+			"line_count":  map[string]any{"type": "integer", "description": "Number of lines to replace or delete starting from line. Cannot be combined with old_string. Omit for single-line edits with old_string.", "minimum": 1},
 			"from":        map[string]any{"type": "string", "description": "Source path for move"},
 			"to":          map[string]any{"type": "string", "description": "Destination path for move"},
 		},

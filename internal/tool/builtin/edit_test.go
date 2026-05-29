@@ -103,7 +103,7 @@ func TestEditTool(t *testing.T) {
 		if !strings.Contains(result.Output, "context:") {
 			t.Fatalf("Output = %q, want context preview", result.Output)
 		}
-		if !strings.Contains(result.Output, "suggestion: use line_replace with line") {
+		if !strings.Contains(result.Output, "retry with old_string set to the file text shown above") {
 			t.Fatalf("Output = %q, want whitespace-specific suggestion", result.Output)
 		}
 	})

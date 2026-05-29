@@ -192,27 +192,73 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	if op.Line <= 0 {
 		return fmt.Errorf("mutate: operation %d line_replace: line must be >= 1", index)
 	}
+	if op.OldString != "" && strings.Contains(op.OldString, "\n") {
+		return fmt.Errorf("mutate: operation %d line_replace: old_string contains newline characters; line_replace matches a single line without its ending — use replace for multi-line matches, or remove newlines from old_string", index)
+	}
+
+	useRange := op.LineCount > 0
+	lineCount := op.LineCount
+	if lineCount <= 0 {
+		lineCount = 1
+	}
+	if op.OldString != "" && useRange {
+		return fmt.Errorf("mutate: operation %d line_replace: old_string cannot be used with line_count", index)
+	}
+
 	lines := splitLinesPreserveEndings(string(state.content))
 	if op.Line > len(lines) {
 		return fmt.Errorf("mutate: operation %d line_replace: line %d is outside file with %d lines", index, op.Line, len(lines))
 	}
-	line := lines[op.Line-1]
-	lineText := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-	lineEnding := line[len(lineText):]
-	before := string(state.content)
-	if op.OldString == "" {
-		lines[op.Line-1] = op.NewString + lineEnding
-	} else {
-		if count := strings.Count(lineText, op.OldString); count != 1 {
-			return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
-		}
-		lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
+	endLine := op.Line - 1 + lineCount
+	if endLine > len(lines) {
+		return fmt.Errorf("mutate: operation %d line_replace: line_count %d starting at line %d exceeds file length (%d lines)", index, lineCount, op.Line, len(lines))
 	}
+
+	before := string(state.content)
+
+	if !useRange {
+		// Single-line: existing behavior — replaces line content, preserving the line's own ending.
+		line := lines[op.Line-1]
+		lineText := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		lineEnding := line[len(lineText):]
+		if op.OldString == "" {
+			lines[op.Line-1] = op.NewString + lineEnding
+		} else {
+			if count := strings.Count(lineText, op.OldString); count != 1 {
+				return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
+			}
+			lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
+		}
+	} else {
+		lines = spliceLineRange(lines, op.Line-1, endLine, op.NewString)
+	}
+
 	state.content = []byte(strings.Join(lines, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
+}
+
+func spliceLineRange(lines []string, start, end int, newString string) []string {
+	lastLine := lines[end-1]
+	lastLineText := strings.TrimSuffix(strings.TrimSuffix(lastLine, "\n"), "\r")
+	trailingEnding := lastLine[len(lastLineText):]
+
+	var replacement []string
+	if newString != "" {
+		content := newString
+		if trailingEnding != "" && !strings.HasSuffix(content, "\n") {
+			content += trailingEnding
+		}
+		replacement = splitLinesPreserveEndings(content)
+	}
+
+	result := make([]string, 0, len(lines)-(end-start)+len(replacement))
+	result = append(result, lines[:start]...)
+	result = append(result, replacement...)
+	result = append(result, lines[end:]...)
+	return result
 }
 
 func (p *mutatePlanner) planDelete(index int, op MutateOperation) error {

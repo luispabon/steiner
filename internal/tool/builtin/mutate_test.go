@@ -261,6 +261,72 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			input:     map[string]any{"operations": []any{map[string]any{"type": "write", "path": "missing/note.txt", "content": "x"}}},
 			wantError: "parent directory",
 		},
+		{
+			name: "line_replace old_string with trailing newline",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "hello\n", "new_string": "hi"}}},
+			wantError: "old_string contains newline",
+		},
+		{
+			name: "line_replace old_string with embedded newline",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "hello\nworld", "new_string": "hi"}}},
+			wantError: "old_string contains newline",
+		},
+		{
+			name: "line_replace on empty file",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(""), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "", "new_string": "x"}}},
+			wantError: "outside file",
+		},
+		{
+			name: "line_replace line zero",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(0), "old_string": "hello", "new_string": "world"}}},
+			wantError: "line must be >= 1",
+		},
+		{
+			name: "line_count exceeds file bounds",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "line_count": float64(3), "new_string": ""}}},
+			wantError: "exceeds file length",
+		},
+		{
+			name: "line_count with old_string",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(1), "old_string": "a", "new_string": "x"}}},
+			wantError: "old_string cannot be used with line_count",
+		},
 	}
 
 	for _, tt := range tests {
@@ -839,6 +905,164 @@ func TestMutateTabVsSpaceGoFileScenario(t *testing.T) {
 	if !strings.Contains(got.Output, "nearest anchor at line 2") {
 		t.Fatalf("Output missing anchor at line 2:\n%s", got.Output)
 	}
+}
+
+func TestMutateLineReplaceLineCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		initial   string
+		line      int
+		lineCount int
+		oldStr    string
+		newStr    string
+		want      string
+	}{
+		{
+			name:      "delete single line",
+			initial:   "a\nb\nc\n",
+			line:      2,
+			lineCount: 1,
+			newStr:    "",
+			want:      "a\nc\n",
+		},
+		{
+			name:      "delete range at start",
+			initial:   "a\nb\nc\nd\n",
+			line:      1,
+			lineCount: 2,
+			newStr:    "",
+			want:      "c\nd\n",
+		},
+		{
+			name:      "delete range in middle",
+			initial:   "a\nb\nc\nd\ne\n",
+			line:      2,
+			lineCount: 3,
+			newStr:    "",
+			want:      "a\ne\n",
+		},
+		{
+			name:      "delete range at end",
+			initial:   "a\nb\nc\nd\n",
+			line:      3,
+			lineCount: 2,
+			newStr:    "",
+			want:      "a\nb\n",
+		},
+		{
+			name:      "delete all lines",
+			initial:   "a\nb\nc\n",
+			line:      1,
+			lineCount: 3,
+			newStr:    "",
+			want:      "",
+		},
+		{
+			name:      "replace range with single line",
+			initial:   "a\nb\nc\nd\n",
+			line:      2,
+			lineCount: 2,
+			newStr:    "X",
+			want:      "a\nX\nd\n",
+		},
+		{
+			name:      "replace range with multi-line block",
+			initial:   "a\nb\nc\nd\n",
+			line:      2,
+			lineCount: 2,
+			newStr:    "X\nY\nZ",
+			want:      "a\nX\nY\nZ\nd\n",
+		},
+		{
+			name:      "replace range new_string already ends with newline",
+			initial:   "a\nb\nc\nd\n",
+			line:      2,
+			lineCount: 2,
+			newStr:    "X\n",
+			want:      "a\nX\nd\n",
+		},
+		{
+			name:      "CRLF preservation",
+			initial:   "a\r\nb\r\nc\r\n",
+			line:      1,
+			lineCount: 2,
+			newStr:    "X",
+			want:      "X\r\nc\r\n",
+		},
+		{
+			name:      "last line without trailing newline",
+			initial:   "a\nb\nc",
+			line:      2,
+			lineCount: 2,
+			newStr:    "",
+			want:      "a\n",
+		},
+		{
+			name:      "line_count 0 defaults to 1",
+			initial:   "a\nb\nc\n",
+			line:      2,
+			lineCount: 0,
+			oldStr:    "b",
+			newStr:    "B",
+			want:      "a\nB\nc\n",
+		},
+		{
+			name:      "line_count 1 replaces whole line",
+			initial:   "a\nhello world\nc\n",
+			line:      2,
+			lineCount: 1,
+			newStr:    "goodbye",
+			want:      "a\ngoodbye\nc\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "note.txt")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			op := map[string]any{
+				"type":       "line_replace",
+				"path":       "note.txt",
+				"line":       float64(tt.line),
+				"new_string": tt.newStr,
+			}
+			if tt.lineCount != 0 {
+				op["line_count"] = float64(tt.lineCount)
+			}
+			if tt.oldStr != "" {
+				op["old_string"] = tt.oldStr
+			}
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{op},
+			})
+			if got.OperationsFailed != 0 {
+				t.Fatalf("mutate failed: %#v", got)
+			}
+			assertFile(t, path, tt.want)
+		})
+	}
+}
+
+func TestMutateLineReplaceLineCountBatch(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("a\nb\nc\nd\ne\nf\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "line_count": float64(2), "new_string": ""},
+			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "e", "new_string": "E"},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	assertFile(t, path, "a\nd\nE\nf\n")
 }
 
 func assertFile(t *testing.T, path, want string) {

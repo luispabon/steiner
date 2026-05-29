@@ -95,9 +95,11 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	lines = append(lines, fmt.Sprintf("%s: no match for %s", prefix, subject))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
+	var matchLineNum int
 	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
-		if matchedText, _, ok := extractNormalizedMatch(content, oldText); ok {
+		if matchedText, mln, ok := extractNormalizedMatch(content, oldText); ok {
+			matchLineNum = mln
 			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
 			lines = append(lines, fmt.Sprintf("  %q", matchedText))
 		}
@@ -114,10 +116,14 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	}
 
 	if hasWhitespaceMismatch {
-		if anchorLineNum > 0 {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with line %d for whitespace-sensitive edits, or reread the file for exact content", prefix, anchorLineNum))
+		suggestLine := anchorLineNum
+		if suggestLine == 0 {
+			suggestLine = matchLineNum
+		}
+		if suggestLine > 0 {
+			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above, or use line_replace with line %d", prefix, suggestLine))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: use line_replace with a line number for whitespace-sensitive edits, or reread the file for exact content", prefix))
+			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above", prefix))
 		}
 	} else {
 		lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
