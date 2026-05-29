@@ -316,6 +316,43 @@ func TestLoadBestEffort_OfflineFallsBackToStaleCache(t *testing.T) {
 	}
 }
 
+func TestLoadBestEffort_RefreshErrorFallsBackToStaleCache(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test: running as root")
+	}
+	staleData := []byte(`{"models":{"stale-model":{"context":4096,"maxOutputTokens":512}}}`)
+	freshData := []byte(`{"models":{"fresh":{"context":128000,"maxOutputTokens":16384}}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(freshData)
+	}))
+	defer srv.Close()
+
+	c := newTestCache(t)
+	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
+	writeTestData(t, c, staleData)
+	writeTestMeta(t, c, CacheMetadata{
+		DownloadedAt: time.Now().Add(-8 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(-time.Hour),
+		URL:          modelsDevURL,
+	})
+
+	// Make cache dir read-only so atomicWrite inside Refresh returns an error.
+	if err := os.Chmod(c.Dir, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(c.Dir, 0o755) }) //nolint:errcheck
+
+	// LoadBestEffort must return stale data without error despite Refresh failing.
+	data, err := c.LoadBestEffort(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBestEffort() error = %v, want nil on refresh failure", err)
+	}
+	if string(data) != string(staleData) {
+		t.Fatalf("LoadBestEffort() = %s, want stale data %s", data, staleData)
+	}
+}
+
 func TestRefresh_InvalidJSON_DoesNotCorruptCache(t *testing.T) {
 	originalData := []byte(`{"models":{"good":{"context":8192}}}`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

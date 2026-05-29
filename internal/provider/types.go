@@ -54,13 +54,14 @@ type UsageStats struct {
 
 // ChatRequest is the normalized provider request payload.
 type ChatRequest struct {
-	Model       string         `json:"model"`
-	Messages    []Message      `json:"messages"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	Stream      bool           `json:"stream,omitempty"`
-	Tools       []ToolSpec     `json:"tools,omitempty"`
-	Params      map[string]any `json:"-"` // Normalized generation params (temperature, top_p, etc.)
-	ExtraParams map[string]any `json:"-"` // Raw provider-specific passthrough
+	Model                 string         `json:"model"`
+	Messages              []Message      `json:"messages"`
+	MaxTokens             *int           `json:"max_tokens,omitempty"`
+	Stream                bool           `json:"stream,omitempty"`
+	Tools                 []ToolSpec     `json:"tools,omitempty"`
+	Params                map[string]any `json:"-"` // Normalized generation params (temperature, top_p, etc.)
+	ExtraParams           map[string]any `json:"-"` // Raw provider-specific passthrough
+	IncludeEmptyReasoning bool           `json:"-"` // Fill empty reasoning_content on assistant messages before sending
 }
 
 // ChatResponse is the normalized provider response payload.

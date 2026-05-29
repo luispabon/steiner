@@ -39,6 +39,14 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 		}
 		wire.Messages = append(wire.Messages, wireMsg)
 	}
+	if request.IncludeEmptyReasoning {
+		empty := ""
+		for i := range wire.Messages {
+			if wire.Messages[i].Role == "assistant" && wire.Messages[i].ReasoningContent == nil {
+				wire.Messages[i].ReasoningContent = &empty
+			}
+		}
+	}
 	return wire, nil
 }
 

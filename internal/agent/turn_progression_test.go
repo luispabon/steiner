@@ -908,3 +908,220 @@ func TestAdvance_FitFailureNoCompactionCandidate(t *testing.T) {
 		t.Fatalf("StopReason = %q, want %q", outcome.State.StopReason, StopReasonError)
 	}
 }
+
+func TestAdvance_DetectedReasoningEchoBack_AssistantOnlyTurn(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:             provider.MessageRoleAssistant,
+					Content:          "final answer",
+					ReasoningContent: "step by step thinking",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+			},
+		},
+	}
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model", ReasoningEchoBack: false},
+		Limits:        Limits{MaxTurns: 2},
+		Events:        output.NoopSink{},
+	}
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.advance(context.Background(), in)
+
+	if !outcome.DetectedReasoningEchoBack {
+		t.Fatal("DetectedReasoningEchoBack = false, want true when model returns reasoning_content")
+	}
+	if !outcome.Stop {
+		t.Fatal("outcome.Stop = false, want true for assistant-only turn")
+	}
+}
+
+func TestAdvance_DetectedReasoningEchoBack_NotSetWhenAlreadyEnabled(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:             provider.MessageRoleAssistant,
+					Content:          "final answer",
+					ReasoningContent: "step by step thinking",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+			},
+		},
+	}
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		// ReasoningEchoBack already enabled — flag must NOT be set.
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model", ReasoningEchoBack: true},
+		Limits:        Limits{MaxTurns: 2},
+		Events:        output.NoopSink{},
+	}
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.advance(context.Background(), in)
+
+	if outcome.DetectedReasoningEchoBack {
+		t.Fatal("DetectedReasoningEchoBack = true, want false when ReasoningEchoBack already set")
+	}
+}
+
+func TestPrepareTurn_SetsIncludeEmptyReasoningFromResolvedModel(t *testing.T) {
+	tests := []struct {
+		name              string
+		reasoningEchoBack bool
+		wantIncludeEmpty  bool
+	}{
+		{
+			name:              "sets IncludeEmptyReasoning when ReasoningEchoBack is true",
+			reasoningEchoBack: true,
+			wantIncludeEmpty:  true,
+		},
+		{
+			name:              "clears IncludeEmptyReasoning when ReasoningEchoBack is false",
+			reasoningEchoBack: false,
+			wantIncludeEmpty:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := RunState{
+				TurnCount:    0,
+				Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+			}
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID:    "test-model",
+					ReasoningEchoBack: tt.reasoningEchoBack,
+				},
+				Prompt: prompt.AssemblyOptions{
+					Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+				},
+				ModelBudget: prompt.ModelTokenBudget{
+					ContextSize:         4096,
+					MaxCompletionTokens: 256,
+				},
+				Limits: Limits{MaxTurns: 2},
+				Events: output.NoopSink{},
+			}
+			in := turnInput{
+				Request:           req,
+				State:             state,
+				BasePrompt:        prompt.AssemblyOptions{},
+				CompactionHistory: map[string]bool{},
+				CompactionCount:   new(int),
+			}
+
+			_, chatRequest, _, err := prepareTurn(context.Background(), in)
+			if err != nil {
+				t.Fatalf("prepareTurn() error = %v", err)
+			}
+			if chatRequest.IncludeEmptyReasoning != tt.wantIncludeEmpty {
+				t.Fatalf("IncludeEmptyReasoning = %v, want %v", chatRequest.IncludeEmptyReasoning, tt.wantIncludeEmpty)
+			}
+		})
+	}
+}
+
+func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "final answer",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+			},
+		},
+	}
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
+		Events:        output.NoopSink{},
+	}
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.advance(context.Background(), in)
+
+	if outcome.DetectedReasoningEchoBack {
+		t.Fatal("DetectedReasoningEchoBack = true, want false when no reasoning_content in response")
+	}
+}

@@ -234,13 +234,29 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 		return outcome
 	}
 
-	outcome := p.executeModelCall(ctx, in, assembly, chatRequest)
-	if outcome.Error != nil || outcome.Stop {
-		return outcome
+	modelOutcome := p.executeModelCall(ctx, in, assembly, chatRequest)
+
+	// Auto-detect interleaved reasoning: if the model returned reasoning_content
+	// but ReasoningEchoBack was not configured, signal the runner to enable it
+	// for subsequent turns. Check the last message in the updated conversation
+	// so this fires for both assistant-only turns and tool-call turns.
+	var detectedReasoningEchoBack bool
+	if !in.Request.ResolvedModel.ReasoningEchoBack && modelOutcome.Error == nil {
+		msgs := modelOutcome.State.Conversation
+		if len(msgs) > 0 && msgs[len(msgs)-1].ReasoningContent != "" {
+			detectedReasoningEchoBack = true
+		}
 	}
 
-	in.State = outcome.State
-	return p.executeToolCalls(ctx, in, *outcome.Response)
+	if modelOutcome.Error != nil || modelOutcome.Stop {
+		modelOutcome.DetectedReasoningEchoBack = detectedReasoningEchoBack
+		return modelOutcome
+	}
+
+	in.State = modelOutcome.State
+	toolOutcome := p.executeToolCalls(ctx, in, *modelOutcome.Response)
+	toolOutcome.DetectedReasoningEchoBack = detectedReasoningEchoBack
+	return toolOutcome
 }
 
 func (p *turnProgressor) maybeRunScaffoldInference(ctx context.Context, in turnInput, state RunState, turn int, assistantContent string) {
@@ -352,6 +368,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 	}
 	chatRequest = buildTurnChatRequest(in.Request, chatRequest)
+	chatRequest.IncludeEmptyReasoning = in.Request.ResolvedModel.ReasoningEchoBack
 	if !in.Request.ResolvedModel.ReasoningEchoBack {
 		stripReasoningContent(chatRequest.Messages)
 	}

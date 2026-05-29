@@ -58,7 +58,7 @@ type openAIStreamOptions struct {
 type openAIMessage struct {
 	Role             string           `json:"role,omitempty"`
 	Content          any              `json:"content,omitempty"`
-	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ReasoningContent *string          `json:"reasoning_content,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
 	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
@@ -102,9 +102,11 @@ type openAIChoice struct {
 
 func toOpenAIMessage(message Message) (openAIMessage, error) {
 	wire := openAIMessage{
-		Role:             string(message.Role),
-		Name:             message.Name,
-		ReasoningContent: message.ReasoningContent,
+		Role: string(message.Role),
+		Name: message.Name,
+	}
+	if message.ReasoningContent != "" {
+		wire.ReasoningContent = &message.ReasoningContent
 	}
 	switch message.Role {
 	case MessageRoleAssistant, MessageRoleSystem, MessageRoleUser:
@@ -165,8 +167,8 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 	if content := stringOrEmpty(message.Content); content != "" {
 		out.Content = content
 	}
-	if message.ReasoningContent != "" {
-		out.ReasoningContent = message.ReasoningContent
+	if message.ReasoningContent != nil {
+		out.ReasoningContent = *message.ReasoningContent
 	}
 	if message.Name != "" {
 		out.Name = message.Name
