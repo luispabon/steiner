@@ -14,8 +14,8 @@ cl/2026-05-29-plan_dir_overlay
 
 | Step | State | Notes |
 |------|-------|-------|
-| step-1 | pending | Update skill markdown and docs |
-| step-2 | pending | Add plan picker overlay type |
-| step-3 | pending | Wire plan picker into TUI model |
-| step-4 | pending | Fix /model picker Tab/Enter bug |
-| step-5 | pending | Run full validation |
+| step-1 | complete | Update skill markdown and docs |
+| step-2 | complete | Add plan picker overlay type |
+| step-3 | complete | Wire plan picker into TUI model |
+| step-4 | complete | Fix /model picker Tab/Enter bug |
+| step-5 | running | Run full validation |
