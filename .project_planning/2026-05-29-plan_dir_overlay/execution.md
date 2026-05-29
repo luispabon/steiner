@@ -18,4 +18,4 @@ cl/2026-05-29-plan_dir_overlay
 | step-2 | complete | Add plan picker overlay type |
 | step-3 | complete | Wire plan picker into TUI model |
 | step-4 | complete | Fix /model picker Tab/Enter bug |
-| step-5 | running | Run full validation |
+| step-5 | complete | Run full validation |
