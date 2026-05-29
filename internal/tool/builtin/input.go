@@ -36,6 +36,7 @@ type MutateOperation struct {
 	NewString  string `json:"new_string,omitempty"`
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 	Line       int    `json:"line,omitempty"`
+	LineCount  int    `json:"line_count,omitempty"`
 	From       string `json:"from,omitempty"`
 	To         string `json:"to,omitempty"`
 }
