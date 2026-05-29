@@ -113,8 +113,8 @@ func TestNewRegistryFromConfigCopiesDefinitions(t *testing.T) {
 
 func TestRegistryOpenAISchemas(t *testing.T) {
 	reg := NewRegistry(
-		ToolDef{Name: "write", Description: "Write files"},
-		ToolDef{Name: "edit", Description: "Edit files safely"},
+		ToolDef{Name: "mutate", Description: "Mutate files"},
+		ToolDef{Name: "glob", Description: "Find files by pattern"},
 		ToolDef{Name: "read", Description: "Read files"},
 	)
 
@@ -127,23 +127,23 @@ func TestRegistryOpenAISchemas(t *testing.T) {
 	if !ok {
 		t.Fatalf("schemas[0][function] type = %T, want map[string]any", schemas[0]["function"])
 	}
-	if got := firstFunction["name"]; got != "edit" {
-		t.Fatalf("schemas[0].function.name = %v, want edit", got)
+	if got := firstFunction["name"]; got != "glob" {
+		t.Fatalf("schemas[0].function.name = %v, want glob", got)
 	}
 
 	secondFunction, ok := schemas[1]["function"].(map[string]any)
 	if !ok {
 		t.Fatalf("schemas[1][function] type = %T, want map[string]any", schemas[1]["function"])
 	}
-	if got := secondFunction["name"]; got != "read" {
-		t.Fatalf("schemas[1].function.name = %v, want read", got)
+	if got := secondFunction["name"]; got != "mutate" {
+		t.Fatalf("schemas[1].function.name = %v, want mutate", got)
 	}
 
 	thirdFunction, ok := schemas[2]["function"].(map[string]any)
 	if !ok {
 		t.Fatalf("schemas[2][function] type = %T, want map[string]any", schemas[2]["function"])
 	}
-	if got := thirdFunction["name"]; got != "write" {
-		t.Fatalf("schemas[2].function.name = %v, want write", got)
+	if got := thirdFunction["name"]; got != "read" {
+		t.Fatalf("schemas[2].function.name = %v, want read", got)
 	}
 }

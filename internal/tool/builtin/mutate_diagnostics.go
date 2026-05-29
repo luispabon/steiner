@@ -2,97 +2,13 @@ package builtin
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"os"
 	"strings"
-
-	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewEditTool creates a ToolDef for the edit tool.
-func NewEditTool(env Env) tool.ToolDef {
-	return tool.ToolDef{
-		Name:            "edit",
-		Description:     "Replace exact text in one file. Fails if old_string is absent or ambiguous unless replace_all is true.",
-		ParameterSchema: EditSchema(),
-		Handler: func(_ context.Context, input map[string]any) (any, error) {
-			return runEdit(env, input)
-		},
-	}
-}
-
-func runEdit(env Env, input map[string]any) (any, error) {
-	in, err := decodeInput[EditInput](input)
-	if err != nil {
-		return nil, fmt.Errorf("edit: %w", err)
-	}
-	if _, err = env.PathPolicy.ResolvePath(in.Path, true); err != nil {
-		return nil, fmt.Errorf("edit: %w", err)
-	}
-	absPath, err := absWorkspacePath(env.WorkDir, in.Path)
-	if err != nil {
-		return nil, fmt.Errorf("edit: %w", err)
-	}
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("edit: %w", err)
-	}
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("edit: stat %q: %w", in.Path, err)
-	}
-	relPath := relDisplayPath(env.WorkDir, absPath)
-	if isBinary(content) {
-		return &MutationResult{Path: relPath, Output: "edit: file appears to be binary"}, nil
-	}
-	if in.OldString == "" {
-		return &MutationResult{Path: relPath, Output: "edit: old_string is empty"}, nil
-	}
-	return applyEditMutation(content, in, info, absPath, relPath)
-}
-
-func applyEditMutation(content []byte, in EditInput, info os.FileInfo, absPath, relPath string) (any, error) {
-	oldBytes := []byte(in.OldString)
-	newBytes := []byte(in.NewString)
-	matchCount := bytes.Count(content, oldBytes)
-	switch {
-	case matchCount == 0:
-		return &MutationResult{Path: relPath, Output: buildNoMatchDiagnostics("edit", "old_string", content, in.OldString)}, nil
-	case matchCount > 1 && !in.ReplaceAll:
-		return &MutationResult{Path: relPath, Output: buildAmbiguousDiagnostics("edit", "old_string", content, in.OldString, matchCount)}, nil
-	}
-	before := string(content)
-	var replaced []byte
-	if in.ReplaceAll {
-		replaced = bytes.ReplaceAll(content, oldBytes, newBytes)
-	} else {
-		replaced = bytes.Replace(content, oldBytes, newBytes, 1)
-	}
-	mode := info.Mode().Perm()
-	if mode == 0 {
-		mode = 0o644
-	}
-	if err := os.WriteFile(absPath, replaced, mode); err != nil {
-		return nil, fmt.Errorf("edit: write %q: %w", in.Path, err)
-	}
-	msg := editOutputMessage(in.ReplaceAll, matchCount)
-	if diff := unifiedTextDiff(relPath, before, string(replaced)); diff != "" {
-		msg = msg + "\n" + diff
-	}
-	return &MutationResult{Path: relPath, Output: msg, Mutated: true}, nil
-}
-
-func editOutputMessage(replaceAll bool, matchCount int) string {
-	if !replaceAll || matchCount == 1 {
-		return "edit: replaced 1 occurrence"
-	}
-	return fmt.Sprintf("edit: replaced %d occurrences", matchCount)
-}
-
-func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText string) string {
+func buildNoMatchDiagnostics(prefix string, content []byte, oldText string) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: no match for %s", prefix, subject))
+	lines = append(lines, fmt.Sprintf("%s: no match for old_string", prefix))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	var matchLineNum int
@@ -131,9 +47,9 @@ func buildNoMatchDiagnostics(prefix, subject string, content []byte, oldText str
 	return strings.Join(lines, "\n")
 }
 
-func buildAmbiguousDiagnostics(prefix, subject string, content []byte, oldText string, matchCount int) string {
+func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, matchCount int) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: ambiguous match for %s (found %d occurrences)", prefix, subject, matchCount))
+	lines = append(lines, fmt.Sprintf("%s: ambiguous match for old_string (found %d occurrences)", prefix, matchCount))
 
 	if matchStart, matchEnd, lineNum, preview, ok := findExactMatchPreview(content, oldText); ok {
 		lines = append(lines, fmt.Sprintf("%s: closest occurrence at line %d, bytes %d-%d", prefix, lineNum, matchStart+1, matchEnd))
@@ -201,14 +117,6 @@ func findDiagnosticAnchor(content []byte, oldText string) (int, int, int, string
 	return bestStart, bestEnd, bestLine, bestPreview, true
 }
 
-func findExactMatchPreview(content []byte, oldText string) (int, int, int, string, bool) {
-	idx := bytes.Index(content, []byte(oldText))
-	if idx < 0 {
-		return 0, 0, 0, "", false
-	}
-	return idx, idx + len(oldText), lineNumberAt(content, idx), oldText, true
-}
-
 func diagnosticAnchorCandidates(oldText string) []string {
 	seen := make(map[string]struct{})
 	var candidates []string
@@ -237,6 +145,14 @@ func diagnosticAnchorCandidates(oldText string) []string {
 	}
 
 	return candidates
+}
+
+func findExactMatchPreview(content []byte, oldText string) (int, int, int, string, bool) {
+	idx := bytes.Index(content, []byte(oldText))
+	if idx < 0 {
+		return 0, 0, 0, "", false
+	}
+	return idx, idx + len(oldText), lineNumberAt(content, idx), oldText, true
 }
 
 func lineNumberAt(content []byte, offset int) int {

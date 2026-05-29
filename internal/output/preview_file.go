@@ -5,41 +5,6 @@ import (
 	"strings"
 )
 
-func buildEditPreview(arguments map[string]any) ToolPreview {
-	path := pathStringArg(arguments)
-	before := rawStringArg(arguments, "old_string")
-	after := rawStringArg(arguments, "new_string")
-	if path == "" || before == "" || after == "" {
-		return plainToolPreview()
-	}
-	return ToolPreview{
-		Kind:     ToolPreviewKindEditDiff,
-		Path:     path,
-		Language: previewLanguage(path),
-		Before:   before,
-		After:    after,
-	}
-}
-
-func buildWritePreview(arguments map[string]any, writeTargetExistedBefore *bool) ToolPreview {
-	path := pathStringArg(arguments)
-	contents := rawStringArg(arguments, "content")
-	if path == "" || contents == "" {
-		return plainToolPreview()
-	}
-	created := false
-	if writeTargetExistedBefore != nil {
-		created = !*writeTargetExistedBefore
-	}
-	return ToolPreview{
-		Kind:     ToolPreviewKindFileWrite,
-		Path:     path,
-		Language: previewLanguage(path),
-		Contents: contents,
-		Created:  created,
-	}
-}
-
 func buildReadPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
 		Path      string `json:"path"`

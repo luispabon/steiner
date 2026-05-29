@@ -97,8 +97,6 @@ func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (ma
 	switch toolName {
 	case "read", "glob", "grep", "ls":
 		return p.validateReadOnlyToolInput(normalized)
-	case "write", "edit":
-		return p.validateWritableToolInput(normalized)
 	case "mutate":
 		return p.validateMutateToolInput(normalized)
 	case "bash":
@@ -122,15 +120,6 @@ func (p PathPolicy) validateReadOnlyToolInput(input map[string]any) (map[string]
 		input["path"] = "."
 	}
 	resolved, err := p.ResolvePath(path, false)
-	if err != nil {
-		return nil, err
-	}
-	input["path"] = resolved
-	return input, nil
-}
-
-func (p PathPolicy) validateWritableToolInput(input map[string]any) (map[string]any, error) {
-	resolved, err := p.ResolvePath(stringInput(input["path"]), true)
 	if err != nil {
 		return nil, err
 	}

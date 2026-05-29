@@ -20,14 +20,13 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		rawArgs := cloneToolArguments(payload.Arguments)
 		toolName := normalizeToolName(payload.Tool)
 		tc := &toolCallSegment{
-			tool:                     toolName,
-			args:                     summarizeArgs(payload.Tool, payload.Arguments),
-			callID:                   payload.CallID,
-			collapsed:                true,
-			rawArgs:                  rawArgs,
-			writeTargetExistedBefore: payload.WriteTargetExistedBefore,
+			tool:      toolName,
+			args:      summarizeArgs(payload.Tool, payload.Arguments),
+			callID:    payload.CallID,
+			collapsed: true,
+			rawArgs:   rawArgs,
 		}
-		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "", tc.writeTargetExistedBefore)
+		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "")
 		if tc.preview.Kind != output.ToolPreviewKindPlain {
 			tc.bodyKind = previewBodyKind(tc.tool, tc.preview)
 		}
@@ -173,7 +172,7 @@ func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *too
 	if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
 		td.preview = payload.Preview
 	} else {
-		td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result, td.writeTargetExistedBefore)
+		td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result)
 	}
 	if td.preview.Kind != output.ToolPreviewKindPlain {
 		td.bodyKind = previewBodyKind(td.tool, td.preview)

@@ -82,12 +82,6 @@ func TestBuiltins(t *testing.T) {
 			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
 			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
-			&ApplyPatchResult{
-				Paths:        []string{"test.txt"},
-				Moved:        []MoveResult{{From: "old.txt", To: "new.txt"}},
-				HunksApplied: 3,
-				Output:       "Success.\nUpdated the following files:\nM test.txt",
-			},
 			&MutateResult{
 				Paths:             []string{"test.txt"},
 				Modified:          []string{"test.txt"},
@@ -134,10 +128,9 @@ func TestBuiltins(t *testing.T) {
 			_, isMutation := errResult.(*MutationResult)
 			_, isBash := errResult.(*BashResult)
 			_, isDisplayFile := errResult.(*DisplayFileResult)
-			_, isApplyPatch := errResult.(*ApplyPatchResult)
 			_, isMutate := errResult.(*MutateResult)
 
-			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isApplyPatch || isMutate
+			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isMutate
 			if !hasResult {
 				t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 			}

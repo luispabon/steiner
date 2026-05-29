@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dive"
-
-	"github.com/luispabon/steiner/internal/tool/builtin/patchdoc"
 )
 
 // Result is a generic tool result.
@@ -49,20 +47,7 @@ func (r *MutationResult) WasMutated() bool {
 	return r.Mutated
 }
 
-// ApplyPatchResult is the result from an apply_patch tool call.
-type ApplyPatchResult struct {
-	Paths        []string     `json:"paths"`
-	Added        []string     `json:"added,omitempty"`
-	Modified     []string     `json:"modified,omitempty"`
-	Deleted      []string     `json:"deleted,omitempty"`
-	Moved        []MoveResult `json:"moved,omitempty"`
-	DryRun       bool         `json:"dry_run,omitempty"`
-	HunksApplied int          `json:"hunks_applied"`
-	HunksFailed  int          `json:"hunks_failed,omitempty"`
-	Output       string       `json:"output"`
-}
-
-// MoveResult describes a file move in the apply_patch result.
+// MoveResult describes a file move operation result.
 type MoveResult struct {
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -84,66 +69,6 @@ type MutateResult struct {
 // WasMutated reports whether mutate actually modified the filesystem.
 func (r *MutateResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
-}
-
-// WasMutated reports whether apply_patch actually modified the file.
-func (r *ApplyPatchResult) WasMutated() bool {
-	return r != nil && !r.DryRun && r.HunksFailed == 0 && (r.HunksApplied > 0 || len(r.Paths) > 0)
-}
-
-func newApplyPatchResult(result patchdoc.ApplyResult) *ApplyPatchResult {
-	output := summarizeApplyPatchResult(result)
-	paths := make([]string, 0, len(result.Added)+len(result.Modified)+len(result.Deleted)+len(result.Moved))
-	paths = append(paths, result.Added...)
-	paths = append(paths, result.Modified...)
-	paths = append(paths, result.Deleted...)
-	for _, moved := range result.Moved {
-		paths = append(paths, moved.To)
-	}
-
-	return &ApplyPatchResult{
-		Paths:        paths,
-		Added:        append([]string(nil), result.Added...),
-		Modified:     append([]string(nil), result.Modified...),
-		Deleted:      append([]string(nil), result.Deleted...),
-		Moved:        copyMoveResults(result.Moved),
-		DryRun:       result.DryRun,
-		HunksApplied: len(result.Added) + len(result.Modified) + len(result.Deleted) + len(result.Moved),
-		Output:       output,
-	}
-}
-
-func summarizeApplyPatchResult(result patchdoc.ApplyResult) string {
-	prefix := "Success."
-	if result.DryRun {
-		prefix = "Dry run succeeded."
-	}
-
-	lines := []string{prefix, "Updated the following files:"}
-	for _, path := range result.Added {
-		lines = append(lines, "A "+path)
-	}
-	for _, path := range result.Modified {
-		lines = append(lines, "M "+path)
-	}
-	for _, path := range result.Deleted {
-		lines = append(lines, "D "+path)
-	}
-	for _, moved := range result.Moved {
-		lines = append(lines, "R "+moved.From+" -> "+moved.To)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func copyMoveResults(moves []patchdoc.MoveResult) []MoveResult {
-	if len(moves) == 0 {
-		return nil
-	}
-	copied := make([]MoveResult, 0, len(moves))
-	for _, move := range moves {
-		copied = append(copied, MoveResult{From: move.From, To: move.To})
-	}
-	return copied
 }
 
 // diveText flattens a Dive ToolResult into a single text string by combining

@@ -40,18 +40,17 @@ type thinkingBlockData struct {
 }
 
 type toolCallSegment struct {
-	tool                     string // "bash", "read", "write", "edit", "glob", "grep", "todo", etc.
-	args                     string // summarized args, ~60 chars max
-	meta                     string // "✅" or "❌" for finished calls
-	bodyKind                 string // "bash", "diff", "file", "glob", "grep", "ls", "plain"
-	body                     string // raw result text
-	callID                   string // for matching started→finished
-	collapsed                bool   // default true
-	hasError                 bool   // set when ToolCallFinished carries an error
-	rawArgs                  map[string]any
-	writeTargetExistedBefore *bool
-	preview                  output.ToolPreview
-	displayPreview           *output.PreviewDocument
+	tool           string // "bash", "read", "mutate", "glob", "grep", etc.
+	args           string // summarized args, ~60 chars max
+	meta           string // "✅" or "❌" for finished calls
+	bodyKind       string // "bash", "file", "glob", "grep", "ls", "plain"
+	body           string // raw result text
+	callID         string // for matching started→finished
+	collapsed      bool   // default true
+	hasError       bool   // set when ToolCallFinished carries an error
+	rawArgs        map[string]any
+	preview        output.ToolPreview
+	displayPreview *output.PreviewDocument
 }
 
 type toolCallGroupSegment struct {

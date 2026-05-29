@@ -63,20 +63,14 @@ func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, 
 
 // NewToolCallStartedEvent creates a new tool call started event.
 func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
-	return NewToolCallStartedEventWithPreviewState(turn, toolName, callID, arguments, nil)
-}
-
-// NewToolCallStartedEventWithPreviewState creates a new tool call started event with preview state.
-func NewToolCallStartedEventWithPreviewState(turn int, toolName, callID string, arguments map[string]any, writeTargetExistedBefore *bool) Event {
 	return Event{
 		Type:      EventTypeToolCallStarted,
 		Timestamp: time.Now().UTC(),
 		Payload: ToolCallStartedEvent{
-			Turn:                     turn,
-			Tool:                     toolName,
-			CallID:                   callID,
-			Arguments:                arguments,
-			WriteTargetExistedBefore: writeTargetExistedBefore,
+			Turn:      turn,
+			Tool:      toolName,
+			CallID:    callID,
+			Arguments: arguments,
 		},
 	}
 }

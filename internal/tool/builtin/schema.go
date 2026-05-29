@@ -14,34 +14,6 @@ func ReadSchema() map[string]any {
 	}
 }
 
-// WriteSchema returns the JSON schema for the write tool.
-func WriteSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "File path to write"},
-			"content": map[string]any{"type": "string", "description": "File content"},
-		},
-		"required":             []string{"path", "content"},
-		"additionalProperties": false,
-	}
-}
-
-// EditSchema returns the JSON schema for the edit tool.
-func EditSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":        map[string]any{"type": "string", "description": "File path to edit"},
-			"old_string":  map[string]any{"type": "string", "description": "Text to replace"},
-			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
-			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences", "default": false},
-		},
-		"required":             []string{"path", "old_string", "new_string"},
-		"additionalProperties": false,
-	}
-}
-
 // MutateSchema returns the JSON schema for the mutate tool.
 func MutateSchema() map[string]any {
 	operationSchema := map[string]any{
@@ -159,25 +131,6 @@ func BashSchema() map[string]any {
 		},
 		"required":             []string{"command"},
 		"additionalProperties": false,
-	}
-}
-
-// ApplyPatchSchema returns the JSON schema for the apply_patch tool.
-func ApplyPatchSchema() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"required":             []string{"patch"},
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"patch": map[string]any{
-				"type":        "string",
-				"description": "Codex-style patch document. Must begin with \"*** Begin Patch\" and end with \"*** End Patch\". File paths must be relative to the workspace root. Update hunk body lines must start with \" \" for context, \"+\" for additions, or \"-\" for removals. Text after @@ is matched literally against a source line; bare @@ is valid when no literal anchor is needed. Use enough context to identify the location.",
-			},
-			"dry_run": map[string]any{
-				"type":        "boolean",
-				"description": "Validate and preview the patch without writing files.",
-			},
-		},
 	}
 }
 
