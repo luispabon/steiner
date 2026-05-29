@@ -1,0 +1,92 @@
+steps:
+  - id: step-1
+    title: Update skill markdown and docs to reference .steiner/plans
+    scope: Replace `.project_planning/` with `.steiner/plans/` in all skill descriptions, handoff sentences, and agent docs. Update `.gitignore`.
+    files:
+      - skills/plan/SKILL.md
+      - skills/implement/SKILL.md
+      - skills/review/SKILL.md
+      - AGENTS.md
+      - .gitignore
+    constraints:
+      - Do not change Go source files.
+      - Preserve exact handoff sentence structure; only substitute the folder path.
+    acceptance:
+      - No `.project_planning/` string remains in any of the listed files.
+      - `.gitignore` ignores `.steiner/plans/`.
+    verification:
+      - grep -r "\.project_planning" skills/ AGENTS.md .gitignore returns no matches.
+
+  - id: step-2
+    title: Add plan picker overlay type
+    scope: Create `internal/tui/plan_picker.go` following the `model_picker.go` pattern. It scans `.steiner/plans/` for subdirectories and supports fuzzy search selection.
+    files:
+      - internal/tui/plan_picker.go
+    constraints:
+      - Reuse `updateSearchPicker` and `filterSearchPickerEntries` from existing TUI.
+      - Header prefix dynamically shows `/implement` or `/review` based on which command triggered it.
+      - Handle missing `.steiner/plans/` gracefully (empty candidate list).
+    acceptance:
+      - `planPickerOverlay` compiles and has Open/Close/Update/View/SelectedName methods.
+      - `Open()` reads `.steiner/plans/` and lists only directories.
+      - `View()` renders a bottom-anchored overlay styled like `modelPickerOverlay`.
+    verification:
+      - go build ./internal/tui
+      - go test ./internal/tui/... -run TestPlanPicker (new test or existing suite)
+
+  - id: step-3
+    title: Wire plan picker into TUI model
+    scope: Add `planPicker` to `Model`, initialize it, add key handling, and render it in the view stack.
+    files:
+      - internal/tui/model.go
+      - internal/tui/model_init.go
+      - internal/tui/model_update_keys.go
+      - internal/tui/model_view.go
+    constraints:
+      - `planPicker` opens after `/implement ` or `/review ` is typed while the slash overlay is active.
+      - `planPicker` also opens when `/implement` or `/review` is selected from the slash overlay via Tab/Enter.
+      - When a plan is selected, append its name to the current input value and close the picker.
+      - When Esc is pressed in plan picker, close it and leave the input unchanged.
+    acceptance:
+      - Typing `/implement ` or `/review ` opens the plan picker.
+      - Selecting a plan appends the name to the input (e.g., `/implement 2026-05-29-feature`).
+      - The picker is rendered above the input line when open.
+      - `handleOverlayKeyMsg` routes keys to the plan picker when it is open.
+    verification:
+      - go build ./cmd/steiner
+      - go test ./internal/tui/...
+
+  - id: step-4
+    title: Fix /model picker not opening after slash overlay Tab/Enter
+    scope: In `handleSlashOverlayKey`, after a slash overlay item is selected with Tab or Enter, check if the command is `/model` and open the model picker, just like the `default` case already does for manually typed space.
+    files:
+      - internal/tui/model_update_keys.go
+    constraints:
+      - Do not break existing `/model` space-triggered flow.
+      - Same fix pattern should work for `/implement` and `/review` pickers.
+    acceptance:
+      - Pressing Tab or Enter on `/model` in the slash overlay opens the model picker.
+      - Manually typing `/model ` still opens the model picker.
+    verification:
+      - go test ./internal/tui/... -run TestSlashOverlay
+      - Manual TUI smoke test if possible.
+
+  - id: step-5
+    title: Run full validation
+    scope: Format, build, test, and lint the modified packages.
+    files: []
+    constraints:
+      - Run `gofmt` and `goimports` on all modified Go files.
+      - Run targeted tests first, then broaden.
+    acceptance:
+      - `go build ./cmd/steiner` succeeds.
+      - `go test ./internal/tui/...` passes.
+      - `go test ./...` passes.
+      - `make check` passes (or the specific failing command and reason is reported if it cannot run).
+    verification:
+      - gofmt -w <modified go files>
+      - goimports -w <modified go files>
+      - go build ./cmd/steiner
+      - go test ./internal/tui/...
+      - go test ./...
+      - make check
