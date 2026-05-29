@@ -293,28 +293,29 @@ func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 
-	tests := []string{"edit", "write", "apply_patch"}
-	for _, toolName := range tests {
-		t.Run(toolName, func(t *testing.T) {
-			cm := &SmartContextManager{}
-			if got, obs := cm.fileTracker.ObserveRead(1, content, true); got != content || obs.Reason != "first read" {
-				t.Fatalf("first read = %q, reason = %q, want full content / first read", got, obs.Reason)
-			}
+	t.Run("mutate", func(t *testing.T) {
+		cm := &SmartContextManager{}
+		if got, obs := cm.fileTracker.ObserveRead(1, content, true); got != content || obs.Reason != "first read" {
+			t.Fatalf("first read = %q, reason = %q, want full content / first read", got, obs.Reason)
+		}
 
-			recordMutationForContextManager(cm, toolName, map[string]any{"path": "note.txt"}, mutationOK{})
-			if len(cm.fileTracker.generations) != 1 {
-				t.Fatalf("generation entries = %d, want 1 after %s", len(cm.fileTracker.generations), toolName)
-			}
+		mutateResult := struct {
+			Paths []string `json:"paths"`
+			mutationOK
+		}{Paths: []string{"note.txt"}}
+		recordMutationForContextManager(cm, "mutate", nil, mutateResult)
+		if len(cm.fileTracker.generations) != 1 {
+			t.Fatalf("generation entries = %d, want 1 after mutate", len(cm.fileTracker.generations))
+		}
 
-			got, obs := cm.fileTracker.ObserveRead(2, content, true)
-			if strings.Contains(got, "file unchanged since turn") {
-				t.Fatalf("mutated reread = %q, want full content", got)
-			}
-			if obs.Reason != "generation changed" {
-				t.Fatalf("observation reason = %q, want generation changed", obs.Reason)
-			}
-		})
-	}
+		got, obs := cm.fileTracker.ObserveRead(2, content, true)
+		if strings.Contains(got, "file unchanged since turn") {
+			t.Fatalf("mutated reread = %q, want full content", got)
+		}
+		if obs.Reason != "generation changed" {
+			t.Fatalf("observation reason = %q, want generation changed", obs.Reason)
+		}
+	})
 }
 
 func TestFileTrackerRecordMutation(t *testing.T) {
@@ -414,39 +415,25 @@ func TestFileTrackerObserveToolResultMutation(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	makeContent := func(p string) string {
-		b, _ := json.Marshal(map[string]string{"path": p, "output": "ok"})
+		b, _ := json.Marshal(map[string][]string{"paths": {p}})
 		return string(b)
 	}
 
-	tests := []struct {
-		name     string
-		toolName string
-		wantFact bool
-	}{
-		{name: "edit produces fact", toolName: "edit", wantFact: true},
-		{name: "write no fact", toolName: "write", wantFact: false},
-		{name: "apply_patch no fact", toolName: "apply_patch", wantFact: false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tracker := FileTracker{}
-			content := makeContent("note.txt")
-			update, facts := tracker.ObserveToolResult(1, tc.toolName, nil, content)
-			if update.Path == "" {
-				t.Errorf("update.Path empty, want note.txt")
-			}
-			canonicalPath, _ := normalizeTrackedPath("note.txt")
-			if tracker.generations[canonicalPath] == 0 {
-				t.Errorf("generation not bumped after %s", tc.toolName)
-			}
-			if tc.wantFact && len(facts) == 0 {
-				t.Errorf("facts empty, want edit fact")
-			}
-			if !tc.wantFact && len(facts) != 0 {
-				t.Errorf("facts = %v, want none for %s", facts, tc.toolName)
-			}
-		})
-	}
+	t.Run("mutate updates working file and bumps generation", func(t *testing.T) {
+		tracker := FileTracker{}
+		content := makeContent("note.txt")
+		update, facts := tracker.ObserveToolResult(1, "mutate", nil, content)
+		if update.Path == "" {
+			t.Errorf("update.Path empty, want note.txt")
+		}
+		canonicalPath, _ := normalizeTrackedPath("note.txt")
+		if tracker.generations[canonicalPath] == 0 {
+			t.Errorf("generation not bumped after mutate")
+		}
+		if len(facts) != 0 {
+			t.Errorf("facts = %v, want none for mutate", facts)
+		}
+	})
 }
 
 func TestFileTrackerObserveToolResultBash(t *testing.T) {

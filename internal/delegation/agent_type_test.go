@@ -61,8 +61,6 @@ func TestAgentSystemPrompt(t *testing.T) {
 }
 
 func TestAgentAllowedTools(t *testing.T) {
-	legacyMutationTools := []string{"write", "edit", "apply_patch"}
-
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {
 			tools := AgentAllowedTools(at)
@@ -77,7 +75,7 @@ func TestAgentAllowedTools(t *testing.T) {
 
 	t.Run("explore has no mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeExplore)
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		for _, m := range []string{"bash", "mutate"} {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(explore) should not contain %q", m)
 			}
@@ -86,7 +84,7 @@ func TestAgentAllowedTools(t *testing.T) {
 
 	t.Run("plan has no mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypePlan)
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		for _, m := range []string{"bash", "mutate"} {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(plan) should not contain %q", m)
 			}
@@ -98,10 +96,8 @@ func TestAgentAllowedTools(t *testing.T) {
 		if !slices.Contains(tools, "bash") {
 			t.Fatal("AgentAllowedTools(verify) missing bash")
 		}
-		for _, m := range append(legacyMutationTools, "mutate") {
-			if slices.Contains(tools, m) {
-				t.Fatalf("AgentAllowedTools(verify) should not contain %q", m)
-			}
+		if slices.Contains(tools, "mutate") {
+			t.Fatal("AgentAllowedTools(verify) should not contain mutate")
 		}
 	})
 
@@ -113,7 +109,7 @@ func TestAgentAllowedTools(t *testing.T) {
 		if !slices.Contains(tools, "fetch_url") {
 			t.Fatal("AgentAllowedTools(research) missing fetch_url")
 		}
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		for _, m := range []string{"bash", "mutate"} {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(research) should not contain %q", m)
 			}
@@ -125,11 +121,6 @@ func TestAgentAllowedTools(t *testing.T) {
 		for _, m := range []string{"mutate", "bash"} {
 			if !slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(code) missing %q", m)
-			}
-		}
-		for _, m := range legacyMutationTools {
-			if slices.Contains(tools, m) {
-				t.Fatalf("AgentAllowedTools(code) should not contain legacy mutation tool %q", m)
 			}
 		}
 	})

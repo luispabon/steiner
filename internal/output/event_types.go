@@ -188,11 +188,10 @@ type ModelCallFinishedEvent struct {
 
 // ToolCallStartedEvent records a tool invocation before execution begins.
 type ToolCallStartedEvent struct {
-	Turn                     int            `json:"turn"`
-	Tool                     string         `json:"tool,omitempty"`
-	CallID                   string         `json:"call_id,omitempty"`
-	Arguments                map[string]any `json:"arguments,omitempty"`
-	WriteTargetExistedBefore *bool          `json:"-"`
+	Turn      int            `json:"turn"`
+	Tool      string         `json:"tool,omitempty"`
+	CallID    string         `json:"call_id,omitempty"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 // ToolCallFinishedEvent records a completed tool invocation.

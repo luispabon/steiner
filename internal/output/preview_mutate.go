@@ -6,14 +6,19 @@ import (
 	"strings"
 )
 
+type mutatePreviewMove struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 type mutatePreviewPayload struct {
-	Created           []string           `json:"created"`
-	Modified          []string           `json:"modified"`
-	Deleted           []string           `json:"deleted"`
-	Moved             []patchPreviewMove `json:"moved"`
-	OperationsApplied int                `json:"operations_applied"`
-	OperationsFailed  int                `json:"operations_failed"`
-	DryRun            bool               `json:"dry_run"`
+	Created           []string            `json:"created"`
+	Modified          []string            `json:"modified"`
+	Deleted           []string            `json:"deleted"`
+	Moved             []mutatePreviewMove `json:"moved"`
+	OperationsApplied int                 `json:"operations_applied"`
+	OperationsFailed  int                 `json:"operations_failed"`
+	DryRun            bool                `json:"dry_run"`
 }
 
 // buildMutatePreviewImpl constructs a ToolPreview for the mutate tool by
@@ -58,10 +63,6 @@ func buildMutatePreviewImpl(arguments map[string]any, result string) ToolPreview
 		return preview
 	}
 
-	preview.PatchAdded = payload.Created
-	preview.PatchModified = payload.Modified
-	preview.PatchDeleted = payload.Deleted
-	preview.PatchMoved = buildPatchMoves(payload.Moved)
 	preview.HunksApplied = payload.OperationsApplied
 	preview.HunksFailed = payload.OperationsFailed
 	return preview

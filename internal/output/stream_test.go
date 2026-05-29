@@ -39,31 +39,6 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 	}
 }
 
-func TestPlainRendererRendersFileWritePreviewInPlainOutput(t *testing.T) {
-	var buf bytes.Buffer
-	renderer := NewPlainRenderer(&buf)
-
-	before := false
-	renderer.OnEvent(NewToolCallStartedEventWithPreviewState(1, "write", "call_1", map[string]any{
-		"path":    "notes.md",
-		"content": "hello\nworld\n",
-	}, &before))
-	renderer.OnEvent(NewToolCallFinishedEvent(1, "write", "call_1", `{"path":"notes.md","bytes_written":12}`, nil))
-
-	got := buf.String()
-	for _, want := range []string{
-		"tool: turn=1 start tool=write id=call_1",
-		"tool: turn=1 end tool=write id=call_1 result={\"path\":\"notes.md\",\"bytes_written\":12}",
-		"  notes.md · new file preview · 2 lines",
-		"  hello",
-		"  world",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("plain preview output %q missing %q", got, want)
-		}
-	}
-}
-
 func TestPlainRendererRendersReadFilePreviewInPlainOutput(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewPlainRenderer(&buf)
@@ -83,39 +58,6 @@ func TestPlainRendererRendersReadFilePreviewInPlainOutput(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("read preview output %q missing %q", got, want)
-		}
-	}
-}
-
-func TestPlainRendererRendersEditDiffPreviewWithTheme(t *testing.T) {
-	var buf bytes.Buffer
-	renderer := NewPlainRenderer(&buf, WithTheme(Theme{
-		Enabled:   true,
-		Assistant: ThemeStyle{LabelPrefix: "<assistant>", LabelSuffix: "</assistant>"},
-		Status:    ThemeStyle{LabelPrefix: "<status>", LabelSuffix: "</status>"},
-		Tool:      ThemeStyle{LabelPrefix: "<tool>", LabelSuffix: "</tool>"},
-		Approval:  ThemeStyle{LabelPrefix: "<approval>", LabelSuffix: "</approval>"},
-		Error:     ThemeStyle{LabelPrefix: "<error>", LabelSuffix: "</error>"},
-	}))
-
-	renderer.OnEvent(NewToolCallStartedEvent(1, "edit", "call_1", map[string]any{
-		"path":       "main.go",
-		"old_string": "oldLine()",
-		"new_string": "newLine()",
-	}))
-	renderer.OnEvent(NewToolCallFinishedEvent(1, "edit", "call_1", `{"path":"main.go","replacements":1}`, nil))
-
-	got := buf.String()
-	for _, want := range []string{
-		"<tool>tool: turn=1 start tool=edit id=call_1",
-		"<tool>tool: turn=1 end tool=edit id=call_1 result={\"path\":\"main.go\",\"replacements\":1}</tool>",
-		"<status>  main.go · edit diff · +1/-1</status>",
-		"<status>  @@ -1,1 +1,1</status>",
-		"<error>  - oldLine()</error>",
-		"<approval>  + newLine()</approval>",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("themed diff output %q missing %q", got, want)
 		}
 	}
 }

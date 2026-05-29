@@ -40,14 +40,10 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 	switch toolName {
 	case "bash":
 		return buildBashApprovalPreview(preview, input)
-	case "read", "write":
-		return buildReadWriteApprovalPreview(preview, toolName, input)
-	case "edit":
-		return buildEditApprovalPreview(preview, input)
+	case "read":
+		return buildReadApprovalPreview(preview, input)
 	case "mutate":
 		return buildMutateApprovalPreview(preview, input)
-	case "apply_patch":
-		return buildPatchApprovalPreview(preview, input)
 	case "glob":
 		return buildGlobApprovalPreview(preview, input)
 	case "grep":
@@ -70,24 +66,9 @@ func buildBashApprovalPreview(preview ApprovalPreview, input map[string]any) App
 	return preview
 }
 
-func buildReadWriteApprovalPreview(preview ApprovalPreview, toolName string, input map[string]any) ApprovalPreview {
+func buildReadApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
 	if path := stringInput(input["path"]); path != "" {
 		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-	}
-	if toolName == "write" {
-		if contents := stringInput(input["contents"]); contents != "" {
-			preview.Fields = append(preview.Fields, previewTextField("contents", contents, 128))
-		}
-	}
-	return preview
-}
-
-func buildEditApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
-	if path := stringInput(input["path"]); path != "" {
-		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-	}
-	if old := stringInput(input["old_string"]); old != "" {
-		preview.Fields = append(preview.Fields, previewTextField("old_string", old, 128))
 	}
 	return preview
 }
@@ -116,13 +97,6 @@ func buildMutateApprovalPreview(preview ApprovalPreview, input map[string]any) A
 	}
 	if len(summaries) > 0 {
 		preview.Fields = append(preview.Fields, previewTextField("operations", strings.Join(summaries, "\n"), 240))
-	}
-	return preview
-}
-
-func buildPatchApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
-	if patch := stringInput(input["patch"]); patch != "" {
-		preview.Fields = append(preview.Fields, previewTextField("patch", patch, 160))
 	}
 	return preview
 }
