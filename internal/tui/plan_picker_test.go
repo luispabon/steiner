@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -161,4 +162,30 @@ func TestPlanPickerClose(t *testing.T) {
 	if m.IsOpen() {
 		t.Fatal("expected picker to stay closed")
 	}
+}
+
+func TestPlanPickerViewShowsTriggerCommand(t *testing.T) {
+	s := theme.BuildStyles("#ff0000")
+
+	t.Run("/implement", func(t *testing.T) {
+		m := newPlanPickerOverlay(s).Open("/implement")
+		if !m.IsOpen() {
+			t.Fatal("expected picker to be open")
+		}
+		view := m.View()
+		if !strings.Contains(view, "/implement") {
+			t.Fatalf("View() = %q, want it to contain /implement", view)
+		}
+	})
+
+	t.Run("/review", func(t *testing.T) {
+		m := newPlanPickerOverlay(s).Open("/review")
+		if !m.IsOpen() {
+			t.Fatal("expected picker to be open")
+		}
+		view := m.View()
+		if !strings.Contains(view, "/review") {
+			t.Fatalf("View() = %q, want it to contain /review", view)
+		}
+	})
 }
