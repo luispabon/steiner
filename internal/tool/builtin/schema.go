@@ -149,25 +149,6 @@ func BashSchema() map[string]any {
 	}
 }
 
-// ApplyPatchSchema returns the JSON schema for the apply_patch tool.
-func ApplyPatchSchema() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"required":             []string{"patch"},
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"patch": map[string]any{
-				"type":        "string",
-				"description": "Codex-style patch document. Must begin with \"*** Begin Patch\" and end with \"*** End Patch\". File paths must be relative to the workspace root. Update hunk body lines must start with \" \" for context, \"+\" for additions, or \"-\" for removals. Text after @@ is matched literally against a source line; bare @@ is valid when no literal anchor is needed. Use enough context to identify the location.",
-			},
-			"dry_run": map[string]any{
-				"type":        "boolean",
-				"description": "Validate and preview the patch without writing files.",
-			},
-		},
-	}
-}
-
 // FetchURLSchema returns the JSON schema for the fetch_url tool.
 func FetchURLSchema() map[string]any {
 	return map[string]any{
