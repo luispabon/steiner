@@ -151,7 +151,8 @@ Planning docs are disposable after successful review unless the user wants to ke
 
 If the user chooses cleanup:
 
-- delete `.project_planning/YYYY-MM-DD_FEATURE_NAME/`
+- delete `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`
+
 - commit the deletion unless the user explicitly asks otherwise
 - include the cleanup result in the closeout message
 

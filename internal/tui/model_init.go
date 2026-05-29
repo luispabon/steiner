@@ -141,6 +141,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
 
+	m.planPicker = newPlanPickerOverlay(m.styles)
+	m.planPicker.width = m.width
+	m.planPicker.height = m.height
+
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width
 	m.slashOverlay.height = m.height

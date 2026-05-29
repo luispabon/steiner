@@ -1,13 +1,13 @@
 ---
 name: plan
-description: Plan coding work as a compact implementation-step bundle with a conservative research decision, high-level overview first, and planning artifacts written only under .project_planning/YYYY-MM-DD_FEATURE_NAME/. Use when invoked by name or when asked to plan a feature, refactor, migration, or other code change. If only the skill name is given, ask for a high-level description first before writing planning files.
+description: Plan coding work as a compact implementation-step bundle with a conservative research decision, high-level overview first, and planning artifacts written only under .steiner/plans/YYYY-MM-DD_FEATURE_NAME/. Use when invoked by name or when asked to plan a feature, refactor, migration, or other code change. If only the skill name is given, ask for a high-level description first before writing planning files.
 ---
 
 # Coding Loop Planner
 
 ## Overview
 
-Use this skill to turn a coding request into a traceable planning bundle. Write planning artifacts only under `.project_planning/YYYY-MM-DD_FEATURE_NAME/`, where `FEATURE_NAME` is a short filesystem-safe slug for the task.
+Use this skill to turn a coding request into a traceable planning bundle. Write planning artifacts only under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`, where `FEATURE_NAME` is a short filesystem-safe slug for the task.
 
 Planning creates intent, constraints, verification strategy, and a flat list of implementation steps. It must not edit implementation files.
 
@@ -39,7 +39,7 @@ Allowed planning artifacts:
 - `plan.yaml`: a flat implementation-step plan
 - `research.md`, `research_001.md`, etc.: research artifacts, only when research runs
 
-Do not write artifacts outside `.project_planning/YYYY-MM-DD_FEATURE_NAME/`.
+Do not write artifacts outside `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`.
 
 The planner owns the loop feature branch for planning only. Before writing the first planning artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME`. The branch will later be reused by the implementer, reviewer, and closer — but the planner's role ends at handoff.
 
@@ -208,4 +208,4 @@ Every Steiner delegated task must be self-contained and include relevant context
 
 **Mandatory end-of-work.** Commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Deliver the exact handoff sentence below, then take no further action. Do not offer to implement, delegate, review, or continue.
 
-`Please run /clear then /implement .project_planning/FEATURE on an empty context.`
+`Please run /clear then /implement .steiner/plans/FEATURE on an empty context.`

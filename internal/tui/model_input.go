@@ -393,6 +393,8 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
 		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},
 		{command: "/model", name: "Switch model", desc: "pick a language model", source: ""},
+		{command: "/implement", name: "Implement plan", desc: "start implementation from a plan", source: ""},
+		{command: "/review", name: "Review plan", desc: "review a completed plan", source: ""},
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},

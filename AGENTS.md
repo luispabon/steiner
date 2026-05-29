@@ -115,4 +115,5 @@ Steiner owns the schemas and result formats. Dive implements the behavior.
 
 ## Docs
 
-Do not broadly load `docs/` or `.project_planning/`; read only the specific file or section needed. Prefer README plus nearby code for orientation.
+Do not broadly load `docs/` or `.steiner/plans/`; read only the specific file or section needed. Prefer README plus nearby code for orientation.
+

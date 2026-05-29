@@ -7,3 +7,5 @@ test_config.yaml
 tmp/
 project_planning/
 steiner
+.steiner/plans/
+

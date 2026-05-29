@@ -89,6 +89,7 @@ type Model struct {
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
 	modelPicker                  modelPickerOverlay
+	planPicker                   planPickerOverlay
 	contextOverlay               contextOverlayState
 	scratchpadOverlay            scratchpadOverlayState
 	exitModal                    exitModalState

@@ -413,7 +413,7 @@ func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
 
 	var reviewItem *slashOverlayItem
 	for i := range items {
-		if items[i].command == "/review" {
+		if items[i].command == "/review" && items[i].isSkill {
 			reviewItem = &items[i]
 			break
 		}
@@ -2219,4 +2219,108 @@ func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to NOT re-open after Esc removed the token")
 	}
+}
+
+func TestModelPlanPickerOpenClose(t *testing.T) {
+	t.Run("/implement", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		origDir, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Chdir(origDir); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatal(err)
+		}
+
+		m := newModel(Config{}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+		// Type "/" to open the slash overlay
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		if !m.slashOverlay.IsOpen() {
+			t.Fatal("expected slash overlay to open")
+		}
+
+		// Type "implement"
+		for _, r := range "implement" {
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+
+		// Type space to trigger plan picker
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		if !m.planPicker.IsOpen() {
+			t.Fatal("expected plan picker to open after '/implement '")
+		}
+		if m.slashOverlay.IsOpen() {
+			t.Fatal("expected slash overlay to close after triggering plan picker")
+		}
+		if got := m.input.Value(); got != "/implement " {
+			t.Fatalf("input value = %q, want /implement ", got)
+		}
+
+		// Press Esc to close the plan picker
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+		if m.planPicker.IsOpen() {
+			t.Fatal("expected plan picker to close on Esc")
+		}
+		if got := m.input.Value(); got != "/implement " {
+			t.Fatalf("input value = %q, want /implement  (unchanged)", got)
+		}
+	})
+
+	t.Run("/review", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		origDir, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Chdir(origDir); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatal(err)
+		}
+
+		m := newModel(Config{}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+		// Type "/" to open the slash overlay
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		if !m.slashOverlay.IsOpen() {
+			t.Fatal("expected slash overlay to open")
+		}
+
+		// Type "review"
+		for _, r := range "review" {
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+
+		// Type space to trigger plan picker
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		if !m.planPicker.IsOpen() {
+			t.Fatal("expected plan picker to open after '/review '")
+		}
+		if m.slashOverlay.IsOpen() {
+			t.Fatal("expected slash overlay to close after triggering plan picker")
+		}
+		if got := m.input.Value(); got != "/review " {
+			t.Fatalf("input value = %q, want /review ", got)
+		}
+
+		// Press Esc to close the plan picker
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+		if m.planPicker.IsOpen() {
+			t.Fatal("expected plan picker to close on Esc")
+		}
+		if got := m.input.Value(); got != "/review " {
+			t.Fatalf("input value = %q, want /review  (unchanged)", got)
+		}
+	})
 }
