@@ -304,18 +304,6 @@ func (b *contentBuffer) renderToolCallDivider(width int) string {
 func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {
 	parts := make([]string, 0, 2)
 	width := 0
-	if tc.bodyKind == "diff" {
-		doc := b.previewDocument(tc)
-		if doc.Kind == output.PreviewFormatKindEditDiff {
-			added, removed := output.CountPreviewChanges(doc)
-			diffMeta := b.styles.Added.Render(fmt.Sprintf("+%d", added)) + " " + b.styles.Removed.Render(fmt.Sprintf("-%d", removed))
-			if len(parts) > 0 {
-				width++
-			}
-			parts = append(parts, diffMeta)
-			width += lipgloss.Width(diffMeta)
-		}
-	}
 	if tc.meta != "" {
 		var styled string
 		if tc.hasError {
