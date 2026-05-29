@@ -14,21 +14,6 @@ func ReadSchema() map[string]any {
 	}
 }
 
-// EditSchema returns the JSON schema for the edit tool.
-func EditSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":        map[string]any{"type": "string", "description": "File path to edit"},
-			"old_string":  map[string]any{"type": "string", "description": "Text to replace"},
-			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
-			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences", "default": false},
-		},
-		"required":             []string{"path", "old_string", "new_string"},
-		"additionalProperties": false,
-	}
-}
-
 // MutateSchema returns the JSON schema for the mutate tool.
 func MutateSchema() map[string]any {
 	operationSchema := map[string]any{

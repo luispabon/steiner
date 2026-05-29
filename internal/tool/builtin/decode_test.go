@@ -33,8 +33,9 @@ func TestDecodeInput(t *testing.T) {
 		}
 	})
 
-	t.Run("valid EditInput decodes correctly", func(t *testing.T) {
-		result, err := decodeInput[EditInput](map[string]any{
+	t.Run("valid MutateOperation decodes correctly", func(t *testing.T) {
+		result, err := decodeInput[MutateOperation](map[string]any{
+			"type":        "replace",
 			"path":        "test.txt",
 			"old_string":  "foo",
 			"new_string":  "bar",
@@ -153,7 +154,8 @@ func TestDecodeInput(t *testing.T) {
 	})
 
 	t.Run("float64 coerced to string", func(t *testing.T) {
-		result, err := decodeInput[EditInput](map[string]any{
+		result, err := decodeInput[MutateOperation](map[string]any{
+			"type":       "replace",
 			"path":       "test.txt",
 			"old_string": "foo",
 			"new_string": float64(170),

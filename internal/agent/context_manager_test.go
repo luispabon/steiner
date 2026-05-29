@@ -638,21 +638,26 @@ func TestIngestToolResultAfterMaskingSupportsExactEditFollowUp(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
-	editTool := builtin.NewEditTool(builtin.Env{WorkDir: dir, PathPolicy: &policy})
-	resultI, err := editTool.Handler(context.Background(), map[string]any{
-		"path":       "note.txt",
-		"old_string": reread.Output,
-		"new_string": "alpha\nbeta updated\ncharlie\n",
+	mutateTool := builtin.NewMutateTool(builtin.Env{WorkDir: dir, PathPolicy: &policy})
+	resultI, err := mutateTool.Handler(context.Background(), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":       "replace",
+				"path":       "note.txt",
+				"old_string": reread.Output,
+				"new_string": "alpha\nbeta updated\ncharlie\n",
+			},
+		},
 	})
 	if err != nil {
-		t.Fatalf("edit handler error: %v", err)
+		t.Fatalf("mutate handler error: %v", err)
 	}
-	mutated, ok := resultI.(*builtin.MutationResult)
+	mutateResult, ok := resultI.(*builtin.MutateResult)
 	if !ok {
-		t.Fatalf("edit result type = %T, want *MutationResult", resultI)
+		t.Fatalf("mutate result type = %T, want *MutateResult", resultI)
 	}
-	if !mutated.Mutated {
-		t.Fatalf("edit mutated = false, want true; output=%q", mutated.Output)
+	if mutateResult.OperationsApplied != 1 || mutateResult.OperationsFailed != 0 {
+		t.Fatalf("mutate applied=%d failed=%d, want applied=1 failed=0; output=%q", mutateResult.OperationsApplied, mutateResult.OperationsFailed, mutateResult.Output)
 	}
 
 	data, err := os.ReadFile(path)
@@ -1044,7 +1049,7 @@ func TestObserveToolResultTracksMutateMutationHeuristics(t *testing.T) {
 	}
 }
 
-func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
+func TestMutateSuccessAndFailureInvalidatesReadAnnotations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
@@ -1063,15 +1068,16 @@ func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) 
 	firstRegion := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
 	secondRegion := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
 
-	t.Run("successful apply_patch bumps file generation for later reads", func(t *testing.T) {
+	t.Run("successful mutate bumps file generation for later reads", func(t *testing.T) {
 		cm := &SmartContextManager{}
 		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
-		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
-			Paths:        []string{"note.txt"},
-			HunksApplied: 1,
-			Output:       "patched one hunk",
+		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
+			Paths:             []string{"note.txt"},
+			Modified:          []string{"note.txt"},
+			OperationsApplied: 1,
+			Output:            "Success.",
 		})
 
 		gotSame := cm.IngestToolResult(2, "read", firstRegion)
@@ -1084,21 +1090,20 @@ func TestApplyPatchMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) 
 		}
 	})
 
-	t.Run("failed apply_patch leaves generation unchanged", func(t *testing.T) {
+	t.Run("failed mutate leaves generation unchanged", func(t *testing.T) {
 		cm := &SmartContextManager{}
 		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
-		recordMutationForContextManager(cm, "apply_patch", map[string]any{"path": "note.txt"}, &builtin.ApplyPatchResult{
-			Paths:        []string{"note.txt"},
-			HunksApplied: 1,
-			HunksFailed:  1,
-			Output:       "hunk 0: no match for old text",
+		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
+			Paths:            []string{},
+			OperationsFailed: 1,
+			Output:           "mutate: no match for old_string",
 		})
 
 		got := cm.IngestToolResult(2, "read", firstRegion)
 		if !strings.Contains(got, "file unchanged since turn 1") {
-			t.Fatalf("failed-patch reread = %q, want unchanged annotation preserved", got)
+			t.Fatalf("failed-mutate reread = %q, want unchanged annotation preserved", got)
 		}
 	})
 }

@@ -66,41 +66,6 @@ func TestReadSchema(t *testing.T) {
 	}
 }
 
-func TestEditSchema(t *testing.T) {
-	s := EditSchema()
-	if got := schemaType(s); got != "object" {
-		t.Errorf("type = %q, want %q", got, "object")
-	}
-	if schemaAdditionalProperties(s) {
-		t.Error("additionalProperties should be false")
-	}
-	req := schemaRequired(s)
-	if len(req) != 3 || req[0] != "path" || req[1] != "old_string" || req[2] != "new_string" {
-		t.Errorf("required = %v, want [path old_string new_string]", req)
-	}
-	props := schemaProperties(s)
-	if props == nil {
-		t.Fatal("properties is nil")
-	}
-	if _, ok := props["path"]; !ok {
-		t.Error("missing path property")
-	}
-	if _, ok := props["old_string"]; !ok {
-		t.Error("missing old_string property")
-	}
-	if _, ok := props["new_string"]; !ok {
-		t.Error("missing new_string property")
-	}
-	if _, ok := props["replace_all"]; ok {
-		p, _ := props["replace_all"].(map[string]any)
-		if p["type"] != "boolean" {
-			t.Error("replace_all.type should be boolean")
-		}
-	} else {
-		t.Error("missing replace_all property")
-	}
-}
-
 func TestGlobSchema(t *testing.T) {
 	s := GlobSchema()
 	if got := schemaType(s); got != "object" {

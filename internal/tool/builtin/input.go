@@ -7,14 +7,6 @@ type ReadInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// EditInput is the typed input for the edit tool.
-type EditInput struct {
-	Path       string `json:"path"`
-	OldString  string `json:"old_string"`
-	NewString  string `json:"new_string"`
-	ReplaceAll bool   `json:"replace_all,omitempty"`
-}
-
 // MutateInput is the typed input for the mutate tool.
 type MutateInput struct {
 	Operations []MutateOperation `json:"operations"`
