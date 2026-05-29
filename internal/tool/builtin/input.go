@@ -7,12 +7,6 @@ type ReadInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// WriteInput is the typed input for the write tool.
-type WriteInput struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
 // EditInput is the typed input for the edit tool.
 type EditInput struct {
 	Path       string `json:"path"`

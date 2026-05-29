@@ -14,19 +14,6 @@ func ReadSchema() map[string]any {
 	}
 }
 
-// WriteSchema returns the JSON schema for the write tool.
-func WriteSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "File path to write"},
-			"content": map[string]any{"type": "string", "description": "File content"},
-		},
-		"required":             []string{"path", "content"},
-		"additionalProperties": false,
-	}
-}
-
 // EditSchema returns the JSON schema for the edit tool.
 func EditSchema() map[string]any {
 	return map[string]any{

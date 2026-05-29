@@ -33,22 +33,6 @@ func TestDecodeInput(t *testing.T) {
 		}
 	})
 
-	t.Run("valid WriteInput decodes correctly", func(t *testing.T) {
-		result, err := decodeInput[WriteInput](map[string]any{
-			"path":    "test.txt",
-			"content": "hello world",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Path != "test.txt" {
-			t.Errorf("Path = %q, want %q", result.Path, "test.txt")
-		}
-		if result.Content != "hello world" {
-			t.Errorf("Content = %q, want %q", result.Content, "hello world")
-		}
-	})
-
 	t.Run("valid EditInput decodes correctly", func(t *testing.T) {
 		result, err := decodeInput[EditInput](map[string]any{
 			"path":        "test.txt",

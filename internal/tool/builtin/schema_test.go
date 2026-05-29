@@ -67,33 +67,6 @@ func TestReadSchema(t *testing.T) {
 	}
 }
 
-func TestWriteSchema(t *testing.T) {
-	s := WriteSchema()
-	if got := schemaType(s); got != "object" {
-		t.Errorf("type = %q, want %q", got, "object")
-	}
-	if schemaAdditionalProperties(s) {
-		t.Error("additionalProperties should be false")
-	}
-	req := schemaRequired(s)
-	if len(req) != 2 || req[0] != "path" || req[1] != "content" {
-		t.Errorf("required = %v, want [path content]", req)
-	}
-	props := schemaProperties(s)
-	if props == nil {
-		t.Fatal("properties is nil")
-	}
-	if _, ok := props["path"]; !ok {
-		t.Error("missing path property")
-	}
-	if _, ok := props["content"]; !ok {
-		t.Error("missing content property")
-	}
-	if len(props) != 2 {
-		t.Errorf("expected 2 properties, got %d", len(props))
-	}
-}
-
 func TestEditSchema(t *testing.T) {
 	s := EditSchema()
 	if got := schemaType(s); got != "object" {
