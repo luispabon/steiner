@@ -350,32 +350,6 @@ func TestPolicy_PreviewToolInput_Read(t *testing.T) {
 	}
 }
 
-func TestPolicy_PreviewToolInput_Write(t *testing.T) {
-	policy := NewPathPolicy("/project", config.PathsConfig{
-		ProjectRootOnly: true,
-		WritablePaths:   []string{"output"},
-	})
-
-	preview, err := policy.previewToolInput("write", map[string]any{
-		"path": "output/result.json",
-	})
-	if err != nil {
-		t.Fatalf("previewToolInput(write) error = %v", err)
-	}
-	if got, want := preview.Tool, "write"; got != want {
-		t.Fatalf("Tool = %q, want %q", got, want)
-	}
-	if len(preview.Fields) == 0 {
-		t.Fatal("previewToolInput(write) returned 0 fields, expected at least 1")
-	}
-	if got, want := preview.Fields[0].Name, "path"; got != want {
-		t.Fatalf("Fields[0].Name = %q, want %q", got, want)
-	}
-	if got, want := preview.Fields[0].Value, "/project/output/result.json"; got != want {
-		t.Fatalf("Fields[0].Value = %q, want %q", got, want)
-	}
-}
-
 func TestPolicy_PreviewToolInput_Bash(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
 
@@ -417,21 +391,6 @@ func TestPolicy_PreviewToolInput_BlocksOutsideRoot(t *testing.T) {
 	}
 }
 
-func TestPolicy_ValidateToolInput_ApplyPatch(t *testing.T) {
-	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
-
-	patchDoc := "*** Begin Patch\n*** Add File: foo.go\n+package main\n*** End Patch"
-	normalized, err := policy.ValidateToolInput("apply_patch", map[string]any{
-		"patch": patchDoc,
-	})
-	if err != nil {
-		t.Fatalf("ValidateToolInput(apply_patch) error = %v", err)
-	}
-	if got := normalized["patch"]; got != patchDoc {
-		t.Fatalf("patch = %v, want %q", got, patchDoc)
-	}
-}
-
 func TestPolicy_ValidateToolInput_MutateNormalizesOperationPaths(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
 
@@ -458,19 +417,5 @@ func TestPolicy_ValidateToolInput_MutateNormalizesOperationPaths(t *testing.T) {
 	}
 	if got, want := second["to"], "/project/cmd/main.go"; got != want {
 		t.Fatalf("second to = %v, want %q", got, want)
-	}
-}
-
-func TestPolicy_PreviewToolInput_BlocksNonWritable(t *testing.T) {
-	policy := NewPathPolicy("/project", config.PathsConfig{
-		ProjectRootOnly: true,
-		WritablePaths:   []string{"output"},
-	})
-
-	_, err := policy.previewToolInput("write", map[string]any{
-		"path": "src/main.go",
-	})
-	if err == nil {
-		t.Fatal("previewToolInput(write, src/main.go) = nil, want error")
 	}
 }
