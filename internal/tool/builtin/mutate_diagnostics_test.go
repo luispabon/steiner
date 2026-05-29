@@ -173,7 +173,7 @@ func TestExtractNormalizedMatch(t *testing.T) {
 func TestBuildNoMatchDiagnostics(t *testing.T) {
 	t.Run("no anchor found", func(t *testing.T) {
 		content := []byte("hello world\n")
-		out := buildNoMatchDiagnostics("edit", content, "nonexistent text")
+		out := buildNoMatchDiagnostics("edit", "old_string", content, "nonexistent text")
 		if !strings.Contains(out, "edit: no match for old_string") {
 			t.Fatalf("output = %q, want no-match prefix", out)
 		}
@@ -187,7 +187,7 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 
 	t.Run("whitespace mismatch", func(t *testing.T) {
 		content := []byte("alpha beta\n")
-		out := buildNoMatchDiagnostics("edit", content, "alpha   beta")
+		out := buildNoMatchDiagnostics("edit", "old_string", content, "alpha   beta")
 		if !strings.Contains(out, "normalized whitespace match exists") {
 			t.Fatalf("output = %q, want whitespace diagnostic", out)
 		}
@@ -204,7 +204,7 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 
 	t.Run("tab vs space with line_replace suggestion", func(t *testing.T) {
 		content := []byte("check:\n\tgo test ./...\n\tgo vet ./...\n")
-		out := buildNoMatchDiagnostics("edit", content, "check:\n    go test ./...\n    go vet ./...\n")
+		out := buildNoMatchDiagnostics("edit", "old_string", content, "check:\n    go test ./...\n    go vet ./...\n")
 		if !strings.Contains(out, "normalized whitespace match exists") {
 			t.Fatalf("output = %q, want whitespace diagnostic", out)
 		}
@@ -220,7 +220,7 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 func TestBuildAmbiguousDiagnostics(t *testing.T) {
 	t.Run("shows occurrence count and context", func(t *testing.T) {
 		content := []byte("hello\nworld\nhello\nworld\nhello\n")
-		out := buildAmbiguousDiagnostics("edit", content, "hello", 3)
+		out := buildAmbiguousDiagnostics("edit", "old_string", content, "hello", 3)
 		if !strings.Contains(out, "ambiguous match") {
 			t.Fatalf("output = %q, want ambiguous match", out)
 		}
@@ -237,7 +237,7 @@ func TestBuildAmbiguousDiagnostics(t *testing.T) {
 
 	t.Run("two occurrences", func(t *testing.T) {
 		content := []byte("hello\nhello\nworld\n")
-		out := buildAmbiguousDiagnostics("edit", content, "hello", 2)
+		out := buildAmbiguousDiagnostics("edit", "old_string", content, "hello", 2)
 		if !strings.Contains(out, "ambiguous match for old_string") {
 			t.Fatalf("output = %q, want ambiguous match message", out)
 		}

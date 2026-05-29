@@ -911,6 +911,22 @@ func TestIngestToolResultLeavesScratchpadUnchangedOnLegacyOnlyPayload(t *testing
 	}
 }
 
+func TestHeuristicDecisionsAppendWithoutModelScratchpadInput(t *testing.T) {
+	cm := &SmartContextManager{}
+
+	if got := cm.ObserveToolResult(1, "edit", map[string]any{"path": "note.txt"}, `{"path":"note.txt","output":"updated line"}`); got != `{"path":"note.txt","output":"updated line"}` {
+		t.Fatalf("ObserveToolResult(edit) = %q, want passthrough JSON", got)
+	}
+	cm.RecordCompaction(2)
+
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "edited note.txt") {
+		t.Fatalf("Decisions = %q, want edit heuristic", cm.scratchpad.scratchpad.Decisions)
+	}
+	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "compaction occurred at turn 2") {
+		t.Fatalf("Decisions = %q, want compaction heuristic", cm.scratchpad.scratchpad.Decisions)
+	}
+}
+
 func TestHeuristicDecisionsSanitizeBashCommandSummary(t *testing.T) {
 	t.Parallel()
 
@@ -993,6 +1009,20 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	}
 	if !strings.Contains(cm.scratchpad.scratchpad.LastAction, "read second.txt") {
 		t.Fatalf("LastAction = %q, want read working-file update", cm.scratchpad.scratchpad.LastAction)
+	}
+}
+
+func TestObserveToolResultTracksApplyPatchMutationHeuristics(t *testing.T) {
+	cm := &SmartContextManager{}
+	got := cm.ObserveToolResult(4, "apply_patch", map[string]any{"path": "note.txt"}, `{"path":"note.txt","output":"patched 1 hunk"}`)
+	if got != `{"path":"note.txt","output":"patched 1 hunk"}` {
+		t.Fatalf("ObserveToolResult(apply_patch) = %q, want passthrough JSON", got)
+	}
+	if cm.scratchpad.scratchpad.WorkingFile != "note.txt" {
+		t.Fatalf("WorkingFile = %q, want note.txt", cm.scratchpad.scratchpad.WorkingFile)
+	}
+	if !strings.Contains(cm.scratchpad.scratchpad.LastAction, "patched note.txt") {
+		t.Fatalf("LastAction = %q, want apply_patch working-file update", cm.scratchpad.scratchpad.LastAction)
 	}
 }
 
