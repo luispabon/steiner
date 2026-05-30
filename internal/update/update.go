@@ -18,6 +18,9 @@ import (
 // date with the latest release.
 var ErrUpToDate = fmt.Errorf("already up to date")
 
+// osExecutable is set to os.Executable by default and can be replaced in tests.
+var osExecutable = os.Executable
+
 // assetName returns the expected asset name for the current OS and
 // architecture.
 func assetName() string {
@@ -263,7 +266,7 @@ func Update(ctx context.Context, currentVersion, owner, repo, token string) erro
 	}
 
 	// Get the running executable path.
-	exePath, err := os.Executable()
+	exePath, err := osExecutable()
 	if err != nil {
 		return fmt.Errorf("get executable path: %w", err)
 	}

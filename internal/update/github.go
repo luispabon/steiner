@@ -7,6 +7,10 @@ import (
 	"net/http"
 )
 
+// httpClient is the HTTP client used for all HTTP requests in this package.
+// It is set to http.DefaultClient by default and can be replaced in tests.
+var httpClient = http.DefaultClient
+
 // Asset represents a downloadable release asset from a GitHub release.
 type Asset struct {
 	Name        string `json:"name"`
@@ -35,7 +39,7 @@ func fetchLatestRelease(ctx context.Context, owner, repo, token string) (*Releas
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch release: %w", err)
 	}
