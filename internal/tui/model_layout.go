@@ -364,6 +364,8 @@ func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
 		m.handleDelegationSegmentClick(seg, rowInSegment)
 	case segmentThinkingBlock:
 		m.handleThinkingBlockClick(seg)
+	case segmentCompactionBanner:
+		m.handleCompactionBannerClick(seg)
 	}
 }
 
@@ -402,6 +404,14 @@ func (m *Model) handleDelegationSegmentClick(seg *contentSegment, rowInSegment i
 func (m *Model) handleThinkingBlockClick(seg *contentSegment) {
 	if seg.thinkData != nil {
 		seg.thinkData.collapsed = !seg.thinkData.collapsed
+		seg.renderDirty = true
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleCompactionBannerClick(seg *contentSegment) {
+	if seg.compactionData != nil {
+		seg.compactionData.collapsed = !seg.compactionData.collapsed
 		seg.renderDirty = true
 		m.syncViewport()
 	}
