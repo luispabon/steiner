@@ -1,0 +1,110 @@
+steps:
+  - id: step-1
+    title: Extend compaction data model and event handling
+    scope: |
+      Extend compactionBannerData struct with all fields needed for the new box layout
+      (timing, diagnostics, collapse, spinner). Update handleCompactionDiagnostics to
+      populate them. Wire compaction count from session_health events.
+    files:
+      - internal/tui/content_events.go
+      - internal/tui/content_events_approval_diagnostics.go
+    constraints:
+      - Do not modify ContextDiagnosticsEvent struct or event emission in internal/output/
+      - Keep compactionBannerData in content_events.go alongside other segment data types
+      - Use time.Now().UnixNano() for startTime, compute elapsed on finish using formatElapsed helper
+      - Default collapsed to true
+      - Graceful fallback when timing data unavailable (replayed history)
+    acceptance:
+      - compactionBannerData has fields: startTime, elapsed, spinnerFrame, compactionCount, compactedTurns, compactedMessages, retainedTurns, retainedMessages, mode, beforeTokens, beforePct, afterTokens, afterPct, summaryTitle, collapsed
+      - handleCompactionDiagnostics sets startTime on "compacting" severity
+      - handleCompactionDiagnostics populates all diagnostics fields and computes elapsed on finish
+      - upsertCompactionBanner preserves startTime when updating an existing in-progress banner
+      - Existing compaction tests in content_test.go and model_test.go still pass
+    verification:
+      - go test ./internal/tui/ -run TestCompact
+      - go test ./internal/tui/ -run TestModelCompact
+      - go build ./internal/tui/
+
+  - id: step-2
+    title: Replace compaction banner renderer with bordered box
+    scope: |
+      Replace renderCompactionBanner in content_render_chrome.go with a delegation-box-style
+      renderer. Header: disclosure + "compaction" tag + subtitle + spinner/✓ + elapsed + #count.
+      Collapsed: header only. Expanded: divider + key/value rows + divider + footer stats.
+      Warn/orange border via lipgloss.NormalBorder().
+    files:
+      - internal/tui/content_render_chrome.go
+    constraints:
+      - Reuse spinnerFrames from content_events.go for active spinner
+      - Use warn/orange palette for border (b.styles.Warn or similar)
+      - Key/value rows: Compacted, Retained, Mode, Before, After, Summary
+      - Footer stats row: "Compaction #N · Duration: Xs"
+      - Omit rows where data is zero/empty (graceful for missing fields)
+      - Keep renderCompactionBannerSegment signature unchanged
+    acceptance:
+      - In-progress collapsed renders as bordered box with spinner and elapsed time
+      - Finished collapsed renders as bordered box with green ✓, elapsed, and #count
+      - Finished expanded renders header + divider + 6 key/value rows + divider + footer
+      - Empty/zero fields are omitted from expanded view
+      - Box uses warn-colored border, BgElev background
+    verification:
+      - go build ./internal/tui/
+      - go test ./internal/tui/ -run TestCompact
+    depends_on:
+      - step-1
+
+  - id: step-3
+    title: Wire spinner tick and collapse toggle
+    scope: |
+      Advance compaction spinner frame in model_update.go tick handler alongside delegation
+      spinners. Wire collapse toggle for compaction segments through collapseState map,
+      matching the existing tool call click-to-toggle pattern.
+    files:
+      - internal/tui/model_update.go
+      - internal/tui/content_events.go
+      - internal/tui/content_render.go
+    constraints:
+      - Spinner advances on same tick as delegation spinners (500ms)
+      - Collapse toggle uses existing collapseState map keyed by segment index
+      - Only toggle on click/interaction, not ctrl+x (that's delegation-only)
+      - Mark segment renderDirty on spinner advance and collapse toggle
+    acceptance:
+      - Compaction spinner animates while in-progress (braille frames cycle)
+      - Click on compaction box header toggles collapsed/expanded
+      - Collapse state persists across re-renders
+      - Active compaction segments are marked renderDirty each tick (already partially done at content_render.go:20-21)
+    verification:
+      - go build ./internal/tui/
+      - go test ./internal/tui/ -run TestCompact
+      - go test ./internal/tui/ -run TestModelCompact
+    depends_on:
+      - step-2
+
+  - id: step-4
+    title: Update and add tests
+    scope: |
+      Update existing compaction tests to match new rendering (bordered box instead of
+      progress bar). Add new tests for: expanded view content, spinner frame advancement,
+      collapse toggle, elapsed time formatting, missing-data graceful fallback.
+    files:
+      - internal/tui/content_test.go
+      - internal/tui/model_test.go
+    constraints:
+      - Table-driven tests per Go conventions
+      - Test both collapsed and expanded rendering
+      - Test in-progress (spinner visible, no ✓) and finished (✓ visible, no spinner) states
+      - Test graceful rendering when optional fields (timing, compaction count) are zero
+      - Do not break unrelated tests
+    acceptance:
+      - Existing TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState passes with updated assertions
+      - Existing TestModelActivityRowShowsCompactionSpinner passes
+      - New test for collapsed in-progress box rendering
+      - New test for collapsed finished box rendering with ✓
+      - New test for expanded finished box with all key/value rows
+      - New test for missing-data fallback (no timing, no count)
+    verification:
+      - go test ./internal/tui/
+      - gofmt -w internal/tui/content_test.go internal/tui/model_test.go
+      - make check
+    depends_on:
+      - step-3
