@@ -200,7 +200,7 @@ func (m Model) renderInputView(contentWidth int) string {
 	for range inputPadY {
 		sb.WriteString(paddingLine + "\n")
 	}
-	for _, line := range lines {
+	for i, line := range lines {
 		if isPlaceholder {
 			content := m.styles.UserBg.
 				Foreground(lipgloss.Color(theme.FgDim)).
@@ -209,8 +209,40 @@ func (m Model) renderInputView(contentWidth int) string {
 			sb.WriteString(bar + content + "\n")
 			continue
 		}
-		lineStyle := lipgloss.NewStyle().Width(innerWidth)
-		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + lineStyle.Render(line) + strings.Repeat(" ", inputPadX))
+
+		renderedLine := line
+		if i == 0 {
+			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames); ok {
+				cursorStr := string(cursorChar)
+				lineNoCursor := strings.ReplaceAll(line, cursorStr, "")
+				if strings.HasPrefix(lineNoCursor, cmdPrefix) {
+					cursorIdx := strings.Index(line, cursorStr)
+					if cursorIdx < 0 || cursorIdx >= len(cmdPrefix) {
+						prefixStyle := lipgloss.NewStyle().
+							Bold(true).
+							Foreground(m.styles.AccentColor).
+							Background(m.styles.UserBg.GetBackground())
+						prefix := prefixStyle.Render(cmdPrefix)
+
+						restText := line[len(cmdPrefix):]
+						restVisibleWidth := ansi.StringWidth(restText)
+						expectedRestWidth := innerWidth - len([]rune(cmdPrefix))
+						if restVisibleWidth < expectedRestWidth {
+							restText += strings.Repeat(" ", expectedRestWidth-restVisibleWidth)
+						}
+						rest := m.styles.UserBg.Render(restText)
+
+						renderedLine = prefix + rest
+					}
+				}
+			}
+		}
+
+		if renderedLine == line {
+			lineStyle := lipgloss.NewStyle().Width(innerWidth)
+			renderedLine = lineStyle.Render(line)
+		}
+		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
 	}
 	for range inputPadY {
@@ -273,14 +305,14 @@ func (m Model) renderTypedInputLines(width int) []string {
 			row := 0
 			col := absPos
 			for r, seg := range wrapped {
-				segLen := len([]rune(seg))
-				if col < segLen || (col == segLen && r == len(wrapped)-1) {
+				visibleLen := ansi.StringWidth(seg)
+				if col < visibleLen || (col == visibleLen && r == len(wrapped)-1) {
 					row = r
 					break
 				}
-				col -= segLen
+				col -= visibleLen
 			}
-			wrapped[row] = insertComposerCursor(wrapped[row], col)
+			wrapped[row] = insertComposerCursorAnsi(wrapped[row], col)
 		}
 		lines = append(lines, wrapped...)
 	}
@@ -299,17 +331,49 @@ func wrapComposerLine(line string, width int) []string {
 	return strings.Split(wrapped, "\n")
 }
 
-func insertComposerCursor(line string, col int) string {
-	runes := []rune(line)
-	col = max(0, min(col, len(runes)))
-	if col == len(runes) {
-		return string(append(runes, '█'))
+// cursorChar is the block cursor character used for the composer cursor.
+const cursorChar = '█'
+
+// stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
+func stripTrailingReset(s string) string {
+	return strings.TrimSuffix(s, "\x1b[0m")
+}
+
+// insertComposerCursorAnsi inserts the cursor character at the given visible column
+// position in a string that may contain ANSI escape sequences.
+func insertComposerCursorAnsi(s string, pos int) string {
+	if pos < 0 {
+		pos = 0
 	}
-	out := make([]rune, 0, len(runes)+1)
-	out = append(out, runes[:col]...)
-	out = append(out, '█')
-	out = append(out, runes[col:]...)
-	return string(out)
+	var result strings.Builder
+	currentCol := 0
+	inEsc := false
+	var escSeq strings.Builder
+	for _, r := range s {
+		if inEsc {
+			escSeq.WriteRune(r)
+			if (r >= '@' && r <= '~') || r == '\\' {
+				inEsc = false
+				result.WriteString(escSeq.String())
+				escSeq.Reset()
+			}
+			continue
+		}
+		if r == '' {
+			inEsc = true
+			escSeq.WriteRune(r)
+			continue
+		}
+		if currentCol == pos {
+			result.WriteRune(cursorChar)
+		}
+		result.WriteRune(r)
+		currentCol++
+	}
+	if currentCol == pos {
+		result.WriteRune(cursorChar)
+	}
+	return result.String()
 }
 
 func renderPlaceholderLines(placeholder string, width int) []string {

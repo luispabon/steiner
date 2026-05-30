@@ -169,6 +169,7 @@ type contentBuffer struct {
 	activeDelegations       map[string]int // agentID → segment index (for in-flight delegations)
 	pendingDelegateParents  []int          // segment indexes awaiting DelegationStartedEvent binding
 	pendingDelegationStarts []int          // segment indexes awaiting parent delegate tool binding
+	skillNames              []string       // skill names for command prefix matching
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

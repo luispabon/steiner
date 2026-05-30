@@ -66,7 +66,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeInvokeSkillAction(action.invokeSkill, action.invokeSkillArgs)
 	}
 	if action.submit != "" {
-		return m.executeSubmitAction(value, action.submit)
+		return m.executeSubmitAction(value, action.submit, value)
 	}
 	return m, nil
 }
@@ -307,7 +307,7 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, tea.Cmd) {
+func (m Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
 	// prepend to history (non-empty submits only)
 	if value != "" {
 		m.inputHistory = append([]string{value}, m.inputHistory...)
@@ -318,7 +318,7 @@ func (m Model) executeSubmitAction(value string, submitText string) (tea.Model, 
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		}
 	}
-	m.content.AppendUser(submitText)
+	m.content.AppendUser(displayText)
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncViewport()
@@ -331,7 +331,11 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 
 	// If args are provided, submit them as a prompt; otherwise just enable the skill
 	if args != "" {
-		return m.executeSubmitAction(args, args)
+		displayText := "/" + skillName
+		if args != "" {
+			displayText += " " + args
+		}
+		return m.executeSubmitAction(displayText, args, displayText)
 	}
 
 	m.input.Reset()

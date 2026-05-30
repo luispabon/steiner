@@ -107,6 +107,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.layout()
 
 	m.content.styles = m.styles
+	m.content.skillNames = m.skillNames
 	m.content.setGlamourStyleSheet(accentHex)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
