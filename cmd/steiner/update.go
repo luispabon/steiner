@@ -30,7 +30,7 @@ func newUpdateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "steiner updated successfully to v%s\n", version)
+			fmt.Fprintf(cmd.OutOrStdout(), "steiner updated successfully to %s\n", version)
 			return nil
 		},
 	}
