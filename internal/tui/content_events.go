@@ -71,9 +71,7 @@ type compactionBannerData struct {
 	subtitle string
 	finished bool
 	summary  string
-	progress float64 // 0.0-1.0 fill ratio for in-progress bar (if known)
-	pct      int     // percentage label for in-progress (if known)
-	msgCount int     // number of messages compacted (for finished summary)
+	msgCount int // number of messages compacted (for finished summary)
 
 	// timing — set on first "compacting" event; computed on finish
 	startTime int64  // unix nano; 0 when replaying history (no wall-clock available)

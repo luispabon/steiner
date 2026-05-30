@@ -901,7 +901,7 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "stop", "", "", nil)})
 
 	content := m.content.String(m.viewport.Width)
-	for _, want := range []string{"context compacted", "3 messages summarized into 1"} {
+	for _, want := range []string{"compaction", "3 messages summarized into 1"} {
 		if !strings.Contains(strings.ToLower(content), want) {
 			t.Fatalf("content = %q, want compaction banner with %q", content, want)
 		}
@@ -1079,7 +1079,7 @@ func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T)
 	if got := m.sidebar.compaction; got != "" {
 		t.Fatalf("sidebar.compaction = %q, want cleared for finished compaction diagnostics", got)
 	}
-	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "context compacted") {
+	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "compaction") {
 		t.Fatalf("content = %q, want compaction banner", got)
 	}
 }
