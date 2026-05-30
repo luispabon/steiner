@@ -10,6 +10,7 @@ jobs:
     name: Build (${{ matrix.os }}/${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: linux
@@ -40,13 +41,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install UPX
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y upx-ucl
+
       - name: Build
         env:
           BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-X main.version=${VERSION}" -o "dist/${BINARY}" ./cmd/steiner
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+
+      - name: Compress with UPX
+        env:
+          BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+        run: |
+          upx --best "dist/${BINARY}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
