@@ -40,6 +40,7 @@ func newUpdateCommand() *cobra.Command {
 				return nil
 			}
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Checking for updates…")
 			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token)
 			if errors.Is(err, update.ErrUpToDate) {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "steiner is already up to date")

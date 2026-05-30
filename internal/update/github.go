@@ -11,22 +11,22 @@ import (
 // It is set to http.DefaultClient by default and can be replaced in tests.
 var httpClient = http.DefaultClient
 
-// Asset represents a downloadable release asset from a GitHub release.
-type Asset struct {
+// asset represents a downloadable release asset from a GitHub release.
+type asset struct {
 	Name        string `json:"name"`
 	DownloadURL string `json:"browser_download_url"`
 }
 
-// Release represents a GitHub release.
-type Release struct {
+// release represents a GitHub release.
+type release struct {
 	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	Assets  []asset `json:"assets"`
 }
 
 // fetchLatestRelease fetches the latest non-draft, non-prerelease release from
 // the given GitHub repository. If token is non-empty, it is passed as a Bearer
 // token in the Authorization header.
-func fetchLatestRelease(ctx context.Context, owner, repo, token string) (*Release, error) {
+func fetchLatestRelease(ctx context.Context, owner, repo, token string) (*release, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -49,10 +49,10 @@ func fetchLatestRelease(ctx context.Context, owner, repo, token string) (*Releas
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
-	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var rel release
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
 
-	return &release, nil
+	return &rel, nil
 }

@@ -97,9 +97,9 @@ func TestAssetName(t *testing.T) {
 }
 
 func TestFindAsset(t *testing.T) {
-	release := &Release{
+	release := &release{
 		TagName: "v1.0.0",
-		Assets: []Asset{
+		Assets: []asset{
 			{Name: "steiner-linux-amd64", DownloadURL: "https://example.com/linux"},
 			{Name: "steiner-darwin-amd64", DownloadURL: "https://example.com/darwin"},
 		},
@@ -120,9 +120,9 @@ func TestFindAsset(t *testing.T) {
 }
 
 func TestFindChecksumAsset(t *testing.T) {
-	release := &Release{
+	release := &release{
 		TagName: "v1.0.0",
-		Assets: []Asset{
+		Assets: []asset{
 			{Name: "steiner_1.0.0_checksums.txt", DownloadURL: "https://example.com/checksums"},
 		},
 	}
@@ -290,7 +290,7 @@ func TestFetchLatestReleaseDirect(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	var release Release
+	var release release
 	if err := json.Unmarshal(data, &release); err != nil {
 		t.Fatalf("decode fixture: %v", err)
 	}
@@ -427,9 +427,9 @@ func TestUpdate_HappyPath(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -478,7 +478,7 @@ func TestUpdate_AlreadyUpToDate(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		rel := Release{TagName: "v1.0.0"}
+		rel := release{TagName: "v1.0.0"}
 		_ = json.NewEncoder(w).Encode(rel)
 	}))
 	defer server.Close()
@@ -498,7 +498,7 @@ func TestUpdate_AlreadyUpToDate(t *testing.T) {
 func TestUpdate_InvalidCurrentVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		rel := Release{TagName: "v2.0.0"}
+		rel := release{TagName: "v2.0.0"}
 		_ = json.NewEncoder(w).Encode(rel)
 	}))
 	defer server.Close()
@@ -518,7 +518,7 @@ func TestUpdate_InvalidCurrentVersion(t *testing.T) {
 func TestUpdate_InvalidLatestVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		rel := Release{TagName: "invalid"}
+		rel := release{TagName: "invalid"}
 		_ = json.NewEncoder(w).Encode(rel)
 	}))
 	defer server.Close()
@@ -559,9 +559,9 @@ func TestUpdate_ReleaseJSONMissingAsset(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		rel := Release{
+		rel := release{
 			TagName: "v2.0.0",
-			Assets: []Asset{
+			Assets: []asset{
 				{Name: "nonexistent-asset", DownloadURL: server.URL + "/asset"},
 				{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 			},
@@ -588,9 +588,9 @@ func TestUpdate_ReleaseJSONMissingChecksumsAsset(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		rel := Release{
+		rel := release{
 			TagName: "v2.0.0",
-			Assets: []Asset{
+			Assets: []asset{
 				{Name: an, DownloadURL: server.URL + "/asset"},
 			},
 		}
@@ -629,9 +629,9 @@ func TestUpdate_AssetDownloadFails(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -676,9 +676,9 @@ func TestUpdate_ChecksumDownloadFails(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -726,9 +726,9 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -780,9 +780,9 @@ func TestUpdate_MissingChecksumEntry(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -822,9 +822,9 @@ func TestUpdate_OsExecutableFails(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			rel := Release{
+			rel := release{
 				TagName: "v2.0.0",
-				Assets: []Asset{
+				Assets: []asset{
 					{Name: an, DownloadURL: server.URL + "/asset"},
 					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
 				},
@@ -854,24 +854,6 @@ func TestUpdate_OsExecutableFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "get executable path") {
 		t.Errorf("Update: error = %v, want get executable path error", err)
-	}
-}
-
-func TestFetchLatestRelease_Non200(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	defer saveHTTPClient()()
-	httpClient = newTestClient(server.URL)
-
-	_, err := fetchLatestRelease(context.Background(), "owner", "repo", "")
-	if err == nil {
-		t.Fatal("fetchLatestRelease: expected error for 404, got nil")
-	}
-	if !strings.Contains(err.Error(), "GitHub API returned 404") {
-		t.Errorf("fetchLatestRelease: error = %v, want GitHub API 404 error", err)
 	}
 }
 

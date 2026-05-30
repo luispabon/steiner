@@ -106,7 +106,7 @@ func (v version) isOlderThan(other version) bool {
 
 // findAsset searches release assets for one matching the expected binary name.
 // It returns the matching asset or nil.
-func findAsset(release *Release, name string) *Asset {
+func findAsset(release *release, name string) *asset {
 	for i := range release.Assets {
 		if release.Assets[i].Name == name {
 			return &release.Assets[i]
@@ -117,7 +117,7 @@ func findAsset(release *Release, name string) *Asset {
 
 // findChecksumAsset searches release assets for a checksums file matching the
 // given version.
-func findChecksumAsset(release *Release, version string) *Asset {
+func findChecksumAsset(release *release, version string) *asset {
 	fileName := checksumsFileName(version)
 	for i := range release.Assets {
 		if release.Assets[i].Name == fileName {
