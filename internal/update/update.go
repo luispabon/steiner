@@ -44,8 +44,20 @@ type version struct {
 	patch int
 }
 
+// leadingDigits returns the contiguous leading digit runes from s.
+// If s has no leading digits, it returns an empty string.
+func leadingDigits(s string) string {
+	for i, r := range s {
+		if r < '0' || r > '9' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
 // parseVersion parses a semver string, stripping an optional leading "v" or
-// "V" prefix.
+// "V" prefix and discarding any non-numeric suffix on each component (e.g.
+// pre-release or build metadata like "-8-g8bd663f").
 func parseVersion(s string) (version, error) {
 	s = strings.TrimPrefix(s, "v")
 	s = strings.TrimPrefix(s, "V")
@@ -55,19 +67,27 @@ func parseVersion(s string) (version, error) {
 		return version{}, fmt.Errorf("invalid semver: %q", s)
 	}
 
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return version{}, fmt.Errorf("invalid major version %q: %w", parts[0], err)
+	majorStr := leadingDigits(parts[0])
+	minorStr := leadingDigits(parts[1])
+	patchStr := leadingDigits(parts[2])
+
+	if majorStr == "" || minorStr == "" || patchStr == "" {
+		return version{}, fmt.Errorf("invalid semver: %q", s)
 	}
 
-	minor, err := strconv.Atoi(parts[1])
+	major, err := strconv.Atoi(majorStr)
 	if err != nil {
-		return version{}, fmt.Errorf("invalid minor version %q: %w", parts[1], err)
+		return version{}, fmt.Errorf("invalid major version %q: %w", majorStr, err)
 	}
 
-	patch, err := strconv.Atoi(parts[2])
+	minor, err := strconv.Atoi(minorStr)
 	if err != nil {
-		return version{}, fmt.Errorf("invalid patch version %q: %w", parts[2], err)
+		return version{}, fmt.Errorf("invalid minor version %q: %w", minorStr, err)
+	}
+
+	patch, err := strconv.Atoi(patchStr)
+	if err != nil {
+		return version{}, fmt.Errorf("invalid patch version %q: %w", patchStr, err)
 	}
 
 	return version{major: major, minor: minor, patch: patch}, nil

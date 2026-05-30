@@ -32,7 +32,13 @@ func TestParseVersion(t *testing.T) {
 		{"abc", version{}, true},
 		{"v1.2", version{}, true},
 		{"v1.2.x", version{}, true},
-		{"v1.2.3.4", version{}, true},
+		{"v1.2.3.4", version{1, 2, 3}, false},
+		{"1.2.3.4.5", version{1, 2, 3}, false},
+		{"0.0.4-8-g8bd663f", version{0, 0, 4}, false},
+		{"v1.2.3-alpha", version{1, 2, 3}, false},
+		{"1.2.3+build", version{1, 2, 3}, false},
+		{"v1.2.3-alpha+build", version{1, 2, 3}, false},
+		{"1.2.3.4.5", version{1, 2, 3}, false},
 	}
 
 	for _, tt := range tests {
