@@ -129,6 +129,30 @@ func finishElapsed(b *contentBuffer, nowNano int64) string {
 	return formatElapsed(last.compactionData.startTime, nowNano)
 }
 
+// HasActiveCompactions reports whether any compaction banner segment is currently
+// in progress (not yet finished).
+func (b *contentBuffer) HasActiveCompactions() bool {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			return true
+		}
+	}
+	return false
+}
+
+// AdvanceCompactionSpinners increments the spinnerFrame on every in-progress
+// compaction banner segment and marks each one renderDirty.
+func (b *contentBuffer) AdvanceCompactionSpinners() {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			seg.compactionData.spinnerFrame = (seg.compactionData.spinnerFrame + 1) % len(spinnerFrames)
+			seg.renderDirty = true
+		}
+	}
+}
+
 func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	if len(b.segments) > 0 {
 		last := &b.segments[len(b.segments)-1]
