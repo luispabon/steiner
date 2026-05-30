@@ -21,9 +21,12 @@
 | 5 | step-5 | complete | Format, lint, build verification |
 | 6 | step-6 | ready | Handoff |
 
+## Bug Fixes (post-implementation)
+- parseVersion failed on git-describe version strings (e.g. "0.0.4-8-g8bd663f") because it expected pure numeric patch components. Fixed by extracting leading digits from each component.
+
 ## Verification Results
 - make check passed
-- go test ./internal/update/... -cover: 86.7%
+- go test ./internal/update/... -cover: 86.8%
 - go test -race ./... passed
 - golangci-lint run ./...: 0 issues
 - govulncheck ./...: clean
