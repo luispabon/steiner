@@ -1,0 +1,146 @@
+steps:
+  - id: step-1
+    title: Create internal/update package with core self-update logic
+    scope: |
+      Implement the core update engine in internal/update/ as a standalone,
+      Cobra-agnostic package. It must:
+      - Query the GitHub Releases latest endpoint for a given owner/repo.
+      - Match the asset named steiner-{GOOS}-{GOARCH} (.exe on Windows).
+      - Compare release tag_name (semver) against a provided current version string.
+      - Download the matched asset + steiner_{version}_checksums.txt.
+      - Parse the checksums file to find the SHA256 for the asset.
+      - Verify the downloaded binary against the checksum.
+      - Atomically replace the running binary via os.Rename swap (current→.old, new→target).
+      - Rollback on failure, and on Windows hide the leftover .old file via syscall.SetFileAttributes.
+      - Support an optional Authorization header (token env var).
+    files:
+      - internal/update/update.go
+      - internal/update/github.go
+      - internal/download.go (or internal/update/download.go)
+    constraints:
+      - Standard library only; no third-party update libraries.
+      - Use syscall.SetFileAttributes on Windows, build-tagged file for Windows-specific code.
+      - Thread context.Context through all network calls.
+      - Keep exported API minimal (e.g., a single Update(currentVersion, owner, repo, token) error function).
+    acceptance:
+      - Package compiles and passes its own unit tests.
+      - GitHub API response parsing is tested with recorded JSON fixtures.
+      - Checksum parsing is tested with sample checksums.txt content.
+      - Semver comparison handles v-prefixed tags and dev-build skipping (decision in CLI layer, but package should accept any currentVersion).
+      - Binary replacement logic is tested where feasible (use temp dirs and mock executable paths).
+    verification:
+      - go test ./internal/update/...
+      - go vet ./internal/update/...
+
+  - id: step-2
+    title: Add CLI command wiring for update/upgrade
+    scope: |
+      Create cmd/steiner/update.go with newUpdateCommand() that:
+      - Registers both "update" and "upgrade" (via Aliases).
+      - Skips with a clear warning when version == "dev".
+      - Reads optional STEINER_GITHUB_TOKEN env var.
+      - Calls internal/update.Update() with owner "luisrossm" (or correct owner) and repo "steiner".
+      - Prints progress/status messages to stdout/stderr.
+      - Returns clean errors on failure.
+      Also register the command in newRootCommand() in commands.go.
+    files:
+      - cmd/steiner/update.go
+      - cmd/steiner/commands.go
+    constraints:
+      - Follow existing cobra constructor patterns in the repo.
+      - Do not leak Cobra types into internal/update.
+      - Use cmd.OutOrStdout() / cmd.OutOrStderr() for output.
+    acceptance:
+      - steiner update --help prints usage.
+      - steiner upgrade is recognized as an alias.
+      - dev build prints warning and exits 0 without network call.
+      - Happy-path and error paths return appropriate errors.
+    verification:
+      - go test ./cmd/steiner/... -run TestUpdate
+      - go vet ./cmd/steiner/...
+
+  - id: step-3
+    title: Update GitHub release workflow to generate checksums
+    scope: |
+      Modify .github/workflows/release.yml so that after each binary is built,
+      a SHA256 hash is computed and appended to a checksums.txt file. After all
+      builds complete, the checksums file (named steiner_{version}_checksums.txt)
+      is uploaded as a release asset alongside the binaries. Format:
+        <hex>  <filename>
+      (two spaces, one line per file).
+    files:
+      - .github/workflows/release.yml
+    constraints:
+      - Preserve existing matrix build structure.
+      - Checksums file must be generated in the finalize/release job, not per-matrix job,
+        because we need one file containing all platform hashes.
+      - Use standard sha256sum (Linux) or equivalent; the workflow already runs on ubuntu-latest
+        for the release creation step.
+    acceptance:
+      - Workflow YAML is valid (can be checked with actionlint or visual inspection).
+      - Each binary gets one line in the checksums file.
+      - The checksums file is attached to the GitHub Release.
+    verification:
+      - Manual review of workflow diff.
+      - Optional: act -j build (if act is available locally) to dry-run the build steps.
+
+  - id: step-4
+    title: Write unit and integration tests for update logic
+    scope: |
+      Ensure comprehensive test coverage for:
+      - GitHub API response parsing (valid JSON, missing assets, draft/prerelease filtering).
+      - Checksum file parsing (valid lines, missing file, malformed lines).
+      - Semver comparison (greater, equal, lesser, v-prefix handling).
+      - Binary replacement logic using temporary directories (simulate rename, rollback, cleanup).
+      - CLI command behavior in dev mode, error paths, and flag handling.
+    files:
+      - internal/update/update_test.go
+      - internal/update/github_test.go
+      - cmd/steiner/update_test.go
+      - internal/update/testdata/ (fixtures for GitHub JSON and checksums.txt)
+    constraints:
+      - Use table-driven tests.
+      - Mock HTTP where possible (httptest for GitHub API and asset downloads).
+      - Avoid real network calls in tests.
+    acceptance:
+      - go test ./internal/update/... passes with >80% coverage.
+      - go test ./cmd/steiner/... -run TestUpdate passes.
+    verification:
+      - go test ./internal/update/... -cover
+      - go test ./cmd/steiner/... -run TestUpdate
+
+  - id: step-5
+    title: Final formatting, lint, and full build verification
+    scope: |
+      Run the repo’s standard verification pipeline on all changed and new files:
+      - make fmt and make imports.
+      - make build-binaries.
+      - go test ./... and go test -race ./...
+      - go vet ./...
+      - golangci-lint run ./...
+      - govulncheck ./...
+      Commit all planning artifacts and implementation to the cl/2026-05-30_self_update branch.
+    files:
+      - All files touched in steps 1–4.
+    constraints:
+      - Fix only task-related failures; do not clean up unrelated issues.
+      - Commit must include overview.md and plan.yaml.
+    acceptance:
+      - make check passes (or the subset that is task-relevant if unrelated failures exist).
+      - All new tests pass.
+      - No new lint errors in changed packages.
+    verification:
+      - make check
+      - git status shows clean working tree on the feature branch.
+
+  - id: step-6
+    title: Handoff and close planning branch
+    scope: |
+      Deliver the handoff sentence. Do not edit implementation files after this step.
+    files: []
+    constraints:
+      - Stop all activity after delivering the handoff sentence.
+    acceptance:
+      - Planning artifacts are committed on cl/2026-05-30_self_update.
+    verification:
+      - git log --oneline -3 shows planning commits.
