@@ -450,7 +450,7 @@ func TestUpdate_HappyPath(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -486,9 +486,12 @@ func TestUpdate_AlreadyUpToDate(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	latestVer, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if !errors.Is(err, ErrUpToDate) {
 		t.Fatalf("Update: want ErrUpToDate, got %v", err)
+	}
+	if latestVer != "v1.0.0" {
+		t.Errorf("Update: latestVer = %q, want %q", latestVer, "v1.0.0")
 	}
 }
 
@@ -503,7 +506,7 @@ func TestUpdate_InvalidCurrentVersion(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "invalid", "owner", "repo", "")
+	_, err := Update(context.Background(), "invalid", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for invalid version, got nil")
 	}
@@ -523,7 +526,7 @@ func TestUpdate_InvalidLatestVersion(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for invalid version, got nil")
 	}
@@ -541,7 +544,7 @@ func TestUpdate_GitHubAPINon200(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for 500, got nil")
 	}
@@ -570,7 +573,7 @@ func TestUpdate_ReleaseJSONMissingAsset(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing asset, got nil")
 	}
@@ -598,7 +601,7 @@ func TestUpdate_ReleaseJSONMissingChecksumsAsset(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing checksums asset, got nil")
 	}
@@ -645,7 +648,7 @@ func TestUpdate_AssetDownloadFails(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for asset download failure, got nil")
 	}
@@ -692,7 +695,7 @@ func TestUpdate_ChecksumDownloadFails(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for checksum download failure, got nil")
 	}
@@ -744,7 +747,7 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for checksum mismatch, got nil")
 	}
@@ -798,7 +801,7 @@ func TestUpdate_MissingChecksumEntry(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing checksum entry, got nil")
 	}
@@ -845,7 +848,7 @@ func TestUpdate_OsExecutableFails(t *testing.T) {
 		return "", fmt.Errorf("executable error")
 	}
 
-	err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
+	_, err := Update(context.Background(), "v1.0.0", "owner", "repo", "")
 	if err == nil {
 		t.Fatal("Update: expected error for os.Executable failure, got nil")
 	}

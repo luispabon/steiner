@@ -56,8 +56,8 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 	t.Cleanup(func() { version = oldVersion })
 
 	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _ string) error {
-		return nil
+	updateFunc = func(_ context.Context, _, _, _, _ string) (string, error) {
+		return "v0.2.0", nil
 	}
 	t.Cleanup(func() { updateFunc = oldUpdateFunc })
 
@@ -85,8 +85,8 @@ func TestUpdateCommand_UpToDate(t *testing.T) {
 	t.Cleanup(func() { version = oldVersion })
 
 	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _ string) error {
-		return update.ErrUpToDate
+	updateFunc = func(_ context.Context, _, _, _, _ string) (string, error) {
+		return "v0.1.0", update.ErrUpToDate
 	}
 	t.Cleanup(func() { updateFunc = oldUpdateFunc })
 
@@ -114,8 +114,8 @@ func TestUpdateCommand_Success(t *testing.T) {
 	t.Cleanup(func() { version = oldVersion })
 
 	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _ string) error {
-		return nil
+	updateFunc = func(_ context.Context, _, _, _, _ string) (string, error) {
+		return "v0.2.0", nil
 	}
 	t.Cleanup(func() { updateFunc = oldUpdateFunc })
 
@@ -129,8 +129,11 @@ func TestUpdateCommand_Success(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully to v0.1.0") {
+	if !strings.Contains(stdout.String(), "steiner updated successfully") {
 		t.Errorf("stdout = %q, want success message", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "v0.2.0") {
+		t.Errorf("stdout = %q, want version v0.2.0", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())

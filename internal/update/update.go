@@ -219,34 +219,37 @@ func replaceBinary(exePath string, newData []byte) (retErr error) {
 // currentVersion should be the current semver string (with or without "v"
 // prefix). owner and repo identify the GitHub repository. If token is
 // non-empty, it is used as a Bearer token for GitHub API requests.
-func Update(ctx context.Context, currentVersion, owner, repo, token string) error {
+//
+// On success, the latest release tag name is returned. If the current version
+// is already up to date, ErrUpToDate is returned alongside the latest tag.
+func Update(ctx context.Context, currentVersion, owner, repo, token string) (string, error) {
 	// Fetch the latest release.
 	release, err := fetchLatestRelease(ctx, owner, repo, token)
 	if err != nil {
-		return fmt.Errorf("fetch latest release: %w", err)
+		return "", fmt.Errorf("fetch latest release: %w", err)
 	}
 
 	// Compare versions.
 	latestTag := release.TagName
 	latestVer, err := parseVersion(latestTag)
 	if err != nil {
-		return fmt.Errorf("parse latest version %q: %w", latestTag, err)
+		return "", fmt.Errorf("parse latest version %q: %w", latestTag, err)
 	}
 
 	currVer, err := parseVersion(currentVersion)
 	if err != nil {
-		return fmt.Errorf("parse current version %q: %w", currentVersion, err)
+		return "", fmt.Errorf("parse current version %q: %w", currentVersion, err)
 	}
 
 	if !currVer.isOlderThan(latestVer) {
-		return ErrUpToDate
+		return latestTag, ErrUpToDate
 	}
 
 	// Find the matching asset.
 	name := assetName()
 	asset := findAsset(release, name)
 	if asset == nil {
-		return fmt.Errorf("no asset found for %s in release %s", name, latestTag)
+		return "", fmt.Errorf("no asset found for %s in release %s", name, latestTag)
 	}
 
 	// Find the checksums asset.
@@ -254,41 +257,41 @@ func Update(ctx context.Context, currentVersion, owner, repo, token string) erro
 	strippedTag = strings.TrimPrefix(strippedTag, "V")
 	checksumAsset := findChecksumAsset(release, strippedTag)
 	if checksumAsset == nil {
-		return fmt.Errorf("no checksums file found for version %s", strippedTag)
+		return "", fmt.Errorf("no checksums file found for version %s", strippedTag)
 	}
 
 	// Download the binary.
 	binaryData, err := downloadAsset(ctx, asset.DownloadURL, token)
 	if err != nil {
-		return fmt.Errorf("download asset: %w", err)
+		return "", fmt.Errorf("download asset: %w", err)
 	}
 
 	// Download checksums.
 	checksumData, err := downloadChecksums(ctx, checksumAsset.DownloadURL, token)
 	if err != nil {
-		return fmt.Errorf("download checksums: %w", err)
+		return "", fmt.Errorf("download checksums: %w", err)
 	}
 
 	// Parse checksums.
 	checksums, err := parseChecksums(checksumData)
 	if err != nil {
-		return fmt.Errorf("parse checksums: %w", err)
+		return "", fmt.Errorf("parse checksums: %w", err)
 	}
 
 	// Verify the binary.
 	expectedHex, ok := checksums[name]
 	if !ok {
-		return fmt.Errorf("no checksum found for %s in checksums file", name)
+		return "", fmt.Errorf("no checksum found for %s in checksums file", name)
 	}
 
 	if err := verifyChecksum(binaryData, expectedHex); err != nil {
-		return fmt.Errorf("verify binary: %w", err)
+		return "", fmt.Errorf("verify binary: %w", err)
 	}
 
 	// Get the running executable path.
 	exePath, err := osExecutable()
 	if err != nil {
-		return fmt.Errorf("get executable path: %w", err)
+		return "", fmt.Errorf("get executable path: %w", err)
 	}
 
 	// Resolve symlinks to get the real path.
@@ -298,8 +301,8 @@ func Update(ctx context.Context, currentVersion, owner, repo, token string) erro
 
 	// Replace the binary.
 	if err := replaceBinary(exePath, binaryData); err != nil {
-		return fmt.Errorf("replace binary: %w", err)
+		return "", fmt.Errorf("replace binary: %w", err)
 	}
 
-	return nil
+	return latestTag, nil
 }
