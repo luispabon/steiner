@@ -150,6 +150,34 @@ func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
 	}
 }
 
+// matchCommandPrefix checks whether text starts with a known built-in command or skill name.
+// It returns the matched prefix including the trailing space when applicable.
+func matchCommandPrefix(text string, skillNames []string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", false
+	}
+	builtins := []string{"/exit", "/clear", "/compact", "/config", "/context", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/caveman", "/accent"}
+	for _, cmd := range builtins {
+		if trimmed == cmd {
+			return cmd, true
+		}
+		if strings.HasPrefix(trimmed, cmd+" ") {
+			return cmd + " ", true
+		}
+	}
+	for _, name := range skillNames {
+		cmd := "/" + name
+		if trimmed == cmd {
+			return cmd, true
+		}
+		if strings.HasPrefix(trimmed, cmd+" ") {
+			return cmd + " ", true
+		}
+	}
+	return "", false
+}
+
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {

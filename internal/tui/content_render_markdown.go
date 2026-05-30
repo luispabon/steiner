@@ -37,13 +37,35 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	if textWidth < 1 {
 		textWidth = 1
 	}
+	isFirstLine := true
 	for _, line := range lines {
 		wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
-		for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
+		wrappedLines := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
+		for wi, vl := range wrappedLines {
 			vl = strings.TrimRight(vl, " ")
+			if isFirstLine && wi == 0 {
+				if cmdPrefix, ok := matchCommandPrefix(segment.text, b.skillNames); ok && strings.HasPrefix(vl, cmdPrefix) {
+					prefixStyle := lipgloss.NewStyle().
+						Bold(true).
+						Foreground(b.styles.AccentColor).
+						Background(b.styles.UserBg.GetBackground())
+					prefixText := "  " + cmdPrefix
+					prefix := stripTrailingReset(prefixStyle.Render(prefixText))
+					restText := vl[len(cmdPrefix):]
+					restWidth := contentWidth - len([]rune(prefixText))
+					if restWidth < 1 {
+						restWidth = 1
+					}
+					rest := stripTrailingReset(b.styles.UserBg.Width(restWidth).Render(restText))
+					content := prefix + rest + "\x1b[0m"
+					sb.WriteString(bar + content + "\n")
+					continue
+				}
+			}
 			content := b.styles.UserBg.Width(contentWidth).Render("  " + vl)
 			sb.WriteString(bar + content + "\n")
 		}
+		isFirstLine = false
 	}
 	sb.WriteString(pad + "\n")
 	sb.WriteString("\n")
@@ -54,6 +76,9 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 // while keeping the left-bar framing so user messages remain visually distinct
 // from assistant output.
 func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width int) string {
+	if _, ok := matchCommandPrefix(segment.text, b.skillNames); ok {
+		return b.renderUserSegment(segment, width)
+	}
 	contentWidth := width - 1
 	if contentWidth < 2 {
 		contentWidth = 2
