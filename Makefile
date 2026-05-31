@@ -24,11 +24,15 @@ build-binaries:
 build-binaries-slim:
 	mkdir -p $(BIN_DIR)
 	go build $(RELEASE_LDFLAGS) -trimpath -o $(BIN_DIR)/steiner ./cmd/steiner
-	@command -v upx >/dev/null 2>&1 || { \
-		echo "upx not installed; install with 'apt-get install upx-ucl' or 'brew install upx'"; \
-		exit 1; \
-	}
-	upx --best $(BIN_DIR)/steiner
+	@case "$$(uname -s)" in \
+		Darwin) echo "UPX skipped: macOS is not supported (see https://github.com/upx/upx/issues/612)" ;; \
+		*) \
+			command -v upx >/dev/null 2>&1 || { \
+				echo "upx not installed; install with 'apt-get install upx-ucl' or 'brew install upx'"; \
+				exit 1; \
+			}; \
+			upx --best $(BIN_DIR)/steiner ;; \
+	esac
 
 test:
 	go test ./...
