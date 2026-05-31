@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Create a pull request or merge request from the current branch by detecting the Git host, choosing a target branch, generating a title and body from branch commits, and using the provider-appropriate CLI or API. Use when the user asks to open a PR/MR, submit changes, or create a pull/merge request.
+description: Create a pull request or merge request from the current branch by detecting the Git host, choosing a target branch, generating a title and body from branch commits, and using the provider-appropriate CLI or API.
 ---
 
 # Pull Request / Merge Request Creator
@@ -28,14 +28,14 @@ Stop and report blockers instead of widening scope.
 
 Inspect `git remote get-url <remote>` and match the hostname heuristically. Allow override if the user corrects the detected provider.
 
-| Hostname pattern | Provider |
-|---|---|
-| `github.com` | GitHub |
-| `gitlab.com` or known self-hosted GitLab | GitLab |
-| `dev.azure.com` or `*.visualstudio.com` | Azure DevOps |
-| `bitbucket.org` | Bitbucket Cloud |
-| `bitbucket.*` or user-declared | Bitbucket Server/DC |
-| `gitea.*`, `codeberg.org`, `forgejo.*` | Gitea/Codeberg/Forgejo |
+| Hostname pattern                         | Provider               |
+|------------------------------------------|------------------------|
+| `github.com`                             | GitHub                 |
+| `gitlab.com` or known self-hosted GitLab | GitLab                 |
+| `dev.azure.com` or `*.visualstudio.com`  | Azure DevOps           |
+| `bitbucket.org`                          | Bitbucket Cloud        |
+| `bitbucket.*` or user-declared           | Bitbucket Server/DC    |
+| `gitea.*`, `codeberg.org`, `forgejo.*`   | Gitea/Codeberg/Forgejo |
 
 If no pattern matches, ask the user to identify the provider or report that automatic creation is not supported.
 
