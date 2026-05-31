@@ -109,10 +109,28 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 	}
 }
 
+func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFileState, fileHash string) error {
+	if fileHash == "" {
+		return nil // optional — backward compat
+	}
+	// Skip verification for files that don't exist yet (create of new file)
+	if !state.exists {
+		return nil
+	}
+	actual := fileContentHash(state.content)
+	if actual != fileHash {
+		return fmt.Errorf("mutate: operation %d %s: file_hash mismatch on %s — expected %s, got %s (file changed since last read; re-read to get fresh hash)", index, opType, state.displayPath, fileHash, actual)
+	}
+	return nil
+}
+
 func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	state, err := p.stateFor(op.Path)
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d create: %w", index, err)
+	}
+	if err := p.verifyFileHash(index, "create", state, op.FileHash); err != nil {
+		return err
 	}
 	if state.exists {
 		return fmt.Errorf("mutate: operation %d create: %s already exists", index, state.displayPath)
@@ -134,6 +152,9 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	state, err := p.stateFor(op.Path)
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d write: %w", index, err)
+	}
+	if err := p.verifyFileHash(index, "write", state, op.FileHash); err != nil {
+		return err
 	}
 	if state.exists && state.isDir {
 		return fmt.Errorf("mutate: operation %d write: %s is a directory", index, state.displayPath)
@@ -159,6 +180,9 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	state, err := p.textState(index, "replace", op.Path)
 	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "replace", state, op.FileHash); err != nil {
 		return err
 	}
 	if op.OldString == "" {
@@ -187,6 +211,9 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	state, err := p.textState(index, "line_replace", op.Path)
 	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "line_replace", state, op.FileHash); err != nil {
 		return err
 	}
 	if op.Line <= 0 {
@@ -266,6 +293,9 @@ func (p *mutatePlanner) planDelete(index int, op MutateOperation) error {
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d delete: %w", index, err)
 	}
+	if err := p.verifyFileHash(index, "delete", state, op.FileHash); err != nil {
+		return err
+	}
 	if !state.exists {
 		return fmt.Errorf("mutate: operation %d delete: %s does not exist", index, state.displayPath)
 	}
@@ -285,6 +315,9 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	from, err := p.stateFor(op.From)
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d move: from: %w", index, err)
+	}
+	if err := p.verifyFileHash(index, "move", from, op.FileHash); err != nil {
+		return err
 	}
 	to, err := p.stateFor(op.To)
 	if err != nil {
