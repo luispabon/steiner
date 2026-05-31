@@ -30,6 +30,7 @@ func MutateSchema() map[string]any {
 			"line_count":  map[string]any{"type": "integer", "description": "Number of lines to replace or delete starting from line. Cannot be combined with old_string. Omit for single-line edits with old_string.", "minimum": 1},
 			"from":        map[string]any{"type": "string", "description": "Source path for move"},
 			"to":          map[string]any{"type": "string", "description": "Destination path for move"},
+			"file_hash":   map[string]any{"type": "string", "description": "4-char hex hash from read/grep result. When provided, verifies file hasn't changed since last read. On mismatch, operation fails — re-read the file to get a fresh hash."},
 		},
 		"required": []string{"type"},
 	}

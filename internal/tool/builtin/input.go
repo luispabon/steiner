@@ -25,6 +25,7 @@ type MutateOperation struct {
 	LineCount  int    `json:"line_count,omitempty"`
 	From       string `json:"from,omitempty"`
 	To         string `json:"to,omitempty"`
+	FileHash   string `json:"file_hash,omitempty"`
 }
 
 // GlobInput is the typed input for the glob tool.
