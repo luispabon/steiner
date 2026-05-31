@@ -39,7 +39,7 @@ type mutateFileState struct {
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Create, overwrite, replace, line-replace, delete, or move files. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Create, overwrite, replace, line-replace, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection — pass the hash from read/grep to fail fast if the file changed. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
