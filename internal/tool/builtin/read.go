@@ -58,9 +58,17 @@ func NewReadTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			totalLines, err := countFileLines(absPath)
+			data, err := os.ReadFile(absPath)
 			if err != nil {
-				return nil, fmt.Errorf("read: count lines for %q: %w", in.Path, err)
+				return nil, fmt.Errorf("read: %w", err)
+			}
+
+			totalLines := 0
+			if len(data) > 0 {
+				totalLines = bytes.Count(data, []byte{'\n'})
+				if data[len(data)-1] != '\n' {
+					totalLines++
+				}
 			}
 
 			outputLines := strings.Split(contentText, "\n")
@@ -77,6 +85,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			result := ReadResult{
 				Path:       relDisplayPath(env.WorkDir, absPath),
+				FileHash:   fileContentHash(data),
 				StartLine:  startLine,
 				EndLine:    endLine,
 				TotalLines: totalLines,
@@ -90,20 +99,4 @@ func NewReadTool(env Env) tool.ToolDef {
 			return result, nil
 		},
 	}
-}
-
-// countFileLines returns the number of lines in a file.
-func countFileLines(path string) (int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, fmt.Errorf("read file: %w", err)
-	}
-	if len(data) == 0 {
-		return 0, nil
-	}
-	count := bytes.Count(data, []byte{'\n'})
-	if data[len(data)-1] != '\n' {
-		count++
-	}
-	return count, nil
 }

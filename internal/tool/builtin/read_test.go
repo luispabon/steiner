@@ -101,6 +101,66 @@ func TestReadTool(t *testing.T) {
 		}
 	})
 
+	t.Run("includes file_hash for successful read", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path": "test.txt",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		if result.FileHash == "" {
+			t.Fatal("FileHash is empty, want non-empty hash")
+		}
+		expected := fileContentHash([]byte(content))
+		if result.FileHash != expected {
+			t.Errorf("FileHash = %q, want %q", result.FileHash, expected)
+		}
+	})
+
+	t.Run("file_hash is stable across reads", func(t *testing.T) {
+		r1, err := toolDef.Handler(ctx, map[string]any{
+			"path":   "test.txt",
+			"offset": 1,
+			"limit":  3,
+		})
+		if err != nil {
+			t.Fatalf("first read error: %v", err)
+		}
+		r2, err := toolDef.Handler(ctx, map[string]any{
+			"path":   "test.txt",
+			"offset": 5,
+			"limit":  3,
+		})
+		if err != nil {
+			t.Fatalf("second read error: %v", err)
+		}
+		h1 := r1.(ReadResult).FileHash
+		h2 := r2.(ReadResult).FileHash
+		if h1 != h2 {
+			t.Errorf("hash mismatch: first read %q, second read %q", h1, h2)
+		}
+	})
+
+	t.Run("file_hash is empty on error", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path": "nonexistent.txt",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want *ReadResult", resultI)
+		}
+		if result.FileHash != "" {
+			t.Errorf("FileHash = %q, want empty for error result", result.FileHash)
+		}
+	})
+
 	t.Run("empty file returns empty output", func(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(tmpDir, "empty.txt"), []byte{}, 0o644); err != nil {
 			t.Fatalf("write empty file: %v", err)

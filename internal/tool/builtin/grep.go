@@ -3,6 +3,8 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -71,6 +73,28 @@ func NewGrepTool(env Env) tool.ToolDef {
 			}
 
 			result := buildGrepResult(files, in.OutputMode, showLines, in.BeforeContext, in.AfterContext, in.Offset, in.HeadLimit)
+
+			if len(files) > 0 {
+				// Determine whether absPath is a file or directory so we
+				// can reconstruct each matched file's absolute path.
+				rootIsDir := false
+				if info, err := os.Stat(absPath); err == nil {
+					rootIsDir = info.IsDir()
+				}
+				hashes := make(map[string]string, len(files))
+				for _, f := range files {
+					fPath := absPath
+					if rootIsDir {
+						fPath = filepath.Join(absPath, f.file)
+					}
+					data, readErr := os.ReadFile(fPath)
+					if readErr == nil {
+						hashes[f.file] = fileContentHash(data)
+					}
+				}
+				result.FileHashes = hashes
+			}
+
 			return result, nil
 		},
 	}

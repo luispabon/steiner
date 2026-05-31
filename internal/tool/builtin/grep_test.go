@@ -157,6 +157,50 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("includes file_hashes for matching files", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "hello",
+			"output_mode": "content",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.FileHashes == nil {
+			t.Fatal("FileHashes is nil, want non-nil map")
+		}
+		// "hello" matches hello.txt and foo.go (foo.go contains "Hello")
+		// but case-sensitive by default, so only hello.txt matches
+		hash, ok := result.FileHashes["hello.txt"]
+		if !ok {
+			t.Fatal("FileHashes missing hello.txt entry")
+		}
+		expected := fileContentHash([]byte(files["hello.txt"]))
+		if hash != expected {
+			t.Errorf("FileHashes[hello.txt] = %q, want %q", hash, expected)
+		}
+	})
+
+	t.Run("file_hashes omitted when no matches", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "zzz_nonexistent_zzz",
+			"output_mode": "content",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.FileHashes != nil {
+			t.Errorf("FileHashes = %v, want nil when no matches", result.FileHashes)
+		}
+	})
+
 	t.Run("grep output contains match lines", func(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
 			"pattern":     "hello",
