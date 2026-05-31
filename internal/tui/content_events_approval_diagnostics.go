@@ -56,11 +56,6 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	switch payload.Kind {
 	case "compaction":
 		b.handleCompactionDiagnostics(payload)
-	case "session_health":
-		if b.inCompaction {
-			return
-		}
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 	}
 }
 
