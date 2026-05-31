@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -52,23 +53,20 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	if !ok {
 		return
 	}
-	switch payload.Kind {
-	case "compaction":
+	if payload.Kind == "compaction" {
 		b.handleCompactionDiagnostics(payload)
-	case "session_health":
-		if b.inCompaction {
-			return
-		}
-		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentThinking)
 	}
 }
 
 func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagnosticsEvent) {
 	if payload.Severity == "compacting" {
 		b.upsertCompactionBanner(compactionBannerData{
-			label:    "Compacting",
-			subtitle: "summarizing context",
-			finished: false,
+			label:           "Compacting",
+			subtitle:        "summarizing context",
+			finished:        false,
+			startTime:       time.Now().UnixNano(),
+			compactionCount: payload.CompactionCount,
+			collapsed:       true,
 		})
 		return
 	}
@@ -83,19 +81,80 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagno
 	case payload.CompactedTurns > 0:
 		summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
 	}
+
+	now := time.Now().UnixNano()
 	b.upsertCompactionBanner(compactionBannerData{
-		label:    "Context compacted",
-		subtitle: summary,
-		finished: true,
-		summary:  summary,
-		msgCount: msgCount,
+		label:             "Context compacted",
+		subtitle:          summary,
+		finished:          true,
+		summary:           summary,
+		msgCount:          msgCount,
+		compactionCount:   payload.CompactionCount,
+		compactedTurns:    payload.CompactedTurns,
+		compactedMessages: payload.CompactedMessages,
+		retainedTurns:     payload.RetainedTurns,
+		retainedMessages:  payload.RetainedMessages,
+		mode:              payload.Mode,
+		beforeTokens:      payload.BeforePromptTokens,
+		beforePct:         payload.BeforeUsagePercent,
+		afterTokens:       payload.AfterPromptTokens,
+		afterPct:          payload.AfterUsagePercent,
+		summaryTitle:      payload.SummaryTitle,
+		elapsed:           finishElapsed(b, now),
+		collapsed:         true,
 	})
+}
+
+// finishElapsed returns a formatted elapsed string using the startTime from the
+// current in-progress compaction banner, if one exists. Falls back gracefully
+// when no timing data is available (e.g. replayed history).
+func finishElapsed(b *contentBuffer, nowNano int64) string {
+	if len(b.segments) == 0 {
+		return ""
+	}
+	last := &b.segments[len(b.segments)-1]
+	if last.kind != segmentCompactionBanner || last.compactionData == nil || last.compactionData.finished {
+		return ""
+	}
+	if last.compactionData.startTime == 0 {
+		// No wall-clock start time available (replayed history); skip elapsed.
+		return ""
+	}
+	return formatElapsed(last.compactionData.startTime, nowNano)
+}
+
+// HasActiveCompactions reports whether any compaction banner segment is currently
+// in progress (not yet finished).
+func (b *contentBuffer) HasActiveCompactions() bool {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			return true
+		}
+	}
+	return false
+}
+
+// AdvanceCompactionSpinners increments the spinnerFrame on every in-progress
+// compaction banner segment and marks each one renderDirty.
+func (b *contentBuffer) AdvanceCompactionSpinners() {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			seg.compactionData.spinnerFrame = (seg.compactionData.spinnerFrame + 1) % len(spinnerFrames)
+			seg.renderDirty = true
+		}
+	}
 }
 
 func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	if len(b.segments) > 0 {
 		last := &b.segments[len(b.segments)-1]
 		if last.kind == segmentCompactionBanner && last.compactionData != nil && !last.compactionData.finished {
+			// Preserve the original startTime so elapsed can be computed on finish.
+			if data.startTime == 0 {
+				data.startTime = last.compactionData.startTime
+			}
 			replacement := data
 			last.compactionData = &replacement
 			last.renderDirty = true

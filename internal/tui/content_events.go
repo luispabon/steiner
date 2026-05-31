@@ -71,9 +71,32 @@ type compactionBannerData struct {
 	subtitle string
 	finished bool
 	summary  string
-	progress float64 // 0.0-1.0 fill ratio for in-progress bar (if known)
-	pct      int     // percentage label for in-progress (if known)
-	msgCount int     // number of messages compacted (for finished summary)
+	msgCount int // number of messages compacted (for finished summary)
+
+	// timing — set on first "compacting" event; computed on finish
+	startTime int64  // unix nano; 0 when replaying history (no wall-clock available)
+	elapsed   string // formatted elapsed time, set when finished
+
+	// spinner state (updated by tick)
+	spinnerFrame int
+
+	// session context
+	compactionCount int // running count of compactions in this session
+
+	// compaction statistics (populated on finish)
+	compactedTurns    int
+	compactedMessages int
+	retainedTurns     int
+	retainedMessages  int
+	mode              string  // compaction mode reported by the engine
+	beforeTokens      int     // prompt tokens before compaction
+	beforePct         float64 // context usage % before compaction
+	afterTokens       int     // prompt tokens after compaction
+	afterPct          float64 // context usage % after compaction
+	summaryTitle      string  // human-readable summary title
+
+	// UI state
+	collapsed bool // default true; controls whether detail rows are shown
 }
 
 type delegationTranscriptEntryKind int

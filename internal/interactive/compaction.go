@@ -81,7 +81,6 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	s.events.Emit(output.NewContextReportEvent("Compaction triggered manually."))
 	s.SetConversation(newConv)
 }
 

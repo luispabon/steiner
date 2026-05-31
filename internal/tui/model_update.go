@@ -167,7 +167,11 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.HasActiveDelegations() {
 		m.content.AdvanceDelegationSpinners()
 	}
-	if m.contentDirty || m.content.streaming || m.compacting || m.content.HasActiveDelegations() {
+	// Advance compaction spinners when a compaction is in progress.
+	if m.content.HasActiveCompactions() {
+		m.content.AdvanceCompactionSpinners()
+	}
+	if m.contentDirty || m.content.streaming || m.compacting || m.content.HasActiveDelegations() || m.content.HasActiveCompactions() {
 		m.syncViewport()
 		m.contentDirty = false
 	}

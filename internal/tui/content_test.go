@@ -737,10 +737,11 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 	}))
 	buffer.AppendEvent(output.NewContextSessionHealthEvent("conversation", 2, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 
-	if len(buffer.segments) != 2 {
-		t.Fatalf("segments count = %d, want 2", len(buffer.segments))
+	// session_health events no longer produce content buffer segments; health state
+	// is stored in model fields and rendered by renderContextInfoLine in the layout.
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
 	}
-	// First segment should be compaction banner
 	if buffer.segments[0].kind != segmentCompactionBanner {
 		t.Fatalf("segment[0] kind = %v, want segmentCompactionBanner", buffer.segments[0].kind)
 	}
@@ -749,13 +750,6 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 	}
 	if !strings.Contains(buffer.segments[0].compactionData.summary, "compacted") {
 		t.Fatalf("compaction summary = %q, want visible compaction data", buffer.segments[0].compactionData.summary)
-	}
-	// Second segment should be session health (still thinking)
-	if buffer.segments[1].kind != segmentThinking {
-		t.Fatalf("segment[1] kind = %v, want segmentThinking", buffer.segments[1].kind)
-	}
-	if got := buffer.segments[1].text; !strings.Contains(got, "session health") {
-		t.Fatalf("session health text = %q, want visible health state", got)
 	}
 }
 
