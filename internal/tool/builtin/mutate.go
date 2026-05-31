@@ -104,6 +104,10 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 		return p.planDelete(index, op)
 	case "move":
 		return p.planMove(index, op)
+	case "insert_before":
+		return p.planInsertBefore(index, op)
+	case "insert_after":
+		return p.planInsertAfter(index, op)
 	default:
 		return fmt.Errorf("mutate: operation %d: unsupported type %q", index, op.Type)
 	}
@@ -313,6 +317,116 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	p.addDiff(from.displayPath, string(to.content), "")
 	p.addDiff(to.displayPath, "", string(to.content))
 	return nil
+}
+
+func (p *mutatePlanner) planInsertBefore(index int, op MutateOperation) error {
+	state, err := p.textState(index, "insert_before", op.Path)
+	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "insert_before", state, op.FileHash); err != nil {
+		return err
+	}
+	if op.Line <= 0 {
+		return fmt.Errorf("mutate: operation %d insert_before: line must be >= 1", index)
+	}
+	lines := splitLinesPreserveEndings(string(state.content))
+	if len(lines) == 0 {
+		return fmt.Errorf("mutate: operation %d insert_before: file is empty, no valid anchor line", index)
+	}
+	if op.Line > len(lines) {
+		return fmt.Errorf("mutate: operation %d insert_before: line %d is outside file with %d lines", index, op.Line, len(lines))
+	}
+
+	before := string(state.content)
+	content := op.Content
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		ending := detectLineEnding(lines)
+		content += ending
+	}
+	insertLines := splitLinesPreserveEndings(content)
+
+	result := make([]string, 0, len(lines)+len(insertLines))
+	result = append(result, lines[:op.Line-1]...)
+	result = append(result, insertLines...)
+	result = append(result, lines[op.Line-1:]...)
+
+	state.content = []byte(strings.Join(result, ""))
+	state.touched = true
+	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	p.addDiff(state.displayPath, before, string(state.content))
+	return nil
+}
+
+func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
+	state, err := p.textState(index, "insert_after", op.Path)
+	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "insert_after", state, op.FileHash); err != nil {
+		return err
+	}
+	if op.Line <= 0 {
+		return fmt.Errorf("mutate: operation %d insert_after: line must be >= 1 (use insert_before line 1 to prepend)", index)
+	}
+	lines := splitLinesPreserveEndings(string(state.content))
+	if len(lines) == 0 {
+		return fmt.Errorf("mutate: operation %d insert_after: file is empty, no valid anchor line", index)
+	}
+	if op.Line > len(lines) {
+		return fmt.Errorf("mutate: operation %d insert_after: line %d is outside file with %d lines", index, op.Line, len(lines))
+	}
+
+	before := string(state.content)
+	content := op.Content
+	ending := detectLineEnding(lines)
+
+	// Ensure the anchor line has a proper ending before inserting after it.
+	anchorLine := lines[op.Line-1]
+	anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
+	if anchorText == anchorLine {
+		// Anchor line has no line ending (last line of file without trailing newline).
+		lines[op.Line-1] = anchorLine + ending
+	}
+
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += ending
+	}
+	insertLines := splitLinesPreserveEndings(content)
+
+	result := make([]string, 0, len(lines)+len(insertLines))
+	result = append(result, lines[:op.Line]...)
+	result = append(result, insertLines...)
+	result = append(result, lines[op.Line:]...)
+
+	state.content = []byte(strings.Join(result, ""))
+	state.touched = true
+	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	p.addDiff(state.displayPath, before, string(state.content))
+	return nil
+}
+
+func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFileState, fileHash string) error {
+	if fileHash == "" {
+		return nil
+	}
+	actual := fileContentHash(state.content)
+	if actual != fileHash {
+		return fmt.Errorf("mutate: operation %d %s: file_hash mismatch on %s — expected %s, got %s (file changed since last read; re-read to get fresh hash)", index, opType, state.displayPath, fileHash, actual)
+	}
+	return nil
+}
+
+func detectLineEnding(lines []string) string {
+	for _, line := range lines {
+		if strings.HasSuffix(line, "\r\n") {
+			return "\r\n"
+		}
+		if strings.HasSuffix(line, "\n") {
+			return "\n"
+		}
+	}
+	return "\n"
 }
 
 func (p *mutatePlanner) textState(index int, opType, path string) (*mutateFileState, error) {
