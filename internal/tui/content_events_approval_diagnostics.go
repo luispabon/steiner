@@ -53,8 +53,7 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	if !ok {
 		return
 	}
-	switch payload.Kind {
-	case "compaction":
+	if payload.Kind == "compaction" {
 		b.handleCompactionDiagnostics(payload)
 	}
 }
