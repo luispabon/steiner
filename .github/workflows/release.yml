@@ -16,11 +16,9 @@ jobs:
           - os: linux
             arch: amd64
             binary_ext: ""
-            cgo_enabled: "0"
           - os: linux
             arch: arm64
             binary_ext: ""
-            cgo_enabled: "0"
           - os: darwin
             arch: amd64
             binary_ext: ""
@@ -55,23 +53,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          if [ "${{ matrix.os }}" = "linux" ]; then
-            CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
-          else
-            GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
-          fi
-
-      - name: Verify Linux binary linkage
-        if: matrix.os == 'linux'
-        env:
-          BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
-        run: |
-          file "dist/${BINARY}" | tee /tmp/file-output.txt
-          grep -Eq 'statically linked|static-pie linked' /tmp/file-output.txt
-
-          ldd_output="$(ldd "dist/${BINARY}" 2>&1 || true)"
-          printf '%s\n' "$ldd_output"
-          printf '%s\n' "$ldd_output" | grep -Eq 'not a dynamic executable|statically linked'
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
 
       - name: Compress with UPX
         if: matrix.os != 'darwin'
@@ -108,21 +90,11 @@ jobs:
         run: |
           mkdir -p release
           for dir in dist/*/; do
-            asset="$(find "$dir" -maxdepth 1 -type f | head -n 1)"
-            name="$(basename "$asset")"
-            case "$name" in
-              *.exe)
-                cp "$asset" "release/$name"
-                ;;
-              *)
-                chmod 0755 "$asset"
-                tar -C "$dir" -czf "release/${name}.tar.gz" "$name"
-                ;;
-            esac
+            cp "$dir"* release/
           done
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          (cd release && sha256sum * > "steiner_${VERSION}_checksums.txt")
+          (cd release && sha256sum steiner-* > "steiner_${VERSION}_checksums.txt")
 
       - name: Create release
         env:
