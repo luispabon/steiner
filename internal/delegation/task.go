@@ -251,7 +251,7 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	summaryReq.Limits.TurnTimeout = 0
 	summaryReq.Tools = nil
 	summaryReq.Executor = summaryOnlyExecutor{}
-	rawConv := agent.ToProviderMessages(state.Conversation)
+	rawConv := agent.ToProviderMessages(replaySafeConversation(state.Conversation))
 	for i := range rawConv {
 		rawConv[i].Turn = 0
 	}
@@ -329,4 +329,112 @@ func lastMessageHasTools(state agent.RunState) bool {
 		return false
 	}
 	return len(msg.ToolCalls) > 0
+}
+
+func replaySafeConversation(conversation []agent.Message) []agent.Message {
+	if len(conversation) == 0 {
+		return nil
+	}
+
+	out := make([]agent.Message, 0, len(conversation))
+	for i := 0; i < len(conversation); i++ {
+		msg := cloneAgentMessage(conversation[i])
+
+		if msg.Role == agent.MessageRoleTool {
+			continue
+		}
+		if msg.Role != agent.MessageRoleAssistant || len(msg.ToolCalls) == 0 {
+			out = append(out, msg)
+			continue
+		}
+
+		pairedTools, nextIndex, ok := pairedToolMessages(conversation, i, len(msg.ToolCalls))
+		if !ok {
+			msg.ToolCalls = nil
+			out = append(out, msg)
+			continue
+		}
+
+		out = append(out, msg)
+		out = append(out, pairedTools...)
+		i = nextIndex - 1
+	}
+
+	return out
+}
+
+func pairedToolMessages(conversation []agent.Message, assistantIndex, toolCallCount int) ([]agent.Message, int, bool) {
+	if toolCallCount == 0 {
+		return nil, assistantIndex + 1, true
+	}
+	if assistantIndex < 0 || assistantIndex >= len(conversation) {
+		return nil, assistantIndex, false
+	}
+
+	assistant := conversation[assistantIndex]
+	paired := make([]agent.Message, 0, toolCallCount)
+	nextIndex := assistantIndex + 1
+
+	for toolIndex := 0; toolIndex < toolCallCount; toolIndex++ {
+		if nextIndex >= len(conversation) {
+			return nil, nextIndex, false
+		}
+		toolMsg := conversation[nextIndex]
+		if toolMsg.Role != agent.MessageRoleTool {
+			return nil, nextIndex, false
+		}
+		expectedID := assistant.ToolCalls[toolIndex].ID
+		if expectedID != "" && toolMsg.ToolCallID != expectedID {
+			return nil, nextIndex, false
+		}
+		paired = append(paired, cloneAgentMessage(toolMsg))
+		nextIndex++
+	}
+
+	return paired, nextIndex, true
+}
+
+func cloneAgentMessage(message agent.Message) agent.Message {
+	cloned := message
+	if len(message.ToolCalls) > 0 {
+		cloned.ToolCalls = make([]agent.ToolCall, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			cloned.ToolCalls = append(cloned.ToolCalls, agent.ToolCall{
+				ID:        call.ID,
+				Name:      call.Name,
+				Arguments: cloneInput(call.Arguments),
+			})
+		}
+	}
+	if message.Retention != nil {
+		retention := *message.Retention
+		cloned.Retention = &retention
+	}
+	return cloned
+}
+
+func cloneInput(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = cloneValue(value)
+	}
+	return cloned
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneInput(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for i, item := range typed {
+			cloned[i] = cloneValue(item)
+		}
+		return cloned
+	default:
+		return typed
+	}
 }

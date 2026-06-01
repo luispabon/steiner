@@ -1335,7 +1335,7 @@ func TestSummaryUsesFullConversation(t *testing.T) {
 			Role:      agent.MessageRoleAssistant,
 			ToolCalls: []agent.ToolCall{{ID: "tc-1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}}},
 		},
-		{Role: agent.MessageRoleTool, Content: "file1.go\nfile2.go"},
+		{Role: agent.MessageRoleTool, Content: "file1.go\nfile2.go", ToolCallID: "tc-1"},
 		{Role: agent.MessageRoleAssistant, Content: "I found the files"},
 	}
 
@@ -1385,6 +1385,57 @@ func TestSummaryUsesFullConversation(t *testing.T) {
 			t.Errorf("summary conversation[%d]: got role=%q content=%q, want role=%q content=%q",
 				i, got.Role, got.Content, want.Role, want.Content)
 		}
+	}
+}
+
+func TestSummarySanitizesDanglingToolCalls(t *testing.T) {
+	spec := makeSpec("summary-sanitize-agent", 10000)
+	sink := &collectingSink{}
+
+	mainConversation := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "investigate"},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "searching",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "commit"}},
+			},
+		},
+	}
+	mainState := agent.RunState{
+		TurnCount:    1,
+		StopReason:   agent.StopReasonCancelled,
+		Conversation: mainConversation,
+	}
+	summaryState := agent.RunState{
+		TurnCount:  1,
+		StopReason: agent.StopReasonComplete,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "summary"},
+		},
+	}
+
+	runner := &presetRunner{
+		states: []agent.RunState{mainState, summaryState},
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec, prov, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false, false)
+
+	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if runner.calls != 2 {
+		t.Fatalf("runner.calls = %d, want 2", runner.calls)
+	}
+
+	summaryReq := runner.reqs[1]
+	if got := summaryReq.Prompt.Conversation[1].ToolCalls; len(got) != 0 {
+		t.Fatalf("summary request retained dangling tool calls: %#v", got)
 	}
 }
 
@@ -1635,6 +1686,70 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 	}
 	if !sawComplete {
 		t.Error("expected DelegationComplete event even for partial completion")
+	}
+}
+
+func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "child-follow-up",
+			Task:    "investigate",
+		},
+		Request: agent.RunRequest{
+			Provider: &fakeProvider{},
+			Prompt:   prompt.AssemblyOptions{},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "investigate"},
+			{
+				Role:    agent.MessageRoleAssistant,
+				Content: "searching",
+				ToolCalls: []agent.ToolCall{
+					{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "commit"}},
+				},
+			},
+		},
+	})
+
+	runner := &presetRunner{
+		states: []agent.RunState{
+			completeState("follow-up done"),
+			completeState("follow-up summary"),
+		},
+	}
+
+	handler := NewFollowUpHandler(DelegateHandlerDeps{
+		Provider:     &fakeProvider{},
+		Runner:       runner,
+		SessionStore: store,
+		SubAgentCfg: config.SubAgentConfig{
+			MaxTurns: 5,
+		},
+	})
+
+	_, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-follow-up",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("follow_up handler error = %v", err)
+	}
+
+	if runner.calls == 0 {
+		t.Fatal("runner.calls = 0, want follow-up run")
+	}
+
+	req := runner.reqs[0]
+	if len(req.Prompt.Conversation) < 3 {
+		t.Fatalf("len(req.Prompt.Conversation) = %d, want >= 3", len(req.Prompt.Conversation))
+	}
+	if got := req.Prompt.Conversation[1].ToolCalls; len(got) != 0 {
+		t.Fatalf("follow-up request retained dangling tool calls: %#v", got)
+	}
+	last := req.Prompt.Conversation[len(req.Prompt.Conversation)-1]
+	if last.Role != provider.MessageRoleUser || last.Content != "continue" {
+		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
 	}
 }
 
