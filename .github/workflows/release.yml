@@ -16,9 +16,11 @@ jobs:
           - os: linux
             arch: amd64
             binary_ext: ""
+            cgo_enabled: "0"
           - os: linux
             arch: arm64
             binary_ext: ""
+            cgo_enabled: "0"
           - os: darwin
             arch: amd64
             binary_ext: ""
@@ -53,7 +55,11 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+          else
+            GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+          fi
 
       - name: Compress with UPX
         if: matrix.os != 'darwin'
