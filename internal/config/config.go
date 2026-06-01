@@ -223,10 +223,11 @@ type PathsConfig struct {
 
 // LoggingConfig controls diagnostic log output.
 type LoggingConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Level         string `yaml:"level"`
-	File          string `yaml:"file"`
-	ThinkingChunk bool   `yaml:"thinking_chunk"`
+	Enabled           bool   `yaml:"enabled"`
+	Level             string `yaml:"level"`
+	File              string `yaml:"file"`
+	ThinkingChunk     bool   `yaml:"thinking_chunk"`
+	CompactionLogFile string `yaml:"compaction_log_file"`
 }
 
 // DebugConfig exposes internal debugging toggles.

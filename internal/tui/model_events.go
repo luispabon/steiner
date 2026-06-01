@@ -102,6 +102,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 				m.activity = m.activity.static("context compacted", compactedLabel(payload))
 			}
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+			// Append separator + summary text when compaction finishes with a summary.
+			if payload.Severity != "compacting" && payload.SummaryText != "" {
+				m.content.AppendCompactionResult("Compaction", payload.SummaryText)
+			}
 		}
 		if payload.Kind == "session_health" {
 			if m.compacting {

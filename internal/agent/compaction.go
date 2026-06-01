@@ -705,7 +705,20 @@ func truncateCompactionMessages(messages []Message, limit int) []Message {
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, true, output.ChunkSourceAssistant)
+	var logger *CompactionLogger
+	if req.CompactionLogPath != "" {
+		var err error
+		logger, err = NewCompactionLogger(req.CompactionLogPath)
+		if err == nil {
+			_ = logger.LogRequest(chatRequest) // best effort
+			defer func() { _ = logger.Close() }()
+		}
+	}
+	response, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, false, output.ChunkSourceAssistant)
+	if logger != nil {
+		_ = logger.LogResponse(response) // best effort
+	}
+	return response, err
 }
 
 func summarizeCompactionPrompt(candidate ConversationCandidate) string {

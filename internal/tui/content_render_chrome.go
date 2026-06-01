@@ -114,6 +114,37 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 	return boxStyle.Width(boxWidth).Render(strings.Join(lines, "\n")) + "\n"
 }
 
+// renderCenteredDashes returns a width-filling dashed line with the label centered.
+func (b *contentBuffer) renderCenteredDashes(label string, width int) string {
+	dash := "─"
+	// Build the full dash line with label in the middle.
+	// Format: "─── label ───"
+	labelStr := " " + label + " "
+	labelLen := lipgloss.Width(labelStr)
+	if labelLen > width-2 {
+		// Label too wide; just render label truncated.
+		return b.styles.FgDim.Render(labelStr[:min(len(labelStr), max(1, width))])
+	}
+	dashCount := (width - labelLen) / 2
+	// Ensure at least 1 dash on each side
+	if dashCount < 1 {
+		dashCount = 1
+	}
+	left := strings.Repeat(dash, dashCount)
+	right := strings.Repeat(dash, width-lipgloss.Width(left)-labelLen)
+	return b.styles.FgDim.Render(left + labelStr + right)
+}
+
+// renderSeparatorSegment renders a centered dashed separator line.
+
+// renderSeparatorSegment renders a centered dashed separator line.
+func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int) string {
+	if segment.separatorData == nil {
+		return ""
+	}
+	return b.renderCenteredDashes(segment.separatorData.label, width) + "\n"
+}
+
 // compactionBoxRows builds the inner lines of the compaction box.
 func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) []string {
 	// Account for box border (2) and padding (2 each side).

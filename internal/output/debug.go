@@ -28,6 +28,7 @@ type ContextDiagnosticsEvent struct {
 	CompactedMessages   int      `json:"compacted_messages,omitempty"`
 	SummaryTitle        string   `json:"summary_title,omitempty"`
 	SummaryPreview      string   `json:"summary_preview,omitempty"`
+	SummaryText         string   `json:"summary_text,omitempty"`
 	SummaryBytes        int      `json:"summary_bytes,omitempty"`
 	BudgetBytes         int      `json:"budget_bytes,omitempty"`
 	UsedBytes           int      `json:"used_bytes,omitempty"`

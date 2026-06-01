@@ -20,15 +20,16 @@ import (
 
 func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	sessDeps := interactive.Dependencies{
-		BaseEvents:      rt.events,
-		SkillNames:      rt.skillNames,
-		Config:          rt.cfg,
-		Provider:        rt.provider,
-		ProviderFactory: rt.providerFactory,
-		HTTPClient:      rt.httpClient,
-		HomeDir:         rt.homeDir,
-		WorkDir:         rt.workDir,
-		SessionStore:    rt.sessionStore,
+		BaseEvents:        rt.events,
+		SkillNames:        rt.skillNames,
+		Config:            rt.cfg,
+		Provider:          rt.provider,
+		ProviderFactory:   rt.providerFactory,
+		HTTPClient:        rt.httpClient,
+		HomeDir:           rt.homeDir,
+		WorkDir:           rt.workDir,
+		SessionStore:      rt.sessionStore,
+		CompactionLogPath: rt.compactionLogFile,
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
