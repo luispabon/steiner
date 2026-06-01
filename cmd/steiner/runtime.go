@@ -21,16 +21,17 @@ import (
 )
 
 type cliFlags struct {
-	configPath      string
-	model           string
-	verbose         bool
-	exec            bool
-	logFile         string
-	maxTurns        int
-	enableStreaming bool
-	contextMode     string
-	caveman         bool
-	resume          string
+	configPath        string
+	model             string
+	verbose           bool
+	exec              bool
+	logFile           string
+	compactionLogFile string
+	maxTurns          int
+	enableStreaming   bool
+	contextMode       string
+	caveman           bool
+	resume            string
 }
 
 type cliRuntime struct {
@@ -56,6 +57,7 @@ type cliRuntime struct {
 	historyWriter     *history.Writer
 	sessionStore      *session.Store
 	delegationLogger  *delegation.TraceLogger
+	compactionLogFile string
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -78,6 +80,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 	if err != nil {
 		return cliRuntime{}, err
 	}
+	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry, err := buildRuntimeRegistry(cfg)
 	if err != nil {
 		return cliRuntime{}, err
@@ -115,6 +118,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		historyWriter:     historyWriter,
 		sessionStore:      sessionStore,
 		delegationLogger:  delegationLogger,
+		compactionLogFile: compactionLogFile,
 	}, nil
 }
 

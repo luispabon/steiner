@@ -95,6 +95,9 @@ func applyEnvLoggingOverrides(cfg *Config, lookup func(string) (string, bool)) {
 	if value, ok := lookup("STEINER_LOG_FILE"); ok {
 		cfg.Logging.File = value
 	}
+	if value, ok := lookup("STEINER_COMPACTION_LOG_FILE"); ok {
+		cfg.Logging.CompactionLogFile = value
+	}
 }
 
 func applyEnvSearchOverrides(cfg *Config, lookup func(string) (string, bool)) {

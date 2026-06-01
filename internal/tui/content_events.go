@@ -27,6 +27,7 @@ const (
 	segmentToolCallGroup
 	segmentApprovalPill
 	segmentCompactionBanner
+	segmentSeparator
 	segmentInterrupted
 	segmentDelegation
 )
@@ -99,6 +100,10 @@ type compactionBannerData struct {
 	collapsed bool // default true; controls whether detail rows are shown
 }
 
+type separatorData struct {
+	label string
+}
+
 type delegationTranscriptEntryKind int
 
 const (
@@ -159,6 +164,7 @@ type contentSegment struct {
 	toolGroupData  *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
 	approvalData   *approvalPillData       // non-nil only for segmentApprovalPill
 	compactionData *compactionBannerData   // non-nil only for segmentCompactionBanner
+	separatorData  *separatorData          // non-nil only for segmentSeparator
 	delegData      *delegationDisplayState // non-nil only for segmentDelegation
 	// render cache
 	cachedRender      string
@@ -238,4 +244,15 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		return
 	}
 	b.appendLine(line)
+}
+
+// AppendCompactionResult appends a centered separator line with the given label
+// followed by the summary text rendered as a markdown block.
+func (b *contentBuffer) AppendCompactionResult(label string, summaryText string) {
+	b.segments = append(b.segments, contentSegment{
+		kind:          segmentSeparator,
+		separatorData: &separatorData{label: label},
+		renderDirty:   true,
+	})
+	b.appendMarkdownBlock(summaryText)
 }

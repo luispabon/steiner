@@ -109,6 +109,16 @@ func runtimeLogFile(cfg config.Config, flags *cliFlags) string {
 	return ""
 }
 
+func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
+	if flags.compactionLogFile != "" {
+		return flags.compactionLogFile
+	}
+	if cfg.Logging.CompactionLogFile != "" {
+		return cfg.Logging.CompactionLogFile
+	}
+	return ""
+}
+
 func buildRuntimeRegistry(cfg config.Config) (string, *tool.Registry, error) {
 	workDir, err := os.Getwd()
 	if err != nil {

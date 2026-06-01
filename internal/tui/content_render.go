@@ -104,6 +104,8 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
 		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
+	case segmentSeparator:
+		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
 		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
 	case segmentDelegation:

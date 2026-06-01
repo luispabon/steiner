@@ -62,12 +62,13 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	}
 
 	compactReq := agent.RunRequest{
-		Provider:      prov,
-		Prompt:        assembly,
-		ModelBudget:   modelBudget,
-		ResolvedModel: rm,
-		Events:        s.events,
-		CavemanMode:   s.deps.Config.CavemanMode,
+		Provider:          prov,
+		Prompt:            assembly,
+		ModelBudget:       modelBudget,
+		ResolvedModel:     rm,
+		Events:            s.events,
+		CavemanMode:       s.deps.Config.CavemanMode,
+		CompactionLogPath: s.deps.CompactionLogPath,
 	}
 
 	newConv, err := s.runManualCompaction(ctx, rm.BackendModelID, func(runCtx context.Context) ([]agent.Message, error) {

@@ -166,5 +166,6 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 		Events:             events,
 		ContextManager:     agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
+		CompactionLogPath:  r.runtime.compactionLogFile,
 	}
 }

@@ -42,15 +42,16 @@ type sessionStore interface {
 // required by an interactive session. Each field uses a consumer-defined
 // interface to avoid premature coupling to concrete implementations.
 type Dependencies struct {
-	BaseEvents      output.EventSink
-	Runner          runExecutor
-	HistoryWriter   historyWriter
-	SessionStore    sessionStore
-	SkillNames      []string
-	Config          config.Config
-	Provider        provider.Provider
-	ProviderFactory func(provider.ResolvedModel) (provider.Provider, error)
-	HTTPClient      *http.Client
-	HomeDir         string
-	WorkDir         string
+	BaseEvents        output.EventSink
+	Runner            runExecutor
+	HistoryWriter     historyWriter
+	SessionStore      sessionStore
+	SkillNames        []string
+	Config            config.Config
+	Provider          provider.Provider
+	ProviderFactory   func(provider.ResolvedModel) (provider.Provider, error)
+	HTTPClient        *http.Client
+	HomeDir           string
+	WorkDir           string
+	CompactionLogPath string
 }

@@ -39,6 +39,10 @@ type RunRequest struct {
 	// token usage. When true, system/compaction/child prompts are prepended
 	// with terse-style instructions.
 	CavemanMode bool
+
+	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
+	// When non-empty, compaction calls write their full API request and final response to this file.
+	CompactionLogPath string
 }
 
 // Runner executes the main turn loop for an agent run.
