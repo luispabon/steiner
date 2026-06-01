@@ -3,6 +3,8 @@ GO_FILES := $(shell git ls-files '*.go')
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 LDFLAGS := -ldflags="-X main.version=$(VERSION)"
 RELEASE_LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
+UNAME_S := $(shell uname -s)
+CGO_BUILD_PREFIX := $(if $(filter Linux,$(UNAME_S)),CGO_ENABLED=0 ,)
 
 GOLANGCI_LINT_VERSION := v2.12.2
 GOVULNCHECK_VERSION := v1.3.0
@@ -16,14 +18,17 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build-binaries build-binaries-slim test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check
+.PHONY: build build-binaries build-binaries-slim test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check
+
+build: build-binaries
 
 build-binaries:
-	go build $(LDFLAGS) -o $(BIN_DIR)/steiner ./cmd/steiner
+	mkdir -p $(BIN_DIR)
+	$(CGO_BUILD_PREFIX)go build $(LDFLAGS) -o $(BIN_DIR)/steiner ./cmd/steiner
 
 build-binaries-slim:
 	mkdir -p $(BIN_DIR)
-	go build $(RELEASE_LDFLAGS) -trimpath -o $(BIN_DIR)/steiner ./cmd/steiner
+	$(CGO_BUILD_PREFIX)go build $(RELEASE_LDFLAGS) -trimpath -o $(BIN_DIR)/steiner ./cmd/steiner
 	@case "$$(uname -s)" in \
 		Darwin) echo "UPX skipped: macOS is not supported (see https://github.com/upx/upx/issues/612)" ;; \
 		*) \
