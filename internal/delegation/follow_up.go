@@ -55,7 +55,7 @@ func NewFollowUpHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		followUpCount := session.FollowUpCount + 1
 
 		req := session.Request
-		req.Prompt.Conversation = agent.ToProviderMessages(session.Conversation)
+		req.Prompt.Conversation = agent.ToProviderMessages(replaySafeConversation(session.Conversation))
 		req.Prompt.Conversation = append(req.Prompt.Conversation, provider.Message{
 			Role:    provider.MessageRoleUser,
 			Content: message,
