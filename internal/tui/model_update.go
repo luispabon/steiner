@@ -61,6 +61,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
+	return m.clearConversationState()
+}
+
+func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0

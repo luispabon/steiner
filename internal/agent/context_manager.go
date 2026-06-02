@@ -64,8 +64,6 @@ func (s *ContextStateManager) ProcessAssistantResponse(_ int, content string) (s
 	return content, ""
 }
 
-func (s *ContextStateManager) RecordTurnCompletion(int, bool) {}
-
 // ObserveToolResult records heuristic context derived from a tool result.
 func (s *ContextStateManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
 	return s.observeToolResult(turn, toolName, input, content)

@@ -6,37 +6,6 @@ import (
 	"strings"
 )
 
-func summarizeToolArguments(arguments map[string]any) string {
-	if len(arguments) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(arguments))
-	appendArg := func(name string) {
-		value, ok := arguments[name]
-		if !ok {
-			return
-		}
-		rendered := summarizeTextPreview(fmt.Sprint(value), 40)
-		parts = append(parts, fmt.Sprintf("%s=%s", name, rendered))
-	}
-
-	appendArg("path")
-	appendArg("pattern")
-	appendArg("command")
-	appendArg("offset")
-	appendArg("limit")
-
-	if len(parts) == 0 {
-		for key, value := range arguments {
-			parts = append(parts, fmt.Sprintf("%s=%s", key, summarizeTextPreview(fmt.Sprint(value), 40)))
-			if len(parts) == 3 {
-				break
-			}
-		}
-	}
-	return strings.Join(parts, ", ")
-}
-
 func summarizeRecentToolCalls(messages []Message, limit int) []string {
 	if limit <= 0 {
 		return nil

@@ -92,17 +92,6 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	return base
 }
 
-func filterEmptyStrings(values []string) []string {
-	filtered := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) == "" {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
-}
-
 func toPromptContext(state ContextState) prompt.DurableContextState {
 	out := prompt.DurableContextState{
 		RetainedSummaries: make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),

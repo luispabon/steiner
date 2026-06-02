@@ -112,10 +112,7 @@ func appendAssistantMessage(state RunState, turn int, message provider.Message) 
 	return state
 }
 
-func (p *turnProgressor) finishAssistantOnlyTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	if in.Request.ContextManager != nil {
-		in.Request.ContextManager.RecordTurnCompletion(turn, false)
-	}
+func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 	state.StopReason = StopReasonComplete
 	emitStop(in.Request.Events, state, nil)
@@ -191,10 +188,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	return toolMessage
 }
 
-func (p *turnProgressor) finalizeToolTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	if in.Request.ContextManager != nil {
-		in.Request.ContextManager.RecordTurnCompletion(turn, false)
-	}
+func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}

@@ -134,27 +134,7 @@ func (m Model) executeInterruptAction() Model {
 }
 
 func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
-	m.content.Clear()
-	m.sidebar.promptUsed = 0
-	m.sidebar.budgetUsed = 0
-	for name := range m.enabledSkills {
-		m.enabledSkills[name] = false
-	}
-	if m.sidebar.contextBudget > 0 {
-		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
-	} else {
-		m.status.context = ""
-	}
-	m.syncSidebar()
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
-	m.input.Reset()
-	m.historyIdx = 0
-	m.syncViewport()
-	return m, nil
+	return m.clearConversationState()
 }
 
 func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
