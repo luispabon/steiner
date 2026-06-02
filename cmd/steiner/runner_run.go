@@ -121,7 +121,6 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
-		ScratchpadEnabled:         false,
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		Conversation:              toProviderConversation(conversation),
 	}

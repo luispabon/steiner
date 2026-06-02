@@ -184,43 +184,6 @@ func TestMaskConversationGracePeriod(t *testing.T) {
 	}
 }
 
-func TestMaskConversationScratchpadToolResultDropped(t *testing.T) {
-	messages := []provider.Message{
-		{Role: provider.MessageRoleUser, Content: "u1"},
-		{
-			Role: provider.MessageRoleAssistant,
-			ToolCalls: []provider.ToolCall{
-				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.go"}},
-			},
-		},
-		{Role: provider.MessageRoleTool, ToolCallID: "call_1", Name: "read", Content: "file body"},
-		{Role: provider.MessageRoleUser, Content: "u2"},
-		{
-			Role: provider.MessageRoleAssistant,
-			ToolCalls: []provider.ToolCall{
-				{ID: "call_2", Name: "scratchpad", Arguments: map[string]any{"content": "plan"}},
-			},
-		},
-		{Role: provider.MessageRoleTool, ToolCallID: "call_2", Name: "scratchpad", Content: `{"ok":true}`},
-		{Role: provider.MessageRoleUser, Content: "u3"},
-		{Role: provider.MessageRoleAssistant, Content: "recent"},
-	}
-
-	got := MaskConversation(messages, 1)
-
-	// Older non-scratchpad tool result should be masked.
-	if got[2].Content == messages[2].Content {
-		t.Fatalf("read tool result content = %q, want masked placeholder", got[2].Content)
-	}
-	if !strings.Contains(got[2].Content, "read") {
-		t.Fatalf("read tool result content = %q, want tool name preserved", got[2].Content)
-	}
-	// Scratchpad tool result should be empty, not masked.
-	if got[5].Content != "" {
-		t.Fatalf("scratchpad tool result content = %q, want empty string", got[5].Content)
-	}
-}
-
 func TestMaskConversationBeforeTurnKeepsMaskedPrefixStable(t *testing.T) {
 	base := []provider.Message{
 		{Role: provider.MessageRoleUser, Content: "u1", Turn: 1},

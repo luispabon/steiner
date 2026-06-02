@@ -68,10 +68,6 @@ const (
 	// the UI can render the slice without the model-visible tool result or
 	// conversation history containing file contents.
 	EventTypeDisplayFile = "display_file"
-
-	// EventTypeScratchpadUpdated is emitted when the agent scratchpad state
-	// changes so the TUI can reflect the current task state in the sidebar.
-	EventTypeScratchpadUpdated = "scratchpad_updated"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -356,16 +352,6 @@ type DelegationExtensionEvent struct {
 // HistoryLoadedEvent carries previously recorded prompt strings for display.
 type HistoryLoadedEvent struct {
 	Prompts []string `json:"prompts"`
-}
-
-// ScratchpadUpdatedEvent is the payload for EventTypeScratchpadUpdated.
-// It carries the current scratchpad fields so the TUI can display them
-// in the sidebar without parsing the rendered scratchpad string.
-type ScratchpadUpdatedEvent struct {
-	Intent    string `json:"intent,omitempty"`
-	Decisions string `json:"decisions,omitempty"`
-	Open      string `json:"open,omitempty"`
-	Next      string `json:"next,omitempty"`
 }
 
 // DisplayFilePayload is the payload for EventTypeDisplayFile.

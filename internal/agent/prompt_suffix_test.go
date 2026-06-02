@@ -2,7 +2,6 @@ package agent
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/provider"
@@ -104,29 +103,5 @@ func TestBuildTurnChatRequestAppliesPromptSuffix(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ExtraParams, chatReq.ExtraParams) {
 		t.Fatalf("ExtraParams = %#v, want unchanged %#v", got.ExtraParams, chatReq.ExtraParams)
-	}
-}
-
-func TestBuildScaffoldInferenceRequestAppliesPromptSuffix(t *testing.T) {
-	req := RunRequest{
-		ResolvedModel: provider.ResolvedModel{
-			BackendModelID: "test-model",
-			PromptSuffix:   "<|think_off|>",
-		},
-	}
-
-	got := buildScaffoldInferenceRequest(req, "intent: inspect", "done")
-	if len(got.Messages) != 2 {
-		t.Fatalf("messages = %d, want 2", len(got.Messages))
-	}
-	user := got.Messages[1]
-	if user.Role != provider.MessageRoleUser {
-		t.Fatalf("message role = %q, want user", user.Role)
-	}
-	if !hasPromptSuffix(got.Messages, "<|think_off|>") {
-		t.Fatalf("scaffold inference user prompt missing suffix: %q", user.Content)
-	}
-	if strings.Count(user.Content, "<|think_off|>") != 1 {
-		t.Fatalf("scaffold inference suffix count = %d, want 1 in %q", strings.Count(user.Content, "<|think_off|>"), user.Content)
 	}
 }

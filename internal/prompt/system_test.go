@@ -5,31 +5,10 @@ import (
 	"testing"
 )
 
-func TestSystemPreambleScratchpadInstructionsUseCurrentFourFieldSchema(t *testing.T) {
-	t.Parallel()
-
-	content := SystemPreamble("", true, false, false).Content
-	for _, want := range []string{
-		"- intent: what you are trying to achieve right now",
-		"- decisions: key choices made and why",
-		"- open: unresolved problems or unknowns blocking progress",
-		"- next: the single next action you will take after this turn",
-	} {
-		if got := strings.Count(content, want); got != 1 {
-			t.Fatalf("system preamble count for %q = %d, want 1 in %q", want, got, content)
-		}
-	}
-	for _, forbidden := range []string{"goal:", "plan:", "step:", "files:"} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("system preamble still contains %q in %q", forbidden, content)
-		}
-	}
-}
-
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, false, false).Content
+	content := SystemPreamble("", false, false).Content
 	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
 	// Note: delegation guidance (## Delegation block) is workflow strategy, not tool mechanics — it is intentionally absent from this test's assertions.
 	for _, forbidden := range []string{
@@ -53,7 +32,7 @@ func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", false, true, false).Content
+	content := SystemPreamble("", true, false).Content
 	for _, want := range []string{
 		"## Delegation",
 		"Every file you read locally stays in your context for the rest of the conversation",
@@ -115,28 +94,25 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 func TestSystemPreambleDelegationAbsentWhenDisabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", false, false, false).Content
+	content := SystemPreamble("", false, false).Content
 	if strings.Contains(content, "## Delegation") {
 		t.Fatalf("delegation instructions present when delegationEnabled=false")
 	}
 }
 
-func TestSystemPreambleDelegationAndScratchpadCoexist(t *testing.T) {
+func TestSystemPreambleDelegationIncludedWhenEnabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, true, false).Content
-	if !strings.Contains(content, "## Scratchpad") {
-		t.Fatalf("scratchpad instructions missing when both enabled")
-	}
+	content := SystemPreamble("", true, false).Content
 	if !strings.Contains(content, "## Delegation") {
-		t.Fatalf("delegation instructions missing when both enabled")
+		t.Fatalf("delegation instructions missing when enabled")
 	}
 }
 
 func TestSystemPreambleCavemanMode(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", false, false, true).Content
+	content := SystemPreamble("", false, true).Content
 	if !strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}

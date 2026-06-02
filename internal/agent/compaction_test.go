@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -765,165 +764,6 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 	}
 }
 
-func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
-	var events []output.Event
-	cm := &ContextStateManager{
-		compactionStrategy: compactionStrategyDrop,
-		epoch: EpochManager{
-			maskingWindowTurns: 5,
-			epochMaskBoundary:  7,
-			epochStartTurn:     12,
-		},
-	}
-	state := RunState{
-		TurnCount: 12,
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
-			{Role: MessageRoleUser, Content: "turn 4 user"},
-			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
-		},
-		Lineage: newConversationLineage([]Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
-			{Role: MessageRoleUser, Content: "turn 4 user"},
-			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
-		}),
-	}
-
-	var skipped = map[string]bool{}
-	var compactionCount int
-	sink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
-	cm.SetEventSink(sink)
-	req := RunRequest{
-		ContextManager: cm,
-		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
-		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         100000,
-			MaxCompletionTokens: 256,
-			SafetyMarginTokens:  0,
-			SummaryMaxTokens:    128,
-		},
-		Events: sink,
-	}
-
-	beforeFit := prompt.RequestTokenBudget{ContextSize: 4096, EstimatedPromptTokens: 2800, PromptUsage: 0.68, CompactionThreshold: 0.70}
-	compacted, err := new(Runner).compactConversationForBudget(context.Background(), req, &state, 13, &beforeFit, skipped, &compactionCount)
-	if err != nil {
-		t.Fatalf("compactConversationForBudget() error = %v", err)
-	}
-	if !compacted {
-		t.Fatal("compactConversationForBudget() = false, want true")
-	}
-	if got, want := cm.epoch.epochMaskBoundary, 0; got != want {
-		t.Fatalf("epochMaskBoundary = %d, want %d", got, want)
-	}
-	if got, want := cm.epoch.epochStartTurn, 13; got != want {
-		t.Fatalf("epochStartTurn = %d, want %d", got, want)
-	}
-
-	foundReset := false
-	for _, event := range events {
-		if event.Type != output.EventTypeContextDiagnostics {
-			continue
-		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok || payload.Kind != "masking" || payload.Action != "reset" {
-			continue
-		}
-		foundReset = true
-		if payload.EpochStatus != "reset" {
-			t.Fatalf("epoch reset status = %q, want reset", payload.EpochStatus)
-		}
-		if payload.EpochStartTurn != 13 {
-			t.Fatalf("epoch reset start turn = %d, want 13", payload.EpochStartTurn)
-		}
-	}
-	if !foundReset {
-		t.Fatal("missing epoch reset diagnostic")
-	}
-}
-
-func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
-	providerStub := &fakeProvider{}
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant\nmore detail"},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: "turn 1 tool result"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant\nmore detail"},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-2", Content: "turn 2 tool result"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant\nmore detail"},
-		},
-		Lineage: newConversationLineage([]Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant\nmore detail"},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: "turn 1 tool result"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant\nmore detail"},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-2", Content: "turn 2 tool result"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant\nmore detail"},
-		}),
-	}
-
-	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
-	if !ok {
-		t.Fatal("selectCompactionCandidate() ok = false, want true")
-	}
-
-	hybridReq := RunRequest{
-		ContextManager: NewContextStateManager(config.ContextManagementConfig{
-			CompactionStrategy: compactionStrategyHybrid,
-			MaskingWindowTurns: 1,
-		}),
-		Provider:      providerStub,
-		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
-		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         100000,
-			MaxCompletionTokens: 256,
-			SafetyMarginTokens:  0,
-			SummaryMaxTokens:    128,
-		},
-	}
-	outcome, err := compactorForRequest(hybridReq).Compact(
-		context.Background(),
-		hybridReq,
-		state,
-		5,
-		candidate,
-	)
-	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
-	}
-	if !outcome.Applied {
-		t.Fatal("Applied = false, want true")
-	}
-	if got := len(providerStub.requests); got != 0 {
-		t.Fatalf("summarize provider calls = %d, want 0", got)
-	}
-	if got, want := outcome.State.Conversation[1].Content, "turn 1 assistant"; got != want {
-		t.Fatalf("turn 1 assistant = %q, want %q", got, want)
-	}
-	// With the 2-turn grace period, turn 2 assistant should remain unmasked.
-	if got, want := outcome.State.Conversation[4].Content, "turn 2 assistant\nmore detail"; got != want {
-		t.Fatalf("turn 2 assistant = %q, want %q", got, want)
-	}
-	if got := outcome.State.Conversation[7].Content; !strings.Contains(got, "more detail") {
-		t.Fatalf("turn 3 assistant = %q, want remaining detail to survive within window", got)
-	}
-}
-
 func TestCompactionSourceAndRetentionUsesNormalAndEmergencyWindows(t *testing.T) {
 	messages := []Message{
 		{Role: MessageRoleUser, Content: "turn 1 user"},
@@ -1113,7 +953,7 @@ func TestCompactorForRequest(t *testing.T) {
 			manager: NewContextStateManager(config.ContextManagementConfig{
 				CompactionStrategy: compactionStrategyHybrid,
 			}),
-			wantType: "hybridCompactor",
+			wantType: "summarizeCompactor",
 		},
 		{
 			name: "ContextStateManager with summarize strategy",
@@ -1136,10 +976,6 @@ func TestCompactorForRequest(t *testing.T) {
 			case "dropCompactor":
 				if _, ok := compactor.(dropCompactor); !ok {
 					t.Fatalf("compactorForRequest() type = %T, want dropCompactor", compactor)
-				}
-			case "hybridCompactor":
-				if _, ok := compactor.(hybridCompactor); !ok {
-					t.Fatalf("compactorForRequest() type = %T, want hybridCompactor", compactor)
 				}
 			default:
 				t.Fatalf("unknown wantType %q", tt.wantType)

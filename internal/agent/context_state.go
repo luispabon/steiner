@@ -17,7 +17,6 @@ type ContextState struct {
 	RecentToolCalls    []string
 	TurnCount          int
 	CompactionCount    int
-	Scratchpad         string
 }
 
 // ActiveConstraint represents a durable constraint that should remain in force
@@ -63,7 +62,6 @@ func (s ContextState) Clone() ContextState {
 		RecentToolCalls:    cloneStrings(s.RecentToolCalls),
 		TurnCount:          s.TurnCount,
 		CompactionCount:    s.CompactionCount,
-		Scratchpad:         s.Scratchpad,
 	}
 	if s.ActiveFocus != nil {
 		focus := *s.ActiveFocus

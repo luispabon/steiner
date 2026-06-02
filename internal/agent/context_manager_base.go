@@ -15,7 +15,6 @@ type baseContextManager struct {
 	cachedPreamble        struct {
 		content           string
 		override          string
-		scratchpadEnabled bool
 		delegationEnabled bool
 		cavemanMode       bool
 	}
@@ -23,15 +22,13 @@ type baseContextManager struct {
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, cavemanMode bool) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
-		b.cachedPreamble.scratchpadEnabled != scratchpadEnabled ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
 		b.cachedPreamble.cavemanMode != cavemanMode {
-		b.cachedPreamble.content = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled, cavemanMode).Content
+		b.cachedPreamble.content = prompt.SystemPreamble(override, delegationEnabled, cavemanMode).Content
 		b.cachedPreamble.override = override
-		b.cachedPreamble.scratchpadEnabled = scratchpadEnabled
 		b.cachedPreamble.delegationEnabled = delegationEnabled
 		b.cachedPreamble.cavemanMode = cavemanMode
 	}

@@ -84,66 +84,16 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 		conversation = state.Conversation
 	}
 
-	scratchpadEnabled := base.ScratchpadEnabled || strings.TrimSpace(state.Context.Scratchpad) != ""
 	providerMsgs := ToProviderMessages(conversation)
 
-	if scratchpadMsg, ok := buildScratchpadMessage(state.Context, scratchpadEnabled); ok {
-		providerMsgs = append(providerMsgs, scratchpadMsg)
+	if contextStateMsg, ok := buildContextStateMessage(state.Context); ok {
+		providerMsgs = append(providerMsgs, contextStateMsg)
 	}
 
 	base.Conversation = providerMsgs
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
-	base.ScratchpadEnabled = scratchpadEnabled
 	return base
-}
-
-func buildScaffoldInferenceRequest(req RunRequest, scaffoldState, assistantContent string) provider.ChatRequest {
-	system := prompt.SystemPreamble(req.Prompt.PromptOverrides.System, false, false, req.Prompt.CavemanMode).Content
-	user := scaffoldInferenceUserPrompt(scaffoldState, assistantContent)
-	chatReq := provider.ChatRequest{
-		Model:       req.ResolvedModel.BackendModelID,
-		Messages:    []provider.Message{{Role: provider.MessageRoleSystem, Content: system}, {Role: provider.MessageRoleUser, Content: user}},
-		Params:      req.ResolvedModel.Params,
-		ExtraParams: req.ResolvedModel.ExtraParams,
-		MaxTokens:   scaffoldInferenceMaxTokens(req.ModelBudget),
-	}
-	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatReq)
-}
-
-func scaffoldInferenceUserPrompt(scaffoldState, assistantContent string) string {
-	parts := []string{
-		"[Current scaffold state]",
-		strings.TrimSpace(scaffoldState),
-		"[Last assistant response]",
-		truncateScaffoldInferenceText(assistantContent, 200),
-		"Respond with ONLY a JSON object:",
-		`{"intent":"what is being done and why","next":"planned next action"}`,
-	}
-	return strings.Join(filterEmptyStrings(parts), "\n\n")
-}
-
-func truncateScaffoldInferenceText(text string, limit int) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "(empty)"
-	}
-	if limit <= 0 {
-		limit = 200
-	}
-	words := strings.Fields(text)
-	if len(words) <= limit {
-		return text
-	}
-	return strings.Join(words[:limit], " ") + " ..."
-}
-
-func scaffoldInferenceMaxTokens(budget prompt.ModelTokenBudget) *int {
-	maxTokens := 150
-	if budget.MaxCompletionTokens > 0 && budget.MaxCompletionTokens < maxTokens {
-		maxTokens = budget.MaxCompletionTokens
-	}
-	return &maxTokens
 }
 
 func filterEmptyStrings(values []string) []string {
@@ -157,44 +107,36 @@ func filterEmptyStrings(values []string) []string {
 	return filtered
 }
 
-func buildScratchpadMessage(state ContextState, scratchpadEnabled bool) (provider.Message, bool) {
-	hasSubstantiveContent := strings.TrimSpace(state.Scratchpad) != "" ||
-		len(state.ActiveConstraints) > 0 ||
+func buildContextStateMessage(state ContextState) (provider.Message, bool) {
+	hasSubstantiveContent := len(state.ActiveConstraints) > 0 ||
 		len(state.UnresolvedWork) > 0 ||
 		state.ActiveFocus != nil
 
-	if !scratchpadEnabled && !hasSubstantiveContent {
-		return provider.Message{}, false
-	}
 	if !hasSubstantiveContent && state.TurnCount == 0 {
 		return provider.Message{}, false
 	}
 
-	parts := scratchpadMessageParts(state)
+	parts := contextStateMessageParts(state)
 	return provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: strings.Join(parts, "\n\n"),
 	}, true
 }
 
-func scratchpadMessageParts(state ContextState) []string {
+func contextStateMessageParts(state ContextState) []string {
 	parts := []string{"[Current task state]"}
-	parts = append(parts, scratchpadConstraintLines(state.ActiveConstraints)...)
-	parts = append(parts, scratchpadWorkLines(state.UnresolvedWork)...)
+	parts = append(parts, contextConstraintLines(state.ActiveConstraints)...)
+	parts = append(parts, contextWorkLines(state.UnresolvedWork)...)
 	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
 		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
 	}
 	if contextState := strings.TrimSpace(state.Render()); contextState != "" {
 		parts = append(parts, contextState)
 	}
-	scratchpad := strings.TrimSpace(strings.Join(scratchpadFieldLines(state.Scratchpad), "\n"))
-	if scratchpad == "" {
-		scratchpad = "intent: \ndecisions: \nopen: \nnext: "
-	}
-	return append(parts, scratchpad)
+	return parts
 }
 
-func scratchpadConstraintLines(items []ActiveConstraint) []string {
+func contextConstraintLines(items []ActiveConstraint) []string {
 	if len(items) == 0 {
 		return nil
 	}
@@ -205,7 +147,7 @@ func scratchpadConstraintLines(items []ActiveConstraint) []string {
 	return []string{strings.Join(lines, "\n")}
 }
 
-func scratchpadWorkLines(items []UnresolvedWorkItem) []string {
+func contextWorkLines(items []UnresolvedWorkItem) []string {
 	if len(items) == 0 {
 		return nil
 	}
@@ -214,28 +156,6 @@ func scratchpadWorkLines(items []UnresolvedWorkItem) []string {
 		lines = append(lines, "- "+item.Text)
 	}
 	return []string{strings.Join(lines, "\n")}
-}
-
-func scratchpadFieldLines(rendered string) []string {
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
-		return nil
-	}
-
-	lines := strings.Split(rendered, "\n")
-	out := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || trimmed == "[Current task state]" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "session state:") {
-			continue
-		}
-		out = append(out, trimmed)
-	}
-	return out
 }
 
 func toPromptContext(state ContextState) prompt.DurableContextState {

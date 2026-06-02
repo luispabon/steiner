@@ -36,7 +36,7 @@ const (
 	emergencyCompactionRetainTurns = 1
 )
 
-const dropCompactionMarker = "[context compacted - see scratchpad for task state; re-read files if needed]"
+const dropCompactionMarker = "[context compacted - re-read files if needed]"
 
 const shortCompactionSystemPrompt = "Write a concise handoff summary for the next turn."
 
@@ -58,10 +58,6 @@ type summarizeCompactor struct{}
 
 type dropCompactor struct {
 	retainTurns int
-}
-
-type hybridCompactor struct {
-	maskingWindowTurns int
 }
 
 type compactionExecutionPlan struct {
@@ -112,41 +108,6 @@ func (d dropCompactor) Compact(ctx context.Context, req RunRequest, state RunSta
 		SummaryText:        dropCompactionMarker,
 		PromptText:         fmt.Sprintf("drop retain_turns=%d", retainTurns),
 	}, nil
-}
-
-func (h hybridCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
-	window := h.maskingWindowTurns
-	if window <= 0 {
-		window = 5
-	}
-
-	maskedMessages := maskConversation(candidate.Messages, window)
-	nextLineage := state.Lineage.WithCurrentMessages(maskedMessages)
-	request := buildConversationRequest(req, nextLineage.FullMessages())
-	fit, err := req.ModelBudget.FitRequest(ctx, request)
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
-	if fit.Fits {
-		nextState := state.Clone()
-		nextState.Lineage = nextLineage
-		nextState.Conversation = nextLineage.FullMessages()
-		return CompactionOutcome{
-			State:              nextState,
-			Applied:            true,
-			Candidate:          candidate,
-			Fit:                fit,
-			Mode:               prompt.CompactionModeNormal,
-			SummaryTokenBudget: compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
-			RetainedMessages:   cloneMessages(maskedMessages),
-			SummaryText:        "[conversation masked; no summary needed]",
-			PromptText:         fmt.Sprintf("hybrid mask window=%d", window),
-		}, nil
-	}
-
-	maskedCandidate := candidate
-	maskedCandidate.Messages = maskedMessages
-	return summarizeCompactionOutcome(ctx, req, state, turn, maskedCandidate, maskedMessages, maskedMessages)
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
@@ -398,12 +359,6 @@ func compactorForRequest(req RunRequest) Compactor {
 	switch strategy {
 	case compactionStrategyDrop:
 		return dropCompactor{retainTurns: defaultDropRetainTurns}
-	case compactionStrategyHybrid:
-		window := defaultMaskingWindowTurns
-		if req.ContextManager != nil {
-			window = req.ContextManager.epoch.MaskingWindow()
-		}
-		return hybridCompactor{maskingWindowTurns: window}
 	default:
 		return summarizeCompactor{}
 	}
@@ -482,14 +437,6 @@ func buildCompactionExecutionPlan(ctx context.Context, req RunRequest, state Run
 		return plan, true, nil
 	}
 
-	maskedPlan, ok, err := maskedCompactionExecutionPlan(ctx, req, state, plan)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if ok {
-		return maskedPlan, true, nil
-	}
-
 	previewPlan, ok, err := previewCompactionExecutionPlan(ctx, req, state, plan)
 	if err != nil {
 		return compactionExecutionPlan{}, false, err
@@ -516,21 +463,6 @@ func newCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunSt
 		promptText:       promptText,
 		fit:              fit,
 	}, nil
-}
-
-func maskedCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, plan compactionExecutionPlan) (compactionExecutionPlan, bool, error) {
-	maskedMessages := maskConversation(plan.candidate.Messages, 1)
-	if len(maskedMessages) == 0 {
-		return plan, false, nil
-	}
-	maskedPlan, err := newCompactionExecutionPlan(ctx, req, state, plan.candidate, maskedMessages, maskedMessages)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if !maskedPlan.fit.Fits {
-		return plan, false, nil
-	}
-	return maskedPlan, true, nil
 }
 
 func previewCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, plan compactionExecutionPlan) (compactionExecutionPlan, bool, error) {
