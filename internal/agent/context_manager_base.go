@@ -52,12 +52,13 @@ func (b *baseContextManager) observeToolResult(turn int, toolName string, _ map[
 }
 
 func (b *baseContextManager) observeReadToolResult(turn int, shaped string) string {
-	next, _, _ := b.observeReadToolResultWithObservation(turn, shaped)
+	result, _ := parseReadResult(shaped)
+	next, observation := b.observeReadToolResultWithObservation(turn, shaped)
+	b.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 	return next
 }
 
-func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shaped string) (string, readResult, fileObservation) {
-	result, _ := parseReadResult(shaped)
+func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shaped string) (string, fileObservation) {
 	next, observation := b.fileTracker.ObserveRead(turn, shaped, b.annotationsEnabled())
 	if observation.Action == "annotated" {
 		if observation.PreviousRead.LastTurn <= 0 {
@@ -70,8 +71,7 @@ func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shap
 			observation.Reason = "previous read no longer visible in context"
 		}
 	}
-	b.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
-	return next, result, observation
+	return next, observation
 }
 
 func (b *baseContextManager) annotationsEnabled() bool {

@@ -35,8 +35,6 @@ const (
 	emergencyCompactionRetainTurns = 1
 )
 
-const shortCompactionSystemPrompt = "Write a concise handoff summary for the next turn."
-
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
@@ -296,41 +294,6 @@ func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, b
 	return fitConversationState(ctx, req, state)
 }
 
-func summarizeCompactionOutcome(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message) (CompactionOutcome, error) {
-	plan, ok, err := buildCompactionExecutionPlan(ctx, req, state, candidate, sourceMessages, retainedMessages)
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
-	if !ok {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal)), nil
-	}
-
-	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget)
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
-
-	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
-	if summaryText == "" {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal)), nil
-	}
-
-	retained := cloneMessages(plan.retainedMessages)
-	nextState := buildSummarizedCompactionState(state, summaryText, candidate, turn, retained)
-
-	return CompactionOutcome{
-		State:              nextState,
-		Applied:            true,
-		Candidate:          candidate,
-		Fit:                plan.fit,
-		Mode:               prompt.CompactionModeNormal,
-		SummaryTokenBudget: compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
-		RetainedMessages:   retained,
-		SummaryText:        summaryText,
-		PromptText:         plan.promptText,
-	}, nil
-}
-
 func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, bool, error) {
 	plan, err := newCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
 	if err != nil {
@@ -358,78 +321,6 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 		promptText:       promptText,
 		fit:              fit,
 	}, nil
-}
-
-func buildCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message) (compactionExecutionPlan, bool, error) {
-	plan, err := newCompactionExecutionPlan(ctx, req, state, candidate, sourceMessages, retainedMessages)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if plan.fit.Fits {
-		return plan, true, nil
-	}
-
-	previewPlan, ok, err := previewCompactionExecutionPlan(ctx, req, state, plan)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if ok {
-		return previewPlan, true, nil
-	}
-	return plan, false, nil
-}
-
-func newCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message) (compactionExecutionPlan, error) {
-	workingCandidate := candidate
-	workingCandidate.Messages = cloneMessages(sourceMessages)
-	request, promptText := buildCompactionRequest(req, state, workingCandidate)
-	fit, err := req.ModelBudget.FitCompactionRequest(ctx, request)
-	if err != nil {
-		return compactionExecutionPlan{}, err
-	}
-	return compactionExecutionPlan{
-		candidate:        workingCandidate,
-		sourceMessages:   cloneMessages(sourceMessages),
-		retainedMessages: cloneMessages(retainedMessages),
-		request:          request,
-		promptText:       promptText,
-		fit:              fit,
-	}, nil
-}
-
-func previewCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, plan compactionExecutionPlan) (compactionExecutionPlan, bool, error) {
-	previewMessages := truncateCompactionMessages(plan.candidate.Messages, 80)
-	if len(previewMessages) == 0 {
-		return plan, false, nil
-	}
-	previewPlan, err := newCompactionExecutionPlan(ctx, req, state, plan.candidate, previewMessages, previewMessages)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if previewPlan.fit.Fits {
-		return previewPlan, true, nil
-	}
-	shortPlan, ok, err := shortPromptCompactionExecutionPlan(ctx, req, state, previewPlan)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if ok {
-		return shortPlan, true, nil
-	}
-	return plan, false, nil
-}
-
-func shortPromptCompactionExecutionPlan(ctx context.Context, req RunRequest, state RunState, plan compactionExecutionPlan) (compactionExecutionPlan, bool, error) {
-	shortReq := req
-	shortReq.Prompt.PromptOverrides.Compaction = shortCompactionSystemPrompt
-	shortPlan, err := newCompactionExecutionPlan(ctx, shortReq, state, plan.candidate, plan.sourceMessages, plan.retainedMessages)
-	if err != nil {
-		return compactionExecutionPlan{}, false, err
-	}
-	if !shortPlan.fit.Fits {
-		return plan, false, nil
-	}
-	return shortPlan, true, nil
 }
 
 func compactionNotAppliedOutcome(candidate ConversationCandidate, fit prompt.RequestTokenBudget, promptText string, mode prompt.CompactionMode, summaryTokenBudget int) CompactionOutcome {
@@ -460,21 +351,6 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 	nextState.Conversation = nextLineage.FullMessages()
 	nextState.Context = recordCompactionSummary(nextState.Context, summaryText, candidate, turn)
 	return nextState
-}
-
-func buildConversationRequest(req RunRequest, messages []Message) provider.ChatRequest {
-	request := provider.ChatRequest{
-		Model:       req.ResolvedModel.BackendModelID,
-		Messages:    ToProviderMessages(messages),
-		Tools:       cloneProviderTools(req.Tools),
-		ExtraParams: req.ResolvedModel.ExtraParams,
-		MaxTokens:   req.MaxTokens,
-	}
-	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
-}
-
-func buildCompactionRequest(req RunRequest, state RunState, candidate ConversationCandidate) (provider.ChatRequest, string) {
-	return buildCompactionRequestWithMode(req, state, candidate, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
 }
 
 func buildCompactionRequestWithMode(req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, string) {

@@ -2,20 +2,6 @@ package agent
 
 import "strings"
 
-// minTurnInMessages returns the smallest positive Turn value across all
-// messages, or 0 if no messages have a Turn set.
-func minTurnInMessages(messages []Message) int {
-	minTurn := 0
-	for _, m := range messages {
-		if m.Turn > 0 {
-			if minTurn == 0 || m.Turn < minTurn {
-				minTurn = m.Turn
-			}
-		}
-	}
-	return minTurn
-}
-
 func (s *ContextStateManager) resetTaskStateIfNeeded(state *RunState) {
 	if state == nil {
 		return

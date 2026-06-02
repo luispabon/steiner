@@ -134,14 +134,6 @@ func maskToolResult(message provider.Message, toolCalls []provider.ToolCall) str
 	return strings.Join(parts, " ")
 }
 
-func toolResultName(message provider.Message, toolCalls []provider.ToolCall) string {
-	name, _ := toolCallMetadata(message, toolCalls)
-	if name == "" {
-		name = strings.TrimSpace(message.Name)
-	}
-	return name
-}
-
 func turnForMasking(message provider.Message, assistantTurn int) int {
 	if message.Turn > 0 {
 		return message.Turn
