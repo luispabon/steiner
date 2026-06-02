@@ -96,13 +96,6 @@ type AssemblyPolicy struct {
 	ToolSummary ToolSummaryPolicy
 }
 
-// DurableContextEntry stores one durable context item retained across turns.
-type DurableContextEntry struct {
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"`
-	Turn   int    `json:"turn,omitempty"`
-}
-
 // DurableSummaryEntry stores a retained summary carried across compactions.
 type DurableSummaryEntry struct {
 	Title  string `json:"title,omitempty"`

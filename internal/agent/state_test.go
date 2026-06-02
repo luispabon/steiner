@@ -190,17 +190,6 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 			{Role: MessageRoleUser, Content: "keep working"},
 		}),
 		Context: ContextState{
-			ActiveConstraints: []ActiveConstraint{
-				{Text: "do not change public APIs", Source: "user", Turn: 1},
-			},
-			UnresolvedWork: []UnresolvedWorkItem{
-				{Text: "tighten retry handling", Source: "assistant", Turn: 2},
-			},
-			ActiveFocus: &ActiveFocus{
-				Text:   "finish the agent loop",
-				Source: "assistant",
-				Turn:   3,
-			},
 			RetainedSummaries: []RetainedSummary{
 				{Title: "earlier progress", Text: "implemented the scheduler", Source: "compaction", Turn: 2},
 			},
@@ -229,33 +218,12 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := withConversation.Lineage.FullMessages()[0].Content, "new turn"; got != want {
 		t.Fatalf("Lineage full content = %q, want %q", got, want)
 	}
-	if got, want := withConversation.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
-		t.Fatalf("ActiveConstraint text = %q, want %q", got, want)
-	}
-	if got, want := withConversation.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
-		t.Fatalf("UnresolvedWork text = %q, want %q", got, want)
-	}
-	if got, want := withConversation.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
-		t.Fatalf("ActiveFocus text = %q, want %q", got, want)
-	}
 	if got, want := withConversation.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
 		t.Fatalf("RetainedSummary text = %q, want %q", got, want)
 	}
 
-	withConversation.Context.ActiveConstraints[0].Text = "changed"
-	withConversation.Context.UnresolvedWork[0].Text = "changed"
-	withConversation.Context.ActiveFocus.Text = "changed"
 	withConversation.Context.RetainedSummaries[0].Text = "changed"
 
-	if got, want := original.Context.ActiveConstraints[0].Text, "do not change public APIs"; got != want {
-		t.Fatalf("original constraint text = %q, want %q", got, want)
-	}
-	if got, want := original.Context.UnresolvedWork[0].Text, "tighten retry handling"; got != want {
-		t.Fatalf("original unresolved work text = %q, want %q", got, want)
-	}
-	if got, want := original.Context.ActiveFocus.Text, "finish the agent loop"; got != want {
-		t.Fatalf("original active focus text = %q, want %q", got, want)
-	}
 	if got, want := original.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
 		t.Fatalf("original retained summary text = %q, want %q", got, want)
 	}
@@ -264,10 +232,8 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	}
 
 	withContext := original.WithContext(ContextState{
-		ActiveFocus: &ActiveFocus{
-			Text:   "render compacted context blocks",
-			Source: "planner",
-			Turn:   4,
+		RetainedSummaries: []RetainedSummary{
+			{Title: "replacement", Text: "render compacted context blocks", Source: "planner", Turn: 4},
 		},
 	})
 
@@ -277,8 +243,8 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := withContext.Conversation[0].Content, "keep working"; got != want {
 		t.Fatalf("Conversation content = %q, want %q", got, want)
 	}
-	if got, want := withContext.Context.ActiveFocus.Text, "render compacted context blocks"; got != want {
-		t.Fatalf("replacement ActiveFocus text = %q, want %q", got, want)
+	if got, want := withContext.Context.RetainedSummaries[0].Text, "render compacted context blocks"; got != want {
+		t.Fatalf("replacement RetainedSummary text = %q, want %q", got, want)
 	}
 	if got, want := withContext.Lineage.FullMessages()[0].Content, "keep working"; got != want {
 		t.Fatalf("WithContext lineage content = %q, want %q", got, want)

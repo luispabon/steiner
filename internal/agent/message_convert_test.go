@@ -398,6 +398,24 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("does not append durable context as a synthetic message", func(t *testing.T) {
+		state := RunState{
+			Conversation: []Message{{Role: MessageRoleUser, Content: "fallback msg"}},
+			Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "fallback msg"}}),
+			Context: ContextState{
+				RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "retained"}},
+			},
+		}
+		base := prompt.AssemblyOptions{}
+		result := assemblyOptions(base, state)
+		if got, want := len(result.Conversation), 1; got != want {
+			t.Fatalf("conversation len = %d, want %d", got, want)
+		}
+		if result.Conversation[0].Content != "fallback msg" {
+			t.Fatalf("conversation[0].Content = %q, want %q", result.Conversation[0].Content, "fallback msg")
+		}
+	})
+
 	t.Run("falls back to conversation when lineage empty", func(t *testing.T) {
 		convMsgs := []Message{
 			{Role: MessageRoleUser, Content: "fallback msg"},
@@ -450,86 +468,6 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 	})
 }
 
-func TestBuildContextStateMessage_RendersHeaderOnce(t *testing.T) {
-	state := ContextState{
-		ActiveConstraints: []ActiveConstraint{{Text: "do not regress"}},
-		UnresolvedWork:    []UnresolvedWorkItem{{Text: "finish stage 3"}},
-		ActiveFocus:       &ActiveFocus{Text: "dedupe header"},
-		RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "body", Source: "compactor", Turn: 4}},
-		TurnCount:         4,
-		CompactionCount:   1,
-	}
-
-	got, ok := buildContextStateMessage(state)
-	if !ok {
-		t.Fatal("buildContextStateMessage() = false, want true")
-	}
-
-	content := got.Content
-	if strings.Contains(content, "/home/") {
-		t.Fatalf("content = %q, want no absolute workspace roots", content)
-	}
-	for _, want := range []string{
-		"[Current task state]",
-		"session state: turn=4 compactions=1",
-		"active constraints:\n- do not regress",
-		"unresolved work:\n- finish stage 3",
-		"active focus:\n- dedupe header",
-	} {
-		if count := strings.Count(content, want); count != 1 {
-			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
-		}
-	}
-}
-
-func TestBuildContextStateMessage_EmptyStateStillComplete(t *testing.T) {
-	got, ok := buildContextStateMessage(ContextState{TurnCount: 1})
-	if !ok {
-		t.Fatal("buildContextStateMessage() = false, want true")
-	}
-	content := got.Content
-	if strings.Count(content, "[Current task state]") != 1 {
-		t.Fatalf("expected one current-task-state header, got %q", content)
-	}
-}
-
-func TestAssemblyOptions_AppendsSingleContextStateMessageForResumedSession(t *testing.T) {
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "hello", Turn: 7},
-			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
-		},
-		Lineage: newConversationLineage([]Message{
-			{Role: MessageRoleUser, Content: "hello", Turn: 7},
-			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
-		}),
-		Context: ContextState{
-			TurnCount:       7,
-			CompactionCount: 2,
-		},
-	}
-
-	got := assemblyOptions(prompt.AssemblyOptions{}, state)
-	if len(got.Conversation) != 3 {
-		t.Fatalf("conversation len = %d, want 3", len(got.Conversation))
-	}
-
-	contextStateMsg := got.Conversation[2]
-	if contextStateMsg.Role != provider.MessageRoleUser {
-		t.Fatalf("context state role = %s, want user", contextStateMsg.Role)
-	}
-
-	content := contextStateMsg.Content
-	for _, want := range []string{
-		"[Current task state]",
-		"session state: turn=7 compactions=2",
-	} {
-		if count := strings.Count(content, want); count != 1 {
-			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
-		}
-	}
-}
-
 func TestMessageConvert_ToPromptContext(t *testing.T) {
 	t.Run("empty state produces empty slice", func(t *testing.T) {
 		state := ContextState{}
@@ -541,10 +479,6 @@ func TestMessageConvert_ToPromptContext(t *testing.T) {
 
 	t.Run("maps retained summaries correctly", func(t *testing.T) {
 		state := ContextState{
-			// Non-summary fields are deliberately not mapped to prompt.DurableContextState.
-			ActiveConstraints: []ActiveConstraint{
-				{Text: "constraint1", Source: "user", Turn: 1},
-			},
 			RetainedSummaries: []RetainedSummary{
 				{Title: "summary1", Text: "body", Source: "compactor", Turn: 4},
 			},

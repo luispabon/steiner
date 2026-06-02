@@ -32,6 +32,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		HomeDir:                   homeDir,
 		ProjectRoot:               projectRoot,
 		SkillsRoots:               []string{skillsRoot},
+		ContextState:              DurableContextState{RetainedSummaries: []DurableSummaryEntry{{Title: "summary", Text: "retained compaction summary", Source: "compactor", Turn: 4}}},
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "how do I fix this?"}, {Role: provider.MessageRoleAssistant, Content: "use the tools"}},
 		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result"}},
 		ProjectContextBudgetBytes: 1024,
@@ -81,6 +82,9 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 
 	if readme <= 0 || readme >= conversation || conversation >= toolSummary {
 		t.Fatalf("message order = readme:%d conversation:%d tool_summary:%d", readme, conversation, toolSummary)
+	}
+	if got := strings.Contains(assembly.Messages[0].Content, "retained compaction summary"); got {
+		t.Fatalf("system message unexpectedly includes retained compaction summary: %q", assembly.Messages[0].Content)
 	}
 }
 
