@@ -86,10 +86,6 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 
 	providerMsgs := ToProviderMessages(conversation)
 
-	if contextStateMsg, ok := buildContextStateMessage(state.Context); ok {
-		providerMsgs = append(providerMsgs, contextStateMsg)
-	}
-
 	base.Conversation = providerMsgs
 	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
@@ -105,57 +101,6 @@ func filterEmptyStrings(values []string) []string {
 		filtered = append(filtered, value)
 	}
 	return filtered
-}
-
-func buildContextStateMessage(state ContextState) (provider.Message, bool) {
-	hasSubstantiveContent := len(state.ActiveConstraints) > 0 ||
-		len(state.UnresolvedWork) > 0 ||
-		state.ActiveFocus != nil
-
-	if !hasSubstantiveContent && state.TurnCount == 0 {
-		return provider.Message{}, false
-	}
-
-	parts := contextStateMessageParts(state)
-	return provider.Message{
-		Role:    provider.MessageRoleUser,
-		Content: strings.Join(parts, "\n\n"),
-	}, true
-}
-
-func contextStateMessageParts(state ContextState) []string {
-	parts := []string{"[Current task state]"}
-	parts = append(parts, contextConstraintLines(state.ActiveConstraints)...)
-	parts = append(parts, contextWorkLines(state.UnresolvedWork)...)
-	if state.ActiveFocus != nil && strings.TrimSpace(state.ActiveFocus.Text) != "" {
-		parts = append(parts, "active focus:\n- "+state.ActiveFocus.Text)
-	}
-	if contextState := strings.TrimSpace(state.Render()); contextState != "" {
-		parts = append(parts, contextState)
-	}
-	return parts
-}
-
-func contextConstraintLines(items []ActiveConstraint) []string {
-	if len(items) == 0 {
-		return nil
-	}
-	lines := []string{"active constraints:"}
-	for _, item := range items {
-		lines = append(lines, "- "+item.Text)
-	}
-	return []string{strings.Join(lines, "\n")}
-}
-
-func contextWorkLines(items []UnresolvedWorkItem) []string {
-	if len(items) == 0 {
-		return nil
-	}
-	lines := []string{"unresolved work:"}
-	for _, item := range items {
-		lines = append(lines, "- "+item.Text)
-	}
-	return []string{strings.Join(lines, "\n")}
 }
 
 func toPromptContext(state ContextState) prompt.DurableContextState {

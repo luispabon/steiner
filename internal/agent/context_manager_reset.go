@@ -27,8 +27,6 @@ func (s *ContextStateManager) resetTaskStateIfNeeded(state *RunState) {
 	if !ok || !shouldResetTaskState(message.Content) {
 		return
 	}
-	state.Context.ActiveFocus = nil
-	state.Context.UnresolvedWork = nil
 	state.Context.FileTrackerSummary = nil
 	state.Context.RecentToolCalls = nil
 }
