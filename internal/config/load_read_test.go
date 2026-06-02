@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -177,6 +178,55 @@ func TestSubAgentConfigYAMLParsing(t *testing.T) {
 			applySubAgentPatch(&dst, patch.SubAgent)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseConfigPatchRejectsRemovedContextManagementFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "mode",
+			yaml: `context_management:
+  mode: smart
+`,
+			wantErr: "field mode not found",
+		},
+		{
+			name: "compaction_strategy",
+			yaml: `context_management:
+  compaction_strategy: hybrid
+`,
+			wantErr: "field compaction_strategy not found",
+		},
+		{
+			name: "masking_window_turns",
+			yaml: `context_management:
+  masking_window_turns: 5
+`,
+			wantErr: "field masking_window_turns not found",
+		},
+		{
+			name: "scratchpad_mode",
+			yaml: `context_management:
+  scratchpad_mode: hybrid
+`,
+			wantErr: "field scratchpad_mode not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseConfigPatch("test.yaml", tt.yaml)
+			if err == nil {
+				t.Fatalf("parseConfigPatch() error = nil, want substring %q", tt.wantErr)
+			}
+			if got := err.Error(); !strings.Contains(got, tt.wantErr) {
+				t.Fatalf("parseConfigPatch() error = %q, want substring %q", got, tt.wantErr)
 			}
 		})
 	}

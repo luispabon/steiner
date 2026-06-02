@@ -58,11 +58,7 @@ func validBase() Config {
 			File:  "steiner.log",
 		},
 		ContextManagement: ContextManagementConfig{
-			Mode:               ContextModeNaive,
-			CompactionStrategy: CompactionStrategyDrop,
-			MaskingWindowTurns: 5,
-			ReadAnnotations:    true,
-			ScratchpadMode:     ScratchpadModeScaffoldOnly,
+			ReadAnnotations: true,
 		},
 	}
 }
@@ -74,16 +70,6 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid", cfg: validBase(), wantErr: ""},
-		{
-			name: "invalid scratchpad mode",
-			cfg: func() Config {
-				c := validBase()
-				c.ContextManagement.ScratchpadMode = "bogus"
-				return c
-			}(),
-			wantErr: `context_management.scratchpad_mode "bogus" is not supported`,
-		},
-
 		// Missing default_model, providers, models
 		{
 			name: "missing default_model",
@@ -685,11 +671,7 @@ func TestSearchConfigValidation(t *testing.T) {
 					File:  "steiner.log",
 				},
 				ContextManagement: ContextManagementConfig{
-					Mode:               ContextModeNaive,
-					CompactionStrategy: CompactionStrategyDrop,
-					MaskingWindowTurns: 5,
-					ReadAnnotations:    true,
-					ScratchpadMode:     ScratchpadModeScaffoldOnly,
+					ReadAnnotations: true,
 				},
 				Search: SearchConfig{
 					Backend:      tt.backend,

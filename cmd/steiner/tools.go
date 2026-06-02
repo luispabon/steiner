@@ -21,16 +21,14 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		Interactive: interactive,
 	}
 	tools := builtin.Builtins(env)
-	if cfg.ContextManagement.ScratchpadMode != config.ScratchpadModeHybrid {
-		filtered := tools[:0]
-		for _, def := range tools {
-			if def.Name == "scratchpad" {
-				continue
-			}
-			filtered = append(filtered, def)
+	filtered := tools[:0]
+	for _, def := range tools {
+		if def.Name == "scratchpad" {
+			continue
 		}
-		tools = filtered
+		filtered = append(filtered, def)
 	}
+	tools = filtered
 	return tools
 }
 

@@ -1,49 +1,40 @@
 package config
 
-// ContextMode controls which context management strategy the agent uses.
+// ContextMode is retained as an internal compatibility type while the
+// user-facing config and CLI surface are being collapsed.
 type ContextMode string
 
 const (
-	// ContextModeNaive is the default pass-through mode that keeps existing
-	// compaction behaviour unchanged.
 	ContextModeNaive ContextMode = "naive"
-	// ContextModeSmart enables active context management with signal extraction
-	// and structured state.
 	ContextModeSmart ContextMode = "smart"
 )
 
-// CompactionStrategy controls how the smart context manager reduces context
-// when the conversation grows too large.
+// CompactionStrategy is retained as an internal compatibility type while the
+// user-facing config surface is being collapsed.
 type CompactionStrategy string
 
 const (
-	// CompactionStrategyDrop discards old turns without summarising.
-	CompactionStrategyDrop CompactionStrategy = "drop"
-	// CompactionStrategySummarize summarises dropped turns before removing them.
+	CompactionStrategyDrop      CompactionStrategy = "drop"
 	CompactionStrategySummarize CompactionStrategy = "summarize"
-	// CompactionStrategyHybrid combines summarisation with selective retention.
-	CompactionStrategyHybrid CompactionStrategy = "hybrid"
+	CompactionStrategyHybrid    CompactionStrategy = "hybrid"
 )
 
-// ScratchpadMode controls how the scratchpad state is maintained.
+// ScratchpadMode is retained as an internal compatibility type while the
+// user-facing config surface is being collapsed.
 type ScratchpadMode string
 
 const (
-	// ScratchpadModeScaffoldOnly uses steiner-managed scaffold state only.
 	ScratchpadModeScaffoldOnly ScratchpadMode = "scaffold_only"
-	// ScratchpadModeHybrid enables the model-written scratchpad tool in addition
-	// to the steiner-managed scaffold state.
-	ScratchpadModeHybrid ScratchpadMode = "hybrid"
+	ScratchpadModeHybrid       ScratchpadMode = "hybrid"
 )
 
-// ContextManagementConfig holds settings for the active context management
-// feature.
+// ContextManagementConfig holds baseline context management settings.
 type ContextManagementConfig struct {
-	Mode               ContextMode        `yaml:"mode"`
-	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
-	MaskingWindowTurns int                `yaml:"masking_window_turns"`
+	Mode               ContextMode        `yaml:"-"`
+	CompactionStrategy CompactionStrategy `yaml:"-"`
+	MaskingWindowTurns int                `yaml:"-"`
 	ReadAnnotations    bool               `yaml:"read_annotations"`
-	ScratchpadMode     ScratchpadMode     `yaml:"scratchpad_mode"`
+	ScratchpadMode     ScratchpadMode     `yaml:"-"`
 }
 
 // ProviderType is the type of model provider.

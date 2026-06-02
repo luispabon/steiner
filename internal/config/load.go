@@ -14,7 +14,6 @@ type CLIOverrides struct {
 	ConfigPath  string
 	Model       string
 	Verbose     bool
-	ContextMode ContextMode
 	CavemanMode *bool
 }
 

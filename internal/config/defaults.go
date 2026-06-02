@@ -72,11 +72,7 @@ func defaultConfig() Config {
 			ShowInternalScaffoldInference: false,
 		},
 		ContextManagement: ContextManagementConfig{
-			Mode:               ContextModeNaive,
-			CompactionStrategy: CompactionStrategyDrop,
-			MaskingWindowTurns: 5,
-			ReadAnnotations:    true,
-			ScratchpadMode:     ScratchpadModeScaffoldOnly,
+			ReadAnnotations: true,
 		},
 		CavemanMode: false,
 	}

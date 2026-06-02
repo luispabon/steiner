@@ -29,11 +29,7 @@ type providerPatch struct {
 }
 
 type contextManagementPatch struct {
-	Mode               *ContextMode        `yaml:"mode"`
-	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
-	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
-	ReadAnnotations    *bool               `yaml:"read_annotations"`
-	ScratchpadMode     *ScratchpadMode     `yaml:"scratchpad_mode"`
+	ReadAnnotations *bool `yaml:"read_annotations"`
 }
 
 type schedulerPatch struct {

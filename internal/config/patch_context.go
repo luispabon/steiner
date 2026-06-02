@@ -82,19 +82,7 @@ func applyContextManagementConfigPatch(cfg *Config, patch configPatch) {
 }
 
 func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {
-	if patch.Mode != nil {
-		dst.Mode = *patch.Mode
-	}
-	if patch.CompactionStrategy != nil {
-		dst.CompactionStrategy = *patch.CompactionStrategy
-	}
-	if patch.MaskingWindowTurns != nil {
-		dst.MaskingWindowTurns = *patch.MaskingWindowTurns
-	}
 	if patch.ReadAnnotations != nil {
 		dst.ReadAnnotations = *patch.ReadAnnotations
-	}
-	if patch.ScratchpadMode != nil {
-		dst.ScratchpadMode = *patch.ScratchpadMode
 	}
 }
