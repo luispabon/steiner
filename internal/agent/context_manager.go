@@ -7,12 +7,6 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-const (
-	compactionStrategyDrop      = "drop"
-	compactionStrategySummarize = "summarize"
-	compactionStrategyHybrid    = "hybrid"
-)
-
 // Compactor reduces an oversize conversation to fit the model token budget.
 type Compactor interface {
 	Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error)
@@ -22,7 +16,6 @@ type Compactor interface {
 // the runner.
 type ContextStateManager struct {
 	baseContextManager
-	compactionStrategy string
 }
 
 // NewContextStateManager builds the concrete context-state manager used by the runner.
@@ -37,7 +30,6 @@ func NewContextStateManager(cfg ...config.ContextManagementConfig) *ContextState
 	}
 	manager.readAnnotations = cfg[0].ReadAnnotations
 	manager.annotationsConfigured = true
-	manager.compactionStrategy = cfg[0].CompactionStrategy
 	return manager
 }
 
@@ -74,16 +66,9 @@ func (s *ContextStateManager) ProcessAssistantResponse(_ int, content string) (s
 
 func (s *ContextStateManager) RecordTurnCompletion(int, bool) {}
 
-func (s *ContextStateManager) RecordCompaction(int) {}
-
 // ObserveToolResult records heuristic context derived from a tool result.
 func (s *ContextStateManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
 	return s.observeToolResult(turn, toolName, input, content)
-}
-
-func (s *ContextStateManager) ResetEpoch(turn int) {
-	s.fileTracker.PruneBeforeTurn(turn)
-	s.minVisibleTurn = turn
 }
 
 // SetEventSink installs the sink used for context-management diagnostics.

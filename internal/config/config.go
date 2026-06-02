@@ -2,10 +2,7 @@ package config
 
 // ContextManagementConfig holds baseline context management settings.
 type ContextManagementConfig struct {
-	CompactionStrategy string `yaml:"-"`
-	MaskingWindowTurns int    `yaml:"-"`
-	ReadAnnotations    bool   `yaml:"read_annotations"`
-	ScratchpadMode     string `yaml:"-"`
+	ReadAnnotations bool `yaml:"read_annotations"`
 }
 
 // ProviderType is the type of model provider.

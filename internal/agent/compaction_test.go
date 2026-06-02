@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -157,9 +156,6 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextStateManager(config.ContextManagementConfig{
-			CompactionStrategy: compactionStrategySummarize,
-		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
@@ -169,13 +165,7 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 			SummaryMaxTokens:    128,
 		},
 	}
-	outcome, err := compactorForRequest(req).Compact(
-		context.Background(),
-		req,
-		state,
-		3,
-		candidate,
-	)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 3, candidate)
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -246,9 +236,6 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextStateManager(config.ContextManagementConfig{
-			CompactionStrategy: compactionStrategySummarize,
-		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
@@ -689,81 +676,6 @@ func TestSummarizeCompactorErrorsWhenEmergencyCompactionCannotReduceEnough(t *te
 	}
 }
 
-func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant", ToolCalls: []ToolCall{{ID: "call-1", Name: "read", Arguments: map[string]any{"path": "one.txt"}}}},
-			{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: "turn 1 result"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant", ToolCalls: []ToolCall{{ID: "call-2", Name: "bash", Arguments: map[string]any{"command": "echo two"}}}},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-2", Content: "turn 2 result"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
-			{Role: MessageRoleUser, Content: "turn 4 user"},
-			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
-		},
-		Lineage: newConversationLineage([]Message{
-			{Role: MessageRoleUser, Content: "turn 1 user"},
-			{Role: MessageRoleAssistant, Content: "turn 1 assistant", ToolCalls: []ToolCall{{ID: "call-1", Name: "read", Arguments: map[string]any{"path": "one.txt"}}}},
-			{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: "turn 1 result"},
-			{Role: MessageRoleUser, Content: "turn 2 user"},
-			{Role: MessageRoleAssistant, Content: "turn 2 assistant", ToolCalls: []ToolCall{{ID: "call-2", Name: "bash", Arguments: map[string]any{"command": "echo two"}}}},
-			{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-2", Content: "turn 2 result"},
-			{Role: MessageRoleUser, Content: "turn 3 user"},
-			{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
-			{Role: MessageRoleUser, Content: "turn 4 user"},
-			{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
-		}),
-	}
-
-	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
-	if !ok {
-		t.Fatal("selectCompactionCandidate() ok = false, want true")
-	}
-
-	dropReq := RunRequest{
-		ContextManager: NewContextStateManager(config.ContextManagementConfig{
-			CompactionStrategy: compactionStrategyDrop,
-		}),
-		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
-		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:         4096,
-			MaxCompletionTokens: 256,
-			SafetyMarginTokens:  0,
-			SummaryMaxTokens:    128,
-		},
-	}
-	outcome, err := compactorForRequest(dropReq).Compact(
-		context.Background(),
-		dropReq,
-		state,
-		9,
-		candidate,
-	)
-	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
-	}
-	if !outcome.Applied {
-		t.Fatal("Applied = false, want true")
-	}
-	if got, want := outcome.State.Conversation[0].Content, dropCompactionMarker; got != want {
-		t.Fatalf("marker = %q, want %q", got, want)
-	}
-	if got, want := outcome.State.Conversation[1].Content, "turn 2 user"; got != want {
-		t.Fatalf("conversation[1] = %q, want %q", got, want)
-	}
-	if messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 1 user") {
-		t.Fatal("turn 1 user was retained, want it dropped")
-	}
-	if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 2 result") {
-		t.Fatal("turn 2 tool result missing, want turn pair preserved")
-	}
-	if !messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 3 assistant") {
-		t.Fatal("turn 3 assistant missing, want recent turns preserved")
-	}
-}
-
 func TestCompactionSourceAndRetentionUsesNormalAndEmergencyWindows(t *testing.T) {
 	messages := []Message{
 		{Role: MessageRoleUser, Content: "turn 1 user"},
@@ -886,9 +798,6 @@ func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextStateManager(config.ContextManagementConfig{
-			CompactionStrategy: compactionStrategySummarize,
-		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
@@ -923,63 +832,10 @@ func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.
 	}
 }
 
-func TestCompactorForRequest(t *testing.T) {
+func TestSummarizeCompactorUsesBaselinePath(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		manager  *ContextStateManager
-		wantType string
-	}{
-		{
-			name:     "no ContextManager defaults to summarize",
-			manager:  nil,
-			wantType: "summarizeCompactor",
-		},
-		{
-			name:     "ContextStateManager defaults to summarize",
-			manager:  &ContextStateManager{},
-			wantType: "summarizeCompactor",
-		},
-		{
-			name: "ContextStateManager with drop strategy",
-			manager: NewContextStateManager(config.ContextManagementConfig{
-				CompactionStrategy: compactionStrategyDrop,
-			}),
-			wantType: "dropCompactor",
-		},
-		{
-			name: "ContextStateManager with hybrid strategy",
-			manager: NewContextStateManager(config.ContextManagementConfig{
-				CompactionStrategy: compactionStrategyHybrid,
-			}),
-			wantType: "summarizeCompactor",
-		},
-		{
-			name: "ContextStateManager with summarize strategy",
-			manager: NewContextStateManager(config.ContextManagementConfig{
-				CompactionStrategy: compactionStrategySummarize,
-			}),
-			wantType: "summarizeCompactor",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := RunRequest{ContextManager: tt.manager}
-			compactor := compactorForRequest(req)
-			switch tt.wantType {
-			case "summarizeCompactor":
-				if _, ok := compactor.(summarizeCompactor); !ok {
-					t.Fatalf("compactorForRequest() type = %T, want summarizeCompactor", compactor)
-				}
-			case "dropCompactor":
-				if _, ok := compactor.(dropCompactor); !ok {
-					t.Fatalf("compactorForRequest() type = %T, want dropCompactor", compactor)
-				}
-			default:
-				t.Fatalf("unknown wantType %q", tt.wantType)
-			}
-		})
+	if _, ok := any(summarizeCompactor{}).(Compactor); !ok {
+		t.Fatal("summarizeCompactor does not implement Compactor")
 	}
 }
