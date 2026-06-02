@@ -101,11 +101,11 @@ Five specialized delegate tools are registered alongside the generic `delegate` 
 
 | Type | Role | Tool Allowlist | Default Model Tier |
 |------|------|----------------|-------------------|
-| `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls`, `scratchpad` | cheap |
-| `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url`, `scratchpad` | cheap |
-| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `scratchpad` | default |
-| `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls`, `scratchpad` | default |
-| `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash`, `scratchpad` | cheap |
+| `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls` | cheap |
+| `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url` | cheap |
+| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `mutate`, `bash` | default |
+| `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls` | default |
+| `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash` | cheap |
 
 ### Tool Schema (same for all types)
 
@@ -132,7 +132,7 @@ for _, def := range delegation.AllSpecializedToolDefs(deps) {
 Each type has a focused system prompt (200-400 tokens) that:
 - States the agent's role and capabilities
 - Specifies result format
-- Instructs scratchpad usage for intermediate findings
+- Instructs the model to use the listed tools and keep intermediate findings concise
 - Is not shared between types
 
 ### Model Selection
@@ -372,7 +372,7 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 
 1. **One level only**: children never have access to the `delegate` tool
 2. **No approval prompts**: child tool execution is auto-approved
-3. **Naive context manager**: children get the default naive context manager, so they do not perform smart compaction or masking internally
+3. **Default context manager**: children use the same baseline context manager path as the parent, with no special child-only shaping
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them
 5. **Model resolution**: children use the parent provider/model by default; specialized per-type model aliases resolve to their configured provider/model before the child run is built
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent

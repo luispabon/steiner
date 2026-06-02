@@ -53,7 +53,7 @@ func defaultConfig() Config {
 			Enabled:      true,
 			MaxTurns:     30,
 			MaxTokens:    100000,
-			AllowedTools: []string{"read", "glob", "grep", "ls", "bash", "scratchpad"},
+			AllowedTools: []string{"read", "glob", "grep", "ls", "bash"},
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{

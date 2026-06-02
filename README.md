@@ -325,7 +325,6 @@ sub_agent:
     - write
     - edit
     - bash
-    - scratchpad
   agents:                        # per-type model overrides (optional)
     code:
       model: gpt-4o
