@@ -15,7 +15,7 @@ import (
 	builtin "github.com/luispabon/steiner/internal/tool/builtin"
 )
 
-func TestNaiveContextManagerPostIngestion(t *testing.T) {
+func TestContextStateManagerPostIngestion(t *testing.T) {
 	tests := []struct {
 		name  string
 		state RunState
@@ -36,7 +36,7 @@ func TestNaiveContextManagerPostIngestion(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &NaiveContextManager{}
+			m := &ContextStateManager{}
 			got, err := m.PostIngestion(context.Background(), tc.state)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -54,7 +54,7 @@ func TestNaiveContextManagerPostIngestion(t *testing.T) {
 	}
 }
 
-func TestNaiveContextManagerPreAssembly(t *testing.T) {
+func TestContextStateManagerPrepareTurnStatePassthrough(t *testing.T) {
 	tests := []struct {
 		name  string
 		state RunState
@@ -73,8 +73,8 @@ func TestNaiveContextManagerPreAssembly(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &NaiveContextManager{}
-			got, err := m.PreAssembly(context.Background(), tc.state)
+			m := &ContextStateManager{}
+			got, err := m.PrepareTurnState(context.Background(), tc.state)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -88,7 +88,7 @@ func TestNaiveContextManagerPreAssembly(t *testing.T) {
 	}
 }
 
-func TestPostIngestionNaiveContextManagerKeepsToolOutputWhenAnnotationsDisabled(t *testing.T) {
+func TestPostIngestionContextManagerStillShapesNonReadToolOutputWhenAnnotationsDisabled(t *testing.T) {
 	state := RunState{
 		TurnCount: 2,
 		Conversation: []Message{
@@ -103,12 +103,12 @@ func TestPostIngestionNaiveContextManagerKeepsToolOutputWhenAnnotationsDisabled(
 		},
 	}
 
-	got, err := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: false}).(*NaiveContextManager).PostIngestion(context.Background(), state)
+	got, err := NewContextStateManager(config.ContextManagementConfig{ReadAnnotations: false}).PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.Conversation[0].Content != state.Conversation[0].Content {
-		t.Fatalf("Conversation[0].Content = %q, want unchanged", got.Conversation[0].Content)
+	if got.Conversation[0].Content == state.Conversation[0].Content {
+		t.Fatalf("Conversation[0].Content = %q, want shaped output", got.Conversation[0].Content)
 	}
 	if got.TurnCount != state.TurnCount {
 		t.Fatalf("TurnCount = %d, want %d", got.TurnCount, state.TurnCount)
@@ -118,7 +118,7 @@ func TestPostIngestionNaiveContextManagerKeepsToolOutputWhenAnnotationsDisabled(
 	}
 }
 
-func TestPostIngestionNaiveContextManagerAnnotatesRepeatedReadWhenEnabled(t *testing.T) {
+func TestPostIngestionContextStateManagerAnnotatesRepeatedReadWhenEnabled(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
@@ -143,7 +143,7 @@ func TestPostIngestionNaiveContextManagerAnnotatesRepeatedReadWhenEnabled(t *tes
 		},
 	}
 
-	got, err := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: true}).(*NaiveContextManager).PostIngestion(context.Background(), state)
+	got, err := NewContextStateManager(config.ContextManagementConfig{ReadAnnotations: true}).PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestPostIngestionNaiveContextManagerAnnotatesRepeatedReadWhenEnabled(t *tes
 	}
 }
 
-func TestPostIngestionNaiveContextManagerDefaultsReadAnnotationsEnabled(t *testing.T) {
+func TestPostIngestionContextStateManagerDefaultsReadAnnotationsEnabled(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
@@ -183,7 +183,7 @@ func TestPostIngestionNaiveContextManagerDefaultsReadAnnotationsEnabled(t *testi
 		},
 	}
 
-	got, err := NewContextManager("naive").(*NaiveContextManager).PostIngestion(context.Background(), state)
+	got, err := NewContextStateManager().PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestPostIngestionNaiveContextManagerDefaultsReadAnnotationsEnabled(t *testi
 	}
 }
 
-func TestPostIngestionSmartContextManagerTransformsToolOutput(t *testing.T) {
+func TestPostIngestionContextStateManagerTransformsToolOutput(t *testing.T) {
 	bashContent := mustJSON(t, bashOutputForIngestionTest())
 	grepContent := mustJSON(t, grepOutputForIngestionTest())
 	readContent := mustJSON(t, map[string]any{
@@ -213,7 +213,7 @@ func TestPostIngestionSmartContextManagerTransformsToolOutput(t *testing.T) {
 	}
 	state.Lineage = newConversationLineage(state.Conversation)
 
-	got, err := (&SmartContextManager{}).PostIngestion(context.Background(), state)
+	got, err := (&ContextStateManager{}).PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -272,10 +272,10 @@ func TestPostIngestionSmartContextManagerTransformsToolOutput(t *testing.T) {
 	}
 }
 
-func TestSmartContextManagerPreAssembly(t *testing.T) {
-	m := &SmartContextManager{}
+func TestContextStateManagerPrepareTurnState(t *testing.T) {
+	m := &ContextStateManager{}
 	state := RunState{TurnCount: 4}
-	got, err := m.PreAssembly(context.Background(), state)
+	got, err := m.PrepareTurnState(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -284,8 +284,8 @@ func TestSmartContextManagerPreAssembly(t *testing.T) {
 	}
 }
 
-func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *testing.T) {
-	cm := &SmartContextManager{epoch: EpochManager{maskingWindowTurns: 5}}
+func TestContextStateManagerPostIngestionInitializesEpochFromLoadedHistory(t *testing.T) {
+	cm := &ContextStateManager{epoch: EpochManager{maskingWindowTurns: 5}}
 	state := RunState{TurnCount: 12}
 
 	got, err := cm.PostIngestion(context.Background(), state)
@@ -303,7 +303,7 @@ func TestSmartContextManagerPostIngestionInitializesEpochFromLoadedHistory(t *te
 	}
 }
 
-func TestSmartContextManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory(t *testing.T) {
+func TestContextStateManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
@@ -333,7 +333,7 @@ func TestSmartContextManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory
 	}
 	state.Lineage = newConversationLineage(state.Conversation)
 
-	got, err := (&SmartContextManager{}).PostIngestion(context.Background(), state)
+	got, err := (&ContextStateManager{}).PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -348,15 +348,15 @@ func TestSmartContextManagerPostIngestionUsesPerMessageTurnsForLoadedToolHistory
 	}
 }
 
-func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
-	cm := &SmartContextManager{epoch: EpochManager{maskingWindowTurns: 5, epochStartTurn: 5}}
+func TestContextStateManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing.T) {
+	cm := &ContextStateManager{epoch: EpochManager{maskingWindowTurns: 5, epochStartTurn: 5}}
 	first := RunState{
 		TurnCount:    9,
 		Conversation: epochTestConversation(10),
 	}
 	first.Lineage = newConversationLineage(first.Conversation)
 
-	gotFirst, err := cm.PreAssembly(context.Background(), first)
+	gotFirst, err := cm.PrepareTurnState(context.Background(), first)
 	if err != nil {
 		t.Fatalf("first PreAssembly error: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestSmartContextManagerKeepsMaskedPrefixStableAcrossEpochAdvance(t *testing
 	}
 	second.Lineage = newConversationLineage(second.Conversation)
 
-	gotSecond, err := cm.PreAssembly(context.Background(), second)
+	gotSecond, err := cm.PrepareTurnState(context.Background(), second)
 	if err != nil {
 		t.Fatalf("second PreAssembly error: %v", err)
 	}
@@ -421,13 +421,13 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 	otherContent := `{"path":"other.txt","start_line":1,"end_line":2,"total_lines":2,"output":"other\ncontent\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
 	// Turn 1: first read of note.txt — full content
-	got1 := cm.IngestToolResult(1, "read", content)
+	got1 := cm.ObserveToolResult(1, "read", nil, content)
 	if got1 != content {
 		t.Fatalf("turn 1 read = %q, want full content", got1)
 	}
@@ -442,10 +442,10 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 		},
 	}
 	state2.Lineage = newConversationLineage(state2.Conversation)
-	_, _ = cm.PreAssembly(context.Background(), state2)
+	_, _ = cm.PrepareTurnState(context.Background(), state2)
 
 	// Turn 2: read a DIFFERENT file — note.txt's tracker entry stays at LastTurn=1
-	got2 := cm.IngestToolResult(2, "read", otherContent)
+	got2 := cm.ObserveToolResult(2, "read", nil, otherContent)
 	if got2 != otherContent {
 		t.Fatalf("turn 2 read = %q, want full other content", got2)
 	}
@@ -463,11 +463,11 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadMasked(t *testing.T) {
 		},
 	}
 	state3.Lineage = newConversationLineage(state3.Conversation)
-	_, _ = cm.PreAssembly(context.Background(), state3)
+	_, _ = cm.PrepareTurnState(context.Background(), state3)
 
 	// Turn 3: re-read note.txt — PreviousRead.LastTurn=1 (note.txt not read at turn 2),
 	// epochMaskBoundary=2 → 1<2 → gate fires, annotation suppressed
-	got3 := cm.IngestToolResult(3, "read", content)
+	got3 := cm.ObserveToolResult(3, "read", nil, content)
 	if strings.Contains(got3, "file unchanged since turn") {
 		t.Fatalf("turn 3 read after masking = %q, want full content (turn 1 is masked)", got3)
 	}
@@ -493,19 +493,19 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompacted(t *testing.T)
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 5,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
 	// Turn 1: first read — full content
-	got1 := cm.IngestToolResult(1, "read", content)
+	got1 := cm.ObserveToolResult(1, "read", nil, content)
 	if got1 != content {
 		t.Fatalf("turn 1 read = %q, want full content", got1)
 	}
 
 	// Turn 2: re-read — annotation (turn 1 still visible)
-	got2 := cm.IngestToolResult(2, "read", content)
+	got2 := cm.ObserveToolResult(2, "read", nil, content)
 	if !strings.Contains(got2, "file unchanged since turn 1") {
 		t.Fatalf("turn 2 read = %q, want unchanged annotation", got2)
 	}
@@ -517,7 +517,7 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompacted(t *testing.T)
 	// minVisibleTurn=2, 2<2 false — gate doesn't fire for consecutive reads.
 	// Annotation still references turn 2 which is still visible.
 	// The gate fires when there is a gap between the last read and current turn.
-	got3 := cm.IngestToolResult(3, "read", content)
+	got3 := cm.ObserveToolResult(3, "read", nil, content)
 	if !strings.Contains(got3, "file unchanged since turn") {
 		t.Fatalf("turn 3 read = %q, want unchanged annotation (previous read turn 2 still visible)", got3)
 	}
@@ -543,13 +543,13 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *tes
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 5,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
 	// Turn 1: first read — full content
-	got1 := cm.IngestToolResult(1, "read", content)
+	got1 := cm.ObserveToolResult(1, "read", nil, content)
 	if got1 != content {
 		t.Fatalf("turn 1 read = %q, want full content", got1)
 	}
@@ -561,7 +561,7 @@ func TestIngestToolResultBlocksAnnotationWhenPreviousReadCompactedWithGap(t *tes
 
 	// Turn 3: re-read — PreviousRead.LastTurn is 1 (no read at turn 2),
 	// minVisibleTurn=2, 1<2 — gate fires!
-	got3 := cm.IngestToolResult(3, "read", content)
+	got3 := cm.ObserveToolResult(3, "read", nil, content)
 	if strings.Contains(got3, "file unchanged since turn") {
 		t.Fatalf("turn 3 read after compaction = %q, want full content (turn 1 dropped)", got3)
 	}
@@ -589,12 +589,12 @@ func TestIngestToolResultAfterMaskingSupportsExactEditFollowUp(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	readResult := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"alpha\nbeta\ncharlie\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
-	if got := cm.IngestToolResult(1, "read", readResult); got != readResult {
+	if got := cm.ObserveToolResult(1, "read", nil, readResult); got != readResult {
 		t.Fatalf("turn 1 read = %q, want full content", got)
 	}
 
@@ -606,7 +606,7 @@ func TestIngestToolResultAfterMaskingSupportsExactEditFollowUp(t *testing.T) {
 		},
 	}
 	state2.Lineage = newConversationLineage(state2.Conversation)
-	if _, err := cm.PreAssembly(context.Background(), state2); err != nil {
+	if _, err := cm.PrepareTurnState(context.Background(), state2); err != nil {
 		t.Fatalf("turn 2 preassembly: %v", err)
 	}
 
@@ -620,11 +620,11 @@ func TestIngestToolResultAfterMaskingSupportsExactEditFollowUp(t *testing.T) {
 		},
 	}
 	state3.Lineage = newConversationLineage(state3.Conversation)
-	if _, err := cm.PreAssembly(context.Background(), state3); err != nil {
+	if _, err := cm.PrepareTurnState(context.Background(), state3); err != nil {
 		t.Fatalf("turn 3 preassembly: %v", err)
 	}
 
-	got3 := cm.IngestToolResult(3, "read", readResult)
+	got3 := cm.ObserveToolResult(3, "read", nil, readResult)
 	if strings.Contains(got3, "file unchanged since turn") {
 		t.Fatalf("turn 3 read = %q, want no stale annotation", got3)
 	}
@@ -686,12 +686,12 @@ func TestIngestToolResultSuppressesTurnZeroPlaceholderAnnotations(t *testing.T) 
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
-	got1 := cm.IngestToolResult(0, "read", content)
+	got1 := cm.ObserveToolResult(0, "read", nil, content)
 	if got1 != content {
 		t.Fatalf("turn 0 read = %q, want full content", got1)
 	}
@@ -699,7 +699,7 @@ func TestIngestToolResultSuppressesTurnZeroPlaceholderAnnotations(t *testing.T) 
 	cm.epoch.minVisibleTurn = 1
 	cm.epoch.epochMaskBoundary = 1
 
-	got2 := cm.IngestToolResult(2, "read", content)
+	got2 := cm.ObserveToolResult(2, "read", nil, content)
 	if got2 != content {
 		t.Fatalf("turn 2 reread after turn 0 placeholder = %q, want full content", got2)
 	}
@@ -725,97 +725,53 @@ func TestObserveReadHeuristicsRecordsSuppressionFact(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
-	cm := NewContextManager("smart", config.ContextManagementConfig{
+	cm := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
-	}).(*SmartContextManager)
+	})
 
 	// Turn 1: first read
-	_ = cm.IngestToolResult(1, "read", content)
+	_ = cm.ObserveToolResult(1, "read", nil, content)
 
 	// Turn 2: re-read, gets annotation
-	_ = cm.IngestToolResult(2, "read", content)
+	_ = cm.ObserveToolResult(2, "read", nil, content)
 
 	// Simulate masking boundary advancing past turn 2
 	cm.epoch.epochMaskBoundary = 3
 
 	// Turn 3: re-read, gate suppresses annotation
-	_ = cm.IngestToolResult(3, "read", content)
+	_ = cm.ObserveToolResult(3, "read", nil, content)
 
 	if !strings.Contains(cm.scratchpad.scratchpad.Decisions, "previous read turn 2 no longer visible") {
 		t.Fatalf("Decisions = %q, want suppression fact", cm.scratchpad.scratchpad.Decisions)
 	}
 }
 
-func TestNewContextManager(t *testing.T) {
-	tests := []struct {
-		name     string
-		mode     string
-		wantType string
-	}{
-		{"naive mode", "naive", "*agent.NaiveContextManager"},
-		{"smart mode", "smart", "*agent.SmartContextManager"},
-		{"empty falls back to naive", "", "*agent.NaiveContextManager"},
-		{"unknown falls back to naive", "unknown", "*agent.NaiveContextManager"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewContextManager(tc.mode)
-			if m == nil {
-				t.Fatal("NewContextManager returned nil")
-			}
-			switch tc.wantType {
-			case "*agent.NaiveContextManager":
-				if _, ok := m.(*NaiveContextManager); !ok {
-					t.Errorf("got %T, want *NaiveContextManager", m)
-				}
-			case "*agent.SmartContextManager":
-				if _, ok := m.(*SmartContextManager); !ok {
-					t.Errorf("got %T, want *SmartContextManager", m)
-				}
-			}
-		})
+func TestNewContextStateManager(t *testing.T) {
+	manager := NewContextStateManager()
+	if manager == nil {
+		t.Fatal("NewContextStateManager returned nil")
 	}
 }
 
-func TestNewContextManagerConfigAppliesReadAnnotationsToBothModes(t *testing.T) {
-	smart, ok := NewContextManager("smart", config.ContextManagementConfig{ReadAnnotations: false}).(*SmartContextManager)
-	if !ok {
-		t.Fatalf("smart manager type = %T, want *SmartContextManager", smart)
+func TestNewContextStateManagerAppliesConfig(t *testing.T) {
+	manager := NewContextStateManager(config.ContextManagementConfig{
+		ReadAnnotations:    false,
+		CompactionStrategy: compactionStrategyHybrid,
+		ScratchpadMode:     scratchpadModeHybrid,
+	})
+	if manager.annotationsEnabled() {
+		t.Fatal("annotationsEnabled = true, want false")
 	}
-	if smart.annotationsEnabled() {
-		t.Fatal("smart annotationsEnabled = true, want false")
+	if got, want := manager.compactionStrategy, compactionStrategyHybrid; got != want {
+		t.Fatalf("compactionStrategy = %q, want %q", got, want)
 	}
-
-	naive, ok := NewContextManager("naive", config.ContextManagementConfig{ReadAnnotations: false}).(*NaiveContextManager)
-	if !ok {
-		t.Fatalf("naive manager type = %T, want *NaiveContextManager", naive)
-	}
-	if naive.annotationsEnabled() {
-		t.Fatal("naive annotationsEnabled = true, want false")
-	}
-}
-
-func TestNaiveContextManagerImplementsSharedInterfaces(t *testing.T) {
-	manager := NewContextManager("naive")
-	if _, ok := manager.(PreambleProvider); !ok {
-		t.Fatalf("%T does not implement PreambleProvider", manager)
-	}
-	if _, ok := manager.(MutationRecorder); !ok {
-		t.Fatalf("%T does not implement MutationRecorder", manager)
-	}
-	if _, ok := manager.(ToolResultIngestor); !ok {
-		t.Fatalf("%T does not implement ToolResultIngestor", manager)
-	}
-	if _, ok := manager.(EpochResetter); !ok {
-		t.Fatalf("%T does not implement EpochResetter", manager)
-	}
-	if _, ok := manager.(EventSinkSetter); !ok {
-		t.Fatalf("%T does not implement EventSinkSetter", manager)
+	if got, want := manager.scratchpad.mode, scratchpadModeHybrid; got != want {
+		t.Fatalf("scratchpadMode = %q, want %q", got, want)
 	}
 }
 
-func TestNaiveContextManagerSetEventSinkEmitsReadDiagnostics(t *testing.T) {
+func TestContextStateManagerSetEventSinkEmitsReadDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
@@ -832,7 +788,7 @@ func TestNaiveContextManagerSetEventSinkEmitsReadDiagnostics(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	var events []output.Event
-	cm := NewContextManager("naive").(*NaiveContextManager)
+	cm := NewContextStateManager()
 	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
 
 	content := `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`
@@ -859,34 +815,10 @@ func TestNaiveContextManagerSetEventSinkEmitsReadDiagnostics(t *testing.T) {
 	}
 }
 
-func TestNewContextManagerAppliesCompactionStrategy(t *testing.T) {
-	m, ok := NewContextManager("smart", config.ContextManagementConfig{
-		CompactionStrategy: config.CompactionStrategyHybrid,
-	}).(*SmartContextManager)
-	if !ok {
-		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
-	}
-	if got, want := m.compactionStrategy, config.CompactionStrategyHybrid; got != want {
-		t.Fatalf("compactionStrategy = %q, want %q", got, want)
-	}
-}
-
-func TestNewContextManagerAppliesScratchpadMode(t *testing.T) {
-	m, ok := NewContextManager("smart", config.ContextManagementConfig{
-		ScratchpadMode: config.ScratchpadModeHybrid,
-	}).(*SmartContextManager)
-	if !ok {
-		t.Fatalf("NewContextManager returned %T, want *SmartContextManager", m)
-	}
-	if got, want := m.scratchpad.mode, config.ScratchpadModeHybrid; got != want {
-		t.Fatalf("scratchpadMode = %q, want %q", got, want)
-	}
-}
-
 func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 	t.Parallel()
-	cm := &SmartContextManager{}
-	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","intent":"fix bug","decisions":"chose X","open":"","next":"fix"}`)
+	cm := &ContextStateManager{}
+	result := cm.ObserveToolResult(1, "scratchpad", nil, `{"status":"ok","intent":"fix bug","decisions":"chose X","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
@@ -899,10 +831,10 @@ func TestIngestToolResultCapturesScratchpadState(t *testing.T) {
 }
 
 func TestIngestToolResultLeavesScratchpadUnchangedOnLegacyOnlyPayload(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	cm.scratchpad.scratchpad.Intent = "keep"
 
-	result := cm.IngestToolResult(1, "scratchpad", `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
+	result := cm.ObserveToolResult(1, "scratchpad", nil, `{"status":"ok","goal":"fix bug","plan":"read code","step":"reading","decisions":"chose X","files":"foo.go (read)","open":"","next":"fix"}`)
 	if result != `{"ok":true}` {
 		t.Fatalf("result = %q, want compact ack", result)
 	}
@@ -915,7 +847,7 @@ func TestHeuristicDecisionsSanitizeBashCommandSummary(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 
 	got := cm.ObserveToolResult(1, "bash", map[string]any{
 		"cwd":     cwd,
@@ -981,7 +913,7 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	_ = cm.ObserveToolResult(1, "read", nil, `{"path":"first.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`)
 	_ = cm.ObserveToolResult(2, "read", nil, `{"path":"second.txt","start_line":1,"end_line":1,"total_lines":1,"output":"two\n"}`)
 
@@ -997,7 +929,7 @@ func TestHeuristicDecisionsRecordFileSwitches(t *testing.T) {
 }
 
 func TestObserveToolResultTracksMutateMutationHeuristics(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	result := `{"paths":["first.txt","note.txt"],"modified":["first.txt","note.txt"],"operations_applied":2,"output":"Success.\nUpdated the following files:\nM first.txt\nM note.txt"}`
 	got := cm.ObserveToolResult(4, "mutate", nil, result)
 	if got != result {
@@ -1039,8 +971,8 @@ func TestMutateSuccessAndFailureInvalidatesReadAnnotations(t *testing.T) {
 	secondRegion := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
 
 	t.Run("successful mutate bumps file generation for later reads", func(t *testing.T) {
-		cm := &SmartContextManager{}
-		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+		cm := &ContextStateManager{}
+		if got := cm.ObserveToolResult(1, "read", nil, firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
@@ -1050,19 +982,19 @@ func TestMutateSuccessAndFailureInvalidatesReadAnnotations(t *testing.T) {
 			Output:            "Success.",
 		})
 
-		gotSame := cm.IngestToolResult(2, "read", firstRegion)
+		gotSame := cm.ObserveToolResult(2, "read", nil, firstRegion)
 		if strings.Contains(gotSame, "file unchanged since turn 1") {
 			t.Fatalf("same-region reread = %q, want no stale annotation", gotSame)
 		}
-		gotDifferent := cm.IngestToolResult(3, "read", secondRegion)
+		gotDifferent := cm.ObserveToolResult(3, "read", nil, secondRegion)
 		if strings.Contains(gotDifferent, "file unchanged since turn") {
 			t.Fatalf("different-region reread = %q, want no stale annotation", gotDifferent)
 		}
 	})
 
 	t.Run("failed mutate leaves generation unchanged", func(t *testing.T) {
-		cm := &SmartContextManager{}
-		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+		cm := &ContextStateManager{}
+		if got := cm.ObserveToolResult(1, "read", nil, firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
@@ -1071,7 +1003,7 @@ func TestMutateSuccessAndFailureInvalidatesReadAnnotations(t *testing.T) {
 			Output:           "mutate: no match for old_string",
 		})
 
-		got := cm.IngestToolResult(2, "read", firstRegion)
+		got := cm.ObserveToolResult(2, "read", nil, firstRegion)
 		if !strings.Contains(got, "file unchanged since turn 1") {
 			t.Fatalf("failed-mutate reread = %q, want unchanged annotation preserved", got)
 		}
@@ -1098,8 +1030,8 @@ func TestMutateMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
 	secondRegion := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
 
 	t.Run("successful mutate bumps file generation for later reads", func(t *testing.T) {
-		cm := &SmartContextManager{}
-		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+		cm := &ContextStateManager{}
+		if got := cm.ObserveToolResult(1, "read", nil, firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
@@ -1109,19 +1041,19 @@ func TestMutateMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
 			Output:            "mutated one file",
 		})
 
-		gotSame := cm.IngestToolResult(2, "read", firstRegion)
+		gotSame := cm.ObserveToolResult(2, "read", nil, firstRegion)
 		if strings.Contains(gotSame, "file unchanged since turn 1") {
 			t.Fatalf("same-region reread = %q, want no stale annotation", gotSame)
 		}
-		gotDifferent := cm.IngestToolResult(3, "read", secondRegion)
+		gotDifferent := cm.ObserveToolResult(3, "read", nil, secondRegion)
 		if strings.Contains(gotDifferent, "file unchanged since turn") {
 			t.Fatalf("different-region reread = %q, want no stale annotation", gotDifferent)
 		}
 	})
 
 	t.Run("failed mutate leaves generation unchanged", func(t *testing.T) {
-		cm := &SmartContextManager{}
-		if got := cm.IngestToolResult(1, "read", firstRegion); got != firstRegion {
+		cm := &ContextStateManager{}
+		if got := cm.ObserveToolResult(1, "read", nil, firstRegion); got != firstRegion {
 			t.Fatalf("first read = %q, want full content", got)
 		}
 		recordMutationForContextManager(cm, "mutate", nil, &builtin.MutateResult{
@@ -1132,7 +1064,7 @@ func TestMutateMutationInvalidatesReadAnnotationsAcrossRanges(t *testing.T) {
 			Output:            "replace failed",
 		})
 
-		got := cm.IngestToolResult(2, "read", firstRegion)
+		got := cm.ObserveToolResult(2, "read", nil, firstRegion)
 		if !strings.Contains(got, "file unchanged since turn 1") {
 			t.Fatalf("failed-mutate reread = %q, want unchanged annotation preserved", got)
 		}
@@ -1183,15 +1115,15 @@ func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	var events []output.Event
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	cm.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
 
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
-	if got := cm.IngestToolResult(1, "read", content); got != content {
+	if got := cm.ObserveToolResult(1, "read", nil, content); got != content {
 		t.Fatalf("first read = %q, want full content", got)
 	}
 	cm.RecordMutation("note.txt")
-	if got := cm.IngestToolResult(2, "read", content); got != content {
+	if got := cm.ObserveToolResult(2, "read", nil, content); got != content {
 		t.Fatalf("second read after generation bump = %q, want full content", got)
 	}
 
@@ -1217,23 +1149,23 @@ func TestIngestToolResultEmitsGenerationMismatchDiagnostic(t *testing.T) {
 }
 
 func TestOnTurnCompleteResetsFailuresOnCall(t *testing.T) {
-	cm := &SmartContextManager{}
-	cm.scratchpad.mode = config.ScratchpadModeHybrid
+	cm := &ContextStateManager{}
+	cm.scratchpad.mode = scratchpadModeHybrid
 	cm.scratchpad.failures = 2
-	cm.OnTurnComplete(1, true)
+	cm.RecordTurnCompletion(1, true)
 	if cm.scratchpad.failures != 0 {
 		t.Fatalf("scratchpadFailures = %d, want 0 after scratchpad called", cm.scratchpad.failures)
 	}
 }
 
 func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
-	cm := &SmartContextManager{}
-	cm.scratchpad.mode = config.ScratchpadModeHybrid
-	cm.OnTurnComplete(1, false)
+	cm := &ContextStateManager{}
+	cm.scratchpad.mode = scratchpadModeHybrid
+	cm.RecordTurnCompletion(1, false)
 	if cm.scratchpad.failures != 1 {
 		t.Fatalf("scratchpadFailures = %d, want 1", cm.scratchpad.failures)
 	}
-	cm.OnTurnComplete(2, false)
+	cm.RecordTurnCompletion(2, false)
 	if cm.scratchpad.failures != 2 {
 		t.Fatalf("scratchpadFailures = %d, want 2", cm.scratchpad.failures)
 	}
@@ -1241,26 +1173,26 @@ func TestOnTurnCompleteIncrementsFailuresWhenMissed(t *testing.T) {
 
 func TestOnTurnCompleteEmitsEventAtThreshold(t *testing.T) {
 	var events []output.Event
-	cm := &SmartContextManager{}
-	cm.scratchpad.mode = config.ScratchpadModeHybrid
+	cm := &ContextStateManager{}
+	cm.scratchpad.mode = scratchpadModeHybrid
 	cm.SetEventSink(output.SinkFunc(func(e output.Event) { events = append(events, e) }))
 
-	cm.OnTurnComplete(1, false)
-	cm.OnTurnComplete(2, false)
+	cm.RecordTurnCompletion(1, false)
+	cm.RecordTurnCompletion(2, false)
 	if len(events) != 0 {
 		t.Fatalf("events emitted before threshold: %d", len(events))
 	}
-	cm.OnTurnComplete(3, false)
+	cm.RecordTurnCompletion(3, false)
 	if len(events) != 1 {
 		t.Fatalf("events = %d after threshold, want 1", len(events))
 	}
 }
 
 func TestOnTurnCompleteNaiveIsNoop(_ *testing.T) {
-	// NaiveContextManager.OnTurnComplete must not panic.
-	m := &NaiveContextManager{}
-	m.OnTurnComplete(0, false)
-	m.OnTurnComplete(1, true)
+	// ContextStateManager.OnTurnComplete must not panic.
+	m := &ContextStateManager{}
+	m.RecordTurnCompletion(0, false)
+	m.RecordTurnCompletion(1, true)
 }
 
 func TestParseScratchpadToolResultDecisionsConcatenation(t *testing.T) {
@@ -1358,7 +1290,7 @@ func TestParseScratchpadToolResultRejectsLegacyOnlyPayloads(t *testing.T) {
 }
 
 func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	cm.scratchpad.scratchpad = Scratchpad{
 		Intent:       "inspect note",
 		Decisions:    "old decision",
@@ -1401,7 +1333,7 @@ func TestResetTaskStateIfNeededClearsStaleTaskFields(t *testing.T) {
 }
 
 func TestResetTaskStateIfNeededIgnoresContinuations(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	cm.scratchpad.scratchpad = Scratchpad{
 		Intent:      "keep",
 		WorkingFile: "note.txt",

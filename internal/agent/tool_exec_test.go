@@ -11,7 +11,7 @@ type successMutation struct{}
 func (s *successMutation) WasMutated() bool { return true }
 
 func TestRecordMutationForContextManager(t *testing.T) {
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 
 	recordMutationForContextManager(cm, "read", map[string]any{"path": "note.txt"}, &successMutation{})
 	if got := cm.fileTracker.generations; len(got) != 0 {
@@ -31,7 +31,7 @@ func TestRecordMutationForContextManager(t *testing.T) {
 	}
 
 	t.Run("mutate with failed mutation does not bump generation", func(t *testing.T) {
-		cm := &SmartContextManager{}
+		cm := &ContextStateManager{}
 		result := struct {
 			Paths []string `json:"paths"`
 			*failedMutation

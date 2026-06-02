@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -17,49 +16,49 @@ func (c *captureEvents) Emit(e output.Event) {
 	c.events = append(c.events, e)
 }
 
-func TestScratchpadManagerOnTurnCompleteHybrid(t *testing.T) {
+func TestScratchpadManagerRecordTurnCompletionHybrid(t *testing.T) {
 	sink := &captureEvents{}
-	m := &ScratchpadManager{mode: config.ScratchpadModeHybrid}
+	m := &ScratchpadManager{mode: scratchpadModeHybrid}
 	m.SetEventSink(sink)
 
 	// Two misses — no event yet
-	m.OnTurnComplete(1, false)
-	m.OnTurnComplete(2, false)
+	m.RecordTurnCompletion(1, false)
+	m.RecordTurnCompletion(2, false)
 	if len(sink.events) != 0 {
 		t.Fatalf("want 0 events after 2 misses, got %d", len(sink.events))
 	}
 
 	// Third miss — event emitted
-	m.OnTurnComplete(3, false)
+	m.RecordTurnCompletion(3, false)
 	if len(sink.events) == 0 {
 		t.Fatal("want event after 3 consecutive misses, got none")
 	}
 }
 
-func TestScratchpadManagerOnTurnCompleteResetOnCall(t *testing.T) {
+func TestScratchpadManagerRecordTurnCompletionResetOnCall(t *testing.T) {
 	sink := &captureEvents{}
-	m := &ScratchpadManager{mode: config.ScratchpadModeHybrid}
+	m := &ScratchpadManager{mode: scratchpadModeHybrid}
 	m.SetEventSink(sink)
 
-	m.OnTurnComplete(1, false)
-	m.OnTurnComplete(2, false)
+	m.RecordTurnCompletion(1, false)
+	m.RecordTurnCompletion(2, false)
 	// Reset by calling with scratchpadCalled=true
-	m.OnTurnComplete(3, true)
+	m.RecordTurnCompletion(3, true)
 	// Now two more misses — still below threshold
-	m.OnTurnComplete(4, false)
-	m.OnTurnComplete(5, false)
+	m.RecordTurnCompletion(4, false)
+	m.RecordTurnCompletion(5, false)
 	if len(sink.events) != 0 {
 		t.Fatalf("want 0 events — failures reset by call, got %d", len(sink.events))
 	}
 }
 
-func TestScratchpadManagerOnTurnCompleteNonHybridNoOp(t *testing.T) {
+func TestScratchpadManagerRecordTurnCompletionNonHybridNoOp(t *testing.T) {
 	sink := &captureEvents{}
-	m := &ScratchpadManager{mode: config.ScratchpadModeScaffoldOnly}
+	m := &ScratchpadManager{mode: scratchpadModeScaffoldOnly}
 	m.SetEventSink(sink)
 
 	for i := 0; i < 5; i++ {
-		m.OnTurnComplete(i, false)
+		m.RecordTurnCompletion(i, false)
 	}
 	if len(sink.events) != 0 {
 		t.Fatalf("want no events in scaffold-only mode, got %d", len(sink.events))
@@ -89,7 +88,7 @@ func TestScratchpadManagerIngestToolResult(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &ScratchpadManager{mode: config.ScratchpadModeHybrid}
+			m := &ScratchpadManager{mode: scratchpadModeHybrid}
 			got := m.IngestToolResult(1, tc.content)
 			if got != tc.wantAck {
 				t.Errorf("IngestToolResult() = %q, want %q", got, tc.wantAck)
@@ -229,7 +228,7 @@ func TestScratchpadManagerSetWorkingFile(t *testing.T) {
 
 func TestScratchpadManagerShouldRunScaffoldInference(t *testing.T) {
 	t.Run("returns false in hybrid mode", func(t *testing.T) {
-		m := &ScratchpadManager{mode: config.ScratchpadModeHybrid}
+		m := &ScratchpadManager{mode: scratchpadModeHybrid}
 		state := RunState{}
 		if m.ShouldRunScaffoldInference(state, 0) {
 			t.Error("want false in hybrid mode")
@@ -237,7 +236,7 @@ func TestScratchpadManagerShouldRunScaffoldInference(t *testing.T) {
 	})
 
 	t.Run("returns true first time in scaffold-only", func(t *testing.T) {
-		m := &ScratchpadManager{mode: config.ScratchpadModeScaffoldOnly}
+		m := &ScratchpadManager{mode: scratchpadModeScaffoldOnly}
 		state := RunState{}
 		if !m.ShouldRunScaffoldInference(state, 0) {
 			t.Error("want true on first call in scaffold-only mode")
@@ -245,7 +244,7 @@ func TestScratchpadManagerShouldRunScaffoldInference(t *testing.T) {
 	})
 
 	t.Run("deduplicates same fingerprint", func(t *testing.T) {
-		m := &ScratchpadManager{mode: config.ScratchpadModeScaffoldOnly}
+		m := &ScratchpadManager{mode: scratchpadModeScaffoldOnly}
 		state := RunState{}
 		m.ShouldRunScaffoldInference(state, 0) // first: consumes
 		if m.ShouldRunScaffoldInference(state, 0) {
@@ -254,7 +253,7 @@ func TestScratchpadManagerShouldRunScaffoldInference(t *testing.T) {
 	})
 
 	t.Run("returns true when compaction count changes", func(t *testing.T) {
-		m := &ScratchpadManager{mode: config.ScratchpadModeScaffoldOnly}
+		m := &ScratchpadManager{mode: scratchpadModeScaffoldOnly}
 		state := RunState{}
 		m.ShouldRunScaffoldInference(state, 0)
 		if !m.ShouldRunScaffoldInference(state, 1) {

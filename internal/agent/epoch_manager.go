@@ -85,7 +85,6 @@ func (e *EpochManager) Advance(currentTurn int) string {
 }
 
 // ResetEpoch resets the epoch boundaries and emits a diagnostic event.
-// It implements EpochResetter.
 func (e *EpochManager) ResetEpoch(turn int) {
 	e.epochMaskBoundary = 0
 	e.epochStartTurn = turn

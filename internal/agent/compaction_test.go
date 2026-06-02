@@ -158,8 +158,8 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
-			CompactionStrategy: config.CompactionStrategySummarize,
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{
+			CompactionStrategy: compactionStrategySummarize,
 		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
@@ -247,8 +247,8 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
-			CompactionStrategy: config.CompactionStrategySummarize,
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{
+			CompactionStrategy: compactionStrategySummarize,
 		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
@@ -724,8 +724,8 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 	}
 
 	dropReq := RunRequest{
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
-			CompactionStrategy: config.CompactionStrategyDrop,
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{
+			CompactionStrategy: compactionStrategyDrop,
 		}),
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
@@ -767,8 +767,8 @@ func TestDropCompactorKeepsRecentTurnsAndMarker(t *testing.T) {
 
 func TestCompactionResetsEpochStateAndEmitsResetDiagnostic(t *testing.T) {
 	var events []output.Event
-	cm := &SmartContextManager{
-		compactionStrategy: config.CompactionStrategyDrop,
+	cm := &ContextStateManager{
+		compactionStrategy: compactionStrategyDrop,
 		epoch: EpochManager{
 			maskingWindowTurns: 5,
 			epochMaskBoundary:  7,
@@ -883,8 +883,8 @@ func TestHybridCompactorMasksBeforeSummarizing(t *testing.T) {
 	}
 
 	hybridReq := RunRequest{
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
-			CompactionStrategy: config.CompactionStrategyHybrid,
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{
+			CompactionStrategy: compactionStrategyHybrid,
 			MaskingWindowTurns: 1,
 		}),
 		Provider:      providerStub,
@@ -1046,8 +1046,8 @@ func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.
 	}
 
 	req := RunRequest{
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{
-			CompactionStrategy: config.CompactionStrategySummarize,
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{
+			CompactionStrategy: compactionStrategySummarize,
 		}),
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
@@ -1088,7 +1088,7 @@ func TestCompactorForRequest(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		manager  ContextManager
+		manager  *ContextStateManager
 		wantType string
 	}{
 		{
@@ -1097,28 +1097,28 @@ func TestCompactorForRequest(t *testing.T) {
 			wantType: "summarizeCompactor",
 		},
 		{
-			name:     "NaiveContextManager defaults to summarize",
-			manager:  &NaiveContextManager{},
+			name:     "ContextStateManager defaults to summarize",
+			manager:  &ContextStateManager{},
 			wantType: "summarizeCompactor",
 		},
 		{
-			name: "SmartContextManager with drop strategy",
-			manager: NewContextManager("smart", config.ContextManagementConfig{
-				CompactionStrategy: config.CompactionStrategyDrop,
+			name: "ContextStateManager with drop strategy",
+			manager: NewContextStateManager(config.ContextManagementConfig{
+				CompactionStrategy: compactionStrategyDrop,
 			}),
 			wantType: "dropCompactor",
 		},
 		{
-			name: "SmartContextManager with hybrid strategy",
-			manager: NewContextManager("smart", config.ContextManagementConfig{
-				CompactionStrategy: config.CompactionStrategyHybrid,
+			name: "ContextStateManager with hybrid strategy",
+			manager: NewContextStateManager(config.ContextManagementConfig{
+				CompactionStrategy: compactionStrategyHybrid,
 			}),
 			wantType: "hybridCompactor",
 		},
 		{
-			name: "SmartContextManager with summarize strategy",
-			manager: NewContextManager("smart", config.ContextManagementConfig{
-				CompactionStrategy: config.CompactionStrategySummarize,
+			name: "ContextStateManager with summarize strategy",
+			manager: NewContextStateManager(config.ContextManagementConfig{
+				CompactionStrategy: compactionStrategySummarize,
 			}),
 			wantType: "summarizeCompactor",
 		},

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -368,8 +367,8 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	*state = outcome.State
 	if compactionCount != nil {
 		(*compactionCount)++
-		if recorder, ok := req.ContextManager.(CompactionRecorder); ok {
-			recorder.RecordCompaction(turn)
+		if req.ContextManager != nil {
+			req.ContextManager.RecordCompaction(turn)
 		}
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
 	}
@@ -378,9 +377,9 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	return true, nil
 }
 
-func resetEpochForContextManager(cm ContextManager, turn int) {
-	if resetter, ok := cm.(EpochResetter); ok {
-		resetter.ResetEpoch(turn)
+func resetEpochForContextManager(cm *ContextStateManager, turn int) {
+	if cm != nil {
+		cm.ResetEpoch(turn)
 	}
 }
 
@@ -392,17 +391,17 @@ func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, b
 }
 
 func compactorForRequest(req RunRequest) Compactor {
-	strategy := config.CompactionStrategySummarize
-	if sp, ok := req.ContextManager.(CompactionStrategyProvider); ok {
-		strategy = sp.CompactionStrategy()
+	strategy := compactionStrategySummarize
+	if req.ContextManager != nil && req.ContextManager.compactionStrategy != "" {
+		strategy = req.ContextManager.compactionStrategy
 	}
 	switch strategy {
-	case config.CompactionStrategyDrop:
+	case compactionStrategyDrop:
 		return dropCompactor{retainTurns: defaultDropRetainTurns}
-	case config.CompactionStrategyHybrid:
+	case compactionStrategyHybrid:
 		window := defaultMaskingWindowTurns
-		if mw, ok := req.ContextManager.(MaskingWindowProvider); ok {
-			window = mw.MaskingWindow()
+		if req.ContextManager != nil {
+			window = req.ContextManager.epoch.MaskingWindow()
 		}
 		return hybridCompactor{maskingWindowTurns: window}
 	default:

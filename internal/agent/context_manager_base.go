@@ -119,7 +119,7 @@ func (b *baseContextManager) emitFileAnnotationDiagnostics(turn int, result read
 	))
 }
 
-func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message, ingestor ToolResultIngestor) []Message {
+func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message, ingestor *ContextStateManager) []Message {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -130,7 +130,7 @@ func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Mess
 	return out
 }
 
-func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message, ingestor ToolResultIngestor) Message {
+func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message, ingestor *ContextStateManager) Message {
 	if message.Role != MessageRoleTool {
 		return message
 	}

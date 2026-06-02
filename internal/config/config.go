@@ -1,40 +1,11 @@
 package config
 
-// ContextMode is retained as an internal compatibility type while the
-// user-facing config and CLI surface are being collapsed.
-type ContextMode string
-
-const (
-	ContextModeNaive ContextMode = "naive"
-	ContextModeSmart ContextMode = "smart"
-)
-
-// CompactionStrategy is retained as an internal compatibility type while the
-// user-facing config surface is being collapsed.
-type CompactionStrategy string
-
-const (
-	CompactionStrategyDrop      CompactionStrategy = "drop"
-	CompactionStrategySummarize CompactionStrategy = "summarize"
-	CompactionStrategyHybrid    CompactionStrategy = "hybrid"
-)
-
-// ScratchpadMode is retained as an internal compatibility type while the
-// user-facing config surface is being collapsed.
-type ScratchpadMode string
-
-const (
-	ScratchpadModeScaffoldOnly ScratchpadMode = "scaffold_only"
-	ScratchpadModeHybrid       ScratchpadMode = "hybrid"
-)
-
 // ContextManagementConfig holds baseline context management settings.
 type ContextManagementConfig struct {
-	Mode               ContextMode        `yaml:"-"`
-	CompactionStrategy CompactionStrategy `yaml:"-"`
-	MaskingWindowTurns int                `yaml:"-"`
-	ReadAnnotations    bool               `yaml:"read_annotations"`
-	ScratchpadMode     ScratchpadMode     `yaml:"-"`
+	CompactionStrategy string `yaml:"-"`
+	MaskingWindowTurns int    `yaml:"-"`
+	ReadAnnotations    bool   `yaml:"read_annotations"`
+	ScratchpadMode     string `yaml:"-"`
 }
 
 // ProviderType is the type of model provider.

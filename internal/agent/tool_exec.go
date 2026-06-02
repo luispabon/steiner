@@ -10,19 +10,15 @@ type mutated interface {
 	WasMutated() bool
 }
 
-func recordMutationForContextManager(cm ContextManager, toolName string, _ map[string]any, result any) {
+func recordMutationForContextManager(cm *ContextStateManager, toolName string, _ map[string]any, result any) {
 	if cm == nil || !strings.EqualFold(strings.TrimSpace(toolName), "mutate") {
 		return
 	}
 	if m, ok := result.(mutated); ok && !m.WasMutated() {
 		return
 	}
-	recorder, ok := cm.(MutationRecorder)
-	if !ok {
-		return
-	}
 	for _, path := range mutationResultPaths(result) {
-		recorder.RecordMutation(path)
+		cm.RecordMutation(path)
 	}
 }
 

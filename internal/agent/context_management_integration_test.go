@@ -140,10 +140,10 @@ func TestRunnerSmartContextManagementEndToEndEmitsDiagnostics(t *testing.T) {
 		},
 	}
 
-	manager := NewContextManager("smart", config.ContextManagementConfig{
+	manager := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
 		ReadAnnotations:    true,
-		ScratchpadMode:     config.ScratchpadModeHybrid,
+		ScratchpadMode:     scratchpadModeHybrid,
 	})
 
 	var events []output.Event
@@ -336,9 +336,9 @@ func TestRunnerSmartContextManagementMasksHistoricalDelegateResult(t *testing.T)
 		},
 	}
 
-	manager := NewContextManager("smart", config.ContextManagementConfig{
+	manager := NewContextStateManager(config.ContextManagementConfig{
 		MaskingWindowTurns: 1,
-		ScratchpadMode:     config.ScratchpadModeHybrid,
+		ScratchpadMode:     scratchpadModeHybrid,
 	})
 
 	state, err := NewRunner().Run(context.Background(), RunRequest{
@@ -414,9 +414,9 @@ func TestRunnerSmartContextManagementResetsTaskStateOnRedirect(t *testing.T) {
 			},
 		},
 	}
-	manager := NewContextManager("smart", config.ContextManagementConfig{
-		ScratchpadMode: config.ScratchpadModeHybrid,
-	}).(*SmartContextManager)
+	manager := NewContextStateManager(config.ContextManagementConfig{
+		ScratchpadMode: scratchpadModeHybrid,
+	})
 	manager.scratchpad.scratchpad = Scratchpad{
 		Intent:       "inspect note",
 		Decisions:    "old decision",
@@ -554,7 +554,7 @@ func TestRunnerScaffoldOnlyInferenceTriggersOnFirstAndSteadyTurns(t *testing.T) 
 		},
 	}
 
-	manager := NewContextManager("smart", config.ContextManagementConfig{ScratchpadMode: config.ScratchpadModeScaffoldOnly})
+	manager := NewContextStateManager(config.ContextManagementConfig{ScratchpadMode: scratchpadModeScaffoldOnly})
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
@@ -635,7 +635,7 @@ func TestRunnerScaffoldOnlyInferenceRunsAfterCompaction(t *testing.T) {
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       &fakeExecutor{},
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{CompactionStrategy: config.CompactionStrategyDrop, ScratchpadMode: config.ScratchpadModeScaffoldOnly}),
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{CompactionStrategy: compactionStrategyDrop, ScratchpadMode: scratchpadModeScaffoldOnly}),
 		Prompt: prompt.AssemblyOptions{
 			Conversation: initialConversation,
 		},
@@ -766,11 +766,7 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 		},
 	}
 
-	cm := NewContextManager("smart", config.ContextManagementConfig{ScratchpadMode: config.ScratchpadModeScaffoldOnly})
-	smartCM, ok := cm.(*SmartContextManager)
-	if !ok {
-		t.Fatalf("context manager type = %T, want *SmartContextManager", cm)
-	}
+	cm := NewContextStateManager(config.ContextManagementConfig{ScratchpadMode: scratchpadModeScaffoldOnly})
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
@@ -802,10 +798,10 @@ func TestRunnerScaffoldOnlyInferenceCarriesForwardIntentAndNextOnParseFailure(t 
 	if !messageContentsContain(providerStub.requests[4].Messages, "next: reread note") {
 		t.Fatalf("post-failure turn missing carried scaffold next: %#v", providerStub.requests[4].Messages)
 	}
-	if got := smartCM.scratchpad.scratchpad.Intent; got != "inspect note" {
+	if got := cm.scratchpad.scratchpad.Intent; got != "inspect note" {
 		t.Fatalf("scratchpad intent = %q, want inspect note", got)
 	}
-	if got := smartCM.scratchpad.scratchpad.Next; got != "reread note" {
+	if got := cm.scratchpad.scratchpad.Next; got != "reread note" {
 		t.Fatalf("scratchpad next = %q, want reread note", got)
 	}
 }
@@ -933,7 +929,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
-		ContextManager: NewContextManager("smart", config.ContextManagementConfig{ReadAnnotations: true, ScratchpadMode: config.ScratchpadModeHybrid}),
+		ContextManager: NewContextStateManager(config.ContextManagementConfig{ReadAnnotations: true, ScratchpadMode: scratchpadModeHybrid}),
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 		},
@@ -981,7 +977,7 @@ func TestRunnerSmartContextManagementInvalidatesReadAfterSameMtimeRewrite(t *tes
 }
 
 //nolint:gocyclo
-func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
+func TestRunnerContextManagementKeepsAssistantHistoryUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
@@ -1049,7 +1045,7 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
-		ContextManager: &NaiveContextManager{},
+		ContextManager: NewContextStateManager(),
 		Prompt: prompt.AssemblyOptions{
 			Conversation:      []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
 			ScratchpadEnabled: true,
@@ -1083,23 +1079,28 @@ func TestRunnerNaiveContextManagementLeavesHistoryUntouched(t *testing.T) {
 		t.Fatalf("naive assistant content = %q, want unchanged", got)
 	}
 
-	// Read tool results should not be annotated by naive manager.
-	var readResultContent string
+	// The latest repeated read should still be annotated by the baseline manager.
+	var readResults []string
 	for _, msg := range state.Conversation {
 		if msg.Role == MessageRoleTool && msg.Name == "read" {
-			readResultContent = msg.Content
-			break
+			readResults = append(readResults, msg.Content)
 		}
 	}
-	if strings.Contains(readResultContent, "file unchanged since turn 1") {
-		t.Fatalf("naive tool result = %q, want no file annotation", readResultContent)
+	if len(readResults) != 2 {
+		t.Fatalf("read results = %d, want 2", len(readResults))
+	}
+	if !strings.Contains(readResults[1], "file unchanged since turn 1") {
+		t.Fatalf("second tool result = %q, want unchanged-file annotation", readResults[1])
 	}
 
 	kinds := contextDiagnosticKinds(events)
-	for _, forbidden := range []string{"scratchpad", "file_annotation", "masking"} {
+	for _, forbidden := range []string{"scratchpad", "masking"} {
 		if containsString(kinds, forbidden) {
-			t.Fatalf("naive diagnostics kinds = %v, want no %q", kinds, forbidden)
+			t.Fatalf("diagnostics kinds = %v, want no %q", kinds, forbidden)
 		}
+	}
+	if !containsString(kinds, "file_annotation") {
+		t.Fatalf("diagnostics kinds = %v, want file_annotation", kinds)
 	}
 }
 

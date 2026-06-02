@@ -164,7 +164,7 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 		},
 		CavemanMode:        r.cavemanMode != nil && r.cavemanMode(),
 		Events:             events,
-		ContextManager:     agent.NewContextManager("naive", r.runtime.cfg.ContextManagement),
+		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 	}

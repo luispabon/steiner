@@ -144,10 +144,14 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 	if got := rolesOf(second.Messages); !containsSequence(got, []string{"system", "user", "assistant", "tool"}) {
 		t.Fatalf("second request roles = %v, want system/user/assistant/tool", got)
 	}
-	if got := second.Messages[len(second.Messages)-1].ToolCallID; got != "call_1" {
+	secondTools := toolMessages(second.Messages)
+	if len(secondTools) == 0 {
+		t.Fatalf("second request tool messages = %d, want at least 1", len(secondTools))
+	}
+	if got := secondTools[len(secondTools)-1].ToolCallID; got != "call_1" {
 		t.Fatalf("tool call id = %q, want call_1", got)
 	}
-	if got, want := second.Messages[len(second.Messages)-1].Content, `{"contents":"hello"}`; got != want {
+	if got, want := secondTools[len(secondTools)-1].Content, `{"contents":"hello"}`; got != want {
 		t.Fatalf("tool result content = %q, want %q", got, want)
 	}
 
@@ -253,7 +257,7 @@ func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
 }
 
 //nolint:gocyclo
-func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
+func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
@@ -304,7 +308,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	state, err := runner.Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
-		ContextManager: &SmartContextManager{},
+		ContextManager: &ContextStateManager{},
 		Tools:          []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "Run shell commands", Parameters: map[string]any{"type": "object"}}}},
 		Prompt:         prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}}, ProjectContextBudgetBytes: 128},
 		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
@@ -358,7 +362,7 @@ func TestRunnerSmartContextManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 }
 
 //nolint:gocyclo
-func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
+func TestRunnerContextStateManagerCapturesToolCallScratchpad(t *testing.T) {
 	// Scratchpad state is now captured exclusively via tool call results.
 	// The assistant content is preserved unchanged; the rendered scratchpad
 	// is injected into the context state for the next turn.
@@ -417,7 +421,7 @@ func TestRunnerSmartContextManagerCapturesToolCallScratchpad(t *testing.T) {
 		},
 	}
 
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider:       providerStub,
 		Executor:       executor,
@@ -869,10 +873,14 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
-	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"contents":"hello"}`; got != want {
+	secondTools := toolMessages(providerStub.requests[1].Messages)
+	if len(secondTools) == 0 {
+		t.Fatalf("second request tool messages = %d, want at least 1", len(secondTools))
+	}
+	if got, want := secondTools[len(secondTools)-1].Content, `{"contents":"hello"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
-	if strings.Contains(providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, "child summary") {
+	if strings.Contains(secondTools[len(secondTools)-1].Content, "child summary") {
 		t.Fatal("tool message content leaked retention summary")
 	}
 	if got := state.Conversation[2].Retention; got == nil {
@@ -1010,7 +1018,11 @@ func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
 	if got, want := state.StopReason, StopReasonComplete; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if got, want := providerStub.requests[1].Messages[len(providerStub.requests[1].Messages)-1].Content, `{"path":"note.txt","status":"displayed","message":"file is being shown to the user in the viewer overlay"}`; got != want {
+	secondTools := toolMessages(providerStub.requests[1].Messages)
+	if len(secondTools) == 0 {
+		t.Fatalf("second request tool messages = %d, want at least 1", len(secondTools))
+	}
+	if got, want := secondTools[len(secondTools)-1].Content, `{"path":"note.txt","status":"displayed","message":"file is being shown to the user in the viewer overlay"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
 }
@@ -1081,10 +1093,14 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 	if got := rolesOf(second.Messages); !containsSequence(got, []string{"assistant", "tool", "tool"}) {
 		t.Fatalf("second request roles = %v, want assistant/tool/tool sequence", got)
 	}
-	if got, want := second.Messages[len(second.Messages)-2].ToolCallID, "call_1"; got != want {
+	secondTools := toolMessages(second.Messages)
+	if len(secondTools) != 2 {
+		t.Fatalf("second request tool messages = %d, want 2", len(secondTools))
+	}
+	if got, want := secondTools[0].ToolCallID, "call_1"; got != want {
 		t.Fatalf("first tool call id = %q, want %q", got, want)
 	}
-	if got, want := second.Messages[len(second.Messages)-1].ToolCallID, "call_2"; got != want {
+	if got, want := secondTools[1].ToolCallID, "call_2"; got != want {
 		t.Fatalf("second tool call id = %q, want %q", got, want)
 	}
 
@@ -1485,10 +1501,10 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	}
 }
 
-func TestRunnerSmartContextManagerSanitizesRecentToolCallSummaries(t *testing.T) {
+func TestRunnerContextStateManagerSanitizesRecentToolCallSummaries(t *testing.T) {
 	cwd := t.TempDir()
 
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	state := RunState{
 		TurnCount: 1,
 		Lineage: newConversationLineage([]Message{
@@ -1506,9 +1522,9 @@ func TestRunnerSmartContextManagerSanitizesRecentToolCallSummaries(t *testing.T)
 		}),
 	}
 
-	got, err := cm.PreAssembly(context.Background(), state)
+	got, err := cm.PrepareTurnState(context.Background(), state)
 	if err != nil {
-		t.Fatalf("PreAssembly() error = %v", err)
+		t.Fatalf("PrepareTurnState() error = %v", err)
 	}
 	if len(got.Context.RecentToolCalls) != 1 {
 		t.Fatalf("recent tool calls = %v, want 1 summary", got.Context.RecentToolCalls)

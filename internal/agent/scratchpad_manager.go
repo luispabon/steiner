@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -14,17 +13,17 @@ const decisionsMaxLines = 24
 
 // ScratchpadManager owns scratchpad state, scaffold inference, and failure tracking.
 type ScratchpadManager struct {
-	mode                    config.ScratchpadMode
+	mode                    string
 	scratchpad              Scratchpad
 	failures                int
 	lastScaffoldFingerprint string
 	events                  output.EventSink
 }
 
-// OnTurnComplete tracks whether the scratchpad tool was called and emits a
+// RecordTurnCompletion tracks whether the scratchpad tool was called and emits a
 // warning when three consecutive turns have been missed in hybrid mode.
-func (m *ScratchpadManager) OnTurnComplete(turnIndex int, scratchpadCalled bool) {
-	if m.mode != config.ScratchpadModeHybrid {
+func (m *ScratchpadManager) RecordTurnCompletion(turnIndex int, scratchpadCalled bool) {
+	if m.mode != scratchpadModeHybrid {
 		return
 	}
 	if scratchpadCalled {
@@ -92,7 +91,7 @@ func (m *ScratchpadManager) SetWorkingFile(path, lastAction string) {
 // ShouldRunScaffoldInference reports whether scaffold inference should run for
 // the current state and compaction count.
 func (m *ScratchpadManager) ShouldRunScaffoldInference(state RunState, compactionCount int) bool {
-	if m.mode != config.ScratchpadModeScaffoldOnly {
+	if m.mode != scratchpadModeScaffoldOnly {
 		return false
 	}
 	fingerprint := m.scaffoldFingerprint(state, compactionCount)

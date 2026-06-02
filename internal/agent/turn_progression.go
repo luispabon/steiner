@@ -115,7 +115,7 @@ func appendAssistantMessage(state RunState, turn int, message provider.Message) 
 func (p *turnProgressor) finishAssistantOnlyTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	if in.Request.ContextManager != nil {
 		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
-		in.Request.ContextManager.OnTurnComplete(turn, false)
+		in.Request.ContextManager.RecordTurnCompletion(turn, false)
 	}
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 	state.StopReason = StopReasonComplete
@@ -200,7 +200,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 func (p *turnProgressor) finalizeToolTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse, scratchpadCalled bool) turnOutcome {
 	if in.Request.ContextManager != nil {
 		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
-		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)
+		in.Request.ContextManager.RecordTurnCompletion(turn, scratchpadCalled)
 	}
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
@@ -259,8 +259,8 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 }
 
 func (p *turnProgressor) maybeRunScaffoldInference(ctx context.Context, in turnInput, state RunState, turn int, assistantContent string) {
-	cm, ok := in.Request.ContextManager.(ScaffoldInferrer)
-	if !ok {
+	cm := in.Request.ContextManager
+	if cm == nil {
 		return
 	}
 	if in.CompactionCount == nil {
@@ -332,10 +332,10 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 
 	cm := in.Request.ContextManager
 	if cm == nil {
-		cm = &NaiveContextManager{}
+		cm = NewContextStateManager()
 	}
 	var err error
-	in.State, err = cm.PreAssembly(ctx, in.State)
+	in.State, err = cm.PrepareTurnState(ctx, in.State)
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
 	}

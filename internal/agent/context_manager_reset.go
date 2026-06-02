@@ -16,7 +16,7 @@ func minTurnInMessages(messages []Message) int {
 	return minTurn
 }
 
-func (s *SmartContextManager) resetTaskStateIfNeeded(state *RunState) {
+func (s *ContextStateManager) resetTaskStateIfNeeded(state *RunState) {
 	if state == nil {
 		return
 	}

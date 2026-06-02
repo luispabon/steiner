@@ -223,20 +223,20 @@ func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
-	manager := &SmartContextManager{}
+	manager := &ContextStateManager{}
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
-	if got := manager.IngestToolResult(1, "read", content); got != content {
+	if got := manager.ObserveToolResult(1, "read", nil, content); got != content {
 		t.Fatalf("first manager read = %q, want full content", got)
 	}
-	if _, err := manager.PreAssembly(context.Background(), RunState{TurnCount: 1}); err != nil {
-		t.Fatalf("PreAssembly() error = %v", err)
+	if _, err := manager.PrepareTurnState(context.Background(), RunState{TurnCount: 1}); err != nil {
+		t.Fatalf("PrepareTurnState() error = %v", err)
 	}
 	manager.RecordMutation("note.txt")
-	got := manager.IngestToolResult(2, "read", content)
+	got := manager.ObserveToolResult(2, "read", nil, content)
 	if strings.Contains(got, "file unchanged since turn 1") {
 		t.Fatalf("second manager read after mutation = %q, want full content", got)
 	}
-	got = manager.IngestToolResult(3, "read", content)
+	got = manager.ObserveToolResult(3, "read", nil, content)
 	if !strings.Contains(got, "file unchanged since turn 2") {
 		t.Fatalf("third manager read = %q, want annotation", got)
 	}
@@ -292,7 +292,7 @@ func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 
-	cm := &SmartContextManager{}
+	cm := &ContextStateManager{}
 	if got, obs := cm.fileTracker.ObserveRead(1, content, true); got != content || obs.Reason != "first read" {
 		t.Fatalf("first read = %q, reason = %q, want full content / first read", got, obs.Reason)
 	}

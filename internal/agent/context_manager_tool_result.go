@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func (s *SmartContextManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
+func (s *ContextStateManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	s.ensureDefaults()
 	base := &s.baseContextManager
 	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
@@ -33,7 +33,7 @@ func (s *SmartContextManager) observeToolResult(turn int, toolName string, input
 	return shaped
 }
 
-func (s *SmartContextManager) applyFileTrackerUpdate(update workingFileUpdate, facts []string) {
+func (s *ContextStateManager) applyFileTrackerUpdate(update workingFileUpdate, facts []string) {
 	s.scratchpad.SetWorkingFile(update.Path, update.LastAction)
 	s.scratchpad.AppendDecisionFacts(facts)
 }
