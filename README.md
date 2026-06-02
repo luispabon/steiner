@@ -360,7 +360,6 @@ When enabled, caveman-style instructions are injected into:
 - **System preamble** — the main agent prompt instructs the model to respond tersely
 - **Compaction prompts** — compaction summaries are written in caveman style to maximise information per token
 - **Sub-agent prompts** — delegated agents inherit the terseness instruction
-- **Scaffold inference** — internal scaffold generation also follows caveman style
 
 Caveman mode is purely a prompt-layer transformation. It does not change tool behavior, approval gates, or any other config.
 

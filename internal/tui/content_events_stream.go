@@ -11,9 +11,6 @@ func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
 		return
 	}
 	if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
-		if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
-			return
-		}
 		b.appendThinkingChunk(payload.Content, payload.Source)
 	}
 }
@@ -23,9 +20,6 @@ func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
 		return
 	}
 	if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
-		if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
-			return
-		}
 		b.finalizeThinkingBlock()
 		b.appendAssistantChunk(payload.Content, payload.Source)
 	}

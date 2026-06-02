@@ -290,8 +290,6 @@ type ChunkSource string
 const (
 	// ChunkSourceAssistant identifies chunks emitted from assistant output.
 	ChunkSourceAssistant ChunkSource = "assistant"
-	// ChunkSourceScaffoldInference identifies chunks emitted from scaffold inference output.
-	ChunkSourceScaffoldInference ChunkSource = "scaffold_inference"
 )
 
 // AssistantChunkEvent records a streamed assistant chunk.

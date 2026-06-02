@@ -63,18 +63,6 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 }
 
-func applyDebugConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Debug != nil {
-		applyDebugPatch(&cfg.Debug, patch.Debug)
-	}
-}
-
-func applyDebugPatch(dst *DebugConfig, patch *debugPatch) {
-	if patch.ShowInternalScaffoldInference != nil {
-		dst.ShowInternalScaffoldInference = *patch.ShowInternalScaffoldInference
-	}
-}
-
 func applyContextManagementConfigPatch(cfg *Config, patch configPatch) {
 	if patch.ContextManagement != nil {
 		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)

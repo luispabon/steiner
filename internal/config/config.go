@@ -72,7 +72,6 @@ type Config struct {
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
 	Paths             PathsConfig               `yaml:"paths"`
 	Logging           LoggingConfig             `yaml:"logging"`
-	Debug             DebugConfig               `yaml:"debug"`
 	ContextManagement ContextManagementConfig   `yaml:"context_management"`
 	CavemanMode       bool                      `yaml:"caveman_mode"`
 	Search            SearchConfig              `yaml:"search"`
@@ -187,11 +186,6 @@ type LoggingConfig struct {
 	File              string `yaml:"file"`
 	ThinkingChunk     bool   `yaml:"thinking_chunk"`
 	CompactionLogFile string `yaml:"compaction_log_file"`
-}
-
-// DebugConfig exposes internal debugging toggles.
-type DebugConfig struct {
-	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

@@ -217,6 +217,13 @@ func TestParseConfigPatchRejectsRemovedContextManagementFields(t *testing.T) {
 `,
 			wantErr: "field scratchpad_mode not found",
 		},
+		{
+			name: "debug scaffold inference",
+			yaml: `debug:
+  show_internal_scaffold_inference: true
+`,
+			wantErr: "field debug not found",
+		},
 	}
 
 	for _, tt := range tests {
