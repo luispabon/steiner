@@ -927,14 +927,18 @@ func TestStreamingScaffoldInferencePreviewHardWrapsLongJSON(t *testing.T) {
 		styles:                        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect_scratchpad_go_to_find_scaffold_inference","next":"read_turn_progression_go"}`, output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect_diagnostic_log_to_find_parse_error","next":"read_turn_progression_check"}`, output.ChunkSourceScaffoldInference))
 
 	rendered := buffer.String(30)
 	if !strings.Contains(rendered, "\n") {
 		t.Fatalf("rendered = %q, want wrapped preview", rendered)
 	}
-	for _, want := range []string{`"intent":"inspect_`, `"next":"read_turn_progression`, `_go"`} {
-		if !strings.Contains(rendered, want) {
+	flattened := strings.ReplaceAll(rendered, "\n", "")
+	for _, want := range []string{
+		`"intent":"inspect_diagnostic_log_to_find_parse_error"`,
+		`"next":"read_turn_progression_check"`,
+	} {
+		if !strings.Contains(flattened, want) {
 			t.Fatalf("rendered = %q, want %q", rendered, want)
 		}
 	}
