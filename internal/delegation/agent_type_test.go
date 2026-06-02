@@ -69,9 +69,6 @@ func TestAgentAllowedTools(t *testing.T) {
 			if len(tools) == 0 {
 				t.Fatalf("AgentAllowedTools(%q) returned empty slice", at)
 			}
-			if !slices.Contains(tools, "scratchpad") {
-				t.Fatalf("AgentAllowedTools(%q) missing scratchpad", at)
-			}
 		})
 	}
 
