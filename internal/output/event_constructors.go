@@ -397,16 +397,6 @@ func NewDisplayFileEvent(payload DisplayFilePayload) Event {
 	}
 }
 
-// NewScratchpadUpdatedEvent creates a scratchpad_updated event carrying
-// the current task state fields for the sidebar to display.
-func NewScratchpadUpdatedEvent(e ScratchpadUpdatedEvent) Event {
-	return Event{
-		Type:      EventTypeScratchpadUpdated,
-		Timestamp: time.Now().UTC(),
-		Payload:   e,
-	}
-}
-
 // NewDelegationExtensionEvent creates a delegation_extension event when the
 // delegate auto-extends past its original max_turns budget.
 func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) Event {

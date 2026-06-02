@@ -99,7 +99,7 @@ func summarizeCallArgumentValue(toolName, key string, value any, root string) st
 	text := strings.TrimSpace(fmt.Sprint(value))
 	switch key {
 	case "cwd", "path":
-		return sanitizeScratchpadPathWithRoot(text, root)
+		return sanitizeTrackedPathWithRoot(text, root)
 	case "command":
 		if strings.EqualFold(strings.TrimSpace(toolName), "bash") {
 			return summarizeBashCommand(text, root)

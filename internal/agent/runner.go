@@ -162,7 +162,6 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	}
 	basePrompt.CachedPreamble = manager.CachedSystemPreamble(
 		basePrompt.PromptOverrides.System,
-		basePrompt.ScratchpadEnabled,
 		basePrompt.DelegationEnabled,
 		basePrompt.CavemanMode,
 	)

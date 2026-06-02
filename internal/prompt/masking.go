@@ -48,9 +48,7 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 				cloned.Content = maskAssistantMessage(cloned)
 			}
 		case provider.MessageRoleTool:
-			if toolResultName(cloned, currentToolCalls) == "scratchpad" {
-				cloned.Content = ""
-			} else if assistantTurn <= cutoffTurn {
+			if assistantTurn <= cutoffTurn {
 				cloned.Content = maskToolResult(cloned, currentToolCalls)
 			}
 		}
@@ -84,11 +82,7 @@ func MaskConversationBeforeTurn(messages []provider.Message, boundaryTurn int) [
 			}
 		case provider.MessageRoleTool:
 			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
-				if toolResultName(cloned, currentToolCalls) == "scratchpad" {
-					cloned.Content = ""
-				} else {
-					cloned.Content = maskToolResult(cloned, currentToolCalls)
-				}
+				cloned.Content = maskToolResult(cloned, currentToolCalls)
 			}
 		}
 		out = append(out, cloned)

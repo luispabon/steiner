@@ -1,49 +1,18 @@
 package agent
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 func (s *ContextStateManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	s.ensureDefaults()
 	base := &s.baseContextManager
 	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
-	if normalizedToolName == "scratchpad" {
-		shaped := base.observeToolResult(turn, toolName, input, content)
-		return s.scratchpad.IngestToolResult(turn, shaped)
-	}
 	if normalizedToolName == "read" {
-		base.minVisibleTurn = maxVisibleTurn(s.minVisibleTurn, s.epoch.MinVisibleTurn(), s.epoch.MaskBoundary())
-		shaped, result, observation := base.observeReadToolResultWithObservation(turn, content)
-		update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
-		if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
-			path := sanitizeScratchpadPath(result.Path)
-			if path != "" {
-				facts = append(facts, fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
-			}
-		}
-		s.applyFileTrackerUpdate(update, facts)
+		base.minVisibleTurn = s.minVisibleTurn
+		shaped, _, _ := base.observeReadToolResultWithObservation(turn, content)
 		return shaped
 	}
 
 	shaped := base.observeToolResult(turn, toolName, input, content)
-	update, facts := s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
-	s.applyFileTrackerUpdate(update, facts)
+	s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
 	return shaped
-}
-
-func (s *ContextStateManager) applyFileTrackerUpdate(update workingFileUpdate, facts []string) {
-	s.scratchpad.SetWorkingFile(update.Path, update.LastAction)
-	s.scratchpad.AppendDecisionFacts(facts)
-}
-
-func maxVisibleTurn(turns ...int) int {
-	maxTurn := 0
-	for _, turn := range turns {
-		if turn > maxTurn {
-			maxTurn = turn
-		}
-	}
-	return maxTurn
 }

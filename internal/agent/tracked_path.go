@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-func sanitizeScratchpadPath(path string) string {
-	return sanitizeScratchpadPathWithRoot(path, "")
+func sanitizeTrackedPath(path string) string {
+	return sanitizeTrackedPathWithRoot(path, "")
 }
 
-func sanitizeScratchpadPathWithRoot(path, root string) string {
+func sanitizeTrackedPathWithRoot(path, root string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""

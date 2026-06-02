@@ -117,8 +117,6 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 	switch {
 	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
-	case m.scratchpadOverlay.IsOpen():
-		return composeCenteredOverlay(base, m.scratchpadOverlay.renderScratchpadOverlay(), m.width, m.height)
 	case m.exitModal.IsOpen():
 		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
 	default:

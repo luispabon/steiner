@@ -72,8 +72,6 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	case m.modelPicker.IsOpen():
 		next, cmd := m.handleModelPickerKey(msg)
 		return true, next, cmd
-	case m.scratchpadOverlay.IsOpen():
-		return true, m.handleScratchpadOverlayKey(msg), nil
 	default:
 		return false, m, nil
 	}
@@ -95,18 +93,6 @@ func (m Model) hasActiveConversation() bool {
 func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model) {
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
 		return true, m.executeInterruptAction()
-	}
-
-	if !m.scratchpadOverlay.IsOpen() && msg.Type == tea.KeyCtrlS {
-		m.scratchpadOverlay = m.scratchpadOverlay.openScratchpadOverlay(
-			m.width, m.height,
-			m.sidebar.scratchpadIntent,
-			m.sidebar.scratchpadDecisions,
-			m.sidebar.scratchpadOpen,
-			m.sidebar.scratchpadNext,
-			m.styles,
-		)
-		return true, m
 	}
 
 	if activeConversation && msg.Type != tea.KeyCtrlX {
@@ -277,22 +263,6 @@ func (m Model) handleContextOverlayKey(msg tea.KeyMsg) tea.Model {
 		m.contextOverlay = m.contextOverlay.scrollUp(contextOverlayMaxLines)
 	case tea.KeyPgDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
-	}
-	return m
-}
-
-func (m Model) handleScratchpadOverlayKey(msg tea.KeyMsg) tea.Model {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.scratchpadOverlay = m.scratchpadOverlay.closeScratchpadOverlay()
-	case tea.KeyUp:
-		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(1)
-	case tea.KeyDown:
-		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(1)
-	case tea.KeyPgUp:
-		m.scratchpadOverlay = m.scratchpadOverlay.scrollUp(scratchpadMaxLines)
-	case tea.KeyPgDown:
-		m.scratchpadOverlay = m.scratchpadOverlay.scrollDown(scratchpadMaxLines)
 	}
 	return m
 }

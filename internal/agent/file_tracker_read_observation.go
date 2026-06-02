@@ -124,7 +124,7 @@ func (t *FileTracker) decorateReadObservation(result readResult, previous, next 
 }
 
 func (t *FileTracker) observeReadHeuristics(result readResult, observation fileObservation, content string) (workingFileUpdate, []string) {
-	path := sanitizeScratchpadPath(result.Path)
+	path := sanitizeTrackedPath(result.Path)
 	if path == "" {
 		return workingFileUpdate{}, nil
 	}

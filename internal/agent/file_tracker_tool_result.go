@@ -34,7 +34,7 @@ func (t *FileTracker) updateWorkingFile(path, lastAction string) workingFileUpda
 		return workingFileUpdate{}
 	}
 	return workingFileUpdate{
-		Path:       sanitizeScratchpadPath(path),
+		Path:       sanitizeTrackedPath(path),
 		LastAction: lastAction,
 	}
 }
@@ -53,14 +53,14 @@ func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) 
 	}
 	preview := summarizeTextPreview(result.Output, 96)
 	for _, path := range result.Paths {
-		if sanitized := sanitizeScratchpadPath(path); sanitized != "" {
+		if sanitized := sanitizeTrackedPath(path); sanitized != "" {
 			t.BumpGeneration(sanitized)
 		}
 	}
 	if len(result.Paths) == 0 {
 		return workingFileUpdate{}, nil
 	}
-	path := sanitizeScratchpadPath(result.Paths[len(result.Paths)-1])
+	path := sanitizeTrackedPath(result.Paths[len(result.Paths)-1])
 	return t.updateWorkingFile(path, fmt.Sprintf("mutated %s: %s", path, preview)), nil
 }
 

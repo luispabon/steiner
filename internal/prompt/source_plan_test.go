@@ -57,7 +57,7 @@ func TestPlanSourceAssemblyExcludesAbsentOptionalSources(t *testing.T) {
 	if got, want := assembly.Messages[0].Role, provider.MessageRoleSystem; got != want {
 		t.Fatalf("message[0].role = %q, want %q", got, want)
 	}
-	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreamble("", false, false, false).Content, got) {
+	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreamble("", false, false).Content, got) {
 		t.Fatalf("message[0].content = %q, want prefix of default preamble", got)
 	}
 }
@@ -84,7 +84,6 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 				{Title: "retained conversation", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
 			},
 		},
-		ScratchpadEnabled: true,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: "conversation turn"},
 		},

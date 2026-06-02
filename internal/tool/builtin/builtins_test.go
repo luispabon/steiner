@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 9 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 9 {
-			t.Fatalf("Builtins returned %d tools, want 9", len(tools))
+	t.Run("all 8 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 8 {
+			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "scratchpad", "mutate", "fetch_url"}
+		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "mutate", "fetch_url"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -63,7 +63,7 @@ func TestBuiltins(t *testing.T) {
 	})
 
 	t.Run("builtin tools do not hardcode approval defaults", func(t *testing.T) {
-		alwaysAuto := map[string]bool{"scratchpad": true, "fetch_url": true}
+		alwaysAuto := map[string]bool{"fetch_url": true}
 		for _, td := range tools {
 			if alwaysAuto[td.Name] {
 				continue
