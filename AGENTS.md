@@ -98,6 +98,32 @@ Go version: `1.25`.
 * Treat `--log-file` and `STEINER_LOG_FILE` as sensitive; they may capture prompts/tool output.
 * Default local provider URL: `http://localhost:11434/v1`.
 
+## Documentation maintenance
+
+Code changes must update corresponding documentation in a single commit:
+
+1. **`internal/tool` changes** (add/remove/rename built-in tool):
+   * Update the "Built-in tools" section in README.md
+   * Update sub-agent tool allowlist tables in docs/SUBAGENT_DELEGATION.md if the tool appears in any allowlist
+
+2. **`internal/config` changes** (add/change/remove Config field or nested struct field):
+   * Update the relevant field entry in docs/CONFIGURATION.md
+   * Update defaults section if default values change
+   * Update config examples in README.md if a commonly-used field is affected
+
+3. **`internal/delegation` changes** (add/remove sub-agent type or change tool allowlist):
+   * Update the sub-agent types table in docs/SUBAGENT_DELEGATION.md
+   * Update the sub-agent delegation tool table in README.md
+
+4. **`internal/prompt` changes** (change compaction, budgets, or context management behaviour):
+   * Update docs/CONTEXT_MANAGEMENT.md with new or changed behaviour
+   * Update the "Context management" section in README.md if the high-level description changes
+
+5. **New top-level feature**:
+   * Add a feature section to README.md
+   * Create a corresponding doc under docs/ if the feature warrants detailed documentation
+   * Add a rule to this maintenance section
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:
