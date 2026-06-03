@@ -1241,15 +1241,16 @@ func TestMutateFileHashVerification(t *testing.T) {
 		}
 	})
 
-	t.Run("hash after prior operation modified same file", func(t *testing.T) {
+	t.Run("hash after prior operation modified same file fails with stale hash", func(t *testing.T) {
 		root := t.TempDir()
 		content := "aaa\n"
 		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		originalHash := fileContentHash([]byte(content))
 
 		// First op modifies the file; second op provides hash of post-modification content
+		// Since verifyFileHash checks state.original (disk snapshot), the hash of the modified
+		// content is now stale and should fail
 		modifiedContent := "AAA\n"
 		modifiedHash := fileContentHash([]byte(modifiedContent))
 
@@ -1259,27 +1260,30 @@ func TestMutateFileHashVerification(t *testing.T) {
 				map[string]any{"type": "replace", "path": "note.txt", "old_string": "AAA", "new_string": "BBB", "file_hash": modifiedHash},
 			},
 		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed with post-mod hash: %#v", got)
-		}
-		assertFile(t, filepath.Join(root, "note.txt"), "BBB\n")
-
-		// Now test with original (now stale) hash — must fail
-		if err := os.WriteFile(filepath.Join(root, "note2.txt"), []byte("xxx\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got = runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "replace", "path": "note2.txt", "old_string": "xxx", "new_string": "XXX"},
-				map[string]any{"type": "replace", "path": "note2.txt", "old_string": "XXX", "new_string": "YYY", "file_hash": originalHash},
-			},
-		})
 		if got.OperationsFailed != 1 {
-			t.Fatalf("OperationsFailed = %d, want 1 for stale hash after prior op", got.OperationsFailed)
+			t.Fatalf("OperationsFailed = %d, want 1 (stale hash after prior op)", got.OperationsFailed)
 		}
 		if !strings.Contains(got.Output, "file_hash mismatch") {
 			t.Fatalf("Output = %q, want file_hash mismatch", got.Output)
 		}
+		// File should remain unchanged (atomic)
+		assertFile(t, filepath.Join(root, "note.txt"), "aaa\n")
+
+		// Now test with original hash — must succeed since verifyFileHash checks state.original
+		if err := os.WriteFile(filepath.Join(root, "note2.txt"), []byte("xxx\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		xxxHash := fileContentHash([]byte("xxx\n"))
+		got = runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note2.txt", "old_string": "xxx", "new_string": "XXX", "file_hash": xxxHash},
+				map[string]any{"type": "replace", "path": "note2.txt", "old_string": "XXX", "new_string": "YYY"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("OperationsFailed = %d, want 0 with matching original hash; output=%q", got.OperationsFailed, got.Output)
+		}
+		assertFile(t, filepath.Join(root, "note2.txt"), "YYY\n")
 	})
 
 	t.Run("hash on move verified against source", func(t *testing.T) {
@@ -1687,6 +1691,143 @@ func TestMutateInsertCombined(t *testing.T) {
 		if !strings.Contains(got.Output, "file_hash mismatch") {
 			t.Fatalf("Output = %q, want substring %q", got.Output, "file_hash mismatch")
 		}
+	})
+}
+
+func TestMutateHashBatchSemantics(t *testing.T) {
+	t.Run("multi-op same file succeeds with consistent hash", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "file.txt")
+		content := "hello\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		hash := fileContentHash([]byte(content))
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "hello", "new_string": "world", "file_hash": hash},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "world", "new_string": "final", "file_hash": hash},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("OperationsFailed = %d, want 0; output=%q", got.OperationsFailed, got.Output)
+		}
+		if got.OperationsApplied != 2 {
+			t.Fatalf("OperationsApplied = %d, want 2", got.OperationsApplied)
+		}
+		assertFile(t, path, "final\n")
+	})
+
+	t.Run("genuine stale hash fails", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "file.txt")
+		originalContent := "original\n"
+		if err := os.WriteFile(path, []byte(originalContent), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		oldHash := fileContentHash([]byte(originalContent))
+
+		// Externally modify the file
+		modifiedContent := "modified\n"
+		if err := os.WriteFile(path, []byte(modifiedContent), 0o644); err != nil {
+			t.Fatalf("modify fixture: %v", err)
+		}
+
+		// Try to mutate with the old hash
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "modified", "new_string": "changed", "file_hash": oldHash},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+		}
+		if !strings.Contains(got.Output, "file_hash mismatch") {
+			t.Fatalf("Output = %q, want substring 'file_hash mismatch'", got.Output)
+		}
+		// File should remain unchanged
+		assertFile(t, path, "modified\n")
+	})
+
+	t.Run("operation counts on partial failure", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "file.txt")
+		if err := os.WriteFile(path, []byte("aaa\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "aaa", "new_string": "bbb"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "bbb", "new_string": "ccc"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "NONEXISTENT", "new_string": "x"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "ccc", "new_string": "ddd"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "ddd", "new_string": "eee"},
+			},
+		})
+		if got.OperationsApplied != 2 {
+			t.Fatalf("OperationsApplied = %d, want 2", got.OperationsApplied)
+		}
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+		}
+		if got.OperationsSkipped != 2 {
+			t.Fatalf("OperationsSkipped = %d, want 2", got.OperationsSkipped)
+		}
+		// File should remain unchanged (atomic)
+		assertFile(t, path, "aaa\n")
+	})
+
+	t.Run("full success, skipped is 0", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "file.txt")
+		if err := os.WriteFile(path, []byte("aaa\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "aaa", "new_string": "bbb"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "bbb", "new_string": "ccc"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("OperationsFailed = %d, want 0", got.OperationsFailed)
+		}
+		if got.OperationsSkipped != 0 {
+			t.Fatalf("OperationsSkipped = %d, want 0", got.OperationsSkipped)
+		}
+		if got.OperationsApplied != 2 {
+			t.Fatalf("OperationsApplied = %d, want 2", got.OperationsApplied)
+		}
+		assertFile(t, path, "ccc\n")
+	})
+
+	t.Run("failure at first op", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "file.txt")
+		if err := os.WriteFile(path, []byte("aaa\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "NOTFOUND", "new_string": "bbb"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "aaa", "new_string": "ccc"},
+				map[string]any{"type": "replace", "path": "file.txt", "old_string": "ccc", "new_string": "ddd"},
+			},
+		})
+		if got.OperationsApplied != 0 {
+			t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+		}
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+		}
+		if got.OperationsSkipped != 2 {
+			t.Fatalf("OperationsSkipped = %d, want 2", got.OperationsSkipped)
+		}
+		// File should remain unchanged
+		assertFile(t, path, "aaa\n")
 	})
 }
 
