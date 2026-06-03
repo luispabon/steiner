@@ -35,7 +35,7 @@ type runResult struct {
 	Diagnostics  []output.Event
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ <-chan string) (runResult, error) {
+func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
@@ -55,7 +55,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
 	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, r.runtime.homeDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
 	runner := agent.NewRunner()
-	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events))
+	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events, steerCh))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)

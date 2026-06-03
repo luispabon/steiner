@@ -147,7 +147,7 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 	return events, &diagnostics
 }
 
-func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink) agent.RunRequest {
+func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, steerCh <-chan string) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	return agent.RunRequest{
 		Provider:      setup.provider,
@@ -166,5 +166,6 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
+		SteerCh:            steerCh,
 	}
 }
