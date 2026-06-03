@@ -59,11 +59,11 @@ func NewMutateTool(env Env) tool.ToolDef {
 
 func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	if len(in.Operations) == 0 {
-		return p.fail("mutate: operations is required")
+		return p.fail("mutate: operations is required", 0)
 	}
 	for i, op := range in.Operations {
 		if err := p.planOperation(i+1, op); err != nil {
-			return p.fail(err.Error())
+			return p.fail(err.Error(), len(in.Operations))
 		}
 		p.applied++
 	}
@@ -83,9 +83,13 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	return &p.result
 }
 
-func (p *mutatePlanner) fail(message string) *MutateResult {
+func (p *mutatePlanner) fail(message string, total int) *MutateResult {
 	p.result.OperationsApplied = p.applied
 	p.result.OperationsFailed = 1
+	skipped := total - p.applied - 1
+	if skipped > 0 {
+		p.result.OperationsSkipped = skipped
+	}
 	p.result.Output = message
 	return &p.result
 }

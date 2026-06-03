@@ -65,6 +65,7 @@ type MutateResult struct {
 	DryRun            bool         `json:"dry_run,omitempty"`
 	OperationsApplied int          `json:"operations_applied"`
 	OperationsFailed  int          `json:"operations_failed,omitempty"`
+	OperationsSkipped int          `json:"operations_skipped,omitempty"`
 	Output            string       `json:"output"`
 }
 
