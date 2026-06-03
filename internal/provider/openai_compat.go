@@ -281,7 +281,26 @@ func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
 		if !isRetryableHTTPStatus(httpErr.StatusCode) {
 			return retryDecision{}
 		}
-		delay, _ := retryAfterDelay(httpErr.Header, p.retry.RetryAfterMax)
+		// litellm-specific: check for non-retryable budget exhaustion before
+		// attempting retry-after parsing. litellm returns 429 for both rate
+		// limits and budget exhaustion; only the latter is permanent.
+		if httpErr.StatusCode == 429 && p.providerType == "litellm" {
+			if isLiteLLMBudgetExceeded(httpErr.Body) {
+				return retryDecision{}
+			}
+		}
+		delay, hasHeader := retryAfterDelay(httpErr.Header, p.retry.RetryAfterMax)
+		// litellm-specific: when no Retry-After header, parse delay from body.
+		// litellm relays upstream rate limits as "Try again in N seconds" text
+		// instead of forwarding the Retry-After header.
+		if !hasHeader && httpErr.StatusCode == 429 && p.providerType == "litellm" {
+			if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {
+				if p.retry.RetryAfterMax > 0 && parsed > p.retry.RetryAfterMax {
+					parsed = p.retry.RetryAfterMax
+				}
+				delay = parsed
+			}
+		}
 		return retryDecision{
 			retry:      true,
 			reason:     httpErr.Error(),
