@@ -42,7 +42,6 @@ func (s sidebarState) staticLines(width int) []string {
 		lines = append(lines, s.skillSection(width)...)
 	}
 	lines = append(lines, s.contextSection(width)...)
-	lines = append(lines, s.scratchpadSection(width)...)
 	lines = append(lines, s.repositorySection(width)...)
 	lines = append(lines, "", cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
 	return lines
@@ -82,26 +81,6 @@ func (s sidebarState) skillSection(width int) []string {
 		cardLabel("skill", s.styles),
 		cardField("active", fgBright, fitText(safeText(s.activeSkill), width-7), s.styles),
 	}
-}
-
-func (s sidebarState) scratchpadSection(width int) []string {
-	lines := []string{"", cardLabel("scratchpad", s.styles)}
-	if s.scratchpadIntent == "" && s.scratchpadNext == "" && s.scratchpadOpen == "" && s.scratchpadDecisions == "" {
-		return append(lines, s.styledWithBg(s.styles.FgMute, "no active task"))
-	}
-	if s.scratchpadIntent != "" {
-		lines = append(lines, cardFieldWrapped("Intent", s.styles.FgDim, s.scratchpadIntent, width, s.styles)...)
-	}
-	if s.scratchpadDecisions != "" {
-		lines = append(lines, cardFieldWrapped("Decided", s.styles.FgDim, s.scratchpadDecisions, width, s.styles)...)
-	}
-	if s.scratchpadOpen != "" {
-		lines = append(lines, cardFieldWrapped("Open", s.styles.FgDim, s.scratchpadOpen, width, s.styles)...)
-	}
-	if s.scratchpadNext != "" {
-		lines = append(lines, cardFieldWrapped("Next", s.styles.FgDim, s.scratchpadNext, width, s.styles)...)
-	}
-	return lines
 }
 
 func (s sidebarState) repositorySection(width int) []string {

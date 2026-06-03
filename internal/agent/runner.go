@@ -28,7 +28,7 @@ type RunRequest struct {
 	MaxTokens      *int
 	Limits         Limits
 	Events         output.EventSink
-	ContextManager ContextManager
+	ContextManager *ContextStateManager
 
 	// StreamingPreferred signals whether the caller wants streaming responses.
 	// When false, ChatCompletion is tried first and streaming is used only as a
@@ -111,11 +111,9 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 
 func normalizeRunRequest(req RunRequest) RunRequest {
 	if req.ContextManager == nil {
-		req.ContextManager = &NaiveContextManager{}
+		req.ContextManager = NewContextStateManager()
 	}
-	if setter, ok := req.ContextManager.(EventSinkSetter); ok {
-		setter.SetEventSink(req.Events)
-	}
+	req.ContextManager.SetEventSink(req.Events)
 	return req
 }
 
@@ -158,14 +156,15 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt.CavemanMode = req.CavemanMode
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
-	if preambler, ok := req.ContextManager.(PreambleProvider); ok {
-		basePrompt.CachedPreamble = preambler.CachedSystemPreamble(
-			basePrompt.PromptOverrides.System,
-			basePrompt.ScratchpadEnabled,
-			basePrompt.DelegationEnabled,
-			basePrompt.CavemanMode,
-		)
+	manager := req.ContextManager
+	if manager == nil {
+		manager = NewContextStateManager()
 	}
+	basePrompt.CachedPreamble = manager.CachedSystemPreamble(
+		basePrompt.PromptOverrides.System,
+		basePrompt.DelegationEnabled,
+		basePrompt.CavemanMode,
+	)
 	return basePrompt
 }
 

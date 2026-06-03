@@ -12,6 +12,8 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+const defaultChildSystemPrompt = "You are a sub-agent. Complete the task given to you."
+
 // BootstrapDeps holds the dependencies needed to assemble a child agent run request.
 type BootstrapDeps struct {
 	Provider             provider.Provider
@@ -72,7 +74,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool) prompt.AssemblyOptions {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
-		systemPrompt = "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive."
+		systemPrompt = defaultChildSystemPrompt
 	}
 
 	taskContent := spec.Task

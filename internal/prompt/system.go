@@ -7,20 +7,6 @@ const cavemanStyleInstruction = ` - Respond terse like smart caveman. All techni
 
 const identity = "You are steiner, a lean coding agent."
 
-const scratchpadInstructions = `## Scratchpad
-
-You have a tool called ` + "`scratchpad`" + `. Call it on every turn without exception, including short replies and clarifying questions.
-
-Call it before your final response. It is how you maintain task state across turns.
-
-Fields:
-- intent: what you are trying to achieve right now
-- decisions: key choices made and why
-- open: unresolved problems or unknowns blocking progress
-- next: the single next action you will take after this turn
-
-If a field is not applicable, write "none". Never omit fields.`
-
 const delegationInstructions = `## Delegation
 
 Every file you read locally stays in your context for the rest of the conversation, increasing cost for all subsequent turns. Sub-agent context is ephemeral — it vanishes after the agent reports back. Default to delegation; work locally only when the conditions below are clearly met.
@@ -104,13 +90,10 @@ Final response:
 - Mention assumptions, skipped checks, or unrelated issues noticed.`
 
 // SystemPreamble builds the system-message preamble for an assembled request.
-func SystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) ContextBlock {
+func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {
 		content = override
-	}
-	if scratchpadEnabled {
-		content = scratchpadInstructions + "\n\n" + content
 	}
 	if delegationEnabled {
 		content = delegationInstructions + "\n\n" + content

@@ -91,7 +91,6 @@ type Model struct {
 	modelPicker                  modelPickerOverlay
 	planPicker                   planPickerOverlay
 	contextOverlay               contextOverlayState
-	scratchpadOverlay            scratchpadOverlayState
 	exitModal                    exitModalState
 	sessionStore                 SessionLister
 	showContextDiagnostics       bool

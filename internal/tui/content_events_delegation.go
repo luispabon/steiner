@@ -138,9 +138,6 @@ func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState,
 	if !ok {
 		return false
 	}
-	if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
-		return true
-	}
 	if payload.Content == "" {
 		return true
 	}
@@ -156,9 +153,6 @@ func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState
 	payload, ok := event.Payload.(output.AssistantChunkEvent)
 	if !ok {
 		return false
-	}
-	if payload.Source == output.ChunkSourceScaffoldInference && !b.showInternalScaffoldInference {
-		return true
 	}
 	if payload.Content == "" {
 		return true

@@ -20,18 +20,7 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		EventSink:   displaySink,
 		Interactive: interactive,
 	}
-	tools := builtin.Builtins(env)
-	if cfg.ContextManagement.ScratchpadMode != config.ScratchpadModeHybrid {
-		filtered := tools[:0]
-		for _, def := range tools {
-			if def.Name == "scratchpad" {
-				continue
-			}
-			filtered = append(filtered, def)
-		}
-		tools = filtered
-	}
-	return tools
+	return builtin.Builtins(env)
 }
 
 func runtimeRegistry(cfg config.Config, workDir string) (*tool.Registry, error) {

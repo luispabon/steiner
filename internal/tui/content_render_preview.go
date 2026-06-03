@@ -51,20 +51,6 @@ func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 	var lines []string
 
-	if tc.tool == "scratchpad" && len(tc.rawArgs) > 0 {
-		for _, key := range []string{"intent", "decisions", "open", "next"} {
-			if val, ok := tc.rawArgs[key]; ok {
-				if s, ok := val.(string); ok && s != "" {
-					label := strings.ToUpper(key[:1]) + key[1:] + ": " + s
-					lines = append(lines, b.styles.FgDim.Render(label))
-				}
-			}
-		}
-		if len(lines) > 0 {
-			return lines
-		}
-	}
-
 	for _, l := range strings.Split(strings.TrimRight(tc.body, "\n"), "\n") {
 		lines = append(lines, b.styles.FgDim.Render(l))
 	}

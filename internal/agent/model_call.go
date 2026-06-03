@@ -76,10 +76,6 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 }
 
-func completeScaffoldInferenceCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, req.ModelBudget, req.Events, nil, false, req.StreamingPreferred, output.ChunkSourceScaffoldInference)
-}
-
 func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}

@@ -398,6 +398,24 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("does not append durable context as a synthetic message", func(t *testing.T) {
+		state := RunState{
+			Conversation: []Message{{Role: MessageRoleUser, Content: "fallback msg"}},
+			Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "fallback msg"}}),
+			Context: ContextState{
+				RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "retained"}},
+			},
+		}
+		base := prompt.AssemblyOptions{}
+		result := assemblyOptions(base, state)
+		if got, want := len(result.Conversation), 1; got != want {
+			t.Fatalf("conversation len = %d, want %d", got, want)
+		}
+		if result.Conversation[0].Content != "fallback msg" {
+			t.Fatalf("conversation[0].Content = %q, want %q", result.Conversation[0].Content, "fallback msg")
+		}
+	})
+
 	t.Run("falls back to conversation when lineage empty", func(t *testing.T) {
 		convMsgs := []Message{
 			{Role: MessageRoleUser, Content: "fallback msg"},
@@ -450,120 +468,6 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 	})
 }
 
-func TestBuildScratchpadMessage_RendersHeaderOnce(t *testing.T) {
-	state := ContextState{
-		ActiveConstraints: []ActiveConstraint{{Text: "do not regress"}},
-		UnresolvedWork:    []UnresolvedWorkItem{{Text: "finish stage 3"}},
-		ActiveFocus:       &ActiveFocus{Text: "dedupe header"},
-		RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "body", Source: "compactor", Turn: 4}},
-		TurnCount:         4,
-		CompactionCount:   1,
-		Scratchpad: Scratchpad{
-			SessionState: "session state: turn=4 compactions=1",
-			WorkingFile:  "internal/auth/handler.go",
-			LastAction:   "edited internal/auth/handler.go: tightened timeout handling",
-			Intent:       "fix auth timeout",
-			Decisions:    "use context deadline; avoid global state",
-			Open:         "why does it only fail under load?",
-			Next:         "add test reproducing timeout",
-		}.Render(),
-	}
-
-	got, ok := buildScratchpadMessage(state, true)
-	if !ok {
-		t.Fatal("buildScratchpadMessage() = false, want true")
-	}
-
-	content := got.Content
-	if strings.Contains(content, "/home/") {
-		t.Fatalf("content = %q, want no absolute workspace roots", content)
-	}
-	for _, want := range []string{
-		"[Current task state]",
-		"session state: turn=4 compactions=1",
-		"working file: internal/auth/handler.go",
-		"last action: edited internal/auth/handler.go: tightened timeout handling",
-		"intent: fix auth timeout",
-		"decisions: use context deadline; avoid global state",
-		"open: why does it only fail under load?",
-		"next: add test reproducing timeout",
-	} {
-		if count := strings.Count(content, want); count != 1 {
-			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
-		}
-	}
-}
-
-func TestBuildScratchpadMessage_EmptyScratchpadStillComplete(t *testing.T) {
-	got, ok := buildScratchpadMessage(ContextState{TurnCount: 1}, true)
-	if !ok {
-		t.Fatal("buildScratchpadMessage() = false, want true")
-	}
-	content := got.Content
-	if strings.Count(content, "[Current task state]") != 1 {
-		t.Fatalf("expected one current-task-state header, got %q", content)
-	}
-	for _, want := range []string{"intent: ", "decisions: ", "open: ", "next: "} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("missing %q in %q", want, content)
-		}
-	}
-}
-
-func TestAssemblyOptions_AppendsSingleScratchpadForResumedSession(t *testing.T) {
-	resumedScratchpad := Scratchpad{
-		Intent:       "resume stage 3 work",
-		Decisions:    "keep context compact",
-		Open:         "verify the turn-preserved session",
-		Next:         "run the regression suite",
-		WorkingFile:  "internal/agent/context_manager.go",
-		LastAction:   "edited internal/agent/context_manager.go: tightened masking",
-		SessionState: "session state: turn=7 compactions=2",
-	}.Render()
-
-	state := RunState{
-		Conversation: []Message{
-			{Role: MessageRoleUser, Content: "hello", Turn: 7},
-			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
-		},
-		Lineage: newConversationLineage([]Message{
-			{Role: MessageRoleUser, Content: "hello", Turn: 7},
-			{Role: MessageRoleAssistant, Content: "world", Turn: 7},
-		}),
-		Context: ContextState{
-			TurnCount:       7,
-			CompactionCount: 2,
-			Scratchpad:      resumedScratchpad,
-		},
-	}
-
-	got := assemblyOptions(prompt.AssemblyOptions{}, state)
-	if len(got.Conversation) != 3 {
-		t.Fatalf("conversation len = %d, want 3", len(got.Conversation))
-	}
-
-	scratchpadMsg := got.Conversation[2]
-	if scratchpadMsg.Role != provider.MessageRoleUser {
-		t.Fatalf("scratchpad role = %s, want user", scratchpadMsg.Role)
-	}
-
-	content := scratchpadMsg.Content
-	for _, want := range []string{
-		"[Current task state]",
-		"session state: turn=7 compactions=2",
-		"working file: internal/agent/context_manager.go",
-		"last action: edited internal/agent/context_manager.go: tightened masking",
-		"intent: resume stage 3 work",
-		"decisions: keep context compact",
-		"open: verify the turn-preserved session",
-		"next: run the regression suite",
-	} {
-		if count := strings.Count(content, want); count != 1 {
-			t.Fatalf("content count for %q = %d, want 1 in %q", want, count, content)
-		}
-	}
-}
-
 func TestMessageConvert_ToPromptContext(t *testing.T) {
 	t.Run("empty state produces empty slice", func(t *testing.T) {
 		state := ContextState{}
@@ -575,11 +479,6 @@ func TestMessageConvert_ToPromptContext(t *testing.T) {
 
 	t.Run("maps retained summaries correctly", func(t *testing.T) {
 		state := ContextState{
-			// Non-summary fields are deliberately not mapped to prompt.DurableContextState
-			// since they are now rendered into the volatile zone via buildScratchpadMessage.
-			ActiveConstraints: []ActiveConstraint{
-				{Text: "constraint1", Source: "user", Turn: 1},
-			},
 			RetainedSummaries: []RetainedSummary{
 				{Title: "summary1", Text: "body", Source: "compactor", Turn: 4},
 			},
@@ -634,29 +533,6 @@ func TestMessageConvert_PromptContextRoundTrip(t *testing.T) {
 			t.Errorf("summary mismatch after round-trip: %+v", result.RetainedSummaries)
 		}
 	})
-}
-
-func TestBuildScaffoldInferenceRequestCapsMaxTokens(t *testing.T) {
-	req := RunRequest{
-		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
-		ModelBudget: prompt.ModelTokenBudget{
-			MaxCompletionTokens: 256,
-		},
-	}
-
-	chatReq := buildScaffoldInferenceRequest(req, "intent: inspect", "assistant reasoning text")
-	if chatReq.Model != "test-model" {
-		t.Fatalf("chatReq.Model = %q, want %q", chatReq.Model, "test-model")
-	}
-	if got, want := len(chatReq.Messages), 2; got != want {
-		t.Fatalf("chatReq.Messages = %d, want %d", got, want)
-	}
-	if chatReq.MaxTokens == nil {
-		t.Fatal("chatReq.MaxTokens = nil, want bounded cap")
-	}
-	if got, want := *chatReq.MaxTokens, 150; got != want {
-		t.Fatalf("chatReq.MaxTokens = %d, want %d", got, want)
-	}
 }
 
 func TestToProviderMessagePreservesReasoningContent(t *testing.T) {

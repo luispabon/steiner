@@ -7,7 +7,6 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -122,7 +121,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 		return ""
 	}
 	td := segment.thinkData
-	style := b.thinkingTextStyle(td.source)
+	style := b.thinkingTextStyle()
 	var result string
 	if td.collapsed {
 		runes := []rune(td.preview)
@@ -142,10 +141,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) strin
 	return result
 }
 
-func (b *contentBuffer) thinkingTextStyle(source output.ChunkSource) lipgloss.Style {
-	if source == output.ChunkSourceScaffoldInference {
-		return b.styles.ThinkingBar
-	}
+func (b *contentBuffer) thinkingTextStyle() lipgloss.Style {
 	return b.styles.FgDim.Italic(true)
 }
 

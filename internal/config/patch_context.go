@@ -63,18 +63,6 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 }
 
-func applyDebugConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Debug != nil {
-		applyDebugPatch(&cfg.Debug, patch.Debug)
-	}
-}
-
-func applyDebugPatch(dst *DebugConfig, patch *debugPatch) {
-	if patch.ShowInternalScaffoldInference != nil {
-		dst.ShowInternalScaffoldInference = *patch.ShowInternalScaffoldInference
-	}
-}
-
 func applyContextManagementConfigPatch(cfg *Config, patch configPatch) {
 	if patch.ContextManagement != nil {
 		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
@@ -82,19 +70,7 @@ func applyContextManagementConfigPatch(cfg *Config, patch configPatch) {
 }
 
 func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {
-	if patch.Mode != nil {
-		dst.Mode = *patch.Mode
-	}
-	if patch.CompactionStrategy != nil {
-		dst.CompactionStrategy = *patch.CompactionStrategy
-	}
-	if patch.MaskingWindowTurns != nil {
-		dst.MaskingWindowTurns = *patch.MaskingWindowTurns
-	}
 	if patch.ReadAnnotations != nil {
 		dst.ReadAnnotations = *patch.ReadAnnotations
-	}
-	if patch.ScratchpadMode != nil {
-		dst.ScratchpadMode = *patch.ScratchpadMode
 	}
 }

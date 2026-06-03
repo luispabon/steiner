@@ -13,8 +13,8 @@ import (
 func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same parameters", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", true, false, false)
-		second := manager.CachedSystemPreamble("alpha", true, false, false)
+		first := manager.CachedSystemPreamble("alpha", false, false)
+		second := manager.CachedSystemPreamble("alpha", false, false)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -25,8 +25,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different cavemanMode", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, true, false)
-		second := manager.CachedSystemPreamble("", true, true, true)
+		first := manager.CachedSystemPreamble("", true, false)
+		second := manager.CachedSystemPreamble("", true, true)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -37,8 +37,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different override", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", true, false, false)
-		second := manager.CachedSystemPreamble("beta", true, false, false)
+		first := manager.CachedSystemPreamble("alpha", false, false)
+		second := manager.CachedSystemPreamble("beta", false, false)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}

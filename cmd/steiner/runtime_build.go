@@ -35,7 +35,6 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, erro
 			ConfigPath:  flags.configPath,
 			Model:       flags.model,
 			Verbose:     flags.verbose,
-			ContextMode: config.ContextMode(flags.contextMode),
 			CavemanMode: cavemanOverride,
 		},
 	})

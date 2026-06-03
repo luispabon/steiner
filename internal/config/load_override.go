@@ -15,9 +15,6 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"
 	}
-	if cli.ContextMode != "" {
-		cfg.ContextManagement.Mode = cli.ContextMode
-	}
 	if cli.CavemanMode != nil {
 		cfg.CavemanMode = *cli.CavemanMode
 	}

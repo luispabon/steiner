@@ -49,11 +49,6 @@ type ContextDiagnosticsEvent struct {
 	RetainedRawTurns    int      `json:"retained_raw_turns,omitempty"`
 	SummaryTokenBudget  int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved   bool     `json:"threshold_achieved,omitempty"`
-	EpochBoundary       int      `json:"epoch_boundary"`
-	EpochStartTurn      int      `json:"epoch_start_turn"`
-	EpochTrigger        string   `json:"epoch_trigger,omitempty"`
-	EpochStatus         string   `json:"epoch_status,omitempty"`
-	EpochMaskedTurns    int      `json:"epoch_masked_turns,omitempty"`
 	Notes               []string `json:"notes,omitempty"`
 }
 
@@ -135,26 +130,6 @@ func NewContextTokenBudgetEvent(scope string, turn, promptTokens, contextWindow 
 	})
 }
 
-// NewContextMaskingEvent creates a new masking diagnostic event.
-func NewContextMaskingEvent(turn int, toolName, action, reason string, window, epochBoundary, epochStartTurn, epochMaskedTurns int, epochTrigger, epochStatus string, notes ...string) Event {
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:             "masking",
-		Scope:            "conversation",
-		Turn:             turn,
-		Severity:         "info",
-		Action:           action,
-		Reason:           reason,
-		Tool:             toolName,
-		Window:           window,
-		EpochBoundary:    epochBoundary,
-		EpochStartTurn:   epochStartTurn,
-		EpochTrigger:     epochTrigger,
-		EpochStatus:      epochStatus,
-		EpochMaskedTurns: epochMaskedTurns,
-		Notes:            append([]string(nil), notes...),
-	})
-}
-
 // NewFileAnnotationEvent creates a new file annotation diagnostic event.
 func NewFileAnnotationEvent(turn int, path, action, reason string, previousTurn int, notes ...string) Event {
 	eventNotes := append([]string(nil), notes...)
@@ -173,45 +148,12 @@ func NewFileAnnotationEvent(turn int, path, action, reason string, previousTurn 
 	})
 }
 
-// NewScratchpadEvent creates a new scratchpad diagnostic event.
-func NewScratchpadEvent(turn int, parsed bool, content string, failures int, note string) Event {
-	payload := ContextDiagnosticsEvent{
-		Kind:   "scratchpad",
-		Scope:  "assistant",
-		Turn:   turn,
-		Action: "update",
-		Parsed: parsed,
-	}
-	if parsed {
-		payload.Severity = "info"
-		payload.SummaryPreview = TruncateWithEllipsis(content, 160)
-		payload.SummaryBytes = len(content)
-		if len(content) > 160 {
-			payload.Truncated = true
-		}
-	} else {
-		payload.Severity = "warning"
-		payload.Reason = "scratchpad block missing or invalid"
-		if note != "" {
-			payload.Notes = []string{note}
-		}
-	}
-	if failures > 0 {
-		payload.Failures = failures
-	}
-	return NewContextDiagnosticsEvent(payload)
-}
-
 func formatContextDiagnosticsEvent(payload ContextDiagnosticsEvent) string {
 	switch payload.Kind {
 	case "budget":
 		return formatContextBudgetSummary(payload)
-	case "masking":
-		return formatContextMaskingSummary(payload)
 	case "file_annotation":
 		return formatContextFileAnnotationSummary(payload)
-	case "scratchpad":
-		return formatContextScratchpadSummary(payload)
 	case "compaction":
 		return formatContextCompactionSummary(payload)
 	case "session_health":
@@ -260,27 +202,6 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	return strings.Join(parts, "; ")
 }
 
-func formatContextMaskingSummary(payload ContextDiagnosticsEvent) string {
-	parts := []string{formatDiagnosticHeadline(payload, "masking")}
-	if action := strings.TrimSpace(payload.Action); action != "" {
-		parts = append(parts, action)
-	}
-	if payload.Tool != "" {
-		parts = append(parts, fmt.Sprintf("tool=%s", payload.Tool))
-	}
-	if payload.Window > 0 {
-		parts = append(parts, fmt.Sprintf("window=%d", payload.Window))
-	}
-	if reason := strings.TrimSpace(payload.Reason); reason != "" {
-		parts = append(parts, fmt.Sprintf("reason=%s", reason))
-	}
-	parts = append(parts, formatContextEpochDetails(payload)...)
-	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
-		parts = append(parts, "notes "+notes)
-	}
-	return strings.Join(parts, "; ")
-}
-
 func formatContextFileAnnotationSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{formatDiagnosticHeadline(payload, "file annotation")}
 	if action := strings.TrimSpace(payload.Action); action != "" {
@@ -288,32 +209,6 @@ func formatContextFileAnnotationSummary(payload ContextDiagnosticsEvent) string 
 	}
 	if payload.Path != "" {
 		parts = append(parts, fmt.Sprintf("path=%s", payload.Path))
-	}
-	if reason := strings.TrimSpace(payload.Reason); reason != "" {
-		parts = append(parts, fmt.Sprintf("reason=%s", reason))
-	}
-	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
-		parts = append(parts, "notes "+notes)
-	}
-	parts = append(parts, formatContextEpochDetails(payload)...)
-	return strings.Join(parts, "; ")
-}
-
-func formatContextScratchpadSummary(payload ContextDiagnosticsEvent) string {
-	parts := []string{formatDiagnosticHeadline(payload, "scratchpad")}
-	if payload.Parsed {
-		parts = append(parts, "parsed")
-	} else {
-		parts = append(parts, "parse_failed")
-	}
-	if content := strings.TrimSpace(payload.SummaryPreview); content != "" {
-		parts = append(parts, fmt.Sprintf("content=%q", content))
-	}
-	if payload.SummaryBytes > 0 {
-		parts = append(parts, fmt.Sprintf("bytes=%d", payload.SummaryBytes))
-	}
-	if payload.Failures > 0 {
-		parts = append(parts, fmt.Sprintf("failures=%d", payload.Failures))
 	}
 	if reason := strings.TrimSpace(payload.Reason); reason != "" {
 		parts = append(parts, fmt.Sprintf("reason=%s", reason))
@@ -499,24 +394,6 @@ func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {
 	}
 	if payload.Kind != "session_health" && payload.CompactionCount > 0 {
 		parts = append(parts, fmt.Sprintf("compactions %d", payload.CompactionCount))
-	}
-	return parts
-}
-
-func formatContextEpochDetails(payload ContextDiagnosticsEvent) []string {
-	parts := make([]string, 0, 5)
-	if payload.EpochBoundary != 0 || payload.EpochStartTurn != 0 || payload.EpochTrigger != "" || payload.EpochStatus != "" || payload.EpochMaskedTurns > 0 {
-		parts = append(parts, fmt.Sprintf("epoch boundary=%d", payload.EpochBoundary))
-		parts = append(parts, fmt.Sprintf("start=%d", payload.EpochStartTurn))
-	}
-	if trigger := strings.TrimSpace(payload.EpochTrigger); trigger != "" {
-		parts = append(parts, fmt.Sprintf("trigger=%s", trigger))
-	}
-	if status := strings.TrimSpace(payload.EpochStatus); status != "" {
-		parts = append(parts, fmt.Sprintf("status=%s", status))
-	}
-	if payload.EpochMaskedTurns > 0 {
-		parts = append(parts, fmt.Sprintf("masked=%d", payload.EpochMaskedTurns))
 	}
 	return parts
 }

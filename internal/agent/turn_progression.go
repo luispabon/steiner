@@ -112,11 +112,7 @@ func appendAssistantMessage(state RunState, turn int, message provider.Message) 
 	return state
 }
 
-func (p *turnProgressor) finishAssistantOnlyTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	if in.Request.ContextManager != nil {
-		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
-		in.Request.ContextManager.OnTurnComplete(turn, false)
-	}
+func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 	state.StopReason = StopReasonComplete
 	emitStop(in.Request.Events, state, nil)
@@ -133,40 +129,35 @@ func (p *turnProgressor) finishAssistantOnlyTurn(ctx context.Context, in turnInp
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
 //   - TurnFinished event emission after all tools
-//   - OnTurnComplete notification for scratchpad tracking
 func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
 	state := in.State
 	turn := state.TurnCount
-	scratchpadCalled := false
 
 	for _, call := range response.Message.ToolCalls {
 		var outcome turnOutcome
-		state, scratchpadCalled, outcome = p.executeSingleToolCall(ctx, in, state, turn, call, scratchpadCalled)
+		state, outcome = p.executeSingleToolCall(ctx, in, state, turn, call)
 		if outcome.Stop {
 			return outcome
 		}
 	}
 
-	return p.finalizeToolTurn(ctx, in, state, turn, response, scratchpadCalled)
+	return p.finalizeToolTurn(ctx, in, state, turn, response)
 }
 
-func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput, state RunState, turn int, call provider.ToolCall, scratchpadCalled bool) (RunState, bool, turnOutcome) {
-	if call.Name == "scratchpad" {
-		scratchpadCalled = true
-	}
+func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
 	emitEvent(in.Request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 
 	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
-		return state, scratchpadCalled, turnOutcome{State: cancelled, Stop: true}
+		return state, turnOutcome{State: cancelled, Stop: true}
 	}
 
 	toolMessage := p.buildToolMessage(in, turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
-	return state, scratchpadCalled, turnOutcome{}
+	return state, turnOutcome{}
 }
 
 func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error) Message {
@@ -197,11 +188,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	return toolMessage
 }
 
-func (p *turnProgressor) finalizeToolTurn(ctx context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse, scratchpadCalled bool) turnOutcome {
-	if in.Request.ContextManager != nil {
-		p.maybeRunScaffoldInference(ctx, in, state, turn, response.Message.Content)
-		in.Request.ContextManager.OnTurnComplete(turn, scratchpadCalled)
-	}
+func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
@@ -258,37 +245,6 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 	return toolOutcome
 }
 
-func (p *turnProgressor) maybeRunScaffoldInference(ctx context.Context, in turnInput, state RunState, turn int, assistantContent string) {
-	cm, ok := in.Request.ContextManager.(ScaffoldInferrer)
-	if !ok {
-		return
-	}
-	if in.CompactionCount == nil {
-		return
-	}
-	if !cm.ShouldRunScaffoldInference(state, *in.CompactionCount) {
-		return
-	}
-	if err := ctx.Err(); err != nil {
-		return
-	}
-
-	request := buildScaffoldInferenceRequest(in.Request, cm.ScaffoldPromptState(), assistantContent)
-	response, err := completeScaffoldInferenceCall(ctx, in.Request, turn, request)
-	if err != nil {
-		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.ScaffoldPromptState(), 0, err.Error()))
-		return
-	}
-
-	content := strings.TrimSpace(response.Message.Content)
-	if content == "" {
-		emitEvent(in.Request.Events, output.NewScratchpadEvent(turn, false, cm.ScaffoldPromptState(), 0, "scaffold inference returned empty content"))
-		return
-	}
-
-	cm.ApplyScaffoldInference(turn, content)
-}
-
 // handleError converts an error into a turnOutcome, checking for cancellation
 // first. Cancellation returns Stop with a nil error; everything else sets
 // StopReasonError.
@@ -332,10 +288,10 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 
 	cm := in.Request.ContextManager
 	if cm == nil {
-		cm = &NaiveContextManager{}
+		cm = NewContextStateManager()
 	}
 	var err error
-	in.State, err = cm.PreAssembly(ctx, in.State)
+	in.State, err = cm.PrepareTurnState(ctx, in.State)
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
 	}

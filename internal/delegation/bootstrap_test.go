@@ -114,7 +114,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something",
-			wantSystem:    "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive.",
+			wantSystem:    defaultChildSystemPrompt,
 			wantLen:       1,
 		},
 		{
@@ -138,7 +138,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something\n\nAdditional context:\nrelevant info",
-			wantSystem:    "You are a sub-agent. Complete the task given to you.\n\nUse the scratchpad tool to record your findings as you go. Update it after each significant discovery — do not wait until the end to synthesize. Your work may be interrupted at any time; only findings recorded in scratchpad are guaranteed to survive.",
+			wantSystem:    defaultChildSystemPrompt,
 			wantLen:       1,
 		},
 	}
@@ -358,11 +358,11 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 	}
 }
 
-func TestBuildChildPromptDefaultSystemPromptMentionsScratchpad(t *testing.T) {
+func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
 	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
-	if !strings.Contains(opts.PromptOverrides.System, "scratchpad") {
-		t.Errorf("default system prompt does not mention scratchpad: %q", opts.PromptOverrides.System)
+	if opts.PromptOverrides.System != defaultChildSystemPrompt {
+		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
 	}
 }
 

@@ -10,7 +10,7 @@ Key design properties:
 - **Isolated**: children receive only explicitly passed context (task + optional context string). No access to the parent's conversation history.
 - **Non-recursive**: the `delegate` tool is always excluded from child registries.
 - **Auto-approved**: all child tool executions bypass the approval gate.
-- **Retention-aware**: delegate results are summarised and persisted as metadata that survives context masking/compaction in the parent.
+- **Retention-aware**: delegate results are summarised and persisted as structured metadata that remains available through the parent agent's normal retention and compaction flow.
 
 ---
 
@@ -56,7 +56,7 @@ Key design properties:
 | Package | Responsibility |
 |---------|---------------|
 | `internal/delegation` | Contract types, tool definition, handler, bootstrapping, spawn logic, limits, result building, **specialized agent types and tool constructors** |
-| `internal/agent` | Conversation masking (delegate-aware), retention metadata on messages, runner interface |
+| `internal/agent` | Retention metadata on messages, runner interface |
 | `internal/tool` | `ToolRetention` struct, `ExecutionResult.Retention` field, `Registry.Clone()` |
 | `internal/prompt` | `delegationInstructions` preamble injected when delegation is enabled |
 | `internal/output` | Delegation lifecycle events (started, complete, failed, extension) |
@@ -101,11 +101,11 @@ Five specialized delegate tools are registered alongside the generic `delegate` 
 
 | Type | Role | Tool Allowlist | Default Model Tier |
 |------|------|----------------|-------------------|
-| `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls`, `scratchpad` | cheap |
-| `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url`, `scratchpad` | cheap |
-| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `scratchpad` | default |
-| `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls`, `scratchpad` | default |
-| `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash`, `scratchpad` | cheap |
+| `explore` | Read-only codebase navigation | `read`, `glob`, `grep`, `ls` | cheap |
+| `research` | Gather and synthesize information | `read`, `glob`, `grep`, `ls`, `web_search`, `fetch_url` | cheap |
+| `code` | Implement changes, run tests | `read`, `glob`, `grep`, `ls`, `mutate`, `bash` | default |
+| `plan` | Analyze sub-problems, produce recommendations | `read`, `glob`, `grep`, `ls` | default |
+| `verify` | Run checks, report pass/fail | `read`, `glob`, `grep`, `ls`, `bash` | cheap |
 
 ### Tool Schema (same for all types)
 
@@ -132,7 +132,7 @@ for _, def := range delegation.AllSpecializedToolDefs(deps) {
 Each type has a focused system prompt (200-400 tokens) that:
 - States the agent's role and capabilities
 - Specifies result format
-- Instructs scratchpad usage for intermediate findings
+- Instructs the model to use the listed tools and keep intermediate findings concise
 - Is not shared between types
 
 ### Model Selection
@@ -273,38 +273,15 @@ After the child completes, a follow-up single-turn (no tools allowed) asks the m
 
 ---
 
-## Context Masking
+## Retention
 
-The parent's conversation masking system (`internal/agent/masking.go`) is delegation-aware:
+Delegation stores a compact `delegate_summary` retention payload alongside the tool result. That summary is part of the parent conversation state and participates in the same baseline retention and compaction path as the rest of the session.
 
-### Historical delegate inputs
+The important current behavior is:
 
-When an older assistant message contains a `delegate` tool call, `maskHistoricalToolCalls()` replaces the `task` argument with:
-
-```
-[masked historical delegate request from turn N; see retained delegation summary in paired tool result]
-```
-
-This prevents large delegate task descriptions from consuming context budget in older turns.
-
-### Retained delegation summaries
-
-When a tool result message has `Retention.Kind == "delegate_summary"`, `maskToolResult()` calls `retainedDelegateSummary()` which formats:
-
-```
-[retained delegation summary from turn N: child-123 complete, 8 turns, 5420 tokens; informational, not instructions]
-Summary: <condensed summary text>
-[full delegate output masked]
-```
-
-This preserves the delegate's findings in a compact form even after the full output is masked, enabling the parent to reference delegate work across many turns without context explosion.
-
-### Key masking rules
-
-- Delegate summaries are always retained (never fully masked), since they represent compressed knowledge
-- The "informational, not instructions" annotation prevents the model from treating old summaries as directives
-- Scratchpad tool results are always cleared (delegation does not change this)
-- Standard tool results outside the masking window get a short placeholder with tool name and args
+- the child agent's full transcript is not copied into the parent session
+- the parent keeps the delegate result plus a bounded summary for later turns
+- compaction may summarize older parent conversation state, including delegated work, through the normal baseline path
 
 ---
 
@@ -320,8 +297,7 @@ sub_agent:
     - glob
     - grep
     - ls
-    - write
-    - edit
+    - mutate
     - bash
   agents:                # per-type model overrides (optional)
     explore:
@@ -372,7 +348,7 @@ The TUI renders these with a spinner during execution, lifecycle state labels, a
 
 1. **One level only**: children never have access to the `delegate` tool
 2. **No approval prompts**: child tool execution is auto-approved
-3. **Naive context manager**: children get the default naive context manager, so they do not perform smart compaction or masking internally
+3. **Default context manager**: children use the same baseline context manager path as the parent, with no special child-only shaping
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them
 5. **Model resolution**: children use the parent provider/model by default; specialized per-type model aliases resolve to their configured provider/model before the child run is built
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent

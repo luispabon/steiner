@@ -121,7 +121,6 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextBudgetBytes: r.runtime.cfg.ProjectContext.MaxTokens,
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
-		ScratchpadEnabled:         r.runtime.cfg.ContextManagement.ScratchpadMode == config.ScratchpadModeHybrid,
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		Conversation:              toProviderConversation(conversation),
 	}
@@ -164,7 +163,7 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 		},
 		CavemanMode:        r.cavemanMode != nil && r.cavemanMode(),
 		Events:             events,
-		ContextManager:     agent.NewContextManager(string(r.runtime.cfg.ContextManagement.Mode), r.runtime.cfg.ContextManagement),
+		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 	}

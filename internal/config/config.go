@@ -1,49 +1,8 @@
 package config
 
-// ContextMode controls which context management strategy the agent uses.
-type ContextMode string
-
-const (
-	// ContextModeNaive is the default pass-through mode that keeps existing
-	// compaction behaviour unchanged.
-	ContextModeNaive ContextMode = "naive"
-	// ContextModeSmart enables active context management with signal extraction
-	// and structured state.
-	ContextModeSmart ContextMode = "smart"
-)
-
-// CompactionStrategy controls how the smart context manager reduces context
-// when the conversation grows too large.
-type CompactionStrategy string
-
-const (
-	// CompactionStrategyDrop discards old turns without summarising.
-	CompactionStrategyDrop CompactionStrategy = "drop"
-	// CompactionStrategySummarize summarises dropped turns before removing them.
-	CompactionStrategySummarize CompactionStrategy = "summarize"
-	// CompactionStrategyHybrid combines summarisation with selective retention.
-	CompactionStrategyHybrid CompactionStrategy = "hybrid"
-)
-
-// ScratchpadMode controls how the scratchpad state is maintained.
-type ScratchpadMode string
-
-const (
-	// ScratchpadModeScaffoldOnly uses steiner-managed scaffold state only.
-	ScratchpadModeScaffoldOnly ScratchpadMode = "scaffold_only"
-	// ScratchpadModeHybrid enables the model-written scratchpad tool in addition
-	// to the steiner-managed scaffold state.
-	ScratchpadModeHybrid ScratchpadMode = "hybrid"
-)
-
-// ContextManagementConfig holds settings for the active context management
-// feature.
+// ContextManagementConfig holds baseline context management settings.
 type ContextManagementConfig struct {
-	Mode               ContextMode        `yaml:"mode"`
-	CompactionStrategy CompactionStrategy `yaml:"compaction_strategy"`
-	MaskingWindowTurns int                `yaml:"masking_window_turns"`
-	ReadAnnotations    bool               `yaml:"read_annotations"`
-	ScratchpadMode     ScratchpadMode     `yaml:"scratchpad_mode"`
+	ReadAnnotations bool `yaml:"read_annotations"`
 }
 
 // ProviderType is the type of model provider.
@@ -113,7 +72,6 @@ type Config struct {
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
 	Paths             PathsConfig               `yaml:"paths"`
 	Logging           LoggingConfig             `yaml:"logging"`
-	Debug             DebugConfig               `yaml:"debug"`
 	ContextManagement ContextManagementConfig   `yaml:"context_management"`
 	CavemanMode       bool                      `yaml:"caveman_mode"`
 	Search            SearchConfig              `yaml:"search"`
@@ -228,11 +186,6 @@ type LoggingConfig struct {
 	File              string `yaml:"file"`
 	ThinkingChunk     bool   `yaml:"thinking_chunk"`
 	CompactionLogFile string `yaml:"compaction_log_file"`
-}
-
-// DebugConfig exposes internal debugging toggles.
-type DebugConfig struct {
-	ShowInternalScaffoldInference bool `yaml:"show_internal_scaffold_inference"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

@@ -55,20 +55,19 @@ func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
 		selectedProviderBaseURL = p.BaseURL
 	}
 	tuiCfg := tui.Config{
-		Model:                         selected.ID,
-		ModelNames:                    modelAliasNames(rt.cfg),
-		ModelContexts:                 modelContextSizes(rt.cfg),
-		ModelBaseURLs:                 modelBaseURLs(rt.cfg),
-		ProviderBaseURL:               selectedProviderBaseURL,
-		HomeDir:                       rt.homeDir,
-		WorkingDir:                    rt.workDir,
-		MaxTurns:                      0,
-		Version:                       version,
-		SkillNames:                    rt.skillNames,
-		SkillDescriptions:             rt.skillDescriptions,
-		SkillSources:                  rt.skillSources,
-		ShowInternalScaffoldInference: rt.cfg.Debug.ShowInternalScaffoldInference,
-		Controller:                    sess,
+		Model:             selected.ID,
+		ModelNames:        modelAliasNames(rt.cfg),
+		ModelContexts:     modelContextSizes(rt.cfg),
+		ModelBaseURLs:     modelBaseURLs(rt.cfg),
+		ProviderBaseURL:   selectedProviderBaseURL,
+		HomeDir:           rt.homeDir,
+		WorkingDir:        rt.workDir,
+		MaxTurns:          0,
+		Version:           version,
+		SkillNames:        rt.skillNames,
+		SkillDescriptions: rt.skillDescriptions,
+		SkillSources:      rt.skillSources,
+		Controller:        sess,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore

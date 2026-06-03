@@ -67,7 +67,6 @@ sub_agent:
     - write
     - edit
     - bash
-    - scratchpad
 
   # Per-agent-type model overrides. When set, sub-agents of that type use
   # a different model than the parent agent.
@@ -88,10 +87,10 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 
 | Agent | Tools available |
 |-------|----------------|
-| `explore` | `read`, `glob`, `grep`, `ls`, `scratchpad` |
-| `research` | `read`, `glob`, `grep`, `ls`, `web_search`*, `fetch_url`*, `scratchpad` |
-| `code` | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `scratchpad` |
-| `plan` | `read`, `glob`, `grep`, `ls`, `scratchpad` |
-| `verify` | `read`, `glob`, `grep`, `ls`, `bash`, `scratchpad` |
+| `explore` | `read`, `glob`, `grep`, `ls` |
+| `research` | `read`, `glob`, `grep`, `ls`, `web_search`*, `fetch_url`* |
+| `code` | `read`, `glob`, `grep`, `ls`, `mutate`, `bash` |
+| `plan` | `read`, `glob`, `grep`, `ls` |
+| `verify` | `read`, `glob`, `grep`, `ls`, `bash` |
 
 \* `web_search` and `fetch_url` are not yet implemented.

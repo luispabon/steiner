@@ -82,6 +82,16 @@ func messageContentsContain(messages []provider.Message, needle string) bool {
 	return false
 }
 
+func toolMessages(messages []provider.Message) []provider.Message {
+	filtered := make([]provider.Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Role == provider.MessageRoleTool {
+			filtered = append(filtered, message)
+		}
+	}
+	return filtered
+}
+
 func equalStrings(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

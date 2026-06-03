@@ -67,18 +67,6 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 }
 
 func validateContextManagementConfig(problems *[]string, cfg ContextManagementConfig) {
-	if err := validateContextMode("context_management.mode", cfg.Mode); err != nil {
-		*problems = append(*problems, err.Error())
-	}
-	if cfg.CompactionStrategy != "" {
-		if err := validateCompactionStrategy("context_management.compaction_strategy", cfg.CompactionStrategy); err != nil {
-			*problems = append(*problems, err.Error())
-		}
-	}
-	if err := validateScratchpadMode("context_management.scratchpad_mode", cfg.ScratchpadMode); err != nil {
-		*problems = append(*problems, err.Error())
-	}
-	if cfg.MaskingWindowTurns <= 0 {
-		*problems = append(*problems, "context_management.masking_window_turns must be at least 1")
-	}
+	_ = problems
+	_ = cfg
 }

@@ -15,7 +15,6 @@ type baseContextManager struct {
 	cachedPreamble        struct {
 		content           string
 		override          string
-		scratchpadEnabled bool
 		delegationEnabled bool
 		cavemanMode       bool
 	}
@@ -23,15 +22,13 @@ type baseContextManager struct {
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, scratchpadEnabled bool, delegationEnabled bool, cavemanMode bool) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, cavemanMode bool) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
-		b.cachedPreamble.scratchpadEnabled != scratchpadEnabled ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
 		b.cachedPreamble.cavemanMode != cavemanMode {
-		b.cachedPreamble.content = prompt.SystemPreamble(override, scratchpadEnabled, delegationEnabled, cavemanMode).Content
+		b.cachedPreamble.content = prompt.SystemPreamble(override, delegationEnabled, cavemanMode).Content
 		b.cachedPreamble.override = override
-		b.cachedPreamble.scratchpadEnabled = scratchpadEnabled
 		b.cachedPreamble.delegationEnabled = delegationEnabled
 		b.cachedPreamble.cavemanMode = cavemanMode
 	}
@@ -55,12 +52,13 @@ func (b *baseContextManager) observeToolResult(turn int, toolName string, _ map[
 }
 
 func (b *baseContextManager) observeReadToolResult(turn int, shaped string) string {
-	next, _, _ := b.observeReadToolResultWithObservation(turn, shaped)
+	result, _ := parseReadResult(shaped)
+	next, observation := b.observeReadToolResultWithObservation(turn, shaped)
+	b.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
 	return next
 }
 
-func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shaped string) (string, readResult, fileObservation) {
-	result, _ := parseReadResult(shaped)
+func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shaped string) (string, fileObservation) {
 	next, observation := b.fileTracker.ObserveRead(turn, shaped, b.annotationsEnabled())
 	if observation.Action == "annotated" {
 		if observation.PreviousRead.LastTurn <= 0 {
@@ -73,8 +71,7 @@ func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shap
 			observation.Reason = "previous read no longer visible in context"
 		}
 	}
-	b.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
-	return next, result, observation
+	return next, observation
 }
 
 func (b *baseContextManager) annotationsEnabled() bool {
@@ -119,7 +116,7 @@ func (b *baseContextManager) emitFileAnnotationDiagnostics(turn int, result read
 	))
 }
 
-func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message, ingestor ToolResultIngestor) []Message {
+func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message, ingestor *ContextStateManager) []Message {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -130,7 +127,7 @@ func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Mess
 	return out
 }
 
-func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message, ingestor ToolResultIngestor) Message {
+func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message, ingestor *ContextStateManager) Message {
 	if message.Role != MessageRoleTool {
 		return message
 	}

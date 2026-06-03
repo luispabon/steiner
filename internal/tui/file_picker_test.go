@@ -664,9 +664,6 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 
 	view := stripANSI(m.View())
 
-	if !strings.Contains(view, "REPOSITORY") {
-		t.Fatal("expected sidebar repository section to survive file picker overlay")
-	}
 	if !strings.Contains(view, "workdir.") {
 		t.Fatal("expected sidebar workdir row to survive file picker overlay")
 	}
@@ -691,9 +688,6 @@ func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 
 	view := stripANSI(m.View())
 
-	if !strings.Contains(view, "REPOSITORY") {
-		t.Fatal("expected sidebar repository section to survive file picker overlay")
-	}
 	if !strings.Contains(view, "test-model") {
 		t.Fatal("expected sidebar model name to survive file picker overlay")
 	}

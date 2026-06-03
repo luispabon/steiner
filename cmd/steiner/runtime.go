@@ -29,7 +29,6 @@ type cliFlags struct {
 	compactionLogFile string
 	maxTurns          int
 	enableStreaming   bool
-	contextMode       string
 	caveman           bool
 	resume            string
 }

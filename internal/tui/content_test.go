@@ -768,38 +768,15 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 	}
 }
 
-func TestAppendEventSuppressesScaffoldInferenceChunksWhenDebugDisabled(t *testing.T) {
+func TestAppendEventStreamsThinkingAndAssistantChunks(t *testing.T) {
 	buffer := &contentBuffer{
-		segments:                      make([]contentSegment, 0),
-		collapseState:                 make(map[int]bool),
-		showInternalScaffoldInference: false,
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
-	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "internal reasoning"))
+	buffer.AppendEvent(output.NewAssistantChunkEvent(1, `{"intent":"inspect","next":"read file"}`))
 	buffer.AppendEvent(output.NewAssistantChunkEvent(1, "visible answer"))
-	buffer.finishStreaming()
-
-	if len(buffer.segments) != 1 {
-		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
-	}
-	if got := buffer.segments[0].text; !strings.Contains(got, "visible answer") {
-		t.Fatalf("segment text = %q, want visible answer", got)
-	}
-	if got := buffer.String(80); strings.Contains(got, "internal reasoning") || strings.Contains(got, `"intent":"inspect"`) {
-		t.Fatalf("rendered content leaked scaffold inference: %q", got)
-	}
-}
-
-func TestAppendEventShowsScaffoldInferenceChunksWhenDebugEnabled(t *testing.T) {
-	buffer := &contentBuffer{
-		segments:                      make([]contentSegment, 0),
-		collapseState:                 make(map[int]bool),
-		showInternalScaffoldInference: true,
-	}
-
-	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
-	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
 	buffer.finishStreaming()
 
 	if len(buffer.segments) != 2 {
@@ -808,8 +785,8 @@ func TestAppendEventShowsScaffoldInferenceChunksWhenDebugEnabled(t *testing.T) {
 	if buffer.segments[0].kind != segmentThinkingBlock {
 		t.Fatalf("segment[0].kind = %v, want segmentThinkingBlock", buffer.segments[0].kind)
 	}
-	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) {
-		t.Fatalf("assistant segment = %q, want scaffold json", got)
+	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) || !strings.Contains(got, "visible answer") {
+		t.Fatalf("assistant segment = %q, want streamed assistant content", got)
 	}
 }
 
@@ -894,17 +871,16 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 	}
 }
 
-func TestAPIResponseFinalizesScaffoldInferenceJSONAfterThinking(t *testing.T) {
+func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 	buffer := &contentBuffer{
-		segments:                      make([]contentSegment, 0),
-		collapseState:                 make(map[int]bool),
-		styles:                        theme.BuildStyles(theme.AccentAmber),
-		showThinking:                  true,
-		showInternalScaffoldInference: true,
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceScaffoldInference))
-	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceScaffoldInference))
+	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "internal reasoning"))
+	buffer.AppendEvent(output.NewAssistantChunkEvent(1, `{"intent":"inspect","next":"read file"}`))
 	buffer.AppendEvent(output.NewAPIResponseEvent(nil, nil, "stop", nil))
 
 	if got := strings.TrimSpace(buffer.streamBuffer); got != "" {
@@ -917,26 +893,7 @@ func TestAPIResponseFinalizesScaffoldInferenceJSONAfterThinking(t *testing.T) {
 		t.Fatal("thinking block not collapsed after API response finalization")
 	}
 	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) || !strings.Contains(got, `"next":"read file"`) {
-		t.Fatalf("assistant segment = %q, want finalized scaffold json", got)
-	}
-}
-
-func TestStreamingScaffoldInferencePreviewHardWrapsLongJSON(t *testing.T) {
-	buffer := &contentBuffer{
-		showInternalScaffoldInference: true,
-		styles:                        theme.BuildStyles(theme.AccentAmber),
-	}
-
-	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect_scratchpad_go_to_find_scaffold_inference","next":"read_turn_progression_go"}`, output.ChunkSourceScaffoldInference))
-
-	rendered := buffer.String(30)
-	if !strings.Contains(rendered, "\n") {
-		t.Fatalf("rendered = %q, want wrapped preview", rendered)
-	}
-	for _, want := range []string{`"intent":"inspect_`, `"next":"read_turn_progression`, `_go"`} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("rendered = %q, want %q", rendered, want)
-		}
+		t.Fatalf("assistant segment = %q, want finalized assistant text", got)
 	}
 }
 
@@ -1727,30 +1684,6 @@ func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(got), "# POEM") {
 		t.Fatalf("rendered markdown heading %q missing text", got)
-	}
-}
-
-func TestBuildPlainLinesRendersCurrentScratchpadFields(t *testing.T) {
-	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
-	}
-	lines := buffer.buildPlainLines(&toolCallSegment{
-		tool: "scratchpad",
-		rawArgs: map[string]any{
-			"intent":    "inspect note",
-			"decisions": "keep it simple",
-			"open":      "none",
-			"next":      "read file",
-		},
-	})
-	got := stripANSI(strings.Join(lines, "\n"))
-	for _, want := range []string{"Intent: inspect note", "Decisions: keep it simple", "Open: none", "Next: read file"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("rendered scratchpad args %q missing %q", got, want)
-		}
-	}
-	if strings.Contains(got, "goal:") || strings.Contains(got, "plan:") || strings.Contains(got, "step:") || strings.Contains(got, "files:") {
-		t.Fatalf("rendered scratchpad args still contain legacy fields: %q", got)
 	}
 }
 

@@ -1286,16 +1286,14 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	}
 }
 
-func TestModelThinkingToggleDoesNotRevealHiddenScaffoldInference(t *testing.T) {
+func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
 	m := newModel(Config{
-		ShowThinking:                  false,
-		ShowInternalScaffoldInference: false,
+		ShowThinking: false,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "hidden scaffold reasoning", output.ChunkSourceScaffoldInference)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEvent(1, "normal reasoning")})
 
-	if got := m.content.String(m.viewport.Width); strings.Contains(got, "hidden scaffold reasoning") || strings.Contains(got, "normal reasoning") {
+	if got := m.content.String(m.viewport.Width); strings.Contains(got, "normal reasoning") {
 		t.Fatalf("content = %q, want no thinking while toggle is off", got)
 	}
 
@@ -1304,22 +1302,6 @@ func TestModelThinkingToggleDoesNotRevealHiddenScaffoldInference(t *testing.T) {
 	content := m.content.String(m.viewport.Width)
 	if !strings.Contains(content, "normal reasoning") {
 		t.Fatalf("content = %q, want visible normal thinking after toggle", content)
-	}
-	if strings.Contains(content, "hidden scaffold reasoning") {
-		t.Fatalf("content = %q, want scaffold reasoning hidden with debug flag off", content)
-	}
-}
-
-func TestModelShowsScaffoldInferenceThinkingOnlyWhenDebugEnabled(t *testing.T) {
-	m := newModel(Config{
-		ShowThinking:                  true,
-		ShowInternalScaffoldInference: true,
-	}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "visible scaffold reasoning", output.ChunkSourceScaffoldInference)})
-
-	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "visible scaffold reasoning") {
-		t.Fatalf("content = %q, want scaffold reasoning visible when debug flag enabled", got)
 	}
 }
 
@@ -1332,18 +1314,6 @@ func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
 	got := m.viewport.View()
 	if strings.Contains(got, "context info:") || strings.Contains(got, "prompt_tokens=") {
 		t.Fatalf("viewport = %q, want no context diagnostics when debug disabled", got)
-	}
-}
-
-func TestContextDiagnosticsShownWhenDebugEnabled(t *testing.T) {
-	m := newModel(Config{ShowInternalScaffoldInference: true}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
-	m.syncViewport()
-
-	got := m.viewport.View()
-	if !strings.Contains(got, "prompt_tokens=100") {
-		t.Fatalf("viewport = %q, want context diagnostics when debug enabled", got)
 	}
 }
 

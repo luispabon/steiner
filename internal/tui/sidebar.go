@@ -38,11 +38,6 @@ type sidebarState struct {
 	activeSkill   string
 	styles        theme.Styles
 	tickCount     int
-
-	scratchpadIntent    string
-	scratchpadDecisions string
-	scratchpadOpen      string
-	scratchpadNext      string
 }
 
 func newSidebarState() sidebarState {

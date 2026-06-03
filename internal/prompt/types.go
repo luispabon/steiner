@@ -96,13 +96,6 @@ type AssemblyPolicy struct {
 	ToolSummary ToolSummaryPolicy
 }
 
-// DurableContextEntry stores one durable context item retained across turns.
-type DurableContextEntry struct {
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"`
-	Turn   int    `json:"turn,omitempty"`
-}
-
 // DurableSummaryEntry stores a retained summary carried across compactions.
 type DurableSummaryEntry struct {
 	Title  string `json:"title,omitempty"`
@@ -136,13 +129,12 @@ type AssemblyOptions struct {
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
-	ScratchpadEnabled         bool
 	DelegationEnabled         bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
 	// is used directly, bypassing SystemPreamble. Both inputs to SystemPreamble
-	// (PromptOverrides.System, ScratchpadEnabled, and DelegationEnabled) are
+	// (PromptOverrides.System and DelegationEnabled) are
 	// session-constants, so caching once per session is safe.
 	CachedPreamble string
 

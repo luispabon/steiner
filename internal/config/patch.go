@@ -14,7 +14,6 @@ type configPatch struct {
 	ProjectContext    *projectContextPatch      `yaml:"project_context"`
 	Paths             *pathsPatch               `yaml:"paths"`
 	Logging           *loggingPatch             `yaml:"logging"`
-	Debug             *debugPatch               `yaml:"debug"`
 	ContextManagement *contextManagementPatch   `yaml:"context_management"`
 	Search            *searchPatch              `yaml:"search"`
 }
@@ -29,11 +28,7 @@ type providerPatch struct {
 }
 
 type contextManagementPatch struct {
-	Mode               *ContextMode        `yaml:"mode"`
-	CompactionStrategy *CompactionStrategy `yaml:"compaction_strategy"`
-	MaskingWindowTurns *int                `yaml:"masking_window_turns"`
-	ReadAnnotations    *bool               `yaml:"read_annotations"`
-	ScratchpadMode     *ScratchpadMode     `yaml:"scratchpad_mode"`
+	ReadAnnotations *bool `yaml:"read_annotations"`
 }
 
 type schedulerPatch struct {
@@ -127,10 +122,6 @@ type loggingPatch struct {
 	Level         *string `yaml:"level"`
 	File          *string `yaml:"file"`
 	ThinkingChunk *bool   `yaml:"thinking_chunk"`
-}
-
-type debugPatch struct {
-	ShowInternalScaffoldInference *bool `yaml:"show_internal_scaffold_inference"`
 }
 
 type searchPatch struct {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -177,6 +178,55 @@ func TestSubAgentConfigYAMLParsing(t *testing.T) {
 			applySubAgentPatch(&dst, patch.SubAgent)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseConfigPatchRejectsUnknownFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "top_level_unknown",
+			yaml: `unknown_section:
+  enabled: true
+`,
+			wantErr: "field unknown_section not found",
+		},
+		{
+			name: "nested_unknown",
+			yaml: `models:
+  default:
+    provider: local
+    id: qwen3
+    unexpected_field: value
+`,
+			wantErr: "field unexpected_field not found",
+		},
+		{
+			name: "unknown_nested_section",
+			yaml: `sub_agent:
+  enabled: true
+  max_turns: 5
+  max_tokens: 10000
+  extra_settings:
+    enabled: false
+`,
+			wantErr: "field extra_settings not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseConfigPatch("test.yaml", tt.yaml)
+			if err == nil {
+				t.Fatalf("parseConfigPatch() error = nil, want substring %q", tt.wantErr)
+			}
+			if got := err.Error(); !strings.Contains(got, tt.wantErr) {
+				t.Fatalf("parseConfigPatch() error = %q, want substring %q", got, tt.wantErr)
 			}
 		})
 	}

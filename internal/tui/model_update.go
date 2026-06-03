@@ -61,13 +61,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
+	return m.clearConversationState()
+}
+
+func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
-	m.sidebar.scratchpadIntent = ""
-	m.sidebar.scratchpadDecisions = ""
-	m.sidebar.scratchpadOpen = ""
-	m.sidebar.scratchpadNext = ""
 	for name := range m.enabledSkills {
 		m.enabledSkills[name] = false
 	}
@@ -188,10 +188,6 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	if m.contextOverlay.IsOpen() {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
-	}
-	if m.scratchpadOverlay.IsOpen() {
-		m.scratchpadOverlay.OverlayShell = m.scratchpadOverlay.WithDimensions(msg.Width, msg.Height)
-		m.scratchpadOverlay = m.scratchpadOverlay.reflow()
 	}
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
 

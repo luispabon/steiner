@@ -53,7 +53,7 @@ func defaultConfig() Config {
 			Enabled:      true,
 			MaxTurns:     30,
 			MaxTokens:    100000,
-			AllowedTools: []string{"read", "glob", "grep", "ls", "bash", "scratchpad"},
+			AllowedTools: []string{"read", "glob", "grep", "ls", "bash"},
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
@@ -68,15 +68,8 @@ func defaultConfig() Config {
 			Level: "info",
 			File:  "~/.local/share/steiner/steiner.log",
 		},
-		Debug: DebugConfig{
-			ShowInternalScaffoldInference: false,
-		},
 		ContextManagement: ContextManagementConfig{
-			Mode:               ContextModeNaive,
-			CompactionStrategy: CompactionStrategyDrop,
-			MaskingWindowTurns: 5,
-			ReadAnnotations:    true,
-			ScratchpadMode:     ScratchpadModeScaffoldOnly,
+			ReadAnnotations: true,
 		},
 		CavemanMode: false,
 	}
