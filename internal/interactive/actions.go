@@ -101,4 +101,3 @@ func (SteerPrompt) isInteractiveAction() {}
 type requestSessionPicker struct{}
 
 func (requestSessionPicker) isInteractiveAction() {}
-

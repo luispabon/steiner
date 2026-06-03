@@ -368,4 +368,3 @@ type DisplayFilePayload struct {
 	Limit   int             `json:"limit,omitempty"`
 	Preview PreviewDocument `json:"preview"`
 }
-
