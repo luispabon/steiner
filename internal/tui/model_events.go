@@ -147,7 +147,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
-		m.content.PromoteLastPendingSteer()
+		m.content.AppendUser(payload.Text)
 		m.steerQueued = false
 		m.syncInputChrome()
 	}

@@ -1775,7 +1775,7 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	}
 }
 
-func TestModelSteerReceivedEventPromotesPendingSteer(t *testing.T) {
+func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1801,16 +1801,25 @@ func TestModelSteerReceivedEventPromotesPendingSteer(t *testing.T) {
 	if m.steerQueued {
 		t.Fatal("steerQueued = true after SteerReceivedEvent, want false")
 	}
-	// Segment must have been promoted to segmentUserMarkdown.
-	found := false
+
+	var pendingCount, userCount int
 	for _, seg := range m.content.segments {
-		if seg.kind == segmentUserMarkdown && seg.text == "my steer" {
-			found = true
-			break
+		if seg.text == "my steer" {
+			switch seg.kind {
+			case segmentPendingSteer:
+				pendingCount++
+			case segmentUserMarkdown:
+				userCount++
+			}
 		}
 	}
-	if !found {
-		t.Fatal("no segmentUserMarkdown with steer text found after promotion")
+	// Pending box must remain unchanged.
+	if pendingCount != 1 {
+		t.Fatalf("segmentPendingSteer count = %d, want 1 (original queued box must stay)", pendingCount)
+	}
+	// A new normal user message must appear at the delivery point.
+	if userCount != 1 {
+		t.Fatalf("segmentUserMarkdown count = %d, want 1 (delivery message must be appended)", userCount)
 	}
 }
 
