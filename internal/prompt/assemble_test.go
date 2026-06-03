@@ -424,6 +424,40 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 	}
 }
 
+func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T) {
+	t.Parallel()
+
+	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
+	if !strings.Contains(normal, "You are compacting the current working context for a coding agent.") {
+		t.Fatalf("normal compaction instruction = %q, want standard instruction body", normal)
+	}
+	if strings.Contains(normal, "emergency handoff") {
+		t.Fatalf("normal compaction instruction = %q, want no emergency guidance", normal)
+	}
+
+	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, false)
+	if !strings.Contains(emergency, "You are compacting the current working context for a coding agent.") {
+		t.Fatalf("emergency compaction instruction = %q, want standard instruction body", emergency)
+	}
+	if !strings.Contains(emergency, "emergency handoff") {
+		t.Fatalf("emergency compaction instruction = %q, want emergency guidance", emergency)
+	}
+}
+
+func TestRenderConversationCompactionInstructionPreservesOverrideAndCaveman(t *testing.T) {
+	t.Parallel()
+
+	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, true)
+	if got, want := override, "custom compaction prompt"; got != want {
+		t.Fatalf("override compaction instruction = %q, want %q", got, want)
+	}
+
+	caveman := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
+	if !strings.Contains(caveman, "compact working context for coding agent") {
+		t.Fatalf("caveman compaction instruction = %q, want caveman body", caveman)
+	}
+}
+
 // makeBundledFS builds a test fs.FS with the given skill name and content.
 func makeBundledFS(t *testing.T, content string) fs.FS {
 	t.Helper()

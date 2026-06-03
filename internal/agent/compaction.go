@@ -308,7 +308,10 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
 	workingCandidate.Messages = cloneMessages(sourceMessages)
-	request, promptText := buildCompactionRequestWithMode(req, state, workingCandidate, mode, maxTokens)
+	request, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens)
+	if err != nil {
+		return compactionExecutionPlan{}, err
+	}
 	fit, err := req.ModelBudget.FitCompactionRequest(ctx, request)
 	if err != nil {
 		return compactionExecutionPlan{}, err
@@ -353,16 +356,24 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 	return nextState
 }
 
-func buildCompactionRequestWithMode(req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, string) {
-	source := ToProviderMessages(candidate.Messages)
-	messages := prompt.BuildConversationCompactionPrompt(source, toPromptContext(state.Context), req.Prompt.PromptOverrides.Compaction, mode, req.Prompt.CavemanMode)
+func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, string, error) {
+	basePrompt := prepareBasePrompt(req)
+	sourceState := state.WithConversation(candidate.Messages)
+	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, sourceState))
+	if err != nil {
+		return provider.ChatRequest{}, "", err
+	}
+	messages := append(cloneProviderMessages(assembly.Messages), provider.Message{
+		Role:    provider.MessageRoleUser,
+		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CavemanMode),
+	})
 	request := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    messages,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   compactionMaxTokensForMode(maxTokens),
 	}
-	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request), fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode)
+	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request), fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
 }
 
 func retainRecentTurns(messages []Message, retainTurns int) []Message {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -237,6 +238,7 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 
 	req := RunRequest{
 		Provider:      providerStub,
+		Tools:         []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "read"}}},
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         100000,
@@ -244,6 +246,14 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 			SafetyMarginTokens:  0,
 			SummaryMaxTokens:    128,
 		},
+	}
+	sourceMessages := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+	}
+	expectedAssembly, err := prompt.Assemble(context.Background(), assemblyOptions(prepareBasePrompt(req), state.WithConversation(sourceMessages)))
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 4, candidate)
@@ -257,8 +267,27 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
 	}
 	promptMessages := providerStub.requests[0].Messages
+	if len(providerStub.requests[0].Tools) != 0 {
+		t.Fatalf("compaction request tools = %d, want none", len(providerStub.requests[0].Tools))
+	}
+	if len(promptMessages) != len(expectedAssembly.Messages)+1 {
+		t.Fatalf("compaction prompt messages = %d, want assembled prefix %d plus final instruction", len(promptMessages), len(expectedAssembly.Messages))
+	}
+	if got := promptMessages[:len(expectedAssembly.Messages)]; !reflect.DeepEqual(got, expectedAssembly.Messages) {
+		t.Fatalf("compaction prompt prefix = %#v, want normal assembly %#v", got, expectedAssembly.Messages)
+	}
+	finalMessage := promptMessages[len(promptMessages)-1]
+	if got, want := finalMessage.Role, provider.MessageRoleUser; got != want {
+		t.Fatalf("final compaction message role = %q, want %q", got, want)
+	}
+	if got := finalMessage.Content; !strings.Contains(got, "You are compacting the current working context for a coding agent.") {
+		t.Fatalf("final compaction message = %q, want compaction instruction", got)
+	}
 	if !messageContentsContain(promptMessages, "turn 1 user") {
 		t.Fatal("compaction prompt missing older history")
+	}
+	if messageContentsContain(promptMessages, "turn 1: user: turn 1 user") {
+		t.Fatal("compaction prompt summarized source as turn transcript, want verbatim assembled messages")
 	}
 	for _, needle := range []string{"turn 2 user", "turn 3 user", "turn 4 user"} {
 		if messageContentsContain(promptMessages, needle) {
@@ -423,7 +452,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: strings.Repeat("normal summary detail ", 100),
+					Content: strings.Repeat("normal summary detail ", 600),
 				},
 				FinishReason: "stop",
 			},
@@ -469,7 +498,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               1000,
+			ContextSize:               3300,
 			MaxCompletionTokens:       128,
 			SafetyMarginTokens:        0,
 			SummaryMaxTokens:          64,
@@ -494,8 +523,13 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 	if got, want := *providerStub.requests[1].MaxTokens, 16; got != want {
 		t.Fatalf("emergency compaction max_tokens = %d, want %d", got, want)
 	}
-	if got := providerStub.requests[1].Messages[0].Content; !strings.Contains(got, "emergency handoff") {
-		t.Fatalf("emergency system prompt = %q, want emergency handoff instruction", got)
+	emergencyMessages := providerStub.requests[1].Messages
+	emergencyInstruction := emergencyMessages[len(emergencyMessages)-1]
+	if got, want := emergencyInstruction.Role, provider.MessageRoleUser; got != want {
+		t.Fatalf("emergency instruction role = %q, want %q", got, want)
+	}
+	if got := emergencyInstruction.Content; !strings.Contains(got, "emergency handoff") {
+		t.Fatalf("emergency instruction = %q, want emergency handoff instruction", got)
 	}
 }
 

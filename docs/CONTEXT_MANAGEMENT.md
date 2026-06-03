@@ -59,7 +59,7 @@ Compaction is the last line of defense. When the estimated prompt tokens exceed 
 Both stages work the same way:
 
 1. Older turns are split from the retained recent turns.
-2. A **compaction prompt** is sent to the model asking it to summarise the older turns. Normal mode uses a detailed 8-section handoff (task, repo state, work completed, decisions, problems, remaining work, verification, preferences). Emergency mode uses a terser prompt.
+2. The older turns are assembled through the normal prompt assembly path, then a final `user` message is appended asking the model to summarise them. Normal mode uses a detailed 8-section handoff (task, repo state, work completed, decisions, problems, remaining work, verification, preferences). Emergency mode appends extra guidance to be shorter and more lossy.
 3. The model's summary becomes a `MessageRoleSummary` prefix on a new `ConversationGeneration`.
 4. The summary is appended to `ContextState.RetainedSummaries` with source `compaction:{generationID}/{view}`.
 5. A new `ConversationGeneration` is created containing just the summary prefix + retained turns. The old generation is preserved in `ConversationLineage`.
@@ -68,7 +68,7 @@ Both stages work the same way:
 
 ### Durable context
 
-During compaction, `RetainedSummaries` from previous compactions are included in the compaction prompt as "durable context." Each entry is truncated to 160 characters when rendered. This ensures the compacting model has awareness of earlier work even though the original transcript is gone from the active generation.
+During compaction, `RetainedSummaries` from previous compactions are included by the same prompt assembly path used for normal turns. This ensures the compacting model has awareness of earlier work even though the original transcript is gone from the active generation.
 
 ### Escalation policy
 
