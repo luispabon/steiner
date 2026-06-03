@@ -6,15 +6,15 @@
 
 Sub-agent delegation is **enabled by default**. When it is, the model sees seven additional tools alongside the built-in ones:
 
-| Tool       | What it does                                                                     | Extra params                                               | Can mutate?            |
-|------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
-| `explore`  | Navigate the codebase to find files, symbols, call sites, and patterns           | `task` only                                                | No                     |
-| `research` | Gather and synthesise information from the codebase or web                       | `task` only                                                | No                     |
-| `code`     | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
-| `plan`     | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
-| `verify`   | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
-| `delegate` | Generic sub-agent with full customisation                                        | `task`, `context`, `system_prompt`, `max_turns`, `timeout` | Depends on config      |
-| `follow_up`| Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
+| Tool        | What it does                                                                     | Extra params                                               | Can mutate?            |
+|-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
+| `explore`   | Navigate the codebase to find files, symbols, call sites, and patterns           | `task` only                                                | No                     |
+| `research`  | Gather and synthesise information from the codebase or web                       | `task` only                                                | No                     |
+| `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
+| `plan`      | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
+| `verify`    | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
+| `delegate`  | Generic sub-agent with full customisation                                        | `task`, `context`, `system_prompt`, `max_turns`, `timeout` | Depends on config      |
+| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
 The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history.
 

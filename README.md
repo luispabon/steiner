@@ -399,10 +399,3 @@ The full linter configuration is in `.golangci.yml` at the repo root.
 ## Development notes
 
 Repo layout is compact: `cmd/` for entrypoints, `internal/` for agent/provider/tool/config code, `docs/` for product docs, and `testdata/` for fixtures. Conventions and deeper repo rules live in [AGENTS.md](AGENTS.md).
-
-## Further reading
-
-* [AGENTS.md](AGENTS.md)
-* [docs/PRD.md](docs/PRD.md)
-* [docs/ROADMAP.md](docs/ROADMAP.md)
-* [docs/INITIAL_IMPLEMENTATION_PLAN.md](docs/INITIAL_IMPLEMENTATION_PLAN.md)
