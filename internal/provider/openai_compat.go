@@ -25,6 +25,7 @@ type OpenAICompatConfig struct {
 	Retry      RetryConfig
 	HTTPClient *http.Client
 	Scheduler  *Scheduler
+	ProviderType string
 }
 
 // RetryConfig controls retry behavior for transient provider failures.
@@ -45,6 +46,7 @@ type OpenAICompat struct {
 	retry      RetryConfig
 	httpClient *http.Client
 	scheduler  *Scheduler
+	providerType string
 	sleep      func(context.Context, time.Duration) error
 	jitter     func(time.Duration) time.Duration
 	randMu     sync.Mutex
@@ -87,15 +89,16 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 		client = &cloned
 	}
 	provider := &OpenAICompat{
-		baseURL:    parsed,
-		apiKey:     cfg.APIKey,
-		headers:    copyHeaders(cfg.Headers),
-		model:      cfg.Model,
-		retry:      cfg.Retry,
-		httpClient: client,
-		scheduler:  cfg.Scheduler,
-		sleep:      defaultRetrySleep,
-		rand:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		baseURL:      parsed,
+		apiKey:       cfg.APIKey,
+		headers:      copyHeaders(cfg.Headers),
+		model:        cfg.Model,
+		retry:        cfg.Retry,
+		httpClient:   client,
+		scheduler:    cfg.Scheduler,
+		providerType: cfg.ProviderType,
+		sleep:        defaultRetrySleep,
+		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	provider.jitter = provider.fullJitter
 	return provider, nil

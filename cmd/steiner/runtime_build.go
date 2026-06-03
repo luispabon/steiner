@@ -59,8 +59,9 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 				MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
 				RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
 			},
-			Scheduler:  scheduler,
-			HTTPClient: httpClient,
+			ProviderType: string(rm.ProviderConfig.Type),
+			Scheduler:    scheduler,
+			HTTPClient:   httpClient,
 		})
 	}, nil
 }
