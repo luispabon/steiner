@@ -1,90 +1,99 @@
 # steiner
 
-`steiner` is a minimal, local-first coding agent in Go. It is built to work against real local repositories with bounded context, explicit approvals, and a split provider/model configuration that supports local OpenAI-compatible servers plus native provider integrations.
+A minimal, local-first Go coding agent with bounded context and explicit approvals.
 
-## Today in brief
+- **Delegation-first**: sub-agents isolate work so it never fills the parent conversation
+- **Transparent approval gates**: mutating tools prompt by default; no silent side-effects
+- **Provider-agnostic**: same config shape for local and cloud providers
 
-* Single-agent loop with interactive terminal mode and `--exec`
-* Config, tools, skills, and version commands are available now
-* Default provider targets a local OpenAI-compatible endpoint
-* Mutating tools are approval-gated by default; reads are auto-approved
+## Why steiner
+
+Most coding agents are designed for cloud models with large context windows. Steiner is designed for the opposite constraint: local LLMs where context is expensive, reasoning quality degrades as the window fills, and you want to know exactly what is happening before anything changes on disk.
+
+The core bet is that delegation is a better context strategy than summarisation. When a sub-agent handles exploration or code changes, the parent conversation never sees the intermediate turns — only the result. Combined with per-source byte budgets and late-stage compaction, this keeps the working context lean across long sessions.
+
+Every mutating action is approval-gated by default. The model cannot write files, run shell commands, or make network calls without a user prompt. Reads are auto-approved; mutations are not.
+
+The provider/model split means you can point steiner at Ollama, LM Studio, OpenRouter, or a native Anthropic or OpenAI endpoint with the same config shape and the same tool behavior.
 
 ## Quickstart
 
-Requirements: Go `1.25+`.
+1. **Prerequisites**: Go `1.25+`. For local models, [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai).
+2. **Start a local model** (Ollama example):
+   ```bash
+   ollama run qwen2.5-coder:14b
+   ```
+3. **Run from source**:
+   ```bash
+   go run ./cmd/steiner --exec "summarize this repository in one sentence"
+   ```
+   Or start interactive mode:
+   ```bash
+   go run ./cmd/steiner
+   ```
+4. **Inspect resolved configuration** before doing real work:
+   ```bash
+   go run ./cmd/steiner config
+   ```
+5. **Optional — build a local binary**:
+   ```bash
+   make build-binaries
+   ./bin/steiner
+   ```
 
-1. Start from source in this repo.
-2. Make sure an OpenAI-compatible server is running at `http://localhost:11434/v1`, or override the provider/model settings in config.
-3. Run a first request from source:
+## Usage
+
+**Interactive mode** — launches the TUI, accepts natural-language requests, streams tool calls and responses:
 
 ```bash
-go run ./cmd/steiner --exec "summarize this repository in one sentence"
-```
-
-4. Optional: inspect the resolved provider/model configuration before you do real work:
-
-```bash
-go run ./cmd/steiner config
-```
-
-If you want a local binary:
-
-```bash
-make build-binaries
+go run ./cmd/steiner
+# or
 ./bin/steiner
 ```
 
-## Common commands
+**Single-shot** — runs one request and exits:
 
-* `go run ./cmd/steiner` or `./bin/steiner` - interactive mode
-* `go run ./cmd/steiner --exec "..."` - run one request and exit
-* `go run ./cmd/steiner version` - print the build version
-* `go run ./cmd/steiner config` - print the resolved configuration, including provider and model definitions
-* `go run ./cmd/steiner tools` - list configured tools
-* `go run ./cmd/steiner skills` - list discovered skills
+```bash
+go run ./cmd/steiner --exec "explain the auth package"
+```
+
+**Commands reference**:
+
+| Command | What it does |
+|---------|--------------|
+| `version` | Print the build version |
+| `config` | Print the resolved configuration (providers, models, limits) |
+| `tools` | List configured tools and their approval status |
+| `skills` | List discovered skills |
+| `--help` | Print all flags and usage |
 
 ## Configuration
 
-Configuration precedence is:
+Configuration is loaded in this precedence order (later overrides earlier):
 
-1. compiled defaults
+1. Compiled defaults
 2. `~/.config/steiner/config.yaml`
-3. `.steiner/config.yaml`
-4. environment variables with the `STEINER_` prefix
+3. `.steiner/config.yaml` (project-local)
+4. Environment variables with the `STEINER_` prefix
 5. CLI flags
 
-Key environment variables:
-
-* `STEINER_MODEL`
-* `STEINER_SCHEDULER_PARALLELISM`
-* `STEINER_MAX_TURNS`
-* `STEINER_MAX_TOKENS`
-* `STEINER_CAVEMAN_MODE`
-* `STEINER_LOG_LEVEL`
-* `STEINER_LOG_FILE`
-* `STEINER_TOOL_OUTPUT_MAX_BYTES`
-
-### Config format
-
-Configuration is split between `providers` and `models`:
-
-* `providers.<name>` defines how Steiner connects to an API endpoint or native provider.
-* `models.<name>` defines a selectable model alias, references one provider with `provider`, and sets model-specific request behavior.
-* `default_model` selects the model alias used by default.
-
-The compiled defaults in `internal/config/defaults.go` are equivalent to one local provider plus one default model alias.
-
-Example 1: minimal local config for LM Studio or Ollama:
+**Example 1 — local LLM (Ollama or LM Studio)**:
 
 ```yaml
 default_model: local
-providers: {local: {type: openai_compat, base_url: http://localhost:11434/v1}}
-models: {local: {provider: local, id: qwen3-35b-a3b}}
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  local:
+    provider: local
+    id: qwen2.5-coder:14b
 ```
 
-Use `http://127.0.0.1:1234/v1` as the `base_url` when pointing the same shape at LM Studio.
+Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio.
 
-Example 2: OpenRouter with `api_key_env`:
+**Example 2 — cloud provider (Anthropic via OpenRouter)**:
 
 ```yaml
 default_model: sonnet
@@ -100,245 +109,58 @@ models:
     id: anthropic/claude-3.7-sonnet
 ```
 
-Example 3: multiple providers with multiple models:
+For the full configuration reference — all provider types, model fields, limit overrides, approval policy, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
-```yaml
-default_model: local-fast
+## Built-in tools
 
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434
-  router:
-    type: openrouter
-    api_key_env: OPENROUTER_API_KEY
+These tools are always available to the model:
 
-models:
-  local-fast:
-    provider: local
-    id: qwen3:14b
-  local-deep:
-    provider: local
-    id: deepseek-r1:32b
-  sonnet:
-    provider: router
-    id: anthropic/claude-3.7-sonnet
-  gpt-4.1-mini:
-    provider: router
-    id: openai/gpt-4.1-mini
-```
+| Tool | Description |
+|------|-------------|
+| `read` | Read files with offset/limit pagination |
+| `mutate` | Apply one or more structured file mutations atomically (create, write, replace, line_replace, delete, move) |
+| `glob` | Find files by pattern |
+| `grep` | Search file contents with surrounding context |
+| `ls` | List directory contents |
+| `bash` | Run shell commands |
+| `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
+| `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
 
-Example 4: tuned model with `params`, `extra_params`, and a prompt suffix:
+`read`, `glob`, `grep`, and `ls` are auto-approved. `mutate`, `bash`, and other mutating actions prompt before executing.
 
-```yaml
-default_model: precise
+## Context management
 
-providers:
-  local:
-    type: lmstudio
-    base_url: http://127.0.0.1:1234/v1
+Local LLMs have limited context windows — often measured in tens of thousands of tokens, not millions. Every turn accumulates tokens from model output and tool results, and long contexts cost more while degrading reasoning quality. Steiner keeps the context window lean through three mechanisms, ordered by effectiveness.
 
-models:
-  precise:
-    provider: local
-    id: qwen/qwen3-coder-30b
-    params:
-      temperature: 0.1
-      top_p: 0.9
-    extra_params:
-      frequency_penalty: 0
-      metadata:
-        profile: precise
-    prompt_suffix: <|think_off|>
-```
+**Delegation** is the primary strategy. Sub-agents isolate work from the parent conversation. The full turn-by-turn transcript of exploration, code changes, or research never enters the parent context at all — only the result comes back. This is the most effective mechanism because it prevents context growth rather than managing it after the fact.
 
-Example 5: advanced overrides with explicit limits:
+**Per-source byte budgets** cap each context source (preamble, agent summaries, skills, tool results, conversation history) so no single category can crowd out the others. **Compaction** kicks in when estimated prompt tokens reach 70% of the context window: older turns are summarised by the model into a compact durable prefix, then dropped from the live history.
 
-```yaml
-default_model: long-context
-
-providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-    timeout: 45s
-
-models:
-  long-context:
-    provider: local
-    id: qwen3-32b
-    advanced:
-      limits:
-        context_window: 131072
-        max_output_tokens: 8192
-
-limits:
-  max_turns: 80
-  max_tokens: 900000
-  tool_timeout_default: 45s
-  tool_output_max_bytes: 131072
-```
-
-Example 6: multi-model setup with `default_model`:
-
-```yaml
-default_model: everyday
-
-providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-
-models:
-  everyday:
-    provider: local
-    id: qwen3-14b
-  review:
-    provider: local
-    id: qwen3-32b
-    extra_params:
-      thinking:
-        type: enabled
-        budget_tokens: 16000
-```
-
-Provider fields:
-
-* `type`: `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, or `litellm`
-* `base_url`: endpoint override when the provider type uses one
-* `api_key` or `api_key_env`: credential source
-* `headers`: optional extra HTTP headers
-* `timeout`: provider request timeout
-
-Model fields:
-
-* `provider`: provider name from `providers`
-* `id`: backend model identifier sent to the provider
-* `params`: normalized generation params
-* `extra_params`: provider-specific request fields merged on top of `params`
-* `prompt_suffix`: optional text appended to the last user message for each model request
-* `retry`: retry policy for model requests
-* `prompts`: per-model prompt overrides
-* `advanced.limits`: prompt budgeting and output token limits
-
-Approval defaults are conservative: `read`, `glob`, `grep`, and `ls` are auto-approved; mutating actions like `write`, `edit`, and `bash` prompt first. For most installs, the minimum useful config is `default_model`, one provider entry, one model entry that points at that provider, and any overrides you actually need in `limits`, `approval`, `tools`, `project_context`, `paths`, or `logging`.
-
-## Web search
-
-The `web_search` tool lets the model search the web and return URL, title, and description results. It is not available by default — it must be enabled by setting `search.backend` in the config.
-
-### Supported backends
-
-| Backend | Config key | Auth |
-|---------|------------|------|
-| **Google** | `google` | `GOOGLE_SEARCH_CX` + `GOOGLE_SEARCH_API_KEY` env vars |
-| **Kagi** | `kagi` | `KAGI_API_KEY` env var |
-| **Brave** | `brave` | `BRAVE_API_KEY` env var |
-| **SearXNG** | `searxng` | `search.searxng_url` config key (self-hosted, no API key) |
-
-Setting `search.backend` to `""` (or omitting the `search` block entirely) disables the `web_search` tool. The model will not have access to web search.
-
-### Config example
-
-```yaml
-search:
-  backend: google          # one of: google, kagi, brave, searxng
-  # searxng_url: http://localhost:8888   # required when backend is "searxng"
-```
-
-#### Per-backend environment variables
-
-**Google:**
-```bash
-export GOOGLE_SEARCH_CX=your_custom_search_engine_id
-export GOOGLE_SEARCH_API_KEY=your_google_api_key
-```
-
-**Kagi:**
-```bash
-export KAGI_API_KEY=your_kagi_api_key
-```
-
-**Brave:**
-```bash
-export BRAVE_API_KEY=your_brave_api_key
-```
-
-**SearXNG:** no API key required. Point `search.searxng_url` at your instance.
-
-### How it works
-
-The search config is loaded from the `search` block in `config.yaml` (or the equivalent `STEINER_SEARCH_*` env vars). At startup `NewSearchBackend` dispatches on `search.backend` and creates the corresponding `web.Searcher` implementation.
-
-When a searcher is available:
-- The `web_search` tool is registered in the active tool registry (visible to the main model).
-- The `research` sub-agent also gains `web_search` in its allowlist.
-
-When no searcher is available (`search.backend` is unset):
-- The `web_search` tool is not registered at all — the model never sees it.
-- The `research` sub-agent exclude `web_search` from its available tools.
-
-### All providers config example
-
-This example shows all four backends configured across different config layers (only one can be active at a time — set `search.backend` to pick):
-
-```yaml
-# Only one backend is active at a time, selected by search.backend.
-# Environment variables must be set for the selected backend (see above).
-search:
-  backend: brave            # change to google, kagi, or searxng as needed
-  searxng_url: http://localhost:8888   # only used when backend is "searxng"
-```
-
-### Notes
-
-- The `web_search` tool is separate from the model provider — it uses its own HTTP client and does not route through the model provider configuration.
-- SearXNG is self-hosted and has no API key; any public or private instance URL works.
-- Brave caps results at 20. All other backends cap at 30 (the global limit is adjustable per invocation via the `limit` parameter, up to 30).
+See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
 
 ## Sub-agent delegation
 
-`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
+Delegation is steiner's primary context management strategy. `steiner` exposes seven sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins:
 
-- **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
-- **`research`** — gather and synthesise information from the codebase or web (only available with a `web_search` backend configured)
-- **`code`** — implement a scoped change, run tests, report results
-- **`plan`** — analyse a sub-problem and produce a structured recommendation
-- **`verify`** — run checks (tests, linters, builds) and report pass/fail
-- **`delegate`** — generic sub-agent with custom system prompt, context, and per-invocation overrides
-- **`follow_up`** — resume an existing sub-agent session by ID with a new user message; preserves conversation history while resetting the child's budget to fresh defaults
+| Tool | What it does | Can mutate? |
+|------|--------------|-------------|
+| `explore` | Navigate the codebase to find files, symbols, call sites, and patterns | No |
+| `research` | Gather and synthesise information from the codebase or web | No |
+| `code` | Implement a scoped change — read relevant files, write changes, run tests | Yes |
+| `plan` | Analyse a sub-problem, evaluate options, and produce a structured recommendation | No |
+| `verify` | Run tests, linters, builds, or other checks and report pass or fail | No |
+| `delegate` | Generic sub-agent with custom system prompt, context, and per-invocation overrides | Configurable |
+| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-### Configuration
+See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation, including per-agent tool allowlists, safety restrictions, and per-invocation overrides.
 
-Sub-agents are configured under the `sub_agent` key in `config.yaml`:
+## Optional features
 
-```yaml
-sub_agent:
-  enabled: true                  # set to false to remove sub-agent tools
-  max_turns: 30                  # default turn limit
-  max_tokens: 100000             # default output token budget
-  allowed_tools:                 # tools for generic `delegate` only
-    - read
-    - glob
-    - grep
-    - ls
-    - write
-    - edit
-    - bash
-  agents:                        # per-type model overrides (optional)
-    code:
-      model: gpt-4o
-    research:
-      model: claude-sonnet-4
-```
+### Caveman mode
 
-See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
+Caveman mode makes the model respond tersely — stripping filler, articles, pleasantries, and hedging. This reduces output token growth and response length while preserving technical content. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so terseness is consistent throughout a session.
 
-## Caveman mode
-
-Caveman mode makes the model speak tersely, stripping filler, articles, pleasantries, and hedging. Reduces tokens and response length while keeping technical content intact.
-
-**Disabled by default.** Enable explicitly via config, env var, CLI flag, or `/caveman` slash command in interactive mode.
+Disabled by default. Enable via config, env var, CLI flag, or `/caveman` in the interactive TUI:
 
 ```yaml
 # config.yaml
@@ -346,63 +168,51 @@ caveman_mode: true
 ```
 
 ```bash
-# environment
-STEINER_CAVEMAN_MODE=true
-
-# CLI flag
---caveman
+STEINER_CAVEMAN_MODE=true   # environment variable
+--caveman                   # CLI flag
+/caveman                    # TUI toggle (persists for the session)
 ```
 
-In interactive TUI, toggle on/off with `/caveman`. The toggle persists for the session.
+### Web search
 
-When enabled, caveman-style instructions are injected into:
+The `web_search` tool lets the model search the web and return URL, title, and description results. It is **disabled by default** — it only appears in the tool registry when `search.backend` is set in config.
 
-- **System preamble** — the main agent prompt instructs the model to respond tersely
-- **Compaction prompts** — compaction summaries are written in caveman style to maximise information per token
-- **Sub-agent prompts** — delegated agents inherit the terseness instruction
+| Backend | Config key | Auth |
+|---------|------------|------|
+| Google | `google` | `GOOGLE_SEARCH_CX` + `GOOGLE_SEARCH_API_KEY` |
+| Kagi | `kagi` | `KAGI_API_KEY` |
+| Brave | `brave` | `BRAVE_API_KEY` |
+| SearXNG | `searxng` | `search.searxng_url` (self-hosted, no API key) |
 
-Caveman mode is purely a prompt-layer transformation. It does not change tool behavior, approval gates, or any other config.
+Enable by adding a `search` block to your config:
+
+```yaml
+search:
+  backend: brave   # one of: google, kagi, brave, searxng
+```
+
+When enabled, `web_search` is also added to the `research` sub-agent's tool allowlist automatically.
 
 ## Development
 
-### Build and test
-
 ```bash
+# Build
 go build ./...
-go test ./...
 make build-binaries
+
+# Test
+go test ./...
+go test -race ./...
+
+# Lint and vet
 go vet ./...
-```
+golangci-lint run ./...
 
-### Development checks
-
-Install local check tools:
-
-```bash
-make install-check-tools
-```
-
-Run all checks:
-
-```bash
+# All checks (lint + vet + format check)
 make check
-```
 
-Formatting:
-
-```bash
+# Format
 make fmt
 ```
 
-The full linter configuration is in `.golangci.yml` at the repo root.
-
-## Development notes
-
-Repo layout is compact: `cmd/` for entrypoints, `internal/` for agent/provider/tool/config code, `docs/` for product docs, and `testdata/` for fixtures. Conventions and deeper repo rules live in [AGENTS.md](AGENTS.md).
-
-## Further reading
-
-* [AGENTS.md](AGENTS.md)
-* [docs/PRD.md](docs/PRD.md)
-* [docs/ROADMAP.md](docs/ROADMAP.md)
-* [docs/INITIAL_IMPLEMENTATION_PLAN.md](docs/INITIAL_IMPLEMENTATION_PLAN.md)
+For agent contributor context, architecture constraints, and conventions, see [AGENTS.md](AGENTS.md).
