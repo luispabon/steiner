@@ -1,0 +1,101 @@
+steps:
+  - id: step-1
+    title: Thread provider type into OpenAICompat
+    scope: |
+      Add ProviderType field to OpenAICompatConfig and OpenAICompat struct.
+      Pass config.ProviderType through from runtime_build.go when constructing
+      the provider. No behavioral change — just plumbing.
+    files:
+      - internal/provider/openai_compat.go
+      - cmd/steiner/runtime_build.go
+      - internal/provider/openai_compat_test.go
+    constraints:
+      - ProviderType is config.ProviderType (string type), import config package in provider
+      - If importing config into provider creates a cycle, use a plain string field instead and let the caller pass the string value
+      - Do not change the Provider interface
+    acceptance:
+      - OpenAICompat stores provider type
+      - runtime_build.go passes rm.ProviderConfig.Type into the config
+      - Existing tests still pass
+    verification:
+      - go build ./...
+      - go test ./internal/provider/... -count=1
+
+  - id: step-2
+    title: Add litellm-specific retry-after body parser
+    scope: |
+      New file internal/provider/litellm_retry.go with:
+      - parseLiteLLMRetryAfter(body string) (time.Duration, bool) — extracts
+        delay from "Try again in N seconds" text in the error message.
+      - isLiteLLMBudgetExceeded(body string) bool — detects "Budget has been
+        exceeded!" non-retryable 429s.
+      Both functions clearly documented as litellm-specific behavior.
+      Comprehensive unit tests in litellm_retry_test.go covering:
+      - "Try again in 11 seconds" → 11s
+      - "Try again in 120 seconds" → 120s (clamped by caller, not here)
+      - No match → 0, false
+      - Budget exceeded detection
+      - Variations in litellm error message format
+    files:
+      - internal/provider/litellm_retry.go
+      - internal/provider/litellm_retry_test.go
+    constraints:
+      - All functions unexported — internal to provider package
+      - Best-effort parsing — return (0, false) on any parse failure
+      - Do not import external packages for regex; stdlib only
+      - File header comment must state this is litellm-specific
+    acceptance:
+      - Parses "Try again in N seconds" from litellm error bodies
+      - Detects budget-exceeded 429s
+      - Returns (0, false) on unrecognized formats
+    verification:
+      - gofmt -w internal/provider/litellm_retry.go
+      - go test ./internal/provider/... -run TestLiteLLM -count=1
+
+  - id: step-3
+    title: Integrate litellm body parsing into classifyRetryError
+    depends_on: [step-1, step-2]
+    scope: |
+      Modify classifyRetryError in openai_compat.go:
+      - When HTTPError is 429 and Retry-After header is absent, and provider
+        type is litellm: attempt parseLiteLLMRetryAfter on the error body.
+        Use the parsed delay as retryAfter in the decision.
+      - When HTTPError is 429 and provider type is litellm: check
+        isLiteLLMBudgetExceeded. If true, return non-retryable decision.
+      - Budget check runs before retry-after parsing (short-circuit).
+      - Non-litellm providers: behavior unchanged.
+      Add tests in a new litellm-specific test section within
+      retry_execution_test.go or a dedicated test file.
+    files:
+      - internal/provider/openai_compat.go
+    constraints:
+      - Gate ALL new logic on provider type == litellm
+      - Comment clearly that this is litellm-specific
+      - Do not change retry loop mechanics (withRetry, backoff, jitter)
+      - Budget-exceeded check before retryable check
+    acceptance:
+      - litellm 429 with "Try again in 11 seconds" body → retryDecision with retryAfter=11s
+      - litellm 429 with "Budget has been exceeded!" → non-retryable
+      - litellm 429 with Retry-After header present → header takes precedence (existing behavior)
+      - Non-litellm 429 → existing behavior unchanged
+    verification:
+      - go test ./internal/provider/... -count=1
+      - go vet ./internal/provider/...
+
+  - id: step-4
+    title: Full verification and documentation
+    depends_on: [step-3]
+    scope: |
+      Run make check. Fix any lint/vet/test failures.
+      Update docs/CONFIGURATION.md if the litellm provider type section
+      needs a note about retry behavior.
+    files:
+      - docs/CONFIGURATION.md
+    constraints:
+      - Do not add config fields
+      - Documentation update is minimal — note litellm retry-after body parsing
+    acceptance:
+      - make check passes
+      - docs mention litellm retry-after behavior if applicable
+    verification:
+      - make check
