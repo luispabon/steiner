@@ -1682,7 +1682,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 }
 
-func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
+func TestModelStreamingEnterQueersSteerPrompt(t *testing.T) {
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1691,15 +1691,42 @@ func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
-	m.input.SetValue("should stay blocked")
+	m.input.SetValue("steer me")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Enter during an active run must NOT submit a normal prompt.
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
+	}
+	// Input must be cleared after queuing the steer.
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want empty after steer queued", m.input.Value())
+	}
+	// steerQueued indicator must be set.
+	if !m.steerQueued {
+		t.Fatal("steerQueued = false, want true after Enter during active run")
+	}
+}
+
+func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	// input is empty
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 0 {
-		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
+		t.Fatalf("submit count = %d, want 0 on empty enter while streaming", ctrl.countSubmitPrompt())
 	}
-	if m.input.Value() != "should stay blocked" {
-		t.Fatalf("input value = %q, want unchanged", m.input.Value())
+	if m.steerQueued {
+		t.Fatal("steerQueued = true, want false on empty enter")
 	}
 }
 

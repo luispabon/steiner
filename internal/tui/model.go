@@ -105,6 +105,7 @@ type Model struct {
 	ctxInfoCompactionThreshold   float64
 	ctxInfoEstimatorPadTokens    int
 	ctxInfoStatus                string
+	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
 	contentDirty                 bool
 	syncDebounceSeq              int
@@ -317,8 +318,10 @@ func (m *Model) syncInputChrome() {
 	switch {
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
+	case m.steerQueued && m.activity.busy():
+		m.input.Placeholder = "message queued — esc to interrupt"
 	case m.activity.busy():
-		m.input.Placeholder = "working… esc to interrupt"
+		m.input.Placeholder = "working… esc to interrupt, or type to steer"
 	default:
 		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}
