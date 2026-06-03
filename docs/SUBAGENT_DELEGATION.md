@@ -24,15 +24,15 @@ The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are
 
 ### When to use each
 
-| Situation | Tool |
-|-----------|------|
+| Situation                                              | Tool                                                           |
+|--------------------------------------------------------|----------------------------------------------------------------|
 | Find DRY/refactoring opportunities across the codebase | `explore` — report files, repeated patterns, risks, next steps |
-| Fix a bug but location is unknown | `explore` — search likely areas and report exact files/code |
-| Need to understand an external API or library | `research` — gather docs, usage examples, and constraints |
-| Implement a small known change in one package | `code` — implement if ownership and tests are clear |
-| Understand how a feature works across multiple files | `explore` — trace the call chain and report |
-| Evaluate two approaches to a design problem | `plan` — analyse tradeoffs and recommend |
-| Run broad verification while continuing local work | `verify` — run checks and summarise exact failures |
+| Fix a bug but location is unknown                      | `explore` — search likely areas and report exact files/code    |
+| Need to understand an external API or library          | `research` — gather docs, usage examples, and constraints      |
+| Implement a small known change in one package          | `code` — implement if ownership and tests are clear            |
+| Understand how a feature works across multiple files   | `explore` — trace the call chain and report                    |
+| Evaluate two approaches to a design problem            | `plan` — analyse tradeoffs and recommend                       |
+| Run broad verification while continuing local work     | `verify` — run checks and summarise exact failures             |
 
 `plan` is for focused sub-problem analysis, **not** overall task planning.
 
@@ -59,13 +59,13 @@ Key behaviours:
 
 ### Default tool allowlists
 
-| Agent      | Tools available |
-|------------|----------------|
-| `explore`  | `read`, `glob`, `grep`, `ls` |
+| Agent      | Tools available                                             |
+|------------|-------------------------------------------------------------|
+| `explore`  | `read`, `glob`, `grep`, `ls`                                |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash` |
-| `plan`     | `read`, `glob`, `grep`, `ls` |
-| `verify`   | `read`, `glob`, `grep`, `ls`, `bash` |
+| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
+| `plan`     | `read`, `glob`, `grep`, `ls`                                |
+| `verify`   | `read`, `glob`, `grep`, `ls`, `bash`                        |
 
 \* `web_search` and `fetch_url` are not yet implemented. The `research` agent won't be fully available until a `web_search` backend is configured — see the README for details.
 
@@ -122,8 +122,8 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 │  │ Tool: "delegate"                │        │
 │  │ Handler: delegation.NewDelegate │        │
 │  └──────────────┬──────────────────┘        │
-│                 │                            │
-│                 ▼                            │
+│                 │                           │
+│                 ▼                           │
 │  ┌──────────────────────────────────┐       │
 │  │ delegation.BuildChildRun()       │       │
 │  │  - derive limits                 │       │
@@ -131,19 +131,19 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 │  │  - build child registries        │       │
 │  │  - assemble RunRequest           │       │
 │  └──────────────┬───────────────────┘       │
-│                 │                            │
-│                 ▼                            │
+│                 │                           │
+│                 ▼                           │
 │  ┌──────────────────────────────────┐       │
 │  │ delegation.SpawnDelegate()       │       │
 │  │  - context timeout               │       │
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
-│  │  - auto-extension loop (≤5x)    │       │
+│  │  - auto-extension loop (≤5x)     │       │
 │  │  - summarisation turn            │       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
-│                 │                            │
-│                 ▼                            │
+│                 │                           │
+│                 ▼                           │
 │  tool.ExecutionResult + ToolRetention       │
 │  (persisted on parent conversation message) │
 └─────────────────────────────────────────────┘
@@ -151,15 +151,15 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 
 ### Package layout
 
-| Package | Responsibility |
-|---------|---------------|
+| Package               | Responsibility                                                                                                                               |
+|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | `internal/delegation` | Contract types, tool definition, handler, bootstrapping, spawn logic, limits, result building, specialised agent types and tool constructors |
-| `internal/agent` | Retention metadata on messages, runner interface |
-| `internal/tool` | `ToolRetention` struct, `ExecutionResult.Retention` field, `Registry.Clone()` |
-| `internal/prompt` | Delegation instructions preamble injected when delegation is enabled |
-| `internal/output` | Delegation lifecycle events (started, complete, failed, extension) |
-| `internal/tui` | Rendering of delegation events with spinner, lifecycle tracking, collapsible output |
-| `cmd/steiner` | `buildActiveRegistry()` wires all delegate tools into the active registry |
+| `internal/agent`      | Retention metadata on messages, runner interface                                                                                             |
+| `internal/tool`       | `ToolRetention` struct, `ExecutionResult.Retention` field, `Registry.Clone()`                                                                |
+| `internal/prompt`     | Delegation instructions preamble injected when delegation is enabled                                                                         |
+| `internal/output`     | Delegation lifecycle events (started, complete, failed, extension)                                                                           |
+| `internal/tui`        | Rendering of delegation events with spinner, lifecycle tracking, collapsible output                                                          |
+| `cmd/steiner`         | `buildActiveRegistry()` wires all delegate tools into the active registry                                                                    |
 
 ### Tool registration
 
@@ -204,27 +204,27 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 
 **DelegationResult** (returned to the parent model):
 
-| Field | Description |
-|-------|-------------|
-| `AgentID` | Matches the request |
-| `Status` | `complete`, `partial`, `failed`, or `cancelled` |
-| `Output` | Last assistant message content |
-| `Summary` | Retained summary (≤1000 runes) |
-| `TurnCount` | Turns consumed by the child |
-| `TokenCount` | Tokens consumed by the child |
+| Field        | Description                                           |
+|--------------|-------------------------------------------------------|
+| `AgentID`    | Matches the request                                   |
+| `Status`     | `complete`, `partial`, `failed`, or `cancelled`       |
+| `Output`     | Last assistant message content                        |
+| `Summary`    | Retained summary (≤1000 runes)                        |
+| `TurnCount`  | Turns consumed by the child                           |
+| `TokenCount` | Tokens consumed by the child                          |
 | `StopReason` | Populated on partial: `"max_turns"` or `"max_tokens"` |
-| `Error` | Populated on failure |
+| `Error`      | Populated on failure                                  |
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 
-| Field | Description |
-|-------|-------------|
-| `Kind` | `"delegate_summary"` |
-| `Summary` | Condensed findings |
-| `AgentID` | Child agent ID |
-| `Status` | Result status |
-| `TurnCount` | Turns consumed |
-| `TokenCount` | Tokens consumed |
+| Field        | Description          |
+|--------------|----------------------|
+| `Kind`       | `"delegate_summary"` |
+| `Summary`    | Condensed findings   |
+| `AgentID`    | Child agent ID       |
+| `Status`     | Result status        |
+| `TurnCount`  | Turns consumed       |
+| `TokenCount` | Tokens consumed      |
 
 **Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 1000 runes as a fallback.
 
@@ -234,12 +234,12 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 
 Events emitted during delegation (via `output.EventSink`):
 
-| Event | When | Key fields |
-|-------|------|------------|
-| `delegation_started` | Before child run begins | `agent_id`, `task_preview` |
-| `delegation_extension` | Each auto-extension iteration | `agent_id`, `extension`, `max_extensions` |
-| `delegation_complete` | After summarisation, on success | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
-| `delegation_failed` | On initial child run error | `agent_id`, `task_preview`, `error` |
+| Event                  | When                            | Key fields                                                  |
+|------------------------|---------------------------------|-------------------------------------------------------------|
+| `delegation_started`   | Before child run begins         | `agent_id`, `task_preview`                                  |
+| `delegation_extension` | Each auto-extension iteration   | `agent_id`, `extension`, `max_extensions`                   |
+| `delegation_complete`  | After summarisation, on success | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
+| `delegation_failed`    | On initial child run error      | `agent_id`, `task_preview`, `error`                         |
 
 The TUI renders these with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations.
 
