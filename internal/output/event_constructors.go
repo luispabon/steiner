@@ -411,6 +411,15 @@ func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) E
 	}
 }
 
+// NewSteerReceivedEvent creates an Event for a consumed steer message.
+func NewSteerReceivedEvent(text string) Event {
+	return Event{
+		Type:      EventTypeSteerReceived,
+		Timestamp: time.Now().UTC(),
+		Payload:   SteerReceivedEvent{Text: text},
+	}
+}
+
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 	return Event{

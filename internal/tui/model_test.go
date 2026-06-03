@@ -80,6 +80,30 @@ func (c *testController) skillEnabledActions() []interactive.SetSkillEnabled {
 	return result
 }
 
+func (c *testController) countSteerPrompt() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	count := 0
+	for _, a := range c.actions {
+		if _, ok := a.(interactive.SteerPrompt); ok {
+			count++
+		}
+	}
+	return count
+}
+
+func (c *testController) steerPrompts() []interactive.SteerPrompt {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SteerPrompt
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SteerPrompt); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func (c *testController) countByType(target interactive.Action) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1682,7 +1706,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 }
 
-func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
+func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1691,15 +1715,111 @@ func TestModelStreamingBlocksNonApprovalPromptInput(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
-	m.input.SetValue("should stay blocked")
+	m.input.SetValue("steer message")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Enter during streaming must not submit a normal prompt.
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
+	}
+	// Enter during streaming must send a SteerPrompt action.
+	if ctrl.countSteerPrompt() != 1 {
+		t.Fatalf("steer count = %d, want 1", ctrl.countSteerPrompt())
+	}
+	if got := ctrl.steerPrompts()[0].Text; got != "steer message" {
+		t.Fatalf("steer text = %q, want %q", got, "steer message")
+	}
+	// Input must be cleared after steer.
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want empty after steer", m.input.Value())
+	}
+	// steerQueued flag must be set.
+	if !m.steerQueued {
+		t.Fatal("steerQueued = false, want true after steer sent")
+	}
+	// A pending steer segment must appear in the content buffer.
+	found := false
+	for _, seg := range m.content.segments {
+		if seg.kind == segmentPendingSteer && seg.text == "steer message" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no segmentPendingSteer found in content buffer after steer")
+	}
+}
+
+func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	// Leave input empty.
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 0 {
-		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
+		t.Fatalf("submit count = %d, want 0 for empty enter while streaming", ctrl.countSubmitPrompt())
 	}
-	if m.input.Value() != "should stay blocked" {
-		t.Fatalf("input value = %q, want unchanged", m.input.Value())
+	if ctrl.countSteerPrompt() != 0 {
+		t.Fatalf("steer count = %d, want 0 for empty enter while streaming", ctrl.countSteerPrompt())
+	}
+	if m.steerQueued {
+		t.Fatal("steerQueued = true, want false for empty enter")
+	}
+}
+
+func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m.input.SetValue("my steer")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.steerQueued {
+		t.Fatal("steerQueued = false before SteerReceivedEvent")
+	}
+
+	// Simulate the agent loop consuming the steer.
+	steerReceivedEvent := output.Event{
+		Type:    output.EventTypeSteerReceived,
+		Payload: output.SteerReceivedEvent{Text: "my steer"},
+	}
+	m = updateModel(t, m, runtimeEventMsg{Event: steerReceivedEvent})
+
+	if m.steerQueued {
+		t.Fatal("steerQueued = true after SteerReceivedEvent, want false")
+	}
+
+	var pendingCount, userCount int
+	for _, seg := range m.content.segments {
+		if seg.text == "my steer" {
+			switch seg.kind {
+			case segmentPendingSteer:
+				pendingCount++
+			case segmentUserMarkdown:
+				userCount++
+			}
+		}
+	}
+	// Pending box must remain unchanged.
+	if pendingCount != 1 {
+		t.Fatalf("segmentPendingSteer count = %d, want 1 (original queued box must stay)", pendingCount)
+	}
+	// A new normal user message must appear at the delivery point.
+	if userCount != 1 {
+		t.Fatalf("segmentUserMarkdown count = %d, want 1 (delivery message must be appended)", userCount)
 	}
 }
 

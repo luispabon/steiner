@@ -119,6 +119,27 @@ func (b *contentBuffer) AppendUser(text string) {
 	b.collapseState[idx] = false
 }
 
+// AppendPendingSteer adds a steer message to the content buffer in pending/queued state.
+// Call PromoteLastPendingSteer when SteerReceivedEvent arrives.
+func (b *contentBuffer) AppendPendingSteer(text string) {
+	b.finishStreaming()
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{kind: segmentPendingSteer, text: text, renderDirty: true})
+	b.collapseState[idx] = false
+}
+
+// PromoteLastPendingSteer upgrades the most recent segmentPendingSteer to segmentUserMarkdown,
+// indicating the steer was consumed by the agent loop and injected into the conversation.
+func (b *contentBuffer) PromoteLastPendingSteer() {
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		if b.segments[i].kind == segmentPendingSteer {
+			b.segments[i].kind = segmentUserMarkdown
+			b.segments[i].renderDirty = true
+			return
+		}
+	}
+}
+
 func (b *contentBuffer) Clear() {
 	b.segments = nil
 	b.segmentHeights = nil

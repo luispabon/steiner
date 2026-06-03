@@ -518,7 +518,7 @@ func TestClearConversationResetsSkills(t *testing.T) {
 // runExecutorFunc adapts a function to the runExecutor interface.
 type runExecutorFunc func(context.Context, []agent.Message, []string) ([]agent.Message, error)
 
-func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ <-chan string) ([]agent.Message, error) {
 	return f(ctx, conversation, skillNames)
 }
 

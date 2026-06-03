@@ -146,6 +146,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
+	case output.SteerReceivedEvent:
+		m.content.AppendUser(payload.Text)
+		m.steerQueued = false
+		m.syncInputChrome()
 	}
 
 	var cmds []tea.Cmd

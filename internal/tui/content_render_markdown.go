@@ -71,6 +71,54 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	return sb.String()
 }
 
+// renderPendingSteerSegment renders a queued steering message: dashed muted bar,
+// "queued: " prefix, italic dim text.
+func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width int) string {
+	contentWidth := width - 1
+	if contentWidth < 2 {
+		contentWidth = 2
+	}
+
+	bar := b.styles.FgMute.Render("┇")
+	prefix := b.styles.FgDim.Render("queued: ")
+	prefixW := lipgloss.Width(prefix)
+
+	italicDim := lipgloss.NewStyle().Italic(true).Foreground(b.styles.FgDim.GetForeground())
+
+	// First line gets the "queued: " prefix; continuation lines indent to match.
+	indent := strings.Repeat(" ", prefixW)
+	firstLineW := contentWidth - 2 - prefixW
+	if firstLineW < 1 {
+		firstLineW = 1
+	}
+	contLineW := contentWidth - 2 - prefixW
+	if contLineW < 1 {
+		contLineW = 1
+	}
+
+	lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+
+	var sb strings.Builder
+	first := true
+	for _, line := range lines {
+		w := contLineW
+		pfx := indent
+		if first {
+			w = firstLineW
+			pfx = prefix
+			first = false
+		}
+		wrapped := lipgloss.NewStyle().Width(w).Render(line)
+		for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
+			vl = strings.TrimRight(vl, " ")
+			sb.WriteString(bar + "  " + pfx + italicDim.Render(vl) + "\n")
+			pfx = indent
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // renderUserMarkdownSegment renders a markdown-like user prompt with glamour
 // while keeping the left-bar framing so user messages remain visually distinct
 // from assistant output.

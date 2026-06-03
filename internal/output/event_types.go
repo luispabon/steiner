@@ -68,6 +68,10 @@ const (
 	// the UI can render the slice without the model-visible tool result or
 	// conversation history containing file contents.
 	EventTypeDisplayFile = "display_file"
+
+	// EventTypeSteerReceived is emitted when the agent loop consumes a queued
+	// steering message and injects it into the conversation.
+	EventTypeSteerReceived = "steer_received"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -350,6 +354,11 @@ type DelegationExtensionEvent struct {
 // HistoryLoadedEvent carries previously recorded prompt strings for display.
 type HistoryLoadedEvent struct {
 	Prompts []string `json:"prompts"`
+}
+
+// SteerReceivedEvent is emitted when a between-turn steering message is consumed.
+type SteerReceivedEvent struct {
+	Text string `json:"text"`
 }
 
 // DisplayFilePayload is the payload for EventTypeDisplayFile.

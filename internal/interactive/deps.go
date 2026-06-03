@@ -15,8 +15,9 @@ import (
 // avoid coupling to internal/agent or cmd/steiner.
 type runExecutor interface {
 	// Run executes a model run with the given conversation and skills.
+	// steerCh delivers between-turn steering messages; pass nil when unavailable.
 	// Returns the updated conversation on success.
-	Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error)
+	Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) ([]agent.Message, error)
 }
 
 // historyWriter persists and loads prompt history for an interactive session.

@@ -92,6 +92,12 @@ type LoadSession struct{ SessionID string }
 
 func (LoadSession) isInteractiveAction() {}
 
+// SteerPrompt represents a user steering an in-progress run by queuing a
+// message.
+type SteerPrompt struct{ Text string }
+
+func (SteerPrompt) isInteractiveAction() {}
+
 type requestSessionPicker struct{}
 
 func (requestSessionPicker) isInteractiveAction() {}

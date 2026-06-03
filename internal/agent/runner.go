@@ -43,6 +43,10 @@ type RunRequest struct {
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
+
+	// SteerCh delivers between-turn steering messages from the user.
+	// Non-nil only in interactive mode; sub-agents receive nil.
+	SteerCh <-chan string
 }
 
 // Runner executes the main turn loop for an agent run.
@@ -99,6 +103,17 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		state = outcome.State
 		if outcome.DetectedReasoningEchoBack {
 			req.ResolvedModel.ReasoningEchoBack = true
+		}
+		// Check for a steering message between turns (non-blocking).
+		if req.SteerCh != nil {
+			select {
+			case text := <-req.SteerCh:
+				steerMsg := Message{Role: MessageRoleUser, Content: text}
+				state.Conversation = append(state.Conversation, steerMsg)
+				state.Lineage = state.Lineage.WithAppendedMessages([]Message{steerMsg})
+				emitEvent(req.Events, output.NewSteerReceivedEvent(text))
+			default:
+			}
 		}
 		if outcome.Error != nil {
 			return state, outcome.Error

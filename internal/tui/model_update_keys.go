@@ -94,9 +94,9 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool)
 	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
 		return true, m.executeInterruptAction()
 	}
-
-	if activeConversation && msg.Type != tea.KeyCtrlX {
-		return true, m
+	// During an active run, Enter queues a steer message instead of submitting normally.
+	if activeConversation && msg.Type == tea.KeyEnter && !m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
+		return true, m.executeSteerAction()
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 		m.helpVisible = !m.helpVisible
@@ -556,4 +556,19 @@ func composerTokenAtCursor(value string, cursor int, prefix rune) (string, int, 
 		end++
 	}
 	return string(runes[start:end]), start, end, true
+}
+
+func (m Model) executeSteerAction() tea.Model {
+	text := strings.TrimSpace(m.input.Value())
+	if text == "" {
+		return m
+	}
+	if m.controller != nil {
+		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
+	}
+	m.input.Reset()
+	m.content.AppendPendingSteer(text)
+	m.steerQueued = true
+	m.syncInputChrome()
+	return m
 }
