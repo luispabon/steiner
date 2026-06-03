@@ -145,8 +145,8 @@ type sessionRunner struct {
 	runner cliRunner
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
-	result, err := r.runner.Run(ctx, conversation, skillNames)
+func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) ([]agent.Message, error) {
+	result, err := r.runner.Run(ctx, conversation, skillNames, steerCh)
 	if err != nil {
 		return nil, err
 	}

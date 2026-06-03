@@ -184,7 +184,7 @@ func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
 	return s.loadSession(ctx, sessionID)
 }
 
-// Handle processes an interactive action. Handles SubmitPrompt,
+// Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
 // SwitchModel, SubmitApproval, LoadSession, and requestSessionPicker.
@@ -192,6 +192,9 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	switch a := action.(type) {
 	case SubmitPrompt:
 		go s.submitPrompt(ctx, a.Text)
+		return nil
+	case SteerPrompt:
+		s.runController.Steer(a.Text)
 		return nil
 	case InterruptActiveRun:
 		s.runController.Interrupt()

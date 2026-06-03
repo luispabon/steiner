@@ -35,7 +35,7 @@ type runResult struct {
 	Diagnostics  []output.Event
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string) (runResult, error) {
+func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ <-chan string) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 

@@ -20,7 +20,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string) {
 	s.mu.Unlock()
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
-		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot())
+		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), s.runController.SteerCh())
 		if err != nil {
 			return err
 		}
