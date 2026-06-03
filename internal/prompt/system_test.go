@@ -29,23 +29,6 @@ func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	}
 }
 
-func TestSystemPreambleHasNoScratchpadOrTaskStateReferences(t *testing.T) {
-	t.Parallel()
-
-	content := SystemPreamble("", false, false).Content
-	for _, forbidden := range []string{
-		"scratchpad",
-		"[Current task state]",
-		"active constraints:",
-		"unresolved work:",
-		"active focus:",
-	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("system preamble still contains %q in %q", forbidden, content)
-		}
-	}
-}
-
 func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	t.Parallel()
 

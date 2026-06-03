@@ -183,46 +183,39 @@ func TestSubAgentConfigYAMLParsing(t *testing.T) {
 	}
 }
 
-func TestParseConfigPatchRejectsRemovedContextManagementFields(t *testing.T) {
+func TestParseConfigPatchRejectsUnknownFields(t *testing.T) {
 	tests := []struct {
 		name    string
 		yaml    string
 		wantErr string
 	}{
 		{
-			name: "mode",
-			yaml: `context_management:
-  mode: smart
+			name: "top_level_unknown",
+			yaml: `unknown_section:
+  enabled: true
 `,
-			wantErr: "field mode not found",
+			wantErr: "field unknown_section not found",
 		},
 		{
-			name: "compaction_strategy",
-			yaml: `context_management:
-  compaction_strategy: hybrid
+			name: "nested_unknown",
+			yaml: `models:
+  default:
+    provider: local
+    id: qwen3
+    unexpected_field: value
 `,
-			wantErr: "field compaction_strategy not found",
+			wantErr: "field unexpected_field not found",
 		},
 		{
-			name: "masking_window_turns",
-			yaml: `context_management:
-  masking_window_turns: 5
+			name: "unknown_nested_section",
+			yaml: `sub_agent:
+  enabled: true
+  max_turns: 5
+  max_tokens: 10000
+  extra_settings:
+    enabled: false
 `,
-			wantErr: "field masking_window_turns not found",
-		},
-		{
-			name: "scratchpad_mode",
-			yaml: `context_management:
-  scratchpad_mode: hybrid
-`,
-			wantErr: "field scratchpad_mode not found",
-		},
-		{
-			name: "debug scaffold inference",
-			yaml: `debug:
-  show_internal_scaffold_inference: true
-`,
-			wantErr: "field debug not found",
+			wantErr: "field extra_settings not found",
 		},
 	}
 
