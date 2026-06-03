@@ -57,7 +57,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		deps:                deps,
 		events:              events,
 		displaySink:         displaySink,
-		runController:       &ActiveRunController{},
+		runController:       NewActiveRunController(),
 		skills:              NewSkills(deps.SkillNames),
 		snapshots:           snaps,
 		approvalCoordinator: &ApprovalCoordinator{},
