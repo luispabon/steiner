@@ -224,16 +224,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	case ToggleCavemanMode:
 		return s.handleToggleCavemanMode()
 	case SwitchModel:
-		s.mu.Lock()
-		if _, ok := s.deps.Config.Models[a.Name]; !ok {
-			s.mu.Unlock()
-			err := fmt.Errorf("model %q not found in config", a.Name)
-			s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
-			return err
-		}
-		s.deps.Config.DefaultModel = a.Name
-		s.mu.Unlock()
-		return nil
+		return s.handleSwitchModel(a.Name)
 	case LoadSession:
 		return s.loadSession(ctx, a.SessionID)
 	case requestSessionPicker:
@@ -252,6 +243,19 @@ func (s *Session) handleToggleCavemanMode() error {
 	}
 	s.mu.Unlock()
 	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
+	return nil
+}
+
+func (s *Session) handleSwitchModel(name string) error {
+	s.mu.Lock()
+	if _, ok := s.deps.Config.Models[name]; !ok {
+		s.mu.Unlock()
+		err := fmt.Errorf("model %q not found in config", name)
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
+		return err
+	}
+	s.deps.Config.DefaultModel = name
+	s.mu.Unlock()
 	return nil
 }
 
