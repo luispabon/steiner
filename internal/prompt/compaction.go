@@ -142,21 +142,28 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 		return nil
 	}
 
-	systemContent := compactionPromptSystem()
-	if cavemanMode {
-		systemContent = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody
-	}
-	if override != "" {
-		systemContent = override
-	}
-	if mode == CompactionModeEmergency {
-		systemContent = systemContent + "\n\n" + compactionPromptEmergencyInstruction
-	}
+	systemContent := RenderConversationCompactionInstruction(override, mode, cavemanMode)
 	userPrompt := renderConversationCompactionSource(turns, state)
 	return []provider.Message{
 		{Role: provider.MessageRoleSystem, Content: systemContent},
 		{Role: provider.MessageRoleUser, Content: userPrompt},
 	}
+}
+
+// RenderConversationCompactionInstruction renders the final instruction used to
+// ask a model to compact the already-assembled conversation context.
+func RenderConversationCompactionInstruction(override string, mode CompactionMode, cavemanMode bool) string {
+	content := compactionPromptSystem()
+	if cavemanMode {
+		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody
+	}
+	if override != "" {
+		content = override
+	}
+	if mode == CompactionModeEmergency {
+		content = content + "\n\n" + compactionPromptEmergencyInstruction
+	}
+	return content
 }
 
 // ToolSummaryEnvelope stores a summarized tool message in a bounded serialized form.

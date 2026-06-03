@@ -72,6 +72,18 @@ func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
 	return out
 }
 
+func cloneProviderMessages(messages []provider.Message) []provider.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]provider.Message, len(messages))
+	copy(out, messages)
+	for i := range out {
+		out[i].ToolCalls = cloneProviderToolCalls(out[i].ToolCalls)
+	}
+	return out
+}
+
 func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
 	if len(calls) == 0 {
 		return nil

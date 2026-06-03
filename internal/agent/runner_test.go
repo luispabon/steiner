@@ -1289,7 +1289,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               1043,
+			ContextSize:               2500,
 			MaxCompletionTokens:       32,
 			SummaryMaxTokens:          32,
 			NormalSummaryMaxTokens:    32,
@@ -1297,13 +1297,17 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		},
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{
-				{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 72)},
-				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 64)},
-				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 56)},
-				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 48)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 120)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 96)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("second request ", 112)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("second answer ", 88)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("third request ", 96)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("third answer ", 80)},
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 88)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 72)},
 			},
 			ToolResults: []provider.Message{
-				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 60)},
+				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 90)},
 			},
 			Policy: prompt.AssemblyPolicy{
 				Compaction: prompt.CompactionPolicy{SummaryBytes: 128},
