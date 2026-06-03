@@ -1,0 +1,79 @@
+steps:
+  - id: step-1
+    title: Fix hash verification to use original disk content
+    scope: |
+      Change verifyFileHash() to compute hash from state.original instead of state.content.
+      This is the core bug fix — all operations in a batch validate against the same disk snapshot.
+    files:
+      - internal/tool/builtin/mutate.go
+    constraints:
+      - Only change the hash source in verifyFileHash, line 124
+      - Keep the !state.exists early return (create of new file still skips)
+      - Do not change any other method signatures or behavior
+    acceptance:
+      - Multi-operation mutate on same file succeeds when all ops use the same file_hash from read
+      - Hash mismatch still fires for genuinely stale hashes (external change between read and mutate)
+      - Existing single-operation behavior unchanged
+    verification:
+      - go test ./internal/tool/builtin/ -run TestMutate
+
+  - id: step-2
+    title: Add operations_skipped to MutateResult and fix counting
+    scope: |
+      Add OperationsSkipped field to MutateResult in result.go.
+      Update mutate.go run() to compute skipped count on failure: total - applied - 1 (the failed one).
+      Update fail() to accept total operation count for the skipped calculation.
+    files:
+      - internal/tool/builtin/result.go
+      - internal/tool/builtin/mutate.go
+    constraints:
+      - Do not change operations_applied semantics (counts successfully planned ops)
+      - operations_failed stays 1 (the op that errored)
+      - operations_skipped = total - applied - failed
+      - JSON field name is operations_skipped with omitempty
+      - WasMutated() logic unchanged
+    acceptance:
+      - On failure at op 2 of 5, result shows applied=1, failed=1, skipped=3
+      - On full success, skipped is 0 (omitted from JSON)
+      - On failure at op 1 of 3, result shows applied=0, failed=1, skipped=2
+    verification:
+      - go test ./internal/tool/builtin/ -run TestMutate
+
+  - id: step-3
+    title: Update schema description for batch hash semantics
+    scope: |
+      Update the file_hash field description in schema.go to clarify that within a single
+      mutate call, all operations validate against the file's state at call start, not after
+      prior operations. Also update the operations array description to mention the new
+      operations_skipped reporting.
+    files:
+      - internal/tool/builtin/schema.go
+    constraints:
+      - Keep descriptions concise — these are model-facing tool descriptions
+      - Do not change schema structure, only description strings
+    acceptance:
+      - file_hash description mentions batch-level validation
+      - Schema test still passes
+    verification:
+      - go test ./internal/tool/builtin/ -run TestSchema
+
+  - id: step-4
+    title: Tests for all three fixes
+    scope: |
+      Add or update tests in mutate_test.go covering:
+      1. Multi-op same-file with same hash succeeds (hash chaining fix)
+      2. Genuine external hash mismatch still fails
+      3. Operation counts correct on partial failure (applied, failed, skipped)
+      4. Operation counts correct on full success (skipped omitted)
+    files:
+      - internal/tool/builtin/mutate_test.go
+    constraints:
+      - Table-driven tests per Go conventions
+      - Use testdata/ or inline fixtures as appropriate for the existing test patterns
+      - Do not duplicate coverage already in existing tests
+    acceptance:
+      - All new tests pass
+      - No regression in existing mutate tests
+    verification:
+      - go test ./internal/tool/builtin/ -run TestMutate
+      - make check
