@@ -1,0 +1,151 @@
+steps:
+  - id: step-1
+    title: Create docs/CONFIGURATION.md — full configuration reference
+    scope: |
+      Write a new file docs/CONFIGURATION.md containing the complete configuration reference.
+      This file does not exist yet. It must cover every top-level block and every field derived
+      from internal/config/config.go and internal/config/defaults.go.
+
+      Sections required:
+        1. Config file locations and precedence (same as README today)
+        2. Environment variables (complete list with STEINER_ prefix)
+        3. Top-level fields: default_model, caveman_mode, scheduler.parallelism
+        4. providers.<name> block — all ProviderConfig fields with types, defaults, valid values
+        5. models.<name> block — all ModelConfig fields including params, extra_params,
+           prompt_suffix, retry (all RetryConfig fields), prompts (system, compaction),
+           advanced.limits (context_window, max_output_tokens), advanced.reasoning_echo_back
+        6. limits block — all LimitsConfig fields with defaults
+        7. approval block — default, tool_overrides map
+        8. sub_agent block — all SubAgentConfig fields, agents.<type>.model override
+        9. tools.<name> block — all ToolConfig fields (exec, subcommand, description,
+           parameters, timeout, approval, constraints)
+        10. project_context block — max_tokens, extra_files, ignore_files
+        11. paths block — all PathsConfig fields
+        12. logging block — all LoggingConfig fields
+        13. context_management block — read_annotations
+        14. search block — all SearchConfig fields, per-backend env var table
+        15. Examples section: minimal local, minimal cloud (OpenRouter), multi-provider
+            multi-model, tuned model with params/extra_params/prompt_suffix, advanced limits
+            with tool timeouts, full kitchen-sink with every block populated
+
+      Provider types to document: openai_compat, ollama, lmstudio, openrouter, openai,
+      anthropic, gemini, litellm — with notes on which fields apply to each.
+    files:
+      - docs/CONFIGURATION.md
+    constraints:
+      - New file only — do not edit any existing file in this step
+      - Every field from config.go must appear; no field may be omitted
+      - Defaults from defaults.go must be noted inline next to each field
+      - Examples must be valid YAML
+      - Do not duplicate sub-agent delegation tool allowlist details — link to docs/SUBAGENT_DELEGATION.md
+    acceptance:
+      - docs/CONFIGURATION.md exists
+      - Every Config struct field (and all nested struct fields) has a documented entry
+      - At least 5 distinct examples including a kitchen-sink example
+      - All provider types listed with their applicable fields noted
+    verification:
+      - Read docs/CONFIGURATION.md and confirm all Config struct fields from config.go are present
+
+  - id: step-2
+    title: Restructure README.md
+    scope: |
+      Rewrite README.md in full with the following structure. The file is the primary human
+      entry point. Lead with fast path to running; keep theory short.
+
+      Required sections in order:
+        1. Title + 2-line description (local-first coding agent, designed for bounded context)
+        2. Why steiner — 4–5 bullet differentiators vs other coding agents:
+             - Local-first: works with Ollama, LM Studio, or any OpenAI-compatible server;
+               no cloud account required to get started
+             - Context management as core design: delegation → per-source budgets → compaction,
+               three-layer defense for limited local context windows
+             - Delegation-first: sub-agents isolate work so it never fills the parent conversation
+             - Transparent approval gates: mutating tools prompt by default; no silent side-effects
+             - Provider-agnostic: same config shape for local and cloud providers
+        3. Quickstart — ≤5 numbered steps: prereqs, start a local LLM, run from source,
+           inspect config, optional binary build
+        4. Usage — interactive mode, --exec, commands reference table
+           (version, config, tools, skills, --help)
+        5. Configuration — 2 minimal examples only:
+             a. Local LLM (Ollama/LM Studio) — the absolute minimum to get running
+             b. Cloud provider (OpenRouter) — minimum for cloud use
+           Then a pointer: "See docs/CONFIGURATION.md for the full reference and all options."
+        6. Built-in tools — brief two-column table: tool name | what it does
+           (read, mutate, glob, grep, ls, bash, scratchpad, display_file)
+        7. Context management — 3 short paragraphs covering delegation/budgets/compaction,
+           then link to docs/CONTEXT_MANAGEMENT.md
+        8. Sub-agent delegation — 1 short paragraph + tool table (explore, research, code,
+           plan, verify, delegate, follow_up), then link to docs/SUBAGENT_DELEGATION.md
+        9. Optional features:
+             - Caveman mode (3–5 lines: what it does, how to enable)
+             - Web search (3–5 lines: disabled by default, backends table, how to enable)
+        10. Development — build, test, fmt, check commands; pointer to AGENTS.md for repo rules
+
+      Remove from README:
+        - The 6 detailed config examples (now in docs/CONFIGURATION.md)
+        - The "Today in brief" section (folds into Why steiner + Usage)
+        - The verbose web search "how it works" subsection (replace with condensed version)
+        - The verbose sub-agent config block (pointer to docs/SUBAGENT_DELEGATION.md)
+
+      Link targets that must resolve:
+        - docs/CONFIGURATION.md (new file from step-1)
+        - docs/CONTEXT_MANAGEMENT.md (existing)
+        - docs/SUBAGENT_DELEGATION.md (existing)
+        - AGENTS.md (existing)
+    files:
+      - README.md
+    depends_on:
+      - step-1
+    constraints:
+      - Do not move or alter docs/CONTEXT_MANAGEMENT.md or docs/SUBAGENT_DELEGATION.md
+      - Config examples in README must be the minimal 2 only; full examples live in docs/CONFIGURATION.md
+      - Every linked file must exist (step-1 creates docs/CONFIGURATION.md; others exist already)
+      - Built-in tool table must match internal/tool registered tools exactly
+    acceptance:
+      - README.md has all 10 sections in the specified order
+      - Only 2 config examples present (local + cloud)
+      - All 4 doc links present and resolve to existing files
+      - "Today in brief" section removed
+      - Tool table present and accurate
+    verification:
+      - Read README.md and verify structure, section order, and link targets
+
+  - id: step-3
+    title: Add documentation maintenance rules to CLAUDE.md
+    scope: |
+      Append a new "## Documentation maintenance" section to the project CLAUDE.md
+      (at /home/luis/Projects/AI/steiner/CLAUDE.md).
+
+      The section must contain explicit per-area rules mapping code changes to doc updates:
+
+        - internal/tool (add/remove/rename built-in tool)
+            → Update Built-in tools table in README.md
+            → Update sub-agent tool allowlist tables in docs/SUBAGENT_DELEGATION.md
+              if the tool appears in any allowlist
+        - internal/config (add/change/remove any Config field or nested struct field)
+            → Update the relevant field entry in docs/CONFIGURATION.md
+            → Update defaults if changed
+            → If a commonly-used field, check whether README.md config examples need updating
+        - internal/delegation (add/remove sub-agent type or change tool allowlist)
+            → Update sub-agent tool table in docs/SUBAGENT_DELEGATION.md
+            → Update the sub-agent delegation tool table in README.md
+        - internal/prompt (change compaction, budgets, or context management behaviour)
+            → Update docs/CONTEXT_MANAGEMENT.md
+            → Update the Context management section in README.md if the high-level description changes
+        - Adding a new top-level feature
+            → Add a section to README.md and a doc under docs/ if warranted
+            → Add a rule to this maintenance section
+
+      Place the section after the existing "## Security" section so it is visible to agents
+      reading the bottom of the file.
+    files:
+      - CLAUDE.md
+    constraints:
+      - Append only — do not edit existing CLAUDE.md content
+      - Rules must be explicit (which file to update, which section) not vague ("update docs")
+      - Do not add rules that duplicate existing CLAUDE.md invariants
+    acceptance:
+      - CLAUDE.md has a "## Documentation maintenance" section
+      - Section contains at least 4 distinct per-area rules with explicit file/section targets
+    verification:
+      - Read CLAUDE.md and confirm the section is present and coherent with existing rules
