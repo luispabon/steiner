@@ -8,6 +8,7 @@
 * Config, tools, skills, and version commands are available now
 * Default provider targets a local OpenAI-compatible endpoint
 * Mutating tools are approval-gated by default; reads are auto-approved
+* Context management via delegation, per-source budgets, and compaction for lean local LLM usage
 
 ## Quickstart
 
@@ -296,9 +297,19 @@ search:
 - SearXNG is self-hosted and has no API key; any public or private instance URL works.
 - Brave caps results at 20. All other backends cap at 30 (the global limit is adjustable per invocation via the `limit` parameter, up to 30).
 
+## Context management
+
+Local LLMs have limited context windows — often measured in thousands of tokens, not millions. Every turn accumulates tokens from model output and tool results, and long contexts cost more while degrading reasoning quality. Steiner keeps the context window lean through three lines of defense, ordered by effectiveness:
+
+1. **Delegation** — sub-agents isolate work from the parent conversation. The full turn-by-turn transcript of exploration, code changes, or research never enters the parent context at all.
+2. **Per-source byte budgets** — when context does accumulate, budgets cap each source (preamble, agents, skills, tool results, etc.) so no single category dominates the window.
+3. **Compaction** — when estimated prompt tokens reach 70% of the context window, older turns are summarised by the model into a compact durable prefix.
+
+See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
+
 ## Sub-agent delegation
 
-`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
+Delegation is steiner's primary context management strategy — the best turn is the one that never enters the parent conversation. `steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. Sub-agent delegation is **enabled by default** — the model sees the following tools:
 
 - **`explore`** — navigate the codebase to find files, symbols, call sites, and patterns
 - **`research`** — gather and synthesise information from the codebase or web (only available with a `web_search` backend configured)
@@ -332,7 +343,7 @@ sub_agent:
       model: claude-sonnet-4
 ```
 
-See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
+See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation — including agent-specific tool allowlists, safety restrictions, and per-invocation overrides for the `delegate` tool.
 
 ## Caveman mode
 
@@ -361,7 +372,7 @@ When enabled, caveman-style instructions are injected into:
 - **Compaction prompts** — compaction summaries are written in caveman style to maximise information per token
 - **Sub-agent prompts** — delegated agents inherit the terseness instruction
 
-Caveman mode is purely a prompt-layer transformation. It does not change tool behavior, approval gates, or any other config.
+Caveman mode is complementary to delegation and compaction — it reduces *output* token growth while the other mechanisms handle *input*-side growth. It is purely a prompt-layer transformation and does not change tool behavior, approval gates, or any other config.
 
 ## Development
 
