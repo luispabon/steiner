@@ -69,7 +69,8 @@ const (
 	// conversation history containing file contents.
 	EventTypeDisplayFile = "display_file"
 
-	// EventTypeSteerReceived is emitted when a between-turn steering message is consumed.
+	// EventTypeSteerReceived is emitted when the agent loop consumes a queued
+	// steering message and injects it into the conversation.
 	EventTypeSteerReceived = "steer_received"
 )
 
@@ -367,3 +368,4 @@ type DisplayFilePayload struct {
 	Limit   int             `json:"limit,omitempty"`
 	Preview PreviewDocument `json:"preview"`
 }
+

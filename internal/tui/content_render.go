@@ -91,6 +91,8 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderUserSegment(segment, width)
 	case segmentUserMarkdown:
 		return b.renderUserMarkdownSegment(segment, width)
+	case segmentPendingSteer:
+		return b.renderPendingSteerSegment(segment, width)
 	default:
 		return b.renderSupplementalSegment(segment, width)
 	}

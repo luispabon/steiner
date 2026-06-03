@@ -71,6 +71,49 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	return sb.String()
 }
 
+// renderPendingSteerSegment renders a queued steering message: dashed muted bar,
+// italic dim text, and a right-aligned "queued" label. Upgrades to segmentUserMarkdown
+// when SteerReceivedEvent arrives.
+func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width int) string {
+	contentWidth := width - 1
+	if contentWidth < 2 {
+		contentWidth = 2
+	}
+
+	bar := b.styles.FgMute.Render("┇")
+	queuedLabel := b.styles.FgDim.Render("queued")
+	queuedW := lipgloss.Width(queuedLabel)
+
+	textWidth := contentWidth - 3
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	italicDim := lipgloss.NewStyle().Italic(true).Foreground(b.styles.FgDim.GetForeground())
+
+	lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+
+	var sb strings.Builder
+	for li, line := range lines {
+		wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
+		wrappedLines := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
+		for wi, vl := range wrappedLines {
+			vl = strings.TrimRight(vl, " ")
+			isLast := li == len(lines)-1 && wi == len(wrappedLines)-1
+			if isLast {
+				pad := strings.Repeat(" ", max(0, contentWidth-2-queuedW-lipgloss.Width(vl)))
+				content := "  " + italicDim.Render(vl) + pad + queuedLabel
+				sb.WriteString(bar + content + "\n")
+			} else {
+				content := italicDim.Width(contentWidth).Render("  " + vl)
+				sb.WriteString(bar + content + "\n")
+			}
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // renderUserMarkdownSegment renders a markdown-like user prompt with glamour
 // while keeping the left-bar framing so user messages remain visually distinct
 // from assistant output.

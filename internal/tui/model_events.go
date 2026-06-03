@@ -142,13 +142,14 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.activity = m.activity.static(approvalResultLabel(event.Type), approvalDetail(payload))
 			m.input.Focus()
 		}
-	case output.SteerReceivedEvent:
-		m.steerQueued = false
-		m.syncInputChrome()
 	case output.ToolCallStartedEvent:
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
+	case output.SteerReceivedEvent:
+		m.content.PromoteLastPendingSteer()
+		m.steerQueued = false
+		m.syncInputChrome()
 	}
 
 	var cmds []tea.Cmd

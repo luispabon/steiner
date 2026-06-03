@@ -30,6 +30,7 @@ const (
 	segmentSeparator
 	segmentInterrupted
 	segmentDelegation
+	segmentPendingSteer
 )
 
 type thinkingBlockData struct {
@@ -227,6 +228,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeTurnFinished:       func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIRequest:         func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIResponse:        func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no
+	// content line is emitted here.
+	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

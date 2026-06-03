@@ -95,7 +95,7 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool)
 		return true, m.executeInterruptAction()
 	}
 	// During an active run, Enter queues a steer message instead of submitting normally.
-	if activeConversation && msg.Type == tea.KeyEnter && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
+	if activeConversation && msg.Type == tea.KeyEnter && !m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
 		return true, m.executeSteerAction()
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
@@ -107,20 +107,6 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool)
 		return true, m
 	}
 	return false, m
-}
-
-func (m Model) executeSteerAction() tea.Model {
-	text := strings.TrimSpace(m.input.Value())
-	if text == "" {
-		return m
-	}
-	if m.controller != nil {
-		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
-	}
-	m.input.Reset()
-	m.steerQueued = true
-	m.syncInputChrome()
-	return m
 }
 
 func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
@@ -570,4 +556,19 @@ func composerTokenAtCursor(value string, cursor int, prefix rune) (string, int, 
 		end++
 	}
 	return string(runes[start:end]), start, end, true
+}
+
+func (m Model) executeSteerAction() tea.Model {
+	text := strings.TrimSpace(m.input.Value())
+	if text == "" {
+		return m
+	}
+	if m.controller != nil {
+		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
+	}
+	m.input.Reset()
+	m.content.AppendPendingSteer(text)
+	m.steerQueued = true
+	m.syncInputChrome()
+	return m
 }
