@@ -121,7 +121,7 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 	if !state.exists {
 		return nil
 	}
-	actual := fileContentHash(state.content)
+	actual := fileContentHash(state.original)
 	if actual != fileHash {
 		return fmt.Errorf("mutate: operation %d %s: file_hash mismatch on %s — expected %s, got %s (file changed since last read; re-read to get fresh hash)", index, opType, state.displayPath, fileHash, actual)
 	}
