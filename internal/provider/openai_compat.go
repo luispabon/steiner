@@ -17,14 +17,14 @@ var defaultHTTPClient = &http.Client{}
 
 // OpenAICompatConfig configures an OpenAI-compatible provider client.
 type OpenAICompatConfig struct {
-	BaseURL    string
-	APIKey     string
-	Headers    map[string]string
-	Model      string
-	Timeout    time.Duration
-	Retry      RetryConfig
-	HTTPClient *http.Client
-	Scheduler  *Scheduler
+	BaseURL      string
+	APIKey       string
+	Headers      map[string]string
+	Model        string
+	Timeout      time.Duration
+	Retry        RetryConfig
+	HTTPClient   *http.Client
+	Scheduler    *Scheduler
 	ProviderType string
 }
 
@@ -39,18 +39,18 @@ type RetryConfig struct {
 
 // OpenAICompat implements the Provider interface for OpenAI-compatible APIs.
 type OpenAICompat struct {
-	baseURL    *url.URL
-	apiKey     string
-	headers    map[string]string
-	model      string
-	retry      RetryConfig
-	httpClient *http.Client
-	scheduler  *Scheduler
+	baseURL      *url.URL
+	apiKey       string
+	headers      map[string]string
+	model        string
+	retry        RetryConfig
+	httpClient   *http.Client
+	scheduler    *Scheduler
 	providerType string
-	sleep      func(context.Context, time.Duration) error
-	jitter     func(time.Duration) time.Duration
-	randMu     sync.Mutex
-	rand       *rand.Rand
+	sleep        func(context.Context, time.Duration) error
+	jitter       func(time.Duration) time.Duration
+	randMu       sync.Mutex
+	rand         *rand.Rand
 }
 
 // NewOpenAICompat creates a new OpenAI-compatible provider client.
@@ -278,34 +278,7 @@ func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
 		}
 	}
 	if httpErr := asHTTPError(err); httpErr != nil {
-		if !isRetryableHTTPStatus(httpErr.StatusCode) {
-			return retryDecision{}
-		}
-		// litellm-specific: check for non-retryable budget exhaustion before
-		// attempting retry-after parsing. litellm returns 429 for both rate
-		// limits and budget exhaustion; only the latter is permanent.
-		if httpErr.StatusCode == 429 && p.providerType == "litellm" {
-			if isLiteLLMBudgetExceeded(httpErr.Body) {
-				return retryDecision{}
-			}
-		}
-		delay, hasHeader := retryAfterDelay(httpErr.Header, p.retry.RetryAfterMax)
-		// litellm-specific: when no Retry-After header, parse delay from body.
-		// litellm relays upstream rate limits as "Try again in N seconds" text
-		// instead of forwarding the Retry-After header.
-		if !hasHeader && httpErr.StatusCode == 429 && p.providerType == "litellm" {
-			if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {
-				if p.retry.RetryAfterMax > 0 && parsed > p.retry.RetryAfterMax {
-					parsed = p.retry.RetryAfterMax
-				}
-				delay = parsed
-			}
-		}
-		return retryDecision{
-			retry:      true,
-			reason:     httpErr.Error(),
-			retryAfter: delay,
-		}
+		return p.classifyHTTPError(httpErr)
 	}
 	if !isRetryableTransportError(err) {
 		return retryDecision{}
@@ -313,6 +286,37 @@ func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
 	return retryDecision{
 		retry:  true,
 		reason: err.Error(),
+	}
+}
+
+// classifyHTTPError maps an HTTPError to a retryDecision, applying
+// litellm-specific body parsing when the provider type is litellm.
+func (p *OpenAICompat) classifyHTTPError(httpErr *HTTPError) retryDecision {
+	if !isRetryableHTTPStatus(httpErr.StatusCode) {
+		return retryDecision{}
+	}
+	// litellm-specific: check for non-retryable budget exhaustion before
+	// attempting retry-after parsing. litellm returns 429 for both rate
+	// limits and budget exhaustion; only the latter is permanent.
+	if httpErr.StatusCode == 429 && p.providerType == "litellm" && isLiteLLMBudgetExceeded(httpErr.Body) {
+		return retryDecision{}
+	}
+	delay, hasHeader := retryAfterDelay(httpErr.Header, p.retry.RetryAfterMax)
+	// litellm-specific: when no Retry-After header, parse delay from body.
+	// litellm relays upstream rate limits as "Try again in N seconds" text
+	// instead of forwarding the Retry-After header.
+	if !hasHeader && httpErr.StatusCode == 429 && p.providerType == "litellm" {
+		if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {
+			if p.retry.RetryAfterMax > 0 && parsed > p.retry.RetryAfterMax {
+				parsed = p.retry.RetryAfterMax
+			}
+			delay = parsed
+		}
+	}
+	return retryDecision{
+		retry:      true,
+		reason:     httpErr.Error(),
+		retryAfter: delay,
 	}
 }
 
