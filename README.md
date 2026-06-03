@@ -10,6 +10,16 @@
 * Mutating tools are approval-gated by default; reads are auto-approved
 * Context management via delegation, per-source budgets, and compaction for lean local LLM usage
 
+## Context management
+
+Local LLMs have limited context windows — often measured in thousands of tokens, not millions. Every turn accumulates tokens from model output and tool results, and long contexts cost more while degrading reasoning quality. Steiner keeps the context window lean through three lines of defense, ordered by effectiveness:
+
+1. **Delegation** — sub-agents isolate work from the parent conversation. The full turn-by-turn transcript of exploration, code changes, or research never enters the parent context at all.
+2. **Per-source byte budgets** — when context does accumulate, budgets cap each source (preamble, agents, skills, tool results, etc.) so no single category dominates the window.
+3. **Compaction** — when estimated prompt tokens reach 70% of the context window, older turns are summarised by the model into a compact durable prefix.
+
+See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
+
 ## Quickstart
 
 Requirements: Go `1.25+`.
@@ -296,16 +306,6 @@ search:
 - The `web_search` tool is separate from the model provider — it uses its own HTTP client and does not route through the model provider configuration.
 - SearXNG is self-hosted and has no API key; any public or private instance URL works.
 - Brave caps results at 20. All other backends cap at 30 (the global limit is adjustable per invocation via the `limit` parameter, up to 30).
-
-## Context management
-
-Local LLMs have limited context windows — often measured in thousands of tokens, not millions. Every turn accumulates tokens from model output and tool results, and long contexts cost more while degrading reasoning quality. Steiner keeps the context window lean through three lines of defense, ordered by effectiveness:
-
-1. **Delegation** — sub-agents isolate work from the parent conversation. The full turn-by-turn transcript of exploration, code changes, or research never enters the parent context at all.
-2. **Per-source byte budgets** — when context does accumulate, budgets cap each source (preamble, agents, skills, tool results, etc.) so no single category dominates the window.
-3. **Compaction** — when estimated prompt tokens reach 70% of the context window, older turns are summarised by the model into a compact durable prefix.
-
-See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
 
 ## Sub-agent delegation
 
