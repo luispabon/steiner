@@ -32,6 +32,18 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir for cmd tests: %v\n", err)
 		os.Exit(1)
 	}
+
+	fakeBwrap := filepath.Join(tmp, "bwrap")
+	if err := os.WriteFile(fakeBwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write fake bwrap: %v\n", err)
+		os.Exit(1)
+	}
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", tmp+string(os.PathListSeparator)+oldPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set PATH for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+
 	oldHome := os.Getenv("HOME")
 	if err := os.Setenv("HOME", tmp); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to set HOME for cmd tests: %v\n", err)
@@ -40,6 +52,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	if err := os.Setenv("HOME", oldHome); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to restore HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("PATH", oldPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore PATH for cmd tests: %v\n", err)
 		os.Exit(1)
 	}
 	if err := os.RemoveAll(tmp); err != nil {
