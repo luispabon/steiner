@@ -1,70 +1,116 @@
 ## Request
 
-Fix sandbox bash tool issues discovered during bubblewrap integration:
-1. Persistent `cd` error + first stdout line swallowed (Issues 1 & 2 from investigation)
-2. `go` toolchain inaccessible inside sandbox
-3. `/etc/hosts` leaks host network topology (lower priority)
-
-Source investigation: `.project_planning/bash_tool_issues.md`
+Fix sandbox bash tool bugs:
+1. CWD mismatch → `cd` error on every command + first stdout line swallowed
+2. Dev toolchains (Go, Rust, Python, Node, etc.) inaccessible inside sandbox
 
 ## Overview
 
-Three fixes in `internal/sandbox/`, one in `internal/tool/builtin/`:
+Two fixes in `internal/sandbox/`, with cascading simplifications.
 
-### Fix A — CWD + output capture (Issues 1 & 2)
+### Fix A — CWD mismatch (Issues 1 & 2 from investigation)
 
-Root cause: `WrapCommand` copies `Dir: cmd.Dir` (empty). Bwrap inherits host CWD which doesn't exist in the namespace. Bash emits a `cd` diagnostic on startup that corrupts marker-based output capture, swallowing the first line of every command.
+Root cause: `WrapCommand` copies `Dir: cmd.Dir` (empty string). Bwrap inherits
+host CWD which doesn't exist in the sandbox namespace. Bash emits a `cd`
+diagnostic on startup that corrupts marker-based output capture, swallowing
+the first line of every command.
 
-Fix: Add `--chdir /workspace` to bwrap args in `BuildArgs()`. This is bwrap's native CWD mechanism — sets CWD after namespace setup, before exec. Cleaner than setting `Dir` on the host-side `exec.Cmd`.
+Fix: Add `--chdir` with the workspace path to bwrap args in `BuildArgs()`.
+With Fix B's mount strategy (paths stay at original locations), `--chdir`
+uses the host workspace path directly.
 
-### Fix B — Go toolchain access
+### Fix B — Full root ro-bind (replaces per-toolchain and credential mounts)
 
-Three paths missing from sandbox mounts:
-- `GOROOT`: `~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.linux-amd64` — the active Go toolchain
-- `GOMODCACHE`: `~/go/pkg/mod` — downloaded modules (superset of GOROOT path)
-- `GOCACHE`: `~/.cache/go-build` — build cache
+Current approach cherry-picks individual mounts (`/usr`, `/bin`, `/lib`,
+`/lib64`, `~/.ssh`, `~/.aws`, etc.). This misses dev toolchains entirely —
+`~/go`, `~/.rustup`, `~/.nvm`, `~/.pyenv` are all inaccessible.
 
-Since `GOMODCACHE` (`~/go/pkg/mod`) contains `GOROOT`, mounting `~/go` ro covers both GOROOT and GOMODCACHE. GOCACHE needs write access for builds.
+New approach, matching Codex CLI's strategy:
 
-Approach:
-1. Mount `~/go` → `/home/steiner/go` as **ro-bind** (modules + toolchain)
-2. Mount `~/.cache/go-build` → `/home/steiner/.cache/go-build` as **rw bind** (build cache needs writes)
-3. Add `GOPATH`, `GOROOT`, `GOCACHE`, `GOMODCACHE` to env allowlist in `env.go`, remapping `$HOME`-prefixed paths from host home to `/home/steiner`
+1. `--ro-bind / /` — entire root filesystem read-only
+2. `--bind <workspace> <workspace>` — project dir writable at original path
+3. `--bind <sandbox-home> <sandbox-home>` — `.steiner/home/` writable at original path
+4. `--dev /dev`, `--proc /proc`, `--tmpfs /tmp` — standard namespace devices
+5. Host mounts from config layered on top
 
-Path remapping: Go env vars reference `/home/luis/...` but sandbox HOME is `/home/steiner`. `FilterEnv` must rewrite these paths. Alternative: set explicit `--setenv` overrides in `BuildArgs` using sandbox-relative paths, avoiding the need for path remapping in `FilterEnv`.
+This eliminates all conditional `pathExists` mount logic, all credential
+mount code, and all env var path remapping. Every toolchain, every config
+file, every system path — all accessible through the base ro mount.
 
-Chosen approach: `--setenv` in `BuildArgs` — simpler, no regex/string replacement in FilterEnv, and the values are deterministic from the mount layout.
+**Path remapping goes away.** Paths inside the sandbox are identical to host
+paths. HOME stays at the real user home (ro through base mount). The sandbox
+home (`.steiner/home/`) stays writable at its real absolute path for tool
+state, but is no longer aliased to `/home/steiner`.
 
-### Fix C — `/etc/hosts` sanitization
+### Scope of changes
 
-Current: host `/etc/hosts` is ro-bound, exposing internal hostnames and IPs.
+**`internal/sandbox/mounts.go`** — `BuildArgs` rewritten. Signature changes:
+drops `sandboxHome` param (no longer remapped), adds workspace path for
+`--chdir`. New body is much shorter: base ro-bind, workspace rw-bind,
+sandbox-home rw-bind, dev/proc/tmp, host mounts. No more conditional
+pathExists checks for system dirs or credentials.
 
-Fix: Write a minimal `/etc/hosts` to the sandbox home dir at startup, bind that instead of the host file. Contents: just `localhost` entries.
+**`internal/sandbox/mounts_test.go`** — Tests rewritten for new mount
+structure. Verify: `--ro-bind / /` present, workspace bound rw at original
+path, `--chdir` present, host mounts still work, no `--setenv HOME` override.
+
+**`internal/sandbox/sandbox.go`** — `WrapCommand` updated: `Dir` field no
+longer copied from original cmd (not needed — bwrap uses `--chdir`).
+`EnsureHome` unchanged (still creates `.steiner/home/`).
+
+**`internal/sandbox/sandbox_test.go`** — Update `WrapCommand` tests. `Dir`
+inheritance test changes (Dir no longer propagated).
+
+**`internal/sandbox/env.go`** — `FilterEnv` simplified: remove HOME override
+to `/home/steiner`. HOME passes through from host unchanged.
+
+**`internal/sandbox/env_test.go`** — Update HOME override test expectations.
+
+**`docs/TOOL_SANDBOXING.md`** — Update mount layout section to reflect new
+`--ro-bind / /` strategy.
+
+### What does NOT change
+
+- `WrapCommand` function signature and wiring in `cmd/steiner/tools.go`
+- `Sandbox` struct fields and `New()` constructor
+- Sandbox enable/disable/prereq logic
+- Approval flow in `execution_pipeline.go`
+- `HostMount` config support
+- `bash.go` / `bash_session.go` — no changes needed
+
+### Risks
+
+- Some paths under `/` may be special filesystems (sysfs, cgroup, etc.) —
+  `--ro-bind / /` binds the root mount, not recursive submounts. bwrap
+  only binds the root filesystem itself; submounts like `/sys`, `/run` are
+  not automatically included. This is fine — we explicitly mount what we need
+  (`/dev`, `/proc`, `/tmp`).
+- Broader file exposure vs current cherry-pick — acceptable given sandbox
+  already mounts credentials and shares network.
 
 ## Verification Strategy
 
 ### Repo-mandated checks
 - `make check` — runs fmt, vet, lint, test, build (medium cost)
 - `go test ./internal/sandbox/... -run TestName` — targeted (cheap)
-- `go test ./internal/tool/builtin/... -run TestBash` — targeted (cheap)
-- `gofmt -w <files>` — formatter (cheap, safe-fix mode)
-- `goimports -w <files>` — import organizer (cheap, safe-fix mode)
-- `golangci-lint run ./internal/sandbox/...` — lint (cheap)
+- `gofmt -w <files>` — formatter (cheap)
+- `goimports -w <files>` — import organizer (cheap)
 
 ### Manual verification
 - Run steiner with sandbox enabled, execute bash commands, verify:
   - No `cd` error on stderr
   - First line of stdout not swallowed
-  - `go version`, `go build ./...`, `go test ./...` work
-  - `/etc/hosts` inside sandbox contains only localhost entries
+  - `go version`, `go build ./...`, `go test ./...` work inside sandbox
+  - `python --version`, `node --version` work if installed
+  - Host mounts from config still work
 
 ## Decision Log
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| 1 | Use `--chdir /workspace` not `Dir` field | bwrap-native, sets CWD after namespace mount setup |
-| 2 | Mount `~/go` ro, not rw | Modules should not be modified from sandbox |
-| 3 | Mount `~/.cache/go-build` rw | Build cache requires writes; safe to allow |
-| 4 | Use `--setenv` for Go vars, not FilterEnv remapping | Deterministic from mount layout, no string manipulation |
-| 5 | Generate minimal `/etc/hosts` in sandbox home | Avoids host info leak without breaking DNS resolution |
-| 6 | Keep `/etc/resolv.conf` from host | Required for DNS; contains only nameserver IPs, low risk |
+| 1 | `--ro-bind / /` instead of cherry-picked mounts | Covers all toolchains generically, matches Codex CLI approach, eliminates per-language maintenance |
+| 2 | Paths stay at original absolute locations | No remapping needed, env vars pass through unmodified, simpler mental model |
+| 3 | `--chdir <workspace>` for CWD | bwrap-native, sets CWD after namespace setup, fixes Issues 1 & 2 |
+| 4 | Drop HOME override to /home/steiner | HOME stays at real path, readable through base ro mount |
+| 5 | Keep .steiner/home/ writable at original path | Sandbox state dir still works, just not aliased |
+| 6 | Drop /etc/hosts sanitization from scope | Not a real security boundary — sandbox shares network, Codex doesn't bother either |

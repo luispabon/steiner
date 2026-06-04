@@ -1,85 +1,182 @@
 steps:
   - id: step-1
-    title: "Fix CWD mismatch — add --chdir /workspace to bwrap args"
+    title: "Rewrite BuildArgs — full root ro-bind with --chdir"
     scope: |
-      Add --chdir /workspace to BuildArgs() return value. This fixes Issues 1 (cd error)
-      and Issue 2 (first stdout line swallowed) from the investigation report.
+      Replace cherry-picked mount logic in BuildArgs with:
+      1. --ro-bind / / (entire root ro)
+      2. --bind <workspace> <workspace> (project dir rw at original path)
+      3. --bind <sandbox-home> <sandbox-home> (steiner state dir rw at original path)
+      4. --dev /dev, --proc /proc, --tmpfs /tmp
+      5. --chdir <workspace> (fixes CWD mismatch — Issues 1 & 2)
+      6. Host mounts from config layered on top
+
+      Remove all conditional pathExists checks for /bin, /lib, /lib64,
+      /etc/ssl, credential files (.ssh, .aws, .kube, .docker, .gitconfig,
+      .git-credentials, .config/git), SSH_AUTH_SOCK, and the --setenv HOME
+      override.
+
+      Signature change: BuildArgs no longer needs sandboxHome remapped to
+      /home/steiner — it binds .steiner/home/ at its original absolute path.
+      Drop the sandboxHome param if no longer needed, or keep if callers
+      use it. Check call sites.
+
+      The function should be dramatically shorter — roughly:
+        --unshare-all --share-net
+        --ro-bind / /
+        --dev /dev
+        --proc /proc
+        --tmpfs /tmp
+        --bind workspace workspace
+        --bind sandboxHome sandboxHome
+        --chdir workspace
+        host mounts loop
     files:
       - internal/sandbox/mounts.go
-      - internal/sandbox/mounts_test.go
     constraints:
-      - "--chdir /workspace must appear after all --bind/--ro-bind args but before env overrides"
-      - "Do not modify WrapCommand or Dir field — this is purely a bwrap arg"
+      - "--ro-bind / / must be first mount (base layer)"
+      - "--bind (rw) mounts must come after --ro-bind to shadow correctly"
+      - "--chdir must use the workspace absolute path"
+      - "Do NOT set --setenv HOME — HOME passes through from host"
+      - "Keep host mounts config support (HostMount loop)"
+      - "Remove pathExists, pathExistsFile, pathExistsDir helpers if no longer used"
+      - "Keep --unshare-all --share-net"
     acceptance:
-      - "--chdir /workspace present in BuildArgs output"
-      - "Existing mounts_test.go assertions still pass"
-      - "New test verifies --chdir /workspace appears in args"
+      - "BuildArgs output contains --ro-bind / /"
+      - "Workspace bound rw at its original absolute path"
+      - "sandboxHome bound rw at its original absolute path"
+      - "--chdir <workspace> present"
+      - "No --setenv HOME in output"
+      - "No credential-specific mounts (ssh, aws, kube, docker, git)"
+      - "Host mounts from config still appended"
     verification:
       - "go test ./internal/sandbox/... -run TestBuildArgs"
       - "gofmt -w internal/sandbox/mounts.go"
 
   - id: step-2
-    title: "Mount Go toolchain and cache directories"
+    title: "Update mounts_test.go for new mount strategy"
     scope: |
-      Add ro-bind for ~/go (GOPATH, contains GOMODCACHE and GOROOT toolchain)
-      and rw bind for ~/.cache/go-build (GOCACHE) to BuildArgs().
-      Add --setenv for GOPATH, GOROOT, GOCACHE, GOMODCACHE with sandbox-relative paths.
+      Rewrite mounts_test.go to verify the new BuildArgs output.
+      Remove tests for cherry-picked mounts. Add tests for:
+      - --ro-bind / / present
+      - workspace bound rw at original path (not /workspace)
+      - sandboxHome bound rw at original path (not /home/steiner)
+      - --chdir <workspace> present
+      - --dev /dev, --proc /proc, --tmpfs /tmp present
+      - host mounts still work
+      - no --setenv HOME in args
+      Keep containsSeq helper.
     files:
-      - internal/sandbox/mounts.go
       - internal/sandbox/mounts_test.go
     constraints:
-      - "~/go mounted ro — modules must not be writable from sandbox"
-      - "~/.cache/go-build mounted rw — build cache needs writes"
-      - "Use --setenv for Go env vars with /home/steiner paths, not FilterEnv remapping"
-      - "All mounts conditional on pathExists — don't fail if dirs missing"
-      - "GOROOT value must be derived from runtime go env, not hardcoded toolchain version"
+      - "Table-driven tests preferred"
+      - "Keep containsSeq helper"
     acceptance:
-      - "~/go ro-bound to /home/steiner/go when dir exists"
-      - "~/.cache/go-build rw-bound when dir exists"
-      - "GOPATH, GOROOT, GOCACHE, GOMODCACHE set via --setenv with sandbox paths"
-      - "go build, go test work inside sandbox"
+      - "All new tests pass"
+      - "No references to /workspace or /home/steiner destination paths"
     verification:
-      - "go test ./internal/sandbox/... -run TestBuildArgs"
-      - "gofmt -w internal/sandbox/mounts.go"
+      - "go test ./internal/sandbox/... -v"
     depends_on: [step-1]
 
   - id: step-3
-    title: "Generate minimal /etc/hosts for sandbox"
+    title: "Update WrapCommand — drop Dir propagation"
     scope: |
-      Replace the ro-bind of host /etc/hosts with a generated minimal file
-      containing only localhost entries. Write minimal hosts to sandbox home dir
-      at EnsureHome time, bind that file instead.
+      In sandbox.go WrapCommand, stop copying Dir from original cmd.
+      CWD is now handled by --chdir in BuildArgs, not by exec.Cmd.Dir.
+      Set Dir to "" (zero value) on the wrapped cmd, or omit the field.
+
+      Also update sandboxHome calculation if BuildArgs signature changed
+      in step-1.
     files:
-      - internal/sandbox/mounts.go
       - internal/sandbox/sandbox.go
-      - internal/sandbox/sandbox_test.go
     constraints:
-      - "Minimal hosts: 127.0.0.1 localhost, ::1 localhost only"
-      - "Write hosts file to .steiner/home/etc-hosts (not .steiner/home/etc/hosts to avoid nested dirs)"
-      - "Keep /etc/resolv.conf from host — needed for DNS"
-      - "BuildArgs needs sandboxHome to derive the hosts file path"
+      - "Dir must NOT be set on wrapped cmd — bwrap --chdir handles CWD"
+      - "Do not change WrapCommand signature or Sandbox struct"
     acceptance:
-      - "EnsureHome creates .steiner/home/etc-hosts with localhost-only content"
-      - "/etc/hosts inside sandbox contains only localhost entries"
-      - "DNS resolution still works (resolv.conf unchanged)"
-      - "Host internal hostnames not visible inside sandbox"
+      - "wrapped.Dir is empty string"
+      - "sandboxHome passed to BuildArgs matches step-1 expectations"
     verification:
-      - "go test ./internal/sandbox/... -run TestEnsureHome"
-      - "go test ./internal/sandbox/... -run TestBuildArgs"
-      - "gofmt -w internal/sandbox/mounts.go internal/sandbox/sandbox.go"
-    depends_on: [step-2]
+      - "go test ./internal/sandbox/... -run TestWrapCommand"
+      - "gofmt -w internal/sandbox/sandbox.go"
+    depends_on: [step-1]
 
   - id: step-4
+    title: "Update sandbox_test.go for Dir change"
+    scope: |
+      Update TestWrapCommand_Enabled_InheritsStreams — it currently asserts
+      wrapped.Dir == original.Dir. Change to assert wrapped.Dir == ""
+      since CWD is handled by --chdir, not Dir field.
+
+      Review other WrapCommand tests for any assertions about destination
+      paths (/workspace, /home/steiner) that need updating.
+    files:
+      - internal/sandbox/sandbox_test.go
+    constraints:
+      - "Dir assertion: wrapped.Dir must be empty"
+      - "Keep Stdin/Stdout/Stderr inheritance assertions"
+    acceptance:
+      - "All WrapCommand tests pass"
+      - "Dir test verifies empty Dir, not inherited Dir"
+    verification:
+      - "go test ./internal/sandbox/... -v -run TestWrapCommand"
+    depends_on: [step-3]
+
+  - id: step-5
+    title: "Simplify FilterEnv — drop HOME override"
+    scope: |
+      In env.go FilterEnv, remove the special case that overrides HOME
+      to /home/steiner. HOME should pass through from host unchanged.
+      Remove the sandboxHome const if no longer used.
+
+      Update env_test.go: change HOME override test to verify HOME
+      passes through unmodified.
+    files:
+      - internal/sandbox/env.go
+      - internal/sandbox/env_test.go
+    constraints:
+      - "HOME must pass through with its original value"
+      - "Keep the rest of the allowlist unchanged"
+      - "Remove sandboxHome const if unused"
+    acceptance:
+      - "FilterEnv passes HOME through unchanged"
+      - "No reference to /home/steiner in env.go"
+      - "env_test.go verifies HOME passthrough"
+    verification:
+      - "go test ./internal/sandbox/... -run TestFilterEnv"
+      - "gofmt -w internal/sandbox/env.go internal/sandbox/env_test.go"
+    depends_on: [step-1]
+
+  - id: step-6
+    title: "Update docs/TOOL_SANDBOXING.md"
+    scope: |
+      Update mount layout section to reflect --ro-bind / / strategy.
+      Remove references to cherry-picked credential mounts and path
+      remapping (/workspace, /home/steiner). Document that paths inside
+      sandbox match host paths. Update env var section to note HOME
+      is no longer overridden.
+    files:
+      - docs/TOOL_SANDBOXING.md
+    constraints:
+      - "Accurate mount layout reflecting new code"
+      - "No stale references to old mount strategy"
+    acceptance:
+      - "Mount layout shows --ro-bind / / as base"
+      - "No /workspace or /home/steiner destination references"
+      - "Host mount config documented"
+    verification: []
+    depends_on: [step-5]
+
+  - id: step-7
     title: "Final verification — make check"
     scope: |
-      Run full verification suite. Fix any lint, vet, or test failures
-      introduced by steps 1-3.
+      Run full verification suite. Fix any fmt, vet, lint, or test
+      failures introduced by steps 1-6.
     files: []
     constraints:
       - "No new lint warnings"
       - "All existing tests pass"
+      - "go build ./... succeeds"
     acceptance:
       - "make check passes clean"
     verification:
       - "make check"
-    depends_on: [step-3]
+    depends_on: [step-6]
