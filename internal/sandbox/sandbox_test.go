@@ -91,7 +91,6 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "ls")
-	original.Dir = "/tmp"
 
 	wrapped := s.WrapCommand(original)
 
@@ -104,7 +103,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	if wrapped.Stderr != original.Stderr {
 		t.Error("Stderr not inherited")
 	}
-	if wrapped.Dir != original.Dir {
-		t.Errorf("Dir = %q, want %q", wrapped.Dir, original.Dir)
+	if wrapped.Dir != "" {
+		t.Errorf("Dir = %q, want empty string (CWD handled by --chdir)", wrapped.Dir)
 	}
 }
