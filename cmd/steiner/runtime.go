@@ -65,6 +65,13 @@ type cliRuntime struct {
 var buildRuntime = defaultBuildRuntime
 
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return cliRuntime{}, fmt.Errorf("get working directory: %w", err)
+	}
+	if err := ensureSteinerProjectDir(workDir); err != nil {
+		return cliRuntime{}, err
+	}
 	cfg, err := loadRuntimeConfig(cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
