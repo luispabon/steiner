@@ -99,6 +99,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			ResolvedModel:        resolvedModel,
 			MaxTokens:            deps.MaxTokens,
 			StreamingPreferred:   deps.StreamingPreferred,
+			Sandbox:              deps.Sandbox,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -767,5 +768,79 @@ func TestBuildChildRun(t *testing.T) {
 			}
 			tt.want(t, req)
 		})
+	}
+}
+
+// mockSandbox is a test double for tool.SandboxWrapper.
+type mockSandbox struct {
+	enabled bool
+}
+
+func (m *mockSandbox) Enabled() bool                       { return m.enabled }
+func (m *mockSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+
+func TestBuildChildRunInheritsNilSandbox(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		Sandbox:     nil, // no sandbox
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "sandbox-nil", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.Executor == nil {
+		t.Fatal("Executor is nil")
+	}
+	concreteExec, ok := req.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("Executor type=%T, want *tool.Executor", req.Executor)
+	}
+	if got := concreteExec.Sandbox(); got != nil {
+		t.Errorf("Sandbox=%v, want nil when parent sandbox is nil", got)
+	}
+}
+
+func TestBuildChildRunInheritsEnabledSandbox(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+	sb := &mockSandbox{enabled: true}
+	deps := BootstrapDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		Sandbox:     sb,
+	}
+	spec := DelegationSpec{Task: "task", AgentID: "sandbox-enabled", Limits: DelegationLimits{MaxTurns: 1}}
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.Executor == nil {
+		t.Fatal("Executor is nil")
+	}
+	concreteExec, ok := req.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("Executor type=%T, want *tool.Executor", req.Executor)
+	}
+	got := concreteExec.Sandbox()
+	if got == nil {
+		t.Fatal("Sandbox is nil, want inherited parent sandbox")
+	}
+	if !got.Enabled() {
+		t.Error("Sandbox.Enabled()=false, want true (inherited from parent)")
+	}
+	if got != sb {
+		t.Error("Sandbox is not the parent sandbox instance (must be same, not a copy)")
 	}
 }
