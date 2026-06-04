@@ -18,10 +18,8 @@ var allowedEnvVars = map[string]bool{
 	"XDG_RUNTIME_DIR": true,
 }
 
-const sandboxHome = "/home/steiner"
-
 // FilterEnv filters os.Environ()-style KEY=VALUE pairs through the allowlist.
-// HOME is overridden to /home/steiner.
+// HOME passes through unchanged.
 func FilterEnv(env []string) []string {
 	if env == nil {
 		return nil
@@ -33,10 +31,6 @@ func FilterEnv(env []string) []string {
 			continue
 		}
 		if !isAllowed(key) {
-			continue
-		}
-		if key == "HOME" {
-			out = append(out, "HOME="+sandboxHome)
 			continue
 		}
 		out = append(out, kv)

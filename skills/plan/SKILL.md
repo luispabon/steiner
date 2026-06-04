@@ -150,7 +150,7 @@ Executor and reviewer should consume this section instead of rediscovering verif
 
 ## Overview Checkpoint
 
-**STOP — approval required.** Write `overview.md` only after clarification, research decision, any approved research, and verification discovery are complete. Present `overview.md` to the user. Do **not** write `plan.yaml` until the user explicitly approves the overview. No implicit assent, no exceptions.
+**STOP — approval required.** Write `overview.md` only after clarification, research decision, any approved research, and verification discovery are complete. Call `display_file` with the overview path and `limit: 1000` to show the entire file to the user. Do **not** write `plan.yaml` until the user explicitly approves the overview. No implicit assent, no exceptions.
 
 If the user asks questions, proposes changes, or gives partial feedback, remain in the checkpoint phase. Do not proceed to `plan.yaml` until you receive an explicit "approve," "looks good," "go ahead," or equivalent.
 

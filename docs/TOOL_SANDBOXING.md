@@ -1,35 +1,35 @@
 # Tool Sandboxing
 
-Steiner uses Linux container technology (`bubblewrap`) to sandbox tool execution and protect the host filesystem and credentials from model-driven code.
+Steiner uses Linux container technology (`bubblewrap`) to sandbox tool execution and protect the host from uncontrolled writes by model-driven code.
 
 ## Overview
 
-By default, `bash` and subprocess tools run inside a **sandbox** — a restricted execution environment with limited filesystem access, a fresh process tree, and no access to host credentials outside the workspace.
+By default, `bash` and subprocess tools run inside a **sandbox** — a restricted execution environment with a read-only view of the host filesystem, a fresh process tree, and writable access limited to the workspace.
 
 The sandbox isolates model-driven code from:
-- Host credentials (SSH keys, AWS tokens, GitHub tokens, Kubernetes config, Docker credentials)
-- Files outside the workspace
-- The full host filesystem
+- Writing to any path outside the workspace
+- Leaking credentials via environment variables (env var allowlist)
+- Polluting the host process tree
 
-The model can read and write files within the workspace and access specifically-mounted developer tools (SSH, Git, AWS CLI, kubectl, Docker), but cannot access or exfiltrate host credentials or files outside the project boundary.
+The entire host filesystem is visible inside the sandbox as read-only. This means all installed toolchains (Go, Rust, Python, Node, etc.), system libraries, and user config files are accessible without per-path mount configuration. Only the workspace and the sandbox state directory are writable.
 
 ## Goals and non-goals
 
 ### What sandboxing protects
 
-- **Workspace isolation**: Code run by the model cannot access or modify files outside the workspace root
-- **Credential protection**: API keys, SSH keys, and other secrets are not exposed to sandboxed code unless explicitly allowed
-- **Accidental exfiltration prevention**: Accidentally writing credentials to logs or temp files inside the sandbox cannot affect the host
-- **Controlled tool access**: Developer tools (git, ssh, aws, kubectl) are available in the sandbox but only if explicitly mounted
+- **Write isolation**: Code run by the model cannot write to any path outside the workspace root
+- **Env var filtering**: Credential-bearing environment variables are blocked by an allowlist
+- **Process isolation**: Fresh PID namespace prevents interference with host processes
+- **Temp file isolation**: `/tmp` is a private tmpfs; sandbox writes cannot affect host temp files
 
 ### What sandboxing does NOT protect against
 
+- **Reading host files**: The entire host filesystem is visible read-only — credentials on disk (SSH keys, cloud configs) are readable inside the sandbox
+- **Network exfiltration**: The sandbox shares the host network (`--share-net`); sandboxed code can make outbound connections
 - **Deliberate attacks**: Sandboxing is not a security boundary against intentional malicious code
-- **Supply chain attacks**: If you intentionally run untrusted code with steiner, the sandbox cannot prevent all exfiltration
-- **Exploits in sandboxing itself**: Bugs in `bubblewrap` or kernel namespace isolation could allow escape (we rely on battle-tested Linux tooling)
-- **Malicious model behavior**: Sandboxing assumes the model follows tool schemas; if the model is deliberately trying to exfiltrate data, the sandbox is a speed bump, not a barrier
+- **Exploits in sandboxing itself**: Bugs in `bubblewrap` or kernel namespace isolation could allow escape
 
-In short: **sandboxing protects against accidental information leaks and model mistakes, not deliberate attacks.**
+In short: **sandboxing prevents accidental writes and env var leakage, not deliberate exfiltration.** The host filesystem is readable; only writes are constrained.
 
 ## Standard vs unsafe mode
 
@@ -97,48 +97,39 @@ go run ./cmd/steiner --unsafe
 
 ## Mount layout
 
-Inside the sandbox, the filesystem is mapped as follows:
+The sandbox uses a simplified mount strategy:
 
-| Host path | Sandbox path | Mode | Purpose |
-|-----------|--------------|------|---------|
-| Workspace root | `/workspace` | rw | Project files and artifacts |
-| `.steiner/home/` | `/home/steiner` | rw | Sandbox-specific home directory |
-| `/tmp` | `/tmp` | rw | Temporary files (tmpfs) |
-| `/proc` | `/proc` | fresh | Process information (ProcFS) |
-| `/dev` | `/dev` | minimal | Device nodes (devtmpfs) |
-| `/usr` | `/usr` | ro | System binaries and libraries |
-| `/bin` | `/bin` | ro | Essential binaries |
-| `/lib`, `/lib64`, `/usr/lib*` | same | ro | System libraries |
-| `/etc/resolv.conf` | `/etc/resolv.conf` | ro | DNS resolution |
-| `/etc/hosts` | `/etc/hosts` | ro | Hostname mapping |
-| `/etc/ssl/certs` | `/etc/ssl/certs` | ro | TLS root certificates |
-| `~/.ssh` | `/home/steiner/.ssh` | ro | SSH keys (auto-mounted if exists) |
-| `~/.gitconfig` | `/home/steiner/.gitconfig` | ro | Git configuration (auto-mounted if exists) |
-| `~/.git-credentials` | `/home/steiner/.git-credentials` | ro | Git credentials (auto-mounted if exists) |
-| `~/.config/git` | `/home/steiner/.config/git` | ro | Git config directory (auto-mounted if exists) |
-| `~/.aws` | `/home/steiner/.aws` | ro | AWS credentials (auto-mounted if `permissions.aws: true`) |
-| `~/.kube` | `/home/steiner/.kube` | ro | Kubernetes config (auto-mounted if `permissions.kube: true`) |
-| `~/.docker/config.json` | `/home/steiner/.docker/config.json` | ro | Docker config (auto-mounted if `permissions.docker: true`) |
-| `host_mounts:` | mounted at configured path | ro | Additional paths from config |
-| SSH_AUTH_SOCK | bind socket path | ro | SSH agent socket (if set) |
+1. **Root filesystem**: The entire host filesystem is mounted read-only at `/` using `--ro-bind / /`
+2. **Writable overlay**: Only the workspace and sandbox home are bind-mounted at their original host paths as read-write
+3. **Working directory**: The initial process working directory is set to the workspace root
 
-## Developer environment auto-mounts
+This strategy ensures:
+- Host paths are preserved inside the sandbox (no path remapping like `/workspace` or `/home/steiner`)
+- All system binaries, libraries, and standard utilities are accessible by default
+- Only explicitly-mounted paths are writable (workspace, sandbox home)
 
-Steiner auto-mounts common developer credentials and configs so the model can use standard tools:
+| Mount | Sandbox path | Mode | Purpose |
+|-------|--------------|------|---------|
+| `--ro-bind / /` | `/` | ro | Entire host filesystem as read-only base |
+| `--bind <workspace>` | same as host | rw | Project files and artifacts |
+| `--bind <sandbox-home>` | same as host | rw | `.steiner/home/` — sandbox state directory |
+| `--dev /dev` | `/dev` | minimal | Device nodes (devtmpfs) |
+| `--proc /proc` | `/proc` | fresh | Process information (ProcFS) |
+| `--tmpfs /tmp` | `/tmp` | rw | Private temporary files |
+| `--chdir <workspace>` | — | — | Sets initial working directory |
+| `host_mounts` (config) | same as host | ro/rw | Additional paths from `host_mounts:` config |
 
-- **SSH** (`~/.ssh`) — Always mounted. Enables `git clone`, SSH port forwarding, and SSH-based tools.
-- **Git config** (`~/.gitconfig`, `~/.git-credentials`, `~/.config/git`) — Always mounted. Enables `git commit`, `git push`, and authenticated Git operations.
-- **AWS** (`~/.aws`) — Mounted only if `permissions.aws: true` in config.
-- **Kubernetes** (`~/.kube`) — Mounted only if `permissions.kube: true` in config.
-- **Docker** (`~/.docker/config.json`) — Mounted only if `permissions.docker: true` in config. Also requires the Docker socket mount (see below).
+All host paths (toolchains, credentials, system libraries) are accessible inside the sandbox at their original locations through the read-only root bind. No per-path auto-mounting is needed — `~/.ssh`, `~/.gitconfig`, `~/.aws`, `~/go`, `~/.rustup`, `~/.nvm`, etc. are all visible by default.
+
+To grant **writable** access to a path outside the workspace, use `host_mounts` config with `mode: rw`.
 
 ## Sandbox home
 
-Inside the sandbox, `HOME` is set to `/home/steiner`, which maps to `.steiner/home/` in the workspace root.
+The sandbox workspace includes a `.steiner/home/` directory that serves as an isolated working directory for tool caches and session state within the project. The host `$HOME` remains accessible inside the sandbox at its original path (e.g., `/home/username`) as read-only through the root bind.
 
-**Why a separate home?**
+**Why a separate sandbox home?**
 - Standard tools like `git`, `ssh`, and package managers store config and cache in `$HOME`
-- Redirecting to a workspace subdirectory isolates sandbox-generated config from the host home
+- Using a workspace-scoped home directory isolates sandbox-generated config (caches, session files) from the host home
 - The sandbox home persists across sessions, allowing the model to maintain tool state within the project
 
 **Gitignore**:
@@ -159,14 +150,14 @@ rm -rf .steiner/home/
 
 ## Environment variable allowlist
 
-Inside the sandbox, only specific environment variables are passed through. This prevents credential leakage via environment variables.
+Inside the sandbox, only specific environment variables are passed through from the host. This prevents credential leakage via environment variables.
 
 ### Allowed variables
 
 | Variable | Purpose |
 |----------|---------|
 | `PATH` | Command search path |
-| `HOME` | Set to `/home/steiner` |
+| `HOME` | Host home directory (passed through unchanged) |
 | `TERM` | Terminal type (for ANSI colors) |
 | `LANG`, `LC_*` | Locale settings |
 | `TZ` | Timezone |
@@ -188,21 +179,21 @@ The following credential and sensitive variables are **never** passed to the san
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — API keys
 - Any variable matching `*_SECRET`, `*_PASSWORD`, `*_TOKEN` (case-insensitive)
 
-If you need to pass a credential to the model, use a config file in the mounted developer environment (e.g., `~/.aws/config`) rather than environment variables.
+Credential config files on disk (e.g., `~/.aws/config`) are readable inside the sandbox through the root bind. The env var allowlist blocks only the environment variable path — it does not prevent the model from reading credential files directly.
 
 ## Sandbox boundary prompts
 
-When a sandboxed tool attempts to access a file or directory outside the workspace, the user is prompted to decide how to proceed.
+When a sandboxed tool attempts to write to a path outside the workspace, the user is prompted to decide how to proceed. (Reading outside the workspace always succeeds through the read-only root bind.)
 
 ### Violation scenario
 
 ```
 Sandbox boundary violation:
   Tool: bash
-  Attempted access: /var/log/app.log (read)
+  Attempted write: /var/log/app.log
   
 Options:
-  [A] Allow for this session: add /var/log to host_mounts and continue
+  [A] Allow for this session: add /var/log to host_mounts (rw) and continue
   [U] Use --unsafe: disable sandboxing and re-run the command
   [C] Cancel: abort the command
 ```
@@ -210,9 +201,8 @@ Options:
 ### User decisions
 
 **[A] Allow for this session**:
-- Adds the path to the sandbox's mount list for the current session
-- The path is mounted read-only
-- The command retries inside the sandbox with access to the path
+- Adds the path as a writable mount for the current session
+- The command retries inside the sandbox with write access to the path
 - The decision is **not** persisted; next session requires a new prompt
 
 **[U] Use --unsafe**:
@@ -231,25 +221,25 @@ If steiner is started with `--unsafe`, boundary violation prompts never appear. 
 
 ## Host mounts configuration
 
-To permanently allow access to paths outside the workspace, add them to the `host_mounts` config:
+All host paths are already readable inside the sandbox through the root bind. Use `host_mounts` to grant **writable** access to paths outside the workspace:
 
 ```yaml
 # .steiner/config.yaml
 host_mounts:
-  - /var/log
-  - /etc/config
-  - /opt/tools
+  - path: /var/log
+    mode: rw
+  - path: /opt/tools
+    mode: rw
 ```
 
 Mounted paths are:
-- Mounted **read-only** inside the sandbox
 - Available at the same path (e.g., `/var/log` → `/var/log`)
 - Mounted at startup (no runtime prompts for configured paths)
+- Default mode is `ro` (read-only), which is redundant with the root bind but harmless
 
 **Use cases**:
-- CI/CD logs: `host_mounts: [/var/log/ci]`
-- System configuration: `host_mounts: [/etc/app.conf]`
-- Shared tools: `host_mounts: [/opt/company-tools]`
+- CI/CD logs (writable): `host_mounts: [{path: /var/log/ci, mode: rw}]`
+- Build output dir: `host_mounts: [{path: /opt/build, mode: rw}]`
 
 ## Docker opt-in
 
@@ -294,9 +284,9 @@ Or disable sandboxing:
 
 If tools are failing unexpectedly in the sandbox:
 
-1. **Check workspace bounds**: Verify the file is inside the workspace root (or a configured host mount)
-2. **Check mount layout**: Run `ls` inside the sandbox to see what's mounted
-3. **Check permissions**: The sandbox runs as the same user; file permissions still apply
+1. **Check write target**: Write failures mean the target path is outside the workspace and not in `host_mounts` with `mode: rw`
+2. **Check permissions**: The sandbox runs as the same user; file permissions still apply
+3. **Check mount layout**: Run `mount` or `ls` inside the sandbox to verify the root bind is active
 4. **Use --unsafe**: Temporarily disable sandboxing to isolate whether the issue is sandbox-related
 5. **Check bwrap**: Verify `bwrap` is installed and functional:
    ```bash

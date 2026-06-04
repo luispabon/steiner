@@ -11,8 +11,8 @@ func TestBuildArgs_WorkspaceBind(t *testing.T) {
 	args := BuildArgs("/my/workspace", "/my/workspace/.steiner/home", "/home/user",
 		config.PermissionsConfig{}, nil)
 
-	if !containsSeq(args, "--bind", "/my/workspace", "/workspace") {
-		t.Errorf("expected --bind /my/workspace /workspace in args: %v", args)
+	if !containsSeq(args, "--bind", "/my/workspace", "/my/workspace") {
+		t.Errorf("expected --bind /my/workspace /my/workspace in args: %v", args)
 	}
 }
 
@@ -21,8 +21,8 @@ func TestBuildArgs_SandboxHomeBind(t *testing.T) {
 	args := BuildArgs("/my/workspace", sandboxHome, "/home/user",
 		config.PermissionsConfig{}, nil)
 
-	if !containsSeq(args, "--bind", sandboxHome, "/home/steiner") {
-		t.Errorf("expected --bind %s /home/steiner in args: %v", sandboxHome, args)
+	if !containsSeq(args, "--bind", sandboxHome, sandboxHome) {
+		t.Errorf("expected --bind %s %s in args: %v", sandboxHome, sandboxHome, args)
 	}
 }
 
@@ -52,12 +52,37 @@ func TestBuildArgs_UnshareAll(t *testing.T) {
 	}
 }
 
-func TestBuildArgs_SetenvHome(t *testing.T) {
+func TestBuildArgs_NoSetenvHome(t *testing.T) {
 	args := BuildArgs("/ws", "/ws/.steiner/home", "/home/user",
 		config.PermissionsConfig{}, nil)
 
-	if !containsSeq(args, "--setenv", "HOME", "/home/steiner") {
-		t.Errorf("expected --setenv HOME /home/steiner in args: %v", args)
+	if containsSeq(args, "--setenv", "HOME") {
+		t.Errorf("--setenv HOME should not be present in args: %v", args)
+	}
+}
+
+func TestBuildArgs_RoBindRoot(t *testing.T) {
+	args := BuildArgs("/ws", "/ws/.steiner/home", "/home/user",
+		config.PermissionsConfig{}, nil)
+
+	if !containsSeq(args, "--ro-bind", "/", "/") {
+		t.Errorf("expected --ro-bind / / in args: %v", args)
+	}
+
+	// Must be first mount (after unshare flags)
+	rbIdx := slices.Index(args, "--ro-bind")
+	bindIdx := slices.Index(args, "--bind")
+	if bindIdx >= 0 && rbIdx > bindIdx {
+		t.Errorf("--ro-bind / / must appear before any --bind, rbIdx=%d bindIdx=%d", rbIdx, bindIdx)
+	}
+}
+
+func TestBuildArgs_Chdir(t *testing.T) {
+	args := BuildArgs("/my/workspace", "/my/workspace/.steiner/home", "/home/user",
+		config.PermissionsConfig{}, nil)
+
+	if !containsSeq(args, "--chdir", "/my/workspace") {
+		t.Errorf("expected --chdir /my/workspace in args: %v", args)
 	}
 }
 
