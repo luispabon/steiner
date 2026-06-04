@@ -160,30 +160,53 @@ models:
 
 ---
 
-## `approval` block
+## `sandbox` block
 
-Controls whether tool use requires explicit user confirmation.
+Controls bubblewrap sandbox behavior.
 
-| Field            | Type                       | Default  | Description |
-|------------------|----------------------------|----------|-------------|
-| `default`        | string (ApprovalMode)      | `"auto"` | Default policy applied to all tools unless overridden. |
-| `tool_overrides` | map[string]*ApprovalMode   | —        | Per-tool policy overrides. Keys are tool names. |
-
-**ApprovalMode values:**
-
-| Value    | Description |
-|----------|-------------|
-| `auto`   | Steiner decides automatically — read-only tools are allowed, mutation tools are gated. |
-| `prompt` | User is asked for approval before the tool runs. |
-| `deny`   | Tool is blocked entirely. |
+| Field     | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `enabled` | bool | `true`  | Enable bubblewrap sandboxing. Set to `false` with `--unsafe` flag. |
 
 ```yaml
-approval:
-  default: auto
-  tool_overrides:
-    bash: prompt
-    mutate: prompt
-    read: auto
+sandbox:
+  enabled: true  # default; use --unsafe flag to disable at runtime
+```
+
+---
+
+## `permissions` block
+
+Opt-in permissions for additional capabilities.
+
+| Field    | Type | Default | Description |
+|----------|------|---------|-------------|
+| `docker` | bool | `false` | Mount Docker socket into sandbox (for tools that need Docker access). |
+
+```yaml
+permissions:
+  docker: false
+```
+
+---
+
+## `host_mounts`
+
+Additional host paths to bind-mount read-only into the sandbox.
+
+Each entry has:
+
+| Field  | Type   | Description |
+|--------|--------|-------------|
+| `path` | string | Host path to mount (supports `~` expansion). |
+| `mode` | string | Mount mode: `ro` (read-only, default) or `rw`. |
+
+```yaml
+host_mounts:
+  - path: ~/.kube
+    mode: ro
+  - path: /opt/tools
+    mode: ro
 ```
 
 ---
@@ -285,7 +308,6 @@ tools:
 | `description` | string          | —       | Human-readable description shown to the model in the tool schema. |
 | `parameters`  | map[string]any  | —       | JSON Schema fragment describing the tool's input parameters. |
 | `timeout`     | duration string | —       | Per-tool timeout. Overrides `limits.tool_timeout_default` for this tool. |
-| `approval`    | string (ApprovalMode) | —  | Approval policy for this tool. Overrides `approval.default`. Values: `auto`, `prompt`, `deny`. |
 | `constraints` | map[string]any  | —       | Arbitrary constraint metadata passed to the tool executor. |
 
 ```yaml
@@ -295,7 +317,6 @@ tools:
     subcommand: -w
     description: Format Go source files in place.
     timeout: 10s
-    approval: auto
 ```
 
 ---
@@ -537,12 +558,6 @@ limits:
     grep: 60s
     ls: 10s
   tool_output_max_bytes: 131072
-
-approval:
-  default: auto
-  tool_overrides:
-    bash: prompt
-    mutate: prompt
 ```
 
 ---
@@ -618,11 +633,11 @@ limits:
     ls: 5s
   tool_output_max_bytes: 65536
 
-approval:
-  default: auto
-  tool_overrides:
-    bash: prompt
-    mutate: prompt
+sandbox:
+  enabled: true
+
+permissions:
+  docker: false
 
 sub_agent:
   enabled: true
@@ -646,13 +661,11 @@ tools:
     subcommand: -w
     description: Format Go source files in place.
     timeout: 10s
-    approval: auto
   lint:
     exec: golangci-lint
     subcommand: run
     description: Run golangci-lint on the project.
     timeout: 60s
-    approval: auto
     parameters:
       path:
         type: string
@@ -679,6 +692,18 @@ paths:
     - node_modules/
   exclude_patterns:
     - "**/*.secret"
+
+sandbox:
+  enabled: true
+
+permissions:
+  docker: false
+
+host_mounts:
+  - path: ~/.kube
+    mode: ro
+  - path: /opt/tools
+    mode: ro
 
 logging:
   enabled: true
