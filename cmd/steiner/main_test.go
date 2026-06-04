@@ -102,8 +102,6 @@ models:
         context_window: 8192
 limits:
   max_turns: 25
-approval:
-  default: auto
 paths:
   project_root_only: false
 `)
