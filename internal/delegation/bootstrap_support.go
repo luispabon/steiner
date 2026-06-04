@@ -31,14 +31,21 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 // Registries and prompt must be provided pre-built; the caller (typically
 // BuildChildRun) is responsible for registry and prompt assembly.
-func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, cavemanMode bool) agent.RunRequest {
+// sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
+// executor unchanged, enforcing child sandbox ≤ parent sandbox.
+func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, cavemanMode bool, sandbox tool.SandboxWrapper) agent.RunRequest {
 	_ = spec
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(spec.AgentID, events)
 
+	exec := tool.NewExecutor(execReg, childCfg, nil, workDir)
+	if sandbox != nil {
+		exec = exec.WithSandbox(sandbox)
+	}
+
 	req := agent.RunRequest{
 		Provider:           prov,
-		Executor:           tool.NewExecutor(execReg, childCfg, nil, workDir),
+		Executor:           exec,
 		Tools:              visibleReg.ToProviderSpecs(),
 		Limits:             baseLimits,
 		Events:             scopedEvents,

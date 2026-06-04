@@ -50,6 +50,12 @@ func (e *Executor) WithSandbox(s SandboxWrapper) *Executor {
 	return e
 }
 
+// Sandbox returns the sandbox wrapper currently set on this executor.
+// A nil return means no sandboxing is active (unsafe mode).
+func (e *Executor) Sandbox() SandboxWrapper {
+	return e.sandbox
+}
+
 // Execute runs toolName with the given input through the full execution pipeline
 // and returns the decoded result or a structured ToolExecutionError.
 func (e *Executor) Execute(ctx context.Context, toolName string, input map[string]any) (any, error) {

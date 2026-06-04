@@ -655,7 +655,6 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	}
 }
 
-
 func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {
