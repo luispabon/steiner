@@ -99,12 +99,3 @@ func TestFilterEnv_MissingEqualsSkipped(t *testing.T) {
 		t.Error("PATH should be present")
 	}
 }
-
-func splitKV(kv string) (key, val string, ok bool) {
-	for i := 0; i < len(kv); i++ {
-		if kv[i] == '=' {
-			return kv[:i], kv[i+1:], true
-		}
-	}
-	return kv, "", false
-}
