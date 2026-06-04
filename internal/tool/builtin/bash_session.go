@@ -4,6 +4,7 @@ package builtin
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -49,7 +50,7 @@ func (s *BashSession) Start() error {
 		return fmt.Errorf("bash session: already started")
 	}
 
-	cmd := exec.Command("/bin/bash", "--norc", "--noprofile")
+	cmd := exec.Command("/bin/bash", "--norc", "--noprofile") //nolint:noctx // persistent session process, not tied to a single request context
 
 	// Apply the wrapper (for sandbox integration) before starting.
 	if s.CommandWrapper != nil {
@@ -63,21 +64,21 @@ func (s *BashSession) Start() error {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
+		_ = stdinPipe.Close()
 		return fmt.Errorf("bash session: stdout pipe: %w", err)
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
 		return fmt.Errorf("bash session: stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
 		return fmt.Errorf("bash session: start: %w", err)
 	}
 
@@ -210,7 +211,7 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 	s.stderrR = nil
 	s.started = false
 
-	cmd := exec.Command("/bin/bash", "--norc", "--noprofile")
+	cmd := exec.Command("/bin/bash", "--norc", "--noprofile") //nolint:noctx // persistent session process, not tied to a single request context
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
@@ -221,19 +222,19 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
+		_ = stdinPipe.Close()
 		return fmt.Errorf("bash session: restart stdout pipe: %w", err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
 		return fmt.Errorf("bash session: restart stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
 		return fmt.Errorf("bash session: restart start: %w", err)
 	}
 
@@ -265,8 +266,8 @@ func (s *BashSession) Close() error {
 
 	// Ignore "signal: killed" — that is expected from our Kill call.
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			_ = exitErr // expected
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return nil
 		}
 		return fmt.Errorf("bash session: close: %w", err)

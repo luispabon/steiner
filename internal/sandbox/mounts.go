@@ -8,7 +8,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(workspace, sandboxHome, userHome string, perms config.PermissionsConfig, hostMounts []config.HostMount) []string {
+func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
