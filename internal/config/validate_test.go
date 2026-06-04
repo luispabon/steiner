@@ -44,10 +44,6 @@ func validBase() Config {
 			},
 			ToolOutputMaxBytes: 65536,
 		},
-		Approval: ApprovalConfig{
-			Default:       ApprovalModeAuto,
-			ToolOverrides: map[string]*ApprovalMode{},
-		},
 		SubAgent: SubAgentConfig{Enabled: false},
 		Tools:    map[string]ToolConfig{},
 		ProjectContext: ProjectContextConfig{
@@ -330,53 +326,6 @@ func TestValidate(t *testing.T) {
 			wantErr: "scheduler.parallelism must be at least 1",
 		},
 
-		// Approval mode invalid or empty
-		{
-			name: "invalid approval default",
-			cfg: func() Config {
-				c := validBase()
-				c.Approval.Default = "invalid"
-				return c
-			}(),
-			wantErr: `not supported`,
-		},
-		{
-			name: "empty approval default",
-			cfg: func() Config {
-				c := validBase()
-				c.Approval.Default = ""
-				return c
-			}(),
-			wantErr: `is required`,
-		},
-		{
-			name: "invalid approval override",
-			cfg: func() Config {
-				c := validBase()
-				c.Approval.ToolOverrides["test"] = approvalModePtr("invalid")
-				return c
-			}(),
-			wantErr: `not supported`,
-		},
-		{
-			name: "empty approval override",
-			cfg: func() Config {
-				c := validBase()
-				c.Approval.ToolOverrides["test"] = approvalModePtr("")
-				return c
-			}(),
-			wantErr: `is required`,
-		},
-		{
-			name: "nil approval override inherits default",
-			cfg: func() Config {
-				c := validBase()
-				c.Approval.ToolOverrides["bash"] = nil
-				return c
-			}(),
-			wantErr: ``,
-		},
-
 		// Sub-agent enabled with bad limits
 		{
 			name: "subagent zero max_turns",
@@ -458,16 +407,6 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `timeout must be greater than zero`,
 		},
-		{
-			name: "tool invalid approval",
-			cfg: func() Config {
-				c := validBase()
-				c.Tools["foo"] = ToolConfig{Exec: "bar", Timeout: MustDuration("5s"), Approval: "invalid"}
-				return c
-			}(),
-			wantErr: `not supported`,
-		},
-
 		// Sub-agent Agents map validation
 		{
 			name: "subagent unknown agent type rejected",
@@ -657,10 +596,6 @@ func TestSearchConfigValidation(t *testing.T) {
 					},
 					ToolOutputMaxBytes: 65536,
 				},
-				Approval: ApprovalConfig{
-					Default:       ApprovalModeAuto,
-					ToolOverrides: map[string]*ApprovalMode{},
-				},
 				SubAgent: SubAgentConfig{Enabled: false},
 				Tools:    map[string]ToolConfig{},
 				ProjectContext: ProjectContextConfig{
@@ -698,8 +633,4 @@ func TestSearchConfigValidation(t *testing.T) {
 			}
 		})
 	}
-}
-
-func approvalModePtr(mode ApprovalMode) *ApprovalMode {
-	return &mode
 }
