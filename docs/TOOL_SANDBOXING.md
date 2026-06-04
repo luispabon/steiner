@@ -97,34 +97,38 @@ go run ./cmd/steiner --unsafe
 
 ## Mount layout
 
-Inside the sandbox, the filesystem is mapped as follows:
+The sandbox uses a simplified mount strategy:
+
+1. **Root filesystem**: The entire host filesystem is mounted read-only at `/` using `--ro-bind / /`
+2. **Writable overlay**: Only the workspace and sandbox home are bind-mounted at their original host paths as read-write
+3. **Working directory**: The initial process working directory is set to the workspace root
+
+This strategy ensures:
+- Host paths are preserved inside the sandbox (no path remapping like `/workspace` or `/home/steiner`)
+- All system binaries, libraries, and standard utilities are accessible by default
+- Only explicitly-mounted paths are writable (workspace, sandbox home)
 
 | Host path | Sandbox path | Mode | Purpose |
 |-----------|--------------|------|---------|
-| Workspace root | `/workspace` | rw | Project files and artifacts |
-| `.steiner/home/` | `/home/steiner` | rw | Sandbox-specific home directory |
+| `/` | `/` | ro | Full filesystem read-only base |
+| Workspace root | Workspace root | rw | Project files and artifacts |
+| `.steiner/home/` | Workspace `/.steiner/home/` | rw | Sandbox-specific home directory |
+| `~/.ssh` | `~/.ssh` | ro | SSH keys (auto-mounted if exists) |
+| `~/.gitconfig` | `~/.gitconfig` | ro | Git configuration (auto-mounted if exists) |
+| `~/.git-credentials` | `~/.git-credentials` | ro | Git credentials (auto-mounted if exists) |
+| `~/.config/git` | `~/.config/git` | ro | Git config directory (auto-mounted if exists) |
+| `~/.aws` | `~/.aws` | ro | AWS credentials (auto-mounted if `permissions.aws: true`) |
+| `~/.kube` | `~/.kube` | ro | Kubernetes config (auto-mounted if `permissions.kube: true`) |
+| `~/.docker/config.json` | `~/.docker/config.json` | ro | Docker config (auto-mounted if `permissions.docker: true`) |
+| `host_mounts:` | mounted at configured path | ro | Additional paths from config |
+| SSH_AUTH_SOCK | SSH_AUTH_SOCK path | ro | SSH agent socket (if set) |
 | `/tmp` | `/tmp` | rw | Temporary files (tmpfs) |
 | `/proc` | `/proc` | fresh | Process information (ProcFS) |
 | `/dev` | `/dev` | minimal | Device nodes (devtmpfs) |
-| `/usr` | `/usr` | ro | System binaries and libraries |
-| `/bin` | `/bin` | ro | Essential binaries |
-| `/lib`, `/lib64`, `/usr/lib*` | same | ro | System libraries |
-| `/etc/resolv.conf` | `/etc/resolv.conf` | ro | DNS resolution |
-| `/etc/hosts` | `/etc/hosts` | ro | Hostname mapping |
-| `/etc/ssl/certs` | `/etc/ssl/certs` | ro | TLS root certificates |
-| `~/.ssh` | `/home/steiner/.ssh` | ro | SSH keys (auto-mounted if exists) |
-| `~/.gitconfig` | `/home/steiner/.gitconfig` | ro | Git configuration (auto-mounted if exists) |
-| `~/.git-credentials` | `/home/steiner/.git-credentials` | ro | Git credentials (auto-mounted if exists) |
-| `~/.config/git` | `/home/steiner/.config/git` | ro | Git config directory (auto-mounted if exists) |
-| `~/.aws` | `/home/steiner/.aws` | ro | AWS credentials (auto-mounted if `permissions.aws: true`) |
-| `~/.kube` | `/home/steiner/.kube` | ro | Kubernetes config (auto-mounted if `permissions.kube: true`) |
-| `~/.docker/config.json` | `/home/steiner/.docker/config.json` | ro | Docker config (auto-mounted if `permissions.docker: true`) |
-| `host_mounts:` | mounted at configured path | ro | Additional paths from config |
-| SSH_AUTH_SOCK | bind socket path | ro | SSH agent socket (if set) |
 
 ## Developer environment auto-mounts
 
-Steiner auto-mounts common developer credentials and configs so the model can use standard tools:
+Steiner auto-mounts common developer credentials and configs from the host home directory so the model can use standard tools. These are mounted at their original paths inside the sandbox (no path remapping):
 
 - **SSH** (`~/.ssh`) — Always mounted. Enables `git clone`, SSH port forwarding, and SSH-based tools.
 - **Git config** (`~/.gitconfig`, `~/.git-credentials`, `~/.config/git`) — Always mounted. Enables `git commit`, `git push`, and authenticated Git operations.
@@ -134,11 +138,11 @@ Steiner auto-mounts common developer credentials and configs so the model can us
 
 ## Sandbox home
 
-Inside the sandbox, `HOME` is set to `/home/steiner`, which maps to `.steiner/home/` in the workspace root.
+The sandbox workspace includes a `.steiner/home/` directory that serves as an isolated working directory for tool caches and session state within the project. The host `$HOME` remains accessible inside the sandbox at its original path (e.g., `/home/username`), but credentials are mounted read-only.
 
-**Why a separate home?**
+**Why a separate sandbox home?**
 - Standard tools like `git`, `ssh`, and package managers store config and cache in `$HOME`
-- Redirecting to a workspace subdirectory isolates sandbox-generated config from the host home
+- Using a workspace-scoped home directory isolates sandbox-generated config (caches, session files) from the host home
 - The sandbox home persists across sessions, allowing the model to maintain tool state within the project
 
 **Gitignore**:
@@ -159,14 +163,14 @@ rm -rf .steiner/home/
 
 ## Environment variable allowlist
 
-Inside the sandbox, only specific environment variables are passed through. This prevents credential leakage via environment variables.
+Inside the sandbox, only specific environment variables are passed through from the host. This prevents credential leakage via environment variables.
 
 ### Allowed variables
 
 | Variable | Purpose |
 |----------|---------|
 | `PATH` | Command search path |
-| `HOME` | Set to `/home/steiner` |
+| `HOME` | Host home directory (passed through unchanged) |
 | `TERM` | Terminal type (for ANSI colors) |
 | `LANG`, `LC_*` | Locale settings |
 | `TZ` | Timezone |
