@@ -8,7 +8,6 @@ func applyPatch(cfg *Config, patch configPatch) {
 	applySchedulerConfigPatch(cfg, patch)
 	applyModelConfigPatch(cfg, patch)
 	applyLimitsConfigPatch(cfg, patch)
-	applyApprovalConfigPatch(cfg, patch)
 	applySubAgentConfigPatch(cfg, patch)
 	applyToolConfigPatch(cfg, patch)
 	applyProjectContextConfigPatch(cfg, patch)

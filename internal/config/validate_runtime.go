@@ -58,11 +58,6 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 		if tool.Timeout.IsZero() {
 			*problems = append(*problems, fmt.Sprintf("tools[%q].timeout must be greater than zero", name))
 		}
-		if tool.Approval != "" {
-			if err := validateApprovalMode(fmt.Sprintf("tools[%q].approval", name), tool.Approval); err != nil {
-				*problems = append(*problems, err.Error())
-			}
-		}
 	}
 }
 
