@@ -62,7 +62,6 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		Stdin:  cmd.Stdin,
 		Stdout: cmd.Stdout,
 		Stderr: cmd.Stderr,
-		Dir:    cmd.Dir,
 		Env:    FilterEnv(cmd.Env),
 	}
 	return wrapped
