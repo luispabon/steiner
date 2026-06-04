@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
@@ -79,7 +78,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	go func() {
 		firstDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "write"},
-			Mode:     config.ApprovalModePrompt,
+			Reason:   "sandbox_violation",
 			Response: firstResponse,
 		})
 	}()
@@ -103,7 +102,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	go func() {
 		secondDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "write"},
-			Mode:     config.ApprovalModePrompt,
+			Reason:   "sandbox_violation",
 			Response: secondResponse,
 		})
 	}()
@@ -131,7 +130,7 @@ func TestApprovalResponderDeniesDecisions(t *testing.T) {
 	go func() {
 		done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "bash"},
-			Mode:     config.ApprovalModePrompt,
+			Reason:   "sandbox_violation",
 			Response: responseCh,
 		})
 	}()
@@ -160,7 +159,7 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	go func() {
 		done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "edit"},
-			Mode:     config.ApprovalModePrompt,
+			Reason:   "sandbox_violation",
 			Response: responseCh,
 		})
 	}()

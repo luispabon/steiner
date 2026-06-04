@@ -53,7 +53,7 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 		return nil
 	}
 
-	responseCh := h.coordinator.Begin(toolName, string(req.Mode))
+	responseCh := h.coordinator.Begin(toolName, req.Reason)
 	defer h.coordinator.Finish(responseCh)
 
 	select {

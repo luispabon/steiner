@@ -23,9 +23,6 @@ func TestFollowUpToolDef(t *testing.T) {
 	if def.Name != FollowUpToolName {
 		t.Fatalf("Name=%q, want %q", def.Name, FollowUpToolName)
 	}
-	if def.Approval != config.ApprovalModeAuto {
-		t.Fatalf("Approval=%q, want %q", def.Approval, config.ApprovalModeAuto)
-	}
 	props, ok := def.ParameterSchema["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("properties missing from schema")

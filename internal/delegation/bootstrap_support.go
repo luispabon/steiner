@@ -33,7 +33,7 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 // BuildChildRun) is responsible for registry and prompt assembly.
 func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, cavemanMode bool) agent.RunRequest {
 	_ = spec
-	childCfg := config.Config{Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto}}
+	childCfg := config.Config{}
 	scopedEvents := withAgentScope(spec.AgentID, events)
 
 	req := agent.RunRequest{

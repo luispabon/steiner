@@ -6,7 +6,6 @@ import (
 
 	"github.com/deepnoodle-ai/wonton/web"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -16,7 +15,6 @@ func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 		Name:            "web_search",
 		Description:     "Search the web for information. Returns results with URL, title, and description.",
 		ParameterSchema: WebSearchSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[WebSearchInput](input)
 			if err != nil {

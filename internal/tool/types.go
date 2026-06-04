@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/luispabon/steiner/internal/config"
 )
 
 // ToolDef describes a callable tool and its execution policy.
@@ -19,7 +17,6 @@ type ToolDef struct {
 	Description     string
 	ParameterSchema map[string]any
 	Timeout         time.Duration
-	Approval        config.ApprovalMode
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 }
 
@@ -61,22 +58,6 @@ func (e *JSONEnvelopeError) Error() string {
 		return e.Message
 	}
 	return fmt.Sprintf("%s: %s", e.Kind, e.Message)
-}
-
-// ApprovalRequest carries the information needed to approve a tool execution.
-type ApprovalRequest struct {
-	Tool     ToolDef
-	Mode     config.ApprovalMode
-	Input    map[string]any
-	WorkDir  string
-	Preview  ApprovalPreview
-	Response chan ApprovalResponse
-}
-
-// ApprovalResponse records the result of an approval decision.
-type ApprovalResponse struct {
-	Allow   bool
-	Message string
 }
 
 // ToolExecutionError reports a failed tool execution with shaped output.

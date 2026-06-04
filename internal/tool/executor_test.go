@@ -20,7 +20,6 @@ func TestExecutorCapturesTruncatedOutputAndMetadata(t *testing.T) {
 		Limits: config.LimitsConfig{
 			ToolOutputMaxBytes: 48,
 		},
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
 	}
 
 	result, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
@@ -52,7 +51,6 @@ func TestExecutorMarksBinaryOutputSafely(t *testing.T) {
 		Limits: config.LimitsConfig{
 			ToolOutputMaxBytes: 8,
 		},
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
 	}
 
 	_, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
@@ -129,48 +127,15 @@ func main() {
 }
 `
 
-func TestExecutorApprovalDenied(t *testing.T) {
-	helper := mustBuildHelperBinary(t)
-	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: helper,
-		Approval: config.ApprovalModeDeny,
-	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-		},
-	}
-
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
-	_, err := executor.Execute(context.Background(), "probe", nil)
-	if err == nil {
-		t.Fatal("Execute() error = nil, want approval_denied")
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(err, &toolErr) {
-		t.Fatalf("error type = %T, want *ToolExecutionError", err)
-	}
-	if toolErr.Kind != "approval_denied" {
-		t.Fatalf("error kind = %q, want approval_denied", toolErr.Kind)
-	}
-}
-
 func TestExecutorContextCancellation(t *testing.T) {
 	helper := mustBuildHelperBinary(t)
 	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: helper,
+		Name:       "probe",
+		ExecPath:   helper,
+		Subcommand: "sleep",
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
-		},
-	}
 
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
-		return nil
-	}), t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -178,39 +143,6 @@ func TestExecutorContextCancellation(t *testing.T) {
 	_, err := executor.Execute(ctx, "probe", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
-	}
-}
-
-func TestExecutorApprovalBackendFailure(t *testing.T) {
-	helper := mustBuildHelperBinary(t)
-	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: helper,
-	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModePrompt,
-		},
-	}
-
-	backendErr := errors.New("approval transport unavailable")
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(context.Context, ApprovalRequest) error {
-		return backendErr
-	}), t.TempDir())
-
-	_, err := executor.Execute(context.Background(), "probe", nil)
-	if err == nil {
-		t.Fatal("Execute() error = nil, want approval_failed")
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(err, &toolErr) {
-		t.Fatalf("error type = %T, want *ToolExecutionError", err)
-	}
-	if toolErr.Kind != "approval_failed" {
-		t.Fatalf("error kind = %q, want approval_failed", toolErr.Kind)
-	}
-	if toolErr.Message != backendErr.Error() {
-		t.Fatalf("error message = %q, want %q", toolErr.Message, backendErr.Error())
 	}
 }
 
@@ -222,13 +154,8 @@ func TestExecutorTimeoutExceeded(t *testing.T) {
 		Subcommand: "sleep",
 		Timeout:    100 * time.Millisecond,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-		},
-	}
 
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
@@ -245,13 +172,8 @@ func TestExecutorNonZeroExitCode(t *testing.T) {
 		ExecPath:   helper,
 		Subcommand: "fail",
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-		},
-	}
 
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want non-zero exit error")
@@ -293,5 +215,21 @@ func TestNormalizeExecutionRoot(t *testing.T) {
 	want := filepath.Clean(cwd)
 	if got := normalizeExecutionRoot("."); got != want {
 		t.Fatalf("normalizeExecutionRoot(\".\") = %q, want %q", got, want)
+	}
+}
+
+func TestExecutorWithSandbox(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:    "probe",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	if executor.sandbox != nil {
+		t.Fatal("sandbox should be nil initially")
+	}
+	// WithSandbox returns the executor for chaining; nil is valid (no-op).
+	result := executor.WithSandbox(nil)
+	if result != executor {
+		t.Fatal("WithSandbox should return same executor")
 	}
 }

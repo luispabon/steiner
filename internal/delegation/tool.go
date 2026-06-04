@@ -46,8 +46,7 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 			},
 			"required": []any{"task"},
 		},
-		Handler:  handler,
-		Approval: config.ApprovalModeAuto,
+		Handler: handler,
 	}
 }
 

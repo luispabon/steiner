@@ -12,10 +12,7 @@ import (
 
 func TestRunPipelineUnknownTool(t *testing.T) {
 	reg := NewRegistry()
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
@@ -29,12 +26,8 @@ func TestRunPipelinePolicyDenied(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name:     "read",
 		ExecPath: "cat",
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "read", map[string]any{
 		"path": "/etc/passwd",
 	})
@@ -55,12 +48,8 @@ func TestRunPipelineResolveAndNormalizeSuccess(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name:     "probe",
 		ExecPath: helper,
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	result, err := executor.Execute(context.Background(), "probe", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -74,87 +63,14 @@ func TestRunPipelineResolveAndNormalizeSuccess(t *testing.T) {
 	}
 }
 
-func TestRunPipelineApprovalDenied(t *testing.T) {
-	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: "true",
-		Approval: config.ApprovalModeDeny,
-	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
-	_, err := executor.Execute(context.Background(), "probe", nil)
-	if err == nil {
-		t.Fatal("Execute() error = nil, want approval_denied")
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(err, &toolErr) {
-		t.Fatalf("error type = %T, want *ToolExecutionError", err)
-	}
-	if toolErr.Kind != "approval_denied" {
-		t.Fatalf("error kind = %q, want approval_denied", toolErr.Kind)
-	}
-	if toolErr.Message != "tool execution denied by approval policy" {
-		t.Fatalf("error message = %q, want 'tool execution denied by approval policy'", toolErr.Message)
-	}
-}
-
-func TestRunPipelineApprovalRequiredNoApprover(t *testing.T) {
-	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: "true",
-	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModePrompt},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
-	_, err := executor.Execute(context.Background(), "probe", nil)
-	if err == nil {
-		t.Fatal("Execute() error = nil, want approval_required")
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(err, &toolErr) {
-		t.Fatalf("error type = %T, want *ToolExecutionError", err)
-	}
-	if toolErr.Kind != "approval_required" {
-		t.Fatalf("error kind = %q, want approval_required", toolErr.Kind)
-	}
-}
-
-func TestRunPipelineApprovalContextCanceled(t *testing.T) {
-	reg := NewRegistry(ToolDef{
-		Name:     "probe",
-		ExecPath: "true",
-	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModePrompt},
-	}
-	executor := NewExecutor(reg, cfg, ApprovalResponderFunc(func(_ context.Context, _ ApprovalRequest) error {
-		return nil
-	}), t.TempDir())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := executor.Execute(ctx, "probe", nil)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
-	}
-}
-
 func TestExecuteToolHandlerSuccess(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name: "greeter",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) {
 			return map[string]any{"message": "hello"}, nil
 		},
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	result, err := executor.Execute(context.Background(), "greeter", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -173,12 +89,8 @@ func TestExecuteToolSubprocessSuccess(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name:     "probe",
 		ExecPath: helper,
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	result, err := executor.Execute(context.Background(), "probe", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -199,12 +111,8 @@ func TestExecuteToolTimeout(t *testing.T) {
 		ExecPath:   helper,
 		Subcommand: "sleep",
 		Timeout:    100 * time.Millisecond,
-		Approval:   config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
@@ -218,12 +126,8 @@ func TestDecodeExecutionOutputCommandNotFound(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name:     "nonexistent",
 		ExecPath: "/path/to/nonexistent/binary",
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want subprocess_failed")
@@ -285,13 +189,9 @@ func TestExecuteToolBashCwdOverride(t *testing.T) {
 	reg := NewRegistry(ToolDef{
 		Name:     "bash",
 		ExecPath: helper,
-		Approval: config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, cfg, nil, workDir)
+	executor := NewExecutor(reg, config.Config{}, nil, workDir)
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{
 		"cwd": workDir,
 	})
@@ -333,12 +233,8 @@ func TestRunPipelineInvalidJSON(t *testing.T) {
 		Name:       "echoer",
 		ExecPath:   "echo",
 		Subcommand: "not json",
-		Approval:   config.ApprovalModeAuto,
 	})
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{Default: config.ApprovalModeAuto},
-	}
-	executor := NewExecutor(reg, cfg, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
 	_, err := executor.Execute(context.Background(), "echoer", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want invalid_json")

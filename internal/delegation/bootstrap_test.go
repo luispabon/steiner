@@ -239,9 +239,9 @@ func TestBuildChildRegistries(t *testing.T) {
 		}
 	})
 
-	t.Run("exec registry has auto approval", func(t *testing.T) {
+	t.Run("exec registry contains allowed tools", func(t *testing.T) {
 		parent := tool.NewRegistry(
-			tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
+			tool.ToolDef{Name: "bash"},
 		)
 
 		_, exec := buildChildRegistries(parent, []string{"bash"})
@@ -250,8 +250,8 @@ func TestBuildChildRegistries(t *testing.T) {
 		if len(defs) != 1 {
 			t.Fatalf("expected 1 tool definition, got %d", len(defs))
 		}
-		if defs[0].Approval != config.ApprovalModeAuto {
-			t.Errorf("exec approval = %v, want %v", defs[0].Approval, config.ApprovalModeAuto)
+		if defs[0].Name != "bash" {
+			t.Errorf("exec tool name = %q, want %q", defs[0].Name, "bash")
 		}
 	})
 
@@ -339,10 +339,10 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 	}
 }
 
-func TestBuildChildRegistriesAutoApproval(t *testing.T) {
+func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 	parent := tool.NewRegistry(
-		tool.ToolDef{Name: "read", Approval: config.ApprovalModePrompt},
-		tool.ToolDef{Name: "bash", Approval: config.ApprovalModePrompt},
+		tool.ToolDef{Name: "read"},
+		tool.ToolDef{Name: "bash"},
 	)
 
 	_, exec := buildChildRegistries(parent, []string{"read", "bash"})
@@ -351,9 +351,13 @@ func TestBuildChildRegistriesAutoApproval(t *testing.T) {
 	if len(defs) != 2 {
 		t.Fatalf("exec has %d tools, want 2", len(defs))
 	}
+	names := make(map[string]bool)
 	for _, def := range defs {
-		if def.Approval != config.ApprovalModeAuto {
-			t.Errorf("tool %q exec approval = %v, want %v", def.Name, def.Approval, config.ApprovalModeAuto)
+		names[def.Name] = true
+	}
+	for _, want := range []string{"read", "bash"} {
+		if !names[want] {
+			t.Errorf("exec registry missing tool %q", want)
 		}
 	}
 }
