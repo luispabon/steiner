@@ -1,0 +1,85 @@
+steps:
+  - id: step-1
+    title: "Fix CWD mismatch — add --chdir /workspace to bwrap args"
+    scope: |
+      Add --chdir /workspace to BuildArgs() return value. This fixes Issues 1 (cd error)
+      and Issue 2 (first stdout line swallowed) from the investigation report.
+    files:
+      - internal/sandbox/mounts.go
+      - internal/sandbox/mounts_test.go
+    constraints:
+      - "--chdir /workspace must appear after all --bind/--ro-bind args but before env overrides"
+      - "Do not modify WrapCommand or Dir field — this is purely a bwrap arg"
+    acceptance:
+      - "--chdir /workspace present in BuildArgs output"
+      - "Existing mounts_test.go assertions still pass"
+      - "New test verifies --chdir /workspace appears in args"
+    verification:
+      - "go test ./internal/sandbox/... -run TestBuildArgs"
+      - "gofmt -w internal/sandbox/mounts.go"
+
+  - id: step-2
+    title: "Mount Go toolchain and cache directories"
+    scope: |
+      Add ro-bind for ~/go (GOPATH, contains GOMODCACHE and GOROOT toolchain)
+      and rw bind for ~/.cache/go-build (GOCACHE) to BuildArgs().
+      Add --setenv for GOPATH, GOROOT, GOCACHE, GOMODCACHE with sandbox-relative paths.
+    files:
+      - internal/sandbox/mounts.go
+      - internal/sandbox/mounts_test.go
+    constraints:
+      - "~/go mounted ro — modules must not be writable from sandbox"
+      - "~/.cache/go-build mounted rw — build cache needs writes"
+      - "Use --setenv for Go env vars with /home/steiner paths, not FilterEnv remapping"
+      - "All mounts conditional on pathExists — don't fail if dirs missing"
+      - "GOROOT value must be derived from runtime go env, not hardcoded toolchain version"
+    acceptance:
+      - "~/go ro-bound to /home/steiner/go when dir exists"
+      - "~/.cache/go-build rw-bound when dir exists"
+      - "GOPATH, GOROOT, GOCACHE, GOMODCACHE set via --setenv with sandbox paths"
+      - "go build, go test work inside sandbox"
+    verification:
+      - "go test ./internal/sandbox/... -run TestBuildArgs"
+      - "gofmt -w internal/sandbox/mounts.go"
+    depends_on: [step-1]
+
+  - id: step-3
+    title: "Generate minimal /etc/hosts for sandbox"
+    scope: |
+      Replace the ro-bind of host /etc/hosts with a generated minimal file
+      containing only localhost entries. Write minimal hosts to sandbox home dir
+      at EnsureHome time, bind that file instead.
+    files:
+      - internal/sandbox/mounts.go
+      - internal/sandbox/sandbox.go
+      - internal/sandbox/sandbox_test.go
+    constraints:
+      - "Minimal hosts: 127.0.0.1 localhost, ::1 localhost only"
+      - "Write hosts file to .steiner/home/etc-hosts (not .steiner/home/etc/hosts to avoid nested dirs)"
+      - "Keep /etc/resolv.conf from host — needed for DNS"
+      - "BuildArgs needs sandboxHome to derive the hosts file path"
+    acceptance:
+      - "EnsureHome creates .steiner/home/etc-hosts with localhost-only content"
+      - "/etc/hosts inside sandbox contains only localhost entries"
+      - "DNS resolution still works (resolv.conf unchanged)"
+      - "Host internal hostnames not visible inside sandbox"
+    verification:
+      - "go test ./internal/sandbox/... -run TestEnsureHome"
+      - "go test ./internal/sandbox/... -run TestBuildArgs"
+      - "gofmt -w internal/sandbox/mounts.go internal/sandbox/sandbox.go"
+    depends_on: [step-2]
+
+  - id: step-4
+    title: "Final verification — make check"
+    scope: |
+      Run full verification suite. Fix any lint, vet, or test failures
+      introduced by steps 1-3.
+    files: []
+    constraints:
+      - "No new lint warnings"
+      - "All existing tests pass"
+    acceptance:
+      - "make check passes clean"
+    verification:
+      - "make check"
+    depends_on: [step-3]
