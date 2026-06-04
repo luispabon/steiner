@@ -1,9 +1,9 @@
 # steiner
 
-A minimal, local-first Go coding agent with bounded context and explicit approvals.
+A minimal, local-first Go coding agent with bounded context and sandboxed execution.
 
 - **Delegation-first**: sub-agents isolate work so it never fills the parent conversation
-- **Transparent approval gates**: mutating tools prompt by default; no silent side-effects
+- **Sandboxed execution**: bash and subprocess tools run inside a bubblewrap sandbox; sandbox violations prompt for user decision
 - **Provider-agnostic**: same config shape for local and cloud providers
 
 ## Why steiner
@@ -12,7 +12,7 @@ Most coding agents are designed for cloud models with large context windows. Ste
 
 The core bet is that delegation is a better context strategy than summarisation. When a sub-agent handles exploration or code changes, the parent conversation never sees the intermediate turns — only the result. Combined with per-source byte budgets and late-stage compaction, this keeps the working context lean across long sessions.
 
-Every mutating action is approval-gated by default. The model cannot write files, run shell commands, or make network calls without a user prompt. Reads are auto-approved; mutations are not.
+By default, bash and subprocess tools run inside a sandbox that isolates model-driven code from host credentials and files outside the workspace. The sandbox protects against accidental exfiltration of SSH keys, API tokens, and other secrets. Users can temporarily allow access to specific paths or disable sandboxing entirely with the `--unsafe` flag.
 
 The provider/model split means you can point steiner at Ollama, LM Studio, OpenRouter, or a native Anthropic or OpenAI endpoint with the same config shape and the same tool behavior.
 
@@ -109,7 +109,7 @@ models:
     id: anthropic/claude-3.7-sonnet
 ```
 
-For the full configuration reference — all provider types, model fields, limit overrides, approval policy, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Built-in tools
 
@@ -126,7 +126,17 @@ These tools are always available to the model:
 | `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
 | `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
 
-`read`, `glob`, `grep`, and `ls` are auto-approved. `mutate`, `bash`, and other mutating actions prompt before executing.
+`read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
+
+## Sandboxing
+
+By default, `bash` and subprocess tools run inside a Linux sandbox (using `bubblewrap`) that restricts access to files outside the workspace and protects host credentials. The sandbox mounts the workspace, a sandbox-specific home directory, and common developer tools (SSH, Git, AWS credentials, Kubernetes config, etc.), but prevents access to files outside the project boundary.
+
+When a sandboxed tool attempts to access a file outside the workspace, the user is prompted to either grant temporary access, use the `--unsafe` flag to disable sandboxing, or cancel the operation. This protects against accidental exfiltration of API keys, SSH keys, and other secrets.
+
+**Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows).
+
+For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/TOOL_SANDBOXING.md](docs/TOOL_SANDBOXING.md).
 
 ## Context management
 
