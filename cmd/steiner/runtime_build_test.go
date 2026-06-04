@@ -15,7 +15,7 @@ func TestEnsureSteinerProjectDir(t *testing.T) {
 	}{
 		{
 			name: "creates directory and gitignore from scratch",
-			prep: func(t *testing.T, dir string) {},
+			prep: func(_ *testing.T, dir string) {},
 			want: "*\n",
 		},
 		{
