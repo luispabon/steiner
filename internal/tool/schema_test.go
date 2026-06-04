@@ -80,8 +80,7 @@ func TestNewRegistryFromConfigCopiesDefinitions(t *testing.T) {
 				Parameters: map[string]any{
 					"type": "object",
 				},
-				Timeout:  config.MustDuration("5s"),
-				Approval: config.ApprovalModeAuto,
+				Timeout: config.MustDuration("5s"),
 			},
 		},
 	}
@@ -105,9 +104,6 @@ func TestNewRegistryFromConfigCopiesDefinitions(t *testing.T) {
 	}
 	if def.Timeout != 5_000_000_000 {
 		t.Fatalf("Timeout = %v, want 5s", def.Timeout)
-	}
-	if def.Approval != config.ApprovalModeAuto {
-		t.Fatalf("Approval = %q, want auto", def.Approval)
 	}
 }
 

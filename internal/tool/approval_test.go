@@ -1,109 +1,92 @@
 package tool
 
 import (
+	"context"
+	"errors"
 	"testing"
-	"time"
-
-	"github.com/luispabon/steiner/internal/config"
 )
 
-func TestResolveApprovalMode(t *testing.T) {
-	cfg := config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-			ToolOverrides: map[string]*config.ApprovalMode{
-				"bash": configApprovalModePtr(config.ApprovalModePrompt),
-			},
-		},
+func TestApprovalRequestCarriesSandboxViolationFields(t *testing.T) {
+	def := ToolDef{Name: "read"}
+	responseCh := make(chan ApprovalResponse, 1)
+
+	req := ApprovalRequest{
+		Tool:              def,
+		Input:             map[string]any{"path": "/etc/passwd"},
+		WorkDir:           "/repo",
+		DeniedPath:        "/etc/passwd",
+		Reason:            "path is outside workspace boundary",
+		GrantInstructions: "use --unsafe flag to disable sandboxing",
+		Response:          responseCh,
 	}
 
-	tests := []struct {
-		cfg  config.Config
-		name string
-		def  ToolDef
-		want config.ApprovalMode
-	}{
-		{
-			cfg:  cfg,
-			name: "tool explicit approval wins",
-			def:  ToolDef{Name: "write", Approval: config.ApprovalModeDeny},
-			want: config.ApprovalModeDeny,
-		},
-		{
-			cfg:  cfg,
-			name: "config override wins",
-			def:  ToolDef{Name: "bash"},
-			want: config.ApprovalModePrompt,
-		},
-		{
-			cfg:  cfg,
-			name: "config default used",
-			def:  ToolDef{Name: "grep"},
-			want: config.ApprovalModeAuto,
-		},
-		{
-			cfg:  config.Config{},
-			name: "empty config falls back to auto",
-			def:  ToolDef{Name: "grep"},
-			want: config.ApprovalModeAuto,
-		},
+	if req.Tool.Name != "read" {
+		t.Fatalf("Tool.Name = %q, want %q", req.Tool.Name, "read")
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ResolveApprovalMode(tc.cfg, tc.def)
-			if got != tc.want {
-				t.Fatalf("ResolveApprovalMode() = %q, want %q", got, tc.want)
-			}
-		})
+	if req.DeniedPath != "/etc/passwd" {
+		t.Fatalf("DeniedPath = %q, want %q", req.DeniedPath, "/etc/passwd")
+	}
+	if req.Reason != "path is outside workspace boundary" {
+		t.Fatalf("Reason = %q, want unexpected", req.Reason)
+	}
+	if req.GrantInstructions != "use --unsafe flag to disable sandboxing" {
+		t.Fatalf("GrantInstructions = %q, want unexpected", req.GrantInstructions)
+	}
+	if req.Response == nil {
+		t.Fatal("Response channel is nil")
 	}
 }
 
-func configApprovalModePtr(mode config.ApprovalMode) *config.ApprovalMode {
-	return &mode
-}
+func TestApprovalResponderFuncAdapter(t *testing.T) {
+	var called bool
+	var gotReq ApprovalRequest
 
-func TestApprovalResolverBuildsPreviewFromNormalizedInput(t *testing.T) {
-	resolver := NewApprovalResolver(config.Config{
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-		},
+	fn := ApprovalResponderFunc(func(_ context.Context, req ApprovalRequest) error {
+		called = true
+		gotReq = req
+		req.Response <- ApprovalResponse{Allow: true}
+		return nil
 	})
-	policy := NewPathPolicy("/repo", config.PathsConfig{ProjectRootOnly: true})
-	def := ToolDef{Name: "bash", Timeout: 10 * time.Second}
 
-	preview, err := resolver.PreviewFor(def, map[string]any{
-		"command": "echo hello",
-		"cwd":     "subdir",
-	}, policy)
-	if err != nil {
-		t.Fatalf("PreviewFor() error = %v", err)
+	responseCh := make(chan ApprovalResponse, 1)
+	req := ApprovalRequest{
+		Tool:       ToolDef{Name: "bash"},
+		DeniedPath: "",
+		Reason:     "command was blocked by sandbox",
+		Response:   responseCh,
 	}
-	if got, want := preview.Tool, "bash"; got != want {
-		t.Fatalf("Tool = %q, want %q", got, want)
+
+	if err := fn.RequestApproval(context.Background(), req); err != nil {
+		t.Fatalf("RequestApproval() error = %v", err)
 	}
-	if got, want := preview.Mode, config.ApprovalModeAuto; got != want {
-		t.Fatalf("Mode = %q, want %q", got, want)
+	if !called {
+		t.Fatal("responder func was not called")
 	}
-	if got, want := preview.WorkDir, "/repo"; got != want {
-		t.Fatalf("WorkDir = %q, want %q", got, want)
+	if gotReq.Tool.Name != "bash" {
+		t.Fatalf("got tool name = %q, want %q", gotReq.Tool.Name, "bash")
 	}
-	if got, want := preview.Timeout, 10*time.Second; got != want {
-		t.Fatalf("Timeout = %v, want %v", got, want)
+
+	decision := <-responseCh
+	if !decision.Allow {
+		t.Fatal("expected Allow = true")
 	}
-	if len(preview.Fields) != 2 {
-		t.Fatalf("Fields len = %d, want 2", len(preview.Fields))
+}
+
+func TestApprovalResponderFuncAdapterPropagatesError(t *testing.T) {
+	wantErr := errors.New("transport unavailable")
+
+	fn := ApprovalResponderFunc(func(_ context.Context, _ ApprovalRequest) error {
+		return wantErr
+	})
+
+	responseCh := make(chan ApprovalResponse, 1)
+	req := ApprovalRequest{
+		Tool:     ToolDef{Name: "read"},
+		Response: responseCh,
 	}
-	if got, want := preview.Fields[0].Name, "cwd"; got != want {
-		t.Fatalf("Fields[0].Name = %q, want %q", got, want)
-	}
-	if got, want := preview.Fields[0].Value, "/repo/subdir"; got != want {
-		t.Fatalf("Fields[0].Value = %q, want %q", got, want)
-	}
-	if got, want := preview.Fields[1].Name, "command"; got != want {
-		t.Fatalf("Fields[1].Name = %q, want %q", got, want)
-	}
-	if got, want := preview.Fields[1].Value, "echo hello"; got != want {
-		t.Fatalf("Fields[1].Value = %q, want %q", got, want)
+
+	err := fn.RequestApproval(context.Background(), req)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
 	}
 }

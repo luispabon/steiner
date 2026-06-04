@@ -34,7 +34,6 @@ func NewRegistryFromConfig(cfg config.Config) *Registry {
 			Description:     toolCfg.Description,
 			ParameterSchema: CloneJSONMap(toolCfg.Parameters),
 			Timeout:         time.Duration(toolCfg.Timeout.Duration()),
-			Approval:        toolCfg.Approval,
 		})
 	}
 	return reg
@@ -140,9 +139,8 @@ func (r *Registry) ToProviderSpecs() []provider.ToolSpec {
 
 // Subset returns a new Registry containing only definitions whose names appear
 // in include and do not appear in exclude. If include is empty, the returned
-// registry is empty. When approvalOverride is non-empty, every definition in
-// the result has its Approval set to that value.
-func (r *Registry) Subset(include []string, exclude []string, approvalOverride config.ApprovalMode) *Registry {
+// registry is empty.
+func (r *Registry) Subset(include []string, exclude []string) *Registry {
 	if r == nil || len(include) == 0 {
 		return NewRegistry()
 	}
@@ -162,11 +160,7 @@ func (r *Registry) Subset(include []string, exclude []string, approvalOverride c
 		if _, included := includeSet[name]; !included {
 			continue
 		}
-		def := cloneToolDef(r.defs[name])
-		if approvalOverride != "" {
-			def.Approval = approvalOverride
-		}
-		filtered = append(filtered, def)
+		filtered = append(filtered, cloneToolDef(r.defs[name]))
 	}
 	return NewRegistry(filtered...)
 }

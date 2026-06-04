@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -26,8 +25,7 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 			},
 			"required": []any{"agent_id", "message"},
 		},
-		Handler:  handler,
-		Approval: config.ApprovalModeAuto,
+		Handler: handler,
 	}
 }
 

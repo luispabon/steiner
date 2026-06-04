@@ -108,7 +108,7 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 		return empty, empty
 	}
 	excluded := []string{DelegateToolName, FollowUpToolName}
-	visible := parent.Subset(allowedTools, excluded, "")
-	exec := parent.Subset(allowedTools, excluded, config.ApprovalModeAuto)
+	visible := parent.Subset(allowedTools, excluded)
+	exec := parent.Subset(allowedTools, excluded)
 	return visible, exec
 }

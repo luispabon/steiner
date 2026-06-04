@@ -6,18 +6,19 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/luispabon/steiner/internal/config"
 )
 
-// ApprovalPreview captures the fields shown before an approval decision.
+// ApprovalPreview captures the fields shown before a sandbox boundary prompt.
 type ApprovalPreview struct {
-	Tool    string              `json:"tool"`
-	Mode    config.ApprovalMode `json:"mode"`
-	WorkDir string              `json:"work_dir,omitempty"`
-	Timeout time.Duration       `json:"timeout,omitempty"`
-	Fields  []PreviewField      `json:"fields,omitempty"`
-	Notes   []string            `json:"notes,omitempty"`
+	Tool    string         `json:"tool"`
+	WorkDir string         `json:"work_dir,omitempty"`
+	Timeout time.Duration  `json:"timeout,omitempty"`
+	Fields  []PreviewField `json:"fields,omitempty"`
+	Notes   []string       `json:"notes,omitempty"`
+	// Sandbox violation context (set when preview is for a sandbox boundary prompt).
+	DeniedPath        string `json:"denied_path,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	GrantInstructions string `json:"grant_instructions,omitempty"`
 }
 
 // PreviewField captures a single field displayed in an approval preview.

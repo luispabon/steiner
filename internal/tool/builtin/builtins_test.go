@@ -62,18 +62,6 @@ func TestBuiltins(t *testing.T) {
 		}
 	})
 
-	t.Run("builtin tools do not hardcode approval defaults", func(t *testing.T) {
-		alwaysAuto := map[string]bool{"fetch_url": true}
-		for _, td := range tools {
-			if alwaysAuto[td.Name] {
-				continue
-			}
-			if td.Approval != "" {
-				t.Errorf("tool %q Approval = %q, want empty", td.Name, td.Approval)
-			}
-		}
-	})
-
 	t.Run("tool result is provider-serializable", func(t *testing.T) {
 		results := []any{
 			&ReadResult{Path: "test.txt", StartLine: 1, EndLine: 5, TotalLines: 10, Output: "hello\nworld\n"},

@@ -9,7 +9,6 @@ import (
 	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/deepnoodle-ai/wonton/fetch"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -34,7 +33,6 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 		Name:            "fetch_url",
 		Description:     "Fetch and convert a URL to markdown content. Returns structured result with title, description, and markdown content.",
 		ParameterSchema: FetchURLSchema(),
-		Approval:        config.ApprovalModeAuto,
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)
 			if err != nil {

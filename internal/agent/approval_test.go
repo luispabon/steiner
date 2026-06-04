@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -31,7 +30,7 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	response := make(chan tool.ApprovalResponse, 1)
 	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "bash"},
-		Mode:     config.ApprovalModePrompt,
+		Reason:   "sandbox_violation",
 		Preview:  preview,
 		Response: response,
 	})
@@ -57,7 +56,7 @@ func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 	response := make(chan tool.ApprovalResponse, 1)
 	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "write"},
-		Mode:     config.ApprovalModePrompt,
+		Reason:   "sandbox_violation",
 		Response: response,
 	})
 	if err != nil {
