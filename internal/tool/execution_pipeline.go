@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-
-	"github.com/luispabon/steiner/internal/config"
 )
 
 type executionInput struct {
@@ -20,60 +18,6 @@ type executionInput struct {
 type executionContext struct {
 	Def             ToolDef
 	NormalizedInput map[string]any
-	ApprovalMode    config.ApprovalMode
-	Preview         ApprovalPreview
-}
-
-func (e *Executor) authorizeExecution(ctx context.Context, ec *executionContext) error {
-	switch {
-	case IsApprovalDenied(ec.ApprovalMode):
-		return &ToolExecutionError{
-			Tool:    ec.Def.Name,
-			Kind:    "approval_denied",
-			Message: "tool execution denied by approval policy",
-		}
-	case IsApprovalPrompt(ec.ApprovalMode):
-		if e.approver == nil {
-			return &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_required",
-				Message: "tool execution requires approval",
-			}
-		}
-		responseCh := make(chan ApprovalResponse, 1)
-		if err := e.approver.RequestApproval(ctx, ApprovalRequest{
-			Tool:     ec.Def,
-			Mode:     ec.ApprovalMode,
-			Input:    CloneJSONMap(ec.NormalizedInput),
-			WorkDir:  e.pathPolicy.Root(),
-			Preview:  ec.Preview,
-			Response: responseCh,
-		}); err != nil {
-			return &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_failed",
-				Message: err.Error(),
-			}
-		}
-		decision := ApprovalResponse{}
-		select {
-		case decision = <-responseCh:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		if !decision.Allow {
-			message := strings.TrimSpace(decision.Message)
-			if message == "" {
-				message = "tool execution denied"
-			}
-			return &ToolExecutionError{
-				Tool:    ec.Def.Name,
-				Kind:    "approval_denied",
-				Message: message,
-			}
-		}
-	}
-	return nil
 }
 
 func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
@@ -87,29 +31,52 @@ func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
 	return def, nil
 }
 
-func (e *Executor) normalizeExecutionInput(def ToolDef, input map[string]any) (map[string]any, error) {
+func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any) (map[string]any, error) {
 	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
-	if err != nil {
-		return nil, &ToolExecutionError{
-			Tool:    def.Name,
-			Kind:    "policy_denied",
-			Message: err.Error(),
-		}
+	if err == nil {
+		return normalizedInput, nil
 	}
-	return normalizedInput, nil
-}
 
-func (e *Executor) resolveApprovalState(def ToolDef, normalizedInput map[string]any) (config.ApprovalMode, ApprovalPreview, error) {
-	mode := e.approval.ModeFor(def)
-	preview, err := e.approval.PreviewFor(def, normalizedInput, e.pathPolicy)
-	if err != nil {
-		return mode, ApprovalPreview{}, &ToolExecutionError{
-			Tool:    def.Name,
-			Kind:    "policy_denied",
-			Message: err.Error(),
+	// Check if this is a promptable path policy violation (outside project root).
+	var policyErr *PathPolicyError
+	if errors.As(err, &policyErr) && policyErr.Promptable && e.sandbox != nil && e.approver != nil {
+		req := ApprovalRequest{
+			Tool:              def,
+			Input:             input,
+			WorkDir:           e.pathPolicy.Root(),
+			Preview:           buildApprovalPreview(def.Name, input, e.pathPolicy),
+			DeniedPath:        policyErr.Path,
+			Reason:            policyErr.Reason,
+			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
+			Response:          make(chan ApprovalResponse, 1),
+		}
+		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr != nil {
+			return nil, &ToolExecutionError{
+				Tool:    def.Name,
+				Kind:    "policy_denied",
+				Message: err.Error(),
+			}
+		}
+		resp := <-req.Response
+		if resp.Allow {
+			relaxed := e.pathPolicy.WithoutRoot()
+			relaxedInput, relaxedErr := relaxed.ValidateToolInput(def.Name, input)
+			if relaxedErr != nil {
+				return nil, &ToolExecutionError{
+					Tool:    def.Name,
+					Kind:    "policy_denied",
+					Message: relaxedErr.Error(),
+				}
+			}
+			return relaxedInput, nil
 		}
 	}
-	return mode, preview, nil
+
+	return nil, &ToolExecutionError{
+		Tool:    def.Name,
+		Kind:    "policy_denied",
+		Message: err.Error(),
+	}
 }
 
 func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, error) {
@@ -118,12 +85,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	normalizedInput, err := e.normalizeExecutionInput(def, in.Input)
-	if err != nil {
-		return nil, err
-	}
-
-	mode, preview, err := e.resolveApprovalState(def, normalizedInput)
+	normalizedInput, err := e.normalizeExecutionInput(ctx, def, in.Input)
 	if err != nil {
 		return nil, err
 	}
@@ -131,15 +93,63 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	ec := executionContext{
 		Def:             def,
 		NormalizedInput: normalizedInput,
-		ApprovalMode:    mode,
-		Preview:         preview,
-	}
-
-	if err := e.authorizeExecution(ctx, &ec); err != nil {
-		return nil, err
 	}
 
 	return e.executeTool(ctx, &ec)
+}
+
+// isBashDenial reports whether output contains sandbox denial signals.
+func isBashDenial(output string) bool {
+	return strings.Contains(output, "Permission denied") ||
+		strings.Contains(output, "Operation not permitted")
+}
+
+// extractDeniedPath attempts to extract a file path from sandbox denial output.
+// Returns empty string if no path can be identified.
+func extractDeniedPath(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Permission denied") || strings.Contains(line, "Operation not permitted") {
+			// Heuristic: look for a word that looks like an absolute path.
+			for _, word := range strings.Fields(line) {
+				word = strings.TrimRight(word, ":,.")
+				if strings.HasPrefix(word, "/") {
+					return word
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// handleBashDenial checks whether a bash handler result represents a sandbox
+// denial and, if so, prompts the user for approval and optionally retries
+// without the sandbox wrapper. Returns the (possibly updated) result.
+func (e *Executor) handleBashDenial(ctx context.Context, ec *executionContext, result any) (any, error) {
+	br, ok := result.(BashDenialResult)
+	if !ok || br.BashExitCode() == 0 || !isBashDenial(br.BashOutput()) {
+		return result, nil
+	}
+	const grantInstructions = "Add a host_mount in .steiner/config.yaml or re-run with --unsafe"
+	req := ApprovalRequest{
+		Tool:              ec.Def,
+		Input:             ec.NormalizedInput,
+		WorkDir:           e.pathPolicy.Root(),
+		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, e.pathPolicy),
+		DeniedPath:        extractDeniedPath(br.BashOutput()),
+		Reason:            "command blocked by sandbox",
+		GrantInstructions: grantInstructions,
+		Response:          make(chan ApprovalResponse, 1),
+	}
+	if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
+		resp := <-req.Response
+		if resp.Allow {
+			unsandboxedCtx := context.WithValue(ctx, BashUnsandboxedKey{}, true)
+			return ec.Def.Handler(unsandboxedCtx, ec.NormalizedInput)
+		}
+	}
+	// Denied or approval error — append grant instructions and return original.
+	br.AppendOutput("\n" + grantInstructions)
+	return result, nil
 }
 
 // executeTool dispatches tool execution to the appropriate phase:
@@ -148,7 +158,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 //     work-dir selection, and output decoding via decodeExecutionOutput
 func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, error) {
 	if ec.Def.Handler != nil {
-		return ec.Def.Handler(ctx, ec.NormalizedInput)
+		result, err := ec.Def.Handler(ctx, ec.NormalizedInput)
+		if err != nil {
+			return result, err
+		}
+		if e.sandbox != nil && e.approver != nil {
+			return e.handleBashDenial(ctx, ec, result)
+		}
+		return result, nil
 	}
 
 	payload, err := json.Marshal(CloneJSONMap(ec.NormalizedInput))
@@ -170,7 +187,7 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit)
+	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, e.sandbox)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -227,7 +244,7 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int) ([]byte, []byte, ExecutionMetadata, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, sandbox SandboxWrapper) ([]byte, []byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
 		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
@@ -244,6 +261,9 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	cmd := exec.CommandContext(ctx, def.ExecPath, args...)
 	if workDir != "" {
 		cmd.Dir = workDir
+	}
+	if sandbox != nil {
+		cmd = sandbox.WrapCommand(cmd)
 	}
 	cmd.Stdin = bytes.NewReader(payload)
 

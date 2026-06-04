@@ -46,8 +46,7 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 			},
 			"required": []any{"task"},
 		},
-		Handler:  handler,
-		Approval: config.ApprovalModeAuto,
+		Handler: handler,
 	}
 }
 
@@ -67,6 +66,9 @@ type DelegateHandlerDeps struct {
 	CavemanMode          bool
 	TraceLogger          *TraceLogger
 	SessionStore         *SessionStore
+	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
+	// child sandbox permissions cannot exceed parent permissions.
+	Sandbox tool.SandboxWrapper
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -112,6 +114,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			ResolvedModel:        deps.ResolvedModel,
 			MaxTokens:            deps.MaxTokens,
 			StreamingPreferred:   deps.StreamingPreferred,
+			Sandbox:              deps.Sandbox,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)

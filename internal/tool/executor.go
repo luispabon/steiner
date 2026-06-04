@@ -2,32 +2,27 @@ package tool
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 )
 
-// ApprovalResponder handles tool execution approval prompts.
-type ApprovalResponder interface {
-	RequestApproval(ctx context.Context, req ApprovalRequest) error
+// SandboxWrapper wraps commands with sandbox execution. A nil SandboxWrapper means unsafe mode.
+type SandboxWrapper interface {
+	// Enabled reports whether sandboxing is active.
+	Enabled() bool
+	// WrapCommand wraps cmd for sandboxed execution.
+	WrapCommand(cmd *exec.Cmd) *exec.Cmd
 }
 
-// ApprovalResponderFunc is an adapter that turns a plain function into an
-// ApprovalResponder.
-type ApprovalResponderFunc func(ctx context.Context, req ApprovalRequest) error
-
-// RequestApproval adapts f to the ApprovalResponder interface.
-func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req ApprovalRequest) error {
-	return f(ctx, req)
-}
-
-// Executor runs tool definitions through a resolution, normalization, approval,
-// and dispatch pipeline. The caller-facing seam is Execute.
+// Executor runs tool definitions through a resolution, normalization, and dispatch
+// pipeline. The caller-facing seam is Execute.
 type Executor struct {
 	registry    *Registry
-	approval    ApprovalResolver
 	approver    ApprovalResponder
+	sandbox     SandboxWrapper
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
@@ -42,12 +37,23 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 	}
 	return &Executor{
 		registry:    registry,
-		approval:    NewApprovalResolver(cfg),
 		approver:    approver,
 		workDir:     root,
 		pathPolicy:  NewPathPolicy(root, cfg.Paths),
 		outputLimit: outputLimit,
 	}
+}
+
+// WithSandbox sets the sandbox wrapper on the executor and returns it for chaining.
+func (e *Executor) WithSandbox(s SandboxWrapper) *Executor {
+	e.sandbox = s
+	return e
+}
+
+// Sandbox returns the sandbox wrapper currently set on this executor.
+// A nil return means no sandboxing is active (unsafe mode).
+func (e *Executor) Sandbox() SandboxWrapper {
+	return e.sandbox
 }
 
 // Execute runs toolName with the given input through the full execution pipeline

@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -31,6 +32,7 @@ type cliFlags struct {
 	enableStreaming   bool
 	caveman           bool
 	resume            string
+	unsafe            bool
 }
 
 type cliRuntime struct {
@@ -46,6 +48,7 @@ type cliRuntime struct {
 	skillBundledFS    fs.FS             // embedded bundled skill documents
 	workDir           string
 	homeDir           string
+	sandbox           *sandbox.Sandbox
 	stdin             io.Reader
 	human             *output.Stream
 	status            *output.Stream
@@ -80,13 +83,24 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
-	workDir, registry, err := buildRuntimeRegistry(cfg)
+	workDir, registry, err := buildRuntimeRegistry(cfg, nil)
 	if err != nil {
 		return cliRuntime{}, err
 	}
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx)
 	if err != nil {
 		return cliRuntime{}, err
+	}
+	sb, err := buildRuntimeSandbox(cfg, workDir, homeDir)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	// Rebuild registry with sandbox now that workDir and homeDir are known.
+	if sb != nil {
+		registry, err = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
+		if err != nil {
+			return cliRuntime{}, err
+		}
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -107,6 +121,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		skillBundledFS:    skillBundledFS,
 		workDir:           workDir,
 		homeDir:           homeDir,
+		sandbox:           sb,
 		stdin:             cmd.InOrStdin(),
 		human:             output.NewStream(cmd.OutOrStdout()),
 		status:            output.NewStream(cmd.ErrOrStderr()),

@@ -32,6 +32,18 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir for cmd tests: %v\n", err)
 		os.Exit(1)
 	}
+
+	fakeBwrap := filepath.Join(tmp, "bwrap")
+	if err := os.WriteFile(fakeBwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write fake bwrap: %v\n", err)
+		os.Exit(1)
+	}
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", tmp+string(os.PathListSeparator)+oldPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set PATH for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+
 	oldHome := os.Getenv("HOME")
 	if err := os.Setenv("HOME", tmp); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to set HOME for cmd tests: %v\n", err)
@@ -40,6 +52,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	if err := os.Setenv("HOME", oldHome); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to restore HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("PATH", oldPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore PATH for cmd tests: %v\n", err)
 		os.Exit(1)
 	}
 	if err := os.RemoveAll(tmp); err != nil {
@@ -102,8 +118,6 @@ models:
         context_window: 8192
 limits:
   max_turns: 25
-approval:
-  default: auto
 paths:
   project_root_only: false
 `)
@@ -376,9 +390,6 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 	registry, err := runtimeRegistry(config.Config{
 		Limits: config.LimitsConfig{
 			ToolTimeoutDefault: config.MustDuration("30s"),
-		},
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
 		},
 		Tools: map[string]config.ToolConfig{},
 	}, t.TempDir())
@@ -660,186 +671,6 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	}
 }
 
-func TestExecModePrintsApprovalPromptWithPreviewArgs(t *testing.T) {
-	helper := mustBuildCLIHelperBinary(t)
-	tempRepo := t.TempDir()
-	mustMkdirAll(t, filepath.Join(tempRepo, "subdir"))
-
-	oldBuildRuntime := buildRuntime
-	t.Cleanup(func() {
-		buildRuntime = oldBuildRuntime
-	})
-
-	var stdout, stderr bytes.Buffer
-	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
-		cfg := testRuntimeConfig("test-model")
-		cfg.Limits.MaxTurns = 4
-		cfg.Limits.MaxTokens = 64
-		cfg.Approval = config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-			ToolOverrides: map[string]*config.ApprovalMode{
-				"bash": configApprovalModePtr(config.ApprovalModePrompt),
-			},
-		}
-		cfg.Paths = config.PathsConfig{
-			ProjectRootOnly: true,
-		}
-		return cliRuntime{
-			cfg: cfg,
-			provider: &fakeProvider{
-				responses: []provider.ChatResponse{
-					{
-						Message: provider.Message{
-							Role: provider.MessageRoleAssistant,
-							ToolCalls: []provider.ToolCall{
-								{
-									ID:   "call_1",
-									Name: "bash",
-									Arguments: map[string]any{
-										"command": "pwd",
-										"cwd":     "subdir",
-									},
-								},
-							},
-						},
-						FinishReason: "tool_calls",
-						Usage:        &provider.UsageStats{TotalTokens: 7, CompletionTokens: 7},
-					},
-					{
-						Message: provider.Message{
-							Role:    provider.MessageRoleAssistant,
-							Content: "final answer",
-						},
-						FinishReason: "stop",
-					},
-				},
-			},
-			registry: tool.NewRegistry(tool.ToolDef{
-				Name:       "bash",
-				ExecPath:   helper,
-				Subcommand: "bash",
-			}),
-			workDir:     tempRepo,
-			homeDir:     t.TempDir(),
-			human:       output.NewStream(&stdout),
-			status:      output.NewStream(&stderr),
-			events:      output.NewStream(&stdout),
-			sharedInput: bufio.NewReader(strings.NewReader("y\n")),
-		}, nil
-	}
-
-	cmd := newRootCommand()
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--exec", "run bash"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	got := stdout.String()
-	wantCWD := filepath.Join(tempRepo, "subdir")
-	if !strings.Contains(got, `approval: turn=0 requested tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"}`) {
-		t.Fatalf("stdout = %q, want approval prompt with normalized args", got)
-	}
-	if !strings.Contains(got, `approval: turn=0 accepted tool=bash mode=prompt args={"command":"pwd","cwd":"`+wantCWD+`"} message=approved`) {
-		t.Fatalf("stdout = %q, want approval acceptance with normalized args", got)
-	}
-	if !strings.Contains(got, "run complete after 2 turns") {
-		t.Fatalf("stdout = %q, want run completion after approval flow", got)
-	}
-}
-
-func TestExecModeToolApprovalUnavailableCommunicatedToModel(t *testing.T) {
-	helper := mustBuildCLIHelperBinary(t)
-	tempRepo := t.TempDir()
-
-	oldBuildRuntime := buildRuntime
-	t.Cleanup(func() {
-		buildRuntime = oldBuildRuntime
-	})
-
-	var prov *fakeProvider
-	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
-		cfg := testRuntimeConfig("test-model")
-		cfg.Limits.MaxTurns = 4
-		cfg.Limits.MaxTokens = 0
-		cfg.Approval = config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-			ToolOverrides: map[string]*config.ApprovalMode{
-				"bash": configApprovalModePtr(config.ApprovalModePrompt),
-			},
-		}
-		cfg.Paths = config.PathsConfig{
-			ProjectRootOnly: true,
-		}
-		prov = &fakeProvider{
-			responses: []provider.ChatResponse{
-				{
-					Message: provider.Message{
-						Role: provider.MessageRoleAssistant,
-						ToolCalls: []provider.ToolCall{
-							{
-								ID:   "call_1",
-								Name: "bash",
-								Arguments: map[string]any{
-									"command": "pwd",
-								},
-							},
-						},
-					},
-					FinishReason: "tool_calls",
-				},
-				{
-					Message: provider.Message{
-						Role:    provider.MessageRoleAssistant,
-						Content: "I cannot execute bash because approval is unavailable.",
-					},
-					FinishReason: "stop",
-				},
-			},
-		}
-		return cliRuntime{
-			cfg:      cfg,
-			provider: prov,
-			registry: tool.NewRegistry(tool.ToolDef{
-				Name:       "bash",
-				ExecPath:   helper,
-				Subcommand: "bash",
-			}),
-			workDir:     tempRepo,
-			homeDir:     t.TempDir(),
-			human:       output.NewStream(io.Discard),
-			status:      output.NewStream(io.Discard),
-			events:      output.NoopSink{},
-			sharedInput: bufio.NewReader(strings.NewReader("")),
-			approvalIn:  bufio.NewReader(strings.NewReader("")),
-		}, nil
-	}
-
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{"--exec", "run bash"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() error = %v, want nil (approval error communicated to model, not fatal)", err)
-	}
-
-	if len(prov.requests) < 2 {
-		t.Fatalf("expected at least 2 model calls, got %d — tool error must be sent back to model", len(prov.requests))
-	}
-	var toolResultContent string
-	for _, msg := range prov.requests[1].Messages {
-		if msg.Role == provider.MessageRoleTool {
-			toolResultContent = msg.Content
-			break
-		}
-	}
-	if !strings.Contains(toolResultContent, "approval input is unavailable") {
-		t.Fatalf("second request tool message = %q, want content containing approval error", toolResultContent)
-	}
-}
-
 func TestExecModeMaxTurnsFlagOverridesConfig(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {
@@ -1043,9 +874,6 @@ func testRuntimeConfig(alias string) config.Config {
 			MaxTokens:          64,
 			ToolTimeoutDefault: config.MustDuration("30s"),
 		},
-		Approval: config.ApprovalConfig{
-			Default: config.ApprovalModeAuto,
-		},
 		ProjectContext: config.ProjectContextConfig{
 			MaxTokens: 128,
 		},
@@ -1108,9 +936,6 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 				cfg.Limits.MaxTurns = 6
 				cfg.Limits.MaxTokens = 100
 				cfg.ProjectContext.MaxTokens = 64
-				cfg.Approval.ToolOverrides = map[string]*config.ApprovalMode{
-					"bash": configApprovalModePtr(config.ApprovalModeAuto),
-				}
 				return cfg
 			}(),
 			provider: providerStub,
@@ -1161,10 +986,6 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	if !foundStopReason {
 		t.Fatalf("result diagnostics = %#v, want stop reason event", result.Diagnostics)
 	}
-}
-
-func configApprovalModePtr(mode config.ApprovalMode) *config.ApprovalMode {
-	return &mode
 }
 
 func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {

@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -417,5 +419,75 @@ func TestPolicy_ValidateToolInput_MutateNormalizesOperationPaths(t *testing.T) {
 	}
 	if got, want := second["to"], "/project/cmd/main.go"; got != want {
 		t.Fatalf("second to = %v, want %q", got, want)
+	}
+}
+
+func TestPathPolicyError_Promptable_OutsideRoot(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+	_, err := policy.ResolvePath("/etc/passwd", false)
+	if err == nil {
+		t.Fatal("ResolvePath(/etc/passwd) = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error type = %T, want *PathPolicyError", err)
+	}
+	if !policyErr.Promptable {
+		t.Fatal("Promptable = false, want true for outside-root violation")
+	}
+	if policyErr.Path != "/etc/passwd" {
+		t.Fatalf("Path = %q, want '/etc/passwd'", policyErr.Path)
+	}
+	if !strings.Contains(policyErr.Error(), "tool path policy denied") {
+		t.Fatalf("Error() = %q, want 'tool path policy denied'", policyErr.Error())
+	}
+}
+
+func TestPathPolicyError_NotPromptable_BlockedPath(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{
+		ProjectRootOnly: true,
+		BlockedPaths:    []string{"secrets"},
+	})
+	_, err := policy.ResolvePath("secrets/key.txt", false)
+	if err == nil {
+		t.Fatal("ResolvePath(secrets/key.txt) = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error type = %T, want *PathPolicyError", err)
+	}
+	if policyErr.Promptable {
+		t.Fatal("Promptable = true, want false for blocked-path violation")
+	}
+}
+
+func TestPathPolicyError_NotPromptable_WritableAllowlist(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{
+		ProjectRootOnly: true,
+		WritablePaths:   []string{"output"},
+	})
+	_, err := policy.ResolvePath("src/main.go", true)
+	if err == nil {
+		t.Fatal("ResolvePath(src/main.go, writable) = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error type = %T, want *PathPolicyError", err)
+	}
+	if policyErr.Promptable {
+		t.Fatal("Promptable = true, want false for writable-allowlist violation")
+	}
+}
+
+func TestPathPolicy_WithoutRoot(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+	relaxed := policy.WithoutRoot()
+	if relaxed.Root() != "" {
+		t.Fatalf("WithoutRoot().Root() = %q, want ''", relaxed.Root())
+	}
+	// After removing root, outside paths should be allowed.
+	_, err := relaxed.ResolvePath("/etc/passwd", false)
+	if err != nil {
+		t.Fatalf("relaxed.ResolvePath(/etc/passwd) error = %v, want nil", err)
 	}
 }

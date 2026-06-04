@@ -8,7 +8,6 @@ type configPatch struct {
 	Providers         *map[string]providerPatch `yaml:"providers"`
 	Models            *map[string]modelPatch    `yaml:"models"`
 	Limits            *limitsPatch              `yaml:"limits"`
-	Approval          *approvalPatch            `yaml:"approval"`
 	SubAgent          *subAgentPatch            `yaml:"sub_agent"`
 	Tools             *map[string]toolPatch     `yaml:"tools"`
 	ProjectContext    *projectContextPatch      `yaml:"project_context"`
@@ -76,11 +75,6 @@ type limitsPatch struct {
 	ToolOutputMaxBytes *int                 `yaml:"tool_output_max_bytes"`
 }
 
-type approvalPatch struct {
-	Default       *ApprovalMode             `yaml:"default"`
-	ToolOverrides *map[string]*ApprovalMode `yaml:"tool_overrides"`
-}
-
 type agentConfigPatch struct {
 	Model *string `yaml:"model"`
 }
@@ -99,7 +93,6 @@ type toolPatch struct {
 	Description *string         `yaml:"description"`
 	Parameters  *map[string]any `yaml:"parameters"`
 	Timeout     *Duration       `yaml:"timeout"`
-	Approval    *ApprovalMode   `yaml:"approval"`
 	Constraints *map[string]any `yaml:"constraints"`
 }
 

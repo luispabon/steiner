@@ -27,6 +27,10 @@ type BootstrapDeps struct {
 	MaxTokens            *int
 	StreamingPreferred   bool
 	CavemanMode          bool
+	// Sandbox is the parent sandbox to inherit. Child sandbox permissions cannot
+	// exceed parent permissions: the parent sandbox is passed as-is to the child
+	// executor. A nil Sandbox means unsafe mode (no sandboxing).
+	Sandbox tool.SandboxWrapper
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -54,7 +58,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CavemanMode)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode, deps.Sandbox)
 	return req, limits, nil
 }
 
@@ -108,7 +112,7 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 		return empty, empty
 	}
 	excluded := []string{DelegateToolName, FollowUpToolName}
-	visible := parent.Subset(allowedTools, excluded, "")
-	exec := parent.Subset(allowedTools, excluded, config.ApprovalModeAuto)
+	visible := parent.Subset(allowedTools, excluded)
+	exec := parent.Subset(allowedTools, excluded)
 	return visible, exec
 }

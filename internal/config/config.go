@@ -59,6 +59,22 @@ type SearchConfig struct {
 	BraveAPIKey  string `yaml:"brave_api_key"`
 }
 
+// SandboxConfig controls bubblewrap sandbox behaviour for tool execution.
+type SandboxConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// PermissionsConfig holds host-capability flags granted to the sandbox.
+type PermissionsConfig struct {
+	Docker bool `yaml:"docker"`
+}
+
+// HostMount describes an additional host path mounted inside the sandbox.
+type HostMount struct {
+	Path string `yaml:"path"`
+	Mode string `yaml:"mode"` // "ro" or "rw"
+}
+
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler         SchedulerConfig           `yaml:"scheduler"`
@@ -66,7 +82,9 @@ type Config struct {
 	Providers         map[string]ProviderConfig `yaml:"providers"`
 	Models            map[string]ModelConfig    `yaml:"models"`
 	Limits            LimitsConfig              `yaml:"limits"`
-	Approval          ApprovalConfig            `yaml:"approval"`
+	Sandbox           SandboxConfig             `yaml:"sandbox"`
+	Permissions       PermissionsConfig         `yaml:"permissions"`
+	HostMounts        []HostMount               `yaml:"host_mounts"`
 	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
 	Tools             map[string]ToolConfig     `yaml:"tools"`
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
@@ -119,24 +137,6 @@ type LimitsConfig struct {
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`
 }
 
-// ApprovalMode defines the default approval policy for tool execution.
-type ApprovalMode string
-
-const (
-	// ApprovalModeAuto allows tools according to automatic policy.
-	ApprovalModeAuto ApprovalMode = "auto"
-	// ApprovalModePrompt asks for user approval before running gated tools.
-	ApprovalModePrompt ApprovalMode = "prompt"
-	// ApprovalModeDeny blocks gated tools.
-	ApprovalModeDeny ApprovalMode = "deny"
-)
-
-// ApprovalConfig controls default and per-tool approval behaviour.
-type ApprovalConfig struct {
-	Default       ApprovalMode             `yaml:"default"`
-	ToolOverrides map[string]*ApprovalMode `yaml:"tool_overrides"`
-}
-
 // AgentConfig holds per-agent-type configuration.
 type AgentConfig struct {
 	// Model is an optional model alias override for this agent type.
@@ -159,7 +159,6 @@ type ToolConfig struct {
 	Description string         `yaml:"description"`
 	Parameters  map[string]any `yaml:"parameters"`
 	Timeout     Duration       `yaml:"timeout"`
-	Approval    ApprovalMode   `yaml:"approval"`
 	Constraints map[string]any `yaml:"constraints"`
 }
 

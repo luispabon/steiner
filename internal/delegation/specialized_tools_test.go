@@ -54,10 +54,6 @@ func TestSpecializedToolDef(t *testing.T) {
 			if def.Handler == nil {
 				t.Fatal("Handler is nil")
 			}
-			if def.Approval != config.ApprovalModeAuto {
-				t.Errorf("Approval=%v, want %v", def.Approval, config.ApprovalModeAuto)
-			}
-
 			schemaType, ok := def.ParameterSchema["type"].(string)
 			if !ok || schemaType != "object" {
 				t.Errorf("schema type=%v, want 'object'", def.ParameterSchema["type"])

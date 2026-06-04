@@ -1,6 +1,8 @@
 package builtin
 
 import (
+	"os/exec"
+
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -16,4 +18,7 @@ type Env struct {
 	// Interactive reports whether the session is running in interactive (TUI) mode.
 	// Tools that require a live TUI must check this and return a bounded failure when false.
 	Interactive bool
+	// CommandWrapper, if non-nil, is applied to exec.Cmd instances before the bash
+	// process is started. Used to wrap the process in a sandbox (e.g. bubblewrap).
+	CommandWrapper func(*exec.Cmd) *exec.Cmd
 }

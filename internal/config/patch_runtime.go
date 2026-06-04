@@ -63,9 +63,6 @@ func applyToolPatch(dst *ToolConfig, patch *toolPatch) {
 	if patch.Timeout != nil {
 		dst.Timeout = *patch.Timeout
 	}
-	if patch.Approval != nil {
-		dst.Approval = *patch.Approval
-	}
 	if patch.Constraints != nil {
 		dst.Constraints = copyStringAnyMap(*patch.Constraints)
 	}

@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -68,10 +69,6 @@ func TestToolDef(t *testing.T) {
 	if def.Handler == nil {
 		t.Fatal("Handler is nil")
 	}
-	if def.Approval != config.ApprovalModeAuto {
-		t.Errorf("Approval=%v, want %v", def.Approval, config.ApprovalModeAuto)
-	}
-
 	schema, ok := def.ParameterSchema["type"].(string)
 	if !ok || schema != "object" {
 		t.Errorf("schema type=%v, want 'object'", schema)
@@ -542,5 +539,103 @@ func TestToolHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	}
 	if session.ToolCallCount != 0 {
 		t.Fatalf("ToolCallCount = %d, want 0", session.ToolCallCount)
+	}
+}
+
+// toolTestSandbox is a test double for tool.SandboxWrapper used in tool_test.go.
+type toolTestSandbox struct {
+	enabled bool
+}
+
+func (s *toolTestSandbox) Enabled() bool                       { return s.enabled }
+func (s *toolTestSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+
+func TestDelegateHandlerDeps_SandboxInherited(t *testing.T) {
+	sb := &toolTestSandbox{enabled: true}
+	var capturedReq agent.RunRequest
+	firstCall := true
+
+	idGen = func() string { return "child-sandbox-test" }
+	t.Cleanup(func() { idGen = func() string { return fmt.Sprintf("child-%d", agentCounter.Add(1)) } })
+
+	deps := DelegateHandlerDeps{
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      noopEventSink{},
+		WorkDir:     "/tmp/work",
+		Sandbox:     sb,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if firstCall {
+				capturedReq = req
+				firstCall = false
+			}
+			return successRunState(), nil
+		}},
+	}
+
+	handler := NewDelegateHandler(deps)
+	_, err := handler(context.Background(), map[string]any{"task": "test sandbox inheritance"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	if capturedReq.Executor == nil {
+		t.Fatal("capturedReq.Executor is nil")
+	}
+	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
+	}
+	got := concreteExec.Sandbox()
+	if got == nil {
+		t.Fatal("child Executor.Sandbox() is nil, want parent sandbox")
+	}
+	if got != sb {
+		t.Error("child sandbox is not the same instance as parent sandbox")
+	}
+	if !got.Enabled() {
+		t.Error("child sandbox Enabled()=false, want true")
+	}
+}
+
+func TestDelegateHandlerDeps_NilSandboxNotInherited(t *testing.T) {
+	var capturedReq agent.RunRequest
+	firstCall := true
+
+	idGen = func() string { return "child-nil-sandbox" }
+	t.Cleanup(func() { idGen = func() string { return fmt.Sprintf("child-%d", agentCounter.Add(1)) } })
+
+	deps := DelegateHandlerDeps{
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
+		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		Events:      noopEventSink{},
+		WorkDir:     "/tmp/work",
+		Sandbox:     nil, // no sandbox — unsafe mode
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if firstCall {
+				capturedReq = req
+				firstCall = false
+			}
+			return successRunState(), nil
+		}},
+	}
+
+	handler := NewDelegateHandler(deps)
+	_, err := handler(context.Background(), map[string]any{"task": "test nil sandbox"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	if capturedReq.Executor == nil {
+		t.Fatal("capturedReq.Executor is nil")
+	}
+	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
+	}
+	if got := concreteExec.Sandbox(); got != nil {
+		t.Errorf("child Executor.Sandbox()=%v, want nil when parent has no sandbox", got)
 	}
 }

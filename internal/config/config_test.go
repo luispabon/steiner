@@ -87,8 +87,6 @@ models:
       retry_after_max: 30s
 limits:
   max_turns: 25
-approval:
-  default: auto
 paths:
   project_root_only: false
 `)
@@ -759,8 +757,6 @@ models:
       retry_after_max: 30s
 limits:
   max_turns: 25
-approval:
-  default: auto
 `)
 
 	if err := os.Chdir(projectDir); err != nil {
@@ -812,8 +808,6 @@ models:
       retry_after_max: 30s
 limits:
   max_turns: 25
-approval:
-  default: auto
 search:
   backend: searxng
   searxng_url: http://localhost:8888

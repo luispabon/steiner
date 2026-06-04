@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -17,8 +16,7 @@ type SpecializedToolDeps struct {
 }
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
-// The tool name matches the agent type string, uses ApprovalModeAuto,
-// and accepts only a "task" parameter.
+// The tool name matches the agent type string and accepts only a "task" parameter.
 func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.ToolDef {
 	return tool.ToolDef{
 		Name:        string(agentType),
@@ -33,8 +31,7 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 			},
 			"required": []any{"task"},
 		},
-		Handler:  newSpecializedHandler(agentType, deps),
-		Approval: config.ApprovalModeAuto,
+		Handler: newSpecializedHandler(agentType, deps),
 	}
 }
 
@@ -102,6 +99,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			ResolvedModel:        resolvedModel,
 			MaxTokens:            deps.MaxTokens,
 			StreamingPreferred:   deps.StreamingPreferred,
+			Sandbox:              deps.Sandbox,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

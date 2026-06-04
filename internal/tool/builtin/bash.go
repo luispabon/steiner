@@ -2,11 +2,9 @@ package builtin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/deepnoodle-ai/dive/toolkit"
+	"time"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -19,7 +17,16 @@ type BashResult struct {
 	Message   string `json:"message,omitempty"`
 }
 
-// NewBashTool creates a ToolDef for the bash tool backed by Dive's BashTool.
+// BashExitCode returns the exit code. Implements tool.BashDenialResult.
+func (r *BashResult) BashExitCode() int { return r.ExitCode }
+
+// BashOutput returns the combined output. Implements tool.BashDenialResult.
+func (r *BashResult) BashOutput() string { return r.Output }
+
+// AppendOutput appends s to the output. Implements tool.BashDenialResult.
+func (r *BashResult) AppendOutput(s string) { r.Output += s }
+
+// NewBashTool creates a ToolDef for the bash tool backed by a local BashSession.
 func NewBashTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "bash",
@@ -41,40 +48,43 @@ func NewBashTool(env Env) tool.ToolDef {
 				}
 			}
 
-			bashTool := toolkit.NewBashTool(toolkit.BashToolOptions{
-				MaxOutputLength: in.MaxOutputChars,
-			})
-
-			diveResult, err := bashTool.Call(ctx, &toolkit.BashInput{
-				Command:          in.Command,
-				Timeout:          in.TimeoutSeconds * 1000,
-				WorkingDirectory: cwd,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("bash: %w", err)
+			// Build the command string, optionally prefixed with a cd.
+			command := in.Command
+			if cwd != "" {
+				command = fmt.Sprintf("cd %q && %s", cwd, in.Command)
 			}
 
-			text := ""
-			if len(diveResult.Content) > 0 {
-				text = diveResult.Content[0].Text
-			}
+			// Apply timeout via context.
+			timeout := time.Duration(in.TimeoutSeconds) * time.Second
+			execCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
 
-			var diveOutput struct {
-				Stdout     string `json:"stdout"`
-				Stderr     string `json:"stderr"`
-				ReturnCode int    `json:"return_code"`
+			session := NewBashSession()
+			// Skip the sandbox CommandWrapper when the context signals an approved
+			// bypass (user allowed a previously-denied sandbox violation).
+			if ctx.Value(tool.BashUnsandboxedKey{}) != true {
+				session.CommandWrapper = env.CommandWrapper
 			}
-			if jsonErr := json.Unmarshal([]byte(text), &diveOutput); jsonErr != nil {
+			if err := session.Start(); err != nil {
+				return nil, fmt.Errorf("bash: start session: %w", err)
+			}
+			defer func() { _ = session.Close() }()
+
+			stdout, stderr, exitCode, execErr := session.Execute(execCtx, command)
+			if execErr != nil {
+				// Timeout or session error — return as a result rather than a Go error
+				// so the model receives the failure information.
 				return &BashResult{
 					ExitCode: -1,
-					Output:   text,
-					Message:  text,
+					Output:   execErr.Error(),
+					Message:  execErr.Error(),
 				}, nil
 			}
 
+			// Combine stdout and stderr into a single output string.
 			var output strings.Builder
-			stdout := strings.TrimSuffix(diveOutput.Stdout, "\n")
-			stderr := strings.TrimSpace(diveOutput.Stderr)
+			stdout = strings.TrimSuffix(stdout, "\n")
+			stderr = strings.TrimSpace(stderr)
 			if stdout != "" {
 				output.WriteString(stdout)
 			}
@@ -86,18 +96,27 @@ func NewBashTool(env Env) tool.ToolDef {
 				output.WriteString(stderr)
 			}
 
-			truncated := false
+			// Detect truncation: maybeTruncate appends "[output truncated]" when hit.
+			truncated := strings.Contains(stdout, "[output truncated]") ||
+				strings.Contains(stderr, "[output truncated]")
+
 			message := ""
-			if strings.HasSuffix(diveOutput.Stdout, "\n... (output truncated)") ||
-				strings.HasSuffix(diveOutput.Stderr, "\n... (output truncated)") {
+			if truncated {
+				message = fmt.Sprintf("output truncated at %d characters", in.MaxOutputChars)
+			}
+
+			// Apply the caller-specified max_output_chars cap on the combined output.
+			combined := output.String()
+			if in.MaxOutputChars > 0 && len(combined) > in.MaxOutputChars {
+				combined = combined[:in.MaxOutputChars]
 				truncated = true
 				message = fmt.Sprintf("output truncated at %d characters", in.MaxOutputChars)
 			}
 
 			return &BashResult{
-				ExitCode:  diveOutput.ReturnCode,
+				ExitCode:  exitCode,
 				Truncated: truncated,
-				Output:    output.String(),
+				Output:    combined,
 				Message:   message,
 			}, nil
 		},

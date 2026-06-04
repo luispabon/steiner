@@ -46,8 +46,8 @@ func defaultConfig() Config {
 			},
 			ToolOutputMaxBytes: 65536,
 		},
-		Approval: ApprovalConfig{
-			Default: ApprovalModeAuto,
+		Sandbox: SandboxConfig{
+			Enabled: true,
 		},
 		SubAgent: SubAgentConfig{
 			Enabled:      true,
