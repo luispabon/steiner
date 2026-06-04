@@ -8,6 +8,18 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// PathPolicyError is returned when a path is rejected by policy.
+type PathPolicyError struct {
+	Path       string
+	Reason     string
+	Promptable bool // true when the violation is "outside project root" (can be overridden by user)
+}
+
+// Error implements the error interface.
+func (e *PathPolicyError) Error() string {
+	return fmt.Sprintf("tool path policy denied: %s", e.Reason)
+}
+
 // PathPolicy constrains tool paths relative to the active project root.
 type PathPolicy struct {
 	root            string
@@ -39,6 +51,17 @@ func NewPathPolicy(root string, cfg config.PathsConfig) PathPolicy {
 // Root returns the normalized policy root path.
 func (p PathPolicy) Root() string {
 	return p.root
+}
+
+// WithoutRoot returns a copy of p with the root and projectRootOnly constraints
+// cleared. Used when the user has approved access to a path outside the project root.
+func (p PathPolicy) WithoutRoot() PathPolicy {
+	return PathPolicy{
+		root:            "",
+		projectRootOnly: false,
+		blockedPaths:    p.blockedPaths,
+		writablePaths:   p.writablePaths,
+	}
 }
 
 // ResolveCWD resolves a working directory against the policy root.
@@ -73,11 +96,19 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return fmt.Errorf("path is required")
 	}
 	if p.root != "" && !pathWithinRoot(p.root, path) {
-		return policyError("path %q is outside project root %q", path, p.root)
+		return &PathPolicyError{
+			Path:       path,
+			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),
+			Promptable: true,
+		}
 	}
 	for _, blocked := range p.blockedPaths {
 		if pathWithinRoot(blocked, path) {
-			return policyError("path %q is blocked by policy", path)
+			return &PathPolicyError{
+				Path:       path,
+				Reason:     fmt.Sprintf("path %q is blocked by policy", path),
+				Promptable: false,
+			}
 		}
 	}
 	if writable && len(p.writablePaths) > 0 {
@@ -86,7 +117,11 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 				return nil
 			}
 		}
-		return policyError("path %q is not in the writable allowlist", path)
+		return &PathPolicyError{
+			Path:       path,
+			Reason:     fmt.Sprintf("path %q is not in the writable allowlist", path),
+			Promptable: false,
+		}
 	}
 	return nil
 }
@@ -206,10 +241,6 @@ func pathWithinRoot(root, path string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
-
-func policyError(format string, args ...any) error {
-	return fmt.Errorf("tool path policy denied: "+format, args...)
 }
 
 func stringInput(value any) string {

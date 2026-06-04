@@ -17,6 +17,15 @@ type BashResult struct {
 	Message   string `json:"message,omitempty"`
 }
 
+// BashExitCode returns the exit code. Implements tool.BashDenialResult.
+func (r *BashResult) BashExitCode() int { return r.ExitCode }
+
+// BashOutput returns the combined output. Implements tool.BashDenialResult.
+func (r *BashResult) BashOutput() string { return r.Output }
+
+// AppendOutput appends s to the output. Implements tool.BashDenialResult.
+func (r *BashResult) AppendOutput(s string) { r.Output += s }
+
 // NewBashTool creates a ToolDef for the bash tool backed by a local BashSession.
 func NewBashTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
@@ -51,7 +60,11 @@ func NewBashTool(env Env) tool.ToolDef {
 			defer cancel()
 
 			session := NewBashSession()
-			session.CommandWrapper = env.CommandWrapper
+			// Skip the sandbox CommandWrapper when the context signals an approved
+			// bypass (user allowed a previously-denied sandbox violation).
+			if ctx.Value(tool.BashUnsandboxedKey{}) != true {
+				session.CommandWrapper = env.CommandWrapper
+			}
 			if err := session.Start(); err != nil {
 				return nil, fmt.Errorf("bash: start session: %w", err)
 			}
