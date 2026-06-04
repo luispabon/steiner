@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
@@ -30,7 +32,7 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, erro
 	if cmd.Flags().Changed("caveman") {
 		cavemanOverride = &flags.caveman
 	}
-	return config.Load(config.LoadOptions{
+	cfg, err := config.Load(config.LoadOptions{
 		CLI: config.CLIOverrides{
 			ConfigPath:  flags.configPath,
 			Model:       flags.model,
@@ -38,6 +40,13 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, erro
 			CavemanMode: cavemanOverride,
 		},
 	})
+	if err != nil {
+		return config.Config{}, err
+	}
+	if flags.unsafe {
+		cfg.Sandbox.Enabled = false
+	}
+	return cfg, nil
 }
 
 func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (func(provider.ResolvedModel) (provider.Provider, error), error) {
@@ -119,16 +128,21 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 	return ""
 }
 
-func buildRuntimeRegistry(cfg config.Config) (string, *tool.Registry, error) {
+func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox) (string, *tool.Registry, error) {
 	workDir, err := os.Getwd()
 	if err != nil {
 		return "", nil, err
 	}
-	registry, err := runtimeRegistry(cfg, workDir)
+	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, sb)
 	if err != nil {
 		return "", nil, err
 	}
 	return workDir, registry, nil
+}
+
+// buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) (*tool.Registry, error) {
+	return runtimeRegistryWithSink(cfg, workDir, nil, false, sb)
 }
 
 func discoverRuntimeSkills(ctx context.Context) (string, fs.FS, []string, map[string]string, map[string]string, error) {
@@ -177,4 +191,21 @@ func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() e
 	sharedInput := bufio.NewReader(stdin)
 	approvalInput, approvalClose := openApprovalInput(stdin)
 	return sharedInput, approvalInput, approvalClose
+}
+
+// buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
+// when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns an
+// error when bwrap is required but not found on PATH.
+func buildRuntimeSandbox(cfg config.Config, workDir, userHome string) (*sandbox.Sandbox, error) {
+	if !cfg.Sandbox.Enabled {
+		return nil, nil
+	}
+	if err := sandbox.PrereqCheck(); err != nil {
+		return nil, err
+	}
+	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, workDir, userHome)
+	if err := s.EnsureHome(); err != nil {
+		return nil, fmt.Errorf("sandbox setup: %w", err)
+	}
+	return s, nil
 }

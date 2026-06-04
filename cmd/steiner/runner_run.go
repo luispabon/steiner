@@ -149,9 +149,13 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 
 func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, steerCh <-chan string) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
+	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
+	if r.runtime.sandbox != nil {
+		executor = executor.WithSandbox(r.runtime.sandbox)
+	}
 	return agent.RunRequest{
 		Provider:      setup.provider,
-		Executor:      tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir),
+		Executor:      executor,
 		Tools:         activeRegistry.ToProviderSpecs(),
 		Prompt:        setup.assembly,
 		ModelBudget:   setup.modelBudget,

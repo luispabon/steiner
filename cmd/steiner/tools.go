@@ -1,8 +1,11 @@
 package main
 
 import (
+	"os/exec"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
@@ -10,27 +13,33 @@ import (
 // coreToolDefinitions builds the core built-in tool definitions.
 // displaySink, if non-nil, is used by the display_file tool to emit display events;
 // interactive should be true only when a TUI is active.
-func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool) []tool.ToolDef {
+// sb, if non-nil, provides a CommandWrapper for the bash tool.
+func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, sb *sandbox.Sandbox) []tool.ToolDef {
 	pp := tool.NewPathPolicy(workDir, cfg.Paths)
 	excluder := tool.NewPathExcluder(cfg.Paths.ExcludePaths, cfg.Paths.ExcludePatterns)
+	var commandWrapper func(*exec.Cmd) *exec.Cmd
+	if sb != nil {
+		commandWrapper = sb.WrapCommand
+	}
 	env := builtin.Env{
-		WorkDir:     workDir,
-		PathPolicy:  &pp,
-		Excluder:    &excluder,
-		EventSink:   displaySink,
-		Interactive: interactive,
+		WorkDir:        workDir,
+		PathPolicy:     &pp,
+		Excluder:       &excluder,
+		EventSink:      displaySink,
+		Interactive:    interactive,
+		CommandWrapper: commandWrapper,
 	}
 	return builtin.Builtins(env)
 }
 
 func runtimeRegistry(cfg config.Config, workDir string) (*tool.Registry, error) {
-	return runtimeRegistryWithSink(cfg, workDir, nil, false)
+	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil)
 }
 
 // runtimeRegistryWithSink builds a tool registry with an optional event sink and
 // interactive flag, used in interactive mode to wire the display_file tool.
-func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool) (*tool.Registry, error) {
-	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive)...)
+func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, sb *sandbox.Sandbox) (*tool.Registry, error) {
+	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, sb)...)
 	for _, def := range tool.NewRegistryFromConfig(cfg).Definitions() {
 		registry.Register(def)
 	}
