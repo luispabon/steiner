@@ -192,21 +192,21 @@ permissions:
 
 ## `host_mounts`
 
-Additional host paths to bind-mount read-only into the sandbox.
+Additional host paths to bind-mount into the sandbox. Use `mode: rw` to grant writable access to paths outside the workspace (all host paths are already readable through the root bind).
 
 Each entry has:
 
 | Field  | Type   | Description |
 |--------|--------|-------------|
 | `path` | string | Host path to mount (supports `~` expansion). |
-| `mode` | string | Mount mode: `ro` (read-only, default) or `rw`. |
+| `mode` | string | Mount mode: `rw` for writable access (host is already read-only by default) or `ro`. |
 
 ```yaml
 host_mounts:
   - path: ~/.kube
-    mode: ro
+    mode: rw
   - path: /opt/tools
-    mode: ro
+    mode: rw
 ```
 
 ---
@@ -701,9 +701,9 @@ permissions:
 
 host_mounts:
   - path: ~/.kube
-    mode: ro
+    mode: rw
   - path: /opt/tools
-    mode: ro
+    mode: rw
 
 logging:
   enabled: true

@@ -12,7 +12,7 @@ Most coding agents are designed for cloud models with large context windows. Ste
 
 The core bet is that delegation is a better context strategy than summarisation. When a sub-agent handles exploration or code changes, the parent conversation never sees the intermediate turns — only the result. Combined with per-source byte budgets and late-stage compaction, this keeps the working context lean across long sessions.
 
-By default, bash and subprocess tools run inside a sandbox that isolates model-driven code from host credentials and files outside the workspace. The sandbox protects against accidental exfiltration of SSH keys, API tokens, and other secrets. Users can temporarily allow access to specific paths or disable sandboxing entirely with the `--unsafe` flag.
+By default, bash and subprocess tools run inside a sandbox that prevents writes outside the workspace and filters credential-bearing environment variables. Users can temporarily allow writable access to specific paths or disable sandboxing entirely with the `--unsafe` flag.
 
 The provider/model split means you can point steiner at Ollama, LM Studio, OpenRouter, or a native Anthropic or OpenAI endpoint with the same config shape and the same tool behavior.
 
@@ -130,9 +130,9 @@ These tools are always available to the model:
 
 ## Sandboxing
 
-By default, `bash` and subprocess tools run inside a Linux sandbox (using `bubblewrap`) that restricts access to files outside the workspace and protects host credentials. The sandbox mounts the workspace, a sandbox-specific home directory, and common developer tools (SSH, Git, AWS credentials, Kubernetes config, etc.), but prevents access to files outside the project boundary.
+By default, `bash` and subprocess tools run inside a Linux sandbox (using `bubblewrap`) that restricts writes to files outside the workspace and filters credential-bearing environment variables. The sandbox bind-mounts the entire host filesystem read-only (`--ro-bind / /`), with writable overlays for the workspace and a sandbox state directory (`.steiner/home/`). All installed toolchains, system libraries, and user config files are accessible read-only without per-path configuration.
 
-When a sandboxed tool attempts to access a file outside the workspace, the user is prompted to either grant temporary access, use the `--unsafe` flag to disable sandboxing, or cancel the operation. This protects against accidental exfiltration of API keys, SSH keys, and other secrets.
+When a sandboxed tool attempts to write to a file outside the workspace, the user is prompted to either grant temporary access, use the `--unsafe` flag to disable sandboxing, or cancel the operation. This protects against accidental workspace-external writes and environment variable leakage. Reading host files (including on-disk credentials) is not restricted — sandboxing is not a confidentiality boundary.
 
 **Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows).
 
