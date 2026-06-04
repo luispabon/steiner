@@ -29,6 +29,11 @@ func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []
 	}
 }
 
+// Enabled reports whether sandboxing is active.
+func (s *Sandbox) Enabled() bool {
+	return s.cfg.Enabled
+}
+
 // WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.
 func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 	if !s.cfg.Enabled {

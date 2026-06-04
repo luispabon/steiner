@@ -90,7 +90,7 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit)
+	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, e.sandbox)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -147,7 +147,7 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int) ([]byte, []byte, ExecutionMetadata, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, sandbox SandboxWrapper) ([]byte, []byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
 		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
@@ -164,6 +164,9 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	cmd := exec.CommandContext(ctx, def.ExecPath, args...)
 	if workDir != "" {
 		cmd.Dir = workDir
+	}
+	if sandbox != nil {
+		cmd = sandbox.WrapCommand(cmd)
 	}
 	cmd.Stdin = bytes.NewReader(payload)
 
