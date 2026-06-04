@@ -13,7 +13,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
 
@@ -44,7 +44,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
 		stdout, stderr, code, err := s.Execute(ctx, "echo toout ; echo toerr >&2")
@@ -67,7 +67,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
 
@@ -99,7 +99,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
 		commands := []string{
@@ -125,7 +125,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
 		_, _, code, err := s.Execute(ctx, "false")
@@ -151,7 +151,7 @@ func TestBashSession(t *testing.T) {
 		if err := s.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		if !wrapperCalled {
 			t.Error("CommandWrapper was not called during Start")

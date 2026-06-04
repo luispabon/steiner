@@ -55,7 +55,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			if err := session.Start(); err != nil {
 				return nil, fmt.Errorf("bash: start session: %w", err)
 			}
-			defer session.Close()
+			defer func() { _ = session.Close() }()
 
 			stdout, stderr, exitCode, execErr := session.Execute(execCtx, command)
 			if execErr != nil {

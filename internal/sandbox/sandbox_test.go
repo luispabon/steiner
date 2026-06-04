@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"os/exec"
 	"testing"
 
@@ -11,7 +12,7 @@ func TestWrapCommand_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
 	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/home/user")
 
-	original := exec.Command("echo", "hello")
+	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
 
 	if wrapped != original {
@@ -29,7 +30,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	_, err := exec.LookPath("bwrap")
 	if err != nil {
 		// bwrap not installed — WrapCommand should return original.
-		original := exec.Command("echo", "hello")
+		original := exec.CommandContext(context.Background(), "echo", "hello")
 		wrapped := s.WrapCommand(original)
 		if wrapped != original {
 			t.Error("expected WrapCommand to return original when bwrap is not found")
@@ -38,7 +39,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	}
 
 	// bwrap is installed — verify wrapping produces correct Args structure.
-	original := exec.Command("/usr/bin/env", "FOO=bar")
+	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 	wrapped := s.WrapCommand(original)
 
 	if wrapped == original {
@@ -89,7 +90,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: true}
 	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
 
-	original := exec.Command("ls")
+	original := exec.CommandContext(context.Background(), "ls")
 	original.Dir = "/tmp"
 
 	wrapped := s.WrapCommand(original)
