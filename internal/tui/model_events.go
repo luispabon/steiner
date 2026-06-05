@@ -69,9 +69,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.interruptPending = false
+		m.approval = approvalState{}
 		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
+		m.interruptPending = false
+		m.approval = approvalState{}
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
 		m.sidebar.currentTurn = payload.Turn
@@ -125,17 +128,21 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.ApprovalEvent:
 		switch event.Type {
 		case output.EventTypeApprovalRequested:
-			m.approval = approvalState{
-				active:         true,
-				tool:           payload.Tool,
-				mode:           payload.Mode,
-				preview:        payload.Preview,
-				selectedAction: 0,
+			// Guard: do not open a new approval tray if one is already active
+			// (prevents visual duplicate when content buffer pill is already present).
+			if !m.approval.active {
+				m.approval = approvalState{
+					active:         true,
+					tool:           payload.Tool,
+					mode:           payload.Mode,
+					preview:        payload.Preview,
+					selectedAction: 0,
+				}
+				m.status.mode = "approval"
+				m.activity = m.activity.static("approval required", approvalDetail(payload))
+				m.input.Reset()
+				m.input.Blur()
 			}
-			m.status.mode = "approval"
-			m.activity = m.activity.static("approval required", approvalDetail(payload))
-			m.input.Reset()
-			m.input.Blur()
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
 			m.status.mode = "running"

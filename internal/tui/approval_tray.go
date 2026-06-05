@@ -37,13 +37,16 @@ func (m Model) renderApprovalTray(width int) string {
 		return ""
 	}
 
+	// Account for border (1 char on left + 1 on right) when setting style width.
+	// The border adds 2 to the rendered width, so subtract it here.
+	styleWidth := max(1, width-2)
 	trayStyle := lipgloss.NewStyle().
-		Width(width).
+		Width(styleWidth).
 		Padding(0, 1).
 		Background(lipgloss.Color(theme.BgElev2)).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(m.styles.AccentColor)
-	innerWidth := max(1, width-4)
+	innerWidth := max(1, styleWidth-4)
 
 	headerParts := []string{
 		m.styles.AccentBg.Render(" approval "),

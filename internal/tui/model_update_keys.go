@@ -246,6 +246,8 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	case tea.KeyEsc:
 		return m.executeApprovalDecision(ApprovalDecisionDeny)
+	case tea.KeyCtrlC, tea.KeyCtrlD:
+		return m.executeInterruptAction(), nil
 	default:
 		return m, nil
 	}
