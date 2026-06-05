@@ -44,6 +44,9 @@ func (m Model) recentWheelMouseInput() bool {
 
 func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	switch {
+	case m.workflowHandoff.IsOpen():
+		next, cmd := m.handleWorkflowHandoffModalKey(msg)
+		return true, next, cmd
 	case m.exitModal.IsOpen():
 		next, cmd := m.handleExitModalKey(msg)
 		return true, next, cmd

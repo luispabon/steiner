@@ -37,6 +37,18 @@ func (c *testController) countSubmitPrompt() int {
 	return c.countByType(interactive.SubmitPrompt{})
 }
 
+func (c *testController) submitPrompts() []interactive.SubmitPrompt {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SubmitPrompt
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SubmitPrompt); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func (c *testController) countRequestContextReport() int {
 	return c.countByType(interactive.RequestContextReport{})
 }
@@ -63,6 +75,18 @@ func (c *testController) submitApprovals() []interactive.SubmitApproval {
 	var result []interactive.SubmitApproval
 	for _, a := range c.actions {
 		if v, ok := a.(interactive.SubmitApproval); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func (c *testController) submitWorkflowHandoffs() []interactive.SubmitWorkflowHandoff {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SubmitWorkflowHandoff
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SubmitWorkflowHandoff); ok {
 			result = append(result, v)
 		}
 	}
@@ -137,6 +161,10 @@ func (c *testController) countByType(target interactive.Action) int {
 			}
 		case interactive.SubmitApproval:
 			if _, ok := a.(interactive.SubmitApproval); ok {
+				count++
+			}
+		case interactive.SubmitWorkflowHandoff:
+			if _, ok := a.(interactive.SubmitWorkflowHandoff); ok {
 				count++
 			}
 		}
@@ -2539,4 +2567,97 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 			t.Fatalf("input value = %q, want /review  (unchanged)", got)
 		}
 	})
+}
+
+func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now")})
+
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to open")
+	}
+	if got := m.workflowHandoff.acceptLabel(); got != "Accept: Clear + Implement" {
+		t.Fatalf("accept label = %q, want %q", got, "Accept: Clear + Implement")
+	}
+	if len(ctrl.submitWorkflowHandoffs()) != 0 {
+		t.Fatalf("handoff decisions = %d, want 0 before input", len(ctrl.submitWorkflowHandoffs()))
+	}
+}
+
+func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.content.AppendLine("existing transcript")
+	m.syncViewport()
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to close on Esc")
+	}
+	decisions := ctrl.submitWorkflowHandoffs()
+	if len(decisions) != 1 || decisions[0].Decision != "dismiss" {
+		t.Fatalf("handoff decisions = %#v, want one dismiss", decisions)
+	}
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "existing transcript") {
+		t.Fatalf("content = %q, want transcript retained", got)
+	}
+	if got := ctrl.submitPrompts(); len(got) != 0 {
+		t.Fatalf("submit prompts = %#v, want none", got)
+	}
+}
+
+func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.content.AppendLine("old transcript")
+	m.syncViewport()
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to close on accept")
+	}
+	decisions := ctrl.submitWorkflowHandoffs()
+	if len(decisions) != 1 || decisions[0].Decision != "accept" {
+		t.Fatalf("handoff decisions = %#v, want one accept", decisions)
+	}
+	if got := m.content.String(m.viewport.Width); strings.Contains(got, "old transcript") {
+		t.Fatalf("content = %q, want cleared transcript", got)
+	}
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+
+	prompts := ctrl.submitPrompts()
+	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-3" {
+		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
+	}
+	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "/review .steiner/plans/step-3") {
+		t.Fatalf("content = %q, want launched workflow command", got)
+	}
+	if !m.enabledSkills["review"] {
+		t.Fatal("expected review skill enabled after launch")
+	}
 }

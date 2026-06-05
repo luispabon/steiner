@@ -147,6 +147,8 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width
 	m.slashOverlay.height = m.height
+
+	m.workflowHandoff = workflowHandoffModalState{}
 }
 
 func buildDefaultPaletteItems() []paletteItem {

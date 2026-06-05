@@ -113,6 +113,8 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	switch {
+	case m.workflowHandoff.IsOpen():
+		return composeCenteredOverlay(base, m.renderWorkflowHandoffModal(), m.width, m.height)
 	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
 	case m.exitModal.IsOpen():
