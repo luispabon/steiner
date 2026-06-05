@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -164,29 +165,49 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	return sb.String()
 }
 
-func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment) string {
+func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width int) string {
 	if segment.thinkData == nil {
 		return ""
 	}
 	td := segment.thinkData
 	style := b.thinkingTextStyle()
-	var result string
+	bar := style.Render("▎")
+	contentWidth := max(1, width-2)
+
 	if td.collapsed {
-		runes := []rune(td.preview)
-		if len(runes) > 60 {
-			runes = runes[:60]
-		}
-		result = style.Render("▸ Thinking · "+string(runes)+"…") + "\n"
-	} else {
-		var sb strings.Builder
-		sb.WriteString(style.Render("▾ Thinking") + "\n")
-		bar := style.Render("▎")
+		// Derive 3-line preview from body at render time.
+		allLines := []string{}
 		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
-			sb.WriteString(bar + " " + style.Render(line) + "\n")
+			wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
+			for _, wl := range strings.Split(wrapped, "\n") {
+				allLines = append(allLines, wl)
+			}
 		}
-		result = sb.String()
+		truncated := len(allLines) > 3
+		if truncated {
+			allLines = allLines[:3]
+		}
+		var sb strings.Builder
+		sb.WriteString(style.Render("▸ Thinking") + "\n")
+		for _, wl := range allLines {
+			sb.WriteString(bar + " " + style.Render(wl) + "\n")
+		}
+		if truncated {
+			sb.WriteString(bar + " " + style.Render("…") + "\n")
+		}
+		return sb.String()
 	}
-	return result
+
+	// Expanded state — wrap body lines.
+	var sb strings.Builder
+	sb.WriteString(style.Render("▾ Thinking") + "\n")
+	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+		wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
+		for _, wl := range strings.Split(wrapped, "\n") {
+			sb.WriteString(bar + " " + style.Render(wl) + "\n")
+		}
+	}
+	return sb.String()
 }
 
 func (b *contentBuffer) thinkingTextStyle() lipgloss.Style {
