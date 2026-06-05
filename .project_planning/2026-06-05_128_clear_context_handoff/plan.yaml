@@ -1,0 +1,150 @@
+steps:
+  - id: step-1
+    title: Add workflow_handoff tool contract and validation
+    scope: >
+      Add the `workflow_handoff` built-in tool schema and handler contract.
+      Validate `next`, `target`, and optional `message` according to the approved
+      initial scope, but do not wire accepted handoffs into TUI execution yet.
+      Invalid input must not show a modal.
+    files:
+      - internal/tool/builtin/
+      - internal/tool/
+      - internal/output/
+      - README.md
+      - docs/SUBAGENT_DELEGATION.md
+    constraints:
+      - Tool name is exactly `workflow_handoff`.
+      - Input fields are `next`, `target`, and optional `message`.
+      - Do not add `clear_context`; accepting always clears context.
+      - Initial `next` values are only `implement` and `review`.
+      - Initial `target` values must be safe relative `.steiner/plans/...` directories.
+      - Require target directory to exist with `overview.md` and `plan.yaml`.
+      - Keep the tool out of sub-agent allowlists unless an existing parent registry path requires a separate exclusion.
+      - Update README built-in tool documentation because this changes `internal/tool`.
+      - Update sub-agent allowlist docs only to clarify that `workflow_handoff` is parent-interactive and not sub-agent exposed.
+    acceptance:
+      - `workflow_handoff` appears in the parent built-in tool registry.
+      - Valid input can create a pending handoff decision request.
+      - Invalid `next`, unsafe `target`, missing directory, or missing artifacts are rejected before any UI offer.
+      - Optional `message` is trimmed and bounded.
+      - Non-interactive or unsupported decision handling returns a bounded unsupported/declined-style result instead of hanging.
+    verification:
+      - go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'
+      - go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'
+
+  - id: step-2
+    title: Add interactive handoff decision coordination
+    scope: >
+      Add the interactive/session coordination needed for a `workflow_handoff`
+      tool call to request an immediate user decision and block until accept or
+      dismiss. Dismiss must return a minimal declined tool result. Accept must
+      signal a transition that terminates the current run cleanly without
+      appending a normal tool result.
+    files:
+      - internal/interactive/
+      - internal/agent/
+      - cmd/steiner/
+      - internal/tool/
+      - internal/output/
+    constraints:
+      - Model acceptance must not be treated as tool execution authority; the user decision controls the transition.
+      - Accepted handoff must not leave a retained dangling tool call/result after context is cleared.
+      - Dismissed handoff returns only a minimal result such as `{"status":"declined"}`.
+      - Preserve existing approval and interrupt semantics.
+      - Avoid broad provider changes unless required for clean tool-call termination.
+    acceptance:
+      - A tool call can block on an interactive accept/dismiss decision without deadlocking.
+      - Dismiss allows the current model turn to continue with a declined result.
+      - Accept causes the current run to end cleanly and exposes enough information for the TUI/controller to clear and start the next workflow.
+      - Non-TUI execution cannot block indefinitely waiting for a handoff decision.
+    verification:
+      - go test ./internal/interactive -run 'Test.*Handoff|Test.*Approval|Test.*SubmitPrompt|Test.*ClearConversation'
+      - go test ./internal/agent -run 'Test.*Tool|Test.*Turn'
+
+  - id: step-3
+    title: Implement the TUI accept/dismiss handoff modal
+    scope: >
+      Add a compact TUI modal for pending workflow handoffs. Show it immediately
+      when the validated tool call requests a decision. On accept, clear the
+      current conversation and submit the next built-in skill invocation using
+      `next` and `target`. On dismiss, close the modal and return the declined
+      decision.
+    files:
+      - internal/tui/
+      - internal/interactive/
+    constraints:
+      - Modal actions are only accept and dismiss.
+      - Accept label is `Accept: Clear + Implement` or `Accept: Clear + Review`.
+      - Dismiss label is `Dismiss`; `Esc` should dismiss.
+      - No keep-context action.
+      - Reuse existing `clearConversationState()` behavior for accepted handoffs.
+      - Keep existing `/implement` and `/review` plan picker behavior unchanged.
+      - Submit the next workflow as the equivalent of `/implement <target>` or `/review <target>`.
+    acceptance:
+      - A valid `workflow_handoff` request opens the modal immediately in interactive TUI.
+      - Accept clears visible conversation/context state and submits the next workflow with the target.
+      - Dismiss returns a declined decision and leaves the transcript/session intact.
+      - Existing exit modal, approval UI, slash overlay, and plan picker interactions still behave as before.
+    verification:
+      - go test ./internal/tui -run 'Test.*WorkflowHandoff|Test.*PlanPicker|Test.*Clear|Test.*Slash'
+      - go test ./internal/interactive -run 'Test.*Handoff'
+
+  - id: step-4
+    title: Update built-in coding-loop skill handoff wording
+    scope: >
+      Update Steiner's built-in `plan` and `implement` skill instructions so
+      they keep their textual fallback handoff and then call `workflow_handoff`
+      with the correct built-in workflow names and planning target. Leave
+      `review` without a workflow handoff call for this issue.
+    files:
+      - skills/plan/SKILL.md
+      - skills/implement/SKILL.md
+      - skills/review/SKILL.md
+    constraints:
+      - `plan` must call `workflow_handoff` with `next: implement` and `target: .steiner/plans/FEATURE`.
+      - `implement` must call `workflow_handoff` with `next: review` and the same `.steiner/plans/FEATURE` target passed to implementation.
+      - Existing exact textual fallback handoff sentences remain present.
+      - Wording must not imply the next workflow has already started.
+      - Do not add a `workflow_handoff` call to `review`.
+    acceptance:
+      - Plan and implement skills instruct models to use `workflow_handoff` after their fallback handoff sentence.
+      - Skill wording explains that user acceptance clears context and starts the next workflow.
+      - Skill wording explains that dismissal returns a declined result and the skill should not assume continuation.
+    verification:
+      - go test ./internal/skill -run Test
+      - go test ./cmd/steiner -run 'Test.*Skill|Test.*Runtime'
+
+  - id: step-5
+    title: Run full verification and fix regressions
+    scope: >
+      Run formatting, targeted tests, broader tests, and the repo-mandated final
+      check. Fix regressions caused by the implementation without widening
+      scope.
+    files:
+      - internal/tool/
+      - internal/tool/builtin/
+      - internal/output/
+      - internal/interactive/
+      - internal/tui/
+      - internal/agent/
+      - cmd/steiner/
+      - skills/
+      - README.md
+      - docs/SUBAGENT_DELEGATION.md
+    constraints:
+      - Run `gofmt -w <files>` and `goimports -w <files>` after Go edits.
+      - Run targeted package tests before broad checks.
+      - Run `make check` before finalizing.
+      - If external tools required by `make check` are unavailable, report the exact failing command and reason.
+      - Do not fix unrelated pre-existing warnings unless they block verification and the fix is necessary to complete this task.
+    acceptance:
+      - Relevant targeted tests pass.
+      - Broad Go tests pass or failures are explained as unrelated/pre-existing with evidence.
+      - `make check` passes, or any inability to run it is reported with exact command and failure reason.
+      - Final implementation preserves the approved `workflow_handoff` lifecycle.
+    verification:
+      - gofmt -w <changed-go-files>
+      - goimports -w <changed-go-files>
+      - go test ./internal/tool/... ./internal/interactive ./internal/tui ./internal/agent ./cmd/steiner
+      - go test ./...
+      - make check
