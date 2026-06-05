@@ -229,8 +229,62 @@ func TestWorkflowHandoffResponderAcceptsDecision(t *testing.T) {
 	if !got.response.Accepted {
 		t.Fatal("Accepted = false, want true")
 	}
-	if len(events) != 1 || events[0].Type != output.EventTypeWorkflowHandoffAccepted {
-		t.Fatalf("events = %#v, want accepted handoff event", events)
+	if len(events) != 2 || events[0].Type != output.EventTypeWorkflowHandoffRequested || events[1].Type != output.EventTypeWorkflowHandoffAccepted {
+		t.Fatalf("events = %#v, want requested then accepted handoff events", events)
+	}
+}
+
+func TestWorkflowHandoffResponderRegistersPendingBeforeRequestedEvent(t *testing.T) {
+	coordinator := &WorkflowHandoffCoordinator{}
+	var events []output.Event
+	pendingObserved := make(chan bool, 1)
+	responder := newWorkflowHandoffResponder(coordinator, output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+		if event.Type == output.EventTypeWorkflowHandoffRequested {
+			pendingObserved <- coordinator.HasPending()
+			coordinator.Submit(SubmitWorkflowHandoff{Decision: "accept"})
+		}
+	}))
+
+	done := make(chan struct {
+		response tool.WorkflowHandoffResponse
+		err      error
+	}, 1)
+	go func() {
+		response, err := responder.RequestWorkflowHandoff(context.Background(), tool.WorkflowHandoffRequest{
+			Next:    "implement",
+			Target:  ".steiner/plans/step-2",
+			Message: "ready",
+		})
+		done <- struct {
+			response tool.WorkflowHandoffResponse
+			err      error
+		}{response: response, err: err}
+	}()
+
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("RequestWorkflowHandoff() error = %v", got.err)
+		}
+		if !got.response.Accepted {
+			t.Fatal("Accepted = false, want true")
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("RequestWorkflowHandoff() timed out after synchronous requested-event submission")
+	}
+	if ok := <-pendingObserved; !ok {
+		t.Fatal("workflow handoff request not registered before requested event emission")
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2", len(events))
+	}
+	if events[0].Type != output.EventTypeWorkflowHandoffRequested {
+		t.Fatalf("events[0].Type = %q, want %q", events[0].Type, output.EventTypeWorkflowHandoffRequested)
+	}
+	if events[1].Type != output.EventTypeWorkflowHandoffAccepted {
+		t.Fatalf("events[1].Type = %q, want %q", events[1].Type, output.EventTypeWorkflowHandoffAccepted)
 	}
 }
 
@@ -266,8 +320,8 @@ func TestWorkflowHandoffResponderDeclinesDecision(t *testing.T) {
 	if got.response.Accepted {
 		t.Fatal("Accepted = true, want false")
 	}
-	if len(events) != 1 || events[0].Type != output.EventTypeWorkflowHandoffDeclined {
-		t.Fatalf("events = %#v, want declined handoff event", events)
+	if len(events) != 2 || events[0].Type != output.EventTypeWorkflowHandoffRequested || events[1].Type != output.EventTypeWorkflowHandoffDeclined {
+		t.Fatalf("events = %#v, want requested then declined handoff events", events)
 	}
 }
 

@@ -118,6 +118,9 @@ func (h *workflowHandoffResponder) RequestWorkflowHandoff(ctx context.Context, r
 
 	responseCh := h.coordinator.Begin(req)
 	defer h.coordinator.Finish(responseCh)
+	if h.events != nil {
+		h.events.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message))
+	}
 
 	select {
 	case submission, ok := <-responseCh:

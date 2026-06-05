@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,7 +67,13 @@ func TestWorkflowHandoffSchema(t *testing.T) {
 }
 
 func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
-	env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: false})
+	env, events := workflowHandoffTestEnv(t, true, nil)
+	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: false},
+		onRequest: func(req tool.WorkflowHandoffRequest) {
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message))
+		},
+	}
 	toolDef := NewWorkflowHandoffTool(env)
 
 	msg := "  " + strings.Repeat("handoff note ", 60) + "  "
@@ -108,7 +115,13 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 }
 
 func TestWorkflowHandoffToolReturnsAcceptedControlResult(t *testing.T) {
-	env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: true})
+	env, events := workflowHandoffTestEnv(t, true, nil)
+	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: true},
+		onRequest: func(req tool.WorkflowHandoffRequest) {
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message))
+		},
+	}
 	toolDef := NewWorkflowHandoffTool(env)
 
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
@@ -251,7 +264,9 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: false})
+			env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{
+				response: tool.WorkflowHandoffResponse{Accepted: false},
+			})
 			toolDef := NewWorkflowHandoffTool(env)
 
 			_, err := toolDef.Handler(context.Background(), tt.input)
@@ -309,11 +324,19 @@ func workflowHandoffTestEnv(t *testing.T, interactive bool, responder tool.Workf
 }
 
 type workflowHandoffDecisionResponder struct {
-	accepted bool
+	response  tool.WorkflowHandoffResponse
+	err       error
+	onRequest func(tool.WorkflowHandoffRequest)
 }
 
-func (r workflowHandoffDecisionResponder) RequestWorkflowHandoff(_ context.Context, _ tool.WorkflowHandoffRequest) (tool.WorkflowHandoffResponse, error) {
-	return tool.WorkflowHandoffResponse{Accepted: r.accepted}, nil
+func (r workflowHandoffDecisionResponder) RequestWorkflowHandoff(_ context.Context, req tool.WorkflowHandoffRequest) (tool.WorkflowHandoffResponse, error) {
+	if r.onRequest != nil {
+		r.onRequest(req)
+	}
+	if r.err != nil {
+		return tool.WorkflowHandoffResponse{}, fmt.Errorf("request workflow handoff: %w", r.err)
+	}
+	return r.response, nil
 }
 
 func mustWriteWorkflowHandoffTarget(t *testing.T, root, rel string, overview, plan bool) {

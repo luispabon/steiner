@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -124,7 +123,6 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 		return result, nil
 	}
 
-	env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(in.Next, in.Target, in.Message))
 	response, err := env.WorkflowHandoffResponder.RequestWorkflowHandoff(ctx, tool.WorkflowHandoffRequest{
 		Next:    in.Next,
 		Target:  in.Target,
