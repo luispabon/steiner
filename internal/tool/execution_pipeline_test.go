@@ -449,7 +449,7 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 
 // --- Built-in tool path violation tests ---
 
-func mutateOutsideRoot(workDir string) map[string]any {
+func mutateOutsideRoot(_ string) map[string]any {
 	return map[string]any{
 		"operations": []any{
 			map[string]any{"type": "write", "path": "/etc/passwd", "content": "x"},
