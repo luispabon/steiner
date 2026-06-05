@@ -24,7 +24,7 @@ func (b *contentBuffer) String(width int) string {
 			seg.renderDirty = true
 		}
 		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
-			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n")
+			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n") + 1
 			if seg.cachedRender != "" {
 				parts = append(parts, seg.cachedRender)
 			}
@@ -34,7 +34,7 @@ func (b *contentBuffer) String(width int) string {
 		seg.cachedRender = rendered
 		seg.cachedRenderWidth = width
 		seg.renderDirty = false
-		b.segmentHeights[i] = strings.Count(rendered, "\n")
+		b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
 		if rendered != "" {
 			parts = append(parts, rendered)
 		}
