@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -361,19 +362,26 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 }
 
 func (b *contentBuffer) appendApprovalContent(bodyContent string, tc *toolCallSegment, width int) string {
-	var suffix string
 	switch {
 	case tc.approvalPending && !tc.approvalResolved:
-		suffix = b.renderToolApprovalBlock(tc, width)
+		suffix := b.renderToolApprovalBlock(tc, width)
+		if bodyContent != "" {
+			return bodyContent + "\n" + suffix
+		}
+		return suffix
 	case tc.approvalResolved:
-		suffix = b.renderToolApprovalResolvedLine(tc, width)
+		resolved := b.renderToolApprovalResolvedLine(tc, width)
+		// Denied or error: skip body content — resolved line is sufficient.
+		if !tc.approvalAccepted || tc.hasError {
+			return resolved
+		}
+		if bodyContent != "" {
+			return bodyContent + "\n" + resolved
+		}
+		return resolved
 	default:
 		return bodyContent
 	}
-	if bodyContent != "" {
-		return bodyContent + "\n" + suffix
-	}
-	return suffix
 }
 
 // toolAccentColor returns the full-opacity accent color for the given tool.
@@ -394,8 +402,8 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	accentC := toolAccentColor(tc.tool)
 	accentStyle := lipgloss.NewStyle().Foreground(accentC)
 
-	// Separator
-	sepWidth := width
+	// Separator — inner content width = Width(width-2) - padding(1+1) = width-4
+	sepWidth := width - 4
 	if sepWidth < 1 {
 		sepWidth = 1
 	}
@@ -411,17 +419,46 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	}
 	header := dot + " " + accentStyle.Bold(true).Render("APPROVAL REQUIRED")
 
-	// Preview text
-	previewText := strings.TrimSpace(tc.approvalPreview)
-	if previewText == "" {
-		previewText = "no preview available"
-	}
-	preview := b.styles.FgMute.Render(truncateRunes(previewText, width))
+	// Preview: parse JSON key-value pairs and format as bold-key lines with 1-line padding.
+	preview := b.renderApprovalPreview(tc.approvalPreview, width)
 
 	// Buttons
 	btns := b.renderToolApprovalButtons(tc, accentC, width)
 
 	return strings.Join([]string{sep, header, preview, btns}, "\n")
+}
+
+// renderApprovalPreview formats the approval preview string.
+// If the preview is JSON, each key is rendered bold followed by its value.
+// Otherwise, the raw text is shown muted with 1-line padding above and below.
+func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return b.styles.FgMute.Render("no preview available")
+	}
+
+	var kvMap map[string]any
+	if err := json.Unmarshal([]byte(raw), &kvMap); err == nil && len(kvMap) > 0 {
+		// JSON: render each key-value pair on its own line, key bold.
+		boldStyle := lipgloss.NewStyle().Bold(true)
+		muteStyle := b.styles.FgMute
+		var lines []string
+		lines = append(lines, "") // top padding
+		for k, v := range kvMap {
+			key := k
+			if len(key) > 0 {
+				key = strings.ToUpper(key[:1]) + key[1:]
+			}
+			label := boldStyle.Render(key + ":")
+			val := muteStyle.Render(truncateRunes(fmt.Sprintf("%v", v), width-len(k)-2))
+			lines = append(lines, label+" "+val)
+		}
+		lines = append(lines, "") // bottom padding
+		return strings.Join(lines, "\n")
+	}
+
+	// Plain text — pad top and bottom with empty lines.
+	return "\n" + b.styles.FgMute.Render(truncateRunes(raw, width)) + "\n"
 }
 
 func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC lipgloss.Color, width int) string {
@@ -436,39 +473,34 @@ func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC l
 		{"Deny", "n", 2},
 	}
 
+	// Selected button uses tool accent color; all others are a neutral gray.
+	grayBg := lipgloss.Color(theme.BgInput)
+	grayFg := lipgloss.Color(theme.FgMute)
+	accentFg := lipgloss.Color(theme.Black)
+
 	items := make([]string, 0, len(specs))
 	for _, spec := range specs {
-		var bg lipgloss.Color
-		var fg lipgloss.Color
-		switch spec.idx {
-		case 0:
+		selected := tc.approvalSelectedAction == spec.idx
+
+		var bg, fg lipgloss.Color
+		if selected {
 			bg = accentC
-			fg = lipgloss.Color(theme.Black)
-		case 1:
-			bg = lipgloss.Color(theme.BgInput)
-			fg = lipgloss.Color(theme.FgMute)
-		case 2:
-			bg = lipgloss.Color("#3a1a1a")
-			fg = lipgloss.Color("#FF5F5F")
+			fg = accentFg
+		} else {
+			bg = grayBg
+			fg = grayFg
 		}
 
-		keyStyle := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(fg).
-			Faint(true)
-		btnStyle := lipgloss.NewStyle().
-			Padding(0, 2).
-			Background(bg).
-			Foreground(fg)
-		if tc.approvalSelectedAction == spec.idx {
-			btnStyle = btnStyle.Bold(true).Underline(true)
-		}
+		// Key chip: "[ y ]" — rendered separately to avoid nested ANSI corruption.
+		chipStyle := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(selected)
+		labelStyle := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(selected).Padding(0, 1)
 
-		label := spec.label + " " + keyStyle.Render(spec.key)
-		items = append(items, btnStyle.Render(label))
+		chipRendered := chipStyle.Render("[ " + spec.key + " ]")
+		labelRendered := labelStyle.Render(spec.label)
+		items = append(items, chipRendered+labelRendered)
 	}
 
-	line := strings.Join(items, " ")
+	line := strings.Join(items, "  ")
 	if width > 0 && lipgloss.Width(line) > width {
 		return lipgloss.JoinVertical(lipgloss.Left, items...)
 	}
@@ -476,34 +508,27 @@ func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC l
 }
 
 func (b *contentBuffer) renderToolApprovalResolvedLine(tc *toolCallSegment, width int) string {
+	// width-4: accounts for box Width(width-2) + Padding(0,1) inner content area.
+	// PaddingLeft(1) consumes 1 of those chars, so Width shrinks by 1 more.
+	lineWidth := max(1, width-4)
+	var style lipgloss.Style
+	var text string
 	if tc.approvalAccepted {
-		verb := toolApprovalVerb(tc.tool)
-		text := "✓ approved — " + verb
-		style := lipgloss.NewStyle().
+		style = lipgloss.NewStyle().
 			Background(lipgloss.Color(theme.DiffAddedBg)).
 			Foreground(lipgloss.Color(theme.Added)).
-			Width(width)
-		return style.Render(text)
+			PaddingLeft(1).
+			Width(lineWidth)
+		text = "✓ approved"
+	} else {
+		style = lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.DiffRemovedBg)).
+			Foreground(lipgloss.Color(theme.Removed)).
+			PaddingLeft(1).
+			Width(lineWidth)
+		text = "✗ denied"
 	}
-	text := "✗ denied — tool call blocked"
-	style := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.DiffRemovedBg)).
-		Foreground(lipgloss.Color(theme.Removed)).
-		Width(width)
-	return style.Render(text)
-}
-
-func toolApprovalVerb(tool string) string {
-	switch normalizeToolName(tool) {
-	case "bash":
-		return "running command"
-	case "read", "read_file":
-		return "reading file"
-	case "mutate":
-		return "modifying file"
-	default:
-		return "executing tool"
-	}
+	return "\n" + style.Render(text)
 }
 
 func cloneToolArguments(arguments map[string]any) map[string]any {

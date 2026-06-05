@@ -239,9 +239,13 @@ func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyLeft, tea.KeyUp:
-		return m.moveApprovalSelection(-1), nil
+		m = m.moveApprovalSelection(-1)
+		m.syncViewport()
+		return m, nil
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
-		return m.moveApprovalSelection(1), nil
+		m = m.moveApprovalSelection(1)
+		m.syncViewport()
+		return m, nil
 	case tea.KeyEnter:
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	case tea.KeyEsc:
