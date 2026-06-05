@@ -1,0 +1,79 @@
+steps:
+  - id: step-1
+    title: "Fix #126: clear approval state on run finish/cancel"
+    scope: |
+      In model_events.go, add `m.approval = approvalState{}` to the
+      RunFinishedEvent and StopReasonEvent cases so a stuck approval tray
+      can never block input after cancel. Also confirm interruptPending is
+      cleared consistently for both cases.
+    files:
+      - internal/tui/model_events.go
+    constraints:
+      - Do not change the approval clearing logic for ApprovalAccepted/Denied events.
+      - Keep the existing RunStartedEvent reset intact.
+    acceptance:
+      - After a run finishes or is stopped/cancelled, m.approval is always zero-valued.
+      - interruptPending is false after RunFinishedEvent and StopReasonEvent.
+    verification:
+      - gofmt -w internal/tui/model_events.go
+      - go test ./internal/tui/... -run TestModel
+      - go vet ./internal/tui/...
+
+  - id: step-2
+    title: "Fix #125: reconcile approval tray height and repair layout overflow"
+    scope: |
+      Audit approvalTrayHeight() vs lipgloss.Height(renderApprovalTray(...))
+      at identical widths to confirm they agree. If they diverge, fix the
+      height method to use the rendered height (or a stable computation).
+      Also check that renderApprovalTray uses the correct inner width budget
+      (accounting for border sides) to prevent the broken-box rendering.
+      Separately investigate why the second approval appears for an already-run
+      bash call: trace ApprovalRequested event flow through AppendEvent and the
+      model switch, and add a guard so a new tray isn't opened if the tool
+      result is already in the content buffer.
+    files:
+      - internal/tui/approval_tray.go
+      - internal/tui/model_events.go
+      - internal/tui/model_layout.go
+      - internal/tui/content_events_approval_diagnostics.go
+    constraints:
+      - approvalTrayHeight must return the same value as lipgloss.Height of the rendered tray at the same width.
+      - Do not change the approval tray visual design; fix the width/height arithmetic only.
+    acceptance:
+      - approvalTrayHeight() == lipgloss.Height(renderApprovalTray()) for all widths.
+      - No double approval box visible in the layout.
+      - Sidebar does not shift up when approval tray is present.
+    verification:
+      - gofmt -w internal/tui/approval_tray.go internal/tui/model_layout.go
+      - go test ./internal/tui/... -run TestApproval
+      - go test ./internal/tui/...
+      - go vet ./internal/tui/...
+
+  - id: step-3
+    title: "Fix #124: cap delegation box height to viewport"
+    scope: |
+      Add a maxDelegationBodyLines int field to contentBuffer. Set it from
+      Model.layout() as viewport.Height minus a fixed overhead for the
+      border/header/stats/hint rows (approximately 5). In
+      renderDelegationTranscript (content_events_delegation.go), truncate
+      the returned lines slice to maxDelegationBodyLines when the field is
+      positive. Apply the same cap to renderDelegationPromptBody. This
+      prevents uncollapsed delegation boxes from extending past the
+      viewport bottom.
+    files:
+      - internal/tui/content_events.go
+      - internal/tui/content_events_delegation.go
+      - internal/tui/model_layout.go
+    constraints:
+      - maxDelegationBodyLines of 0 means uncapped (safe default for tests that don't set it).
+      - Cap applies only to transcript and prompt body rows, not header/border/stats/hint rows.
+      - Do not change the delegation box visual design or collapsed state logic.
+    acceptance:
+      - Uncollapsed delegation box height <= viewport.Height rows.
+      - Collapsed delegation box unaffected.
+      - Existing content_test.go delegation tests still pass.
+    verification:
+      - gofmt -w internal/tui/content_events.go internal/tui/content_events_delegation.go internal/tui/model_layout.go
+      - go test ./internal/tui/... -run TestDelegat
+      - go test ./internal/tui/...
+      - make check
