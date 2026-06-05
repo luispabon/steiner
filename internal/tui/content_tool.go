@@ -41,20 +41,12 @@ func summarizeArgs(tool string, args map[string]any) string {
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
-			s := fmt.Sprintf("%v", v)
-			if len(s) > 60 {
-				s = s[:57] + "..."
-			}
-			return s
+			return fmt.Sprintf("%v", v)
 		}
 	}
 	// Fallback: first value
 	for _, v := range args {
-		s := fmt.Sprintf("%v", v)
-		if len(s) > 60 {
-			s = s[:57] + "..."
-		}
-		return s
+		return fmt.Sprintf("%v", v)
 	}
 	return tool
 }
@@ -62,25 +54,17 @@ func summarizeArgs(tool string, args map[string]any) string {
 func summarizeDelegateArgs(args map[string]any) string {
 	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
 		if v, ok := args[key]; ok {
-			return truncateToolArgSummary(fmt.Sprintf("%v", v))
+			return fmt.Sprintf("%v", v)
 		}
 	}
 	return summarizeFirstArgValue(args)
 }
 
 func summarizeFirstArgValue(args map[string]any) string {
-	// Fallback: first value
 	for _, v := range args {
-		return truncateToolArgSummary(fmt.Sprintf("%v", v))
+		return fmt.Sprintf("%v", v)
 	}
 	return ""
-}
-
-func truncateToolArgSummary(s string) string {
-	if len(s) > 60 {
-		s = s[:57] + "..."
-	}
-	return s
 }
 
 func delegatePromptText(args map[string]any) string {
@@ -206,7 +190,11 @@ func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
-	content := b.renderToolCallFrame(tc, width)
+	innerWidth := width - 4 // border (2) + padding (2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	content := b.renderToolCallFrame(tc, innerWidth)
 	return b.renderToolCallBox(content, tc.tool, width)
 }
 
@@ -220,8 +208,12 @@ func (b *contentBuffer) renderToolCallGroup(group *toolCallGroupSegment, width i
 	if dividerWidth < 1 {
 		dividerWidth = 1
 	}
+	innerWidth := width - 4 // border (2) + padding (2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
 	for i, tc := range group.entries {
-		parts = append(parts, b.renderToolCallFrame(tc, width))
+		parts = append(parts, b.renderToolCallFrame(tc, innerWidth))
 		if i < len(group.entries)-1 {
 			parts = append(parts, b.renderToolCallDivider(dividerWidth))
 		}
