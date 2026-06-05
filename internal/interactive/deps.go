@@ -9,7 +9,14 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
+	"github.com/luispabon/steiner/internal/tool"
 )
+
+// RunResult captures the outcome of an interactive session run.
+type RunResult struct {
+	Conversation    []agent.Message
+	WorkflowHandoff *tool.WorkflowHandoffTransition
+}
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
 // avoid coupling to internal/agent or cmd/steiner.
@@ -17,7 +24,7 @@ type runExecutor interface {
 	// Run executes a model run with the given conversation and skills.
 	// steerCh delivers between-turn steering messages; pass nil when unavailable.
 	// Returns the updated conversation on success.
-	Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) ([]agent.Message, error)
+	Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (RunResult, error)
 }
 
 // historyWriter persists and loads prompt history for an interactive session.

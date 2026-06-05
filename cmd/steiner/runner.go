@@ -30,9 +30,10 @@ type cliRunner struct {
 }
 
 type runResult struct {
-	Conversation []agent.Message
-	Reply        string
-	Diagnostics  []output.Event
+	Conversation    []agent.Message
+	Reply           string
+	Diagnostics     []output.Event
+	WorkflowHandoff *tool.WorkflowHandoffTransition
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
@@ -72,9 +73,10 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 	}
 
 	return runResult{
-		Conversation: state.Conversation,
-		Reply:        lastAssistantReply(state.Conversation),
-		Diagnostics:  cloneEvents(*diagnostics),
+		Conversation:    state.Conversation,
+		Reply:           lastAssistantReply(state.Conversation),
+		Diagnostics:     cloneEvents(*diagnostics),
+		WorkflowHandoff: state.WorkflowHandoff,
 	}, nil
 }
 

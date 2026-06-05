@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestPrepareTurn_SuccessfulFit(t *testing.T) {
@@ -782,6 +783,102 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
 		output.EventTypeTurnFinished,
+	}
+	if !containsSequence(eventTypes(events), wantSequence) {
+		t.Fatalf("event types = %v, want sequence %v", eventTypes(events), wantSequence)
+	}
+}
+
+func TestAdvance_WorkflowHandoffAcceptedStopsWithoutToolResult(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "workflow_handoff", Arguments: map[string]any{"next": "implement"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return tool.WorkflowHandoffAccepted{
+				Transition: tool.WorkflowHandoffTransition{
+					Next:   "implement",
+					Target: ".steiner/plans/step-2",
+				},
+			}, nil
+		},
+	}
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "hi"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
+	}
+	var events []output.Event
+	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
+
+	in := turnInput{
+		Request:           req,
+		State:             state,
+		BasePrompt:        prompt.AssemblyOptions{},
+		CompactionHistory: map[string]bool{},
+		CompactionCount:   new(int),
+	}
+
+	runner := NewRunner()
+	p := newTurnProgressor(runner)
+	outcome := p.advance(context.Background(), in)
+
+	if !outcome.Stop {
+		t.Fatal("outcome.Stop = false, want true")
+	}
+	if got, want := outcome.State.StopReason, StopReasonWorkflowHandoff; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if outcome.State.WorkflowHandoff == nil {
+		t.Fatal("WorkflowHandoff = nil, want transition")
+	}
+	if got := outcome.State.WorkflowHandoff.Target; got != ".steiner/plans/step-2" {
+		t.Fatalf("WorkflowHandoff.Target = %q, want .steiner/plans/step-2", got)
+	}
+	if len(outcome.State.Conversation) != 2 {
+		t.Fatalf("conversation length = %d, want 2 (user + assistant tool call only)", len(outcome.State.Conversation))
+	}
+	if got := outcome.State.Conversation[len(outcome.State.Conversation)-1].Role; got != MessageRoleAssistant {
+		t.Fatalf("last role = %q, want assistant", got)
+	}
+	wantSequence := []string{
+		output.EventTypeTurnStarted,
+		output.EventTypeModelCallStarted,
+		output.EventTypeAPIRequest,
+		output.EventTypeAPIResponse,
+		output.EventTypeModelCallFinished,
+		output.EventTypeAssistantMessage,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeTurnFinished,
+		output.EventTypeStopReason,
 	}
 	if !containsSequence(eventTypes(events), wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", eventTypes(events), wantSequence)

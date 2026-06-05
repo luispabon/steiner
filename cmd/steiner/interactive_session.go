@@ -38,7 +38,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 }
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRuntime, error) {
-	registry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, rt.sandbox)
+	registry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build interactive registry: %w", err)
 	}
@@ -145,10 +145,13 @@ type sessionRunner struct {
 	runner cliRunner
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) ([]agent.Message, error) {
+func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (interactive.RunResult, error) {
 	result, err := r.runner.Run(ctx, conversation, skillNames, steerCh)
 	if err != nil {
-		return nil, err
+		return interactive.RunResult{}, err
 	}
-	return result.Conversation, nil
+	return interactive.RunResult{
+		Conversation:    result.Conversation,
+		WorkflowHandoff: result.WorkflowHandoff,
+	}, nil
 }

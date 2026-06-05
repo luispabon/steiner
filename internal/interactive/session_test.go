@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // compile-time interface checks.
@@ -19,6 +20,7 @@ var (
 	_ Action = RequestContextReport{}
 	_ Action = RequestConfigReport{}
 	_ Action = SubmitApproval{}
+	_ Action = SubmitWorkflowHandoff{}
 	_ Action = InterruptActiveRun{}
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
@@ -65,6 +67,9 @@ func TestNewSession(t *testing.T) {
 	}
 	if s.approvalCoordinator == nil {
 		t.Error("expected non-nil approval coordinator")
+	}
+	if s.handoffCoordinator == nil {
+		t.Error("expected non-nil workflow handoff coordinator")
 	}
 	if s.sessionID == "" {
 		t.Error("expected non-empty session ID")
@@ -287,6 +292,38 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 	}
 }
 
+func TestWorkflowHandoffCoordinatorLifecycle(t *testing.T) {
+	t.Parallel()
+	coord := &WorkflowHandoffCoordinator{}
+	if coord.HasPending() {
+		t.Fatal("expected no pending initially")
+	}
+
+	ch := coord.Begin(tool.WorkflowHandoffRequest{
+		Next:   "implement",
+		Target: ".steiner/plans/step-2",
+	})
+	if !coord.HasPending() {
+		t.Fatal("expected pending after Begin")
+	}
+
+	coord.Submit(SubmitWorkflowHandoff{Decision: "accept"})
+
+	select {
+	case sub := <-ch:
+		if sub.Decision != "accept" {
+			t.Fatalf("decision = %q, want accept", sub.Decision)
+		}
+	default:
+		t.Fatal("expected submission on channel")
+	}
+
+	coord.Finish(ch)
+	if coord.HasPending() {
+		t.Fatal("expected no pending after Finish")
+	}
+}
+
 func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
@@ -306,6 +343,7 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"RequestContextReport", RequestContextReport{}},
 		{"RequestConfigReport", RequestConfigReport{}},
 		{"SubmitApproval", SubmitApproval{Tool: "write", Mode: "auto", Decision: "allow"}},
+		{"SubmitWorkflowHandoff", SubmitWorkflowHandoff{Decision: "dismiss"}},
 		{"RequestExit", RequestExit{}},
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
@@ -324,8 +362,8 @@ func TestSessionHandleNoop(t *testing.T) {
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
-			return conversation, nil
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{Conversation: conversation}, nil
 		}),
 	})
 
@@ -347,9 +385,9 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			called = true
-			return conversation, nil
+			return RunResult{Conversation: conversation}, nil
 		}),
 	})
 
@@ -363,11 +401,11 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
-			return []agent.Message{
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{Conversation: []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
 				{Role: agent.MessageRoleAssistant, Content: "hi there"},
-			}, nil
+			}}, nil
 		}),
 	})
 
@@ -378,6 +416,30 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	}
 }
 
+func TestSubmitPromptSkipsConversationPersistenceOnWorkflowHandoff(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "hello"},
+					{Role: agent.MessageRoleAssistant, Content: "tool call"},
+				},
+				WorkflowHandoff: &tool.WorkflowHandoffTransition{
+					Next:   "implement",
+					Target: ".steiner/plans/step-2",
+				},
+			}, nil
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	if got := s.Conversation(); len(got) != 1 || got[0].Role != agent.MessageRoleUser {
+		t.Fatalf("conversation after handoff = %#v, want only the submitted user prompt retained until clear", got)
+	}
+}
+
 func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
@@ -385,8 +447,8 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
-			return nil, fmt.Errorf("run failed")
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{}, fmt.Errorf("run failed")
 		}),
 	})
 
@@ -417,8 +479,8 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) ([]agent.Message, error) {
-			return append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"}), nil
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{Conversation: append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
 		}),
 		HistoryWriter: &recordingHistoryWriter{
 			recordFn: func(prompt string) error {
@@ -459,11 +521,11 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	block := make(chan struct{})
 	cancelled := false
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			close(block)
 			<-ctx.Done()
 			cancelled = true
-			return nil, ctx.Err()
+			return RunResult{}, ctx.Err()
 		}),
 	})
 
@@ -516,9 +578,9 @@ func TestClearConversationResetsSkills(t *testing.T) {
 }
 
 // runExecutorFunc adapts a function to the runExecutor interface.
-type runExecutorFunc func(context.Context, []agent.Message, []string) ([]agent.Message, error)
+type runExecutorFunc func(context.Context, []agent.Message, []string) (RunResult, error)
 
-func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ <-chan string) ([]agent.Message, error) {
+func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ <-chan string) (RunResult, error) {
 	return f(ctx, conversation, skillNames)
 }
 
@@ -877,9 +939,9 @@ func TestSubmitPromptDoesNotPassSkillsUntilEnabled(t *testing.T) {
 	var gotSkillNames []string
 	s := testNewSession(t, Dependencies{
 		SkillNames: []string{"review"},
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) ([]agent.Message, error) {
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
 			gotSkillNames = append([]string(nil), skillNames...)
-			return conversation, nil
+			return RunResult{Conversation: conversation}, nil
 		}),
 	})
 
@@ -910,6 +972,9 @@ func TestSessionAccessorsNonNil(t *testing.T) {
 	}
 	if s.ApprovalCoordinator() == nil {
 		t.Error("ApprovalCoordinator() returned nil")
+	}
+	if s.WorkflowHandoffCoordinator() == nil {
+		t.Error("WorkflowHandoffCoordinator() returned nil")
 	}
 }
 

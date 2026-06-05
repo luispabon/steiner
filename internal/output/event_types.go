@@ -26,6 +26,10 @@ const (
 	EventTypeApprovalDenied = "approval_denied"
 	// EventTypeWorkflowHandoffRequested marks a pending workflow handoff request.
 	EventTypeWorkflowHandoffRequested = "workflow_handoff_requested"
+	// EventTypeWorkflowHandoffAccepted marks an accepted workflow handoff request.
+	EventTypeWorkflowHandoffAccepted = "workflow_handoff_accepted"
+	// EventTypeWorkflowHandoffDeclined marks a declined workflow handoff request.
+	EventTypeWorkflowHandoffDeclined = "workflow_handoff_declined"
 	// EventTypeStopReason records why a run stopped.
 	EventTypeStopReason = "stop_reason"
 	// EventTypeUserInput records user input entering the stream.
@@ -218,9 +222,10 @@ type ApprovalEvent struct {
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.
 type WorkflowHandoffEvent struct {
-	Next    string `json:"next,omitempty"`
-	Target  string `json:"target,omitempty"`
-	Message string `json:"message,omitempty"`
+	Next     string `json:"next,omitempty"`
+	Target   string `json:"target,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Decision string `json:"decision,omitempty"`
 }
 
 // StopReasonEvent is the payload for EventTypeStopReason.

@@ -42,6 +42,14 @@ type SubmitApproval struct {
 
 func (SubmitApproval) isInteractiveAction() {}
 
+// SubmitWorkflowHandoff represents a user decision on an outstanding workflow
+// handoff request during an interactive session.
+type SubmitWorkflowHandoff struct {
+	Decision string
+}
+
+func (SubmitWorkflowHandoff) isInteractiveAction() {}
+
 // InterruptActiveRun represents a user request to interrupt the currently
 // active model run during an interactive session.
 type InterruptActiveRun struct{}

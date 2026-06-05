@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -86,7 +85,7 @@ func NewWorkflowHandoffTool(env Env) tool.ToolDef {
 	}
 }
 
-func handleWorkflowHandoff(_ context.Context, env Env, input map[string]any) (any, error) {
+func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (any, error) {
 	in, err := decodeInput[WorkflowHandoffInput](input)
 	if err != nil {
 		return nil, fmt.Errorf("workflow_handoff: %w", err)
@@ -118,15 +117,35 @@ func handleWorkflowHandoff(_ context.Context, env Env, input map[string]any) (an
 		MessageTruncated: truncated,
 	}
 
-	if !env.Interactive || env.EventSink == nil {
+	if !env.Interactive || env.EventSink == nil || env.WorkflowHandoffResponder == nil {
 		result.Status = "unsupported"
 		result.Reason = "workflow handoff decision handling is unavailable in non-interactive mode"
 		return result, nil
 	}
 
-	env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(in.Next, in.Target, in.Message))
-	result.Status = "pending"
-	return result, nil
+	response, err := env.WorkflowHandoffResponder.RequestWorkflowHandoff(ctx, tool.WorkflowHandoffRequest{
+		Next:    in.Next,
+		Target:  in.Target,
+		Message: in.Message,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if response.Accepted {
+		return tool.WorkflowHandoffAccepted{
+			Transition: tool.WorkflowHandoffTransition{
+				Next:    in.Next,
+				Target:  in.Target,
+				Message: in.Message,
+			},
+		}, nil
+	}
+
+	return struct {
+		Status string `json:"status"`
+	}{
+		Status: "declined",
+	}, nil
 }
 
 func validateWorkflowHandoffNext(next string) error {

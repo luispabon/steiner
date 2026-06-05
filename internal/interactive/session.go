@@ -26,6 +26,7 @@ type Session struct {
 	skills              *Skills
 	snapshots           *SnapshotStore
 	approvalCoordinator *ApprovalCoordinator
+	handoffCoordinator  *WorkflowHandoffCoordinator
 	conversation        []agent.Message
 	lineage             agent.ConversationLineage
 	sessionID           string
@@ -61,6 +62,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		skills:              NewSkills(deps.SkillNames),
 		snapshots:           snaps,
 		approvalCoordinator: &ApprovalCoordinator{},
+		handoffCoordinator:  &WorkflowHandoffCoordinator{},
 		sessionID:           sessionID,
 		lineage:             agent.ConversationLineage{},
 		done:                make(chan struct{}),
@@ -113,11 +115,23 @@ func (s *Session) ApprovalCoordinator() *ApprovalCoordinator {
 	return s.approvalCoordinator
 }
 
+// WorkflowHandoffCoordinator returns the session's workflow handoff
+// coordinator, which manages pending handoff requests.
+func (s *Session) WorkflowHandoffCoordinator() *WorkflowHandoffCoordinator {
+	return s.handoffCoordinator
+}
+
 // Approver returns an tool.ApprovalResponder that routes tool approval
 // requests through the session's ApprovalCoordinator and emits approval
 // events to the given sink.
 func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 	return agent.NewEventingApprover(eventSink, newApprovalResponder(s.approvalCoordinator))
+}
+
+// WorkflowHandoffResponder returns a responder that routes workflow handoff
+// decisions through the session's coordinator.
+func (s *Session) WorkflowHandoffResponder(eventSink output.EventSink) tool.WorkflowHandoffResponder {
+	return newWorkflowHandoffResponder(s.handoffCoordinator, eventSink)
 }
 
 // CurrentModelAlias returns the currently active model alias.
@@ -187,54 +201,73 @@ func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
 // Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
-// SwitchModel, SubmitApproval, LoadSession, and requestSessionPicker.
+// SwitchModel, SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
+	if s.handleImmediateAction(ctx, action) {
+		return nil
+	}
+	if handled, err := s.handleStateAction(ctx, action); handled {
+		return err
+	}
+	return fmt.Errorf("handle: unknown action type %T", action)
+}
+
+func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool {
 	switch a := action.(type) {
 	case SubmitPrompt:
 		go s.submitPrompt(ctx, a.Text)
-		return nil
+		return true
 	case SteerPrompt:
 		s.runController.Steer(a.Text)
-		return nil
+		return true
 	case InterruptActiveRun:
 		s.runController.Interrupt()
-		return nil
+		return true
+	case RequestContextReport:
+		s.emitContextReport(ctx)
+		return true
+	case RequestConfigReport:
+		s.emitConfigReport()
+		return true
+	case TriggerManualCompaction:
+		go s.manualCompaction(ctx)
+		return true
+	case RequestExit:
+		s.exitOnce.Do(func() { close(s.done) })
+		return true
+	case requestSessionPicker:
+		return true
+	}
+	return false
+}
+
+func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {
+	switch a := action.(type) {
 	case ClearConversation:
 		s.SetConversation(nil)
 		s.skills.Reset()
-		return nil
-	case RequestContextReport:
-		s.emitContextReport(ctx)
-		return nil
-	case RequestConfigReport:
-		s.emitConfigReport()
-		return nil
-	case TriggerManualCompaction:
-		go s.manualCompaction(ctx)
-		return nil
-	case RequestExit:
-		s.exitOnce.Do(func() { close(s.done) })
-		return nil
+		return true, nil
 	case SetSkillEnabled:
 		s.skills.Set(a.Name, a.Enabled)
-		return nil
+		return true, nil
 	case SubmitApproval:
 		s.approvalCoordinator.Submit(a)
-		return nil
+		return true, nil
+	case SubmitWorkflowHandoff:
+		s.handoffCoordinator.Submit(a)
+		return true, nil
 	case ToggleCavemanMode:
-		return s.handleToggleCavemanMode()
+		s.handleToggleCavemanMode()
+		return true, nil
 	case SwitchModel:
-		return s.handleSwitchModel(a.Name)
+		return true, s.handleSwitchModel(a.Name)
 	case LoadSession:
-		return s.loadSession(ctx, a.SessionID)
-	case requestSessionPicker:
-		return nil
-	default:
-		return fmt.Errorf("handle: unknown action type %T", action)
+		return true, s.loadSession(ctx, a.SessionID)
 	}
+	return false, nil
 }
 
-func (s *Session) handleToggleCavemanMode() error {
+func (s *Session) handleToggleCavemanMode() {
 	s.mu.Lock()
 	s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
 	state := "off"
@@ -243,7 +276,6 @@ func (s *Session) handleToggleCavemanMode() error {
 	}
 	s.mu.Unlock()
 	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
-	return nil
 }
 
 func (s *Session) handleSwitchModel(name string) error {

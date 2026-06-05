@@ -316,6 +316,9 @@ func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
 
 func renderWorkflowHandoffEvent(payload WorkflowHandoffEvent) Segment {
 	parts := []string{"workflow handoff"}
+	if payload.Decision != "" {
+		parts = append(parts, payload.Decision)
+	}
 	if payload.Next != "" {
 		parts = append(parts, fmt.Sprintf("next=%s", payload.Next))
 	}

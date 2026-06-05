@@ -1,5 +1,7 @@
 package agent
 
+import "github.com/luispabon/steiner/internal/tool"
+
 // StopReason records why a run terminated.
 type StopReason string
 
@@ -14,6 +16,9 @@ const (
 	StopReasonComplete StopReason = "complete"
 	// StopReasonError indicates the run terminated due to an error.
 	StopReasonError StopReason = "error"
+	// StopReasonWorkflowHandoff indicates the run terminated because a
+	// workflow handoff request was accepted.
+	StopReasonWorkflowHandoff StopReason = "workflow_handoff"
 )
 
 // ConversationViewKind identifies the view used for a conversation candidate.
@@ -243,24 +248,34 @@ func (l ConversationLineage) PruneGenerationsBefore(cutoffGenerationID int) Conv
 
 // RunState captures the mutable state of an in-flight run.
 type RunState struct {
-	TurnCount    int
-	TokenCount   int
-	StopReason   StopReason
-	Conversation []Message
-	Lineage      ConversationLineage
-	Context      ContextState
+	TurnCount       int
+	TokenCount      int
+	StopReason      StopReason
+	Conversation    []Message
+	Lineage         ConversationLineage
+	Context         ContextState
+	WorkflowHandoff *tool.WorkflowHandoffTransition
 }
 
 // Clone returns a deep copy of the run state.
 func (s RunState) Clone() RunState {
 	return RunState{
-		TurnCount:    s.TurnCount,
-		TokenCount:   s.TokenCount,
-		StopReason:   s.StopReason,
-		Conversation: cloneMessages(s.Conversation),
-		Lineage:      s.Lineage.Clone(),
-		Context:      s.Context.Clone(),
+		TurnCount:       s.TurnCount,
+		TokenCount:      s.TokenCount,
+		StopReason:      s.StopReason,
+		Conversation:    cloneMessages(s.Conversation),
+		Lineage:         s.Lineage.Clone(),
+		Context:         s.Context.Clone(),
+		WorkflowHandoff: cloneWorkflowHandoffTransition(s.WorkflowHandoff),
 	}
+}
+
+func cloneWorkflowHandoffTransition(transition *tool.WorkflowHandoffTransition) *tool.WorkflowHandoffTransition {
+	if transition == nil {
+		return nil
+	}
+	cloned := *transition
+	return &cloned
 }
 
 // WithConversation returns a copy of the state with the active conversation
