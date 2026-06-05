@@ -8,7 +8,8 @@
 - Skipped steps: none
 - Sub-agents:
   - `step-1`: worker `gpt-5.4-mini` on `tmp/128-step-1`; cheapest safe profile, no planner `delegate_profile`.
+  - `step-1` fix: worker `gpt-5.4-mini` on `tmp/128-step-1`; reviewer-triggered validation gap fix.
 - Verification results: none yet
-- Deviations/blockers: none
+- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fix pass running.
 - Manual verification notes: none required by plan
 - Reviewer handoff status: not ready
