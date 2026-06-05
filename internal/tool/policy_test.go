@@ -2,11 +2,17 @@ package tool
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
 )
+
+func homeDir() string {
+	h, _ := os.UserHomeDir()
+	return h
+}
 
 func TestPolicy_NormalizePolicyPath(t *testing.T) {
 	tests := []struct {
@@ -62,6 +68,18 @@ func TestPolicy_NormalizePolicyPath(t *testing.T) {
 			root: "/project/subdir",
 			raw:  "../file.txt",
 			want: "/project/file.txt",
+		},
+		{
+			name: "tilde expands to home directory",
+			root: "/project",
+			raw:  "~/.ssh/authorized_keys",
+			want: homeDir() + "/.ssh/authorized_keys",
+		},
+		{
+			name: "bare tilde expands to home directory",
+			root: "/project",
+			raw:  "~",
+			want: homeDir(),
 		},
 	}
 
@@ -382,14 +400,91 @@ func TestPolicy_PreviewToolInput_Bash(t *testing.T) {
 	}
 }
 
-func TestPolicy_PreviewToolInput_BlocksOutsideRoot(t *testing.T) {
+func TestPolicy_PreviewToolInput_ReadAllowsOutsideRoot(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
 
-	_, err := policy.previewToolInput("read", map[string]any{
+	preview, err := policy.previewToolInput("read", map[string]any{
 		"path": "/etc/passwd",
 	})
+	if err != nil {
+		t.Fatalf("previewToolInput(read, /etc/passwd) error = %v, want nil", err)
+	}
+	if preview.Tool != "read" {
+		t.Fatalf("Tool = %q, want 'read'", preview.Tool)
+	}
+}
+
+func TestPolicy_ResolveReadPath_AllowsOutsideRoot(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+
+	got, err := policy.ResolveReadPath("/etc/passwd")
+	if err != nil {
+		t.Fatalf("ResolveReadPath(/etc/passwd) error = %v, want nil", err)
+	}
+	if got != "/etc/passwd" {
+		t.Fatalf("ResolveReadPath() = %q, want '/etc/passwd'", got)
+	}
+}
+
+func TestPolicy_ResolveReadPath_BlocksBlockedPaths(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{
+		BlockedPaths: []string{"secrets"},
+	})
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "exact blocked path", path: "/project/secrets"},
+		{name: "nested blocked path", path: "/project/secrets/key.txt"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := policy.ResolveReadPath(tc.path)
+			if err == nil {
+				t.Fatalf("ResolveReadPath(%q) = nil, want error", tc.path)
+			}
+		})
+	}
+}
+
+func TestPolicy_ResolveReadPath_NormalizesRelativePaths(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+
+	got, err := policy.ResolveReadPath("subdir/file.txt")
+	if err != nil {
+		t.Fatalf("ResolveReadPath(subdir/file.txt) error = %v", err)
+	}
+	if want := "/project/subdir/file.txt"; got != want {
+		t.Fatalf("ResolveReadPath() = %q, want %q", got, want)
+	}
+}
+
+func TestPolicy_ValidateToolInput_ReadAllowsOutsideRoot(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+
+	normalized, err := policy.ValidateToolInput("read", map[string]any{
+		"path": "/etc/hostname",
+	})
+	if err != nil {
+		t.Fatalf("ValidateToolInput(read, /etc/hostname) error = %v, want nil", err)
+	}
+	if got := normalized["path"]; got != "/etc/hostname" {
+		t.Fatalf("path = %v, want '/etc/hostname'", got)
+	}
+}
+
+func TestPolicy_ValidateToolInput_MutateBlocksOutsideRoot(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
+
+	_, err := policy.ValidateToolInput("mutate", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "/etc/passwd", "content": "pwned"},
+		},
+	})
 	if err == nil {
-		t.Fatal("previewToolInput(read, /etc/passwd) = nil, want error")
+		t.Fatal("ValidateToolInput(mutate, /etc/passwd) = nil, want error")
 	}
 }
 

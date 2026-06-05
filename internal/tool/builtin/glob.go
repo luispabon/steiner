@@ -32,7 +32,7 @@ func NewGlobTool(env Env) tool.ToolDef {
 				in.Path = "."
 			}
 
-			_, err = env.PathPolicy.ResolvePath(in.Path, false)
+			_, err = env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -116,7 +116,7 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return nil
 		}
 
-		_, err = policy.ResolvePath(path, false)
+		_, err = policy.ResolveReadPath(path)
 		if err != nil {
 			return nil
 		}

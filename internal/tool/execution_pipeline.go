@@ -39,7 +39,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 
 	// Check if this is a promptable path policy violation (outside project root).
 	var policyErr *PathPolicyError
-	if errors.As(err, &policyErr) && policyErr.Promptable && e.sandbox != nil && e.approver != nil {
+	if errors.As(err, &policyErr) && policyErr.Promptable && e.approver != nil {
 		req := ApprovalRequest{
 			Tool:              def,
 			Input:             input,
