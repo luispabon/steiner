@@ -22,12 +22,19 @@ import (
 func TestToProviderConversationPreservesTurn(t *testing.T) {
 	messages := []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "hello", Turn: 4},
-		{Role: agent.MessageRoleAssistant, Content: "world", Turn: 5},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "world",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "file.txt"}},
+			},
+			Turn: 5,
+		},
 		{
 			Role:       agent.MessageRoleTool,
 			Content:    "result",
 			ToolCallID: "call_1",
-			Turn:       6,
+			Turn:       5,
 		},
 	}
 
@@ -45,6 +52,60 @@ func TestToProviderConversationPreservesTurn(t *testing.T) {
 	}
 	if got[0].Role != provider.MessageRoleUser || got[1].Role != provider.MessageRoleAssistant || got[2].Role != provider.MessageRoleTool {
 		t.Fatalf("roles preserved incorrectly: %#v", got)
+	}
+}
+
+func TestToProviderConversationSanitizesDanglingToolCalls(t *testing.T) {
+	messages := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "hello", Turn: 4},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "searching",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+			},
+			Turn: 5,
+		},
+		{Role: agent.MessageRoleTool, Content: "wrong result", ToolCallID: "other", Turn: 5},
+		{Role: agent.MessageRoleAssistant, Content: "retrying", Turn: 6},
+	}
+
+	got := toProviderConversation(messages)
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3", len(got))
+	}
+	if len(got[1].ToolCalls) != 0 {
+		t.Fatalf("got[1].ToolCalls = %#v, want cleared dangling tool calls", got[1].ToolCalls)
+	}
+	if got[2].Role != provider.MessageRoleAssistant || got[2].Content != "retrying" {
+		t.Fatalf("got[2] = %#v, want trailing assistant preserved", got[2])
+	}
+}
+
+func TestToProviderConversationPreservesPairedToolResults(t *testing.T) {
+	messages := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "hello", Turn: 4},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "searching",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+			},
+			Turn: 5,
+		},
+		{Role: agent.MessageRoleTool, Content: "file contents", ToolCallID: "call_1", Turn: 5},
+		{Role: agent.MessageRoleAssistant, Content: "done", Turn: 6},
+	}
+
+	got := toProviderConversation(messages)
+	if len(got) != 4 {
+		t.Fatalf("len(got) = %d, want 4", len(got))
+	}
+	if len(got[1].ToolCalls) != 1 {
+		t.Fatalf("got[1].ToolCalls = %#v, want paired tool call preserved", got[1].ToolCalls)
+	}
+	if got[2].Role != provider.MessageRoleTool || got[2].ToolCallID != "call_1" {
+		t.Fatalf("got[2] = %#v, want paired tool result preserved", got[2])
 	}
 }
 

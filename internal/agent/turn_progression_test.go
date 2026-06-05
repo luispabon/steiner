@@ -661,6 +661,15 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 	if outcome.Error != nil {
 		t.Fatalf("outcome.Error = %v, want nil", outcome.Error)
 	}
+	if len(outcome.State.Conversation) != 1 {
+		t.Fatalf("len(outcome.State.Conversation) = %d, want 1", len(outcome.State.Conversation))
+	}
+	if got := outcome.State.Conversation[0]; got.Role != MessageRoleUser || got.Content != "hi" {
+		t.Fatalf("cancelled conversation[0] = %#v, want original user message only", got)
+	}
+	if got := outcome.State.Lineage.FullMessages(); len(got) != 1 || got[0].Role != MessageRoleUser {
+		t.Fatalf("cancelled lineage = %#v, want replay-safe lineage without empty assistant", got)
+	}
 
 	got := eventTypes(events)
 	wantSequence := []string{
