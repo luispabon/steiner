@@ -222,7 +222,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	}
 	row := rows[rowInSegment]
 	switch {
-	case row.kind == delegationRowHeader:
+	case row.kind == delegationRowBorderTop, row.kind == delegationRowHeader:
 		return 0
 	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
 		return 1
