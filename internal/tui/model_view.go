@@ -66,6 +66,7 @@ func (m Model) renderMainColumn(contentWidth int) string {
 		Background(lipgloss.Color(theme.BgElev)).
 		Width(contentWidth).
 		Height(m.height).
+		MaxHeight(m.height).
 		Render(mainColumn)
 }
 

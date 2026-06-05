@@ -47,7 +47,7 @@ func (m *Model) syncViewport() {
 	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
 
-	contentLines := strings.Count(rendered, "\n")
+	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height - contentLines
 	if pad < 0 {
 		pad = 0
@@ -222,7 +222,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	}
 	row := rows[rowInSegment]
 	switch {
-	case row.kind == delegationRowHeader:
+	case row.kind == delegationRowBorderTop, row.kind == delegationRowHeader:
 		return 0
 	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
 		return 1

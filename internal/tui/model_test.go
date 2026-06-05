@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -2335,6 +2336,104 @@ func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to NOT re-open after Esc removed the token")
+	}
+}
+
+func TestFrameHeightClamping(t *testing.T) {
+	tests := []struct {
+		name     string
+		height   int
+		content  string
+		wantMaxH int
+	}{
+		{"single-line-h5", 5, "one line", 5},
+		{"single-line-h8", 8, "one line", 8},
+		{"single-line-h10", 10, "one line", 10},
+		{"single-line-h15", 15, "one line", 15},
+		{"single-line-h24", 24, "one line", 24},
+		{"single-line-h40", 40, "one line", 40},
+		{"multi-line-h5", 5, "line1\nline2\nline3\nline4\nline5", 5},
+		{"multi-line-h8", 8, "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10", 8},
+		{"multi-line-h10", 10, "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15", 10},
+		{"multi-line-h15", 15, strings.Repeat("line\n", 30), 15},
+		{"multi-line-h24", 24, strings.Repeat("line\n", 50), 24},
+		{"multi-line-h40", 40, strings.Repeat("line\n", 100), 40},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
+
+			rendered := m.renderMainColumn(74)
+			lines := strings.Split(strings.TrimSpace(ansi.Strip(rendered)), "\n")
+			if len(lines) > tt.wantMaxH {
+				t.Fatalf("rendered frame height = %d, want <= %d", len(lines), tt.wantMaxH)
+			}
+		})
+	}
+}
+
+func TestSelectionSmallHeight(t *testing.T) {
+	tests := []struct {
+		name            string
+		height          int
+		wantScreenLines int
+	}{
+		{"h5", 5, 5},
+		{"h8", 8, 8},
+		{"h10", 10, 10},
+		{"h15", 15, 15},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			screenLines := new([]string)
+			m.screenLines = screenLines
+
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
+
+			_ = m.View()
+
+			if len(*screenLines) != tt.wantScreenLines {
+				t.Fatalf("screenLines count = %d, want exactly %d entries", len(*screenLines), tt.wantScreenLines)
+			}
+		})
+	}
+}
+
+func TestContentTopPadNoOffByOne(t *testing.T) {
+	tests := []struct {
+		name        string
+		height      int
+		contentText string
+		wantMaxPad  bool
+	}{
+		{"fits-h5", 5, "one line", true},
+		{"fits-h10", 10, "line1\nline2\nline3", true},
+		{"overflow-h5", 5, strings.Repeat("line\n", 10), false},
+		{"overflow-h8", 8, strings.Repeat("line\n", 20), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
+
+			m.content.AppendLine(tt.contentText)
+			m.syncViewport()
+
+			if tt.wantMaxPad {
+				if m.contentTopPad < 0 {
+					t.Fatalf("contentTopPad = %d, want >= 0 when content fits", m.contentTopPad)
+				}
+			} else {
+				if m.contentTopPad > 0 {
+					t.Fatalf("contentTopPad = %d, want 0 when content overflows", m.contentTopPad)
+				}
+			}
+		})
 	}
 }
 
