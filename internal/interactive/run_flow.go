@@ -19,16 +19,21 @@ func (s *Session) submitPrompt(ctx context.Context, text string) {
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
 	s.mu.Unlock()
 
+	var handoffAccepted bool
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
 		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), s.runController.SteerCh())
 		if err != nil {
 			return err
 		}
+		if result.WorkflowHandoff != nil {
+			handoffAccepted = true
+			return nil
+		}
 		s.mu.Lock()
-		s.conversation = result
+		s.conversation = result.Conversation
 		s.lineage = agent.ConversationLineage{
 			Generations: []agent.ConversationGeneration{
-				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result)},
+				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
 			},
 			NextGenerationID: 2,
 		}
@@ -38,6 +43,9 @@ func (s *Session) submitPrompt(ctx context.Context, text string) {
 
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		return
+	}
+	if handoffAccepted {
 		return
 	}
 

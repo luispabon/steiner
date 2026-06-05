@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // ActiveRunController manages the cancellation of the currently active model
@@ -285,6 +286,64 @@ func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 // HasPending reports whether an approval request is currently awaiting a
 // decision.
 func (c *ApprovalCoordinator) HasPending() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pending != nil
+}
+
+type pendingWorkflowHandoff struct {
+	request  tool.WorkflowHandoffRequest
+	response chan SubmitWorkflowHandoff
+}
+
+// WorkflowHandoffCoordinator manages pending workflow handoff requests during
+// an interactive session.
+type WorkflowHandoffCoordinator struct {
+	mu      sync.Mutex
+	pending *pendingWorkflowHandoff
+}
+
+// Begin registers a pending workflow handoff request and returns a channel
+// that receives the eventual user decision.
+func (c *WorkflowHandoffCoordinator) Begin(req tool.WorkflowHandoffRequest) chan SubmitWorkflowHandoff {
+	response := make(chan SubmitWorkflowHandoff, 1)
+	c.mu.Lock()
+	c.pending = &pendingWorkflowHandoff{
+		request:  req,
+		response: response,
+	}
+	c.mu.Unlock()
+	return response
+}
+
+// Finish unregisters the pending workflow handoff associated with the given
+// response channel.
+func (c *WorkflowHandoffCoordinator) Finish(response chan SubmitWorkflowHandoff) {
+	c.mu.Lock()
+	if c.pending != nil && c.pending.response == response {
+		c.pending = nil
+	}
+	c.mu.Unlock()
+}
+
+// Submit delivers a workflow handoff decision to the pending request, if one
+// exists.
+func (c *WorkflowHandoffCoordinator) Submit(submission SubmitWorkflowHandoff) {
+	c.mu.Lock()
+	pending := c.pending
+	c.mu.Unlock()
+	if pending == nil {
+		return
+	}
+	select {
+	case pending.response <- submission:
+	default:
+	}
+}
+
+// HasPending reports whether a workflow handoff request is currently awaiting
+// a decision.
+func (c *WorkflowHandoffCoordinator) HasPending() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.pending != nil

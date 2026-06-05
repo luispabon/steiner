@@ -149,7 +149,7 @@ func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox) (string, *tool
 	if err != nil {
 		return "", nil, err
 	}
-	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, sb)
+	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 	if err != nil {
 		return "", nil, err
 	}
@@ -158,7 +158,7 @@ func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox) (string, *tool
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
 func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) (*tool.Registry, error) {
-	return runtimeRegistryWithSink(cfg, workDir, nil, false, sb)
+	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 }
 
 func discoverRuntimeSkills(ctx context.Context) (string, fs.FS, []string, map[string]string, map[string]string, error) {

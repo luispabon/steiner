@@ -66,7 +66,7 @@ func TestWorkflowHandoffSchema(t *testing.T) {
 }
 
 func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
-	env, events := workflowHandoffTestEnv(t, true)
+	env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: false})
 	toolDef := NewWorkflowHandoffTool(env)
 
 	msg := "  " + strings.Repeat("handoff note ", 60) + "  "
@@ -79,27 +79,14 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 		t.Fatalf("handler error = %v", err)
 	}
 
-	result, ok := resultI.(*WorkflowHandoffResult)
+	result, ok := resultI.(struct {
+		Status string `json:"status"`
+	})
 	if !ok {
-		t.Fatalf("result type = %T, want *WorkflowHandoffResult", resultI)
+		t.Fatalf("result type = %T, want minimal declined struct", resultI)
 	}
-	if result.Status != "pending" {
-		t.Fatalf("Status = %q, want pending", result.Status)
-	}
-	if result.Next != workflowHandoffNextImplement {
-		t.Fatalf("Next = %q, want %q", result.Next, workflowHandoffNextImplement)
-	}
-	if result.Target != ".steiner/plans/step-1" {
-		t.Fatalf("Target = %q, want .steiner/plans/step-1", result.Target)
-	}
-	if strings.TrimSpace(result.Message) != result.Message {
-		t.Fatalf("Message = %q, want trimmed content", result.Message)
-	}
-	if len([]rune(result.Message)) > workflowHandoffMessageMaxRunes {
-		t.Fatalf("Message rune length = %d, want <= %d", len([]rune(result.Message)), workflowHandoffMessageMaxRunes)
-	}
-	if !result.MessageTruncated {
-		t.Fatal("MessageTruncated = false, want true for long message")
+	if result.Status != "declined" {
+		t.Fatalf("Status = %q, want declined", result.Status)
 	}
 
 	if len(*events) != 1 {
@@ -120,8 +107,35 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 	}
 }
 
+func TestWorkflowHandoffToolReturnsAcceptedControlResult(t *testing.T) {
+	env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: true})
+	toolDef := NewWorkflowHandoffTool(env)
+
+	resultI, err := toolDef.Handler(context.Background(), map[string]any{
+		"next":   workflowHandoffNextImplement,
+		"target": ".steiner/plans/step-1",
+	})
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+
+	result, ok := resultI.(tool.WorkflowHandoffAccepted)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.WorkflowHandoffAccepted", resultI)
+	}
+	if got, want := result.Transition.Next, workflowHandoffNextImplement; got != want {
+		t.Fatalf("Transition.Next = %q, want %q", got, want)
+	}
+	if got, want := result.Transition.Target, ".steiner/plans/step-1"; got != want {
+		t.Fatalf("Transition.Target = %q, want %q", got, want)
+	}
+	if len(*events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(*events))
+	}
+}
+
 func TestWorkflowHandoffToolReturnsUnsupportedInNonInteractiveMode(t *testing.T) {
-	env, events := workflowHandoffTestEnv(t, false)
+	env, events := workflowHandoffTestEnv(t, false, nil)
 	toolDef := NewWorkflowHandoffTool(env)
 
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
@@ -237,7 +251,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env, events := workflowHandoffTestEnv(t, true)
+			env, events := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{accepted: false})
 			toolDef := NewWorkflowHandoffTool(env)
 
 			_, err := toolDef.Handler(context.Background(), tt.input)
@@ -268,7 +282,7 @@ func TestWorkflowHandoffInputDecodeRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func workflowHandoffTestEnv(t *testing.T, interactive bool) (Env, *[]output.Event) {
+func workflowHandoffTestEnv(t *testing.T, interactive bool, responder tool.WorkflowHandoffResponder) (Env, *[]output.Event) {
 	t.Helper()
 
 	root := t.TempDir()
@@ -278,9 +292,10 @@ func workflowHandoffTestEnv(t *testing.T, interactive bool) (Env, *[]output.Even
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
 	events := &[]output.Event{}
 	env := Env{
-		WorkDir:     root,
-		PathPolicy:  &policy,
-		Interactive: interactive,
+		WorkDir:                  root,
+		PathPolicy:               &policy,
+		Interactive:              interactive,
+		WorkflowHandoffResponder: responder,
 		EventSink: output.SinkFunc(func(event output.Event) {
 			*events = append(*events, event)
 		}),
@@ -291,6 +306,14 @@ func workflowHandoffTestEnv(t *testing.T, interactive bool) (Env, *[]output.Even
 	}
 
 	return env, events
+}
+
+type workflowHandoffDecisionResponder struct {
+	accepted bool
+}
+
+func (r workflowHandoffDecisionResponder) RequestWorkflowHandoff(_ context.Context, _ tool.WorkflowHandoffRequest) (tool.WorkflowHandoffResponse, error) {
+	return tool.WorkflowHandoffResponse{Accepted: r.accepted}, nil
 }
 
 func mustWriteWorkflowHandoffTarget(t *testing.T, root, rel string, overview, plan bool) {

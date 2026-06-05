@@ -18,6 +18,9 @@ type Env struct {
 	// Interactive reports whether the session is running in interactive (TUI) mode.
 	// Tools that require a live TUI must check this and return a bounded failure when false.
 	Interactive bool
+	// WorkflowHandoffResponder resolves user decisions for workflow handoff
+	// requests in interactive mode.
+	WorkflowHandoffResponder tool.WorkflowHandoffResponder
 	// CommandWrapper, if non-nil, is applied to exec.Cmd instances before the bash
 	// process is started. Used to wrap the process in a sandbox (e.g. bubblewrap).
 	CommandWrapper func(*exec.Cmd) *exec.Cmd

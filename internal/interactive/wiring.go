@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -96,4 +97,48 @@ func approvalResponseForDecision(decision string) tool.ApprovalResponse {
 	default:
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}
 	}
+}
+
+type workflowHandoffResponder struct {
+	coordinator *WorkflowHandoffCoordinator
+	events      output.EventSink
+}
+
+func newWorkflowHandoffResponder(coordinator *WorkflowHandoffCoordinator, events output.EventSink) *workflowHandoffResponder {
+	return &workflowHandoffResponder{
+		coordinator: coordinator,
+		events:      events,
+	}
+}
+
+func (h *workflowHandoffResponder) RequestWorkflowHandoff(ctx context.Context, req tool.WorkflowHandoffRequest) (tool.WorkflowHandoffResponse, error) {
+	if h == nil || h.coordinator == nil {
+		return tool.WorkflowHandoffResponse{}, fmt.Errorf("workflow handoff UI is unavailable")
+	}
+
+	responseCh := h.coordinator.Begin(req)
+	defer h.coordinator.Finish(responseCh)
+
+	select {
+	case submission, ok := <-responseCh:
+		if !ok {
+			return tool.WorkflowHandoffResponse{}, fmt.Errorf("workflow handoff response channel closed")
+		}
+		if workflowHandoffAccepted(submission.Decision) {
+			if h.events != nil {
+				h.events.Emit(output.NewWorkflowHandoffAcceptedEvent(req.Next, req.Target, req.Message))
+			}
+			return tool.WorkflowHandoffResponse{Accepted: true}, nil
+		}
+		if h.events != nil {
+			h.events.Emit(output.NewWorkflowHandoffDeclinedEvent(req.Next, req.Target, req.Message))
+		}
+		return tool.WorkflowHandoffResponse{}, nil
+	case <-ctx.Done():
+		return tool.WorkflowHandoffResponse{}, ctx.Err()
+	}
+}
+
+func workflowHandoffAccepted(decision string) bool {
+	return strings.EqualFold(strings.TrimSpace(decision), "accept")
 }

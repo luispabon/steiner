@@ -158,6 +158,34 @@ func NewWorkflowHandoffRequestedEvent(next, target, message string) Event {
 	}
 }
 
+// NewWorkflowHandoffAcceptedEvent creates a workflow handoff accepted event.
+func NewWorkflowHandoffAcceptedEvent(next, target, message string) Event {
+	return Event{
+		Type:      EventTypeWorkflowHandoffAccepted,
+		Timestamp: time.Now().UTC(),
+		Payload: WorkflowHandoffEvent{
+			Next:     strings.TrimSpace(next),
+			Target:   strings.TrimSpace(target),
+			Message:  strings.TrimSpace(message),
+			Decision: "accepted",
+		},
+	}
+}
+
+// NewWorkflowHandoffDeclinedEvent creates a workflow handoff declined event.
+func NewWorkflowHandoffDeclinedEvent(next, target, message string) Event {
+	return Event{
+		Type:      EventTypeWorkflowHandoffDeclined,
+		Timestamp: time.Now().UTC(),
+		Payload: WorkflowHandoffEvent{
+			Next:     strings.TrimSpace(next),
+			Target:   strings.TrimSpace(target),
+			Message:  strings.TrimSpace(message),
+			Decision: "declined",
+		},
+	}
+}
+
 // NewStopReasonEvent creates a new stop reason event.
 func NewStopReasonEvent(turn int, reason string, err error) Event {
 	payload := StopReasonEvent{
@@ -182,6 +210,8 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 			return fmt.Sprintf("run complete after %d turn%s", turn, PluralSuffix(turn, "", "s")), ""
 		}
 		return "run complete", ""
+	case "workflow_handoff":
+		return "workflow handoff accepted", "clear the current conversation and start the next workflow"
 	case "max_turns":
 		summary := "stopped after reaching the max turn limit"
 		if turn > 0 {
