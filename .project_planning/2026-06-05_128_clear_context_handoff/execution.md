@@ -2,13 +2,14 @@
 
 - Active branch: `cl/2026-06-05_128_clear_context_handoff`
 - Verification strategy: targeted package tests per step, then `go test ./...` and required final `make check`.
-- Current step: `step-2`
+- Current step: `step-2` running
 - Completed steps: `step-1`
 - Blocked steps: none
 - Skipped steps: none
 - Sub-agents:
   - `step-1`: worker `gpt-5.4-mini` on `tmp/128-step-1`; cheapest safe profile, no planner `delegate_profile`.
   - `step-1` fix: worker `gpt-5.4-mini` on `tmp/128-step-1`; reviewer-triggered validation gap fix.
+  - `step-2`: worker `gpt-5.4` on `tmp/128-step-2`; escalated to same-tier model for cross-package session/agent control-flow design, no planner `delegate_profile`.
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
