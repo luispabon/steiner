@@ -41,20 +41,12 @@ func summarizeArgs(tool string, args map[string]any) string {
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
-			s := fmt.Sprintf("%v", v)
-			if len(s) > 60 {
-				s = s[:57] + "..."
-			}
-			return s
+			return fmt.Sprintf("%v", v)
 		}
 	}
 	// Fallback: first value
 	for _, v := range args {
-		s := fmt.Sprintf("%v", v)
-		if len(s) > 60 {
-			s = s[:57] + "..."
-		}
-		return s
+		return fmt.Sprintf("%v", v)
 	}
 	return tool
 }
@@ -62,25 +54,17 @@ func summarizeArgs(tool string, args map[string]any) string {
 func summarizeDelegateArgs(args map[string]any) string {
 	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
 		if v, ok := args[key]; ok {
-			return truncateToolArgSummary(fmt.Sprintf("%v", v))
+			return fmt.Sprintf("%v", v)
 		}
 	}
 	return summarizeFirstArgValue(args)
 }
 
 func summarizeFirstArgValue(args map[string]any) string {
-	// Fallback: first value
 	for _, v := range args {
-		return truncateToolArgSummary(fmt.Sprintf("%v", v))
+		return fmt.Sprintf("%v", v)
 	}
 	return ""
-}
-
-func truncateToolArgSummary(s string) string {
-	if len(s) > 60 {
-		s = s[:57] + "..."
-	}
-	return s
 }
 
 func delegatePromptText(args map[string]any) string {

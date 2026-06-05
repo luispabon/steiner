@@ -403,8 +403,8 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 	if got := dd.promptText; got != task {
 		t.Fatalf("promptText = %q, want full task %q", got, task)
 	}
-	if got := dd.parentArgs; got == task {
-		t.Fatalf("parentArgs = %q, want summarized header text", got)
+	if got := dd.parentArgs; got != task {
+		t.Fatalf("parentArgs = %q, want full task text %q (truncation happens at render time)", got, task)
 	}
 }
 
