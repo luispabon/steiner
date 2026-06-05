@@ -12,11 +12,12 @@
   - `step-2`: worker `gpt-5.4` on `tmp/128-step-2`; escalated to same-tier model for cross-package session/agent control-flow design, no planner `delegate_profile`.
   - `step-2` fix: worker `gpt-5.4` on `tmp/128-step-2`; reviewer-triggered pending-registration race fix.
   - `step-3`: worker `gpt-5.4` on `tmp/128-step-3`; same-tier model for TUI modal/controller sequencing, no planner `delegate_profile`.
+  - `step-3` fix: worker `gpt-5.4-mini` on `tmp/128-step-3`; reviewer-triggered modal copy/layout alignment.
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
   - `step-2`: `go test ./internal/interactive -run 'Test.*Handoff|Test.*Approval|Test.*SubmitPrompt|Test.*ClearConversation'` passed.
   - `step-2`: `go test ./internal/agent -run 'Test.*Tool|Test.*Turn'` passed.
-- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge.
+- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge. Step-3 initial review found modal copy/layout drift from approved text; fix pass running.
 - Manual verification notes: none required by plan
 - Reviewer handoff status: not ready
