@@ -149,6 +149,7 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 
 	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		cancelled = replaySafeRunState(cancelled)
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return state, turnOutcome{State: cancelled, Stop: true}

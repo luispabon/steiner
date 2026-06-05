@@ -118,6 +118,32 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			t.Error("original nested map unchanged after modifying clone")
 		}
 	})
+
+	t.Run("replay-safe conversion sanitizes dangling tool call transcripts", func(t *testing.T) {
+		msgs := []Message{
+			{Role: MessageRoleUser, Content: "investigate"},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "searching",
+				ToolCalls: []ToolCall{
+					{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
+				},
+			},
+			{Role: MessageRoleTool, Content: "orphan", ToolCallID: "wrong-call"},
+			{Role: MessageRoleAssistant, Content: "continue"},
+		}
+
+		result := ToReplaySafeProviderMessages(msgs)
+		if len(result) != 3 {
+			t.Fatalf("len(result) = %d, want 3", len(result))
+		}
+		if len(result[1].ToolCalls) != 0 {
+			t.Fatalf("result[1].ToolCalls = %#v, want dangling tool calls cleared", result[1].ToolCalls)
+		}
+		if result[2].Role != provider.MessageRoleAssistant || result[2].Content != "continue" {
+			t.Fatalf("result[2] = %#v, want trailing assistant preserved", result[2])
+		}
+	})
 }
 
 func TestMessageConvert_FromProviderMessages(t *testing.T) {

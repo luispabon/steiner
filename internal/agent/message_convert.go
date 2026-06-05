@@ -19,6 +19,12 @@ func ToProviderMessages(messages []Message) []provider.Message {
 	return out
 }
 
+// ToReplaySafeProviderMessages converts agent messages to provider messages
+// after normalizing the transcript for provider replay.
+func ToReplaySafeProviderMessages(messages []Message) []provider.Message {
+	return ToProviderMessages(ReplaySafeConversation(messages))
+}
+
 func fromProviderMessages(messages []provider.Message) []Message {
 	if len(messages) == 0 {
 		return nil
@@ -84,7 +90,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 		conversation = state.Conversation
 	}
 
-	providerMsgs := ToProviderMessages(conversation)
+	providerMsgs := ToReplaySafeProviderMessages(conversation)
 
 	base.Conversation = providerMsgs
 	base.ToolResults = nil

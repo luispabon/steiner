@@ -88,31 +88,7 @@ func lastUserPrompt(messages []agent.Message) string {
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]provider.Message, 0, len(messages))
-	for _, message := range messages {
-		wire := provider.Message{
-			Role:       provider.MessageRole(message.Role),
-			Content:    message.Content,
-			Name:       message.Name,
-			ToolCallID: message.ToolCallID,
-			Turn:       message.Turn,
-		}
-		if len(message.ToolCalls) > 0 {
-			wire.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
-			for _, call := range message.ToolCalls {
-				wire.ToolCalls = append(wire.ToolCalls, provider.ToolCall{
-					ID:        call.ID,
-					Name:      call.Name,
-					Arguments: tool.CloneJSONMap(call.Arguments),
-				})
-			}
-		}
-		out = append(out, wire)
-	}
-	return out
+	return agent.ToReplaySafeProviderMessages(messages)
 }
 
 func cloneEvents(events []output.Event) []output.Event {

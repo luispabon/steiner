@@ -852,6 +852,12 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	if got, want := state.StopReason, StopReasonCancelled; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
+	if len(state.Conversation) != 2 {
+		t.Fatalf("len(state.Conversation) = %d, want 2", len(state.Conversation))
+	}
+	if got := state.Conversation[1]; got.Role != MessageRoleAssistant || len(got.ToolCalls) != 0 {
+		t.Fatalf("state.Conversation[1] = %#v, want replay-safe assistant message", got)
+	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
 		output.EventTypeTurnStarted,
@@ -865,6 +871,92 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 		output.EventTypeStopReason,
 	}; !equalStrings(got, want) {
 		t.Fatalf("event types = %v, want %v", got, want)
+	}
+}
+
+func TestRunnerReplaysCancelledToolCallTranscriptSafelyOnNextPrompt(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role: provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "note.txt"}},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "all set",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, _ string, _ map[string]any) (any, error) {
+			cancelFunc := ctx.Value(cancelContextKey{}).(context.CancelFunc)
+			cancelFunc()
+			return nil, ctx.Err()
+		},
+	}
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	ctx1 = context.WithValue(ctx1, cancelContextKey{}, cancel1)
+
+	firstState, err := NewRunner().Run(ctx1, RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+		},
+		Limits: Limits{MaxTurns: 2, MaxTokens: 10},
+	})
+	if err != nil {
+		t.Fatalf("first Run() error = %v, want nil", err)
+	}
+	if got, want := firstState.StopReason, StopReasonCancelled; got != want {
+		t.Fatalf("first StopReason = %q, want %q", got, want)
+	}
+
+	secondConversation := append(cloneMessages(firstState.Conversation), Message{
+		Role: MessageRoleUser, Content: "continue",
+	})
+	secondState, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: ToProviderMessages(secondConversation),
+		},
+		Limits: Limits{MaxTurns: 3, MaxTokens: 10},
+	})
+	if err != nil {
+		t.Fatalf("second Run() error = %v, want nil", err)
+	}
+	if got, want := secondState.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("second StopReason = %q, want %q", got, want)
+	}
+	if len(providerStub.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(providerStub.requests))
+	}
+	replay := providerStub.requests[1].Messages
+	var foundDanglingAssistant bool
+	for _, message := range replay {
+		if message.Role == provider.MessageRoleTool {
+			t.Fatalf("replay messages = %#v, want orphan tool messages stripped", replay)
+		}
+		if message.Role == provider.MessageRoleAssistant && len(message.ToolCalls) > 0 {
+			foundDanglingAssistant = true
+		}
+	}
+	if foundDanglingAssistant {
+		t.Fatalf("replay messages = %#v, want assistant replay without dangling tool calls", replay)
+	}
+	last := replay[len(replay)-1]
+	if last.Role != provider.MessageRoleUser || last.Content != "continue" {
+		t.Fatalf("replay tail = %#v, want follow-up user message", last)
 	}
 }
 
