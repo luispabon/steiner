@@ -852,11 +852,11 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	if got, want := state.StopReason, StopReasonCancelled; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if len(state.Conversation) != 2 {
-		t.Fatalf("len(state.Conversation) = %d, want 2", len(state.Conversation))
+	if len(state.Conversation) != 1 {
+		t.Fatalf("len(state.Conversation) = %d, want 1", len(state.Conversation))
 	}
-	if got := state.Conversation[1]; got.Role != MessageRoleAssistant || len(got.ToolCalls) != 0 {
-		t.Fatalf("state.Conversation[1] = %#v, want replay-safe assistant message", got)
+	if got := state.Conversation[0]; got.Role != MessageRoleUser || got.Content != "fix the bug" {
+		t.Fatalf("state.Conversation[0] = %#v, want original user message only", got)
 	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
@@ -946,6 +946,9 @@ func TestRunnerReplaysCancelledToolCallTranscriptSafelyOnNextPrompt(t *testing.T
 	for _, message := range replay {
 		if message.Role == provider.MessageRoleTool {
 			t.Fatalf("replay messages = %#v, want orphan tool messages stripped", replay)
+		}
+		if message.Role == provider.MessageRoleAssistant && strings.TrimSpace(message.Content) == "" && len(message.ToolCalls) == 0 {
+			t.Fatalf("replay messages = %#v, want empty assistant messages dropped", replay)
 		}
 		if message.Role == provider.MessageRoleAssistant && len(message.ToolCalls) > 0 {
 			foundDanglingAssistant = true

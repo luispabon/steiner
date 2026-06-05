@@ -1,5 +1,7 @@
 package agent
 
+import "strings"
+
 // ReplaySafeConversation returns a cloned conversation that is safe to replay
 // to OpenAI-compatible providers.
 //
@@ -20,6 +22,9 @@ func ReplaySafeConversation(conversation []Message) []Message {
 			continue
 		}
 		if msg.Role != MessageRoleAssistant || len(msg.ToolCalls) == 0 {
+			if replayDropsEmptyAssistant(msg) {
+				continue
+			}
 			out = append(out, msg)
 			continue
 		}
@@ -27,6 +32,9 @@ func ReplaySafeConversation(conversation []Message) []Message {
 		pairedTools, nextIndex, ok := replayPairedToolMessages(conversation, i, len(msg.ToolCalls))
 		if !ok {
 			msg.ToolCalls = nil
+			if replayDropsEmptyAssistant(msg) {
+				continue
+			}
 			out = append(out, msg)
 			continue
 		}
@@ -79,4 +87,8 @@ func replaySafeRunState(state RunState) RunState {
 	}
 	state.Lineage = state.Lineage.WithCurrentMessages(conversation)
 	return state
+}
+
+func replayDropsEmptyAssistant(msg Message) bool {
+	return msg.Role == MessageRoleAssistant && len(msg.ToolCalls) == 0 && strings.TrimSpace(msg.Content) == ""
 }

@@ -28,6 +28,30 @@ func TestReplaySafeConversation_StripsDanglingToolCalls(t *testing.T) {
 	}
 }
 
+func TestReplaySafeConversation_DropsAssistantThatBecomesEmptyAfterToolCallRemoval(t *testing.T) {
+	conversation := []Message{
+		{Role: MessageRoleUser, Content: "investigate"},
+		{
+			Role: MessageRoleAssistant,
+			ToolCalls: []ToolCall{
+				{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
+			},
+		},
+		{Role: MessageRoleAssistant, Content: "interrupted"},
+	}
+
+	got := ReplaySafeConversation(conversation)
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if got[0].Role != MessageRoleUser || got[1].Role != MessageRoleAssistant {
+		t.Fatalf("got = %#v, want user + trailing assistant", got)
+	}
+	if got[1].Content != "interrupted" {
+		t.Fatalf("got[1].Content = %q, want %q", got[1].Content, "interrupted")
+	}
+}
+
 func TestReplaySafeConversation_PreservesPairedToolResults(t *testing.T) {
 	conversation := []Message{
 		{Role: MessageRoleUser, Content: "investigate"},
