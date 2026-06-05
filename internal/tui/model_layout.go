@@ -47,7 +47,7 @@ func (m *Model) syncViewport() {
 	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
 	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
 
-	contentLines := strings.Count(rendered, "\n")
+	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height - contentLines
 	if pad < 0 {
 		pad = 0
