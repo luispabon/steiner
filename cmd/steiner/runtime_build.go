@@ -27,6 +27,22 @@ import (
 	"github.com/luispabon/steiner/skills"
 )
 
+// ensureSteinerProjectDir creates the .steiner/ directory and a .gitignore inside it.
+// It is idempotent and safe to call multiple times.
+func ensureSteinerProjectDir(workDir string) error {
+	steinerDir := filepath.Join(workDir, ".steiner")
+	if err := os.MkdirAll(steinerDir, 0o755); err != nil {
+		return fmt.Errorf("create .steiner directory: %w", err)
+	}
+	gitignorePath := filepath.Join(steinerDir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		if err := os.WriteFile(gitignorePath, []byte("*\n"), 0o644); err != nil {
+			return fmt.Errorf("create .steiner/.gitignore: %w", err)
+		}
+	}
+	return nil
+}
+
 func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, error) {
 	cavemanOverride := (*bool)(nil)
 	if cmd.Flags().Changed("caveman") {
