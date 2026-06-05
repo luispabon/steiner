@@ -2,8 +2,8 @@
 
 - Active branch: `cl/2026-06-05_128_clear_context_handoff`
 - Verification strategy: targeted package tests per step, then `go test ./...` and required final `make check`.
-- Current step: `step-5` running
-- Completed steps: `step-1`, `step-2`, `step-3`, `step-4`
+- Current step: none
+- Completed steps: `step-1`, `step-2`, `step-3`, `step-4`, `step-5`
 - Blocked steps: none
 - Skipped steps: none
 - Sub-agents:
@@ -25,6 +25,9 @@
   - `step-3`: `go test ./internal/interactive -run 'Test.*Handoff'` passed.
   - `step-4`: `go test ./internal/skill -run Test` passed.
   - `step-4`: `go test ./cmd/steiner -run 'Test.*Skill|Test.*Runtime'` passed.
+  - `step-5`: `go test ./internal/tool/... ./internal/interactive ./internal/tui ./internal/agent ./cmd/steiner` passed.
+  - `step-5`: `go test ./...` passed.
+  - `step-5`: `make check` passed, including tidy diff check, build, tests, race tests, vet, golangci-lint, and govulncheck.
 - Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge. Step-3 initial review found modal copy/layout drift from approved text; fixed before merge. Step-4 initial review found contradictory planner stop wording; fixed before merge.
 - Manual verification notes: none required by plan
-- Reviewer handoff status: not ready
+- Reviewer handoff status: ready; all planned steps implemented and required verification passed.
