@@ -833,8 +833,10 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 		t.Fatalf("collapseState[0] = %v, want true after finalize", got)
 	}
 	renderedCollapsed := buffer.String(80)
-	if !strings.Contains(renderedCollapsed, "▸ Thinking · first line") {
-		t.Fatalf("collapsed render = %q, want collapsed summary", renderedCollapsed)
+	// New collapsed format has "▸ Thinking" on its own line and "▎ first line" on a separate line
+	plain := stripANSI(renderedCollapsed)
+	if !strings.Contains(plain, "▸ Thinking") || !strings.Contains(plain, "first line") {
+		t.Fatalf("collapsed render = %q, want collapsed with '▸ Thinking' and 'first line' separately", plain)
 	}
 }
 
@@ -894,6 +896,120 @@ func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 	}
 	if got := buffer.segments[1].text; !strings.Contains(got, `"intent":"inspect"`) || !strings.Contains(got, `"next":"read file"`) {
 		t.Fatalf("assistant segment = %q, want finalized assistant text", got)
+	}
+}
+
+func TestRenderThinkingBlockSegment(t *testing.T) {
+	tests := []struct {
+		name      string
+		width     int
+		thinkData *thinkingBlockData
+		want      []string // strings that must appear in result
+		notWant   []string // strings that must NOT appear
+	}{
+		{
+			name:      "nil thinkData",
+			width:     80,
+			thinkData: nil,
+			want:      []string{""},
+			notWant:   []string{"Thinking"},
+		},
+		{
+			name:  "expanded state, short text",
+			width: 80,
+			thinkData: &thinkingBlockData{
+				body:      "short thought",
+				collapsed: false,
+				streaming: false,
+			},
+			want:    []string{"▾ Thinking", "short thought", "▎"},
+			notWant: []string{"▸", "…"},
+		},
+		{
+			name:  "expanded state, long line wraps",
+			width: 40,
+			thinkData: &thinkingBlockData{
+				body:      strings.Repeat("a", 80),
+				collapsed: false,
+				streaming: false,
+			},
+			want:    []string{"▾ Thinking"},
+			notWant: []string{"▸"},
+		},
+		{
+			name:  "collapsed state, 2 lines (≤3)",
+			width: 80,
+			thinkData: &thinkingBlockData{
+				body:      "first line\nsecond line",
+				collapsed: true,
+				streaming: false,
+			},
+			want:    []string{"▸ Thinking", "first line", "second line"},
+			notWant: []string{"…", "▾"},
+		},
+		{
+			name:  "collapsed state, 5 lines (>3)",
+			width: 80,
+			thinkData: &thinkingBlockData{
+				body:      "line1\nline2\nline3\nline4\nline5",
+				collapsed: true,
+				streaming: false,
+			},
+			want:    []string{"▸ Thinking", "line1", "line2", "line3", "…"},
+			notWant: []string{"line4", "line5", "▾"},
+		},
+		{
+			name:  "collapsed state at wide width",
+			width: 120,
+			thinkData: &thinkingBlockData{
+				body:      "first\nsecond\nthird",
+				collapsed: true,
+				streaming: false,
+			},
+			want:    []string{"▸ Thinking", "first", "second", "third"},
+			notWant: []string{"…", "▾"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber)}
+			seg := contentSegment{kind: segmentThinkingBlock, thinkData: tc.thinkData}
+			result := buf.renderThinkingBlockSegment(seg, tc.width)
+			plain := stripANSI(result)
+
+			// Check want strings
+			for _, w := range tc.want {
+				if w == "" {
+					// Special case: empty string check means result should be empty
+					if plain != "" {
+						t.Errorf("result should be empty, got: %q", plain)
+					}
+					continue
+				}
+				if !strings.Contains(plain, w) {
+					t.Errorf("result missing %q\ngot: %q", w, plain)
+				}
+			}
+
+			// Check notWant strings
+			for _, n := range tc.notWant {
+				if strings.Contains(plain, n) {
+					t.Errorf("result should not contain %q\ngot: %q", n, plain)
+				}
+			}
+
+			// For the "long line wraps" case, verify no line exceeds width
+			if tc.name == "expanded state, long line wraps" {
+				for _, line := range strings.Split(plain, "\n") {
+					// Remove the "▎ " or "▾ " or "▸ " prefix for width check
+					content := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "▎ "), "▾ "), "▸ ")
+					if len([]rune(content)) > tc.width {
+						t.Errorf("line exceeds width %d: %q (content: %q)", tc.width, line, content)
+					}
+				}
+			}
+		})
 	}
 }
 
