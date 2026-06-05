@@ -10,9 +10,10 @@
   - `step-1`: worker `gpt-5.4-mini` on `tmp/128-step-1`; cheapest safe profile, no planner `delegate_profile`.
   - `step-1` fix: worker `gpt-5.4-mini` on `tmp/128-step-1`; reviewer-triggered validation gap fix.
   - `step-2`: worker `gpt-5.4` on `tmp/128-step-2`; escalated to same-tier model for cross-package session/agent control-flow design, no planner `delegate_profile`.
+  - `step-2` fix: worker `gpt-5.4` on `tmp/128-step-2`; reviewer-triggered pending-registration race fix.
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
-- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge.
+- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fix pass running.
 - Manual verification notes: none required by plan
 - Reviewer handoff status: not ready
