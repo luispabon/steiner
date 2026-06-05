@@ -59,8 +59,8 @@ func (s statusState) view(width int) string {
 
 	// Segment 8: transient action hints (very end)
 	if s.approvalActive {
-		parts = append(parts, s.styles.KeyChip.Render("tab")+" choice")
-		parts = append(parts, s.styles.KeyChip.Render("⏎")+" confirm")
+		parts = append(parts, s.styles.KeyChip.Render("y/a/n")+" approve")
+		parts = append(parts, s.styles.KeyChip.Render("tab")+" move")
 		parts = append(parts, s.styles.KeyChip.Render("esc")+" deny")
 	}
 

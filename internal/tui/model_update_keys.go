@@ -248,9 +248,17 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(ApprovalDecisionDeny)
 	case tea.KeyCtrlC, tea.KeyCtrlD:
 		return m.executeInterruptAction(), nil
-	default:
-		return m, nil
+	case tea.KeyRunes:
+		switch msg.String() {
+		case "y":
+			return m.executeApprovalDecision(ApprovalDecisionAllowOnce)
+		case "a":
+			return m.executeApprovalDecision(ApprovalDecisionAlwaysAllow)
+		case "n":
+			return m.executeApprovalDecision(ApprovalDecisionDeny)
+		}
 	}
+	return m, nil
 }
 
 func (m Model) handleContextOverlayKey(msg tea.KeyMsg) tea.Model {

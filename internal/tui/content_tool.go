@@ -357,7 +357,153 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		bodyContent += "\n" + b.styles.FgMute.Render("↓ more")
 	}
 
-	return bodyContent
+	return b.appendApprovalContent(bodyContent, tc, rowWidth)
+}
+
+func (b *contentBuffer) appendApprovalContent(bodyContent string, tc *toolCallSegment, width int) string {
+	var suffix string
+	switch {
+	case tc.approvalPending && !tc.approvalResolved:
+		suffix = b.renderToolApprovalBlock(tc, width)
+	case tc.approvalResolved:
+		suffix = b.renderToolApprovalResolvedLine(tc, width)
+	default:
+		return bodyContent
+	}
+	if bodyContent != "" {
+		return bodyContent + "\n" + suffix
+	}
+	return suffix
+}
+
+// toolAccentColor returns the full-opacity accent color for the given tool.
+func toolAccentColor(tool string) lipgloss.Color {
+	switch normalizeToolName(tool) {
+	case "bash":
+		return lipgloss.Color(theme.AccentAmber)
+	case "mutate":
+		return lipgloss.Color(theme.ToolGrn)
+	case "read", "read_file":
+		return lipgloss.Color(theme.ToolCyan)
+	default:
+		return lipgloss.Color(theme.ToolBlue)
+	}
+}
+
+func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) string {
+	accentC := toolAccentColor(tc.tool)
+	accentStyle := lipgloss.NewStyle().Foreground(accentC)
+
+	// Separator
+	sepWidth := width
+	if sepWidth < 1 {
+		sepWidth = 1
+	}
+	sepStyle := accentStyle.Faint(true)
+	sep := sepStyle.Render(strings.Repeat("─", sepWidth))
+
+	// Pulsing dot — blinks on every 500ms tick
+	var dot string
+	if b.tickCount%2 == 0 {
+		dot = accentStyle.Render("●")
+	} else {
+		dot = b.styles.FgDim.Render("●")
+	}
+	header := dot + " " + accentStyle.Bold(true).Render("APPROVAL REQUIRED")
+
+	// Preview text
+	previewText := strings.TrimSpace(tc.approvalPreview)
+	if previewText == "" {
+		previewText = "no preview available"
+	}
+	preview := b.styles.FgMute.Render(truncateRunes(previewText, width))
+
+	// Buttons
+	btns := b.renderToolApprovalButtons(tc, accentC, width)
+
+	return strings.Join([]string{sep, header, preview, btns}, "\n")
+}
+
+func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC lipgloss.Color, width int) string {
+	type btnSpec struct {
+		label string
+		key   string
+		idx   int
+	}
+	specs := []btnSpec{
+		{"Allow once", "y", 0},
+		{"Always allow", "a", 1},
+		{"Deny", "n", 2},
+	}
+
+	items := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		var bg lipgloss.Color
+		var fg lipgloss.Color
+		switch spec.idx {
+		case 0:
+			bg = accentC
+			fg = lipgloss.Color(theme.Black)
+		case 1:
+			bg = lipgloss.Color(theme.BgInput)
+			fg = lipgloss.Color(theme.FgMute)
+		case 2:
+			bg = lipgloss.Color("#3a1a1a")
+			fg = lipgloss.Color("#FF5F5F")
+		}
+
+		keyStyle := lipgloss.NewStyle().
+			Background(bg).
+			Foreground(fg).
+			Faint(true)
+		btnStyle := lipgloss.NewStyle().
+			Padding(0, 2).
+			Background(bg).
+			Foreground(fg)
+		if tc.approvalSelectedAction == spec.idx {
+			btnStyle = btnStyle.Bold(true).Underline(true)
+		}
+
+		label := spec.label + " " + keyStyle.Render(spec.key)
+		items = append(items, btnStyle.Render(label))
+	}
+
+	line := strings.Join(items, " ")
+	if width > 0 && lipgloss.Width(line) > width {
+		return lipgloss.JoinVertical(lipgloss.Left, items...)
+	}
+	return line
+}
+
+func (b *contentBuffer) renderToolApprovalResolvedLine(tc *toolCallSegment, width int) string {
+	if tc.approvalAccepted {
+		verb := toolApprovalVerb(tc.tool)
+		text := "✓ approved — " + verb
+		style := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.DiffAddedBg)).
+			Foreground(lipgloss.Color(theme.Added)).
+			Width(width)
+		return style.Render(text)
+	}
+	text := "✗ denied — tool call blocked"
+	style := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffRemovedBg)).
+		Foreground(lipgloss.Color(theme.Removed)).
+		Width(width)
+	return style.Render(text)
+}
+
+func toolApprovalVerb(tool string) string {
+	switch normalizeToolName(tool) {
+	case "bash":
+		return "running command"
+	case "read", "read_file":
+		return "reading file"
+	case "mutate":
+		return "modifying file"
+	default:
+		return "executing tool"
+	}
 }
 
 func cloneToolArguments(arguments map[string]any) map[string]any {
