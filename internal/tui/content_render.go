@@ -101,7 +101,7 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentThinkingBlock:
-		return theme.WithBg(b.renderThinkingBlockSegment(segment), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.renderThinkingBlockSegment(segment, width), lipgloss.Color(theme.BgElev))
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
