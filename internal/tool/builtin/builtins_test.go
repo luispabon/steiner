@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 8 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 8 {
-			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
+	t.Run("all 9 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 9 {
+			t.Fatalf("Builtins returned %d tools, want 9", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "mutate", "fetch_url"}
+		want := []string{"read", "glob", "grep", "ls", "bash", "display_file", "mutate", "fetch_url", "workflow_handoff"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -75,6 +75,11 @@ func TestBuiltins(t *testing.T) {
 				Modified:          []string{"test.txt"},
 				OperationsApplied: 1,
 				Output:            "Success.\nUpdated the following files:\nM test.txt",
+			},
+			&WorkflowHandoffResult{
+				Next:   "implement",
+				Target: ".steiner/plans/step-1",
+				Status: "pending",
 			},
 			&FetchURLResult{
 				URL:           "http://example.com",

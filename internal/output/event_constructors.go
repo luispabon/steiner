@@ -145,6 +145,19 @@ func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) E
 	}
 }
 
+// NewWorkflowHandoffRequestedEvent creates a new workflow handoff request event.
+func NewWorkflowHandoffRequestedEvent(next, target, message string) Event {
+	return Event{
+		Type:      EventTypeWorkflowHandoffRequested,
+		Timestamp: time.Now().UTC(),
+		Payload: WorkflowHandoffEvent{
+			Next:    strings.TrimSpace(next),
+			Target:  strings.TrimSpace(target),
+			Message: strings.TrimSpace(message),
+		},
+	}
+}
+
 // NewStopReasonEvent creates a new stop reason event.
 func NewStopReasonEvent(turn int, reason string, err error) Event {
 	payload := StopReasonEvent{
