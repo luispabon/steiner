@@ -11,7 +11,7 @@ Use this skill to turn a coding request into a traceable planning bundle. Write 
 
 Planning creates intent, constraints, verification strategy, and a flat list of implementation steps. It must not edit implementation files.
 
-The planner never implements. Its work ends at handoff. After delivering the handoff sentence, take no further action.
+The planner never implements. Its work ends at handoff. After delivering the handoff sentence, the planner's only remaining action is to call `workflow_handoff` with `next: implement` and `target: .steiner/plans/FEATURE`, then stop.
 
 ## Phases
 
@@ -27,7 +27,7 @@ Follow this sequence:
    ▸ GATE — user approval required before proceeding
 7. Implementation-step planning
 8. Handoff
-   ▸ STOP — planner ceases all activity after delivering handoff
+   ▸ STOP — planner ceases all activity after delivering handoff and workflow_handoff
 
 Do not write planning artifacts before the research decision is resolved.
 
