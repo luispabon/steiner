@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -173,4 +174,21 @@ func TestBashSession(t *testing.T) {
 			t.Errorf("stdout = %q, want to contain %q", stdout, "wrapped")
 		}
 	})
+}
+
+func TestBashStreamReadErrorIncludesCapturedStderr(t *testing.T) {
+	err := bashStreamReadError("", io.ErrUnexpectedEOF, "bwrap: mount failed\n", io.ErrUnexpectedEOF)
+	if err == nil {
+		t.Fatal("error is nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"read stdout: unexpected EOF",
+		"read stderr: unexpected EOF",
+		"stderr: bwrap: mount failed",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error = %q, want substring %q", msg, want)
+		}
+	}
 }

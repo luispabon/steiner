@@ -55,9 +55,6 @@ func (m Model) renderMainColumn(contentWidth int) string {
 		Render(strings.Repeat("─", contentWidth))
 
 	mainComponents := []string{viewportView, hDivider}
-	if tray := m.renderApprovalTray(contentWidth); tray != "" {
-		mainComponents = append(mainComponents, tray)
-	}
 	mainComponents = append(mainComponents,
 		m.renderActivityRow(contentWidth),
 		m.renderInputView(contentWidth),
@@ -255,7 +252,6 @@ func (m Model) inputChromeHeight(contentWidth int) int {
 
 func (m Model) bottomChromeHeight(contentWidth int) int {
 	return 1 + // hDivider
-		m.approvalTrayHeight(contentWidth) +
 		m.activityRowHeight(contentWidth) +
 		m.inputChromeHeight(contentWidth) +
 		1 // status bar

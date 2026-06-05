@@ -53,6 +53,13 @@ type toolCallSegment struct {
 	rawArgs        map[string]any
 	preview        output.ToolPreview
 	displayPreview *output.PreviewDocument
+	// approval state — embedded in the tool row instead of a sibling pill
+	approvalPending        bool
+	approvalResolved       bool
+	approvalAccepted       bool
+	approvalMode           string
+	approvalPreview        string
+	approvalSelectedAction int // 0=allow once, 1=always allow, 2=deny
 }
 
 type toolCallGroupSegment struct {

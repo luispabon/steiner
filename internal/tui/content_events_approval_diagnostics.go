@@ -11,6 +11,21 @@ import (
 func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+		// Embed approval into the most recent tool call segment.
+		for i := len(b.segments) - 1; i >= 0; i-- {
+			seg := &b.segments[i]
+			if seg.kind != segmentToolCall || seg.toolData == nil {
+				continue
+			}
+			seg.toolData.approvalPending = true
+			seg.toolData.approvalMode = payload.Mode
+			seg.toolData.approvalPreview = payload.Preview
+			seg.toolData.approvalSelectedAction = 0
+			seg.toolData.collapsed = false
+			seg.renderDirty = true
+			return
+		}
+		// Fallback: no tool segment found — render as standalone pill.
 		b.segments = append(b.segments, contentSegment{
 			kind: segmentApprovalPill,
 			approvalData: &approvalPillData{
@@ -28,6 +43,17 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.finishStreaming()
 	accepted := event.Type == output.EventTypeApprovalAccepted
+	// Resolve the embedded approval in the most recent pending tool segment.
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := &b.segments[i]
+		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+			seg.toolData.approvalResolved = true
+			seg.toolData.approvalAccepted = accepted
+			seg.renderDirty = true
+			return
+		}
+	}
+	// Fallback: resolve a standalone approval pill.
 	for i := len(b.segments) - 1; i >= 0; i-- {
 		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved {
 			continue

@@ -21,15 +21,14 @@ func (m *Model) layout() {
 		contentWidth = 1
 	}
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
-	// Total rows: top_pad(1) + viewport + hDivider(1) + approval tray + input + activity + status(1).
+	// Total rows: top_pad(1) + viewport + hDivider(1) + input + activity + status(1).
 	// The composer renders as a padded message-style card, so derive its height.
 	m.input.MaxWidth = 0
 	m.input.SetWidth(99999)
 	inputRows := m.inputChromeHeight(contentWidth)
-	approvalRows := m.approvalTrayHeight(contentWidth)
 	activityRows := m.activityRowHeight(contentWidth)
 	m.viewport.Width = max(1, contentWidth-6)
-	m.viewport.Height = max(1, m.height-3-inputRows-approvalRows-activityRows)
+	m.viewport.Height = max(1, m.height-3-inputRows-activityRows)
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
 	// Using 9 leaves one spare row so the box never grazes the viewport edge.
@@ -376,6 +375,9 @@ func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
 
 func (m *Model) handleToolCallClick(seg *contentSegment) {
 	if seg.toolData != nil {
+		if seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+			return
+		}
 		seg.toolData.collapsed = !seg.toolData.collapsed
 		seg.renderDirty = true
 		m.syncViewport()
@@ -392,6 +394,9 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 	}
 	entry := seg.toolGroupData.entries[entryIndex]
 	if entry == nil {
+		return
+	}
+	if entry.approvalPending && !entry.approvalResolved {
 		return
 	}
 	entry.collapsed = !entry.collapsed

@@ -1,6 +1,9 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/luispabon/steiner/internal/config"
 )
 
@@ -29,8 +32,9 @@ func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConf
 
 	// User cache directory writable so tools can read and write cached data.
 	if userHome != "" {
-		cacheDir := userHome + "/.cache"
-		args = append(args, "--bind", cacheDir, cacheDir)
+		if cacheDir := cacheMountPath(userHome); cacheDir != "" {
+			args = append(args, "--bind", cacheDir, cacheDir)
+		}
 	}
 
 	// Set working directory to workspace.
@@ -46,4 +50,15 @@ func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConf
 	}
 
 	return args
+}
+
+func cacheMountPath(userHome string) string {
+	cacheDir := filepath.Join(userHome, ".cache")
+	if _, err := os.Stat(cacheDir); err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(cacheDir); err == nil {
+		return resolved
+	}
+	return cacheDir
 }
