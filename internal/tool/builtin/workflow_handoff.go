@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -18,6 +19,28 @@ const (
 	workflowHandoffMessageMaxRunes = 512
 	workflowHandoffTargetPrefix    = ".steiner/plans"
 )
+
+var workflowHandoffTargetUnsafeRunes = map[rune]struct{}{
+	'!':  {},
+	'"':  {},
+	'\'': {},
+	'$':  {},
+	'&':  {},
+	'(':  {},
+	')':  {},
+	'*':  {},
+	';':  {},
+	'<':  {},
+	'>':  {},
+	'?':  {},
+	'[':  {},
+	'\\': {},
+	']':  {},
+	'`':  {},
+	'{':  {},
+	'|':  {},
+	'}':  {},
+}
 
 // WorkflowHandoffInput is the model-facing input for the workflow_handoff tool.
 type WorkflowHandoffInput struct {
@@ -116,14 +139,22 @@ func validateWorkflowHandoffNext(next string) error {
 }
 
 func normalizeWorkflowHandoffTarget(workDir, raw string) (string, string, error) {
-	if strings.TrimSpace(raw) == "" {
+	if raw == "" {
+		return "", "", fmt.Errorf("workflow_handoff: target is required")
+	}
+	if err := validateWorkflowHandoffTargetSafety(raw); err != nil {
+		return "", "", err
+	}
+
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return "", "", fmt.Errorf("workflow_handoff: target is required")
 	}
 	if filepath.IsAbs(raw) {
 		return "", "", fmt.Errorf("workflow_handoff: target must be a relative %s/... directory", workflowHandoffTargetPrefix)
 	}
 
-	cleaned := filepath.Clean(strings.TrimSpace(raw))
+	cleaned := filepath.Clean(raw)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("workflow_handoff: target must stay under %s", workflowHandoffTargetPrefix)
 	}
@@ -142,6 +173,19 @@ func normalizeWorkflowHandoffTarget(workDir, raw string) (string, string, error)
 
 	absTarget := filepath.Clean(filepath.Join(baseDir, cleaned))
 	return cleaned, absTarget, nil
+}
+
+func validateWorkflowHandoffTargetSafety(raw string) error {
+	for _, r := range raw {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("workflow_handoff: target contains control characters")
+		}
+		if _, ok := workflowHandoffTargetUnsafeRunes[r]; ok {
+			return fmt.Errorf("workflow_handoff: target contains shell metacharacters")
+		}
+	}
+
+	return nil
 }
 
 func validateWorkflowHandoffArtifacts(absTarget string) error {

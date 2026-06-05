@@ -170,6 +170,54 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 			want: "relative .steiner/plans",
 		},
 		{
+			name: "target with newline",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1\nchild",
+			},
+			want: "control characters",
+		},
+		{
+			name: "target with control character",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1\x07child",
+			},
+			want: "control characters",
+		},
+		{
+			name: "target with shell metacharacter semicolon",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1;child",
+			},
+			want: "shell metacharacters",
+		},
+		{
+			name: "target with shell metacharacter ampersand",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1&child",
+			},
+			want: "shell metacharacters",
+		},
+		{
+			name: "target with shell metacharacter backtick",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1`child",
+			},
+			want: "shell metacharacters",
+		},
+		{
+			name: "target with shell metacharacter backslash",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1\\child",
+			},
+			want: "shell metacharacters",
+		},
+		{
 			name: "missing target directory",
 			input: map[string]any{
 				"next":   workflowHandoffNextReview,
