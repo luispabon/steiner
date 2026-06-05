@@ -2,7 +2,7 @@
 
 - Active branch: `cl/2026-06-05_128_clear_context_handoff`
 - Verification strategy: targeted package tests per step, then `go test ./...` and required final `make check`.
-- Current step: `step-4`
+- Current step: `step-4` running
 - Completed steps: `step-1`, `step-2`, `step-3`
 - Blocked steps: none
 - Skipped steps: none
@@ -13,6 +13,7 @@
   - `step-2` fix: worker `gpt-5.4` on `tmp/128-step-2`; reviewer-triggered pending-registration race fix.
   - `step-3`: worker `gpt-5.4` on `tmp/128-step-3`; same-tier model for TUI modal/controller sequencing, no planner `delegate_profile`.
   - `step-3` fix: worker `gpt-5.4-mini` on `tmp/128-step-3`; reviewer-triggered modal copy/layout alignment.
+  - `step-4`: worker `gpt-5.4-mini` on `tmp/128-step-4`; cheapest safe profile for skill wording update, no planner `delegate_profile`.
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
