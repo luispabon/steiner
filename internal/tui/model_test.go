@@ -2585,8 +2585,61 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 	if got := m.workflowHandoff.acceptLabel(); got != "Accept: Clear + Implement" {
 		t.Fatalf("accept label = %q, want %q", got, "Accept: Clear + Implement")
 	}
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Continue to implementation?",
+		"Planning folder: .steiner/plans/step-3",
+		"Accept: Clear + Implement",
+		"Dismiss",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, "Next:") || strings.Contains(rendered, "Target:") {
+		t.Fatalf("rendered modal = %q, want no Next:/Target: rows", rendered)
+	}
+	if acceptIdx, dismissIdx := strings.Index(rendered, "Accept: Clear + Implement"), strings.Index(rendered, "Dismiss"); acceptIdx < 0 || dismissIdx < 0 || acceptIdx > dismissIdx {
+		t.Fatalf("rendered modal = %q, want accept button before dismiss button", rendered)
+	}
 	if len(ctrl.submitWorkflowHandoffs()) != 0 {
 		t.Fatalf("handoff decisions = %d, want 0 before input", len(ctrl.submitWorkflowHandoffs()))
+	}
+}
+
+func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to open")
+	}
+	if got := m.workflowHandoff.acceptLabel(); got != "Accept: Clear + Review" {
+		t.Fatalf("accept label = %q, want %q", got, "Accept: Clear + Review")
+	}
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Continue to review?",
+		"Planning folder: .steiner/plans/step-3",
+		"Accept: Clear + Review",
+		"Dismiss",
+		"handoff now",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, "Next:") || strings.Contains(rendered, "Target:") {
+		t.Fatalf("rendered modal = %q, want no Next:/Target: rows", rendered)
+	}
+	if acceptIdx, dismissIdx := strings.Index(rendered, "Accept: Clear + Review"), strings.Index(rendered, "Dismiss"); acceptIdx < 0 || dismissIdx < 0 || acceptIdx > dismissIdx {
+		t.Fatalf("rendered modal = %q, want accept button before dismiss button", rendered)
 	}
 }
 
@@ -2601,6 +2654,17 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 	m.syncViewport()
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Continue to review?",
+		"Planning folder: .steiner/plans/step-3",
+		"Accept: Clear + Review",
+		"Dismiss",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
 	if m.workflowHandoff.IsOpen() {
@@ -2629,6 +2693,18 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	m.syncViewport()
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Continue to review?",
+		"Planning folder: .steiner/plans/step-3",
+		"Accept: Clear + Review",
+		"Dismiss",
+		"handoff now",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if m.workflowHandoff.IsOpen() {

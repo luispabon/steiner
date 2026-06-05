@@ -59,6 +59,17 @@ func (s workflowHandoffModalState) acceptLabel() string {
 	}
 }
 
+func (s workflowHandoffModalState) promptText() string {
+	switch s.next {
+	case "implement":
+		return "Continue to implementation?"
+	case "review":
+		return "Continue to review?"
+	default:
+		return "Continue to the next workflow?"
+	}
+}
+
 func (m *Model) renderWorkflowHandoffModal() string {
 	s := m.workflowHandoff
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
@@ -76,8 +87,8 @@ func (m *Model) renderWorkflowHandoffModal() string {
 			Width(contentWidth).
 			Render("This will clear the current conversation and start the next workflow."),
 		"",
-		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Next: " + s.next),
-		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Target: " + s.target),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.promptText()),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Planning folder: " + s.target),
 	}
 	if s.message != "" {
 		bodyLines = append(bodyLines,
@@ -89,11 +100,11 @@ func (m *Model) renderWorkflowHandoffModal() string {
 		)
 	}
 
-	dismissButton := m.renderExitModalButton("Dismiss", s.selectedAction == workflowHandoffActionDismiss)
 	acceptButton := m.renderExitModalButton(s.acceptLabel(), s.selectedAction == workflowHandoffActionAccept)
+	dismissButton := m.renderExitModalButton("Dismiss", s.selectedAction == workflowHandoffActionDismiss)
 	buttonRow := strings.Repeat(" ", contentWidth)
-	buttonRow = composeOverlayLine(buttonRow, dismissButton, contentWidth, 0, lipgloss.Width(dismissButton))
-	buttonRow = composeOverlayLine(buttonRow, acceptButton, contentWidth, contentWidth-lipgloss.Width(acceptButton), lipgloss.Width(acceptButton))
+	buttonRow = composeOverlayLine(buttonRow, acceptButton, contentWidth, 0, lipgloss.Width(acceptButton))
+	buttonRow = composeOverlayLine(buttonRow, dismissButton, contentWidth, contentWidth-lipgloss.Width(dismissButton), lipgloss.Width(dismissButton))
 
 	divider := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.BorderSoft)).
