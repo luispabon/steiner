@@ -14,6 +14,7 @@
   - `step-3`: worker `gpt-5.4` on `tmp/128-step-3`; same-tier model for TUI modal/controller sequencing, no planner `delegate_profile`.
   - `step-3` fix: worker `gpt-5.4-mini` on `tmp/128-step-3`; reviewer-triggered modal copy/layout alignment.
   - `step-4`: worker `gpt-5.4-mini` on `tmp/128-step-4`; cheapest safe profile for skill wording update, no planner `delegate_profile`.
+  - `step-4` fix: worker `gpt-5.4-mini` on `tmp/128-step-4`; reviewer-triggered skill instruction consistency fix.
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
@@ -21,6 +22,6 @@
   - `step-2`: `go test ./internal/agent -run 'Test.*Tool|Test.*Turn'` passed.
   - `step-3`: `go test ./internal/tui -run 'Test.*WorkflowHandoff|Test.*PlanPicker|Test.*Clear|Test.*Slash'` passed.
   - `step-3`: `go test ./internal/interactive -run 'Test.*Handoff'` passed.
-- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge. Step-3 initial review found modal copy/layout drift from approved text; fixed before merge.
+- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge. Step-3 initial review found modal copy/layout drift from approved text; fixed before merge. Step-4 initial review found contradictory planner stop wording; fix pass running.
 - Manual verification notes: none required by plan
 - Reviewer handoff status: not ready
