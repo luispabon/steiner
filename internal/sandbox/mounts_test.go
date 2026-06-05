@@ -102,6 +102,24 @@ func TestBuildArgs_HostMountsAppended(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_CacheDirBind(t *testing.T) {
+	args := BuildArgs("/ws", "/ws/.steiner/home", "/home/user",
+		config.PermissionsConfig{}, nil)
+
+	if !containsSeq(args, "--bind", "/home/user/.cache", "/home/user/.cache") {
+		t.Errorf("expected --bind /home/user/.cache /home/user/.cache in args: %v", args)
+	}
+}
+
+func TestBuildArgs_NoCacheDirWhenNoHome(t *testing.T) {
+	args := BuildArgs("/ws", "/ws/.steiner/home", "",
+		config.PermissionsConfig{}, nil)
+
+	if containsSeq(args, "--bind", "/.cache", "/.cache") {
+		t.Errorf("should not mount /.cache when userHome is empty: %v", args)
+	}
+}
+
 // containsSeq returns true if needle appears as a contiguous subsequence in haystack.
 func containsSeq(haystack []string, needle ...string) bool {
 	if len(needle) == 0 {

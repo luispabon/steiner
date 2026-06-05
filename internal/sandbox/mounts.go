@@ -5,7 +5,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(workspace, sandboxHome, _ string, _ config.PermissionsConfig, hostMounts []config.HostMount) []string {
+func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
@@ -26,6 +26,12 @@ func BuildArgs(workspace, sandboxHome, _ string, _ config.PermissionsConfig, hos
 
 	// Sandbox state directory writable at original absolute path.
 	args = append(args, "--bind", sandboxHome, sandboxHome)
+
+	// User cache directory writable so tools can read and write cached data.
+	if userHome != "" {
+		cacheDir := userHome + "/.cache"
+		args = append(args, "--bind", cacheDir, cacheDir)
+	}
 
 	// Set working directory to workspace.
 	args = append(args, "--chdir", workspace)
