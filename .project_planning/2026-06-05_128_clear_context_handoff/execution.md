@@ -2,8 +2,8 @@
 
 - Active branch: `cl/2026-06-05_128_clear_context_handoff`
 - Verification strategy: targeted package tests per step, then `go test ./...` and required final `make check`.
-- Current step: `step-2` running
-- Completed steps: `step-1`
+- Current step: `step-3`
+- Completed steps: `step-1`, `step-2`
 - Blocked steps: none
 - Skipped steps: none
 - Sub-agents:
@@ -14,6 +14,8 @@
 - Verification results:
   - `step-1`: `go test ./internal/tool/builtin -run 'Test.*WorkflowHandoff'` passed.
   - `step-1`: `go test ./internal/tool -run 'Test.*WorkflowHandoff|Test.*Schema'` passed.
-- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fix pass running.
+  - `step-2`: `go test ./internal/interactive -run 'Test.*Handoff|Test.*Approval|Test.*SubmitPrompt|Test.*ClearConversation'` passed.
+  - `step-2`: `go test ./internal/agent -run 'Test.*Tool|Test.*Turn'` passed.
+- Deviations/blockers: step-1 initial review found missing target metacharacter/control-character validation; fixed before merge. Step-2 initial review found requested-event-before-pending-registration race; fixed before merge.
 - Manual verification notes: none required by plan
 - Reviewer handoff status: not ready
