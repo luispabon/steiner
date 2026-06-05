@@ -375,6 +375,10 @@ func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, w
 	if len(lines) == 0 {
 		return nil
 	}
+	// Apply viewport height cap if set (maxDelegationBodyLines > 0).
+	if b.maxDelegationBodyLines > 0 && len(lines) > b.maxDelegationBodyLines {
+		lines = lines[:b.maxDelegationBodyLines]
+	}
 	return lines
 }
 
@@ -570,6 +574,10 @@ func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, w
 			keep = 0
 		}
 		rows = append([]string{b.styles.FgMute.Render("[old child events hidden]")}, rows[len(rows)-keep:]...)
+	}
+	// Apply viewport height cap if set (maxDelegationBodyLines > 0).
+	if b.maxDelegationBodyLines > 0 && len(rows) > b.maxDelegationBodyLines {
+		rows = rows[len(rows)-b.maxDelegationBodyLines:]
 	}
 	return rows
 }

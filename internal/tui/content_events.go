@@ -199,6 +199,7 @@ type contentBuffer struct {
 	pendingDelegateParents  []int          // segment indexes awaiting DelegationStartedEvent binding
 	pendingDelegationStarts []int          // segment indexes awaiting parent delegate tool binding
 	skillNames              []string       // skill names for command prefix matching
+	maxDelegationBodyLines  int            // max lines for delegation body (transcript + prompt); 0 = uncapped
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)
