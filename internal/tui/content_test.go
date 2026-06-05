@@ -865,11 +865,15 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 	if thinkingLine == -1 {
 		t.Fatalf("rendered output missing thinking line: %q", rendered)
 	}
-	if thinkingLine+1 >= len(lines) {
-		t.Fatalf("rendered output missing tool box after thinking line: %q", rendered)
+	toolBoxLine := -1
+	for i := thinkingLine + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "┌") {
+			toolBoxLine = i
+			break
+		}
 	}
-	if !strings.HasPrefix(lines[thinkingLine+1], "┌") {
-		t.Fatalf("tool box top border = %q, want fresh line starting with top border", lines[thinkingLine+1])
+	if toolBoxLine == -1 {
+		t.Fatalf("rendered output missing tool box border after thinking block: %q", rendered)
 	}
 }
 

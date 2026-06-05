@@ -179,9 +179,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 		allLines := []string{}
 		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
 			wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
-			for _, wl := range strings.Split(wrapped, "\n") {
-				allLines = append(allLines, wl)
-			}
+			allLines = append(allLines, strings.Split(wrapped, "\n")...)
 		}
 		truncated := len(allLines) > 3
 		if truncated {
