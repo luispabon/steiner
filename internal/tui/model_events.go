@@ -69,9 +69,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.interruptPending = false
+		m.approval = approvalState{}
 		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
+		m.interruptPending = false
+		m.approval = approvalState{}
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
 		m.sidebar.currentTurn = payload.Turn
