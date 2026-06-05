@@ -13,5 +13,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewDisplayFileTool(env),
 		NewMutateTool(env),
 		NewFetchURLTool(env),
+		NewWorkflowHandoffTool(env),
 	}
 }

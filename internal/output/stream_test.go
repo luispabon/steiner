@@ -18,6 +18,7 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`))
 	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "prompt", `{"path":"note.txt"}`, "ok"))
 	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "prompt", `{"command":"pwd"}`, "blocked"))
+	renderer.OnEvent(NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-1", "handoff message"))
 	renderer.OnEvent(NewToolCallFinishedEvent(1, "bash", "call_1", `{"exit_code":0}`, nil))
 	renderer.OnEvent(NewStopReasonEvent(2, "complete", nil))
 	renderer.OnEvent(NewStopReasonEvent(3, "max_turns", nil))
@@ -29,6 +30,7 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 		"approval: turn=1 requested tool=write mode=prompt args={\"path\":\"note.txt\"}",
 		"approval: turn=1 accepted tool=write mode=prompt args={\"path\":\"note.txt\"} message=ok",
 		"approval: turn=1 denied tool=bash mode=prompt args={\"command\":\"pwd\"} message=blocked",
+		"handoff: workflow handoff next=implement target=.steiner/plans/step-1 message=handoff message",
 		"tool: turn=1 end tool=bash",
 		"status: run complete after 2 turns",
 		"status: stopped after 3 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt",

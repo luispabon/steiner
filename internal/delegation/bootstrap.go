@@ -111,7 +111,7 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 		empty := tool.NewRegistry()
 		return empty, empty
 	}
-	excluded := []string{DelegateToolName, FollowUpToolName}
+	excluded := []string{DelegateToolName, FollowUpToolName, "workflow_handoff"}
 	visible := parent.Subset(allowedTools, excluded)
 	exec := parent.Subset(allowedTools, excluded)
 	return visible, exec

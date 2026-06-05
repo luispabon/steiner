@@ -74,6 +74,16 @@ func (r *MutateResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
 }
 
+// WorkflowHandoffResult is the result from a workflow_handoff tool call.
+type WorkflowHandoffResult struct {
+	Next             string `json:"next"`
+	Target           string `json:"target"`
+	Message          string `json:"message,omitempty"`
+	MessageTruncated bool   `json:"message_truncated,omitempty"`
+	Status           string `json:"status"`
+	Reason           string `json:"reason,omitempty"`
+}
+
 // diveText flattens a Dive ToolResult into a single text string by combining
 // the Display field and all Content[].Text fields.
 func diveText(res *dive.ToolResult) string {

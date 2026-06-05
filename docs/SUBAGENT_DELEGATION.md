@@ -20,7 +20,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees seven
 | `delegate`  | Generic sub-agent with full customisation                                        | `task`, `context`, `system_prompt`, `max_turns`, `timeout` | Depends on config      |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history.
+The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### When to use each
 
@@ -51,6 +51,7 @@ Key behaviours:
 ### Safety
 
 - A sub-agent **cannot delegate further** — the `delegate` and `follow_up` tools are always stripped from child registries.
+- The parent-only `workflow_handoff` tool is not included in child allowlists yet.
 - Only the `code` sub-agent and the generic `delegate` (when its config allows it) have access to file-mutation tools (`mutate`) or `bash`.
 - `explore`, `research`, and `plan` are read-only.
 - `verify` can run commands via `bash` but must not modify files.
