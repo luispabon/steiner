@@ -190,7 +190,11 @@ func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
-	content := b.renderToolCallFrame(tc, width)
+	innerWidth := width - 4 // border (2) + padding (2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	content := b.renderToolCallFrame(tc, innerWidth)
 	return b.renderToolCallBox(content, tc.tool, width)
 }
 
@@ -204,8 +208,12 @@ func (b *contentBuffer) renderToolCallGroup(group *toolCallGroupSegment, width i
 	if dividerWidth < 1 {
 		dividerWidth = 1
 	}
+	innerWidth := width - 4 // border (2) + padding (2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
 	for i, tc := range group.entries {
-		parts = append(parts, b.renderToolCallFrame(tc, width))
+		parts = append(parts, b.renderToolCallFrame(tc, innerWidth))
 		if i < len(group.entries)-1 {
 			parts = append(parts, b.renderToolCallDivider(dividerWidth))
 		}
