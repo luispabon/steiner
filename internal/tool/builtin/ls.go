@@ -36,7 +36,7 @@ func NewLSTool(env Env) tool.ToolDef {
 				in.Path = "."
 			}
 
-			_, err = env.PathPolicy.ResolvePath(in.Path, false)
+			_, err = env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("ls: %w", err)
 			}

@@ -111,12 +111,4 @@ func TestLSTool(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects path outside workspace", func(t *testing.T) {
-		_, err := toolDef.Handler(ctx, map[string]any{
-			"path": "/etc",
-		})
-		if err == nil {
-			t.Fatal("expected error for path outside workspace")
-		}
-	})
 }

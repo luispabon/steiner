@@ -47,7 +47,7 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("display_file: path is required")
 			}
 
-			_, err = env.PathPolicy.ResolvePath(in.Path, false)
+			_, err = env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}

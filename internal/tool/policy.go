@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -73,6 +74,26 @@ func (p PathPolicy) ResolveCWD(raw string) (string, error) {
 		return p.root, nil
 	}
 	return p.ResolvePath(raw, false)
+}
+
+// ResolveReadPath normalizes a path for read-only access, checking only blocked
+// paths. The project-root constraint is intentionally skipped so that read,
+// glob, grep, and ls can operate anywhere the filesystem allows.
+func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
+	normalized := normalizePolicyPath(p.root, raw)
+	if normalized == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	for _, blocked := range p.blockedPaths {
+		if pathWithinRoot(blocked, normalized) {
+			return "", &PathPolicyError{
+				Path:       normalized,
+				Reason:     fmt.Sprintf("path %q is blocked by policy", normalized),
+				Promptable: false,
+			}
+		}
+	}
+	return normalized, nil
 }
 
 // ResolvePath resolves a tool path against the policy root and allowlists.
@@ -154,7 +175,7 @@ func (p PathPolicy) validateReadOnlyToolInput(input map[string]any) (map[string]
 		path = "."
 		input["path"] = "."
 	}
-	resolved, err := p.ResolvePath(path, false)
+	resolved, err := p.ResolveReadPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +243,7 @@ func normalizePolicyPath(root, raw string) string {
 		return ""
 	}
 	path := strings.TrimSpace(raw)
+	path = expandTilde(path)
 	if !filepath.IsAbs(path) {
 		if root == "" {
 			path = filepath.Clean(path)
@@ -230,6 +252,15 @@ func normalizePolicyPath(root, raw string) string {
 		}
 	}
 	return filepath.Clean(path)
+}
+
+func expandTilde(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[1:])
+		}
+	}
+	return path
 }
 
 func pathWithinRoot(root, path string) bool {

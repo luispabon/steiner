@@ -27,7 +27,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			NormalizeRead(&in)
 
-			_, err = env.PathPolicy.ResolvePath(in.Path, false)
+			_, err = env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("read: %w", err)
 			}

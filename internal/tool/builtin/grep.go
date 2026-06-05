@@ -52,7 +52,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 			if searchPath == "" {
 				searchPath = "."
 			}
-			_, err = env.PathPolicy.ResolvePath(searchPath, false)
+			_, err = env.PathPolicy.ResolveReadPath(searchPath)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}

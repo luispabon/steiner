@@ -130,16 +130,6 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects path outside workspace", func(t *testing.T) {
-		_, err := toolDef.Handler(ctx, map[string]any{
-			"pattern": "hello",
-			"path":    "/etc",
-		})
-		if err == nil {
-			t.Fatal("expected error for path outside workspace")
-		}
-	})
-
 	t.Run("grep with nil excluder works", func(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
 			"pattern":     "hello",
