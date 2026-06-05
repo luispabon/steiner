@@ -155,11 +155,8 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 		}
 	}
 
-	if stdoutRes.err != nil {
-		return "", "", -1, fmt.Errorf("bash session: read stdout: %w", stdoutRes.err)
-	}
-	if stderrRes.err != nil {
-		return "", "", -1, fmt.Errorf("bash session: read stderr: %w", stderrRes.err)
+	if stdoutRes.err != nil || stderrRes.err != nil {
+		return "", "", -1, bashStreamReadError(stdoutRes.text, stdoutRes.err, stderrRes.text, stderrRes.err)
 	}
 
 	// Read the exit-code line from stdout (emitted after the stdout marker).
@@ -189,6 +186,23 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 
 	return stdoutText, stderrText, code, nil
+}
+
+func bashStreamReadError(stdoutText string, stdoutErr error, stderrText string, stderrErr error) error {
+	var parts []string
+	if stdoutErr != nil {
+		parts = append(parts, fmt.Sprintf("read stdout: %v", stdoutErr))
+	}
+	if stderrErr != nil {
+		parts = append(parts, fmt.Sprintf("read stderr: %v", stderrErr))
+	}
+	if stderrText = strings.TrimSpace(stderrText); stderrText != "" {
+		parts = append(parts, "stderr: "+stderrText)
+	}
+	if stdoutText = strings.TrimSpace(stdoutText); stdoutText != "" {
+		parts = append(parts, "stdout: "+stdoutText)
+	}
+	return fmt.Errorf("bash session: %s", strings.Join(parts, "; "))
 }
 
 // Restart kills and restarts the bash process, clearing all session state.

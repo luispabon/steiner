@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -103,11 +105,50 @@ func TestBuildArgs_HostMountsAppended(t *testing.T) {
 }
 
 func TestBuildArgs_CacheDirBind(t *testing.T) {
-	args := BuildArgs("/ws", "/ws/.steiner/home", "/home/user",
+	home := t.TempDir()
+	cacheDir := filepath.Join(home, ".cache")
+	if err := os.Mkdir(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+
+	args := BuildArgs("/ws", "/ws/.steiner/home", home,
 		config.PermissionsConfig{}, nil)
 
-	if !containsSeq(args, "--bind", "/home/user/.cache", "/home/user/.cache") {
-		t.Errorf("expected --bind /home/user/.cache /home/user/.cache in args: %v", args)
+	if !containsSeq(args, "--bind", cacheDir, cacheDir) {
+		t.Errorf("expected --bind %s %s in args: %v", cacheDir, cacheDir, args)
+	}
+}
+
+func TestBuildArgs_CacheDirBindResolvesSymlink(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(t.TempDir(), "cache")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("mkdir target cache dir: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, ".cache")); err != nil {
+		t.Fatalf("symlink cache dir: %v", err)
+	}
+
+	args := BuildArgs("/ws", "/ws/.steiner/home", home,
+		config.PermissionsConfig{}, nil)
+
+	if !containsSeq(args, "--bind", target, target) {
+		t.Errorf("expected resolved cache bind %s %s in args: %v", target, target, args)
+	}
+	if containsSeq(args, "--bind", filepath.Join(home, ".cache"), filepath.Join(home, ".cache")) {
+		t.Errorf("expected symlink cache path not to be used as bind destination: %v", args)
+	}
+}
+
+func TestBuildArgs_NoCacheDirWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	cacheDir := filepath.Join(home, ".cache")
+
+	args := BuildArgs("/ws", "/ws/.steiner/home", home,
+		config.PermissionsConfig{}, nil)
+
+	if containsSeq(args, "--bind", cacheDir, cacheDir) {
+		t.Errorf("should not mount missing cache dir: %v", args)
 	}
 }
 
