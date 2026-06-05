@@ -198,3 +198,4 @@ Commit the final executor state before handing off to review.
 
 Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /review .steiner/plans/FEATURE on an empty context.`
 
+After delivering that sentence, call `workflow_handoff` with `next: review` and `target: .steiner/plans/FEATURE`. Do not imply the review workflow has already started. If the user accepts the handoff, context is cleared and the next workflow starts in the new session. If the user dismisses it, the tool returns a declined result and you must not assume continuation.
