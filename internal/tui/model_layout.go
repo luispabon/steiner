@@ -31,8 +31,9 @@ func (m *Model) layout() {
 	m.viewport.Width = max(1, contentWidth-6)
 	m.viewport.Height = max(1, m.height-3-inputRows-approvalRows-activityRows)
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
-	// Overhead is approximately 5 rows: border top, header, separator, stats, border bottom, hint.
-	delegationOverhead := 5
+	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
+	// Using 9 leaves one spare row so the box never grazes the viewport edge.
+	delegationOverhead := 9
 	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationOverhead)
 	m.syncViewport()
 }

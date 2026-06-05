@@ -1427,6 +1427,33 @@ func TestModelApprovalEscDenies(t *testing.T) {
 	}
 }
 
+func TestModelApprovalCtrlCInterrupts(t *testing.T) {
+	for _, key := range []tea.KeyType{tea.KeyCtrlC, tea.KeyCtrlD} {
+		t.Run(key.String(), func(t *testing.T) {
+			ctrl := &testController{}
+			m := newModel(Config{Controller: ctrl}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
+			if !m.approval.active {
+				t.Fatal("approval.active = false, want true")
+			}
+
+			m = updateModel(t, m, tea.KeyMsg{Type: key})
+
+			if ctrl.countInterruptActiveRun() != 1 {
+				t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
+			}
+			if m.approval.active {
+				t.Fatal("approval.active = true, want false after ctrl+c interrupt")
+			}
+			if !m.interruptPending {
+				t.Fatal("interruptPending = false, want true (waiting for run to finish)")
+			}
+		})
+	}
+}
+
 func TestModelEscInterruptsStreaming(t *testing.T) {
 	ctrl := &testController{}
 
