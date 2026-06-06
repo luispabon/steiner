@@ -8,7 +8,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount) []string {
+func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount, overlayArgs []string) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
@@ -37,9 +37,6 @@ func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConf
 		}
 	}
 
-	// Set working directory to workspace.
-	args = append(args, "--chdir", workspace)
-
 	// Additional host mounts from config.
 	for _, hm := range hostMounts {
 		flag := "--ro-bind"
@@ -48,6 +45,11 @@ func BuildArgs(workspace, sandboxHome, userHome string, _ config.PermissionsConf
 		}
 		args = append(args, flag, hm.Path, hm.Path)
 	}
+
+	args = append(args, overlayArgs...)
+
+	// Set working directory to workspace after all mounts have been established.
+	args = append(args, "--chdir", workspace)
 
 	return args
 }
