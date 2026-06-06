@@ -194,3 +194,28 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 		renderDirty:    true,
 	})
 }
+
+// clearApprovalState resets approval state on all tool call and tool call group
+// segments. Used when a run ends or is stopped to clear stale pending approvals
+// from the content buffer.
+func (b *contentBuffer) clearApprovalState() {
+	for i := range b.segments {
+		seg := &b.segments[i]
+		switch seg.kind {
+		case segmentToolCall:
+			if seg.toolData != nil {
+				seg.toolData.approvalPending = false
+				seg.toolData.approvalResolved = false
+			}
+		case segmentToolCallGroup:
+			if seg.toolGroupData != nil {
+				for _, entry := range seg.toolGroupData.entries {
+					if entry != nil {
+						entry.approvalPending = false
+						entry.approvalResolved = false
+					}
+				}
+			}
+		}
+	}
+}

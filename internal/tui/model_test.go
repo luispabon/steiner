@@ -1723,6 +1723,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_0", map[string]any{"command": "git diff"})})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
@@ -1743,6 +1744,30 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 	if strings.Contains(m.content.String(m.viewport.Width), "running tool") {
 		t.Fatal("expected stale tool activity to be suppressed after interrupt")
+	}
+
+	// ToolCallFinishedEvent must NOT be suppressed during interrupt.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "bash", "call_0", "{}", nil)})
+
+	// Verify the tool segment for call_0 was updated with completion meta.
+	foundCall := false
+	for _, seg := range m.content.segments {
+		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.callID == "call_0" {
+			foundCall = true
+			if seg.toolData.meta != "✅" {
+				t.Fatalf("tool segment meta = %q, want ✅ after ToolCallFinishedEvent", seg.toolData.meta)
+			}
+			if seg.toolData.hasError {
+				t.Fatal("tool segment hasError = true, want false after successful finish")
+			}
+			if seg.toolData.body != "{}" {
+				t.Fatalf("tool segment body = %q, want %q", seg.toolData.body, "{}")
+			}
+			break
+		}
+	}
+	if !foundCall {
+		t.Fatal("no tool call segment with callID call_0 found after ToolCallFinishedEvent")
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "cancelled", nil)})

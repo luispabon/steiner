@@ -75,11 +75,13 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.interruptPending = false
 		m.approval = approvalState{}
+		m.content.clearApprovalState()
 		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.interruptPending = false
 		m.approval = approvalState{}
+		m.content.clearApprovalState()
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	case output.TurnStartedEvent:
 		m.sidebar.currentTurn = payload.Turn
@@ -236,7 +238,7 @@ func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
 		return false
 	}
 	switch event.Type {
-	case output.EventTypeRunStarted, output.EventTypeRunFinished, output.EventTypeStopReason, output.EventTypeHistoryLoaded, output.EventTypeContextReport:
+	case output.EventTypeRunStarted, output.EventTypeRunFinished, output.EventTypeStopReason, output.EventTypeHistoryLoaded, output.EventTypeContextReport, output.EventTypeToolCallFinished:
 		return false
 	default:
 		return true

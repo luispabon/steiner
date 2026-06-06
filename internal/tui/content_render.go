@@ -24,13 +24,15 @@ func (b *contentBuffer) String(width int) string {
 			seg.renderDirty = true
 		}
 		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
-			b.segmentHeights[i] = strings.Count(seg.cachedRender, "\n") + 1
-			if seg.cachedRender != "" {
-				parts = append(parts, seg.cachedRender)
+			stripped := strings.TrimRight(seg.cachedRender, "\n")
+			b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
+			if stripped != "" {
+				parts = append(parts, stripped)
 			}
 			continue
 		}
 		rendered := b.renderSegment(*seg, width)
+		rendered = strings.TrimRight(rendered, "\n")
 		seg.cachedRender = rendered
 		seg.cachedRenderWidth = width
 		seg.renderDirty = false
@@ -40,10 +42,10 @@ func (b *contentBuffer) String(width int) string {
 		}
 	}
 	if preview := b.inProgressPreview(width); preview != "" {
-		parts = append(parts, preview)
+		parts = append(parts, strings.TrimRight(preview, "\n"))
 	}
 
-	result := strings.Join(parts, "")
+	result := strings.Join(parts, "\n")
 	return b.fillEmptyLines(result, width)
 }
 
