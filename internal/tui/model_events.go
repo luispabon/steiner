@@ -14,6 +14,11 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil
 	}
+	if m.suppressWorkflowHandoffRun {
+		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil || m.shouldSuppressWorkflowHandoffEvent(event) {
+			return cmd
+		}
+	}
 
 	// Context report events: short single-line content goes to the transcript;
 	// long or multi-line content opens the overlay.
@@ -149,6 +154,17 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.activity = m.activity.static(approvalResultLabel(event.Type), approvalDetail(payload))
 			m.input.Focus()
 		}
+	case output.WorkflowHandoffEvent:
+		switch event.Type {
+		case output.EventTypeWorkflowHandoffRequested:
+			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload)
+			m.input.Blur()
+			m.syncViewport()
+			return nil
+		case output.EventTypeWorkflowHandoffAccepted, output.EventTypeWorkflowHandoffDeclined:
+			m.workflowHandoff = m.workflowHandoff.close()
+			m.input.Focus()
+		}
 	case output.ToolCallStartedEvent:
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
 	case output.ToolCallFinishedEvent:
@@ -171,6 +187,48 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) shouldSuppressWorkflowHandoffEvent(event output.Event) bool {
+	switch event.Type {
+	case output.EventTypeWorkflowHandoffAccepted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeTurnFinished:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd {
+	if !m.suppressWorkflowHandoffRun {
+		return nil
+	}
+	switch event.Type {
+	case output.EventTypeWorkflowHandoffAccepted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeTurnFinished:
+		return nil
+	case output.EventTypeStopReason:
+		payload, ok := event.Payload.(output.StopReasonEvent)
+		if !ok || payload.Reason != "workflow_handoff" {
+			return nil
+		}
+		launch := m.pendingWorkflowHandoffLaunch
+		m.suppressWorkflowHandoffRun = false
+		m.pendingWorkflowHandoffLaunch = nil
+		m.status.mode = ""
+		m.activity = m.activity.clear()
+		if launch == nil {
+			return nil
+		}
+		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target)
+		if updated, ok := next.(Model); ok {
+			*m = updated
+		}
+		return cmd
+	}
+	return nil
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {

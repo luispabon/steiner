@@ -57,6 +57,9 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
 		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
 	},
+	reflect.TypeOf(WorkflowHandoffEvent{}): func(event Event) Segment {
+		return renderWorkflowHandoffEvent(event.Payload.(WorkflowHandoffEvent))
+	},
 	reflect.TypeOf(StopReasonEvent{}): func(event Event) Segment {
 		return renderStopReasonEvent(event.Payload.(StopReasonEvent))
 	},
@@ -309,6 +312,23 @@ func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
 		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
 	}
 	return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
+}
+
+func renderWorkflowHandoffEvent(payload WorkflowHandoffEvent) Segment {
+	parts := []string{"workflow handoff"}
+	if payload.Decision != "" {
+		parts = append(parts, payload.Decision)
+	}
+	if payload.Next != "" {
+		parts = append(parts, fmt.Sprintf("next=%s", payload.Next))
+	}
+	if payload.Target != "" {
+		parts = append(parts, fmt.Sprintf("target=%s", payload.Target))
+	}
+	if payload.Message != "" {
+		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
+	}
+	return Segment{Channel: ChannelStatus, Label: "handoff", Text: strings.Join(parts, " ")}
 }
 
 func renderStopReasonEvent(payload StopReasonEvent) Segment {

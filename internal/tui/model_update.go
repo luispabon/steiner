@@ -190,6 +190,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
+	m.workflowHandoff.OverlayShell = m.workflowHandoff.WithDimensions(msg.Width, msg.Height)
 
 	// Use content area width for bottom-anchored overlays so they don't
 	// overflow into the sidebar area.

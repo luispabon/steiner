@@ -29,6 +29,11 @@ type approvalState struct {
 	selectedAction int
 }
 
+type workflowHandoffLaunch struct {
+	next   string
+	target string
+}
+
 type tickMsg struct{}
 
 type paletteSetAccentMsg struct{ preset string }
@@ -92,6 +97,7 @@ type Model struct {
 	planPicker                   planPickerOverlay
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
+	workflowHandoff              workflowHandoffModalState
 	sessionStore                 SessionLister
 	showContextDiagnostics       bool
 	sessionHealthCompactionCount int
@@ -107,6 +113,8 @@ type Model struct {
 	ctxInfoStatus                string
 	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
+	suppressWorkflowHandoffRun   bool
+	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
 	contentDirty                 bool
 	syncDebounceSeq              int
 	mousePressX                  int

@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
@@ -154,6 +155,14 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 		emitStop(in.Request.Events, cancelled, nil)
 		return state, turnOutcome{State: cancelled, Stop: true}
 	}
+	if transition, ok := workflowHandoffTransitionFromResult(result); ok {
+		state.StopReason = StopReasonWorkflowHandoff
+		state.WorkflowHandoff = transition
+		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 1, "", "", nil))
+		emitStop(in.Request.Events, state, nil)
+		return state, turnOutcome{State: state, Stop: true}
+	}
 
 	toolMessage := p.buildToolMessage(in, turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
@@ -193,6 +202,20 @@ func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
+}
+
+func workflowHandoffTransitionFromResult(result any) (*tool.WorkflowHandoffTransition, bool) {
+	switch v := result.(type) {
+	case tool.WorkflowHandoffAccepted:
+		return cloneWorkflowHandoffTransition(&v.Transition), true
+	case *tool.WorkflowHandoffAccepted:
+		if v == nil {
+			return nil, false
+		}
+		return cloneWorkflowHandoffTransition(&v.Transition), true
+	default:
+		return nil, false
+	}
 }
 
 // turnProgressor owns the per-turn progression lifecycle.
