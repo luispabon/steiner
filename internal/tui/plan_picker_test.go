@@ -81,7 +81,7 @@ func TestPlanPickerUpdate(t *testing.T) {
 	m := newPlanPickerOverlay(s)
 
 	// Set up state manually
-	m.allNames = []string{"step-1", "step-2", "research", "bugfix"}
+	m.allNames = []string{".steiner/plans/step-1", ".steiner/plans/step-2", ".steiner/plans/research", ".steiner/plans/bugfix"}
 	m.candidates = append([]string(nil), m.allNames...)
 	m.OverlayShell = m.openShell()
 
@@ -96,7 +96,7 @@ func TestPlanPickerUpdate(t *testing.T) {
 	if len(m.candidates) != 1 {
 		t.Fatalf("expected 1 candidate after typing '-2', got %d: %v", len(m.candidates), m.candidates)
 	}
-	if m.candidates[0] != "step-2" {
+	if m.candidates[0] != ".steiner/plans/step-2" {
 		t.Fatalf("expected candidate 'step-2', got %q", m.candidates[0])
 	}
 
@@ -118,9 +118,9 @@ func TestPlanPickerSelectedName(t *testing.T) {
 	}
 
 	// Populated state
-	m.candidates = []string{"step-1", "step-2", "research"}
+	m.candidates = []string{".steiner/plans/step-1", ".steiner/plans/step-2", ".steiner/plans/research"}
 	m.selection = 1
-	if name := m.SelectedName(); name != "step-2" {
+	if name := m.SelectedName(); name != ".steiner/plans/step-2" {
 		t.Fatalf("expected 'step-2', got %q", name)
 	}
 
