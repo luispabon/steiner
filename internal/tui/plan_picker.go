@@ -43,7 +43,7 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 	m.allNames = make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
-			m.allNames = append(m.allNames, entry.Name())
+			m.allNames = append(m.allNames, ".steiner/plans/"+entry.Name())
 		}
 	}
 	m.candidates = append([]string(nil), m.allNames...)
