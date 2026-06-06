@@ -195,6 +195,12 @@ func normalizeWorkflowHandoffTarget(workDir, raw string) (string, string, error)
 }
 
 func validateWorkflowHandoffTargetSafety(raw string) error {
+	for _, part := range strings.Split(raw, string(filepath.Separator)) {
+		if part == ".." {
+			return fmt.Errorf("workflow_handoff: target contains traversal")
+		}
+	}
+
 	for _, r := range raw {
 		if unicode.IsControl(r) {
 			return fmt.Errorf("workflow_handoff: target contains control characters")

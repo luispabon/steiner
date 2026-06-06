@@ -205,6 +205,14 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 			want: "control characters",
 		},
 		{
+			name: "target with in-tree traversal",
+			input: map[string]any{
+				"next":   workflowHandoffNextReview,
+				"target": ".steiner/plans/step-1/../step-1",
+			},
+			want: "traversal",
+		},
+		{
 			name: "target with control character",
 			input: map[string]any{
 				"next":   workflowHandoffNextReview,
