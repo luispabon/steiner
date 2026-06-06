@@ -447,6 +447,98 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 	}
 }
 
+func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	var callContexts []context.Context
+	reg := NewRegistry(ToolDef{
+		Name: "bash",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			callContexts = append(callContexts, ctx)
+			if ctx.Value(BashUnsandboxedKey{}) == true {
+				return &mockBashResult{exitCode: 0, output: "ssh config accepted"}, nil
+			}
+			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+	if !approver.called {
+		t.Fatal("approver.RequestApproval() was not called, want called")
+	}
+	if approver.lastReq.Reason != "SSH config rejected inside sandbox" {
+		t.Fatalf("req.Reason = %q, want SSH config rejected inside sandbox", approver.lastReq.Reason)
+	}
+	if approver.lastReq.GrantInstructions != "Re-run outside the sandbox with --unsafe" {
+		t.Fatalf("req.GrantInstructions = %q, want SSH rerun instructions", approver.lastReq.GrantInstructions)
+	}
+	if len(callContexts) != 2 {
+		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
+	}
+	if callContexts[1].Value(BashUnsandboxedKey{}) != true {
+		t.Fatal("retry context does not carry BashUnsandboxedKey")
+	}
+	br, ok := result.(*mockBashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *mockBashResult", result)
+	}
+	if br.exitCode != 0 || br.output != "ssh config accepted" {
+		t.Fatalf("result = %+v, want exitCode=0 output='ssh config accepted'", br)
+	}
+}
+
+func TestExecuteTool_BashSSHConfigDenial_DeniedAppendsExplanation(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: false}}
+	reg := NewRegistry(ToolDef{
+		Name: "bash",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) {
+			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+	br, ok := result.(*mockBashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *mockBashResult", result)
+	}
+	if !strings.Contains(br.output, "OpenSSH rejected config ownership inside the sandbox") {
+		t.Fatalf("output = %q, want SSH explanation appended", br.output)
+	}
+	if strings.Contains(br.output, "host_mount") {
+		t.Fatalf("output = %q, want no host_mount instructions for SSH denial", br.output)
+	}
+}
+
+func TestExecuteTool_BashSSHConfigSyntaxErrorNotClassified(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	reg := NewRegistry(ToolDef{
+		Name: "bash",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) {
+			return &mockBashResult{exitCode: 1, output: "Bad configuration option: FooBar"}, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+	if approver.called {
+		t.Fatal("approver.RequestApproval() was called, want no call for config syntax errors")
+	}
+	br, ok := result.(*mockBashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *mockBashResult", result)
+	}
+	if strings.Contains(br.output, "outside the sandbox") {
+		t.Fatalf("output = %q, want no SSH fallback text for config syntax errors", br.output)
+	}
+}
+
 // --- Built-in tool path violation tests ---
 
 func mutateOutsideRoot(_ string) map[string]any {

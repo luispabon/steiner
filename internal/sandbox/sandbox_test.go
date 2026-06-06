@@ -1,10 +1,13 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -210,6 +213,93 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	}
 	if err := memfd.Close(); err == nil {
 		t.Fatal("expected overlay memfd to be closed when bwrap lookup fails")
+	}
+}
+
+func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("bwrap/OpenSSH overlay integration only runs on Linux")
+	}
+
+	bwrapPath, err := exec.LookPath("bwrap")
+	if err != nil {
+		t.Skip("bwrap not installed")
+	}
+	sshPath, err := exec.LookPath("ssh")
+	if err != nil {
+		t.Skip("OpenSSH ssh not installed")
+	}
+
+	rootFile, err := os.CreateTemp(t.TempDir(), "ssh-overlay-root-*")
+	if err != nil {
+		t.Fatalf("create root overlay file: %v", err)
+	}
+	includeFile, err := os.CreateTemp(t.TempDir(), "ssh-overlay-include-*")
+	if err != nil {
+		t.Fatalf("create include overlay file: %v", err)
+	}
+	defer func() {
+		_ = rootFile.Close()
+		_ = includeFile.Close()
+	}()
+	if _, err := rootFile.WriteString("Include /etc/ssh/ssh_config.d/*.conf\nHost *\n  User overlay-test-user\n"); err != nil {
+		t.Fatalf("write root overlay file: %v", err)
+	}
+	if _, err := includeFile.WriteString("Host *\n  Compression yes\n"); err != nil {
+		t.Fatalf("write include overlay file: %v", err)
+	}
+	if _, err := rootFile.Seek(0, 0); err != nil {
+		t.Fatalf("rewind root overlay file: %v", err)
+	}
+	if _, err := includeFile.Seek(0, 0); err != nil {
+		t.Fatalf("rewind include overlay file: %v", err)
+	}
+
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return bwrapPath, nil
+	}, func(string) (*sshOverlay, error) {
+		return &sshOverlay{
+			bwrapArgs: []string{
+				"--tmpfs", "/etc/ssh/ssh_config.d",
+				"--perms", "0644",
+				"--ro-bind-data", "3", "/etc/ssh/ssh_config",
+				"--perms", "0644",
+				"--ro-bind-data", "4", "/etc/ssh/ssh_config.d/10-main.conf",
+			},
+			memfds: []*os.File{rootFile, includeFile},
+		}, nil
+	})
+	defer restore()
+
+	cfg := config.SandboxConfig{Enabled: true}
+	s := New(cfg, config.PermissionsConfig{}, nil, t.TempDir(), t.TempDir())
+	if err := s.EnsureHome(); err != nil {
+		t.Fatalf("ensure sandbox home: %v", err)
+	}
+
+	ctx := context.Background()
+	original := exec.CommandContext(ctx, sshPath, "-G", "github.com")
+	var stdout, stderr bytes.Buffer
+	original.Stdout = &stdout
+	original.Stderr = &stderr
+
+	wrapped := s.WrapCommand(original)
+	if wrapped == original {
+		t.Fatal("expected wrapped command when sandbox enabled and bwrap present")
+	}
+
+	if err := wrapped.Run(); err != nil {
+		t.Fatalf("wrapped ssh -G failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if strings.Contains(stderr.String(), "Bad owner or permissions") {
+		t.Fatalf("stderr = %q, want no OpenSSH ownership rejection", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "user overlay-test-user") {
+		t.Fatalf("stdout = %q, want overlay user from synthetic SSH config", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "compression yes") {
+		t.Fatalf("stdout = %q, want overlay include from synthetic SSH config", stdout.String())
 	}
 }
 

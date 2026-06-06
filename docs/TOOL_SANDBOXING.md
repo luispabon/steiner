@@ -10,8 +10,11 @@ The sandbox isolates model-driven code from:
 - Writing to any path outside the workspace
 - Leaking credentials via environment variables (env var allowlist)
 - Polluting the host process tree
+- OpenSSH rejecting sandbox-visible system config when client-only commands run inside the sandbox
 
 The entire host filesystem is visible inside the sandbox as read-only. This means all installed toolchains (Go, Rust, Python, Node, etc.), system libraries, and user config files are accessible without per-path mount configuration. Only the workspace and the sandbox state directory are writable.
+
+For `ssh` commands, Steiner can create an ephemeral in-memory OpenSSH client-config overlay for the system config and static drop-ins. Nothing is copied into the workspace, and the overlay only covers the system SSH client config, not private keys or other user SSH state. Dynamic include paths may be skipped when they cannot be resolved safely ahead of time. If OpenSSH still rejects the config inside the sandbox, Steiner can ask for approval to rerun the command outside the sandbox.
 
 ## Goals and non-goals
 
@@ -138,7 +141,7 @@ The sandbox workspace includes a `.steiner/home/` directory that serves as an is
 **What goes in `.steiner/home/`**:
 - `.git/` — Git metadata if the model runs `git init`
 - `.npm/` — npm cache and config if the model installs packages
-- `.ssh/` — SSH config and session keys
+- `.ssh/` — sandbox-local SSH session state and generated client files, not copied host SSH config
 - `.bash_history`, `.zsh_history` — Shell history
 - Tool caches (`pip`, `cargo`, etc.)
 
@@ -293,6 +296,16 @@ If tools are failing unexpectedly in the sandbox:
    which bwrap
    bwrap --version
    ```
+
+### Troubleshooting SSH config ownership failures
+
+If `ssh -G` or another client-only SSH command fails with:
+
+```text
+Bad owner or permissions on /etc/ssh/ssh_config.d/...
+```
+
+OpenSSH rejected a sandbox-visible include before it could load the overlay safely. Steiner now treats that as a sandbox compatibility failure and can prompt to rerun the command outside the sandbox when needed.
 
 ## V2 roadmap
 
