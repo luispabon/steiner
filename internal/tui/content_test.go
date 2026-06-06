@@ -2565,6 +2565,249 @@ func TestBuildMutateLinesWriteShowsModifiedBadge(t *testing.T) {
 	}
 }
 
+func TestClearApprovalState(t *testing.T) {
+	tests := []struct {
+		name     string
+		segments []contentSegment
+	}{
+		{
+			name: "standalone tool call clears approval state",
+			segments: []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						approvalPending:  true,
+						approvalResolved: false,
+					},
+				},
+			},
+		},
+		{
+			name: "tool call group clears all entries",
+			segments: []contentSegment{
+				{
+					kind: segmentToolCallGroup,
+					toolGroupData: &toolCallGroupSegment{
+						tool: "bash",
+						entries: []*toolCallSegment{
+							{approvalPending: true, approvalResolved: false},
+							{approvalPending: true, approvalResolved: false},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "mixed segments only tool calls affected",
+			segments: []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						approvalPending:  true,
+						approvalResolved: false,
+					},
+				},
+				{
+					kind:      segmentThinkingBlock,
+					thinkData: &thinkingBlockData{collapsed: true},
+				},
+				{
+					kind: segmentPlain,
+					text: "some text",
+				},
+			},
+		},
+		{
+			name: "nil toolData does not panic",
+			segments: []contentSegment{
+				{
+					kind:     segmentToolCall,
+					toolData: nil,
+				},
+			},
+		},
+		{
+			name: "nil toolGroupData does not panic",
+			segments: []contentSegment{
+				{
+					kind:          segmentToolCallGroup,
+					toolGroupData: nil,
+				},
+			},
+		},
+		{
+			name:     "empty segments does not panic",
+			segments: []contentSegment{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				segments: tt.segments,
+			}
+			b.clearApprovalState()
+
+			for i, seg := range b.segments {
+				switch seg.kind {
+				case segmentToolCall:
+					if seg.toolData != nil {
+						if seg.toolData.approvalPending {
+							t.Errorf("segment[%d] approvalPending = true, want false", i)
+						}
+						if seg.toolData.approvalResolved {
+							t.Errorf("segment[%d] approvalResolved = true, want false", i)
+						}
+					}
+				case segmentToolCallGroup:
+					if seg.toolGroupData != nil {
+						for j, entry := range seg.toolGroupData.entries {
+							if entry != nil {
+								if entry.approvalPending {
+									t.Errorf("segment[%d] entry[%d] approvalPending = true, want false", i, j)
+								}
+								if entry.approvalResolved {
+									t.Errorf("segment[%d] entry[%d] approvalResolved = true, want false", i, j)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestContentBufferSegmentHeights(t *testing.T) {
+	tests := []struct {
+		name     string
+		segments []contentSegment
+		checks   map[int]int // segment index → expected height; -1 means filtered (not in output)
+	}{
+		{
+			name: "collapsed tool call",
+			segments: []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      "bash",
+						args:      "git status",
+						collapsed: true,
+					},
+				},
+			},
+			checks: map[int]int{0: 3}, // top border, content line, bottom border
+		},
+		{
+			name: "expanded tool call with body",
+			segments: []contentSegment{
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      "bash",
+						args:      "echo hello",
+						collapsed: false,
+						body:      "Hello world",
+						bodyKind:  "plain",
+					},
+				},
+			},
+			checks: map[int]int{0: 4}, // top border, header, body, bottom border
+		},
+		{
+			name: "collapsed thinking block",
+			segments: []contentSegment{
+				{
+					kind: segmentThinkingBlock,
+					thinkData: &thinkingBlockData{
+						collapsed: true,
+						body:      "short thought",
+					},
+				},
+			},
+			checks: map[int]int{0: 2}, // header + 1 preview line
+		},
+		{
+			name: "expanded thinking block",
+			segments: []contentSegment{
+				{
+					kind: segmentThinkingBlock,
+					thinkData: &thinkingBlockData{
+						collapsed: false,
+						body:      "short thought",
+					},
+				},
+			},
+			checks: map[int]int{0: 2}, // header + 1 body line
+		},
+		{
+			name: "adjacent thinking block and tool call",
+			segments: []contentSegment{
+				{
+					kind: segmentThinkingBlock,
+					thinkData: &thinkingBlockData{
+						collapsed: true,
+						body:      "short",
+					},
+				},
+				{
+					kind: segmentToolCall,
+					toolData: &toolCallSegment{
+						tool:      "bash",
+						args:      "git status",
+						collapsed: true,
+					},
+				},
+			},
+			checks: map[int]int{0: 2, 1: 3}, // thinking=2, tool=3; blank line between not attributed
+		},
+		{
+			name: "empty rendered segment filtered from output",
+			segments: []contentSegment{
+				{
+					kind: segmentApproval,
+					text: "",
+				},
+				{
+					kind: segmentPlain,
+					text: "visible text",
+				},
+			},
+			checks: map[int]int{0: 1, 1: 1}, // both have lines; approval with empty text is just newline
+		},
+	}
+
+	useTrueColor(t)
+	styles := theme.BuildStyles(theme.AccentAmber)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				styles:        styles,
+				segments:      tt.segments,
+				collapseState: make(map[int]bool),
+				showThinking:  true,
+			}
+
+			_ = b.String(80)
+
+			if len(b.segmentHeights) != len(b.segments) {
+				t.Fatalf("segmentHeights length = %d, want %d", len(b.segmentHeights), len(b.segments))
+			}
+
+			for idx, want := range tt.checks {
+				if want == -1 {
+					if b.segmentHeights[idx] != 0 {
+						t.Errorf("segmentHeights[%d] = %d, want 0 (filtered)", idx, b.segmentHeights[idx])
+					}
+				} else if b.segmentHeights[idx] != want {
+					t.Errorf("segmentHeights[%d] = %d, want %d", idx, b.segmentHeights[idx], want)
+					t.Logf("rendered output:\n%s", b.String(80))
+				}
+			}
+		})
+	}
+}
 func useTrueColor(t *testing.T) {
 	t.Helper()
 
