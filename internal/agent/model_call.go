@@ -99,6 +99,9 @@ func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chun
 
 func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool, firstChunkOut *time.Time) error {
 	if handleRetryResetChunk(sink, turn, chunk, response, message, sawFinal) {
+		if firstChunkOut != nil {
+			*firstChunkOut = time.Time{}
+		}
 		return nil
 	}
 	if handleDiagnosticChunk(sink, turn, chunk) {

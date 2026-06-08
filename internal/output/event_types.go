@@ -184,15 +184,15 @@ type ModelCallStartedEvent struct {
 
 // ModelCallFinishedEvent records the outcome of a provider request.
 type ModelCallFinishedEvent struct {
-	Turn         int     `json:"turn"`
-	Model        string  `json:"model,omitempty"`
-	FinishReason string  `json:"finish_reason,omitempty"`
-	ToolCalls    int     `json:"tool_calls,omitempty"`
-	TotalTokens  int     `json:"total_tokens,omitempty"`
-	DurationMs   int64   `json:"duration_ms,omitempty"`
-	TTFTMs       int64   `json:"ttft_ms,omitempty"`
-	OutputTPS    float64 `json:"output_tps,omitempty"`
-	Error        string  `json:"error,omitempty"`
+	Turn             int     `json:"turn"`
+	Model            string  `json:"model,omitempty"`
+	FinishReason     string  `json:"finish_reason,omitempty"`
+	ToolCalls        int     `json:"tool_calls,omitempty"`
+	CompletionTokens int     `json:"completion_tokens,omitempty"`
+	DurationMs       int64   `json:"duration_ms,omitempty"`
+	TTFTMs           int64   `json:"ttft_ms,omitempty"`
+	OutputTPS        float64 `json:"output_tps,omitempty"`
+	Error            string  `json:"error,omitempty"`
 }
 
 // ToolCallStartedEvent records a tool invocation before execution begins.
