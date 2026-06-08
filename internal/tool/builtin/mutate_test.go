@@ -1694,6 +1694,86 @@ func TestMutateInsertCombined(t *testing.T) {
 	})
 }
 
+func TestMutateInsertNewStringFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		opType    string
+		newString string
+		line      int
+		initial   string
+		want      string
+		wantError string
+	}{
+		{
+			name:      "insert_before with new_string instead of content succeeds",
+			opType:    "insert_before",
+			newString: "inserted\n",
+			line:      2,
+			initial:   "aaa\nbbb\nccc\n",
+			want:      "aaa\ninserted\nbbb\nccc\n",
+		},
+		{
+			name:      "insert_after with new_string instead of content succeeds",
+			opType:    "insert_after",
+			newString: "appended\n",
+			line:      1,
+			initial:   "aaa\nbbb\nccc\n",
+			want:      "aaa\nappended\nbbb\nccc\n",
+		},
+		{
+			name:      "insert_before with neither content nor new_string errors",
+			opType:    "insert_before",
+			line:      1,
+			initial:   "aaa\nbbb\n",
+			wantError: "content is required",
+		},
+		{
+			name:      "insert_after with neither content nor new_string errors",
+			opType:    "insert_after",
+			line:      1,
+			initial:   "aaa\nbbb\n",
+			wantError: "content is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "note.txt")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+
+			op := map[string]any{
+				"type": tt.opType,
+				"path": "note.txt",
+				"line": float64(tt.line),
+			}
+			if tt.newString != "" {
+				op["new_string"] = tt.newString
+			}
+
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{op},
+			})
+
+			if tt.wantError != "" {
+				if got.OperationsFailed != 1 {
+					t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+				}
+				if !strings.Contains(got.Output, tt.wantError) {
+					t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantError)
+				}
+			} else {
+				if got.OperationsFailed != 0 {
+					t.Fatalf("mutate failed: %#v", got)
+				}
+				assertFile(t, path, tt.want)
+			}
+		})
+	}
+}
+
 func TestMutateHashBatchSemantics(t *testing.T) {
 	t.Run("multi-op same file succeeds with consistent hash", func(t *testing.T) {
 		root := t.TempDir()
