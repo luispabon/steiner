@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -29,9 +30,10 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 	close(chunks)
 
 	var events []output.Event
+	var firstChunkTime time.Time
 	resp, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
-	}), 1, chunks, output.ChunkSourceAssistant)
+	}), 1, chunks, output.ChunkSourceAssistant, &firstChunkTime)
 	if err != nil {
 		t.Fatalf("consumeModelStream() error = %v", err)
 	}
