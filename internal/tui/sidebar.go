@@ -18,26 +18,29 @@ const (
 )
 
 type sidebarState struct {
-	expanded      bool
-	model         string
-	version       string
-	quant         string
-	provider      string
-	homeDir       string
-	promptUsed    int
-	budgetUsed    int
-	contextBudget int
-	currentTurn   int
-	maxTurns      int
-	compaction    string
-	branch        string
-	dirty         bool
-	ahead         int
-	modifiedFiles []gitModifiedFile
-	workingDir    string
-	activeSkill   string
-	styles        theme.Styles
-	tickCount     int
+	expanded       bool
+	model          string
+	version        string
+	quant          string
+	provider       string
+	homeDir        string
+	promptUsed     int
+	budgetUsed     int
+	contextBudget  int
+	currentTurn    int
+	maxTurns       int
+	compaction     string
+	branch         string
+	dirty          bool
+	ahead          int
+	modifiedFiles  []gitModifiedFile
+	workingDir     string
+	activeSkill    string
+	styles         theme.Styles
+	tickCount      int
+	perfDurationMs int64
+	perfTTFTMs     int64
+	perfOutputTPS  float64
 }
 
 func newSidebarState() sidebarState {

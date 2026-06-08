@@ -36,7 +36,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 
 	response = p.normalizeModelResponse(in, turn, response)
 	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, 0, 0, 0.0))
 	p.emitAssistantMessage(in, turn, response)
 	state = appendAssistantMessage(state, turn, response.Message)
 
@@ -58,14 +58,14 @@ func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, tur
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
-		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil))
+		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0.0))
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state := in.State
 	state.StopReason = StopReasonError
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err))
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0.0))
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
 	emitStop(in.Request.Events, state, err)
 	return turnOutcome{State: state, Stop: true, Error: err}
