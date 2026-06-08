@@ -262,7 +262,7 @@ func (p *OpenAICompat) classifyRetryError(err error) retryDecision {
 		return retryDecision{}
 	}
 	if strings.HasPrefix(err.Error(), "decode tool call ") {
-		return retryDecision{}
+		return retryDecision{retry: true, reason: err.Error()}
 	}
 	errText := err.Error()
 	if errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(errText, "unexpected EOF") || strings.Contains(errText, "stream completed without a final chunk") {

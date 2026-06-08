@@ -192,6 +192,7 @@ func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
 		args := make(map[string]any)
 		rawArgs := strings.TrimSpace(toolCall.Function.Arguments)
 		if rawArgs != "" {
+			rawArgs = sanitizeToolCallJSON(rawArgs)
 			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
 				return nil, fmt.Errorf("decode tool call %q arguments: %w", toolCall.Function.Name, err)
 			}
