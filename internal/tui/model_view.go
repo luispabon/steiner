@@ -191,7 +191,17 @@ func (m Model) renderInputView(contentWidth int) string {
 	bar := m.styles.UserBar.Render("┃")
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)
-	lines, isPlaceholder := m.renderInputLines(innerWidth)
+	lines, isPlaceholder, cursorRow := m.renderInputLines(innerWidth)
+	if !isPlaceholder {
+		maxVisible := max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
+		if len(lines) > maxVisible {
+			start := max(0, cursorRow-maxVisible/2)
+			if start+maxVisible > len(lines) {
+				start = len(lines) - maxVisible
+			}
+			lines = lines[start : start+maxVisible]
+		}
+	}
 
 	var sb strings.Builder
 	paddingLine := bar + m.styles.UserBg.Width(bodyWidth).Render("")
@@ -268,14 +278,15 @@ func (m Model) inputInnerWidth(contentWidth int) int {
 	return max(1, contentWidth-inputRailWidth-(inputPadX*2)-inputTailFill)
 }
 
-func (m Model) renderInputLines(innerWidth int) ([]string, bool) {
+func (m Model) renderInputLines(innerWidth int) ([]string, bool, int) {
 	if m.input.Value() != "" {
-		return m.renderTypedInputLines(innerWidth), false
+		lines, cursorRow := m.renderTypedInputLines(innerWidth)
+		return lines, false, cursorRow
 	}
-	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true
+	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true, 0
 }
 
-func (m Model) renderTypedInputLines(width int) []string {
+func (m Model) renderTypedInputLines(width int) ([]string, int) {
 	if width < 1 {
 		width = 1
 	}
@@ -294,6 +305,7 @@ func (m Model) renderTypedInputLines(width int) []string {
 	}
 	lineInfo := m.input.LineInfo()
 
+	cursorDisplayRow := 0
 	lines := make([]string, 0, len(valueLines))
 	for i, valueLine := range valueLines {
 		wrapped := wrapComposerLine(valueLine, width)
@@ -309,11 +321,12 @@ func (m Model) renderTypedInputLines(width int) []string {
 				}
 				col -= visibleLen
 			}
+			cursorDisplayRow = len(lines) + row
 			wrapped[row] = insertComposerCursorAnsi(wrapped[row], col)
 		}
 		lines = append(lines, wrapped...)
 	}
-	return lines
+	return lines, cursorDisplayRow
 }
 
 func wrapComposerLine(line string, width int) []string {

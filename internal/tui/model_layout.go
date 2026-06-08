@@ -27,6 +27,8 @@ func (m *Model) layout() {
 	m.input.SetWidth(99999)
 	inputRows := m.inputChromeHeight(contentWidth)
 	activityRows := m.activityRowHeight(contentWidth)
+	maxInputRows := max(1, m.height-4-activityRows)
+	inputRows = min(inputRows, maxInputRows)
 	m.viewport.Width = max(1, contentWidth-6)
 	m.viewport.Height = max(1, m.height-3-inputRows-activityRows)
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
@@ -34,6 +36,32 @@ func (m *Model) layout() {
 	// Using 9 leaves one spare row so the box never grazes the viewport edge.
 	delegationOverhead := 9
 	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationOverhead)
+	m.syncViewport()
+}
+
+// relayoutInput recalculates viewport height after the input content changes
+// (e.g. on each keystroke). Cheaper than layout(): skips syncViewport when
+// height is unchanged, avoiding a full content re-render on every key press.
+func (m *Model) relayoutInput() {
+	contentWidth := m.width
+	if m.sidebar.Visible(m.width) {
+		contentWidth = m.width - sidebarWidth - 1
+	}
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	m.input.MaxWidth = 0
+	m.input.SetWidth(99999)
+	inputRows := m.inputChromeHeight(contentWidth)
+	activityRows := m.activityRowHeight(contentWidth)
+	maxInputRows := max(1, m.height-4-activityRows)
+	inputRows = min(inputRows, maxInputRows)
+	newHeight := max(1, m.height-3-inputRows-activityRows)
+	if newHeight == m.viewport.Height {
+		return
+	}
+	m.viewport.Height = newHeight
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-9)
 	m.syncViewport()
 }
 

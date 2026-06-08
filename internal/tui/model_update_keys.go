@@ -201,6 +201,7 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	m = m.maybeReopenPickers()
+	m.relayoutInput()
 	return m, cmd
 }
 
