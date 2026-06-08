@@ -32,7 +32,7 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 		ContextSize:         4096,
 		MaxCompletionTokens: 128,
 	}
-	_, err := completeModelCall(context.Background(), RunRequest{
+	_, _, err := completeModelCall(context.Background(), RunRequest{
 		Provider:           prov,
 		ModelBudget:        budget,
 		Events:             output.SinkFunc(func(event output.Event) { events = append(events, event) }),

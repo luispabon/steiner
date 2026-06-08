@@ -42,6 +42,7 @@ func (s sidebarState) staticLines(width int) []string {
 		lines = append(lines, s.skillSection(width)...)
 	}
 	lines = append(lines, s.contextSection(width)...)
+	lines = append(lines, s.performanceSection(width)...)
 	lines = append(lines, s.repositorySection(width)...)
 	lines = append(lines, "", cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
 	return lines
@@ -95,4 +96,35 @@ func (s sidebarState) repositorySection(width int) []string {
 		lines = append(lines, cardField("ahead", s.styles.FgDim, fmt.Sprintf("%d commits", s.ahead), s.styles))
 	}
 	return lines
+}
+
+func (s sidebarState) performanceSection(width int) []string {
+	w := width - 7
+	const keyW = 10
+	return []string{
+		"",
+		cardLabel("performance", s.styles),
+		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
+		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
+		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
+	}
+}
+
+// formatDuration formats ms as "1.2s" or "340ms"
+func formatDuration(ms int64) string {
+	if ms <= 0 {
+		return "—"
+	}
+	if ms >= 1000 {
+		return fmt.Sprintf("%.1fs", float64(ms)/1000.0)
+	}
+	return fmt.Sprintf("%dms", ms)
+}
+
+// formatTPS formats tokens/sec as "42.1 t/s"
+func formatTPS(tps float64) string {
+	if tps <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f t/s", tps)
 }

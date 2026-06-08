@@ -43,13 +43,16 @@ func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
 }
 
 // NewModelCallFinishedEvent creates a new model call finished event.
-func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, totalTokens int, err error) Event {
+func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, completionTokens int, err error, durationMs int64, ttftMs int64, outputTPS float64) Event {
 	payload := ModelCallFinishedEvent{
-		Turn:         turn,
-		Model:        model,
-		FinishReason: finishReason,
-		ToolCalls:    toolCalls,
-		TotalTokens:  totalTokens,
+		Turn:             turn,
+		Model:            model,
+		FinishReason:     finishReason,
+		ToolCalls:        toolCalls,
+		CompletionTokens: completionTokens,
+		DurationMs:       durationMs,
+		TTFTMs:           ttftMs,
+		OutputTPS:        outputTPS,
 	}
 	if err != nil {
 		payload.Error = err.Error()

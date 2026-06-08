@@ -40,8 +40,12 @@ func cardLabel(label string, styles theme.Styles) string {
 }
 
 func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+	return cardFieldN(key, 7, valStyle, value, styles)
+}
+
+func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string, styles theme.Styles) string {
 	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
 	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
-	keyStr := keyStyle.Render(fmt.Sprintf("%-7s", key))
+	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
 	return keyStr + valStyleWithBg.Render(value)
 }

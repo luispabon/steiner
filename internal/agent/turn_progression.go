@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -29,14 +30,28 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 
 	p.emitModelCallStarted(in, turn, assembly)
 
-	response, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
+	startTime := time.Now()
+	response, firstChunkTime, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
 	if err != nil {
 		return p.handleModelCallError(ctx, in, turn, err)
 	}
 
+	endTime := time.Now()
+	durationMs := endTime.Sub(startTime).Milliseconds()
+
 	response = p.normalizeModelResponse(in, turn, response)
 	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil))
+
+	ttftMs := durationMs
+	if !firstChunkTime.IsZero() {
+		ttftMs = firstChunkTime.Sub(startTime).Milliseconds()
+	}
+	var outputTPS float64
+	if durationMs > 0 && turnTokens > 0 {
+		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
+	}
+
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
 	p.emitAssistantMessage(in, turn, response)
 	state = appendAssistantMessage(state, turn, response.Message)
 
@@ -52,20 +67,20 @@ func (p *turnProgressor) emitModelCallStarted(in turnInput, turn int, assembly p
 	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 }
 
-func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
+func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, time.Time, error) {
 	return completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
 }
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
-		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil))
+		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
 		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state := in.State
 	state.StopReason = StopReasonError
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err))
+	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
 	emitStop(in.Request.Events, state, err)
 	return turnOutcome{State: state, Stop: true, Error: err}

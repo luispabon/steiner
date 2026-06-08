@@ -90,10 +90,13 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
 	case output.ModelCallFinishedEvent:
 		detail := strings.TrimSpace(payload.FinishReason)
-		if detail == "" && payload.TotalTokens > 0 {
-			detail = fmt.Sprintf("%d tokens", payload.TotalTokens)
+		if detail == "" && payload.CompletionTokens > 0 {
+			detail = fmt.Sprintf("%d tokens", payload.CompletionTokens)
 		}
 		m.activity = m.activity.static("model call complete", detail)
+		m.sidebar.perfDurationMs = payload.DurationMs
+		m.sidebar.perfTTFTMs = payload.TTFTMs
+		m.sidebar.perfOutputTPS = payload.OutputTPS
 	case output.APIRequestEvent:
 		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
 	case output.APIResponseEvent:

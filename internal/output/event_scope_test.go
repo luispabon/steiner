@@ -110,3 +110,30 @@ func TestEventMarshalJSONScopes(t *testing.T) {
 		})
 	}
 }
+
+func TestNewModelCallFinishedEventTimingFields(t *testing.T) {
+	cases := []struct {
+		name       string
+		durationMs int64
+		ttftMs     int64
+		outputTPS  float64
+	}{
+		{"zeros", 0, 0, 0},
+		{"values", 1200, 340, 42.1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := NewModelCallFinishedEvent(1, "model", "stop", 0, 100, nil, tc.durationMs, tc.ttftMs, tc.outputTPS)
+			payload := ev.Payload.(ModelCallFinishedEvent)
+			if payload.DurationMs != tc.durationMs {
+				t.Errorf("DurationMs: got %d, want %d", payload.DurationMs, tc.durationMs)
+			}
+			if payload.TTFTMs != tc.ttftMs {
+				t.Errorf("TTFTMs: got %d, want %d", payload.TTFTMs, tc.ttftMs)
+			}
+			if payload.OutputTPS != tc.outputTPS {
+				t.Errorf("OutputTPS: got %f, want %f", payload.OutputTPS, tc.outputTPS)
+			}
+		})
+	}
+}
