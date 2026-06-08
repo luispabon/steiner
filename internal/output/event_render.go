@@ -238,8 +238,8 @@ func renderModelCallFinishedEvent(payload ModelCallFinishedEvent) Segment {
 	if payload.ToolCalls > 0 {
 		parts = append(parts, fmt.Sprintf("tool_calls=%d", payload.ToolCalls))
 	}
-	if payload.TotalTokens > 0 {
-		parts = append(parts, fmt.Sprintf("tokens=%d", payload.TotalTokens))
+	if payload.CompletionTokens > 0 {
+		parts = append(parts, fmt.Sprintf("tokens=%d", payload.CompletionTokens))
 	}
 	channel := ChannelStatus
 	if payload.Error != "" {
