@@ -11,10 +11,10 @@ func defaultConfig() Config {
 		ID:       "qwen3-35b-a3b",
 		Retry: RetryConfig{
 			Enabled:        true,
-			MaxAttempts:    3,
+			MaxAttempts:    5,
 			InitialBackoff: MustDuration("250ms"),
 			MaxBackoff:     MustDuration("5s"),
-			RetryAfterMax:  MustDuration("30s"),
+			RetryAfterMax:  MustDuration("60s"),
 		},
 		Advanced: AdvancedConfig{
 			Limits: AdvancedLimitsConfig{
