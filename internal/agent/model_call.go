@@ -22,7 +22,7 @@ func executeChatRequest(
 	isCompaction bool,
 	streamingPreferred bool,
 	source output.ChunkSource,
-) (provider.ChatResponse, error) {
+) (provider.ChatResponse, time.Time, error) {
 	if budget.ContextSize > 0 {
 		var fit prompt.RequestTokenBudget
 		var err error
@@ -32,13 +32,13 @@ func executeChatRequest(
 			fit, err = budget.FitRequest(ctx, req)
 		}
 		if err != nil {
-			return provider.ChatResponse{}, err
+			return provider.ChatResponse{}, time.Time{}, err
 		}
 		if !fit.Fits {
 			if isCompaction {
-				return provider.ChatResponse{}, fmt.Errorf("compaction request exceeds context window: %s", fit.String())
+				return provider.ChatResponse{}, time.Time{}, fmt.Errorf("compaction request exceeds context window: %s", fit.String())
 			}
-			return provider.ChatResponse{}, fmt.Errorf("request exceeds context window: %s", fit.String())
+			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
 	emitEvent(events, output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget))
@@ -49,7 +49,7 @@ func executeChatRequest(
 		response, chatErr := prov.ChatCompletion(ctx, req)
 		if chatErr == nil {
 			emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
-			return response, nil
+			return response, time.Time{}, nil
 		}
 		// Fall through to streaming when ChatCompletion fails.
 	}
@@ -60,21 +60,21 @@ func executeChatRequest(
 		response, streamErr := consumeModelStream(ctx, events, turn, stream, source, &firstChunkTime)
 		if streamErr != nil {
 			emitEvent(events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
-			return provider.ChatResponse{}, streamErr
+			return provider.ChatResponse{}, time.Time{}, streamErr
 		}
 		emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
-		return response, nil
+		return response, firstChunkTime, nil
 	}
 
 	response, chatErr := prov.ChatCompletion(ctx, req)
 	emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr))
 	if chatErr != nil {
-		return provider.ChatResponse{}, chatErr
+		return provider.ChatResponse{}, time.Time{}, chatErr
 	}
-	return response, nil
+	return response, time.Time{}, nil
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, time.Time, error) {
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 }
 

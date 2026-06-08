@@ -31,7 +31,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	p.emitModelCallStarted(in, turn, assembly)
 
 	startTime := time.Now()
-	response, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
+	response, firstChunkTime, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
 	if err != nil {
 		return p.handleModelCallError(ctx, in, turn, err)
 	}
@@ -42,10 +42,10 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	response = p.normalizeModelResponse(in, turn, response)
 	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
 
-	// Calculate TTFT and output TPS
-	// Note: We don't have first-chunk timing from non-streaming ChatCompletion paths,
-	// so TTFT defaults to durationMs. Streaming paths would need to pass it through.
 	ttftMs := durationMs
+	if !firstChunkTime.IsZero() {
+		ttftMs = firstChunkTime.Sub(startTime).Milliseconds()
+	}
 	var outputTPS float64
 	if durationMs > 0 && turnTokens > 0 {
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
@@ -67,7 +67,7 @@ func (p *turnProgressor) emitModelCallStarted(in turnInput, turn int, assembly p
 	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 }
 
-func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, error) {
+func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, time.Time, error) {
 	return completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
 }
 
