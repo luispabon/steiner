@@ -24,10 +24,10 @@ func TestDefaultConfigRetryDefaults(t *testing.T) {
 
 	want := RetryConfig{
 		Enabled:        true,
-		MaxAttempts:    3,
+		MaxAttempts:    5,
 		InitialBackoff: MustDuration("250ms"),
 		MaxBackoff:     MustDuration("5s"),
-		RetryAfterMax:  MustDuration("30s"),
+		RetryAfterMax:  MustDuration("60s"),
 	}
 	if !reflect.DeepEqual(cfg.Models["default"].Retry, want) {
 		t.Fatalf("models[default].retry = %#v, want %#v", cfg.Models["default"].Retry, want)

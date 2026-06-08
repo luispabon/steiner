@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1697,6 +1698,206 @@ func TestRunnerContextStateManagerSanitizesRecentToolCallSummaries(t *testing.T)
 // TestRunnerDetectedReasoningEchoBack_PersistsAcrossTurns verifies that when
 // the model returns reasoning_content on turn 1 with ReasoningEchoBack=false,
 // the runner enables ReasoningEchoBack for turn 2 so reasoning is preserved.
+func TestRunnerRetriesTransientProviderError(t *testing.T) {
+	// Each turn attempt may call ChatCompletion twice (initial + fallback after
+	// streaming fails), so we need enough failures to span 2 full turn attempts.
+	callCount := 0
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			callCount++
+			if callCount <= 4 {
+				return provider.ChatResponse{}, &provider.HTTPError{
+					StatusCode: 429,
+					Status:     "429 Too Many Requests",
+					Body:       `{"error":"rate limited"}`,
+				}
+			}
+			return provider.ChatResponse{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
+			}, nil
+		},
+	}
+
+	sleepCalls := 0
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		sleepCalls++
+		return nil
+	}
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if sleepCalls != 2 {
+		t.Fatalf("runner retry sleeps = %d, want 2", sleepCalls)
+	}
+
+	var diagnosticCount int
+	for _, ev := range events {
+		if ev.Type == output.EventTypeProviderDiagnostic {
+			diagnosticCount++
+		}
+	}
+	if diagnosticCount != 2 {
+		t.Fatalf("provider diagnostic events = %d, want 2", diagnosticCount)
+	}
+}
+
+func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 429,
+				Status:     "429 Too Many Requests",
+				Body:       `{"error":"rate limited"}`,
+			}
+		},
+	}
+
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		return nil
+	}
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 10, MaxTokens: 100},
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error after runner retries exhausted")
+	}
+	var httpErr *provider.HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("Run() error type = %T, want *provider.HTTPError", err)
+	}
+	if httpErr.StatusCode != 429 {
+		t.Fatalf("HTTPError.StatusCode = %d, want 429", httpErr.StatusCode)
+	}
+}
+
+func TestRunnerDoesNotRetryNonTransientErrors(t *testing.T) {
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 400,
+				Status:     "400 Bad Request",
+				Body:       `{"error":"bad request"}`,
+			}
+		},
+	}
+
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	var httpErr *provider.HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("Run() error type = %T, want *provider.HTTPError", err)
+	}
+	if httpErr.StatusCode != 400 {
+		t.Fatalf("HTTPError.StatusCode = %d, want 400", httpErr.StatusCode)
+	}
+}
+
+func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
+	callCount := 0
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			callCount++
+			switch callCount {
+			case 1:
+				return provider.ChatResponse{}, &provider.HTTPError{
+					StatusCode: 502,
+					Status:     "502 Bad Gateway",
+				}
+			case 2:
+				return provider.ChatResponse{
+					Message: provider.Message{
+						Role: provider.MessageRoleAssistant,
+						ToolCalls: []provider.ToolCall{
+							{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+						},
+					},
+					FinishReason: "tool_calls",
+					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+				}, nil
+			case 3:
+				return provider.ChatResponse{}, &provider.HTTPError{
+					StatusCode: 502,
+					Status:     "502 Bad Gateway",
+				}
+			default:
+				return provider.ChatResponse{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "done",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
+				}, nil
+			}
+		},
+	}
+
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		return nil
+	}
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{"contents": "hello"}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+}
+
 func TestRunnerDetectedReasoningEchoBack_PersistsAcrossTurns(t *testing.T) {
 	// Turn 1: model responds with reasoning_content and a tool call.
 	// Turn 2: model responds with a final answer.

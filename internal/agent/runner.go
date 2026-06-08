@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+const maxRunnerRetries = 3
 
 // ToolExecutor runs a named tool invocation for the agent loop.
 type ToolExecutor interface {
@@ -78,6 +81,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
 	p := newTurnProgressor(r)
+	runnerRetries := 0
 
 	for {
 		if stopped, done := stopRunBeforeTurn(ctx, req, state); done {
@@ -116,8 +120,15 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			}
 		}
 		if outcome.Error != nil {
+			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
+				if retryErr != nil {
+					return state, outcome.Error
+				}
+				continue
+			}
 			return state, outcome.Error
 		}
+		runnerRetries = 0
 		if outcome.Stop {
 			return state, nil
 		}
@@ -250,4 +261,41 @@ func formatToolError(err error) string {
 		return fmt.Sprintf(`{"ok":false,"error":{"kind":"tool_error","message":"%s"}}`, err.Error())
 	}
 	return string(data)
+}
+
+func handleTransientProviderRetry(ctx context.Context, events output.EventSink, turn int, err error, retries *int) (shouldRetry bool, sleepErr error) {
+	delay, ok := provider.RetryableProviderError(err)
+	if !ok || *retries >= maxRunnerRetries {
+		return false, nil
+	}
+	*retries++
+	if delay < 5*time.Second {
+		delay = 5 * time.Second
+	}
+	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     turn,
+		Severity: "warning",
+		Message:  fmt.Sprintf("provider returned transient error, retrying turn in %s (attempt %d/%d): %s", delay, *retries, maxRunnerRetries, err),
+	}))
+	return true, runnerRetrySleep(ctx, delay)
+}
+
+var runnerRetrySleepFn = runnerRetrySleepDefault
+
+func runnerRetrySleep(ctx context.Context, delay time.Duration) error {
+	return runnerRetrySleepFn(ctx, delay)
+}
+
+func runnerRetrySleepDefault(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

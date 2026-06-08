@@ -116,6 +116,24 @@ func retryAfterDelay(header http.Header, max time.Duration) (time.Duration, bool
 	return delay, true
 }
 
+// RetryableProviderError reports whether err is a transient provider error
+// that may succeed on a subsequent attempt. When true it returns a suggested
+// delay parsed from the response (zero when no delay hint is available).
+func RetryableProviderError(err error) (time.Duration, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		return 0, false
+	}
+	if !isRetryableHTTPStatus(httpErr.StatusCode) {
+		return 0, false
+	}
+	delay, _ := retryAfterDelay(httpErr.Header, 0)
+	return delay, true
+}
+
 func retryableTransportErrorText(err error) bool {
 	if err == nil {
 		return false
