@@ -133,9 +133,7 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 		}
 		return &sshOverlay{
 			bwrapArgs: []string{
-				"--perms", "0644",
 				"--ro-bind-data", "4", "/etc/ssh/ssh_config",
-				"--perms", "0644",
 				"--ro-bind-data", "5", "/etc/ssh/ssh_config.d/10-main.conf",
 			},
 			memfds: []*os.File{rootFile, includeFile},
@@ -270,9 +268,7 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 		return &sshOverlay{
 			bwrapArgs: []string{
 				"--tmpfs", "/etc/ssh/ssh_config.d",
-				"--perms", "0644",
 				"--ro-bind-data", "3", "/etc/ssh/ssh_config",
-				"--perms", "0644",
 				"--ro-bind-data", "4", "/etc/ssh/ssh_config.d/10-main.conf",
 			},
 			memfds: []*os.File{rootFile, includeFile},

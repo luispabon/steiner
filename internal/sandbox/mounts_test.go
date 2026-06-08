@@ -164,7 +164,6 @@ func TestBuildArgs_NoCacheDirWhenNoHome(t *testing.T) {
 func TestBuildArgs_AppendsOverlayBeforeChdir(t *testing.T) {
 	overlayArgs := []string{
 		"--tmpfs", "/etc/ssh/ssh_config.d",
-		"--perms", "0644",
 		"--ro-bind-data", "3", "/etc/ssh/ssh_config",
 	}
 

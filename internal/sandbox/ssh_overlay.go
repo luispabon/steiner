@@ -352,14 +352,13 @@ func createMemfdFromContent(name string, content []byte) (*os.File, error) {
 }
 
 func buildSSHOverlayArgs(resolution sshIncludeResolution, childFDBase int) []string {
-	args := make([]string, 0, len(resolution.replacementDirs)*2+len(resolution.files)*4)
+	args := make([]string, 0, len(resolution.replacementDirs)*2+len(resolution.files)*3)
 
 	for _, dir := range resolution.replacementDirs {
 		args = append(args, "--tmpfs", dir)
 	}
 	for i, file := range resolution.files {
 		args = append(args,
-			"--perms", "0644",
 			"--ro-bind-data", strconv.Itoa(childFDBase+i), file.sandboxPath,
 		)
 	}

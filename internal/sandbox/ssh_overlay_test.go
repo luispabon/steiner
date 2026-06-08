@@ -210,10 +210,10 @@ func TestPrepareSSHOverlayFromPath_BuildsMemfdsAndArgs(t *testing.T) {
 	if !containsSeq(overlay.bwrapArgs, "--tmpfs", dropInDir) {
 		t.Fatalf("expected tmpfs mount for drop-in dir, args=%v", overlay.bwrapArgs)
 	}
-	if !containsSeq(overlay.bwrapArgs, "--perms", "0644", "--ro-bind-data", "3", rootConfig) {
+	if !containsSeq(overlay.bwrapArgs, "--ro-bind-data", "3", rootConfig) {
 		t.Fatalf("expected root config ro-bind-data mount, args=%v", overlay.bwrapArgs)
 	}
-	if !containsSeq(overlay.bwrapArgs, "--perms", "0644", "--ro-bind-data", "4", included) {
+	if !containsSeq(overlay.bwrapArgs, "--ro-bind-data", "4", included) {
 		t.Fatalf("expected included config ro-bind-data mount, args=%v", overlay.bwrapArgs)
 	}
 
