@@ -47,13 +47,12 @@ func TestPerformanceSection(t *testing.T) {
 		perfDurationMs int64
 		perfTTFTMs     int64
 		perfOutputTPS  float64
-		wantNilOrEmpty bool
 	}{
-		{"all zeros", 0, 0, 0.0, true},
-		{"with duration", 1200, 0, 0.0, false},
-		{"with ttft", 0, 340, 0.0, false},
-		{"with tps", 0, 0, 42.1, false},
-		{"all values", 1200, 340, 42.1, false},
+		{"all zeros", 0, 0, 0.0},
+		{"with duration", 1200, 0, 0.0},
+		{"with ttft", 0, 340, 0.0},
+		{"with tps", 0, 0, 42.1},
+		{"all values", 1200, 340, 42.1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,12 +61,9 @@ func TestPerformanceSection(t *testing.T) {
 				perfTTFTMs:     tc.perfTTFTMs,
 				perfOutputTPS:  tc.perfOutputTPS,
 			}
-			got := s.performanceSection(32) // arbitrary width
-			if tc.wantNilOrEmpty && len(got) > 0 {
-				t.Errorf("performanceSection() = %v, want empty/nil", got)
-			}
-			if !tc.wantNilOrEmpty && len(got) == 0 {
-				t.Errorf("performanceSection() = empty, want non-empty")
+			got := s.performanceSection(32)
+			if len(got) == 0 {
+				t.Errorf("performanceSection() = empty, always want non-empty")
 			}
 		})
 	}

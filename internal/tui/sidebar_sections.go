@@ -41,8 +41,8 @@ func (s sidebarState) staticLines(width int) []string {
 	if strings.TrimSpace(s.activeSkill) != "" {
 		lines = append(lines, s.skillSection(width)...)
 	}
-	lines = append(lines, s.performanceSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
+	lines = append(lines, s.performanceSection(width)...)
 	lines = append(lines, s.repositorySection(width)...)
 	lines = append(lines, "", cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
 	return lines
@@ -99,16 +99,14 @@ func (s sidebarState) repositorySection(width int) []string {
 }
 
 func (s sidebarState) performanceSection(width int) []string {
-	if s.perfDurationMs == 0 && s.perfTTFTMs == 0 && s.perfOutputTPS == 0 {
-		return nil
-	}
 	w := width - 7
+	const keyW = 10
 	return []string{
 		"",
 		cardLabel("performance", s.styles),
-		cardField("duration", s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w), s.styles),
-		cardField("ttft", s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w), s.styles),
-		cardField("tps", s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w), s.styles),
+		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
+		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
+		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
 	}
 }
 

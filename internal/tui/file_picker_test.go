@@ -638,7 +638,7 @@ func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 
 func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 	m := newModel(Config{WorkingDir: ".", Model: "test-model", SidebarPosition: "right"}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 50})
 	m.sidebar.expanded = true
 
 	if !m.sidebar.Visible(m.width) {
