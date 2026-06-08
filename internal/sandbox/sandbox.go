@@ -9,6 +9,11 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+var (
+	lookupBwrap       = exec.LookPath
+	prepareSSHOverlay = prepareSSHOverlayFromPath
+)
+
 // Sandbox wraps bubblewrap invocation for tool execution.
 type Sandbox struct {
 	cfg         config.SandboxConfig
@@ -40,14 +45,30 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		return cmd
 	}
 
-	bwrapPath, err := exec.LookPath("bwrap")
+	overlayFDBase := 3 + len(cmd.ExtraFiles)
+	overlay, err := prepareSSHOverlay(sshSystemConfigPath, overlayFDBase)
+	if err != nil {
+		if overlay != nil {
+			_ = overlay.Close() // Best-effort cleanup; overlay failures must not block sandboxing.
+		}
+		overlay = nil
+	}
+
+	bwrapPath, err := lookupBwrap("bwrap")
 	if err != nil {
 		// bwrap not available — return cmd unchanged; caller should have run PrereqCheck.
+		if overlay != nil {
+			_ = overlay.Close() // Best-effort cleanup; overlay files will not be handed to a child process.
+		}
 		return cmd
 	}
 
 	sandboxHome := filepath.Join(s.workspace, ".steiner", "home")
-	bwrapArgs := BuildArgs(s.workspace, sandboxHome, s.userHome, s.permissions, s.hostMounts)
+	var overlayArgs []string
+	if overlay != nil {
+		overlayArgs = overlay.bwrapArgs
+	}
+	bwrapArgs := BuildArgs(s.workspace, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -63,6 +84,12 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		Stdout: cmd.Stdout,
 		Stderr: cmd.Stderr,
 		Env:    FilterEnv(cmd.Env),
+	}
+	if len(cmd.ExtraFiles) > 0 {
+		wrapped.ExtraFiles = append(wrapped.ExtraFiles, cmd.ExtraFiles...)
+	}
+	if overlay != nil {
+		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
 	}
 	return wrapped
 }
