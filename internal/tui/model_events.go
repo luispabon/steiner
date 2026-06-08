@@ -94,6 +94,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			detail = fmt.Sprintf("%d tokens", payload.TotalTokens)
 		}
 		m.activity = m.activity.static("model call complete", detail)
+		m.sidebar.perfDurationMs = payload.DurationMs
+		m.sidebar.perfTTFTMs = payload.TTFTMs
+		m.sidebar.perfOutputTPS = payload.OutputTPS
 	case output.APIRequestEvent:
 		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
 	case output.APIResponseEvent:
