@@ -99,18 +99,17 @@ func (s sidebarState) repositorySection(width int) []string {
 }
 
 func (s sidebarState) performanceSection(width int) []string {
-	// Return nil/empty if no data yet
 	if s.perfDurationMs == 0 && s.perfTTFTMs == 0 && s.perfOutputTPS == 0 {
 		return nil
 	}
-	lines := []string{
+	w := width - 7
+	return []string{
 		"",
 		cardLabel("performance", s.styles),
-		cardField("duration", s.styles.FgDim, formatDuration(s.perfDurationMs), s.styles),
-		cardField("ttft", s.styles.FgDim, formatDuration(s.perfTTFTMs), s.styles),
-		cardField("tps", s.styles.FgDim, formatTPS(s.perfOutputTPS), s.styles),
+		cardField("duration", s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w), s.styles),
+		cardField("ttft", s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w), s.styles),
+		cardField("tps", s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w), s.styles),
 	}
-	return lines
 }
 
 // formatDuration formats ms as "1.2s" or "340ms"
