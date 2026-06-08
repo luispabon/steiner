@@ -76,7 +76,7 @@ type sshResolveState struct {
 	totalBytes         int
 }
 
-func prepareSSHOverlayFromPath(rootPath string) (*sshOverlay, error) {
+func prepareSSHOverlayFromPath(rootPath string, childFDBase int) (*sshOverlay, error) {
 	resolution := resolveSSHIncludeResolution(rootPath)
 	if len(resolution.files) == 0 {
 		return nil, nil
@@ -95,7 +95,7 @@ func prepareSSHOverlayFromPath(rootPath string) (*sshOverlay, error) {
 		overlay.memfds = append(overlay.memfds, memfd)
 	}
 
-	overlay.bwrapArgs = buildSSHOverlayArgs(resolution, 3)
+	overlay.bwrapArgs = buildSSHOverlayArgs(resolution, childFDBase)
 	return overlay, nil
 }
 

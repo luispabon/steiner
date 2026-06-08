@@ -185,7 +185,7 @@ func TestPrepareSSHOverlayFromPath_BuildsMemfdsAndArgs(t *testing.T) {
 	writeFile(t, included, "Host *\n")
 	writeFile(t, rootConfig, "Include "+filepath.Join(dropInDir, "*.conf")+"\n")
 
-	overlay, err := prepareSSHOverlayFromPath(rootConfig)
+	overlay, err := prepareSSHOverlayFromPath(rootConfig, 3)
 	if isMemfdUnavailable(err) {
 		t.Skipf("memfd unavailable: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestPrepareSSHOverlayFromPath_BuildsMemfdsAndArgs(t *testing.T) {
 }
 
 func TestPrepareSSHOverlayFromPath_MissingRootReturnsNil(t *testing.T) {
-	overlay, err := prepareSSHOverlayFromPath(filepath.Join(t.TempDir(), "missing"))
+	overlay, err := prepareSSHOverlayFromPath(filepath.Join(t.TempDir(), "missing"), 3)
 	if err != nil {
 		t.Fatalf("prepare overlay: %v", err)
 	}

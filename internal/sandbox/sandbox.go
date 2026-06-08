@@ -45,7 +45,8 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		return cmd
 	}
 
-	overlay, err := prepareSSHOverlay(sshSystemConfigPath)
+	overlayFDBase := 3 + len(cmd.ExtraFiles)
+	overlay, err := prepareSSHOverlay(sshSystemConfigPath, overlayFDBase)
 	if err != nil {
 		if overlay != nil {
 			_ = overlay.Close() // Best-effort cleanup; overlay failures must not block sandboxing.
@@ -84,11 +85,11 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		Stderr: cmd.Stderr,
 		Env:    FilterEnv(cmd.Env),
 	}
-	if overlay != nil {
-		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
-	}
 	if len(cmd.ExtraFiles) > 0 {
 		wrapped.ExtraFiles = append(wrapped.ExtraFiles, cmd.ExtraFiles...)
+	}
+	if overlay != nil {
+		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
 	}
 	return wrapped
 }

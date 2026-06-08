@@ -28,7 +28,7 @@ func TestWrapCommand_Disabled(t *testing.T) {
 func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "", exec.ErrNotFound
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return nil, nil
 	})
 	defer restore()
@@ -47,7 +47,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return nil, nil
 	})
 	defer restore()
@@ -87,7 +87,7 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return nil, nil
 	})
 	defer restore()
@@ -124,13 +124,19 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
-	}, func(string) (*sshOverlay, error) {
+	}, func(path string, childFDBase int) (*sshOverlay, error) {
+		if path != sshSystemConfigPath {
+			t.Fatalf("prepare path = %q, want %q", path, sshSystemConfigPath)
+		}
+		if childFDBase != 4 {
+			t.Fatalf("childFDBase = %d, want 4", childFDBase)
+		}
 		return &sshOverlay{
 			bwrapArgs: []string{
 				"--perms", "0644",
-				"--ro-bind-data", "3", "/etc/ssh/ssh_config",
+				"--ro-bind-data", "4", "/etc/ssh/ssh_config",
 				"--perms", "0644",
-				"--ro-bind-data", "4", "/etc/ssh/ssh_config.d/10-main.conf",
+				"--ro-bind-data", "5", "/etc/ssh/ssh_config.d/10-main.conf",
 			},
 			memfds: []*os.File{rootFile, includeFile},
 		}, nil
@@ -148,13 +154,16 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	if len(wrapped.ExtraFiles) != 3 {
 		t.Fatalf("extra files len = %d, want 3", len(wrapped.ExtraFiles))
 	}
-	if wrapped.ExtraFiles[0] != rootFile || wrapped.ExtraFiles[1] != includeFile {
-		t.Fatalf("overlay files not prepended in ExtraFiles: %#v", wrapped.ExtraFiles)
+	if wrapped.ExtraFiles[0] != os.Stdout {
+		t.Fatalf("original extra file not preserved at fd 3: %#v", wrapped.ExtraFiles)
 	}
-	if !containsSeq(wrapped.Args, "--ro-bind-data", "3", "/etc/ssh/ssh_config") {
+	if wrapped.ExtraFiles[1] != rootFile || wrapped.ExtraFiles[2] != includeFile {
+		t.Fatalf("overlay files not appended after original ExtraFiles: %#v", wrapped.ExtraFiles)
+	}
+	if !containsSeq(wrapped.Args, "--ro-bind-data", "4", "/etc/ssh/ssh_config") {
 		t.Fatalf("expected root overlay args, got %v", wrapped.Args)
 	}
-	if !containsSeq(wrapped.Args, "--ro-bind-data", "4", "/etc/ssh/ssh_config.d/10-main.conf") {
+	if !containsSeq(wrapped.Args, "--ro-bind-data", "5", "/etc/ssh/ssh_config.d/10-main.conf") {
 		t.Fatalf("expected included overlay args, got %v", wrapped.Args)
 	}
 }
@@ -167,7 +176,7 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return &sshOverlay{memfds: []*os.File{memfd}}, errors.New("memfd unavailable")
 	})
 	defer restore()
@@ -197,7 +206,7 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "", exec.ErrNotFound
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return &sshOverlay{memfds: []*os.File{memfd}}, nil
 	})
 	defer restore()
@@ -257,7 +266,7 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return bwrapPath, nil
-	}, func(string) (*sshOverlay, error) {
+	}, func(string, int) (*sshOverlay, error) {
 		return &sshOverlay{
 			bwrapArgs: []string{
 				"--tmpfs", "/etc/ssh/ssh_config.d",
@@ -303,7 +312,7 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 	}
 }
 
-func stubSandboxHooks(t *testing.T, lookPath func(string) (string, error), prepare func(string) (*sshOverlay, error)) func() {
+func stubSandboxHooks(t *testing.T, lookPath func(string) (string, error), prepare func(string, int) (*sshOverlay, error)) func() {
 	t.Helper()
 
 	prevLookup := lookupBwrap
