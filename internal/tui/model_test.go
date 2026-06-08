@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2093,7 +2094,7 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	m.input.SetValue("asdasd")
 	m.input.SetCursor(len([]rune("asdasd")))
 
-	lines, placeholder := m.renderInputLines(20)
+	lines, placeholder, _ := m.renderInputLines(20)
 
 	if placeholder {
 		t.Fatal("expected typed input, not placeholder")
@@ -2136,7 +2137,7 @@ func TestModelCursorInHardwrappedInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m.input.SetCursor(tt.absPos)
-			lines := m.renderTypedInputLines(innerWidth)
+			lines, _ := m.renderTypedInputLines(innerWidth)
 
 			cursorRow := -1
 			cursorCol := -1
@@ -2177,7 +2178,7 @@ func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
 
-	lines := m.renderTypedInputLines(innerWidth)
+	lines, _ := m.renderTypedInputLines(innerWidth)
 
 	cursorRow := -1
 	cursorCol := -1
@@ -2760,5 +2761,37 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill enabled after launch")
+	}
+}
+
+func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
+	heights := []int{8, 10, 12, 20, 24}
+	lineCounts := []int{1, 2, 4, 6, 10, 15}
+	for _, h := range heights {
+		for _, n := range lineCounts {
+			t.Run(fmt.Sprintf("h%d_n%d", h, n), func(t *testing.T) {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: h})
+
+				// Type n newline-separated lines by sending Alt+Enter for each newline
+				val := strings.Repeat("x", 10)
+				for i := 1; i < n; i++ {
+					val += "\n" + strings.Repeat("x", 10)
+				}
+				m.input.SetValue(val)
+				m.input.CursorEnd()
+				// Simulate a keystroke to trigger relayoutInput
+				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+				// Undo the extra 'a' we just typed
+				m.input.SetValue(val)
+				m.input.CursorEnd()
+
+				view := m.View()
+				got := strings.Count(view, "\n") + 1
+				if got > h {
+					t.Fatalf("View() height = %d, want ≤ %d (terminal height), n=%d input lines", got, h, n)
+				}
+			})
+		}
 	}
 }
