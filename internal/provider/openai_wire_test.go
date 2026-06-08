@@ -301,3 +301,46 @@ func TestOpenAIRequestMarshalJSONPreservesReasoningExtraParams(t *testing.T) {
 		t.Fatalf("reasoning.enabled = %v, want %v", got, want)
 	}
 }
+
+func TestNormalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
+	calls := []openAIToolCall{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: openAIToolCallFunction{
+				Name:      "mutate",
+				Arguments: `{"operations":[{"type":"write","path":"foo.md"},]}`,
+			},
+		},
+	}
+	got, err := normalizeToolCalls(calls)
+	if err != nil {
+		t.Fatalf("expected trailing comma to be sanitized, got error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d calls, want 1", len(got))
+	}
+	if got[0].Name != "mutate" {
+		t.Fatalf("Name = %q, want %q", got[0].Name, "mutate")
+	}
+}
+
+func TestNormalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
+	calls := []openAIToolCall{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: openAIToolCallFunction{
+				Name:      "mutate",
+				Arguments: `{"operations":[{"type":"write","path":"a.go","content":"x",},]}`,
+			},
+		},
+	}
+	got, err := normalizeToolCalls(calls)
+	if err != nil {
+		t.Fatalf("expected nested trailing commas to be sanitized, got error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d calls, want 1", len(got))
+	}
+}

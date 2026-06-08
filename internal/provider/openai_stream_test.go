@@ -198,6 +198,39 @@ func TestOpenAIStreamFinalizeToolCalls_EmptyMap(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
+	var args strings.Builder
+	args.WriteString(`{"operations":[{"type":"write","path":"foo.md"},]}`)
+	toolCalls := map[int]*openAIToolCallAccumulator{
+		0: {ID: "call_1", Name: "mutate", Arguments: args},
+	}
+	calls, err := finalizeToolCalls(toolCalls)
+	if err != nil {
+		t.Fatalf("expected trailing comma to be sanitized, got error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("got %d calls, want 1", len(calls))
+	}
+	if calls[0].Name != "mutate" {
+		t.Fatalf("Name = %q, want %q", calls[0].Name, "mutate")
+	}
+}
+
+func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
+	var args strings.Builder
+	args.WriteString(`{"operations":[{"type":"write","path":"a.go","content":"x",},]}`)
+	toolCalls := map[int]*openAIToolCallAccumulator{
+		0: {ID: "call_1", Name: "mutate", Arguments: args},
+	}
+	calls, err := finalizeToolCalls(toolCalls)
+	if err != nil {
+		t.Fatalf("expected nested trailing commas to be sanitized, got error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("got %d calls, want 1", len(calls))
+	}
+}
+
 // flushStreamState tests
 
 func TestOpenAIStreamFlushStreamState_EmitsDoneChunk(t *testing.T) {

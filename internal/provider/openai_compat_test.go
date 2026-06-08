@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -311,5 +312,38 @@ func TestOpenAICompatChatCompletionsURL_TrailingSlash(t *testing.T) {
 	want := "http://localhost:11434/v1/chat/completions"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestOpenAICompatClassifyRetryError_ToolCallDecodeIsRetryable(t *testing.T) {
+	p := &OpenAICompat{}
+	tests := []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{
+			name:      "decode tool call error is retryable",
+			err:       fmt.Errorf("decode tool call %q arguments: invalid character '}' after array element", "mutate"),
+			wantRetry: true,
+		},
+		{
+			name:      "decode chat completion response is not retryable",
+			err:       fmt.Errorf("decode chat completion response: unexpected EOF"),
+			wantRetry: false,
+		},
+		{
+			name:      "nil error",
+			err:       nil,
+			wantRetry: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := p.classifyRetryError(tt.err)
+			if d.retry != tt.wantRetry {
+				t.Fatalf("retry = %v, want %v", d.retry, tt.wantRetry)
+			}
+		})
 	}
 }
