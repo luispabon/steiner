@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -55,7 +56,8 @@ func executeChatRequest(
 
 	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
-		response, streamErr := consumeModelStream(ctx, events, turn, stream, source)
+		var firstChunkTime time.Time
+		response, streamErr := consumeModelStream(ctx, events, turn, stream, source, &firstChunkTime)
 		if streamErr != nil {
 			emitEvent(events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
 			return provider.ChatResponse{}, streamErr
@@ -76,13 +78,13 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 }
 
-func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource) (provider.ChatResponse, error) {
+func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
 
 	for chunk := range chunks {
-		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal); err != nil {
+		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal, firstChunkOut); err != nil {
 			return provider.ChatResponse{}, err
 		}
 	}
@@ -95,7 +97,7 @@ func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chun
 	return response, nil
 }
 
-func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) error {
+func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool, firstChunkOut *time.Time) error {
 	if handleRetryResetChunk(sink, turn, chunk, response, message, sawFinal) {
 		return nil
 	}
@@ -109,6 +111,12 @@ func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSourc
 		message.Role = role
 	}
 	if !chunk.Done {
+		// Capture first-chunk timestamp on first content or thinking chunk
+		if firstChunkOut != nil && firstChunkOut.IsZero() {
+			if chunk.Thinking != "" || chunk.Delta.Content != "" {
+				*firstChunkOut = time.Now()
+			}
+		}
 		handleStreamingChunk(sink, turn, source, chunk, message)
 		return nil
 	}

@@ -189,10 +189,10 @@ type ModelCallFinishedEvent struct {
 	FinishReason string  `json:"finish_reason,omitempty"`
 	ToolCalls    int     `json:"tool_calls,omitempty"`
 	TotalTokens  int     `json:"total_tokens,omitempty"`
+	DurationMs   int64   `json:"duration_ms,omitempty"`
+	TTFTMs       int64   `json:"ttft_ms,omitempty"`
+	OutputTPS    float64 `json:"output_tps,omitempty"`
 	Error        string  `json:"error,omitempty"`
-	DurationMs   int64   `json:"duration_ms"`
-	TTFTMs       int64   `json:"ttft_ms"`
-	OutputTPS    float64 `json:"output_tps"`
 }
 
 // ToolCallStartedEvent records a tool invocation before execution begins.
