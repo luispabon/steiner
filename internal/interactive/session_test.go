@@ -999,6 +999,60 @@ func TestSessionTitleEmptyInitially(t *testing.T) {
 	}
 }
 
+func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
+	t.Parallel()
+
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	const sessionID = "persisted-session-id"
+	const sessionTitle = "Persist me"
+	lineage := agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{
+				ID:       1,
+				Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+			},
+		},
+		NextGenerationID: 2,
+	}
+
+	s.mu.Lock()
+	s.sessionID = sessionID
+	s.sessionTitle = sessionTitle
+	s.lineage = lineage
+	s.mu.Unlock()
+
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession() = %v, want nil", err)
+	}
+
+	saved, ok := mockStore.savedSessions[sessionID]
+	if !ok {
+		t.Fatalf("savedSessions = %#v, want session %q to be saved", mockStore.savedSessions, sessionID)
+	}
+	if got, want := saved.ID, sessionID; got != want {
+		t.Fatalf("saved ID = %q, want %q", got, want)
+	}
+	if got, want := saved.Title, sessionTitle; got != want {
+		t.Fatalf("saved title = %q, want %q", got, want)
+	}
+	if got, want := saved.Model, "test-model"; got != want {
+		t.Fatalf("saved model = %q, want %q", got, want)
+	}
+	if got, want := saved.Lineage.FullMessages(), lineage.FullMessages(); len(got) != len(want) || got[0].Content != want[0].Content {
+		t.Fatalf("saved lineage = %#v, want %#v", got, want)
+	}
+}
+
 // mockSessionStore is a minimal mock sessionStore for testing.
 type mockSessionStore struct {
 	savedSessions  map[string]session.Session
@@ -1090,5 +1144,115 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 	if !foundUserInputEvent {
 		t.Fatalf("events = %#v, want UserInput event", events)
+	}
+}
+
+func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "tool-call-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Tool Call Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "please inspect"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+							},
+						},
+						{Role: agent.MessageRoleTool, Content: "file contents", ToolCallID: "call_1", Name: "read"},
+						{Role: agent.MessageRoleAssistant, Content: "done"},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	conv := s.Conversation()
+	if got, want := len(conv), 4; got != want {
+		t.Fatalf("conversation length = %d, want %d", got, want)
+	}
+	if conv[1].Role != agent.MessageRoleAssistant || len(conv[1].ToolCalls) != 1 {
+		t.Fatalf("assistant tool-call message = %#v, want preserved tool call", conv[1])
+	}
+	if conv[2].Role != agent.MessageRoleTool || conv[2].ToolCallID != "call_1" {
+		t.Fatalf("tool result message = %#v, want preserved tool result", conv[2])
+	}
+
+	var assistantEvents int
+	var toolStarted []output.ToolCallStartedEvent
+	var toolFinished []output.ToolCallFinishedEvent
+	for _, event := range events {
+		if event.Type == output.EventTypeAssistantMessage {
+			assistantEvents++
+		}
+		if event.Type == output.EventTypeToolCallStarted {
+			payload, ok := event.Payload.(output.ToolCallStartedEvent)
+			if !ok {
+				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
+			}
+			toolStarted = append(toolStarted, payload)
+		}
+		if event.Type == output.EventTypeToolCallFinished {
+			payload, ok := event.Payload.(output.ToolCallFinishedEvent)
+			if !ok {
+				t.Fatalf("tool finished payload type = %T, want output.ToolCallFinishedEvent", event.Payload)
+			}
+			toolFinished = append(toolFinished, payload)
+		}
+	}
+	if got, want := assistantEvents, 2; got != want {
+		t.Fatalf("assistant message events = %d, want %d for tool-call transcript display", got, want)
+	}
+	if got, want := len(toolStarted), 1; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
+	}
+	if got, want := toolStarted[0].Tool, "read"; got != want {
+		t.Fatalf("tool started tool = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[0].CallID, "call_1"; got != want {
+		t.Fatalf("tool started call id = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[0].Arguments["path"], "README.md"; got != want {
+		t.Fatalf("tool started args path = %#v, want %q", got, want)
+	}
+	if got, want := len(toolFinished), 1; got != want {
+		t.Fatalf("tool finished events = %d, want %d", got, want)
+	}
+	if got, want := toolFinished[0].Tool, "read"; got != want {
+		t.Fatalf("tool finished tool = %q, want %q", got, want)
+	}
+	if got, want := toolFinished[0].CallID, "call_1"; got != want {
+		t.Fatalf("tool finished call id = %q, want %q", got, want)
+	}
+	if got, want := toolFinished[0].Result, "file contents"; got != want {
+		t.Fatalf("tool finished result = %q, want %q", got, want)
 	}
 }

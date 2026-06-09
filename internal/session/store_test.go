@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,6 +87,152 @@ func TestSaveAndLoad(t *testing.T) {
 	gen := loaded.Lineage.Generations[0]
 	if len(gen.Messages) != 1 || gen.Messages[0].Content != "hello" {
 		t.Errorf("Message content mismatch: got %v, want [hello]", gen.Messages)
+	}
+}
+
+func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	original := Session{
+		ID:        "tool-call-session",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     "Tool Call Session",
+		Model:     "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "inspect the file"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+							},
+						},
+						{Role: agent.MessageRoleTool, Content: "file contents", ToolCallID: "call_1", Name: "read"},
+						{Role: agent.MessageRoleAssistant, Content: "done"},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := store.Load(original.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	got := loaded.Lineage.FullMessages()
+	if len(got) != 4 {
+		t.Fatalf("loaded conversation length = %d, want 4", len(got))
+	}
+	if got[1].Role != agent.MessageRoleAssistant {
+		t.Fatalf("loaded assistant role = %q, want assistant", got[1].Role)
+	}
+	if len(got[1].ToolCalls) != 1 {
+		t.Fatalf("loaded assistant tool calls = %#v, want 1 tool call", got[1].ToolCalls)
+	}
+	if got[1].ToolCalls[0].ID != "call_1" || got[1].ToolCalls[0].Name != "read" {
+		t.Fatalf("loaded assistant tool call = %#v, want call_1/read", got[1].ToolCalls[0])
+	}
+	if got[1].ToolCalls[0].Arguments["path"] != "README.md" {
+		t.Fatalf("loaded assistant tool call args = %#v, want path README.md", got[1].ToolCalls[0].Arguments)
+	}
+	if got[2].Role != agent.MessageRoleTool || got[2].ToolCallID != "call_1" {
+		t.Fatalf("loaded tool result = %#v, want tool call id call_1", got[2])
+	}
+}
+
+func TestLoadLegacyConversationFallbackPreservesToolAndDelegationMessages(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	payload := struct {
+		ID           string          `json:"id"`
+		CreatedAt    time.Time       `json:"created_at"`
+		UpdatedAt    time.Time       `json:"updated_at"`
+		Title        string          `json:"title"`
+		Model        string          `json:"model"`
+		Conversation []agent.Message `json:"conversation"`
+	}{
+		ID:        "legacy-session",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     "Legacy Session",
+		Model:     "test-model",
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "delegate and inspect"},
+			{
+				Role: agent.MessageRoleAssistant,
+				ToolCalls: []agent.ToolCall{
+					{ID: "call_1", Name: "delegate", Arguments: map[string]any{"task": "inspect README"}},
+				},
+			},
+			{
+				Role:       agent.MessageRoleTool,
+				Name:       "delegate",
+				ToolCallID: "call_1",
+				Content:    "visible delegate output",
+				Retention: &agent.MessageRetention{
+					Kind:       "delegate_summary",
+					Summary:    "retained delegate summary",
+					AgentID:    "child-1",
+					Status:     "complete",
+					TurnCount:  3,
+					TokenCount: 512,
+				},
+			},
+			{Role: agent.MessageRoleAssistant, Content: "done"},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal legacy payload: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, payload.ID+sessionExt), data, 0o644); err != nil {
+		t.Fatalf("write legacy session: %v", err)
+	}
+
+	loaded, err := store.Load(payload.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	got := loaded.Lineage.FullMessages()
+	if got, want := len(got), 4; got != want {
+		t.Fatalf("loaded conversation length = %d, want %d", got, want)
+	}
+	if len(got[1].ToolCalls) != 1 || got[1].ToolCalls[0].Name != "delegate" {
+		t.Fatalf("loaded assistant tool call = %#v, want preserved delegate call", got[1].ToolCalls)
+	}
+	if got[2].ToolCallID != "call_1" || got[2].Name != "delegate" {
+		t.Fatalf("loaded tool result = %#v, want preserved delegate result", got[2])
+	}
+	if got[2].Retention == nil {
+		t.Fatal("loaded tool retention = nil, want preserved delegate retention")
+	}
+	if got, want := got[2].Retention.Summary, "retained delegate summary"; got != want {
+		t.Fatalf("loaded retention summary = %q, want %q", got, want)
+	}
+	if got, want := loaded.Lineage.NextGenerationID, 2; got != want {
+		t.Fatalf("loaded next generation id = %d, want %d", got, want)
 	}
 }
 
