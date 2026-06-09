@@ -1,0 +1,145 @@
+steps:
+  - id: step-1
+    title: Fix grep header summary
+    scope: |
+      Add a dedicated summarizeGrepArgs function in content_tool.go.
+      Format: 'pattern' in ./path/*.glob (quote pattern, append glob to path when present).
+      Fallback to just 'pattern' when path is absent.
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Do not change the generic summarizeArgs fallback behavior for other tools
+      - Single-quote the pattern to distinguish regex from paths
+    acceptance:
+      - grep with pattern+path+glob shows "'pattern' in ./path/*.glob"
+      - grep with pattern+path shows "'pattern' in ./path"
+      - grep with pattern only shows "'pattern'"
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-2
+    title: Fix glob header summary
+    scope: |
+      Add a dedicated summarizeGlobArgs function in content_tool.go.
+      Merge path and pattern into a single path string: ./path/**/*.pattern.
+      When path is absent, show just the pattern.
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Do not alter grep summary behavior from step-1
+    acceptance:
+      - glob with pattern+path shows "./path/**/*.pattern" (merged)
+      - glob with pattern only shows "**/*.pattern"
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-3
+    title: Fix fetch_url header summary
+    scope: |
+      Add "url" to the common key list in summarizeArgs, or add a dedicated
+      fetch_url case before the generic key loop. Ensure url is shown reliably.
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Adding "url" to the common key list is acceptable if it does not interfere with other tools
+    acceptance:
+      - fetch_url with url arg shows the URL string in header
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-4
+    title: Enhance read header with line range
+    scope: |
+      Add a dedicated summarizeReadArgs function in content_tool.go.
+      Always show line range as file.go:start–end.
+      Detect which values are defaults (offset=1 when absent, limit=200 when absent)
+      and wrap them with lipgloss Italic style.
+      This requires changing summarizeArgs to return styled string or changing
+      the header rendering to support mixed styling — investigate the simplest approach.
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Default offset is 1, default limit is 200 (from internal/tool/builtin/input.go)
+      - Do not import builtin package from tui — hardcode or pass defaults
+      - Italic styling must degrade gracefully in terminals that don't support it
+    acceptance:
+      - read with no offset/limit shows "file.go:1–200" with both values italicized
+      - read with offset=150 shows "file.go:150–349" with end italicized
+      - read with offset=150 limit=50 shows "file.go:150–199" with nothing italicized
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-5
+    title: Enhance ls header with recursive flag
+    scope: |
+      Add a dedicated summarizeLSArgs function in content_tool.go.
+      Append " (recursive)" when the recursive arg is true.
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Only show recursive annotation when explicitly true
+    acceptance:
+      - ls with path shows "./path"
+      - ls with path+recursive=true shows "./path (recursive)"
+      - ls with path+recursive=false shows "./path"
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-6
+    title: Enhance mutate header with operation type
+    scope: |
+      Update summarizeMutateArgs in content_tool.go.
+      Show "op_type path" for the first operation. Keep "(+N more)" suffix for multi-op.
+      Handle move specially as "move from → to".
+    files:
+      - internal/tui/content_tool.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Reuse existing summarizeMutateArgs function, extend it
+    acceptance:
+      - Single replace op shows "replace file.go"
+      - Single move op shows "move a.go → b.go"
+      - Single create op shows "create file.go"
+      - Multi-op shows "replace file.go (+2 more)"
+    verification:
+      - go test ./internal/tui/ -run TestSummarize
+
+  - id: step-7
+    title: Add mutate body rendering for insert_before and insert_after
+    scope: |
+      Add two new cases in buildMutateLines switch in content_render_preview.go.
+      Show I badge (green/Added style) + path:line, then rule, then added lines
+      with + prefix using addedBg style, then rule. Reuse existing diff styling.
+    files:
+      - internal/tui/content_render_preview.go
+      - internal/tui/content_render_preview_test.go
+    constraints:
+      - Reuse addedBg style from existing replace case
+      - Show line number like line_replace does
+      - Both insert_before and insert_after use identical rendering
+    acceptance:
+      - insert_before op shows I badge, path:line, green added lines
+      - insert_after op shows I badge, path:line, green added lines
+      - Content lines have + prefix on green background
+    verification:
+      - go test ./internal/tui/ -run TestBuildMutate
+
+  - id: step-8
+    title: Final verification
+    scope: |
+      Run make check to verify full pipeline passes.
+      Format all changed files with gofmt and goimports.
+    files: []
+    constraints:
+      - All checks must pass
+    acceptance:
+      - make check exits 0
+    verification:
+      - gofmt -w internal/tui/content_tool.go internal/tui/content_render_preview.go
+      - goimports -w internal/tui/content_tool.go internal/tui/content_render_preview.go
+      - make check
