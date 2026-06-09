@@ -91,10 +91,25 @@ func (m Model) moveApprovalSelection(delta int) Model {
 	// Sync to the embedded tool segment so it re-renders with the new selection.
 	for i := len(m.content.segments) - 1; i >= 0; i-- {
 		seg := &m.content.segments[i]
-		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
-			seg.toolData.approvalSelectedAction = next
-			seg.renderDirty = true
-			break
+		switch seg.kind {
+		case segmentToolCall:
+			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+				seg.toolData.approvalSelectedAction = next
+				seg.renderDirty = true
+				return m
+			}
+		case segmentToolCallGroup:
+			if seg.toolGroupData == nil {
+				continue
+			}
+			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
+				entry := seg.toolGroupData.entries[j]
+				if entry != nil && entry.approvalPending && !entry.approvalResolved {
+					entry.approvalSelectedAction = next
+					seg.renderDirty = true
+					return m
+				}
+			}
 		}
 	}
 	return m
