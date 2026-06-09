@@ -39,7 +39,7 @@ func summarizeArgs(tool string, args map[string]any) string {
 		return summarizeMutateArgs(args)
 	}
 	// Try common arg keys in order
-	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
+	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description", "url"} {
 		if v, ok := args[key]; ok {
 			return fmt.Sprintf("%v", v)
 		}
