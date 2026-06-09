@@ -133,6 +133,50 @@ func TestOpenAIStreamExtractThinkingDelta_SkipsNonMapItems(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamDecodeChatStreamWithHandler_UsesReasoningDetailsAndEOFWithFinalChunk(t *testing.T) {
+	reasoning := "prefix "
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"prefix \",\"reasoning_details\":[{\"type\":\"text\",\"text\":\"suffix\"}]},\"finish_reason\":\"\"}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	if len(chunks) != 3 {
+		t.Fatalf("chunks len = %d, want 3", len(chunks))
+	}
+	if chunks[0].Thinking != reasoning+"suffix" {
+		t.Fatalf("first chunk Thinking = %q, want %q", chunks[0].Thinking, reasoning+"suffix")
+	}
+	if chunks[1].Delta.Content != "answer" {
+		t.Fatalf("second chunk content = %q, want %q", chunks[1].Delta.Content, "answer")
+	}
+	final := chunks[2]
+	if !final.Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if final.FinishReason != "stop" {
+		t.Fatalf("final chunk FinishReason = %q, want %q", final.FinishReason, "stop")
+	}
+	if final.Delta.ReasoningContent != reasoning+"suffix" {
+		t.Fatalf("final chunk ReasoningContent = %q, want %q", final.Delta.ReasoningContent, reasoning+"suffix")
+	}
+}
+
+func TestOpenAIStreamDecodeChatStreamWithHandler_EOFBeforeFinalChunkIsRetryable(t *testing.T) {
+	body := strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"\"}]}\n")
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v, want unexpected EOF", err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("expected streamed content before EOF")
+	}
+}
+
 // finalizeToolCalls tests
 
 func TestOpenAIStreamFinalizeToolCalls_ValidJSONArguments(t *testing.T) {
@@ -315,4 +359,15 @@ func TestOpenAIStreamFlushStreamState_EmitsContent(t *testing.T) {
 	if chunk.Delta.Content != "Hello" {
 		t.Fatalf("Content = %q, want %q", chunk.Delta.Content, "Hello")
 	}
+}
+
+func collectOpenAIStreamChunks(t *testing.T, body io.Reader) ([]ChatChunk, error) {
+	t.Helper()
+
+	var chunks []ChatChunk
+	err := decodeChatStreamWithHandler(context.Background(), body, func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	return chunks, err
 }

@@ -59,6 +59,7 @@ type openAIMessage struct {
 	Role             string           `json:"role,omitempty"`
 	Content          any              `json:"content,omitempty"`
 	ReasoningContent *string          `json:"reasoning_content,omitempty"`
+	ReasoningDetails any              `json:"reasoning_details,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
 	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
@@ -170,6 +171,7 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 	if message.ReasoningContent != nil {
 		out.ReasoningContent = *message.ReasoningContent
 	}
+	out.ReasoningContent += extractReasoningDetailsText(message.ReasoningDetails)
 	if message.Name != "" {
 		out.Name = message.Name
 	}
@@ -184,6 +186,44 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 		out.ToolCalls = toolCalls
 	}
 	return out, nil
+}
+
+func extractReasoningDetailsText(value any) string {
+	var builder strings.Builder
+	appendReasoningDetailsText(&builder, value)
+	return builder.String()
+}
+
+func appendReasoningDetailsText(builder *strings.Builder, value any) {
+	switch v := value.(type) {
+	case nil:
+		return
+	case string:
+		builder.WriteString(v)
+	case []any:
+		for _, item := range v {
+			appendReasoningDetailsText(builder, item)
+		}
+	case map[string]any:
+		appendReasoningDetailMapText(builder, v)
+	}
+}
+
+func appendReasoningDetailMapText(builder *strings.Builder, detail map[string]any) {
+	for _, key := range []string{"text", "thinking", "reasoning", "content", "value", "summary_text"} {
+		value, ok := detail[key]
+		if !ok {
+			continue
+		}
+		appendReasoningDetailsText(builder, value)
+		return
+	}
+
+	if summary, ok := detail["summary"].([]any); ok {
+		for _, item := range summary {
+			appendReasoningDetailsText(builder, item)
+		}
+	}
 }
 
 func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
