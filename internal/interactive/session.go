@@ -358,6 +358,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 
+	startedToolCalls := map[string]struct{}{}
 	for _, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 {
 			continue
@@ -367,6 +368,14 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 			s.events.Emit(output.NewUserInputEvent(msg.Content, "resume"))
 		case agent.MessageRoleAssistant:
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
+			for _, call := range msg.ToolCalls {
+				s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+				startedToolCalls[call.ID] = struct{}{}
+			}
+		case agent.MessageRoleTool:
+			if _, ok := startedToolCalls[msg.ToolCallID]; ok {
+				s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, nil))
+			}
 		}
 	}
 

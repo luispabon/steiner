@@ -1207,12 +1207,52 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	}
 
 	var assistantEvents int
+	var toolStarted []output.ToolCallStartedEvent
+	var toolFinished []output.ToolCallFinishedEvent
 	for _, event := range events {
 		if event.Type == output.EventTypeAssistantMessage {
 			assistantEvents++
 		}
+		if event.Type == output.EventTypeToolCallStarted {
+			payload, ok := event.Payload.(output.ToolCallStartedEvent)
+			if !ok {
+				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
+			}
+			toolStarted = append(toolStarted, payload)
+		}
+		if event.Type == output.EventTypeToolCallFinished {
+			payload, ok := event.Payload.(output.ToolCallFinishedEvent)
+			if !ok {
+				t.Fatalf("tool finished payload type = %T, want output.ToolCallFinishedEvent", event.Payload)
+			}
+			toolFinished = append(toolFinished, payload)
+		}
 	}
 	if got, want := assistantEvents, 2; got != want {
 		t.Fatalf("assistant message events = %d, want %d for tool-call transcript display", got, want)
+	}
+	if got, want := len(toolStarted), 1; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
+	}
+	if got, want := toolStarted[0].Tool, "read"; got != want {
+		t.Fatalf("tool started tool = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[0].CallID, "call_1"; got != want {
+		t.Fatalf("tool started call id = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[0].Arguments["path"], "README.md"; got != want {
+		t.Fatalf("tool started args path = %#v, want %q", got, want)
+	}
+	if got, want := len(toolFinished), 1; got != want {
+		t.Fatalf("tool finished events = %d, want %d", got, want)
+	}
+	if got, want := toolFinished[0].Tool, "read"; got != want {
+		t.Fatalf("tool finished tool = %q, want %q", got, want)
+	}
+	if got, want := toolFinished[0].CallID, "call_1"; got != want {
+		t.Fatalf("tool finished call id = %q, want %q", got, want)
+	}
+	if got, want := toolFinished[0].Result, "file contents"; got != want {
+		t.Fatalf("tool finished result = %q, want %q", got, want)
 	}
 }
