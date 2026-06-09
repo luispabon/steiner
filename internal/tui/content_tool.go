@@ -38,6 +38,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "glob") {
+		return summarizeGlobArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -103,6 +106,38 @@ func summarizeMutateArgs(args map[string]any) string {
 		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
 	}
 	return path
+}
+
+func summarizeGlobArgs(args map[string]any) string {
+	pattern, _ := args["pattern"].(string)
+	path, _ := args["path"].(string)
+
+	// If both path and pattern present, combine them
+	if path != "" && pattern != "" {
+		// Ensure path has ./ prefix
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		// Trim trailing slash from path and join with pattern
+		path = strings.TrimRight(path, "/")
+		return path + "/" + pattern
+	}
+
+	// If only pattern, return it as-is
+	if pattern != "" {
+		return pattern
+	}
+
+	// If only path, ensure ./ prefix
+	if path != "" {
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		return path
+	}
+
+	// Fallback: no args
+	return "glob"
 }
 
 // previewBodyKind determines how to render the tool body using structured preview data first.
