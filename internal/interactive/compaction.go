@@ -82,7 +82,26 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	s.SetConversation(newConv)
+	s.mu.Lock()
+	s.conversation = cloneMessages(newConv)
+	s.lineage = agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{
+				ID:       1,
+				Messages: cloneMessages(newConv),
+			},
+		},
+		NextGenerationID: 2,
+	}
+	s.mu.Unlock()
+
+	if err := s.saveSession(); err != nil {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("save session: %v", err)},
+		}))
+	}
 }
 
 func (s *Session) runManualCompaction(ctx context.Context, model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {

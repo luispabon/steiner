@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -407,6 +408,7 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 
 	s.mu.Lock()
 	s.sessionID = sessionID
+	s.sessionTitle = initialSession.Title
 	s.lineage = originalLineage
 	s.conversation = cloneMessages(originalConversation)
 	s.mu.Unlock()
@@ -417,14 +419,18 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
+	if got, want := loaded.ID, sessionID; got != want {
+		t.Fatalf("loaded session ID = %q, want %q", got, want)
+	}
+	if got, want := loaded.Model, modelID; got != want {
+		t.Fatalf("loaded session model = %q, want %q", got, want)
+	}
+	if got, want := loaded.Title, "Persist me"; got != want {
+		t.Fatalf("loaded session title = %q, want %q", got, want)
+	}
 	got := loaded.Lineage.FullMessages()
-	if len(got) != 1 {
-		t.Fatalf("persisted conversation length = %d, want 1 compacted summary message", len(got))
-	}
-	if got[0].Role != agent.MessageRoleSummary {
-		t.Fatalf("persisted first role = %q, want summary", got[0].Role)
-	}
-	if got[0].Content != "summary" {
-		t.Fatalf("persisted summary content = %q, want %q", got[0].Content, "summary")
+	want := s.Conversation()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("persisted conversation = %#v, want %#v", got, want)
 	}
 }

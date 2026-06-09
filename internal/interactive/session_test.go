@@ -999,6 +999,60 @@ func TestSessionTitleEmptyInitially(t *testing.T) {
 	}
 }
 
+func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
+	t.Parallel()
+
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	const sessionID = "persisted-session-id"
+	const sessionTitle = "Persist me"
+	lineage := agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{
+				ID:       1,
+				Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+			},
+		},
+		NextGenerationID: 2,
+	}
+
+	s.mu.Lock()
+	s.sessionID = sessionID
+	s.sessionTitle = sessionTitle
+	s.lineage = lineage
+	s.mu.Unlock()
+
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession() = %v, want nil", err)
+	}
+
+	saved, ok := mockStore.savedSessions[sessionID]
+	if !ok {
+		t.Fatalf("savedSessions = %#v, want session %q to be saved", mockStore.savedSessions, sessionID)
+	}
+	if got, want := saved.ID, sessionID; got != want {
+		t.Fatalf("saved ID = %q, want %q", got, want)
+	}
+	if got, want := saved.Title, sessionTitle; got != want {
+		t.Fatalf("saved title = %q, want %q", got, want)
+	}
+	if got, want := saved.Model, "test-model"; got != want {
+		t.Fatalf("saved model = %q, want %q", got, want)
+	}
+	if got, want := saved.Lineage.FullMessages(), lineage.FullMessages(); len(got) != len(want) || got[0].Content != want[0].Content {
+		t.Fatalf("saved lineage = %#v, want %#v", got, want)
+	}
+}
+
 // mockSessionStore is a minimal mock sessionStore for testing.
 type mockSessionStore struct {
 	savedSessions  map[string]session.Session

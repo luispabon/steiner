@@ -359,7 +359,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.mu.Unlock()
 
 	for _, msg := range msgs {
-		if msg.Content == "" {
+		if msg.Content == "" && len(msg.ToolCalls) == 0 {
 			continue
 		}
 		switch msg.Role {
