@@ -375,6 +375,13 @@ func (p *mutatePlanner) planInsertBefore(index int, op MutateOperation) error {
 		return fmt.Errorf("mutate: operation %d insert_before: line %d is outside file with %d lines", index, op.Line, len(lines))
 	}
 
+	if op.Content == "" && op.NewString != "" {
+		op.Content = op.NewString
+	}
+	if op.Content == "" {
+		return fmt.Errorf("mutate: operation %d insert_before: content is required", index)
+	}
+
 	before := string(state.content)
 	content := op.Content
 	if content != "" && !strings.HasSuffix(content, "\n") {
@@ -412,6 +419,13 @@ func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
 	}
 	if op.Line > len(lines) {
 		return fmt.Errorf("mutate: operation %d insert_after: line %d is outside file with %d lines", index, op.Line, len(lines))
+	}
+
+	if op.Content == "" && op.NewString != "" {
+		op.Content = op.NewString
+	}
+	if op.Content == "" {
+		return fmt.Errorf("mutate: operation %d insert_after: content is required", index)
 	}
 
 	before := string(state.content)

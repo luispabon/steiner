@@ -38,8 +38,20 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "grep") {
+		return summarizeGrepArgs(args)
+	}
+	if strings.EqualFold(strings.TrimSpace(tool), "glob") {
+		return summarizeGlobArgs(args)
+	}
+	if strings.EqualFold(strings.TrimSpace(tool), "read") || strings.EqualFold(strings.TrimSpace(tool), "read_file") {
+		return summarizeReadArgs(args)
+	}
+	if strings.EqualFold(strings.TrimSpace(tool), "ls") {
+		return summarizeLSArgs(args)
+	}
 	// Try common arg keys in order
-	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
+	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description", "url"} {
 		if v, ok := args[key]; ok {
 			return fmt.Sprintf("%v", v)
 		}
@@ -88,19 +100,120 @@ func summarizeMutateArgs(args map[string]any) string {
 		return "mutate"
 	}
 	firstOp, _ := ops[0].(map[string]any)
-	path, _ := firstOp["path"].(string)
-	if path == "" {
+	opType, _ := firstOp["type"].(string)
+
+	var summary string
+	if opType == "move" {
 		from, _ := firstOp["from"].(string)
 		to, _ := firstOp["to"].(string)
-		if from != "" || to != "" {
-			path = strings.TrimSpace(from + " -> " + to)
+		summary = fmt.Sprintf("move %s → %s", from, to)
+	} else {
+		path, _ := firstOp["path"].(string)
+		switch {
+		case opType != "" && path != "":
+			summary = opType + " " + path
+		case path != "":
+			summary = path
+		case opType != "":
+			summary = opType
+		default:
+			summary = "mutate"
 		}
 	}
-	if path == "" {
-		path = "mutate"
-	}
+
 	if len(ops) > 1 {
-		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
+		return fmt.Sprintf("%s (+%d more)", summary, len(ops)-1)
+	}
+	return summary
+}
+
+func summarizeReadArgs(args map[string]any) string {
+	path, _ := args["path"].(string)
+	if path == "" {
+		path, _ = args["file_path"].(string)
+	}
+	if path == "" {
+		return "read"
+	}
+
+	offset := 1
+	if v, ok := args["offset"].(float64); ok {
+		offset = int(v)
+	}
+
+	limit := 200
+	if v, ok := args["limit"].(float64); ok {
+		limit = int(v)
+	}
+
+	end := offset + limit - 1
+	return fmt.Sprintf("%s:%d–%d", path, offset, end)
+}
+
+func summarizeGrepArgs(args map[string]any) string {
+	pattern, _ := args["pattern"].(string)
+	if pattern == "" {
+		return "grep"
+	}
+
+	result := fmt.Sprintf("'%s'", pattern)
+
+	path, pathOk := args["path"].(string)
+	glob, globOk := args["glob"].(string)
+
+	if pathOk && path != "" {
+		if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "/") {
+			path = "./" + path
+		}
+
+		if globOk && glob != "" {
+			if strings.HasSuffix(path, "/") {
+				result = fmt.Sprintf("%s in %s%s", result, path, glob)
+			} else {
+				result = fmt.Sprintf("%s in %s/%s", result, path, glob)
+			}
+		} else {
+			result = fmt.Sprintf("%s in %s", result, path)
+		}
+	}
+
+	return result
+}
+
+func summarizeGlobArgs(args map[string]any) string {
+	pattern, _ := args["pattern"].(string)
+	path, _ := args["path"].(string)
+
+	if path != "" && pattern != "" {
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		path = strings.TrimRight(path, "/")
+		return path + "/" + pattern
+	}
+
+	if pattern != "" {
+		return pattern
+	}
+
+	if path != "" {
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		return path
+	}
+
+	return "glob"
+}
+
+func summarizeLSArgs(args map[string]any) string {
+	path, _ := args["path"].(string)
+	if path == "" {
+		path = "."
+	}
+	recursive, _ := args["recursive"].(bool)
+	if recursive {
+		return path + " (recursive)"
 	}
 	return path
 }

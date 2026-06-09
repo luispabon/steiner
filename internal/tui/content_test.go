@@ -515,7 +515,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md", "ctrl+x or click header to expand"} {
+	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md:1–200", "ctrl+x or click header to expand"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -1250,8 +1250,8 @@ func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *test
 	if dd == nil {
 		t.Fatal("delegData = nil, want delegation state")
 	}
-	if got := dd.currentOperation; got != "read: README.md" {
-		t.Fatalf("currentOperation = %q, want %q", got, "read: README.md")
+	if got := dd.currentOperation; got != "read: README.md:1–200" {
+		t.Fatalf("currentOperation = %q, want %q", got, "read: README.md:1–200")
 	}
 	if got := len(dd.entries); got != 1 {
 		t.Fatalf("entries count = %d, want 1", got)
@@ -1259,8 +1259,8 @@ func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *test
 	if got := dd.entries[0].kind; got != delegationTranscriptEntryTool {
 		t.Fatalf("entry kind = %v, want delegationTranscriptEntryTool", got)
 	}
-	if got := dd.entries[0].args; got != "README.md" {
-		t.Fatalf("entry args = %q, want %q", got, "README.md")
+	if got := dd.entries[0].args; got != "README.md:1–200" {
+		t.Fatalf("entry args = %q, want %q", got, "README.md:1–200")
 	}
 }
 
@@ -2269,7 +2269,7 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 				map[string]any{"type": "replace", "path": "internal/tool/builtin/mutate.go"},
 				map[string]any{"type": "move", "from": "old.go", "to": "new.go"},
 			}},
-			want: "internal/tool/builtin/mutate.go (+1 more)",
+			want: "replace internal/tool/builtin/mutate.go (+1 more)",
 		},
 	}
 	for _, tt := range tests {
