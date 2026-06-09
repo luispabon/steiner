@@ -41,8 +41,11 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "grep") {
 		return summarizeGrepArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "glob") {
+		return summarizeGlobArgs(args)
+	}
 	// Try common arg keys in order
-	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
+	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description", "url"} {
 		if v, ok := args[key]; ok {
 			return fmt.Sprintf("%v", v)
 		}
@@ -114,19 +117,16 @@ func summarizeGrepArgs(args map[string]any) string {
 		return "grep"
 	}
 
-	// Quote pattern to distinguish regex from paths
 	result := fmt.Sprintf("'%s'", pattern)
 
 	path, pathOk := args["path"].(string)
 	glob, globOk := args["glob"].(string)
 
 	if pathOk && path != "" {
-		// Ensure ./ prefix for relative paths
 		if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "/") {
 			path = "./" + path
 		}
 
-		// Append glob if present
 		if globOk && glob != "" {
 			if strings.HasSuffix(path, "/") {
 				result = fmt.Sprintf("%s in %s%s", result, path, glob)
@@ -139,6 +139,32 @@ func summarizeGrepArgs(args map[string]any) string {
 	}
 
 	return result
+}
+
+func summarizeGlobArgs(args map[string]any) string {
+	pattern, _ := args["pattern"].(string)
+	path, _ := args["path"].(string)
+
+	if path != "" && pattern != "" {
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		path = strings.TrimRight(path, "/")
+		return path + "/" + pattern
+	}
+
+	if pattern != "" {
+		return pattern
+	}
+
+	if path != "" {
+		if !strings.HasPrefix(path, "./") {
+			path = "./" + path
+		}
+		return path
+	}
+
+	return "glob"
 }
 
 // previewBodyKind determines how to render the tool body using structured preview data first.

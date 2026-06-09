@@ -81,6 +81,59 @@ func TestSummarizeGrepArgs(t *testing.T) {
 	}
 }
 
+func TestSummarizeGlobArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]any
+		expected string
+	}{
+		{
+			name:     "pattern and path together",
+			args:     map[string]any{"pattern": "**/*.go", "path": "internal"},
+			expected: "./internal/**/*.go",
+		},
+		{
+			name:     "pattern and path with ./ prefix",
+			args:     map[string]any{"pattern": "*.go", "path": "./src"},
+			expected: "./src/*.go",
+		},
+		{
+			name:     "pattern only",
+			args:     map[string]any{"pattern": "**/*.go"},
+			expected: "**/*.go",
+		},
+		{
+			name:     "path only with ./ prefix",
+			args:     map[string]any{"path": "./internal"},
+			expected: "./internal",
+		},
+		{
+			name:     "path only without ./ prefix",
+			args:     map[string]any{"path": "internal"},
+			expected: "./internal",
+		},
+		{
+			name:     "empty args map",
+			args:     map[string]any{},
+			expected: "glob",
+		},
+		{
+			name:     "path with trailing slash",
+			args:     map[string]any{"pattern": "**/*.go", "path": "internal/"},
+			expected: "./internal/**/*.go",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := summarizeGlobArgs(tt.args)
+			if result != tt.expected {
+				t.Errorf("summarizeGlobArgs(%v) = %q, want %q", tt.args, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSummarizeArgs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -99,20 +152,28 @@ func TestSummarizeArgs(t *testing.T) {
 			expected: "'func.*Schema' in ./internal/*.go",
 		},
 		{
-			name: "bash tool uses generic path",
-			tool: "bash",
-			args: map[string]any{
-				"command": "ls -la",
-			},
+			name:     "bash tool uses generic path",
+			tool:     "bash",
+			args:     map[string]any{"command": "ls -la"},
 			expected: "ls -la",
 		},
 		{
-			name: "grep with case-insensitive tool name",
-			tool: "GREP",
-			args: map[string]any{
-				"pattern": "TODO",
-			},
+			name:     "grep with case-insensitive tool name",
+			tool:     "GREP",
+			args:     map[string]any{"pattern": "TODO"},
 			expected: "'TODO'",
+		},
+		{
+			name:     "glob tool dispatches to glob handler",
+			tool:     "glob",
+			args:     map[string]any{"pattern": "**/*.go", "path": "internal"},
+			expected: "./internal/**/*.go",
+		},
+		{
+			name:     "fetch_url shows url",
+			tool:     "fetch_url",
+			args:     map[string]any{"url": "https://example.com"},
+			expected: "https://example.com",
 		},
 	}
 
