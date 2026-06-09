@@ -69,6 +69,98 @@ func TestNormalizeMessage_ReasoningContentNilProducesEmptyString(t *testing.T) {
 	}
 }
 
+func TestNormalizeMessage_UsesReasoningDetailsText(t *testing.T) {
+	wire := openAIMessage{
+		Role:    "assistant",
+		Content: "done",
+		ReasoningDetails: []any{
+			map[string]any{"type": "text", "text": "first "},
+			map[string]any{"type": "summary_text", "text": map[string]any{"value": "second"}},
+			map[string]any{"type": "signature", "signature": "ignored"},
+		},
+	}
+
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.ReasoningContent != "first second" {
+		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "first second")
+	}
+}
+
+func TestNormalizeMessage_AppendsReasoningDetailsToReasoningContent(t *testing.T) {
+	reasoning := "prefix "
+	wire := openAIMessage{
+		Role:             "assistant",
+		Content:          "done",
+		ReasoningContent: &reasoning,
+		ReasoningDetails: []any{
+			map[string]any{"type": "text", "text": "suffix"},
+		},
+	}
+
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.ReasoningContent != "prefix suffix" {
+		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "prefix suffix")
+	}
+}
+
+func TestNormalizeMessage_PreservesToolCallsWithEmptyOrWhitespaceContent(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      any
+		wantContent  string
+		wantArgValue string
+	}{
+		{
+			name:         "empty content",
+			content:      "",
+			wantArgValue: "test",
+		},
+		{
+			name:         "whitespace content",
+			content:      "   ",
+			wantContent:  "   ",
+			wantArgValue: "test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wire := openAIMessage{
+				Role:    "assistant",
+				Content: tt.content,
+				ToolCalls: []openAIToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: openAIToolCallFunction{
+						Name:      "lookup",
+						Arguments: `{"query":"test"}`,
+					},
+				}},
+			}
+
+			out, err := normalizeMessage(wire)
+			if err != nil {
+				t.Fatalf("normalizeMessage() error = %v", err)
+			}
+			if out.Content != tt.wantContent {
+				t.Fatalf("Content = %q, want %q", out.Content, tt.wantContent)
+			}
+			if len(out.ToolCalls) != 1 {
+				t.Fatalf("ToolCalls len = %d, want 1", len(out.ToolCalls))
+			}
+			if got := out.ToolCalls[0].Arguments["query"]; got != tt.wantArgValue {
+				t.Fatalf("tool call query = %v, want %q", got, tt.wantArgValue)
+			}
+		})
+	}
+}
+
 func TestOpenAIMessageMarshalJSON_NilReasoningContentOmitted(t *testing.T) {
 	msg := openAIMessage{
 		Role:    "assistant",
