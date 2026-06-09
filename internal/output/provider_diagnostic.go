@@ -1,6 +1,9 @@
 package output
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // NewProviderDiagnosticEvent creates a diagnostic event emitted from provider
 // retry handling and similar transport-layer concerns.
@@ -10,4 +13,13 @@ func NewProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Event {
 		Timestamp: time.Now().UTC(),
 		Payload:   payload,
 	}
+}
+
+// NewTransportDiagnosticEvent creates a diagnostic event when a model's
+// effective transport differs from the configured provider type.
+func NewTransportDiagnosticEvent(model, configuredType, effectiveType, effectiveTransport, metadataSource, reason string) Event {
+	return NewProviderDiagnosticEvent(ProviderDiagnosticEvent{
+		Severity: "info",
+		Message:  fmt.Sprintf("model %s uses %s transport from %s (%s)", model, effectiveType, metadataSource, reason),
+	})
 }

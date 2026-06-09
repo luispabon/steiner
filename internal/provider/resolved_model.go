@@ -38,24 +38,25 @@ const (
 // ResolvedModel is the runtime object combining provider and model config
 // with resolved metadata.
 type ResolvedModel struct {
-	Alias                 string
-	ProviderAlias         string
-	ProviderConfig        config.ProviderConfig
-	BackendModelID        string
-	EffectiveProviderType config.ProviderType
-	EffectiveTransport    ProviderTransportType
-	EffectiveLimits       EffectiveLimits
-	Params                map[string]any
-	ExtraParams           map[string]any
-	PromptSuffix          string
-	ReasoningEchoBack     bool
-	Prompts               config.ModelPrompts
-	Retry                 config.RetryConfig
-	MetadataSource        string
-	Confidence            string
-	TokenizerStrategy     string
-	TokenizerConfidence   string
-	Warnings              []string
+	Alias                   string
+	ProviderAlias           string
+	ProviderConfig          config.ProviderConfig
+	BackendModelID          string
+	EffectiveProviderType   config.ProviderType
+	EffectiveTransport      ProviderTransportType
+	EffectiveLimits         EffectiveLimits
+	Params                  map[string]any
+	ExtraParams             map[string]any
+	PromptSuffix            string
+	ReasoningEchoBack       bool
+	Prompts                 config.ModelPrompts
+	Retry                   config.RetryConfig
+	MetadataSource          string
+	Confidence              string
+	TokenizerStrategy       string
+	TokenizerConfidence     string
+	TransportOverrideReason string
+	Warnings                []string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias.
@@ -118,7 +119,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
 		modelsDevInfo = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
 	}
-	rm.EffectiveProviderType, rm.EffectiveTransport = resolveEffectiveTransport(modelCfg.Advanced.Transport, rm.ProviderConfig.Type, modelsDevInfo)
+	rm.EffectiveProviderType, rm.EffectiveTransport, rm.TransportOverrideReason = resolveEffectiveTransport(modelCfg.Advanced.Transport, rm.ProviderConfig.Type, modelsDevInfo, rm.BackendModelID)
 	// Apply models.dev reasoning echo back only when config does not override it.
 	if modelCfg.Advanced.ReasoningEchoBack == nil {
 		rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
@@ -165,21 +166,21 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	return rm, nil
 }
 
-func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo) (config.ProviderType, ProviderTransportType) {
+func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo, backendID string) (config.ProviderType, ProviderTransportType, string) {
 	switch override {
 	case config.ModelTransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat
+		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat, "explicit config override"
 	case config.ModelTransportAnthropic:
-		return config.ProviderTypeAnthropic, ProviderTransportAnthropic
+		return config.ProviderTypeAnthropic, ProviderTransportAnthropic, "explicit config override"
 	}
 
 	switch metadataProviderTransport(info) {
 	case ProviderTransportAnthropic:
-		return config.ProviderTypeAnthropic, ProviderTransportAnthropic
+		return config.ProviderTypeAnthropic, ProviderTransportAnthropic, "models.dev provider override for " + backendID
 	case ProviderTransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat
+		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat, "models.dev provider override for " + backendID
 	default:
-		return configuredType, ProviderTransportConfigured
+		return configuredType, ProviderTransportConfigured, "none"
 	}
 }
 
