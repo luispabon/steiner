@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/luispabon/steiner/internal/agent"
 )
 
 const (
@@ -70,8 +72,42 @@ func (s *Store) Load(id string) (Session, error) {
 	if err := json.Unmarshal(data, &session); err != nil {
 		return Session{}, fmt.Errorf("unmarshal session: %w", err)
 	}
+	if session.Lineage.Empty() {
+		session = restoreLegacyLineage(session, data)
+	}
 
 	return session, nil
+}
+
+type legacySessionEnvelope struct {
+	Conversation []agent.Message `json:"conversation"`
+	Messages     []agent.Message `json:"messages"`
+}
+
+func restoreLegacyLineage(session Session, data []byte) Session {
+	var legacy legacySessionEnvelope
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return session
+	}
+
+	messages := legacy.Conversation
+	if len(messages) == 0 {
+		messages = legacy.Messages
+	}
+	if len(messages) == 0 {
+		return session
+	}
+
+	session.Lineage = agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{
+				ID:       1,
+				Messages: messages,
+			},
+		},
+		NextGenerationID: 2,
+	}
+	return session
 }
 
 // List returns all sessions sorted newest-first.
