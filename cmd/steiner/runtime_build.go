@@ -71,24 +71,44 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 		return nil, err
 	}
 	return func(rm provider.ResolvedModel) (provider.Provider, error) {
-		return newOpenAICompat(provider.OpenAICompatConfig{
-			BaseURL: rm.ProviderConfig.BaseURL,
-			APIKey:  rm.ProviderConfig.APIKey,
-			Headers: rm.ProviderConfig.Headers,
-			Model:   rm.BackendModelID,
-			Timeout: time.Duration(rm.ProviderConfig.Timeout.Duration()),
-			Retry: provider.RetryConfig{
-				Enabled:        rm.Retry.Enabled,
-				MaxAttempts:    rm.Retry.MaxAttempts,
-				InitialBackoff: time.Duration(rm.Retry.InitialBackoff.Duration()),
-				MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
-				RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
-			},
-			ProviderType: string(rm.ProviderConfig.Type),
-			Scheduler:    scheduler,
-			HTTPClient:   httpClient,
-		})
+		providerType := rm.EffectiveProviderType
+		if providerType == "" {
+			providerType = rm.ProviderConfig.Type
+		}
+		if providerType == "" {
+			return nil, fmt.Errorf("resolved provider type is empty for model %q", rm.Alias)
+		}
+
+		switch providerType {
+		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
+			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
+			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, scheduler, httpClient))
+		case config.ProviderTypeAnthropic:
+			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient))
+		default:
+			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
+		}
 	}, nil
+}
+
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client) provider.OpenAICompatConfig {
+	return provider.OpenAICompatConfig{
+		BaseURL: rm.ProviderConfig.BaseURL,
+		APIKey:  rm.ProviderConfig.APIKey,
+		Headers: rm.ProviderConfig.Headers,
+		Model:   rm.BackendModelID,
+		Timeout: time.Duration(rm.ProviderConfig.Timeout.Duration()),
+		Retry: provider.RetryConfig{
+			Enabled:        rm.Retry.Enabled,
+			MaxAttempts:    rm.Retry.MaxAttempts,
+			InitialBackoff: time.Duration(rm.Retry.InitialBackoff.Duration()),
+			MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
+			RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
+		},
+		ProviderType: string(providerType),
+		Scheduler:    scheduler,
+		HTTPClient:   httpClient,
+	}
 }
 
 func runtimeHTTPClient() *http.Client {
