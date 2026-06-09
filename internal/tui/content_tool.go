@@ -38,6 +38,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "read") || strings.EqualFold(strings.TrimSpace(tool), "read_file") {
+		return summarizeReadArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -103,6 +106,29 @@ func summarizeMutateArgs(args map[string]any) string {
 		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
 	}
 	return path
+}
+
+func summarizeReadArgs(args map[string]any) string {
+	path, _ := args["path"].(string)
+	if path == "" {
+		path, _ = args["file_path"].(string)
+	}
+	if path == "" {
+		return "read"
+	}
+
+	offset := 1
+	if v, ok := args["offset"].(float64); ok {
+		offset = int(v)
+	}
+
+	limit := 200
+	if v, ok := args["limit"].(float64); ok {
+		limit = int(v)
+	}
+
+	end := offset + limit - 1
+	return fmt.Sprintf("%s:%d–%d", path, offset, end)
 }
 
 // previewBodyKind determines how to render the tool body using structured preview data first.
