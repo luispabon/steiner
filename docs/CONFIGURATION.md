@@ -150,6 +150,7 @@ models:
 |----------------------|----------------------|---------|-------------|
 | `limits`             | AdvancedLimitsConfig | see below | Token budget settings for this model. |
 | `reasoning_echo_back`| *bool                | —       | When set, controls whether reasoning tokens are echoed back in the response. Provider-dependent. |
+| `transport`          | string               | `"auto"`| Transport override for request formatting. Supported values: `auto`, `openai_compat`, `anthropic`. `auto` uses models.dev metadata when available and otherwise keeps the configured provider type. |
 
 ### `AdvancedLimitsConfig` fields
 

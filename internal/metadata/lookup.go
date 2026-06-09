@@ -10,6 +10,11 @@ type ModelInfo struct {
 	ContextWindow     int
 	MaxOutputTokens   int
 	ReasoningEchoBack bool
+	ProviderNPM       string
+	ProviderAPI       string
+	ModelProviderNPM  string
+	ModelProviderAPI  string
+	InterleavedField  string
 }
 
 // Lookup finds model metadata for the given backend model ID in the cached JSON.
@@ -48,6 +53,8 @@ func LookupWithProvider(data []byte, providerID, modelID string) ModelInfo {
 
 func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool) {
 	var provider struct {
+		NPM    string                     `json:"npm"`
+		API    string                     `json:"api"`
 		Models map[string]json.RawMessage `json:"models"`
 	}
 	if err := json.Unmarshal(providerRaw, &provider); err != nil || provider.Models == nil {
@@ -57,15 +64,19 @@ func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo
 	if !ok {
 		return ModelInfo{}, false
 	}
-	return parseModelEntry(modelRaw), true
+	return parseModelEntry(provider.NPM, provider.API, modelRaw), true
 }
 
-func parseModelEntry(raw json.RawMessage) ModelInfo {
+func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) ModelInfo {
 	var entry struct {
 		Limit struct {
 			Context int `json:"context"`
 			Output  int `json:"output"`
 		} `json:"limit"`
+		Provider struct {
+			NPM string `json:"npm"`
+			API string `json:"api"`
+		} `json:"provider"`
 		Interleaved struct {
 			Field string `json:"field"`
 		} `json:"interleaved"`
@@ -77,6 +88,11 @@ func parseModelEntry(raw json.RawMessage) ModelInfo {
 		ContextWindow:     entry.Limit.Context,
 		MaxOutputTokens:   entry.Limit.Output,
 		ReasoningEchoBack: entry.Interleaved.Field == "reasoning_content",
+		ProviderNPM:       providerNPM,
+		ProviderAPI:       providerAPI,
+		ModelProviderNPM:  entry.Provider.NPM,
+		ModelProviderAPI:  entry.Provider.API,
+		InterleavedField:  entry.Interleaved.Field,
 	}
 }
 

@@ -338,6 +338,49 @@ models:
 	}
 }
 
+func TestLoadModelAdvancedTransport(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: custom
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  custom:
+    provider: local
+    id: minimax-m3
+    advanced:
+      transport: anthropic
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got, want := cfg.Models["custom"].Advanced.Transport, ModelTransportAnthropic; got != want {
+		t.Fatalf("models[custom].advanced.transport = %q, want %q", got, want)
+	}
+}
+
 func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
 	tempDir := t.TempDir()
 	explicitHomeDir := filepath.Join(tempDir, "explicit-home")
