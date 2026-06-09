@@ -38,6 +38,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "grep") {
+		return summarizeGrepArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -103,6 +106,39 @@ func summarizeMutateArgs(args map[string]any) string {
 		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
 	}
 	return path
+}
+
+func summarizeGrepArgs(args map[string]any) string {
+	pattern, _ := args["pattern"].(string)
+	if pattern == "" {
+		return "grep"
+	}
+
+	// Quote pattern to distinguish regex from paths
+	result := fmt.Sprintf("'%s'", pattern)
+
+	path, pathOk := args["path"].(string)
+	glob, globOk := args["glob"].(string)
+
+	if pathOk && path != "" {
+		// Ensure ./ prefix for relative paths
+		if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "/") {
+			path = "./" + path
+		}
+
+		// Append glob if present
+		if globOk && glob != "" {
+			if strings.HasSuffix(path, "/") {
+				result = fmt.Sprintf("%s in %s%s", result, path, glob)
+			} else {
+				result = fmt.Sprintf("%s in %s/%s", result, path, glob)
+			}
+		} else {
+			result = fmt.Sprintf("%s in %s", result, path)
+		}
+	}
+
+	return result
 }
 
 // previewBodyKind determines how to render the tool body using structured preview data first.
