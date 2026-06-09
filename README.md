@@ -109,6 +109,26 @@ models:
     id: anthropic/claude-3.7-sonnet
 ```
 
+**Example 3 — one provider with mixed-model transport (OpenCode Go)**:
+
+```yaml
+default_model: kimi
+
+providers:
+  opencode-go:
+    type: openai_compat
+    base_url: https://opencode.ai/zen/go/v1
+    api_key_env: OPENCODE_API_KEY
+
+models:
+  kimi:
+    provider: opencode-go
+    id: kimi-k2.6
+  minimax:
+    provider: opencode-go
+    id: minimax-m3
+```
+
 For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Built-in tools

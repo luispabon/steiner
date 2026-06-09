@@ -31,6 +31,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		return runnerSetup{}, err
 	}
 	emitFallbackWarnings(r.runtime.status, rm)
+	emitTransportDiagnostic(r.runtime.events, rm)
 
 	prov, err := r.runtimeProvider(rm)
 	if err != nil {
@@ -52,6 +53,22 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		assembly:      r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
 		runMode:       r.normalizedRunMode(),
 	}, nil
+}
+
+func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel) {
+	if rm.EffectiveTransport == provider.ProviderTransportConfigured {
+		return
+	}
+	if events != nil {
+		events.Emit(output.NewTransportDiagnosticEvent(
+			rm.BackendModelID,
+			string(rm.ProviderConfig.Type),
+			string(rm.EffectiveProviderType),
+			string(rm.EffectiveTransport),
+			rm.MetadataSource,
+			rm.TransportOverrideReason,
+		))
+	}
 }
 
 func emitFallbackWarnings(stream *output.Stream, rm provider.ResolvedModel) {
