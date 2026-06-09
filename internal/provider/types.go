@@ -34,15 +34,28 @@ type ToolCall struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// AnthropicMessageMetadata carries Anthropic-native replay fields that must be
+// preserved on specific assistant messages.
+type AnthropicMessageMetadata struct {
+	ThinkingSignature string `json:"thinking_signature,omitempty"`
+}
+
+// MessageProviderMetadata stores provider-native message fields needed for
+// transport replay without changing prompt assembly semantics.
+type MessageProviderMetadata struct {
+	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
+}
+
 // Message is the provider-facing chat message envelope.
 type Message struct {
-	Role             MessageRole `json:"role"`
-	Content          string      `json:"content,omitempty"`
-	ReasoningContent string      `json:"reasoning_content,omitempty"`
-	Name             string      `json:"name,omitempty"`
-	ToolCallID       string      `json:"tool_call_id,omitempty"`
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
-	Turn             int         `json:"turn,omitempty"`
+	Role             MessageRole              `json:"role"`
+	Content          string                   `json:"content,omitempty"`
+	ReasoningContent string                   `json:"reasoning_content,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	ToolCallID       string                   `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall               `json:"tool_calls,omitempty"`
+	Turn             int                      `json:"turn,omitempty"`
+	ProviderMetadata *MessageProviderMetadata `json:"provider_metadata,omitempty"`
 }
 
 // UsageStats carries token accounting returned by a provider.

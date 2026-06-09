@@ -144,6 +144,39 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			t.Fatalf("result[2] = %#v, want trailing assistant preserved", result[2])
 		}
 	})
+
+	t.Run("replay-safe conversion preserves anthropic metadata across tool turn", func(t *testing.T) {
+		msgs := []Message{
+			{Role: MessageRoleUser, Content: "investigate"},
+			{
+				Role:             MessageRoleAssistant,
+				Content:          "searching",
+				ReasoningContent: "plan",
+				ToolCalls: []ToolCall{
+					{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
+				},
+				ProviderMetadata: &MessageProviderMetadata{
+					Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
+				},
+			},
+			{Role: MessageRoleTool, Content: "match", ToolCallID: "call-1"},
+			{Role: MessageRoleUser, Content: "continue"},
+		}
+
+		result := ToReplaySafeProviderMessages(msgs)
+		if len(result) != 4 {
+			t.Fatalf("len(result) = %d, want 4", len(result))
+		}
+		if result[1].ProviderMetadata == nil || result[1].ProviderMetadata.Anthropic == nil {
+			t.Fatalf("result[1].ProviderMetadata = %#v, want anthropic metadata", result[1].ProviderMetadata)
+		}
+		if got, want := result[1].ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+			t.Fatalf("result[1] thinking signature = %q, want %q", got, want)
+		}
+		if got, want := result[2].ToolCallID, "call-1"; got != want {
+			t.Fatalf("result[2].ToolCallID = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestMessageConvert_FromProviderMessages(t *testing.T) {
@@ -239,6 +272,31 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 			t.Error("original should not have new_key after modifying clone")
 		}
 	})
+
+	t.Run("preserves provider metadata", func(t *testing.T) {
+		providerMsgs := []provider.Message{
+			{
+				Role:             provider.MessageRoleAssistant,
+				Content:          "answer",
+				ReasoningContent: "plan",
+				ProviderMetadata: &provider.MessageProviderMetadata{
+					Anthropic: &provider.AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
+				},
+			},
+		}
+		result := fromProviderMessages(providerMsgs)
+		if result[0].ProviderMetadata == nil || result[0].ProviderMetadata.Anthropic == nil {
+			t.Fatalf("result[0].ProviderMetadata = %#v, want anthropic metadata", result[0].ProviderMetadata)
+		}
+		if got, want := result[0].ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+			t.Fatalf("thinking signature = %q, want %q", got, want)
+		}
+
+		result[0].ProviderMetadata.Anthropic.ThinkingSignature = "mutated"
+		if got, want := providerMsgs[0].ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+			t.Fatalf("provider metadata mutated to %q, want %q", got, want)
+		}
+	})
 }
 
 func TestMessageConvert_ToProviderMessage(t *testing.T) {
@@ -322,6 +380,24 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		}
 		if !strings.Contains(string(data), marker) {
 			t.Fatalf("provider message JSON = %s, want marker from content", data)
+		}
+	})
+
+	t.Run("provider metadata reaches provider message", func(t *testing.T) {
+		msg := Message{
+			Role:             MessageRoleAssistant,
+			Content:          "answer",
+			ReasoningContent: "plan",
+			ProviderMetadata: &MessageProviderMetadata{
+				Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
+			},
+		}
+		result := toProviderMessage(msg)
+		if result.ProviderMetadata == nil || result.ProviderMetadata.Anthropic == nil {
+			t.Fatalf("result.ProviderMetadata = %#v, want anthropic metadata", result.ProviderMetadata)
+		}
+		if got, want := result.ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+			t.Fatalf("thinking signature = %q, want %q", got, want)
 		}
 	})
 }

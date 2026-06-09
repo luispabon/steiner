@@ -14,6 +14,7 @@ import (
 type anthropicStreamState struct {
 	content      strings.Builder
 	thinking     strings.Builder
+	signature    string
 	toolUses     map[int]*anthropicToolUseAccumulator
 	finishReason string
 	usage        *UsageStats
@@ -133,6 +134,9 @@ func handleAnthropicContentBlockStart(state *anthropicStreamState, index int, bl
 	case "text":
 		return emitAnthropicTextDelta(state, block.Text, emit)
 	case "thinking":
+		if block.Signature != "" {
+			state.signature = block.Signature
+		}
 		return emitAnthropicThinkingDelta(state, block.Thinking, emit)
 	case "tool_use":
 		acc := state.toolUseAccumulator(index)
@@ -158,6 +162,9 @@ func handleAnthropicContentBlockDelta(state *anthropicStreamState, index int, de
 	case "text_delta":
 		return emitAnthropicTextDelta(state, delta.Text, emit)
 	case "thinking_delta":
+		if delta.Signature != "" {
+			state.signature = delta.Signature
+		}
 		return emitAnthropicThinkingDelta(state, delta.Thinking, emit)
 	case "input_json_delta":
 		acc := state.toolUseAccumulator(index)
@@ -202,6 +209,13 @@ func flushAnthropicStreamState(emit func(ChatChunk) error, state *anthropicStrea
 	}
 	if state.sawThinking {
 		message.ReasoningContent = state.thinking.String()
+		if state.signature != "" {
+			message.ProviderMetadata = &MessageProviderMetadata{
+				Anthropic: &AnthropicMessageMetadata{
+					ThinkingSignature: state.signature,
+				},
+			}
+		}
 	}
 	if state.sawToolUse {
 		toolCalls, err := finalizeAnthropicToolUses(state.toolUses)

@@ -17,6 +17,9 @@ func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t
 				Role:             MessageRoleAssistant,
 				ReasoningContent: "reason first",
 				Content:          "answer",
+				ProviderMetadata: &MessageProviderMetadata{
+					Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
+				},
 				ToolCalls: []ToolCall{{
 					ID:        "toolu_1",
 					Name:      "lookup",
@@ -91,6 +94,9 @@ func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t
 	if toolUse["id"] != "toolu_1" {
 		t.Fatalf("tool use id = %v, want toolu_1", toolUse["id"])
 	}
+	if content[0].(map[string]any)["signature"] != "sig_123" {
+		t.Fatalf("thinking signature = %v, want sig_123", content[0].(map[string]any)["signature"])
+	}
 
 	toolResult, ok := messages[2].(map[string]any)
 	if !ok {
@@ -121,7 +127,7 @@ func TestNormalizeAnthropicChatResponse_MapsTextThinkingToolUseAndUsage(t *testi
 	response, err := normalizeAnthropicChatResponse(&anthropicResponse{
 		Role: "assistant",
 		Content: []anthropicContentBlock{
-			{Type: "thinking", Thinking: "reasoning"},
+			{Type: "thinking", Thinking: "reasoning", Signature: "sig_123"},
 			{Type: "text", Text: "final answer"},
 			{Type: "tool_use", ID: "toolu_1", Name: "lookup", Input: map[string]any{"query": "weather"}},
 		},
@@ -140,6 +146,12 @@ func TestNormalizeAnthropicChatResponse_MapsTextThinkingToolUseAndUsage(t *testi
 	}
 	if got, want := response.Message.ReasoningContent, "reasoning"; got != want {
 		t.Fatalf("reasoning = %q, want %q", got, want)
+	}
+	if response.Message.ProviderMetadata == nil || response.Message.ProviderMetadata.Anthropic == nil {
+		t.Fatalf("provider metadata = %#v, want anthropic metadata", response.Message.ProviderMetadata)
+	}
+	if got, want := response.Message.ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+		t.Fatalf("thinking signature = %q, want %q", got, want)
 	}
 	if got, want := response.Message.Content, "final answer"; got != want {
 		t.Fatalf("content = %q, want %q", got, want)
