@@ -16,6 +16,7 @@ func cloneMessages(messages []Message) []Message {
 	for i := range out {
 		out[i].ToolCalls = cloneToolCalls(out[i].ToolCalls)
 		out[i].Retention = cloneMessageRetention(out[i].Retention)
+		out[i].ProviderMetadata = cloneMessageProviderMetadata(out[i].ProviderMetadata)
 	}
 	return out
 }
@@ -80,6 +81,7 @@ func cloneProviderMessages(messages []provider.Message) []provider.Message {
 	copy(out, messages)
 	for i := range out {
 		out[i].ToolCalls = cloneProviderToolCalls(out[i].ToolCalls)
+		out[i].ProviderMetadata = cloneProviderMessageMetadata(out[i].ProviderMetadata)
 	}
 	return out
 }
@@ -116,4 +118,28 @@ func cloneMessageRetention(retention *MessageRetention) *MessageRetention {
 	}
 	cloned := *retention
 	return &cloned
+}
+
+func cloneMessageProviderMetadata(metadata *MessageProviderMetadata) *MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cloned := &MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		anthropic := *metadata.Anthropic
+		cloned.Anthropic = &anthropic
+	}
+	return cloned
+}
+
+func cloneProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *provider.MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cloned := &provider.MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		anthropic := *metadata.Anthropic
+		cloned.Anthropic = &anthropic
+	}
+	return cloned
 }

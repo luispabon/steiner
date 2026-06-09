@@ -15,7 +15,7 @@ func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`,
 		"",
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan "}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan ","signature":"sig_123"}}`,
 		"",
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":1,"content_block":{"type":"text"}}`,
@@ -64,6 +64,12 @@ func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(
 	}
 	if got, want := final.Delta.ReasoningContent, "plan "; got != want {
 		t.Fatalf("final reasoning = %q, want %q", got, want)
+	}
+	if final.Delta.ProviderMetadata == nil || final.Delta.ProviderMetadata.Anthropic == nil {
+		t.Fatalf("final provider metadata = %#v, want anthropic metadata", final.Delta.ProviderMetadata)
+	}
+	if got, want := final.Delta.ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+		t.Fatalf("final thinking signature = %q, want %q", got, want)
 	}
 	if got, want := final.FinishReason, "tool_calls"; got != want {
 		t.Fatalf("final finish reason = %q, want %q", got, want)

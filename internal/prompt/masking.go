@@ -204,6 +204,7 @@ func cloneProviderMessages(messages []provider.Message) []provider.Message {
 func cloneProviderMessage(message provider.Message) provider.Message {
 	cloned := message
 	cloned.ToolCalls = cloneProviderToolCalls(message.ToolCalls)
+	cloned.ProviderMetadata = cloneProviderMessageMetadata(message.ProviderMetadata)
 	return cloned
 }
 
@@ -228,7 +229,34 @@ func cloneToolArguments(arguments map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(arguments))
 	for key, value := range arguments {
-		out[key] = value
+		out[key] = cloneToolArgumentValue(value)
 	}
 	return out
+}
+
+func cloneToolArgumentValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneToolArguments(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i := range typed {
+			out[i] = cloneToolArgumentValue(typed[i])
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func cloneProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *provider.MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cloned := &provider.MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		anthropic := *metadata.Anthropic
+		cloned.Anthropic = &anthropic
+	}
+	return cloned
 }

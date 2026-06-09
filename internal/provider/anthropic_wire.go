@@ -132,10 +132,14 @@ func toAnthropicMessage(message Message) *anthropicMessage {
 	case MessageRoleAssistant:
 		content := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls))
 		if message.ReasoningContent != "" {
-			content = append(content, anthropicContentBlock{
+			block := anthropicContentBlock{
 				Type:     "thinking",
 				Thinking: message.ReasoningContent,
-			})
+			}
+			if metadata := message.ProviderMetadata; metadata != nil && metadata.Anthropic != nil {
+				block.Signature = metadata.Anthropic.ThinkingSignature
+			}
+			content = append(content, block)
 		}
 		if message.Content != "" {
 			content = append(content, anthropicContentBlock{
@@ -202,6 +206,15 @@ func normalizeAnthropicMessage(role string, content []anthropicContentBlock) (Me
 		switch block.Type {
 		case "thinking":
 			out.ReasoningContent += block.Thinking
+			if strings.TrimSpace(block.Signature) != "" {
+				if out.ProviderMetadata == nil {
+					out.ProviderMetadata = &MessageProviderMetadata{}
+				}
+				if out.ProviderMetadata.Anthropic == nil {
+					out.ProviderMetadata.Anthropic = &AnthropicMessageMetadata{}
+				}
+				out.ProviderMetadata.Anthropic.ThinkingSignature = block.Signature
+			}
 		case "text":
 			out.Content += block.Text
 		case "tool_use":

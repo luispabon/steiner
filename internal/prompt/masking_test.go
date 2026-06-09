@@ -11,10 +11,14 @@ func TestMaskConversationMasksOlderToolResults(t *testing.T) {
 	messages := []provider.Message{
 		{Role: provider.MessageRoleUser, Content: "user 1"},
 		{
-			Role:    provider.MessageRoleAssistant,
-			Content: "tool turn 1",
+			Role:             provider.MessageRoleAssistant,
+			Content:          "tool turn 1",
+			ReasoningContent: "reasoning",
 			ToolCalls: []provider.ToolCall{
 				{ID: "call_1", Name: "grep", Arguments: map[string]any{"pattern": "ContextManager", "path": "internal/agent"}},
+			},
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
 			},
 		},
 		{Role: provider.MessageRoleTool, ToolCallID: "call_1", Name: "grep", Content: "raw grep output"},
@@ -45,6 +49,12 @@ func TestMaskConversationMasksOlderToolResults(t *testing.T) {
 	}
 	if got[1].ToolCalls[0].Name != "grep" {
 		t.Fatalf("assistant tool call metadata lost: %+v", got[1].ToolCalls[0])
+	}
+	if got[1].ProviderMetadata == nil || got[1].ProviderMetadata.Anthropic == nil {
+		t.Fatalf("assistant provider metadata lost: %#v", got[1].ProviderMetadata)
+	}
+	if got, want := got[1].ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+		t.Fatalf("assistant thinking signature = %q, want %q", got, want)
 	}
 	// Turn 2 tool result should be preserved (within the 2-turn grace window).
 	if got[5].Content != messages[5].Content {
@@ -194,6 +204,9 @@ func TestMaskConversationBeforeTurnKeepsMaskedPrefixStable(t *testing.T) {
 			ToolCalls: []provider.ToolCall{
 				{ID: "c1", Name: "read", Arguments: map[string]any{"path": "a.go"}},
 			},
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{ThinkingSignature: "sig_456"},
+			},
 		},
 		{Role: provider.MessageRoleTool, ToolCallID: "c1", Name: "read", Content: "file body", Turn: 1},
 		{Role: provider.MessageRoleUser, Content: "u2", Turn: 2},
@@ -218,6 +231,9 @@ func TestMaskConversationBeforeTurnKeepsMaskedPrefixStable(t *testing.T) {
 	}
 	if gotBase[1].Content == base[1].Content {
 		t.Fatalf("turn 1 assistant content = %q, want masked", gotBase[1].Content)
+	}
+	if gotBase[1].ProviderMetadata == nil || gotBase[1].ProviderMetadata.Anthropic == nil {
+		t.Fatalf("turn 1 provider metadata lost: %#v", gotBase[1].ProviderMetadata)
 	}
 	if gotBase[7].Content != base[7].Content {
 		t.Fatalf("turn 3 assistant content = %q, want unmasked", gotBase[7].Content)

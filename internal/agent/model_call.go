@@ -201,6 +201,9 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	if chunk.Delta.ReasoningContent != "" {
 		message.ReasoningContent = chunk.Delta.ReasoningContent
 	}
+	if chunk.Delta.ProviderMetadata != nil {
+		message.ProviderMetadata = cloneProviderMessageMetadata(chunk.Delta.ProviderMetadata)
+	}
 }
 
 func tokenCount(_ context.Context, _ provider.ChatRequest, usage *provider.UsageStats) int {
