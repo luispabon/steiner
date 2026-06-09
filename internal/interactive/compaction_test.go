@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/session"
 )
 
 type compactionTestProvider struct {
@@ -321,5 +322,109 @@ func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
 	}
 	if got, want := len(prov.requests), 1; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "persisted-compaction-session"
+	const modelID = "openrouter/test-model"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             modelID,
+					"context_length": 262144,
+					"top_provider": map[string]any{
+						"max_completion_tokens": 8192,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	store, err := session.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	originalConversation := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "first turn"},
+		{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		{Role: agent.MessageRoleUser, Content: "second turn"},
+		{Role: agent.MessageRoleAssistant, Content: "second answer"},
+	}
+	originalLineage := agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{
+				ID:       1,
+				Messages: cloneMessages(originalConversation),
+			},
+		},
+		NextGenerationID: 2,
+	}
+	initialSession, err := session.NewSession(modelID, originalLineage)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	initialSession.ID = sessionID
+	initialSession.Title = "Persist me"
+	if err := store.Save(initialSession); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	prov := &compactionTestProvider{}
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			DefaultModel: "test",
+			Providers: map[string]config.ProviderConfig{
+				"openrouter": {
+					Type:    config.ProviderTypeOpenRouter,
+					BaseURL: srv.URL,
+				},
+			},
+			Models: map[string]config.ModelConfig{
+				"test": {
+					Provider: "openrouter",
+					ID:       modelID,
+				},
+			},
+		},
+		SessionStore: store,
+		HTTPClient:   srv.Client(),
+		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
+			return prov, nil
+		},
+	})
+
+	s.mu.Lock()
+	s.sessionID = sessionID
+	s.lineage = originalLineage
+	s.conversation = cloneMessages(originalConversation)
+	s.mu.Unlock()
+
+	s.manualCompaction(context.Background())
+
+	loaded, err := store.Load(sessionID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	got := loaded.Lineage.FullMessages()
+	if len(got) != 1 {
+		t.Fatalf("persisted conversation length = %d, want 1 compacted summary message", len(got))
+	}
+	if got[0].Role != agent.MessageRoleSummary {
+		t.Fatalf("persisted first role = %q, want summary", got[0].Role)
+	}
+	if got[0].Content != "summary" {
+		t.Fatalf("persisted summary content = %q, want %q", got[0].Content, "summary")
 	}
 }

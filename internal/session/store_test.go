@@ -89,6 +89,71 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	original := Session{
+		ID:        "tool-call-session",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     "Tool Call Session",
+		Model:     "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "inspect the file"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+							},
+						},
+						{Role: agent.MessageRoleTool, Content: "file contents", ToolCallID: "call_1", Name: "read"},
+						{Role: agent.MessageRoleAssistant, Content: "done"},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := store.Load(original.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	got := loaded.Lineage.FullMessages()
+	if len(got) != 4 {
+		t.Fatalf("loaded conversation length = %d, want 4", len(got))
+	}
+	if got[1].Role != agent.MessageRoleAssistant {
+		t.Fatalf("loaded assistant role = %q, want assistant", got[1].Role)
+	}
+	if len(got[1].ToolCalls) != 1 {
+		t.Fatalf("loaded assistant tool calls = %#v, want 1 tool call", got[1].ToolCalls)
+	}
+	if got[1].ToolCalls[0].ID != "call_1" || got[1].ToolCalls[0].Name != "read" {
+		t.Fatalf("loaded assistant tool call = %#v, want call_1/read", got[1].ToolCalls[0])
+	}
+	if got[1].ToolCalls[0].Arguments["path"] != "README.md" {
+		t.Fatalf("loaded assistant tool call args = %#v, want path README.md", got[1].ToolCalls[0].Arguments)
+	}
+	if got[2].Role != agent.MessageRoleTool || got[2].ToolCallID != "call_1" {
+		t.Fatalf("loaded tool result = %#v, want tool call id call_1", got[2])
+	}
+}
+
 func TestLineageMultiGeneration(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)

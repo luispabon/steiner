@@ -475,6 +475,49 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("preserves valid assistant/tool transcript from resumed lineage", func(t *testing.T) {
+		state := RunState{
+			Lineage: ConversationLineage{
+				Generations: []ConversationGeneration{
+					{
+						ID: 1,
+						Messages: []Message{
+							{Role: MessageRoleUser, Content: "inspect"},
+							{
+								Role: MessageRoleAssistant,
+								ToolCalls: []ToolCall{
+									{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+								},
+							},
+							{Role: MessageRoleTool, Content: "README contents", ToolCallID: "call_1", Name: "read"},
+							{Role: MessageRoleAssistant, Content: "done"},
+						},
+					},
+				},
+				NextGenerationID: 2,
+			},
+			Context: ContextState{},
+		}
+		base := prompt.AssemblyOptions{}
+		result := assemblyOptions(base, state)
+
+		if got, want := len(result.Conversation), 4; got != want {
+			t.Fatalf("conversation len = %d, want %d", got, want)
+		}
+		if got, want := result.Conversation[1].Role, provider.MessageRoleAssistant; got != want {
+			t.Fatalf("assistant role = %q, want %q", got, want)
+		}
+		if len(result.Conversation[1].ToolCalls) != 1 {
+			t.Fatalf("assistant tool calls = %#v, want 1 preserved tool call", result.Conversation[1].ToolCalls)
+		}
+		if got, want := result.Conversation[2].Role, provider.MessageRoleTool; got != want {
+			t.Fatalf("tool role = %q, want %q", got, want)
+		}
+		if got, want := result.Conversation[2].ToolCallID, "call_1"; got != want {
+			t.Fatalf("tool call id = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("passes through non-conversation fields", func(t *testing.T) {
 		state := RunState{
 			Lineage: newConversationLineage(nil),

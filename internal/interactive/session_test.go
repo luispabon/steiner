@@ -1092,3 +1092,73 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 		t.Fatalf("events = %#v, want UserInput event", events)
 	}
 }
+
+func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "tool-call-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Tool Call Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "please inspect"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+							},
+						},
+						{Role: agent.MessageRoleTool, Content: "file contents", ToolCallID: "call_1", Name: "read"},
+						{Role: agent.MessageRoleAssistant, Content: "done"},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	conv := s.Conversation()
+	if got, want := len(conv), 4; got != want {
+		t.Fatalf("conversation length = %d, want %d", got, want)
+	}
+	if conv[1].Role != agent.MessageRoleAssistant || len(conv[1].ToolCalls) != 1 {
+		t.Fatalf("assistant tool-call message = %#v, want preserved tool call", conv[1])
+	}
+	if conv[2].Role != agent.MessageRoleTool || conv[2].ToolCallID != "call_1" {
+		t.Fatalf("tool result message = %#v, want preserved tool result", conv[2])
+	}
+
+	var assistantEvents int
+	for _, event := range events {
+		if event.Type == output.EventTypeAssistantMessage {
+			assistantEvents++
+		}
+	}
+	if got, want := assistantEvents, 2; got != want {
+		t.Fatalf("assistant message events = %d, want %d for tool-call transcript display", got, want)
+	}
+}
