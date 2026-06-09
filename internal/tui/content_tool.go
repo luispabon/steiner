@@ -100,21 +100,54 @@ func summarizeMutateArgs(args map[string]any) string {
 		return "mutate"
 	}
 	firstOp, _ := ops[0].(map[string]any)
-	path, _ := firstOp["path"].(string)
-	if path == "" {
+	opType, _ := firstOp["type"].(string)
+
+	var summary string
+	if opType == "move" {
 		from, _ := firstOp["from"].(string)
 		to, _ := firstOp["to"].(string)
-		if from != "" || to != "" {
-			path = strings.TrimSpace(from + " -> " + to)
+		summary = fmt.Sprintf("move %s → %s", from, to)
+	} else {
+		path, _ := firstOp["path"].(string)
+		switch {
+		case opType != "" && path != "":
+			summary = opType + " " + path
+		case path != "":
+			summary = path
+		case opType != "":
+			summary = opType
+		default:
+			summary = "mutate"
 		}
 	}
-	if path == "" {
-		path = "mutate"
-	}
+
 	if len(ops) > 1 {
-		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
+		return fmt.Sprintf("%s (+%d more)", summary, len(ops)-1)
 	}
-	return path
+	return summary
+}
+
+func summarizeReadArgs(args map[string]any) string {
+	path, _ := args["path"].(string)
+	if path == "" {
+		path, _ = args["file_path"].(string)
+	}
+	if path == "" {
+		return "read"
+	}
+
+	offset := 1
+	if v, ok := args["offset"].(float64); ok {
+		offset = int(v)
+	}
+
+	limit := 200
+	if v, ok := args["limit"].(float64); ok {
+		limit = int(v)
+	}
+
+	end := offset + limit - 1
+	return fmt.Sprintf("%s:%d–%d", path, offset, end)
 }
 
 func summarizeGrepArgs(args map[string]any) string {
@@ -171,29 +204,6 @@ func summarizeGlobArgs(args map[string]any) string {
 	}
 
 	return "glob"
-}
-
-func summarizeReadArgs(args map[string]any) string {
-	path, _ := args["path"].(string)
-	if path == "" {
-		path, _ = args["file_path"].(string)
-	}
-	if path == "" {
-		return "read"
-	}
-
-	offset := 1
-	if v, ok := args["offset"].(float64); ok {
-		offset = int(v)
-	}
-
-	limit := 200
-	if v, ok := args["limit"].(float64); ok {
-		limit = int(v)
-	}
-
-	end := offset + limit - 1
-	return fmt.Sprintf("%s:%d–%d", path, offset, end)
 }
 
 func summarizeLSArgs(args map[string]any) string {
