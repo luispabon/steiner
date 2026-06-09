@@ -88,21 +88,31 @@ func summarizeMutateArgs(args map[string]any) string {
 		return "mutate"
 	}
 	firstOp, _ := ops[0].(map[string]any)
-	path, _ := firstOp["path"].(string)
-	if path == "" {
+	opType, _ := firstOp["type"].(string)
+
+	var summary string
+	if opType == "move" {
 		from, _ := firstOp["from"].(string)
 		to, _ := firstOp["to"].(string)
-		if from != "" || to != "" {
-			path = strings.TrimSpace(from + " -> " + to)
+		summary = fmt.Sprintf("move %s → %s", from, to)
+	} else {
+		path, _ := firstOp["path"].(string)
+		switch {
+		case opType != "" && path != "":
+			summary = opType + " " + path
+		case path != "":
+			summary = path
+		case opType != "":
+			summary = opType
+		default:
+			summary = "mutate"
 		}
 	}
-	if path == "" {
-		path = "mutate"
-	}
+
 	if len(ops) > 1 {
-		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
+		return fmt.Sprintf("%s (+%d more)", summary, len(ops)-1)
 	}
-	return path
+	return summary
 }
 
 // previewBodyKind determines how to render the tool body using structured preview data first.

@@ -2269,7 +2269,7 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 				map[string]any{"type": "replace", "path": "internal/tool/builtin/mutate.go"},
 				map[string]any{"type": "move", "from": "old.go", "to": "new.go"},
 			}},
-			want: "internal/tool/builtin/mutate.go (+1 more)",
+			want: "replace internal/tool/builtin/mutate.go (+1 more)",
 		},
 	}
 	for _, tt := range tests {
