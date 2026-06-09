@@ -56,7 +56,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 }
 
 func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel) {
-	if rm.EffectiveTransport == provider.ProviderTransportConfigured {
+	if rm.EffectiveTransport == provider.TransportConfigured {
 		return
 	}
 	if events != nil {
@@ -64,7 +64,6 @@ func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel)
 			rm.BackendModelID,
 			string(rm.ProviderConfig.Type),
 			string(rm.EffectiveProviderType),
-			string(rm.EffectiveTransport),
 			rm.MetadataSource,
 			rm.TransportOverrideReason,
 		))

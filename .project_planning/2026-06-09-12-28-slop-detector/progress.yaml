@@ -1,0 +1,1606 @@
+run_id: "2026-06-09-12-28-slop-detector"
+base_path: "./internal/ ./cmd/"
+mode: deep
+files:
+  - path: "cmd/glamour-test/main.go"
+    language: go
+    hash: "sha256:67a3f8625013a8e3c22e2986ec7875397d3f101dff0fdc1f0eb64db282774ebc"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/approval.go"
+    language: go
+    hash: "sha256:a74bcc884012568899c7538a90ed32f834ce8a1e444a451941cba39a897d38fa"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/cmd_model.go"
+    language: go
+    hash: "sha256:f489e2680fd51443657e1aea02de7f6b097390bc4a1ee94e04b85077d4bd3429"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/cmd_model_metadata.go"
+    language: go
+    hash: "sha256:60818347f8deddfdfd3e8e59e1588142c2ca8a379557f978ab121aee3bc3a9d7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/commands.go"
+    language: go
+    hash: "sha256:5e8c815d164fa4f9d3f6c6967b50f4a8bed64af672043b8df1bea1b8219b2493"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/exec.go"
+    language: go
+    hash: "sha256:64663f5d304e56eb1cf60d131304ee22f06b29d612a1c4fb58d2db01a480e2c2"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/huh_boundary.go"
+    language: go
+    hash: "sha256:f601ba394cd25bb4503b595859fb0b02cd5590bc05d7a35618e740c6b3670741"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/huh_form.go"
+    language: go
+    hash: "sha256:df1d036cbbf3df46e2045071e082245ece204c7f53ecf0a4e022bff9bb228f47"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/interactive.go"
+    language: go
+    hash: "sha256:d608b925d7978906253133d52a7a3e22c95b61e69afd7b112641eb64c756c4af"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/interactive_session.go"
+    language: go
+    hash: "sha256:9334cd87132f50a04b8f5598345d855addb845f3c3a1fcf1eaff98d6f4f1f5a7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/main.go"
+    language: go
+    hash: "sha256:8a8cb6a278b62d82d0f69c688f77c4a505ec98f68586c68167e379f844ef6e63"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/model.go"
+    language: go
+    hash: "sha256:5812d380603f9f54f11c5117cac555960d2d32313db3739340d6f4d919b19438"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runner.go"
+    language: go
+    hash: "sha256:a61e14b03f5f0840257596e9c1a08f82e8f0f9bc0beec699d74d9f9033985422"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runner_run.go"
+    language: go
+    hash: "sha256:9f1dd59762610458b4a5b6adb2b5baa5942afd03341ed2c2b9ab90d1a2d1f79d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runtime.go"
+    language: go
+    hash: "sha256:79038625ced9b60a578898765ae4a6cd83ad043ceff5fa62bb1e45852e9dbf1f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/runtime_build.go"
+    language: go
+    hash: "sha256:b1bcbf063e59c58e338e1e5a39e5973697a445dd71098bd9ac17212b73f0be3d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/tools.go"
+    language: go
+    hash: "sha256:63abcc8fcb624306c5f09922bd2f1711255077d201406d412fd3ebddbbd41882"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "cmd/steiner/update.go"
+    language: go
+    hash: "sha256:a0d4af88ff780c271b455c95d83292a4350a022f4bfafe9231d7d58953526445"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/approval.go"
+    language: go
+    hash: "sha256:466176c3dcc7b3872de6b4bc21d1018722835018d0e600e8978f81a1aa56f98f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/clone.go"
+    language: go
+    hash: "sha256:b92d2e90308a2ed17f408b559de2db95fdf2a3f3c2812d6b83f801bca7f81f40"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/compaction.go"
+    language: go
+    hash: "sha256:04182cf58116cb4ce4883cb383c3d9e5c1b708183e0becc6cd62fb220239e82e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/compaction_log.go"
+    language: go
+    hash: "sha256:c3ec73859b613af64e1be48a19fd70e30b6a4829e7193c47b1cbfc21000873be"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_manager.go"
+    language: go
+    hash: "sha256:e781ecb4da49a825aa66b0e095939cda5a1f26fbe73415e4d08caa6d0e25d757"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_manager_base.go"
+    language: go
+    hash: "sha256:0bca3d77cf4c98192780f1e732fd8408beedf18d63bd62f1832067b9da2a7445"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_manager_reset.go"
+    language: go
+    hash: "sha256:c06799a8c3dbc43d1991113f6e30ce5c472001463e4aef413f143053d71a45f7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_manager_tool_result.go"
+    language: go
+    hash: "sha256:35598cf1e7d3bfa6d3e7caf0344631d0e07bc9a5e934236e97b3b0901609bf05"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/context_state.go"
+    language: go
+    hash: "sha256:e08428b40f7f83875f8940777b46754b35bd1d4f602423f347b9928a87a7c1b4"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/events.go"
+    language: go
+    hash: "sha256:3afc2b1e9c681a407e64c1869e6c55e748eb952d2ea89660dad3cfdd5efea145"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/file_tracker.go"
+    language: go
+    hash: "sha256:6ddc9502f699798c13dd4b7a74101bf00c363039cab4a011120193118cc50ba8"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/file_tracker_read.go"
+    language: go
+    hash: "sha256:537ad7b9bec1f60fc09f9df6fc0b9c655056c512564f7a7fd54b24d3c4d2f591"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/file_tracker_read_observation.go"
+    language: go
+    hash: "sha256:932bf579e6c2f032efafc3253cd069151b669782bef3c7e19b8eaa77cc287016"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/file_tracker_tool_result.go"
+    language: go
+    hash: "sha256:a22af6ed61d9d6531797d873ba6ace274757905f139aab1723de2bfa82644fac"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/limits.go"
+    language: go
+    hash: "sha256:b86c18581e9f963ab4fb36011c22908accb41f99c64e59bd9d1805980ce73e23"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/message_convert.go"
+    language: go
+    hash: "sha256:1b1d34075810433cf4c1666565203beccf958a805e5adde69e8c58d81c1689d0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/model_call.go"
+    language: go
+    hash: "sha256:ac7756be2a94bec975b9a15a364b0be0b66152c151bb52b5c8f98394543c4e2c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/replay_sanitize.go"
+    language: go
+    hash: "sha256:7156f5a50d040474b5742db5eb75d2bd0d169a60cbd1b9c4ca19eaf5a5db655c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/runner.go"
+    language: go
+    hash: "sha256:fc7f30f4333fcc97dbefc4a1c480fb4af47018c2b7cd16951af86e34a4d4e227"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/state.go"
+    language: go
+    hash: "sha256:94a4b33d2fd9fe42ea513ed41166a6f0ceceba83a75d3509820eff81a4c65d81"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/subagent_state.go"
+    language: go
+    hash: "sha256:89d254c79c6555170c1d8b556c906bc24831e4d52addab1f8ccb09d13db4feda"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/text_util.go"
+    language: go
+    hash: "sha256:b48e74cb136f283ba14479e8ab45ff5b8f8167f68cbdad924bcacffebd018318"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_exec.go"
+    language: go
+    hash: "sha256:405bc7c3d13a0461e39f7a16e3a39151a386f31169e709f7676f50c3851be09e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_result.go"
+    language: go
+    hash: "sha256:6f8e83c785e6d2e71d514fc647aa1e92aa54f17cefa75c3b585c4fa2a2d7d07b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tool_summary.go"
+    language: go
+    hash: "sha256:6c6d7ca7d47b5eae341d0093223ecdcf5277d8c5e332aae1df69ee3f6e7f3782"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/tracked_path.go"
+    language: go
+    hash: "sha256:09a8ced382a7a30a4a7f2f1be0b0cf3b821d1829b66fba6396023cd23a53e3e3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/turn_progression.go"
+    language: go
+    hash: "sha256:3f7c684e1585826e9813903717a50188a1ef87cf9f8a1d5d686e5ec5c01f7a1c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/turn_progression_types.go"
+    language: go
+    hash: "sha256:dcde3e57c1b91ac39b9a7bc1562287621e801a11ee276ccaf48766fbc3ff22bc"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/agent/types.go"
+    language: go
+    hash: "sha256:35abacf9238673db37228de5bcad9605c888b8c9133ca1d111d2da7c72dc4eff"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/config.go"
+    language: go
+    hash: "sha256:957dc5006a162c3ac3f1560b7e12f238ce016473add16e8736f317f6b169f582"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/defaults.go"
+    language: go
+    hash: "sha256:6f78f93fa26e7911d3fb1ae02eef430f4cb7f6cd48f6c6eeda9731c10d8e1b69"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/duration.go"
+    language: go
+    hash: "sha256:f9dea49b353b4f4fa5da26c7dcdf1cbfae0c95424dd29e99a74741546248d288"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/env.go"
+    language: go
+    hash: "sha256:fd0a5752aee02a13463bc24f4d20044092fa9718cf85213112cded4a9e16620d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/load.go"
+    language: go
+    hash: "sha256:bd67041d0abf33428134d4e3dcf6443fc0fb91e90df5aa523ce68a55af73f5bd"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/load_override.go"
+    language: go
+    hash: "sha256:e2e03c81d6a70e24a800e97f8505a39c7b31b5f63880f51ab06d63dc2616858f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/load_paths.go"
+    language: go
+    hash: "sha256:0fd3f4357c82d6d9385d9dff2ca7d85f1fc04a6a022e25eba0473ed434486eea"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/load_read.go"
+    language: go
+    hash: "sha256:72f296063d135a03ba462ebcf9c271c3e5bbb9603d3f7afb45c24716d3b15ba9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch.go"
+    language: go
+    hash: "sha256:b3ce5edc6c25679bdf1107c3d6a360171a9d3adcaa3f62cb374c86ff943a5517"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_apply.go"
+    language: go
+    hash: "sha256:8d73cc43b41b81c8cdd459498439e5249dbedd9acfc83402adab26586d9bd71c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_context.go"
+    language: go
+    hash: "sha256:c3ff3a9aaab7c8f60f847ada1d3f4767b41efd1511f9c37c8a1f1fda561f4a33"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_limits.go"
+    language: go
+    hash: "sha256:84d904b2ba4d6fa376f1b9a228fae8d0d233463aa8698f4b400b4baea352441d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_model.go"
+    language: go
+    hash: "sha256:69db51a8d1f8670a4a147bc3193dcd824af569c6196ef65d5f2a669ab73493c1"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_runtime.go"
+    language: go
+    hash: "sha256:82efc87c4e475d36d30a31f0c8cfe1d89c4ea5a393039662bc154626e3305491"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/patch_search.go"
+    language: go
+    hash: "sha256:5b5f36f48b24f7cd901226a68b2ecd50940a3edc967afcbde943320a53415fa5"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate.go"
+    language: go
+    hash: "sha256:eaf00337c3c324e48c56a8f5904a4e8761ba0a2d80884912252741628eeea0a7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate_limits.go"
+    language: go
+    hash: "sha256:586c9fb3bfcae7d90a22386cf3eb301a61f8aff58815fb97d88b6207f524f4eb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate_model.go"
+    language: go
+    hash: "sha256:81aaff497d830f2122686a86d152993d0bf95b4c36e7f0b0a932090fe2fa768c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate_modes.go"
+    language: go
+    hash: "sha256:22428196971b269eff928cd00903670138394107b7efa0fcda5195f8575fef41"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate_runtime.go"
+    language: go
+    hash: "sha256:f648ae98b528aa3e992ff00598bdae6ac16686387f352453b6a9a6d822ca57c7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/config/validate_search.go"
+    language: go
+    hash: "sha256:0d93694b0c9176405e9b069b5e94d15efcd0c291086db67534320b6e0e532c52"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/agent_type.go"
+    language: go
+    hash: "sha256:5bb8ec12b854a0c3db4a8950f520bf627f63b208872bdcaa6fc1e3dbb9ec4c02"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/bootstrap.go"
+    language: go
+    hash: "sha256:0ac02c7f2be0f30aaa07cef9f2fb87683b06b76bcc44325624e00a2ce34eef23"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/bootstrap_support.go"
+    language: go
+    hash: "sha256:5c63926edaec5f4e8a383cda0bdd42aa1b5a0cee6b6549210ea5a06008f719be"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/contract.go"
+    language: go
+    hash: "sha256:3b9279eb6f902d9fa8792527288ef7508b7d5d997e1d61e347cd937ddaaa4327"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/event_sink.go"
+    language: go
+    hash: "sha256:6df7dcf9af06cba6326ac63a3b766269f3059d3bc0ed05c5a08fbc0f8c093d9a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/follow_up.go"
+    language: go
+    hash: "sha256:8d0aae47efbc8c82f900f74888a697c3b42e5302b4f2264f3804878ef8aec03a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/limits.go"
+    language: go
+    hash: "sha256:be7ed401c93724e69265c2565d4460f7e25c6d5e514fffeb0f0fa98cb9339082"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/result.go"
+    language: go
+    hash: "sha256:2f84585be022da408528d3548417f437ba97a3d9a18b0df0a821b7a7cd777feb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/session.go"
+    language: go
+    hash: "sha256:1c30d1b92cb4bcc85194fc674917c576f76388cc9c30941cc5dc077c0f5323ae"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/specialized_tools.go"
+    language: go
+    hash: "sha256:bd9e080b9a7144a5388ae98bf329a6efbe531449d999a7dd309aeb531f26792b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/task.go"
+    language: go
+    hash: "sha256:7e3480a24e0402f8f793c98028af11750756308b5bce1247cd0f68fb294cf137"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/tool.go"
+    language: go
+    hash: "sha256:bfa0244997d2f199710654b854fedc5c15939e3e72fb706af6513d676676e432"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/trace.go"
+    language: go
+    hash: "sha256:d6caeb18a414d1beb4305d87083ee16772646912960c6c264d24e4dc3b1a6e1e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/delegation/trace_log.go"
+    language: go
+    hash: "sha256:f8fc067ec789defdc6bbe081bf22f834e0dfd48955188e6da3777656691d6f56"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/history/writer.go"
+    language: go
+    hash: "sha256:a9723b0dfd2d3b99ab6808f2b23e1760d345cb46629329156f7b8238c0d5a84e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/actions.go"
+    language: go
+    hash: "sha256:203499293decef8d7674bd2c6e64f8a591bf5878ca7611868eb1b5526dad4af9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/compaction.go"
+    language: go
+    hash: "sha256:f7551e3d39341054bc7b5af0288815b24a84283f602cc520f9f0ca249d77314c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/context_report.go"
+    language: go
+    hash: "sha256:d3feb5031dd8e1888e5d1bb1eafb7515e7e10c7bb209b91f69dbb46641b6c619"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/context_report_categories.go"
+    language: go
+    hash: "sha256:7ca50d2a18acfec9d0af48359be4ec5377529afb49a63ef6016c4ddfe63f53af"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/context_report_clone.go"
+    language: go
+    hash: "sha256:7e712bd491f87f7ebc00ab432e8e4ea9844d502b045c7c1a9aa237e2976d098f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/deps.go"
+    language: go
+    hash: "sha256:941423b6951ae4cc6e33c27436a708feb001216578e1aab2efba2e37c280b20f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/reports.go"
+    language: go
+    hash: "sha256:e395b418b4ecd34ed7864f76234999a872a422ffe3df3b5e8bd88e72cc12f073"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/run_flow.go"
+    language: go
+    hash: "sha256:1377c74f055adbee2364d888bbcb8e4bffa689796ab0b5816cb98a07e7590420"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/session.go"
+    language: go
+    hash: "sha256:153a9fe374fecc024958d402299c3987974f87286c388b3a4b5f90dafd5f49ad"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/state.go"
+    language: go
+    hash: "sha256:724d946fad579bda944ec40d8dad25f653e5740d6114349c9e003a95b98dec85"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/interactive/wiring.go"
+    language: go
+    hash: "sha256:d180690304aa4f45011751f4e61e22048e5c0fa00a5a700e44d99bcb653d74b1"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/metadata/cache.go"
+    language: go
+    hash: "sha256:af005eb6241c11dbc6bd4c0225a92e0e985c4244eaa10cd91da61572ae2ca05b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/metadata/lookup.go"
+    language: go
+    hash: "sha256:670b6cbef44b2fb301c7895543f3d3f821c0d26a2d76a8532a3c02b7f48c080d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/context_report.go"
+    language: go
+    hash: "sha256:60eda673fb3c3185493a4c03e876fc342568ca3faad1acbeb9e174bf10c31d3c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/context_report_clone.go"
+    language: go
+    hash: "sha256:4f4688ef4e93a001793e7cfa2bbf0be8e1e46d4274dd7d855e7d1cb1aabfbfc5"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/debug.go"
+    language: go
+    hash: "sha256:ce79ba1e1795b6042f9c0e3cae394f20dbedfbf30fb12ba83e318bcb3d7d690c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/event_constructors.go"
+    language: go
+    hash: "sha256:6c5134f870b3e1920dde8a20ae5d434a571e83b4904bae89383c477ac8c43e80"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/event_render.go"
+    language: go
+    hash: "sha256:7de760dacf260a6d88b034ec81c5d6766c993e49d65b4036d2988efd54a2d2f3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/event_types.go"
+    language: go
+    hash: "sha256:c61e12d0375b6d203726bcd6bb57c39fc2d411c58d4ca9f867e604c693326a4b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/file_log.go"
+    language: go
+    hash: "sha256:cc6c17e24a7a4ac2e82691d3afe339bdf10cc313baf9316bd8082d683a56eb5d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/log.go"
+    language: go
+    hash: "sha256:62b58028539fbe0bcf79f7a9c85e9df25c144485aca25bffdf624f9116515972"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/plain.go"
+    language: go
+    hash: "sha256:5f7a18e3b8b6f680c9491f1006a8c1777a112e0bbf3775edb41059956cbf3052"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/plain_preview.go"
+    language: go
+    hash: "sha256:9ec227d9027a4cf6bb6a888f5b30ea4e9e0b742131b416a46f9af8b48723ca84"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview.go"
+    language: go
+    hash: "sha256:f41cf2a9fbd7664c097c2c5267d8a7f5debfdbdabd2d691ef73827bc53ca341f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_args.go"
+    language: go
+    hash: "sha256:f1a4dc3b8d0d06f257d7664e56cd358effe68ab03ae8e9df67cfaca473a47668"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_bash.go"
+    language: go
+    hash: "sha256:8157ead87f04a63fe7a48a5dc14cd0a9e00513f09b006d0e8ace5f0c5c29b86c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_file.go"
+    language: go
+    hash: "sha256:7e9d4526675ad3163f32ff7534c0a1bf6c415bc3cd0d6a2c4b8c8cd9634d0e28"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format.go"
+    language: go
+    hash: "sha256:8cef3b4c199d66b4c07de7d6a77abd12ffa398d1352f3991ee1240784bda9b32"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format_diff.go"
+    language: go
+    hash: "sha256:a2e371cf660fbc88995aedd1a1172473b1cb6ad2b3806b9e1e6749d49fee0fc9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format_syntax.go"
+    language: go
+    hash: "sha256:b482b888be28175c11aff75ad07f92a8d7e4225909fe1c93cdd46c14d85931f3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_format_text.go"
+    language: go
+    hash: "sha256:22c1d81420156a09bf09e25b48952338d2dc711b46e06298b6597ff3afd593fb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_grep.go"
+    language: go
+    hash: "sha256:a532f8799a07a06700b9630b9d39107054ace6a118044257a21ffccc79e8c324"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_list.go"
+    language: go
+    hash: "sha256:80e0c911cf0b34bf153cdb6c0873da0aa36f07109295291330c26deaac5dba8c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_mutate.go"
+    language: go
+    hash: "sha256:2711d5210987e166adcd4920fdc5de320f399f9d224564810a89464f9010bf91"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_patch.go"
+    language: go
+    hash: "sha256:4e0df103d71ef821348d1cf3b51bedd75e3752d19ac2deb0135c22b086443f3b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/preview_web.go"
+    language: go
+    hash: "sha256:b39bc9a3b71206afc29e76e4645b1a6714b6a2d56aac71fa5d9ca0b71f6325c9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/provider_diagnostic.go"
+    language: go
+    hash: "sha256:1cc63e3a9965e922ef396c47d6ce171338e048aef704ca1f44bef04e4877d416"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/stream.go"
+    language: go
+    hash: "sha256:ff1dec218dd43eefc0781555273b77246083f5a2d2462d756273258936a18541"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/output/textutil.go"
+    language: go
+    hash: "sha256:179f1b35c17aae2f21b8ea0bbd1d98634abfc089fc80aff375c75a7a7c22c7e6"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/agents.go"
+    language: go
+    hash: "sha256:7b8fb308a03e066b7ba090bc5c6924936dbf66c8eacb16456238732245bde946"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/assemble.go"
+    language: go
+    hash: "sha256:d1c91c3dc2d464c05f5706bad89eb3f81076af66030d5cb6a09e178902b9f1b7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/assembler.go"
+    language: go
+    hash: "sha256:fd61e6cdb1467b96fcffda1f5b27b15f76358a2d202947f9e43a621607c4351b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/budget.go"
+    language: go
+    hash: "sha256:139eb3bbca6204c3a3cfb4eac445bb94956b1b8a9c390f4ee82cbc92e0a57e53"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/compaction.go"
+    language: go
+    hash: "sha256:2cd28f32623c18817da0d13ce0690e5148d9f839f6330ea2b6e8cfbee1526bcf"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/context.go"
+    language: go
+    hash: "sha256:b7c66fa983d2a33fa0f14ba096bfc0445ad5f670cd127ed3670bf7a63ff84e3b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/masking.go"
+    language: go
+    hash: "sha256:52b3822390d07a51028b720fbae0f6f20439bbb34397fbca9cf4fb1a8c627f74"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/retention.go"
+    language: go
+    hash: "sha256:3c4af3ef6792cc8a40169cec4fcd214f5ea85a2d27183a1268621a588ec9de31"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/skills.go"
+    language: go
+    hash: "sha256:eeabff1357a94785a1c86b0eadf4f591d41a050086d39d237f3adb8151bcbcdc"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/source_plan.go"
+    language: go
+    hash: "sha256:07eb6a255f289555b947734a9aa1528448a2584e5366a9cb8c4b7deefed0ff10"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/source_render.go"
+    language: go
+    hash: "sha256:a4db8726970bc6e6e7d2c0143f424e062e0701010bc1e0e5c4a9e4be947a803f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/summary.go"
+    language: go
+    hash: "sha256:641c73c7f779a3d677a89c84bb571a7e986d1ba2691a34a52d83ba59f8d26e9b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/system.go"
+    language: go
+    hash: "sha256:4e38f9064890b767ce9d8d11ddb7b7a83221268f243598944f908a229b771f73"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/token_budget.go"
+    language: go
+    hash: "sha256:d1f6df6edeb783024f09a0dd0bd56e594e5a91531110992978f882c78a12ef20"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/prompt/types.go"
+    language: go
+    hash: "sha256:86102e0fbd7a2a4fdd8beb690cd9381c05e34d1fffb619f8e996f4917d239159"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/discovery.go"
+    language: go
+    hash: "sha256:f499f84e14b8ede94e9ac35a62fb752698da5594b259ea529b74a113a5f3231e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/discovery_generic.go"
+    language: go
+    hash: "sha256:ea7707034e14b69c88de10fa874420a42a87ff67e83dd67b1e0f0de5ac504055"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/discovery_lmstudio.go"
+    language: go
+    hash: "sha256:32abc35e1ede3e9ca16ab9a63406ab37627f52b6cab16a97925cccbee8c7cc7e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/discovery_ollama.go"
+    language: go
+    hash: "sha256:3924ebaf92045ab67ea4fc086452de424a8e0f7188e03af216e47ad719329e78"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/discovery_openrouter.go"
+    language: go
+    hash: "sha256:45072dad233d52bbc7c77eea7f193436a3f7b7ec08506c3710c448cc88165ff3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/http_error.go"
+    language: go
+    hash: "sha256:341c1e15b8185a3ca64bafe59c5efbb1c173b77647d68b1abd15bd3e5c132708"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/interface.go"
+    language: go
+    hash: "sha256:8a04824a26f2601a707580cc3a963d91db70b2dbfe9a2523e7381d9a509ca223"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/json_sanitize.go"
+    language: go
+    hash: "sha256:0e7ae4f8b489a072bc0148222a4d0dbefce113f8433b73e6acf0f98c6d3162d0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/litellm_retry.go"
+    language: go
+    hash: "sha256:88ba8b993069245f1fa5f8c63dddc869117b6bcb42a45ec246ae8af21d64eb63"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_compat.go"
+    language: go
+    hash: "sha256:b20f3ef36dade2c4c78c17d0ad8a1f1ea986a113d37cfd993938870f8d1a310c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_stream.go"
+    language: go
+    hash: "sha256:0884c5b0291edd6f2a6f24e57af0f438f1312be86e1f0c65ec4a746b18e66d2f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/openai_wire.go"
+    language: go
+    hash: "sha256:b49578a575b16ed750e23a22074033ec347d2ba7f11d63735f67daeb52cf6869"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/request_execution.go"
+    language: go
+    hash: "sha256:4a0819123011af111d3c5968ca1a776f7b34841a83c65f32e7a57baec8711edb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/request_payload.go"
+    language: go
+    hash: "sha256:30e958ea771922f9a72ac0654342ccc0c6ffb9149e1c93634f5534f6b7bde71a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/resolved_model.go"
+    language: go
+    hash: "sha256:d67ee37ed82f022fc5217169d88849d06de561affdf4bb244bc38874d38e5631"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/retry.go"
+    language: go
+    hash: "sha256:e5b4a389c45d0c1a2f3ae7b9fa0c40f73a49e9c7e6850b214c251d3bc37aba5a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/scheduler.go"
+    language: go
+    hash: "sha256:077e32af49c61c2864695bdc9a74a615e28b0978e7d9668cef6b41ac3a5d30de"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/token_counter.go"
+    language: go
+    hash: "sha256:687d31237c2a292003683332b7a36f906bb657c87bae2e9dfffda6ffc03be08c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/token_estimator.go"
+    language: go
+    hash: "sha256:59343793d8ddfc492c30bb0b6ea08348e0586983c9b6e366d9c65b14a30244d0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/provider/types.go"
+    language: go
+    hash: "sha256:17feb3b9c704bc1c5caa4e08dca8ba55218a50ae6b132fc9998268a254a1f03f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/env.go"
+    language: go
+    hash: "sha256:be7347dd379cd5386f55d915f18258bf6c331f2de3de0dd2b05edd8c22528f4b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/mounts.go"
+    language: go
+    hash: "sha256:2aca01257a5cc6ac06f07f064fd5c0888aad24688051cd1bc912eee062d1c0cd"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/prereq.go"
+    language: go
+    hash: "sha256:9adaea1fc208238092885d1a5bdfba3217823e03b395831aa3afb31102d91c30"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/sandbox.go"
+    language: go
+    hash: "sha256:b14ce3813915bac8df7fb2aca7146eeed501dad2ff58db2cf9702277fbc8752e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/ssh_overlay.go"
+    language: go
+    hash: "sha256:90c02b519212c0cc1cbf5c22bfff2579c16da723241dd58bb361857692012a2c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/sandbox/ssh_overlay_other.go"
+    language: go
+    hash: "sha256:20d887841e9df50997a7f011b9c9961360d1d363c55625db161633b4823ad6fd"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/session/session.go"
+    language: go
+    hash: "sha256:cc62c6f1e9ab18bd92dbd1147dce908b7eaef26bdbda1e6249291b9ae2b0b81b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/session/store.go"
+    language: go
+    hash: "sha256:8765617bb38937a52f31d608792c38307a4b134a6969f6a70be3662fd1e325c9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/skill/frontmatter.go"
+    language: go
+    hash: "sha256:95e71fd0ff63f4b244efc1c5f5f5543b2ebb065feae1492eb7b1d52748b158ea"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/skill/loader.go"
+    language: go
+    hash: "sha256:c3168cf42fbfd435d8a0ffaadf8890dc02c52fc7619947e0a772525715739930"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/approval.go"
+    language: go
+    hash: "sha256:386f5d07ac5b22ef3749c720a02f8761e69778c3b1975e1cc33df482cc6408d8"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/bash.go"
+    language: go
+    hash: "sha256:f92c1ad3be035d065984b1c7e9238ffe4579c9bb36ddad1550c4d6c87f400bc0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/bash_session.go"
+    language: go
+    hash: "sha256:45163aed164e268f6a5933ed3749fe00e7b42d4a833b1d21ae7d0204bbac8d51"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/binary.go"
+    language: go
+    hash: "sha256:8b6ba212403fe89f779c6d9fa3a7b8e394adbce72f08f2a18a21627d23114d37"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/brave_search.go"
+    language: go
+    hash: "sha256:c630cb1ce62a6d049b605ef10de55dbfc8693941d7c268232f91a6a31f9c4ee3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/builtins.go"
+    language: go
+    hash: "sha256:22edb3335904434bb4fd1edabd250a9f0bb932115ca05851c78d3dd19929600c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/decode.go"
+    language: go
+    hash: "sha256:266050f30b1b16b59a18080f15ba08cfe3bfd7dd67e7e864021e59a44a8ab95c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/display_file.go"
+    language: go
+    hash: "sha256:02fc60951d62c4c58ef7c685c54c78f624ff9fe97b1692aed39b320ea86bcc22"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/env.go"
+    language: go
+    hash: "sha256:1f59e087ee5ffe7c9368c4462f211fa2309cd3a034e25c59191536f77dadb646"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/fetch_url.go"
+    language: go
+    hash: "sha256:067b038d521e8fb0cff518e6cb72f8369019e9d92264648c67e69ad314ef0b3a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/file_hash.go"
+    language: go
+    hash: "sha256:d420fc98ba4246a2642b6cd33d1c114ace5df832219f9c8f0eaab2f5bd0dc584"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/glob.go"
+    language: go
+    hash: "sha256:dd9b9573568c0f34503626b6a66259aaaeefb33209bcf3be896f1c10683e6878"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/grep.go"
+    language: go
+    hash: "sha256:6250b840ad045bf122998a6e4c7c668d00a7b3b5db5df6fe3dc2c7ff0ddecfa1"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/grep_core.go"
+    language: go
+    hash: "sha256:5790ec35cc52d3ad84e1336f8f40b631c1f4c77d4fafcd10560bbbae1a64fc68"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/input.go"
+    language: go
+    hash: "sha256:86d4e4cb70708be789b6ebc52d4cd62c4d311fcbd1b5f58977a91356de71de1f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/ls.go"
+    language: go
+    hash: "sha256:bb24613196afbb898716b667a4dc3d37a4795de147c370292dfe243963e3d320"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/mutate.go"
+    language: go
+    hash: "sha256:4163418f95c9416ac90359fb3728219a110ffbd4950c7d0d51a90ded991e7945"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/mutate_commit.go"
+    language: go
+    hash: "sha256:3cd24a2f9278c27158025f20248c3fe90a4e3074dd7da3fc968686cd1645f228"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/mutate_diagnostics.go"
+    language: go
+    hash: "sha256:5756697445c6e73db3b53e90946beda622046a25e299ff2945e8fdf071198d79"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/mutate_diff.go"
+    language: go
+    hash: "sha256:7d4d98db1dac35e22eb74b29a5d32790c5ffc3aa0e4446f4116d4a6152b475bb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/paths.go"
+    language: go
+    hash: "sha256:140fcd9acc83337ef37262ef3ca4266f239ac537aed3229a5fd1a3c471607e2c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/read.go"
+    language: go
+    hash: "sha256:71b6dee4552a73cf245794ad86f617cd67157df9c1080edfce12a0024bc9a520"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/result.go"
+    language: go
+    hash: "sha256:146852019ce9db22c8b15fe8ed77e88d867967e8aded602cf59eed9a498c421f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/schema.go"
+    language: go
+    hash: "sha256:5405c5d5094a204beaf6cf66dc5b78f301d920374864da61da1d1f69f971b57e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/search_backend.go"
+    language: go
+    hash: "sha256:022d5615055ca73d837cb6faa8f29b7b41a1cf93926a5b99a7791e3dd1b306c2"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/web_search.go"
+    language: go
+    hash: "sha256:489eeeb197ea9a85d69dd461ea05f5ad69a7ad008f6430889799a23bf2b42686"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/builtin/workflow_handoff.go"
+    language: go
+    hash: "sha256:6f36d7412209a5409ccb3f532240cb68036ebd644b886652d40b9c024fb772d4"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/clone.go"
+    language: go
+    hash: "sha256:a27ee23b783bc60aa82303dd5301edcddfc82e728b41bfe92d6645e67f98c1c0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/excluder.go"
+    language: go
+    hash: "sha256:2ded2b6b6cd7359d41e9b2012fecaa8aff54309f7fdeb61219957bb10727d9ac"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/execution_pipeline.go"
+    language: go
+    hash: "sha256:16385db950ee19f289f2b6a3f59abf13f2d4c12204c4cd6965b7d0b56d16844a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/executor.go"
+    language: go
+    hash: "sha256:3c53e48b52b564dbc5c489b0d31614f3fbec1168f1252e4c036eafd40b751a7f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/noise_strip.go"
+    language: go
+    hash: "sha256:87045e5291b202a775244a249f8133046f00955106b73a7c76df41dea1b088cb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/output.go"
+    language: go
+    hash: "sha256:321741bcb0a64fc47a28595a5d3d86f578abb5b5645619fa066b59b49fa9d895"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/policy.go"
+    language: go
+    hash: "sha256:737cfb0721480a50f1a0210334c08a50143d6be137d07ca7635f917285d4ded4"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/preview.go"
+    language: go
+    hash: "sha256:5b2a197b6a718c8f4ba028d150a52a3d7e6db550e5ae4dee454fa0b342414f5f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/registry.go"
+    language: go
+    hash: "sha256:f19c078284cac8feff8e053ad1c7c8fdd37bbe6259788623c7fa0eac4fad7dcf"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/sandbox_keys.go"
+    language: go
+    hash: "sha256:9945094ca8797d2e985e60d4631d94ab6fa46a2993c90e42f0a93df5ef6e47f9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/schema.go"
+    language: go
+    hash: "sha256:7dd1f1ca3714730a862f8a374ba83fc363f8ec7567de5d7f06ef04de898745b9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/types.go"
+    language: go
+    hash: "sha256:4ad7269dce2206cb06c6079950aa22a34773e6108f0a64b426dc9fab0bded91c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tool/workflow_handoff.go"
+    language: go
+    hash: "sha256:80edffb0efe6169c329b89cb1a9e76fd33a1827685bf57cfaeecdef1532d9f7b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/activity_row.go"
+    language: go
+    hash: "sha256:cbba0df2c0df9af58c00f65f90c644afaf30ed51df64361ced10ef352aa93783"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/app.go"
+    language: go
+    hash: "sha256:350701aaaf8b1b28866c2c34d948b7a88925ebd083cee1e1cf1bdd05677863ac"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/approval_tray.go"
+    language: go
+    hash: "sha256:41533d4e61b86784ce814146ed60777b4ce40924f4f9b6c5ba83a85343fdaefb"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content.go"
+    language: go
+    hash: "sha256:2caaabdc3c2b129bbc3deae7accb50341ed13f328a5c0b407e30cb98d9a07086"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events.go"
+    language: go
+    hash: "sha256:6370d92d614c14cada11f05b204a1849471088e4a6f5198816524ba4dfcc5501"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events_approval_diagnostics.go"
+    language: go
+    hash: "sha256:0c615e8db4666d9f42efba32f466a673c349be09babdc7ae9a7f48b39abe810f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events_delegation.go"
+    language: go
+    hash: "sha256:83ec97134c2c29af05b0dcd877d345a6215145b2f44ec5415d18954a68a309b2"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events_stream.go"
+    language: go
+    hash: "sha256:92a251a4479c5fb0c496fcc2c0cb47ba1be0e11949c63054bba66b55cff96fc5"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_events_tool_state.go"
+    language: go
+    hash: "sha256:0f5bb5a0d5a825d63b028a47d22b45cfa389c15fd448eda4a3ceb0f94d712103"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_markdown.go"
+    language: go
+    hash: "sha256:2919aabc58e2796187c806de13c366fe5eaab4560ddbe8f4b5c216192f961d47"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render.go"
+    language: go
+    hash: "sha256:c8f1539de61ed4339b182660c4aca34e7b2e2bee754dde6e4969c39c14a39d71"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render_chrome.go"
+    language: go
+    hash: "sha256:cc9b940e52932bb8b4a6e3f78fd585284d2ee3fb69f2f844b910cb3441ff7e4d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render_markdown.go"
+    language: go
+    hash: "sha256:72174ebd7acc102e613704021d1a3b1e1da64dd490fed10d790015834911c15c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render_preview.go"
+    language: go
+    hash: "sha256:1dcb5fe8f86936a04a98913eb4c051e0763ee7d62193e74fc43cde77abaf5883"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_render_preview_style.go"
+    language: go
+    hash: "sha256:38e2f9fc6a24ccc65b2ae450297a7ca511c4adaf3dcf844ac8f3318fdc650242"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/content_tool.go"
+    language: go
+    hash: "sha256:2f6ab11b928d25b6fec90258e0e6bd65491334d037a1443323d829142ebf9203"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/context_overlay.go"
+    language: go
+    hash: "sha256:3c02c115627c3c41c33cf2f68bf325964023bc4f620cc425f08bfcbb4ed2748b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/delegation_layout.go"
+    language: go
+    hash: "sha256:36c125ab6bf55d30e3731e5397e618d731f804b528f52eaa8b405de4366f0cbe"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/exit_modal.go"
+    language: go
+    hash: "sha256:a4857d5f56b65b66c95cbd97b7cab14389dff1ab029e24a296294e0ce79a9acf"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_list.go"
+    language: go
+    hash: "sha256:8126a3104d94a96b3e588787200b4ef5fcf76d2d4bbd7487b7fadc3cf803db44"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/file_picker.go"
+    language: go
+    hash: "sha256:9892a1975396bc231b4ecb690270b9052dea413d938ccbf0e9b68308f9405a5b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/fuzzy_match.go"
+    language: go
+    hash: "sha256:02c6f512bd895b99ddf729748600399c4d6687dcae2face0d62375c4a5e7e45a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/git.go"
+    language: go
+    hash: "sha256:68b8d1fc523328d37c62455e5bd738bead10ab7104a8bb130288d019a7e25b60"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/help.go"
+    language: go
+    hash: "sha256:dfc1dde2e7c199b168cb8970e5bb4503b88389d5654f2335d300da3d7b175c48"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/input.go"
+    language: go
+    hash: "sha256:5390a4962dde90778c480232100cb11b1ac6e5a760754bb3337c11ef5af916aa"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model.go"
+    language: go
+    hash: "sha256:8e008dce9cafa1dfa56c53878a1e64f18c2bf1d490c3cb06b66a99a61e65ea5b"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_badge.go"
+    language: go
+    hash: "sha256:60ec28d9926fde644b504537b8ca3f9fb78a73142a6219a887288285c765cf0f"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_events.go"
+    language: go
+    hash: "sha256:6ac7f718f303a1c8f8b51b6bf3559a9210e52a288e1c3b6163b7bf5092f502b9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_init.go"
+    language: go
+    hash: "sha256:00858b964003af05e6dc540cce4e8b8f938c81975501c1e1083ab6fc39a86272"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_input.go"
+    language: go
+    hash: "sha256:fd58663e8f6b533a3fbe9ee0b5d8d5734ba3e513d41b24e759a37a837b72385d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_layout.go"
+    language: go
+    hash: "sha256:9a2cb03077187c94f4c28b9bd0eee3e08580b54edbdde81944373b95cf335e4a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_picker.go"
+    language: go
+    hash: "sha256:5995862c3972842e3cd6f26cede58b718603f0e41abad9811d770cb7a9123ac4"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_update.go"
+    language: go
+    hash: "sha256:62eb77b237b3fc805b2e280eb1d2da29f8a2bdedb119feda4805bd6ef5e4f6f6"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_update_keys.go"
+    language: go
+    hash: "sha256:4582a8ab0ce965114af444b501db62cc2cf63c2f6b82f1e4f540786efd6a72e3"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/model_view.go"
+    language: go
+    hash: "sha256:b2cdb80b8733b36d95040cf427d18f4cedc7426305bed3cb6c24c51a3603c3c1"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/mouse_filter.go"
+    language: go
+    hash: "sha256:cfa29fe213c3550a73081f28697062b26e3c5aa1848fb1c32dbb5f8bd61b2404"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/overlay.go"
+    language: go
+    hash: "sha256:4f47f58376d97e634cfced8747baecb388baf46a31664d598251e4e70993943a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/palette.go"
+    language: go
+    hash: "sha256:a04b7c5afd2d5b81a00cc0d29fe8ce79f3421fa3742391f15041070f4ab90bf7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/plan_picker.go"
+    language: go
+    hash: "sha256:af5e0cc305b23c7f72110d18afcdb2e1f70b352adb1e49a0d9d3d042003b3485"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/prefs/prefs.go"
+    language: go
+    hash: "sha256:46a9f06c48c2cde60dc05f77cb050ba442666ae362efa332ddb6ad0df96f160c"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/selection.go"
+    language: go
+    hash: "sha256:bb4fc26977d5e736fb159486672a3a2cd97da4e23a1b1d0c8d6a650e551f0642"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/session_picker.go"
+    language: go
+    hash: "sha256:43769f1ae600191b6608cad76474b15689cf8f6f6264cdc35394e0cd041576c9"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar.go"
+    language: go
+    hash: "sha256:14e94174c58e784033362df301d63c7d9afe5780205585b21588d946acd753f2"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar_brand.go"
+    language: go
+    hash: "sha256:855a27a6c89709ccf84467e431daad306bf7b3a93465bee50507399097b1a245"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar_context.go"
+    language: go
+    hash: "sha256:3e3cc5fbc3ade11182792ef5830b29cc8957154f424a9093bf427bf32272c5e7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar_git.go"
+    language: go
+    hash: "sha256:9725132d72429ca7b392641f7af04ccb68c797885acdd96b476fbd090987a608"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/sidebar_sections.go"
+    language: go
+    hash: "sha256:aa9217d897a6a8d81da5f891503e871572512a225c7b4a81cda4981a847d2b9d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/slash_overlay.go"
+    language: go
+    hash: "sha256:63785b9651f5ad7e614477d18aa78758f85341aa0e2e76ba598cc30156fb6ded"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/statusbar.go"
+    language: go
+    hash: "sha256:f051071706b8c232e7c6fb82ce61d0942b46a2d020f8ccdf51fa1fc7a7f8d10e"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/oklch.go"
+    language: go
+    hash: "sha256:836592beeac3a36fe2e4b01cb363e7dac06bcdf8678f85a0f07e0431a887b293"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/registry.go"
+    language: go
+    hash: "sha256:208aaaa0d3922b2289df653c62e3ef50e012ccace6af7f0b46b85c406513a681"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/steiner.go"
+    language: go
+    hash: "sha256:111c7e6680f69428d8648127eb923e8b824cc65c0f2d7f3e2dd43658192805d8"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/style.go"
+    language: go
+    hash: "sha256:7e1545908270534f51ad6a3ad53d03a5b082291bc00054d95ee70951166e0a7d"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/theme/theme.go"
+    language: go
+    hash: "sha256:64de4502753d112eaca42fb7760ab8dc0c484657764916590795ec1bb0fa55cf"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/tui/workflow_handoff_modal.go"
+    language: go
+    hash: "sha256:8580c266a28c9bc54ae259762182a0eca6ea8297e16631b5e9d710d3ec919bb7"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/update/download.go"
+    language: go
+    hash: "sha256:ea3e212f73c6c083cdc57cc2e74dc72674e69c1b3d73ebba87afc3bafa722aa0"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/update/github.go"
+    language: go
+    hash: "sha256:53f312e2f440475d284ebd860a58a05889f7b19de16827536d60ea2907e4236a"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/update/hide_old_stub.go"
+    language: go
+    hash: "sha256:9ec1aa359cb651ec4eca7afb38c881117896c2d1927b67e22326bd3ed6742418"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/update/hide_old_windows.go"
+    language: go
+    hash: "sha256:4e0954bfc2853a3d3e6add179672f7c0476673cbdb4c7b2665621fb89bf9bc71"
+    status: pending
+    findings_count: 0
+    triage_result: null
+  - path: "internal/update/update.go"
+    language: go
+    hash: "sha256:7f7c8a5fc4db30836dbc48f72a944538ef773bb68b6fc1d78c98aefa24a79da7"
+    status: pending
+    findings_count: 0
+    triage_result: null

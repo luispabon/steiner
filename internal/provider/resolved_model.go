@@ -23,16 +23,16 @@ type EffectiveLimits struct {
 	EmergencySummaryMaxTokens int
 }
 
-// ProviderTransportType identifies which request transport Steiner should use.
-type ProviderTransportType string
+// TransportType identifies which request transport Steiner should use.
+type TransportType string
 
 const (
-	// ProviderTransportConfigured uses the configured provider transport as-is.
-	ProviderTransportConfigured ProviderTransportType = "configured"
-	// ProviderTransportOpenAICompat uses OpenAI-compatible request transport.
-	ProviderTransportOpenAICompat ProviderTransportType = "openai_compat"
-	// ProviderTransportAnthropic uses Anthropic-native request transport.
-	ProviderTransportAnthropic ProviderTransportType = "anthropic"
+	// TransportConfigured uses the configured provider transport as-is.
+	TransportConfigured TransportType = "configured"
+	// TransportOpenAICompat uses OpenAI-compatible request transport.
+	TransportOpenAICompat TransportType = "openai_compat"
+	// TransportAnthropic uses Anthropic-native request transport.
+	TransportAnthropic TransportType = "anthropic"
 )
 
 // ResolvedModel is the runtime object combining provider and model config
@@ -43,7 +43,7 @@ type ResolvedModel struct {
 	ProviderConfig          config.ProviderConfig
 	BackendModelID          string
 	EffectiveProviderType   config.ProviderType
-	EffectiveTransport      ProviderTransportType
+	EffectiveTransport      TransportType
 	EffectiveLimits         EffectiveLimits
 	Params                  map[string]any
 	ExtraParams             map[string]any
@@ -81,7 +81,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		ProviderConfig:        provCfg,
 		BackendModelID:        modelCfg.ID,
 		EffectiveProviderType: provCfg.Type,
-		EffectiveTransport:    ProviderTransportConfigured,
+		EffectiveTransport:    TransportConfigured,
 		EffectiveLimits:       limits,
 		Params:                modelCfg.Params,
 		ExtraParams:           modelCfg.ExtraParams,
@@ -166,34 +166,34 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	return rm, nil
 }
 
-func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo, backendID string) (config.ProviderType, ProviderTransportType, string) {
+func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo, backendID string) (config.ProviderType, TransportType, string) {
 	switch override {
 	case config.ModelTransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat, "explicit config override"
+		return config.ProviderTypeOpenAICompat, TransportOpenAICompat, "explicit config override"
 	case config.ModelTransportAnthropic:
-		return config.ProviderTypeAnthropic, ProviderTransportAnthropic, "explicit config override"
+		return config.ProviderTypeAnthropic, TransportAnthropic, "explicit config override"
 	}
 
 	switch metadataProviderTransport(info) {
-	case ProviderTransportAnthropic:
-		return config.ProviderTypeAnthropic, ProviderTransportAnthropic, "models.dev provider override for " + backendID
-	case ProviderTransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat, "models.dev provider override for " + backendID
+	case TransportAnthropic:
+		return config.ProviderTypeAnthropic, TransportAnthropic, "models.dev provider override for " + backendID
+	case TransportOpenAICompat:
+		return config.ProviderTypeOpenAICompat, TransportOpenAICompat, "models.dev provider override for " + backendID
 	default:
-		return configuredType, ProviderTransportConfigured, "none"
+		return configuredType, TransportConfigured, "none"
 	}
 }
 
-func metadataProviderTransport(info metadata.ModelInfo) ProviderTransportType {
+func metadataProviderTransport(info metadata.ModelInfo) TransportType {
 	for _, npm := range []string{info.ModelProviderNPM, info.ProviderNPM} {
 		switch strings.TrimSpace(npm) {
 		case "@ai-sdk/anthropic":
-			return ProviderTransportAnthropic
+			return TransportAnthropic
 		case "@ai-sdk/openai-compatible":
-			return ProviderTransportOpenAICompat
+			return TransportOpenAICompat
 		}
 	}
-	return ProviderTransportConfigured
+	return TransportConfigured
 }
 
 func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {

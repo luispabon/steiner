@@ -17,9 +17,9 @@ func NewProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Event {
 
 // NewTransportDiagnosticEvent creates a diagnostic event when a model's
 // effective transport differs from the configured provider type.
-func NewTransportDiagnosticEvent(model, configuredType, effectiveType, effectiveTransport, metadataSource, reason string) Event {
+func NewTransportDiagnosticEvent(model, configuredType, effectiveType, metadataSource, reason string) Event {
 	return NewProviderDiagnosticEvent(ProviderDiagnosticEvent{
 		Severity: "info",
-		Message:  fmt.Sprintf("model %s uses %s transport from %s (%s)", model, effectiveType, metadataSource, reason),
+		Message:  fmt.Sprintf("model %s uses %s transport (was %s) from %s (%s)", model, effectiveType, configuredType, metadataSource, reason),
 	})
 }

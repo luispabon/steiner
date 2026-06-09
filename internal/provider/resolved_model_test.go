@@ -65,8 +65,8 @@ func TestResolve(t *testing.T) {
 				if rm.EffectiveProviderType != config.ProviderTypeOpenAICompat {
 					t.Errorf("EffectiveProviderType=%q, want %q", rm.EffectiveProviderType, config.ProviderTypeOpenAICompat)
 				}
-				if rm.EffectiveTransport != ProviderTransportConfigured {
-					t.Errorf("EffectiveTransport=%q, want %q", rm.EffectiveTransport, ProviderTransportConfigured)
+				if rm.EffectiveTransport != TransportConfigured {
+					t.Errorf("EffectiveTransport=%q, want %q", rm.EffectiveTransport, TransportConfigured)
 				}
 				if rm.MetadataSource != "config" {
 					t.Errorf("MetadataSource=%q, want config", rm.MetadataSource)
@@ -947,21 +947,21 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 		modelID          string
 		override         config.ModelTransportType
 		wantProviderType config.ProviderType
-		wantTransport    ProviderTransportType
+		wantTransport    TransportType
 		wantBaseURL      string
 	}{
 		{
 			name:             "model metadata switches minimax to anthropic",
 			modelID:          "minimax-m3",
 			wantProviderType: config.ProviderTypeAnthropic,
-			wantTransport:    ProviderTransportAnthropic,
+			wantTransport:    TransportAnthropic,
 			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
 		},
 		{
 			name:             "model metadata keeps kimi on openai compatible",
 			modelID:          "kimi-k2.6",
 			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    ProviderTransportOpenAICompat,
+			wantTransport:    TransportOpenAICompat,
 			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
 		},
 		{
@@ -969,7 +969,7 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 			modelID:          "minimax-m3",
 			override:         config.ModelTransportOpenAICompat,
 			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    ProviderTransportOpenAICompat,
+			wantTransport:    TransportOpenAICompat,
 			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
 		},
 	}
