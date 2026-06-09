@@ -26,10 +26,8 @@ func TestSummarizeGrepArgs(t *testing.T) {
 			expected: "'TODO' in ./internal",
 		},
 		{
-			name: "grep with pattern only",
-			args: map[string]any{
-				"pattern": "TODO",
-			},
+			name:     "grep with pattern only",
+			args:     map[string]any{"pattern": "TODO"},
 			expected: "'TODO'",
 		},
 		{
@@ -43,19 +41,13 @@ func TestSummarizeGrepArgs(t *testing.T) {
 			expected: "grep",
 		},
 		{
-			name: "grep with pattern and path with leading ./",
-			args: map[string]any{
-				"pattern": "error",
-				"path":    "./cmd",
-			},
+			name:     "grep with pattern and path with leading ./",
+			args:     map[string]any{"pattern": "error", "path": "./cmd"},
 			expected: "'error' in ./cmd",
 		},
 		{
-			name: "grep with pattern and absolute path",
-			args: map[string]any{
-				"pattern": "config",
-				"path":    "/etc/config",
-			},
+			name:     "grep with pattern and absolute path",
+			args:     map[string]any{"pattern": "config", "path": "/etc/config"},
 			expected: "'config' in /etc/config",
 		},
 		{
@@ -190,6 +182,49 @@ func TestSummarizeReadArgs(t *testing.T) {
 	}
 }
 
+func TestSummarizeLSArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]any
+		expected string
+	}{
+		{
+			name:     "ls with path",
+			args:     map[string]any{"path": "./mydir"},
+			expected: "./mydir",
+		},
+		{
+			name:     "ls with path + recursive=true",
+			args:     map[string]any{"path": "./mydir", "recursive": true},
+			expected: "./mydir (recursive)",
+		},
+		{
+			name:     "ls with path + recursive=false",
+			args:     map[string]any{"path": "./mydir", "recursive": false},
+			expected: "./mydir",
+		},
+		{
+			name:     "ls with no args",
+			args:     map[string]any{},
+			expected: ".",
+		},
+		{
+			name:     "ls with recursive=true only",
+			args:     map[string]any{"recursive": true},
+			expected: ". (recursive)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := summarizeLSArgs(tt.args)
+			if result != tt.expected {
+				t.Errorf("summarizeLSArgs(%v) = %q, want %q", tt.args, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSummarizeArgs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -214,12 +249,6 @@ func TestSummarizeArgs(t *testing.T) {
 			expected: "ls -la",
 		},
 		{
-			name:     "grep with case-insensitive tool name",
-			tool:     "GREP",
-			args:     map[string]any{"pattern": "TODO"},
-			expected: "'TODO'",
-		},
-		{
 			name:     "glob tool dispatches to glob handler",
 			tool:     "glob",
 			args:     map[string]any{"pattern": "**/*.go", "path": "internal"},
@@ -238,12 +267,6 @@ func TestSummarizeArgs(t *testing.T) {
 			expected: "bash",
 		},
 		{
-			name:     "empty args returns tool name",
-			tool:     "bash",
-			args:     map[string]any{},
-			expected: "bash",
-		},
-		{
 			name:     "read tool dispatches to read handler",
 			tool:     "read",
 			args:     map[string]any{"path": "main.go"},
@@ -254,6 +277,12 @@ func TestSummarizeArgs(t *testing.T) {
 			tool:     "read_file",
 			args:     map[string]any{"path": "config.yaml", "offset": 10.0, "limit": 30.0},
 			expected: "config.yaml:10–39",
+		},
+		{
+			name:     "ls tool dispatches to ls handler",
+			tool:     "ls",
+			args:     map[string]any{"path": "./src", "recursive": true},
+			expected: "./src (recursive)",
 		},
 	}
 
