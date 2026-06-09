@@ -43,10 +43,23 @@ type AdvancedLimitsConfig struct {
 	MaxOutputTokens int `yaml:"max_output_tokens"`
 }
 
+// ModelTransportType controls how Steiner chooses the request transport for a model.
+type ModelTransportType string
+
+const (
+	// ModelTransportAuto uses models.dev metadata when available, else the configured provider type.
+	ModelTransportAuto ModelTransportType = "auto"
+	// ModelTransportOpenAICompat forces OpenAI-compatible request transport.
+	ModelTransportOpenAICompat ModelTransportType = "openai_compat"
+	// ModelTransportAnthropic forces Anthropic-native request transport.
+	ModelTransportAnthropic ModelTransportType = "anthropic"
+)
+
 // AdvancedConfig holds advanced model-specific configuration.
 type AdvancedConfig struct {
 	Limits            AdvancedLimitsConfig `yaml:"limits"`
 	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
+	Transport         ModelTransportType   `yaml:"transport"`
 }
 
 // SearchConfig configures web search integration.

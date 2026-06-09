@@ -46,7 +46,8 @@ type modelPatch struct {
 }
 
 type advancedPatch struct {
-	Limits *advancedLimitsPatch `yaml:"limits"`
+	Limits    *advancedLimitsPatch `yaml:"limits"`
+	Transport *ModelTransportType  `yaml:"transport"`
 }
 
 type advancedLimitsPatch struct {

@@ -32,6 +32,12 @@ func appendModelProblems(problems *[]string, prefix string, model ModelConfig, p
 	if strings.TrimSpace(model.ID) == "" {
 		*problems = append(*problems, fmt.Sprintf("%s.id is required", prefix))
 	}
+	switch model.Advanced.Transport {
+	case "", ModelTransportAuto, ModelTransportOpenAICompat, ModelTransportAnthropic:
+		// valid
+	default:
+		*problems = append(*problems, fmt.Sprintf("%s.advanced.transport %q is not supported", prefix, model.Advanced.Transport))
+	}
 	appendRetryProblems(problems, prefix+".retry", model.Retry)
 }
 

@@ -116,6 +116,9 @@ func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
 	if patch.Limits != nil {
 		applyAdvancedLimitsPatch(&dst.Limits, patch.Limits)
 	}
+	if patch.Transport != nil {
+		dst.Transport = *patch.Transport
+	}
 }
 
 func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {

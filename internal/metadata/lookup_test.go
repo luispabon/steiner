@@ -95,6 +95,60 @@ func TestLookupWithProviderFallsBackAcrossProviders(t *testing.T) {
 	}
 }
 
+func TestLookupWithProviderIncludesTransportMetadata(t *testing.T) {
+	data := []byte(`{
+		"opencode-go":{
+			"npm":"@ai-sdk/openai-compatible",
+			"api":"https://opencode.ai/zen/go/v1/",
+			"models":{
+				"minimax-m3":{
+					"limit":{"context":256000,"output":8192},
+					"provider":{"npm":"@ai-sdk/anthropic","api":"https://api.minimax.chat/anthropic"},
+					"interleaved":{"field":"reasoning_content"}
+				},
+				"kimi-k2.6":{
+					"provider":{"npm":"@ai-sdk/openai-compatible","api":"https://api.moonshot.ai/v1"}
+				}
+			}
+		}
+	}`)
+
+	t.Run("model-level provider metadata wins", func(t *testing.T) {
+		info := LookupWithProvider(data, "opencode-go", "minimax-m3")
+		if got, want := info.ProviderNPM, "@ai-sdk/openai-compatible"; got != want {
+			t.Fatalf("ProviderNPM = %q, want %q", got, want)
+		}
+		if got, want := info.ProviderAPI, "https://opencode.ai/zen/go/v1/"; got != want {
+			t.Fatalf("ProviderAPI = %q, want %q", got, want)
+		}
+		if got, want := info.ModelProviderNPM, "@ai-sdk/anthropic"; got != want {
+			t.Fatalf("ModelProviderNPM = %q, want %q", got, want)
+		}
+		if got, want := info.ModelProviderAPI, "https://api.minimax.chat/anthropic"; got != want {
+			t.Fatalf("ModelProviderAPI = %q, want %q", got, want)
+		}
+		if got, want := info.InterleavedField, "reasoning_content"; got != want {
+			t.Fatalf("InterleavedField = %q, want %q", got, want)
+		}
+		if !info.ReasoningEchoBack {
+			t.Fatal("ReasoningEchoBack = false, want true")
+		}
+	})
+
+	t.Run("provider-level metadata is preserved without model override", func(t *testing.T) {
+		info := LookupWithProvider(data, "opencode-go", "kimi-k2.6")
+		if got, want := info.ProviderNPM, "@ai-sdk/openai-compatible"; got != want {
+			t.Fatalf("ProviderNPM = %q, want %q", got, want)
+		}
+		if got, want := info.ModelProviderNPM, "@ai-sdk/openai-compatible"; got != want {
+			t.Fatalf("ModelProviderNPM = %q, want %q", got, want)
+		}
+		if got, want := info.ModelProviderAPI, "https://api.moonshot.ai/v1"; got != want {
+			t.Fatalf("ModelProviderAPI = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestLookup_ReasoningEchoBack(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -23,25 +23,39 @@ type EffectiveLimits struct {
 	EmergencySummaryMaxTokens int
 }
 
+// ProviderTransportType identifies which request transport Steiner should use.
+type ProviderTransportType string
+
+const (
+	// ProviderTransportConfigured uses the configured provider transport as-is.
+	ProviderTransportConfigured ProviderTransportType = "configured"
+	// ProviderTransportOpenAICompat uses OpenAI-compatible request transport.
+	ProviderTransportOpenAICompat ProviderTransportType = "openai_compat"
+	// ProviderTransportAnthropic uses Anthropic-native request transport.
+	ProviderTransportAnthropic ProviderTransportType = "anthropic"
+)
+
 // ResolvedModel is the runtime object combining provider and model config
 // with resolved metadata.
 type ResolvedModel struct {
-	Alias               string
-	ProviderAlias       string
-	ProviderConfig      config.ProviderConfig
-	BackendModelID      string
-	EffectiveLimits     EffectiveLimits
-	Params              map[string]any
-	ExtraParams         map[string]any
-	PromptSuffix        string
-	ReasoningEchoBack   bool
-	Prompts             config.ModelPrompts
-	Retry               config.RetryConfig
-	MetadataSource      string
-	Confidence          string
-	TokenizerStrategy   string
-	TokenizerConfidence string
-	Warnings            []string
+	Alias                 string
+	ProviderAlias         string
+	ProviderConfig        config.ProviderConfig
+	BackendModelID        string
+	EffectiveProviderType config.ProviderType
+	EffectiveTransport    ProviderTransportType
+	EffectiveLimits       EffectiveLimits
+	Params                map[string]any
+	ExtraParams           map[string]any
+	PromptSuffix          string
+	ReasoningEchoBack     bool
+	Prompts               config.ModelPrompts
+	Retry                 config.RetryConfig
+	MetadataSource        string
+	Confidence            string
+	TokenizerStrategy     string
+	TokenizerConfidence   string
+	Warnings              []string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias.
@@ -61,20 +75,22 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
 
 	rm := ResolvedModel{
-		Alias:               alias,
-		ProviderAlias:       modelCfg.Provider,
-		ProviderConfig:      provCfg,
-		BackendModelID:      modelCfg.ID,
-		EffectiveLimits:     limits,
-		Params:              modelCfg.Params,
-		ExtraParams:         modelCfg.ExtraParams,
-		PromptSuffix:        modelCfg.PromptSuffix,
-		Prompts:             modelCfg.Prompts,
-		Retry:               modelCfg.Retry,
-		MetadataSource:      "config",
-		Confidence:          "high",
-		TokenizerStrategy:   tokenizerStrategy,
-		TokenizerConfidence: tokenizerConfidence,
+		Alias:                 alias,
+		ProviderAlias:         modelCfg.Provider,
+		ProviderConfig:        provCfg,
+		BackendModelID:        modelCfg.ID,
+		EffectiveProviderType: provCfg.Type,
+		EffectiveTransport:    ProviderTransportConfigured,
+		EffectiveLimits:       limits,
+		Params:                modelCfg.Params,
+		ExtraParams:           modelCfg.ExtraParams,
+		PromptSuffix:          modelCfg.PromptSuffix,
+		Prompts:               modelCfg.Prompts,
+		Retry:                 modelCfg.Retry,
+		MetadataSource:        "config",
+		Confidence:            "high",
+		TokenizerStrategy:     tokenizerStrategy,
+		TokenizerConfidence:   tokenizerConfidence,
 	}
 	if modelCfg.Advanced.ReasoningEchoBack != nil {
 		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack
@@ -102,6 +118,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
 		modelsDevInfo = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
 	}
+	rm.EffectiveProviderType, rm.EffectiveTransport = resolveEffectiveTransport(modelCfg.Advanced.Transport, rm.ProviderConfig.Type, modelsDevInfo)
 	// Apply models.dev reasoning echo back only when config does not override it.
 	if modelCfg.Advanced.ReasoningEchoBack == nil {
 		rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
@@ -146,6 +163,36 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	}
 
 	return rm, nil
+}
+
+func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo) (config.ProviderType, ProviderTransportType) {
+	switch override {
+	case config.ModelTransportOpenAICompat:
+		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat
+	case config.ModelTransportAnthropic:
+		return config.ProviderTypeAnthropic, ProviderTransportAnthropic
+	}
+
+	switch metadataProviderTransport(info) {
+	case ProviderTransportAnthropic:
+		return config.ProviderTypeAnthropic, ProviderTransportAnthropic
+	case ProviderTransportOpenAICompat:
+		return config.ProviderTypeOpenAICompat, ProviderTransportOpenAICompat
+	default:
+		return configuredType, ProviderTransportConfigured
+	}
+}
+
+func metadataProviderTransport(info metadata.ModelInfo) ProviderTransportType {
+	for _, npm := range []string{info.ModelProviderNPM, info.ProviderNPM} {
+		switch strings.TrimSpace(npm) {
+		case "@ai-sdk/anthropic":
+			return ProviderTransportAnthropic
+		case "@ai-sdk/openai-compatible":
+			return ProviderTransportOpenAICompat
+		}
+	}
+	return ProviderTransportConfigured
 }
 
 func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
