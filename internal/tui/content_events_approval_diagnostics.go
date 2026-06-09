@@ -14,16 +14,36 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 		// Embed approval into the most recent tool call segment.
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			seg := &b.segments[i]
-			if seg.kind != segmentToolCall || seg.toolData == nil {
-				continue
+			switch seg.kind {
+			case segmentToolCall:
+				if seg.toolData == nil {
+					continue
+				}
+				seg.toolData.approvalPending = true
+				seg.toolData.approvalMode = payload.Mode
+				seg.toolData.approvalPreview = payload.Preview
+				seg.toolData.approvalSelectedAction = 0
+				seg.toolData.collapsed = false
+				seg.renderDirty = true
+				return
+			case segmentToolCallGroup:
+				if seg.toolGroupData == nil {
+					continue
+				}
+				for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
+					entry := seg.toolGroupData.entries[j]
+					if entry == nil || entry.approvalPending {
+						continue
+					}
+					entry.approvalPending = true
+					entry.approvalMode = payload.Mode
+					entry.approvalPreview = payload.Preview
+					entry.approvalSelectedAction = 0
+					entry.collapsed = false
+					seg.renderDirty = true
+					return
+				}
 			}
-			seg.toolData.approvalPending = true
-			seg.toolData.approvalMode = payload.Mode
-			seg.toolData.approvalPreview = payload.Preview
-			seg.toolData.approvalSelectedAction = 0
-			seg.toolData.collapsed = false
-			seg.renderDirty = true
-			return
 		}
 		// Fallback: no tool segment found — render as standalone pill.
 		b.segments = append(b.segments, contentSegment{
@@ -43,15 +63,8 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.finishStreaming()
 	accepted := event.Type == output.EventTypeApprovalAccepted
-	// Resolve the embedded approval in the most recent pending tool segment.
-	for i := len(b.segments) - 1; i >= 0; i-- {
-		seg := &b.segments[i]
-		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
-			seg.toolData.approvalResolved = true
-			seg.toolData.approvalAccepted = accepted
-			seg.renderDirty = true
-			return
-		}
+	if b.resolveEmbeddedApproval(accepted) {
+		return
 	}
 	// Fallback: resolve a standalone approval pill.
 	for i := len(b.segments) - 1; i >= 0; i-- {
@@ -64,6 +77,35 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 		return
 	}
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
+}
+
+func (b *contentBuffer) resolveEmbeddedApproval(accepted bool) bool {
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := &b.segments[i]
+		switch seg.kind {
+		case segmentToolCall:
+			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+				seg.toolData.approvalResolved = true
+				seg.toolData.approvalAccepted = accepted
+				seg.renderDirty = true
+				return true
+			}
+		case segmentToolCallGroup:
+			if seg.toolGroupData == nil {
+				continue
+			}
+			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
+				entry := seg.toolGroupData.entries[j]
+				if entry != nil && entry.approvalPending && !entry.approvalResolved {
+					entry.approvalResolved = true
+					entry.approvalAccepted = accepted
+					seg.renderDirty = true
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (b *contentBuffer) appendContextReportEvent(event output.Event) {

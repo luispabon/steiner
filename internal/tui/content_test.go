@@ -2678,6 +2678,113 @@ func TestClearApprovalState(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
+	b := &contentBuffer{
+		collapseState: make(map[int]bool),
+	}
+
+	// Standalone display_file segment (should NOT get approval).
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentToolCall,
+		toolData: &toolCallSegment{
+			tool:      "display_file",
+			args:      "main.go",
+			collapsed: false,
+		},
+	})
+
+	// Grouped mutate segment with two entries (second should get approval).
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentToolCallGroup,
+		toolGroupData: &toolCallGroupSegment{
+			tool: "mutate",
+			entries: []*toolCallSegment{
+				{tool: "mutate", args: "replace foo.go", meta: "✅", collapsed: true},
+				{tool: "mutate", args: "create bar.go", collapsed: true},
+			},
+		},
+	})
+
+	// Fire approval event for mutate.
+	b.appendApprovalRequestedEvent(output.Event{
+		Type: output.EventTypeApprovalRequested,
+		Payload: output.ApprovalEvent{
+			Tool:    "mutate",
+			Mode:    "prompt",
+			Preview: `{"path":"bar.go"}`,
+		},
+	})
+
+	// display_file must NOT have approval.
+	if b.segments[0].toolData.approvalPending {
+		t.Fatal("display_file segment got approvalPending, want false")
+	}
+
+	// Second entry in the mutate group must have approval.
+	group := b.segments[1].toolGroupData
+	if group == nil {
+		t.Fatal("expected toolGroupData on segment[1]")
+	}
+	if group.entries[0].approvalPending {
+		t.Error("first mutate entry got approvalPending, want false")
+	}
+	if !group.entries[1].approvalPending {
+		t.Fatal("second mutate entry missing approvalPending")
+	}
+	if group.entries[1].approvalMode != "prompt" {
+		t.Errorf("approvalMode = %q, want %q", group.entries[1].approvalMode, "prompt")
+	}
+	if group.entries[1].collapsed {
+		t.Error("approved entry should be uncollapsed")
+	}
+}
+
+func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
+	b := &contentBuffer{
+		collapseState: make(map[int]bool),
+	}
+
+	// Standalone display_file.
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentToolCall,
+		toolData: &toolCallSegment{
+			tool: "display_file",
+		},
+	})
+
+	// Grouped mutate with second entry pending approval.
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentToolCallGroup,
+		toolGroupData: &toolCallGroupSegment{
+			tool: "mutate",
+			entries: []*toolCallSegment{
+				{tool: "mutate", meta: "✅"},
+				{tool: "mutate", approvalPending: true},
+			},
+		},
+	})
+
+	// Fire acceptance event.
+	b.appendApprovalDecisionEvent(output.Event{
+		Type: output.EventTypeApprovalAccepted,
+		Payload: output.ApprovalEvent{
+			Tool:    "mutate",
+			Allowed: true,
+		},
+	})
+
+	if b.segments[0].toolData.approvalResolved {
+		t.Fatal("display_file should not be resolved")
+	}
+	entry := b.segments[1].toolGroupData.entries[1]
+	if !entry.approvalResolved {
+		t.Fatal("second mutate entry should be resolved")
+	}
+	if !entry.approvalAccepted {
+		t.Fatal("second mutate entry should be accepted")
+	}
+}
+
 func TestContentBufferSegmentHeights(t *testing.T) {
 	tests := []struct {
 		name     string
