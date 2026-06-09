@@ -152,7 +152,7 @@ func TestSummarizeArgs(t *testing.T) {
 			expected: "'func.*Schema' in ./internal/*.go",
 		},
 		{
-			name:     "bash tool uses generic path",
+			name:     "bash tool uses command key",
 			tool:     "bash",
 			args:     map[string]any{"command": "ls -la"},
 			expected: "ls -la",
@@ -175,13 +175,31 @@ func TestSummarizeArgs(t *testing.T) {
 			args:     map[string]any{"url": "https://example.com"},
 			expected: "https://example.com",
 		},
+		{
+			name:     "nil args returns tool name",
+			tool:     "bash",
+			args:     nil,
+			expected: "bash",
+		},
+		{
+			name:     "empty args returns tool name",
+			tool:     "bash",
+			args:     map[string]any{},
+			expected: "bash",
+		},
+		{
+			name:     "url priority over fallback",
+			tool:     "fetch_url",
+			args:     map[string]any{"url": "https://example.com", "other": "value"},
+			expected: "https://example.com",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := summarizeArgs(tt.tool, tt.args)
 			if result != tt.expected {
-				t.Errorf("got %q, want %q", result, tt.expected)
+				t.Errorf("summarizeArgs(%q) = %q, want %q", tt.tool, result, tt.expected)
 			}
 		})
 	}
