@@ -378,6 +378,19 @@ func (b *contentBuffer) buildMutateLines(tc *toolCallSegment, width int) []strin
 		lines = append(lines, b.styles.FgDim.Render(summary))
 	}
 
+	rule := b.styles.FgMute.Render(strings.Repeat("─", max(1, width-2)))
+
+	for _, op := range tc.preview.MutateOperations {
+		lines = append(lines, "") // blank separator
+		lines = append(lines, b.renderMutateOperation(op, rule)...)
+	}
+
+	return lines
+}
+
+func (b *contentBuffer) renderMutateOperation(op output.ToolPreviewMutateOperation, rule string) []string {
+	var lines []string
+
 	addedBg := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.DiffAddedBg)).
 		Foreground(lipgloss.Color(theme.Added))
@@ -385,65 +398,69 @@ func (b *contentBuffer) buildMutateLines(tc *toolCallSegment, width int) []strin
 		Background(lipgloss.Color(theme.DiffRemovedBg)).
 		Foreground(lipgloss.Color(theme.Removed))
 
-	rule := b.styles.FgMute.Render(strings.Repeat("─", max(1, width-2)))
-
-	for _, op := range tc.preview.MutateOperations {
-		lines = append(lines, "") // blank separator
-
-		switch op.Type {
-		case "create", "write":
-			badge := b.styles.Added.Render("A")
-			if op.Type == "write" {
-				badge = b.styles.Warn.Render("M")
-			}
-			header := badge + " " + b.styles.FgDim.Render(op.Path)
-			lines = append(lines, header)
-			lines = append(lines, rule)
-
-			doc := output.FormatFilePreview(op.Path, op.Content)
-			lines = append(lines, b.renderFilePreviewDocument(doc)...)
-			lines = append(lines, rule)
-
-		case "replace":
-			badge := b.styles.Warn.Render("M")
-			header := badge + " " + b.styles.FgDim.Render(op.Path)
-			lines = append(lines, header)
-			lines = append(lines, rule)
-
-			oldLines := strings.Split(op.OldString, "\n")
-			newLines := strings.Split(op.NewString, "\n")
-			maxLen := max(len(oldLines), len(newLines))
-			for i := 0; i < maxLen; i++ {
-				if i < len(oldLines) {
-					lines = append(lines, removedBg.Render("- "+oldLines[i]))
-				}
-				if i < len(newLines) {
-					lines = append(lines, addedBg.Render("+ "+newLines[i]))
-				}
-			}
-			lines = append(lines, rule)
-
-		case "line_replace":
-			badge := b.styles.Warn.Render("M")
-			header := badge + " " + b.styles.FgDim.Render(op.Path)
-			lines = append(lines, header)
-			lines = append(lines, rule)
-
-			lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
-			lines = append(lines, lineNo+"  "+removedBg.Render("- "+op.OldString))
-			lines = append(lines, lineNo+"  "+addedBg.Render("+ "+op.NewString))
-			lines = append(lines, rule)
-
-		case "delete":
-			badge := b.styles.Removed.Render("D")
-			header := badge + " " + b.styles.FgDim.Render(op.Path)
-			lines = append(lines, header)
-
-		case "move":
-			badge := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Render("R")
-			header := badge + " " + b.styles.FgDim.Render(op.From) + " " + b.styles.FgFaint.Render("→") + " " + b.styles.FgDim.Render(op.To)
-			lines = append(lines, header)
+	switch op.Type {
+	case "create", "write":
+		badge := b.styles.Added.Render("A")
+		if op.Type == "write" {
+			badge = b.styles.Warn.Render("M")
 		}
+		header := badge + " " + b.styles.FgDim.Render(op.Path)
+		lines = append(lines, header)
+		lines = append(lines, rule)
+
+		doc := output.FormatFilePreview(op.Path, op.Content)
+		lines = append(lines, b.renderFilePreviewDocument(doc)...)
+		lines = append(lines, rule)
+
+	case "replace":
+		badge := b.styles.Warn.Render("M")
+		header := badge + " " + b.styles.FgDim.Render(op.Path)
+		lines = append(lines, header)
+		lines = append(lines, rule)
+
+		oldLines := strings.Split(op.OldString, "\n")
+		newLines := strings.Split(op.NewString, "\n")
+		maxLen := max(len(oldLines), len(newLines))
+		for i := 0; i < maxLen; i++ {
+			if i < len(oldLines) {
+				lines = append(lines, removedBg.Render("- "+oldLines[i]))
+			}
+			if i < len(newLines) {
+				lines = append(lines, addedBg.Render("+ "+newLines[i]))
+			}
+		}
+		lines = append(lines, rule)
+
+	case "line_replace":
+		badge := b.styles.Warn.Render("M")
+		header := badge + " " + b.styles.FgDim.Render(op.Path)
+		lines = append(lines, header)
+		lines = append(lines, rule)
+
+		lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
+		lines = append(lines, lineNo+"  "+removedBg.Render("- "+op.OldString))
+		lines = append(lines, lineNo+"  "+addedBg.Render("+ "+op.NewString))
+		lines = append(lines, rule)
+
+	case "insert_before", "insert_after":
+		badge := b.styles.Added.Render("I")
+		header := badge + " " + b.styles.FgDim.Render(fmt.Sprintf("%s:%d", op.Path, op.Line))
+		lines = append(lines, header)
+		lines = append(lines, rule)
+		for _, insertLine := range strings.Split(op.NewString, "\n") {
+			lines = append(lines, addedBg.Render("+ "+insertLine))
+		}
+		lines = append(lines, rule)
+
+	case "delete":
+		badge := b.styles.Removed.Render("D")
+		header := badge + " " + b.styles.FgDim.Render(op.Path)
+		lines = append(lines, header)
+
+	case "move":
+		badge := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Render("R")
+		header := badge + " " + b.styles.FgDim.Render(op.From) + " " + b.styles.FgFaint.Render("→") + " " + b.styles.FgDim.Render(op.To)
+		lines = append(lines, header)
 	}
 
 	return lines
