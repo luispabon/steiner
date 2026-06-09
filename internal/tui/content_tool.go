@@ -38,6 +38,9 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
 		return summarizeMutateArgs(args)
 	}
+	if strings.EqualFold(strings.TrimSpace(tool), "ls") {
+		return summarizeLSArgs(args)
+	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description"} {
 		if v, ok := args[key]; ok {
@@ -101,6 +104,18 @@ func summarizeMutateArgs(args map[string]any) string {
 	}
 	if len(ops) > 1 {
 		return fmt.Sprintf("%s (+%d more)", path, len(ops)-1)
+	}
+	return path
+}
+
+func summarizeLSArgs(args map[string]any) string {
+	path, _ := args["path"].(string)
+	if path == "" {
+		path = "."
+	}
+	recursive, _ := args["recursive"].(bool)
+	if recursive {
+		return path + " (recursive)"
 	}
 	return path
 }
