@@ -94,6 +94,18 @@ func (c *testController) submitWorkflowHandoffs() []interactive.SubmitWorkflowHa
 	return result
 }
 
+func (c *testController) rotateSessionActions() []interactive.RotateSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.RotateSession
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.RotateSession); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func (c *testController) skillEnabledActions() []interactive.SetSkillEnabled {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2838,6 +2850,12 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
+	}
+
+	// Verify RotateSession was sent after accept
+	rotations := ctrl.rotateSessionActions()
+	if len(rotations) != 1 {
+		t.Fatalf("rotate session actions = %d, want 1", len(rotations))
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
