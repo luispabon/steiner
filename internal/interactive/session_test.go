@@ -29,6 +29,7 @@ var (
 	_ Action = TriggerManualCompaction{}
 	_ Action = ToggleCavemanMode{}
 	_ Action = LoadSession{}
+	_ Action = RotateSession{}
 	_ Action = requestSessionPicker{}
 )
 
@@ -346,6 +347,9 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"SubmitWorkflowHandoff", SubmitWorkflowHandoff{Decision: "dismiss"}},
 		{"RequestExit", RequestExit{}},
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
+		{"RotateSession", RotateSession{}},
+		{"ClearConversation", ClearConversation{}},
+		{"ToggleCavemanMode", ToggleCavemanMode{}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
 		{"TriggerManualCompaction", TriggerManualCompaction{}},
 	}
@@ -359,6 +363,43 @@ func TestSessionHandleNoop(t *testing.T) {
 	}
 }
 
+func TestRotateSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generates new ID and clears title", func(t *testing.T) {
+		s := testNewSession(t, Dependencies{
+			SessionStore: newMockSessionStore(),
+			Config: config.Config{
+				DefaultModel: "test",
+				Models:       map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		})
+		oldID := s.SessionID()
+		oldTitle := s.SessionTitle() // may be empty initially
+
+		if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+			t.Fatalf("RotateSession: %v", err)
+		}
+		if s.SessionID() == oldID {
+			t.Fatal("expected new session ID after rotation")
+		}
+		if s.SessionTitle() != "" {
+			t.Fatalf("session title = %q, want empty", s.SessionTitle())
+		}
+		_ = oldTitle // used
+	})
+
+	t.Run("noop when SessionStore is nil", func(t *testing.T) {
+		s := testNewSession(t, Dependencies{})
+		oldID := s.SessionID()
+		if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+			t.Fatalf("RotateSession with nil store: %v", err)
+		}
+		if s.SessionID() != oldID {
+			t.Fatalf("session ID changed from %q to %q with nil store", oldID, s.SessionID())
+		}
+	})
+}
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{

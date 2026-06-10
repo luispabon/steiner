@@ -141,7 +141,6 @@ func (c *testController) steerPrompts() []interactive.SteerPrompt {
 	}
 	return result
 }
-
 func (c *testController) countByType(target interactive.Action) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2858,6 +2857,22 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 		t.Fatalf("rotate session actions = %d, want 1", len(rotations))
 	}
 
+	// Verify RotateSession was sent after ClearConversation
+	var sawClear, sawRotate bool
+	for _, a := range ctrl.actions {
+		switch a.(type) {
+		case interactive.ClearConversation:
+			sawClear = true
+		case interactive.RotateSession:
+			if !sawClear {
+				t.Fatal("RotateSession sent before ClearConversation")
+			}
+			sawRotate = true
+		}
+	}
+	if !sawRotate {
+		t.Fatal("RotateSession not found in actions")
+	}
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})
