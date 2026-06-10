@@ -82,7 +82,6 @@ func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput,
 	state.StopReason = StopReasonError
 	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
-	emitStop(in.Request.Events, state, err)
 	return turnOutcome{State: state, Stop: true, Error: err}
 }
 
@@ -293,7 +292,6 @@ func (p *turnProgressor) handleError(ctx context.Context, events output.EventSin
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state.StopReason = StopReasonError
-	emitStop(events, state, err)
 	return turnOutcome{State: state, Error: err, Stop: true}
 }
 

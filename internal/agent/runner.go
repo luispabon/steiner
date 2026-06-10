@@ -125,10 +125,12 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if outcome.Error != nil {
 			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
 				if retryErr != nil {
+					emitStop(req.Events, state, outcome.Error)
 					return state, outcome.Error
 				}
 				continue
 			}
+			emitStop(req.Events, state, outcome.Error)
 			return state, outcome.Error
 		}
 		runnerRetries = 0
