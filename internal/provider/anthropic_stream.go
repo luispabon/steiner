@@ -271,15 +271,16 @@ func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {
 	if state.usage == nil {
 		state.usage = &UsageStats{}
 	}
-	if usage.InputTokens > 0 {
-		state.usage.PromptTokens = usage.InputTokens
+	promptTokens := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	if promptTokens > 0 {
+		state.usage.PromptTokens = promptTokens
+		state.usage.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		state.usage.CacheReadInputTokens = usage.CacheReadInputTokens
 	}
 	if usage.OutputTokens > 0 {
 		state.usage.CompletionTokens = usage.OutputTokens
 	}
-	if state.usage.PromptTokens > 0 || state.usage.CompletionTokens > 0 {
-		state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
-	}
+	state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
 }
 
 func readAnthropicSSEEvent(reader *bufio.Reader) (string, string, error) {

@@ -9,7 +9,7 @@ import (
 func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(t *testing.T) {
 	stream := strings.Join([]string{
 		"event: message_start",
-		`data: {"type":"message_start","message":{"role":"assistant","usage":{"input_tokens":9}}}`,
+		`data: {"type":"message_start","message":{"role":"assistant","usage":{"input_tokens":9,"cache_creation_input_tokens":2,"cache_read_input_tokens":3}}}`,
 		"",
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`,
@@ -89,11 +89,20 @@ func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(
 	if final.Usage == nil {
 		t.Fatal("final usage = nil, want usage stats")
 	}
-	if got, want := final.Usage.PromptTokens, 9; got != want {
+	if got, want := final.Usage.PromptTokens, 14; got != want {
 		t.Fatalf("prompt tokens = %d, want %d", got, want)
 	}
 	if got, want := final.Usage.CompletionTokens, 4; got != want {
 		t.Fatalf("completion tokens = %d, want %d", got, want)
+	}
+	if got, want := final.Usage.CacheCreationInputTokens, 2; got != want {
+		t.Fatalf("cache creation tokens = %d, want %d", got, want)
+	}
+	if got, want := final.Usage.CacheReadInputTokens, 3; got != want {
+		t.Fatalf("cache read tokens = %d, want %d", got, want)
+	}
+	if got, want := final.Usage.TotalTokens, 18; got != want {
+		t.Fatalf("total tokens = %d, want %d", got, want)
 	}
 }
 

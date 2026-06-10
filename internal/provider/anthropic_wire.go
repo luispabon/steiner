@@ -286,9 +286,12 @@ func (u *anthropicUsage) toUsageStats() *UsageStats {
 	if u == nil {
 		return nil
 	}
+	promptTokens := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 	usage := &UsageStats{
-		PromptTokens:     u.InputTokens,
-		CompletionTokens: u.OutputTokens,
+		PromptTokens:             promptTokens,
+		CompletionTokens:         u.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens,
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	return usage
