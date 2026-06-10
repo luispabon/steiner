@@ -1760,6 +1760,18 @@ func TestRunnerRetriesTransientProviderError(t *testing.T) {
 	if diagnosticCount != 2 {
 		t.Fatalf("provider diagnostic events = %d, want 2", diagnosticCount)
 	}
+
+	var errorStopCount int
+	for _, ev := range events {
+		if ev.Type == output.EventTypeStopReason {
+			if payload, ok := ev.Payload.(output.StopReasonEvent); ok && payload.Error != "" {
+				errorStopCount++
+			}
+		}
+	}
+	if errorStopCount != 0 {
+		t.Fatalf("error stop events during retries = %d, want 0", errorStopCount)
+	}
 }
 
 func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
@@ -1779,6 +1791,7 @@ func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
 	}
 	defer func() { runnerRetrySleepFn = origSleep }()
 
+	var events []output.Event
 	_, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider: providerStub,
 		Executor: &fakeExecutor{},
@@ -1786,6 +1799,7 @@ func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
 		Limits: Limits{MaxTurns: 10, MaxTokens: 100},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	})
 	if err == nil {
 		t.Fatal("Run() error = nil, want error after runner retries exhausted")
@@ -1796,6 +1810,18 @@ func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
 	}
 	if httpErr.StatusCode != 429 {
 		t.Fatalf("HTTPError.StatusCode = %d, want 429", httpErr.StatusCode)
+	}
+
+	var errorStopCount int
+	for _, ev := range events {
+		if ev.Type == output.EventTypeStopReason {
+			if payload, ok := ev.Payload.(output.StopReasonEvent); ok && payload.Error != "" {
+				errorStopCount++
+			}
+		}
+	}
+	if errorStopCount != 1 {
+		t.Fatalf("error stop events = %d, want exactly 1 (only when runner gives up)", errorStopCount)
 	}
 }
 

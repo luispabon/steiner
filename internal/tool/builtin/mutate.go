@@ -94,7 +94,56 @@ func (p *mutatePlanner) fail(message string, total int) *MutateResult {
 	return &p.result
 }
 
+var allowedFields = map[string]map[string]bool{
+	"create":        {"path": true, "content": true, "file_hash": true},
+	"write":         {"path": true, "content": true, "file_hash": true},
+	"replace":       {"path": true, "old_string": true, "new_string": true, "replace_all": true, "file_hash": true},
+	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "file_hash": true},
+	"delete":        {"path": true, "file_hash": true},
+	"move":          {"from": true, "to": true, "file_hash": true},
+	"insert_before": {"path": true, "line": true, "content": true, "new_string": true, "file_hash": true},
+	"insert_after":  {"path": true, "line": true, "content": true, "new_string": true, "file_hash": true},
+}
+
+func validateFields(index int, op MutateOperation) error {
+	opType := strings.TrimSpace(op.Type)
+	allowed, ok := allowedFields[opType]
+	if !ok {
+		return nil
+	}
+	type fieldCheck struct {
+		name  string
+		isSet bool
+	}
+	checks := []fieldCheck{
+		{"path", op.Path != ""},
+		{"content", op.Content != ""},
+		{"old_string", op.OldString != ""},
+		{"new_string", op.NewString != ""},
+		{"replace_all", op.ReplaceAll},
+		{"line", op.Line != 0},
+		{"line_count", op.LineCount != 0},
+		{"file_hash", op.FileHash != ""},
+		{"from", op.From != ""},
+		{"to", op.To != ""},
+	}
+	for _, c := range checks {
+		if c.isSet && !allowed[c.name] {
+			valid := make([]string, 0, len(allowed))
+			for k := range allowed {
+				valid = append(valid, k)
+			}
+			sort.Strings(valid)
+			return fmt.Errorf("mutate: operation %d %s: field %q is not valid for this operation type; valid fields: %s", index, opType, c.name, strings.Join(valid, ", "))
+		}
+	}
+	return nil
+}
+
 func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
+	if err := validateFields(index, op); err != nil {
+		return err
+	}
 	switch strings.TrimSpace(op.Type) {
 	case "create":
 		return p.planCreate(index, op)

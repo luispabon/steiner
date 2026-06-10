@@ -1484,6 +1484,55 @@ func TestModelApprovalCtrlCInterrupts(t *testing.T) {
 	}
 }
 
+func TestModelApprovalStopReasonRestoresComposerFocus(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	if !m.input.Focused() {
+		t.Fatal("input.Focused() = false, want true at start")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
+	if m.input.Focused() {
+		t.Fatal("input.Focused() = true, want false while approval is open")
+	}
+	if !m.approval.active {
+		t.Fatal("approval.active = false, want true before stop")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "error", nil)})
+
+	if !m.input.Focused() {
+		t.Fatal("input.Focused() = false, want true after stop")
+	}
+	if m.approval.active {
+		t.Fatal("approval.active = true, want false after stop")
+	}
+	if got, want := m.status.mode, "error"; got != want {
+		t.Fatalf("status.mode = %q, want %q", got, want)
+	}
+}
+
+func TestModelApprovalRunFinishedRestoresComposerFocus(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mutate", "prompt", `{"path":"note.txt"}`)})
+	if m.input.Focused() {
+		t.Fatal("input.Focused() = true, want false while approval is open")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "cancelled", "", "", nil)})
+
+	if !m.input.Focused() {
+		t.Fatal("input.Focused() = false, want true after run finish")
+	}
+	if m.approval.active {
+		t.Fatal("approval.active = true, want false after run finish")
+	}
+	if got, want := m.status.mode, "cancelled"; got != want {
+		t.Fatalf("status.mode = %q, want %q", got, want)
+	}
+}
+
 func TestModelEscInterruptsStreaming(t *testing.T) {
 	ctrl := &testController{}
 
@@ -2712,6 +2761,46 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 	}
 }
 
+func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.T) {
+	tests := []struct {
+		name  string
+		event output.Event
+	}{
+		{
+			name:  "stop reason",
+			event: output.NewStopReasonEvent(1, "error", nil),
+		},
+		{
+			name:  "run finished",
+			event: output.NewRunFinishedEvent(1, "cancelled", "", "", nil),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+
+			if !m.workflowHandoff.IsOpen() {
+				t.Fatal("workflowHandoff.IsOpen() = false, want true before terminal event")
+			}
+			if m.input.Focused() {
+				t.Fatal("input.Focused() = true, want false while workflow handoff is open")
+			}
+
+			m = updateModel(t, m, runtimeEventMsg{Event: tc.event})
+
+			if m.workflowHandoff.IsOpen() {
+				t.Fatal("workflowHandoff.IsOpen() = true, want false after terminal event")
+			}
+			if !m.input.Focused() {
+				t.Fatal("input.Focused() = false, want true after terminal event")
+			}
+		})
+	}
+}
+
 func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	ctrl := &testController{}
 	m := newModel(Config{
@@ -2765,6 +2854,90 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill enabled after launch")
+	}
+}
+
+func TestModelTopLevelTerminalEventsPreserveStatusAndContentWithoutPriorBlur(t *testing.T) {
+	tests := []struct {
+		name        string
+		event       output.Event
+		wantMode    string
+		wantLabel   string
+		wantDetail  string
+		wantContent string
+	}{
+		{
+			name:        "stop reason",
+			event:       output.NewStopReasonEvent(1, "cancelled", nil),
+			wantMode:    "cancelled",
+			wantLabel:   "stopped",
+			wantDetail:  "cancelled",
+			wantContent: "cancelled",
+		},
+		{
+			name:        "run finished",
+			event:       output.NewRunFinishedEvent(1, "error", "", "", nil),
+			wantMode:    "error",
+			wantLabel:   "run finished",
+			wantDetail:  "error",
+			wantContent: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+			m.content.AppendLine("existing transcript")
+			m.interruptPending = true
+
+			m = updateModel(t, m, runtimeEventMsg{Event: tc.event})
+
+			if !m.input.Focused() {
+				t.Fatal("input.Focused() = false, want true after terminal event")
+			}
+			if m.interruptPending {
+				t.Fatal("interruptPending = true, want false after terminal event")
+			}
+			if got, want := m.status.mode, tc.wantMode; got != want {
+				t.Fatalf("status.mode = %q, want %q", got, want)
+			}
+			if got, want := m.activity.label, tc.wantLabel; got != want {
+				t.Fatalf("activity.label = %q, want %q", got, want)
+			}
+			if got, want := m.activity.detail, tc.wantDetail; got != want {
+				t.Fatalf("activity.detail = %q, want %q", got, want)
+			}
+			rendered := m.content.String(m.viewport.Width)
+			if !strings.Contains(rendered, "existing transcript") {
+				t.Fatalf("content = %q, want existing transcript retained", rendered)
+			}
+			if tc.wantContent != "" && !strings.Contains(rendered, tc.wantContent) {
+				t.Fatalf("content = %q, want terminal event content retained", rendered)
+			}
+		})
+	}
+}
+
+func TestModelScopedTerminalEventDoesNotChangeMainComposerState(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "prompt", `{"command":"pwd"}`)})
+	if m.input.Focused() {
+		t.Fatal("input.Focused() = true, want false while approval is open")
+	}
+	if !m.approval.active {
+		t.Fatal("approval.active = false, want true before scoped event")
+	}
+
+	scoped := output.WithAgentScope(output.NewStopReasonEvent(1, "error", nil), "child-1")
+	m = updateModel(t, m, runtimeEventMsg{Event: scoped})
+
+	if !m.approval.active {
+		t.Fatal("approval.active = false, want true after scoped event")
+	}
+	if m.input.Focused() {
+		t.Fatal("input.Focused() = true, want false after scoped event")
 	}
 }
 

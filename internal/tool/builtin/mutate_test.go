@@ -1911,6 +1911,90 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 	})
 }
 
+func TestMutateRejectsInapplicableFields(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	if err := os.WriteFile(filepath.Join(root, "exist.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		op      map[string]any
+		wantErr string
+	}{
+		{
+			name:    "delete with line",
+			op:      map[string]any{"type": "delete", "path": "exist.txt", "line": float64(1)},
+			wantErr: `field "line" is not valid`,
+		},
+		{
+			name:    "delete with line_count",
+			op:      map[string]any{"type": "delete", "path": "exist.txt", "line_count": float64(2)},
+			wantErr: `field "line_count" is not valid`,
+		},
+		{
+			name:    "delete with content",
+			op:      map[string]any{"type": "delete", "path": "exist.txt", "content": "stuff"},
+			wantErr: `field "content" is not valid`,
+		},
+		{
+			name:    "create with line",
+			op:      map[string]any{"type": "create", "path": "new.txt", "content": "x", "line": float64(1)},
+			wantErr: `field "line" is not valid`,
+		},
+		{
+			name:    "create with old_string",
+			op:      map[string]any{"type": "create", "path": "new.txt", "content": "x", "old_string": "y"},
+			wantErr: `field "old_string" is not valid`,
+		},
+		{
+			name:    "create with from",
+			op:      map[string]any{"type": "create", "path": "new.txt", "content": "x", "from": "a.txt"},
+			wantErr: `field "from" is not valid`,
+		},
+		{
+			name:    "move with content",
+			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "content": "x"},
+			wantErr: `field "content" is not valid`,
+		},
+		{
+			name:    "move with line",
+			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "line": float64(1)},
+			wantErr: `field "line" is not valid`,
+		},
+		{
+			name:    "replace with line",
+			op:      map[string]any{"type": "replace", "path": "exist.txt", "old_string": "hello", "new_string": "hi", "line": float64(1)},
+			wantErr: `field "line" is not valid`,
+		},
+		{
+			name:    "replace with from",
+			op:      map[string]any{"type": "replace", "path": "exist.txt", "old_string": "hello", "new_string": "hi", "from": "a.txt"},
+			wantErr: `field "from" is not valid`,
+		},
+		{
+			name:    "replace with content",
+			op:      map[string]any{"type": "replace", "path": "exist.txt", "old_string": "hello", "new_string": "hi", "content": "x"},
+			wantErr: `field "content" is not valid`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runMutate(t, toolDef, map[string]any{
+				"operations": []any{tt.op},
+			})
+			if got.OperationsFailed != 1 {
+				t.Fatalf("expected 1 failed operation, got %d; output: %s", got.OperationsFailed, got.Output)
+			}
+			if !strings.Contains(got.Output, tt.wantErr) {
+				t.Fatalf("output %q does not contain %q", got.Output, tt.wantErr)
+			}
+		})
+	}
+}
+
 func assertFile(t *testing.T, path, want string) {
 	t.Helper()
 	data, err := os.ReadFile(path)

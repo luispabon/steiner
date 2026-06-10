@@ -368,6 +368,8 @@ Constrains filesystem access for tools that read or write files.
 | `exclude_paths`    | []string | —       | Paths excluded from directory listings and glob results. |
 | `exclude_patterns` | []string | —       | Glob patterns excluded from directory listings and glob results. |
 
+Note: the TUI file picker always shows `.steiner/` and its contents, regardless of the rules above. The same exclusion rules still apply to `glob` and `grep` tools.
+
 ```yaml
 paths:
   project_root_only: true
