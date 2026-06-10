@@ -150,6 +150,26 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	}
 }
 
+func TestPlainRendererSuppressesTransportOverrideProviderDiagnostics(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := NewPlainRenderer(&buf)
+
+	renderer.OnEvent(NewTransportDiagnosticEvent("model-a", "configured", "effective", "fallback", "override selected"))
+	renderer.OnEvent(NewProviderDiagnosticEvent(ProviderDiagnosticEvent{
+		Turn:     3,
+		Severity: "warning",
+		Message:  "provider returned transient error, retrying turn in 5s",
+	}))
+
+	got := buf.String()
+	if strings.Contains(got, "transport_override") || strings.Contains(got, "model model-a uses") {
+		t.Fatalf("stream output %q unexpectedly rendered transport override diagnostic", got)
+	}
+	if want := "status: provider turn=3 warning message=provider returned transient error, retrying turn in 5s"; !strings.Contains(got, want) {
+		t.Fatalf("stream output %q missing warning diagnostic %q", got, want)
+	}
+}
+
 func TestContextDiagnosticsPayloadCarriesEscalationFields(t *testing.T) {
 	compaction := NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
 		Kind:            "compaction",

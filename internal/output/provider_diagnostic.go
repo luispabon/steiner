@@ -19,7 +19,13 @@ func NewProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Event {
 // effective transport differs from the configured provider type.
 func NewTransportDiagnosticEvent(model, configuredType, effectiveType, metadataSource, reason string) Event {
 	return NewProviderDiagnosticEvent(ProviderDiagnosticEvent{
-		Severity: "info",
-		Message:  fmt.Sprintf("model %s uses %s transport (was %s) from %s (%s)", model, effectiveType, configuredType, metadataSource, reason),
+		Severity:     "info",
+		Kind:         ProviderDiagnosticKindTransportOverride,
+		Suppressible: true,
+		Message:      fmt.Sprintf("model %s uses %s transport (was %s) from %s (%s)", model, effectiveType, configuredType, metadataSource, reason),
 	})
+}
+
+func (payload ProviderDiagnosticEvent) suppressInTranscript() bool {
+	return payload.Severity == "info" && payload.Suppressible && payload.Kind == ProviderDiagnosticKindTransportOverride
 }

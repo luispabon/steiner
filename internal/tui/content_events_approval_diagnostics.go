@@ -115,6 +115,15 @@ func (b *contentBuffer) appendContextReportEvent(event output.Event) {
 	}
 }
 
+func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
+	payload, ok := event.Payload.(output.ProviderDiagnosticEvent)
+	if !ok || (payload.Severity == "info" && payload.Suppressible && payload.Kind == output.ProviderDiagnosticKindTransportOverride) {
+		return
+	}
+	b.finishStreaming()
+	b.appendLine(output.FormatEvent(event))
+}
+
 func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	b.finishStreaming()
 	payload, ok := event.Payload.(output.ContextDiagnosticsEvent)

@@ -54,6 +54,9 @@ const (
 	EventTypeThinkingChunk = "thinking_chunk"
 	// EventTypeProviderDiagnostic records provider retry or transport diagnostics.
 	EventTypeProviderDiagnostic = "provider_diagnostic"
+	// ProviderDiagnosticKindTransportOverride identifies a provider diagnostic
+	// that is informational and safe to suppress from user-facing transcripts.
+	ProviderDiagnosticKindTransportOverride = "transport_override"
 	// EventTypeContextReport records the assembled context report.
 	EventTypeContextReport = "context_report"
 	// EventTypeHistoryLoaded records loaded conversation history.
@@ -329,13 +332,15 @@ type ThinkingChunkEvent struct {
 
 // ProviderDiagnosticEvent describes provider retry and transport diagnostics.
 type ProviderDiagnosticEvent struct {
-	Turn        int    `json:"turn,omitempty"`
-	Severity    string `json:"severity,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Attempt     int    `json:"attempt,omitempty"`
-	MaxAttempts int    `json:"max_attempts,omitempty"`
-	Delay       string `json:"delay,omitempty"`
-	Partial     bool   `json:"partial,omitempty"`
+	Turn         int    `json:"turn,omitempty"`
+	Severity     string `json:"severity,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Suppressible bool   `json:"suppressible,omitempty"`
+	Message      string `json:"message,omitempty"`
+	Attempt      int    `json:"attempt,omitempty"`
+	MaxAttempts  int    `json:"max_attempts,omitempty"`
+	Delay        string `json:"delay,omitempty"`
+	Partial      bool   `json:"partial,omitempty"`
 }
 
 // DelegationStartedEvent records the start of a delegated child task.
