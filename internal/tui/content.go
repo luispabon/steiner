@@ -107,11 +107,19 @@ func (b *contentBuffer) appendLine(line string) {
 	if shouldSuppressLine(line) {
 		return
 	}
+	if rest, ok := strings.CutPrefix(line, statusLinePrefix); ok {
+		b.segments = append(b.segments, contentSegment{kind: segmentStatus, text: rest, renderDirty: true})
+		return
+	}
 	b.segments = append(b.segments, contentSegment{kind: segmentPlain, text: line, renderDirty: true})
 }
 
 func (b *contentBuffer) appendStyled(line string, kind contentSegmentKind) {
 	if shouldSuppressLine(line) {
+		return
+	}
+	if rest, ok := strings.CutPrefix(line, statusLinePrefix); ok {
+		b.segments = append(b.segments, contentSegment{kind: segmentStatus, text: rest, renderDirty: true})
 		return
 	}
 	b.segments = append(b.segments, contentSegment{kind: kind, text: line, renderDirty: true})

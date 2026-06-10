@@ -31,6 +31,7 @@ const (
 	segmentInterrupted
 	segmentDelegation
 	segmentPendingSteer
+	segmentStatus
 )
 
 type thinkingBlockData struct {

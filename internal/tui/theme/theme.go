@@ -117,6 +117,10 @@ type Styles struct {
 	// Accent background (accent bg + black fg)
 	AccentBg lipgloss.Style
 
+	// StatusTag is the bold accent-colored label used to mark system status
+	// lines in the conversation view (e.g. "status" prefix).
+	StatusTag lipgloss.Style
+
 	// Input focus border ring
 	InputFocusBorder lipgloss.Style
 
@@ -219,6 +223,8 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		Accent:   lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)),
 		AccentBg: lipgloss.NewStyle().Background(lipgloss.Color(accentHex)).Foreground(lipgloss.Color(Black)),
+
+		StatusTag: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)).Bold(true),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
 
