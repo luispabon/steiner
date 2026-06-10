@@ -1,5 +1,11 @@
 package config
 
+func setIfPresent[T any](dst *T, src *T) {
+	if src != nil {
+		*dst = *src
+	}
+}
+
 func applySchedulerConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
@@ -7,9 +13,7 @@ func applySchedulerConfigPatch(cfg *Config, patch configPatch) {
 }
 
 func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
-	if patch.Parallelism != nil {
-		dst.Parallelism = *patch.Parallelism
-	}
+	setIfPresent(&dst.Parallelism, patch.Parallelism)
 }
 
 func applyModelConfigPatch(cfg *Config, patch configPatch) {
@@ -65,42 +69,24 @@ func cloneModelConfig(src ModelConfig) ModelConfig {
 }
 
 func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
-	if patch.Type != nil {
-		dst.Type = *patch.Type
-	}
-	if patch.BaseURL != nil {
-		dst.BaseURL = *patch.BaseURL
-	}
-	if patch.APIKey != nil {
-		dst.APIKey = *patch.APIKey
-	}
-	if patch.APIKeyEnv != nil {
-		dst.APIKeyEnv = *patch.APIKeyEnv
-	}
-	if patch.Headers != nil {
-		dst.Headers = *patch.Headers
-	}
-	if patch.Timeout != nil {
-		dst.Timeout = *patch.Timeout
-	}
+	setIfPresent(&dst.Type, patch.Type)
+	setIfPresent(&dst.BaseURL, patch.BaseURL)
+	setIfPresent(&dst.APIKey, patch.APIKey)
+	setIfPresent(&dst.APIKeyEnv, patch.APIKeyEnv)
+	setIfPresent(&dst.Headers, patch.Headers)
+	setIfPresent(&dst.Timeout, patch.Timeout)
 }
 
 func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
-	if patch.Provider != nil {
-		dst.Provider = *patch.Provider
-	}
-	if patch.ID != nil {
-		dst.ID = *patch.ID
-	}
+	setIfPresent(&dst.Provider, patch.Provider)
+	setIfPresent(&dst.ID, patch.ID)
 	if patch.Params != nil {
 		dst.Params = copyStringAnyMap(*patch.Params)
 	}
 	if patch.ExtraParams != nil {
 		dst.ExtraParams = copyStringAnyMap(*patch.ExtraParams)
 	}
-	if patch.PromptSuffix != nil {
-		dst.PromptSuffix = *patch.PromptSuffix
-	}
+	setIfPresent(&dst.PromptSuffix, patch.PromptSuffix)
 	if patch.Retry != nil {
 		applyRetryPatch(&dst.Retry, patch.Retry)
 	}
@@ -116,43 +102,23 @@ func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
 	if patch.Limits != nil {
 		applyAdvancedLimitsPatch(&dst.Limits, patch.Limits)
 	}
-	if patch.Transport != nil {
-		dst.Transport = *patch.Transport
-	}
+	setIfPresent(&dst.Transport, patch.Transport)
 }
 
 func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {
-	if patch.ContextWindow != nil {
-		dst.ContextWindow = *patch.ContextWindow
-	}
-	if patch.MaxOutputTokens != nil {
-		dst.MaxOutputTokens = *patch.MaxOutputTokens
-	}
+	setIfPresent(&dst.ContextWindow, patch.ContextWindow)
+	setIfPresent(&dst.MaxOutputTokens, patch.MaxOutputTokens)
 }
 
 func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
-	if patch.System != nil {
-		dst.System = *patch.System
-	}
-	if patch.Compaction != nil {
-		dst.Compaction = *patch.Compaction
-	}
+	setIfPresent(&dst.System, patch.System)
+	setIfPresent(&dst.Compaction, patch.Compaction)
 }
 
 func applyRetryPatch(dst *RetryConfig, patch *retryPatch) {
-	if patch.Enabled != nil {
-		dst.Enabled = *patch.Enabled
-	}
-	if patch.MaxAttempts != nil {
-		dst.MaxAttempts = *patch.MaxAttempts
-	}
-	if patch.InitialBackoff != nil {
-		dst.InitialBackoff = *patch.InitialBackoff
-	}
-	if patch.MaxBackoff != nil {
-		dst.MaxBackoff = *patch.MaxBackoff
-	}
-	if patch.RetryAfterMax != nil {
-		dst.RetryAfterMax = *patch.RetryAfterMax
-	}
+	setIfPresent(&dst.Enabled, patch.Enabled)
+	setIfPresent(&dst.MaxAttempts, patch.MaxAttempts)
+	setIfPresent(&dst.InitialBackoff, patch.InitialBackoff)
+	setIfPresent(&dst.MaxBackoff, patch.MaxBackoff)
+	setIfPresent(&dst.RetryAfterMax, patch.RetryAfterMax)
 }
