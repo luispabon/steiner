@@ -13,7 +13,10 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-const maxRunnerRetries = 3
+const (
+	maxRunnerRetries          = 3
+	maxRunnerRateLimitRetries = 10
+)
 
 // ToolExecutor runs a named tool invocation for the agent loop.
 type ToolExecutor interface {
@@ -265,7 +268,14 @@ func formatToolError(err error) string {
 
 func handleTransientProviderRetry(ctx context.Context, events output.EventSink, turn int, err error, retries *int) (shouldRetry bool, sleepErr error) {
 	delay, ok := provider.RetryableProviderError(err)
-	if !ok || *retries >= maxRunnerRetries {
+	if !ok {
+		return false, nil
+	}
+	limit := maxRunnerRetries
+	if provider.IsRateLimitError(err) {
+		limit = maxRunnerRateLimitRetries
+	}
+	if *retries >= limit {
 		return false, nil
 	}
 	*retries++
@@ -275,7 +285,7 @@ func handleTransientProviderRetry(ctx context.Context, events output.EventSink, 
 	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Turn:     turn,
 		Severity: "warning",
-		Message:  fmt.Sprintf("provider returned transient error, retrying turn in %s (attempt %d/%d): %s", delay, *retries, maxRunnerRetries, err),
+		Message:  fmt.Sprintf("provider returned transient error, retrying turn in %s (attempt %d/%d): %s", delay, *retries, limit, err),
 	}))
 	return true, runnerRetrySleep(ctx, delay)
 }

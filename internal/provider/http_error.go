@@ -128,8 +128,22 @@ func RetryableProviderError(err error) (time.Duration, bool) {
 	if !isRetryableHTTPStatus(httpErr.StatusCode) {
 		return 0, false
 	}
-	delay, _ := retryAfterDelay(httpErr.Header, 0)
+	delay, hasHeader := retryAfterDelay(httpErr.Header, 0)
+	if !hasHeader && httpErr.StatusCode == http.StatusTooManyRequests {
+		if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {
+			delay = parsed
+		}
+	}
 	return delay, true
+}
+
+// IsRateLimitError reports whether err is a 429 Too Many Requests error.
+func IsRateLimitError(err error) bool {
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	return httpErr.StatusCode == http.StatusTooManyRequests
 }
 
 func retryableTransportErrorText(err error) bool {

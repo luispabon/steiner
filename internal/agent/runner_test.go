@@ -1898,6 +1898,76 @@ func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
 	}
 }
 
+func TestRunnerRateLimitGetsMoreRetries(t *testing.T) {
+	callCount := 0
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			callCount++
+			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 429,
+				Status:     "429 Too Many Requests",
+				Body:       `{"error":{"message":"Try again in 5 seconds."}}`,
+			}
+		},
+	}
+
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 20, MaxTokens: 100},
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	// With maxRunnerRateLimitRetries=10, we expect 11 calls (initial + 10 retries).
+	// Each call goes through provider-level retry which is 1 attempt here (no retry config).
+	if callCount < maxRunnerRateLimitRetries+1 {
+		t.Fatalf("callCount = %d, want at least %d (rate limit should get more retries)", callCount, maxRunnerRateLimitRetries+1)
+	}
+}
+
+func TestRunnerServerErrorCapsAtDefaultRetries(t *testing.T) {
+	callCount := 0
+	providerStub := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			callCount++
+			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 502,
+				Status:     "502 Bad Gateway",
+			}
+		},
+	}
+
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	_, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 20, MaxTokens: 100},
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	// 429 rate-limit test above requires at least maxRunnerRateLimitRetries+1 calls.
+	// 502 server errors must produce strictly fewer calls, confirming the lower cap.
+	rateLimitMin := maxRunnerRateLimitRetries + 1
+	if callCount >= rateLimitMin {
+		t.Fatalf("callCount = %d, want less than %d (server error should cap below rate-limit budget)", callCount, rateLimitMin)
+	}
+}
+
 func TestRunnerDetectedReasoningEchoBack_PersistsAcrossTurns(t *testing.T) {
 	// Turn 1: model responds with reasoning_content and a tool call.
 	// Turn 2: model responds with a final answer.
