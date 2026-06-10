@@ -122,6 +122,110 @@ func TestRetryAfterDelay(t *testing.T) {
 	}
 }
 
+func TestRetryableProviderErrorParsesLiteLLMBody(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantDelay time.Duration
+		wantOK    bool
+	}{
+		{
+			name: "429 with litellm body delay",
+			err: &HTTPError{
+				StatusCode: http.StatusTooManyRequests,
+				Status:     "429 Too Many Requests",
+				Body:       `{"error":{"message":"litellm.RateLimitError: Try again in 28 seconds."}}`,
+			},
+			wantDelay: 28 * time.Second,
+			wantOK:    true,
+		},
+		{
+			name: "429 with Retry-After header takes precedence over body",
+			err: &HTTPError{
+				StatusCode: http.StatusTooManyRequests,
+				Status:     "429 Too Many Requests",
+				Body:       `{"error":{"message":"Try again in 28 seconds."}}`,
+				Header:     http.Header{"Retry-After": []string{"10"}},
+			},
+			wantDelay: 10 * time.Second,
+			wantOK:    true,
+		},
+		{
+			name: "429 without parseable body returns zero delay",
+			err: &HTTPError{
+				StatusCode: http.StatusTooManyRequests,
+				Status:     "429 Too Many Requests",
+				Body:       `{"error":"rate limited"}`,
+			},
+			wantDelay: 0,
+			wantOK:    true,
+		},
+		{
+			name: "502 does not parse body",
+			err: &HTTPError{
+				StatusCode: http.StatusBadGateway,
+				Status:     "502 Bad Gateway",
+				Body:       `Try again in 28 seconds`,
+			},
+			wantDelay: 0,
+			wantOK:    true,
+		},
+		{
+			name:      "400 not retryable",
+			err:       &HTTPError{StatusCode: http.StatusBadRequest},
+			wantDelay: 0,
+			wantOK:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delay, ok := RetryableProviderError(tt.err)
+			if ok != tt.wantOK {
+				t.Fatalf("RetryableProviderError() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if delay != tt.wantDelay {
+				t.Fatalf("RetryableProviderError() delay = %v, want %v", delay, tt.wantDelay)
+			}
+		})
+	}
+}
+
+func TestIsRateLimitError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "429 is rate limit",
+			err:  &HTTPError{StatusCode: http.StatusTooManyRequests},
+			want: true,
+		},
+		{
+			name: "502 is not rate limit",
+			err:  &HTTPError{StatusCode: http.StatusBadGateway},
+			want: false,
+		},
+		{
+			name: "non-HTTP error",
+			err:  errors.New("network error"),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsRateLimitError(tt.err); got != tt.want {
+				t.Fatalf("IsRateLimitError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsRetryableTransportErrorWrappedOpError(t *testing.T) {
 	err := &net.OpError{
 		Op:  "read",
