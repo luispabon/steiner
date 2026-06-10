@@ -32,7 +32,7 @@ func (f fileListOverlay) Open(root string) fileListOverlay {
 	f.root = root
 	f.entries = nil
 
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewPathExcluderWithIncludes(nil, nil, tool.FilePickerAlwaysInclude)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

@@ -83,6 +83,32 @@ func TestPathExcluder_GlobPatterns(t *testing.T) {
 	}
 }
 
+func TestPathExcluder_ForceInclude(t *testing.T) {
+	ex := NewPathExcluderWithIncludes(nil, nil, FilePickerAlwaysInclude)
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/project/.steiner/config.yaml", want: false},
+		{path: "/project/.steiner/plans/overview.md", want: false},
+		{path: "/project/src/.steiner/notes.md", want: false},
+		{path: "/project/node_modules/foo/index.js", want: true},
+		{path: "/project/.git/config", want: true},
+		{path: "/project/src/main.go", want: false},
+		{path: "/project/README.md", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			got := ex.ShouldExclude(tc.path)
+			if got != tc.want {
+				t.Fatalf("ShouldExclude(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPathExcluder_BuiltinsPlusUser(t *testing.T) {
 	ex := NewPathExcluder([]string{"/project/secret"}, []string{"*.tmp"})
 

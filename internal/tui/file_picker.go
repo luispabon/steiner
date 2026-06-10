@@ -49,7 +49,7 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 	f.candidates = nil
 	f.matchIndexes = nil
 
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewPathExcluderWithIncludes(nil, nil, tool.FilePickerAlwaysInclude)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

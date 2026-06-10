@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -690,5 +692,73 @@ func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 
 	if !strings.Contains(view, "test-model") {
 		t.Fatal("expected sidebar model name to survive file picker overlay")
+	}
+}
+
+func TestFilePickerOverlay_OpenIncludesSteiner(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, root, ".steiner/config.yaml", "model: foo\n")
+	mustWriteFile(t, root, ".steiner/plans/2026-01-01_x/overview.md", "# x\n")
+	mustMkdir(t, root, "node_modules")
+	mustWriteFile(t, root, "node_modules/foo.js", "module.exports = 1\n")
+	mustWriteFile(t, root, "src/main.go", "package main\n")
+
+	s := theme.BuildStyles("#ff0000")
+	f := newFilePickerOverlay(s).Open(root)
+
+	if !f.IsOpen() {
+		t.Fatal("expected picker to be open")
+	}
+
+	wantIncluded := []string{
+		".steiner/",
+		".steiner/config.yaml",
+		".steiner/plans/",
+		".steiner/plans/2026-01-01_x/",
+		".steiner/plans/2026-01-01_x/overview.md",
+		"src/",
+		"src/main.go",
+	}
+	for _, entry := range wantIncluded {
+		if !containsString(f.allEntries, entry) {
+			t.Errorf("expected entries to include %q, got %v", entry, f.allEntries)
+		}
+	}
+
+	wantExcluded := []string{
+		"node_modules/",
+		"node_modules/foo.js",
+	}
+	for _, entry := range wantExcluded {
+		if containsString(f.allEntries, entry) {
+			t.Errorf("expected entries to exclude %q, got %v", entry, f.allEntries)
+		}
+	}
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func mustWriteFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	full := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", full, err)
+	}
+}
+
+func mustMkdir(t *testing.T, root, rel string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", rel, err)
 	}
 }
