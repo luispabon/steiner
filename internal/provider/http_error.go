@@ -25,16 +25,14 @@ func (e *HTTPError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
+	id := e.Status
+	if id == "" {
+		id = strconv.Itoa(e.StatusCode)
+	}
 	if strings.TrimSpace(e.Body) == "" {
-		if e.Status != "" {
-			return fmt.Sprintf("chat completions request failed: %s", e.Status)
-		}
-		return fmt.Sprintf("chat completions request failed: %d", e.StatusCode)
+		return fmt.Sprintf("chat completions request failed: %s", id)
 	}
-	if e.Status != "" {
-		return fmt.Sprintf("chat completions request failed: %s: %s", e.Status, e.Body)
-	}
-	return fmt.Sprintf("chat completions request failed: %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("chat completions request failed: %s: %s", id, e.Body)
 }
 
 func isRetryableHTTPStatus(status int) bool {

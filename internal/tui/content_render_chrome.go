@@ -440,42 +440,37 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	return header
 }
 
+// delegationStyles returns both the tag and border lipgloss styles for the given
+// agent type label, performing the case-normalisation once for both callers.
+func (b *contentBuffer) delegationStyles(toolLabel string) (tag lipgloss.Style, border lipgloss.Style) {
+	switch strings.ToLower(strings.TrimSpace(toolLabel)) {
+	case "explore":
+		return b.styles.DelegateTagExplore, b.styles.DelegateBorderExplore
+	case "research":
+		return b.styles.DelegateTagResearch, b.styles.DelegateBorderResearch
+	case "code":
+		return b.styles.DelegateTagCode, b.styles.DelegateBorderCode
+	case "plan":
+		return b.styles.DelegateTagPlan, b.styles.DelegateBorderPlan
+	case "verify":
+		return b.styles.DelegateTagVerify, b.styles.DelegateBorderVerify
+	default:
+		return b.styles.DelegateTagDefault, b.styles.DelegateBorderDefault
+	}
+}
+
 // delegationToolLabelStyle returns the lipgloss style used to render specialized
 // delegate tool labels (e.g. "explore", "research") in the delegation box header.
 func (b *contentBuffer) delegationToolLabelStyle(toolLabel string) lipgloss.Style {
-	switch strings.ToLower(strings.TrimSpace(toolLabel)) {
-	case "explore":
-		return b.styles.DelegateTagExplore
-	case "research":
-		return b.styles.DelegateTagResearch
-	case "code":
-		return b.styles.DelegateTagCode
-	case "plan":
-		return b.styles.DelegateTagPlan
-	case "verify":
-		return b.styles.DelegateTagVerify
-	default:
-		return b.styles.DelegateTagDefault
-	}
+	tag, _ := b.delegationStyles(toolLabel)
+	return tag
 }
 
 // delegationBorderStyle returns the lipgloss style for the delegation box border,
 // colored by agent type.
 func (b *contentBuffer) delegationBorderStyle(toolLabel string) lipgloss.Style {
-	switch strings.ToLower(strings.TrimSpace(toolLabel)) {
-	case "explore":
-		return b.styles.DelegateBorderExplore
-	case "research":
-		return b.styles.DelegateBorderResearch
-	case "code":
-		return b.styles.DelegateBorderCode
-	case "plan":
-		return b.styles.DelegateBorderPlan
-	case "verify":
-		return b.styles.DelegateBorderVerify
-	default:
-		return b.styles.DelegateBorderDefault
-	}
+	_, border := b.delegationStyles(toolLabel)
+	return border
 }
 
 func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState) (string, int) {

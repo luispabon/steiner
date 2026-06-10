@@ -13,65 +13,37 @@ func renderEvent(event Event) Segment {
 	return renderUnknownEvent(event)
 }
 
+func typedRenderer[T any](render func(T) Segment) func(Event) Segment {
+	return func(event Event) Segment {
+		return render(event.Payload.(T))
+	}
+}
+
 var eventRenderers = map[reflect.Type]func(Event) Segment{
-	reflect.TypeOf(RunStartedEvent{}): func(event Event) Segment {
-		return renderRunStartedEvent(event.Payload.(RunStartedEvent))
-	},
-	reflect.TypeOf(TurnStartedEvent{}): func(event Event) Segment {
-		return renderTurnStartedEvent(event.Payload.(TurnStartedEvent))
-	},
-	reflect.TypeOf(TurnFinishedEvent{}): func(event Event) Segment {
-		return renderTurnFinishedEvent(event.Payload.(TurnFinishedEvent))
-	},
-	reflect.TypeOf(AssistantMessageEvent{}): func(event Event) Segment {
-		return renderAssistantMessageEvent(event.Payload.(AssistantMessageEvent))
-	},
-	reflect.TypeOf(AssistantChunkEvent{}): func(event Event) Segment {
-		return renderAssistantChunkEvent(event.Payload.(AssistantChunkEvent))
-	},
-	reflect.TypeOf(ThinkingChunkEvent{}): func(event Event) Segment {
-		return renderThinkingChunkEvent(event.Payload.(ThinkingChunkEvent))
-	},
-	reflect.TypeOf(ProviderDiagnosticEvent{}): func(event Event) Segment {
-		return renderProviderDiagnosticEvent(event.Payload.(ProviderDiagnosticEvent))
-	},
+	reflect.TypeOf(RunStartedEvent{}):         typedRenderer(renderRunStartedEvent),
+	reflect.TypeOf(TurnStartedEvent{}):        typedRenderer(renderTurnStartedEvent),
+	reflect.TypeOf(TurnFinishedEvent{}):       typedRenderer(renderTurnFinishedEvent),
+	reflect.TypeOf(AssistantMessageEvent{}):   typedRenderer(renderAssistantMessageEvent),
+	reflect.TypeOf(AssistantChunkEvent{}):     typedRenderer(renderAssistantChunkEvent),
+	reflect.TypeOf(ThinkingChunkEvent{}):      typedRenderer(renderThinkingChunkEvent),
+	reflect.TypeOf(ProviderDiagnosticEvent{}): typedRenderer(renderProviderDiagnosticEvent),
 	reflect.TypeOf(ContextReportEvent{}): func(event Event) Segment {
 		payload := event.Payload.(ContextReportEvent)
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	},
-	reflect.TypeOf(DisplayFilePayload{}): func(event Event) Segment {
-		return renderDisplayFileEvent(event.Payload.(DisplayFilePayload))
-	},
-	reflect.TypeOf(ModelCallStartedEvent{}): func(event Event) Segment {
-		return renderModelCallStartedEvent(event.Payload.(ModelCallStartedEvent))
-	},
-	reflect.TypeOf(ModelCallFinishedEvent{}): func(event Event) Segment {
-		return renderModelCallFinishedEvent(event.Payload.(ModelCallFinishedEvent))
-	},
-	reflect.TypeOf(ToolCallStartedEvent{}): func(event Event) Segment {
-		return renderToolCallStartedEvent(event.Payload.(ToolCallStartedEvent))
-	},
-	reflect.TypeOf(ToolCallFinishedEvent{}): func(event Event) Segment {
-		return renderToolCallFinishedEvent(event.Payload.(ToolCallFinishedEvent))
-	},
+	reflect.TypeOf(DisplayFilePayload{}):     typedRenderer(renderDisplayFileEvent),
+	reflect.TypeOf(ModelCallStartedEvent{}):  typedRenderer(renderModelCallStartedEvent),
+	reflect.TypeOf(ModelCallFinishedEvent{}): typedRenderer(renderModelCallFinishedEvent),
+	reflect.TypeOf(ToolCallStartedEvent{}):   typedRenderer(renderToolCallStartedEvent),
+	reflect.TypeOf(ToolCallFinishedEvent{}):  typedRenderer(renderToolCallFinishedEvent),
 	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
 		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
 	},
-	reflect.TypeOf(WorkflowHandoffEvent{}): func(event Event) Segment {
-		return renderWorkflowHandoffEvent(event.Payload.(WorkflowHandoffEvent))
-	},
-	reflect.TypeOf(StopReasonEvent{}): func(event Event) Segment {
-		return renderStopReasonEvent(event.Payload.(StopReasonEvent))
-	},
-	reflect.TypeOf(UserInputEvent{}): func(event Event) Segment {
-		return renderUserInputEvent(event.Payload.(UserInputEvent))
-	},
-	reflect.TypeOf(APIRequestEvent{}): func(event Event) Segment {
-		return renderAPIRequestEvent(event.Payload.(APIRequestEvent))
-	},
-	reflect.TypeOf(APIResponseEvent{}): func(event Event) Segment {
-		return renderAPIResponseEvent(event.Payload.(APIResponseEvent))
-	},
+	reflect.TypeOf(WorkflowHandoffEvent{}): typedRenderer(renderWorkflowHandoffEvent),
+	reflect.TypeOf(StopReasonEvent{}):      typedRenderer(renderStopReasonEvent),
+	reflect.TypeOf(UserInputEvent{}):       typedRenderer(renderUserInputEvent),
+	reflect.TypeOf(APIRequestEvent{}):      typedRenderer(renderAPIRequestEvent),
+	reflect.TypeOf(APIResponseEvent{}):     typedRenderer(renderAPIResponseEvent),
 	reflect.TypeOf(ContextDiagnosticsEvent{}): func(event Event) Segment {
 		payload := event.Payload.(ContextDiagnosticsEvent)
 		return Segment{Channel: ChannelStatus, Label: "context", Text: formatContextDiagnosticsEvent(payload)}

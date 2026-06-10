@@ -101,24 +101,20 @@ func applyEnvLoggingOverrides(cfg *Config, lookup func(string) (string, bool)) {
 }
 
 func applyEnvSearchOverrides(cfg *Config, lookup func(string) (string, bool)) {
-	if cfg.Search.GoogleCx == "" {
-		if v, ok := lookup("GOOGLE_SEARCH_CX"); ok {
-			cfg.Search.GoogleCx = v
-		}
+	overrides := []struct {
+		dst *string
+		env string
+	}{
+		{&cfg.Search.GoogleCx, "GOOGLE_SEARCH_CX"},
+		{&cfg.Search.GoogleAPIKey, "GOOGLE_SEARCH_API_KEY"},
+		{&cfg.Search.KagiAPIKey, "KAGI_API_KEY"},
+		{&cfg.Search.BraveAPIKey, "BRAVE_API_KEY"},
 	}
-	if cfg.Search.GoogleAPIKey == "" {
-		if v, ok := lookup("GOOGLE_SEARCH_API_KEY"); ok {
-			cfg.Search.GoogleAPIKey = v
-		}
-	}
-	if cfg.Search.KagiAPIKey == "" {
-		if v, ok := lookup("KAGI_API_KEY"); ok {
-			cfg.Search.KagiAPIKey = v
-		}
-	}
-	if cfg.Search.BraveAPIKey == "" {
-		if v, ok := lookup("BRAVE_API_KEY"); ok {
-			cfg.Search.BraveAPIKey = v
+	for _, o := range overrides {
+		if *o.dst == "" {
+			if v, ok := lookup(o.env); ok {
+				*o.dst = v
+			}
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -158,24 +159,20 @@ func (m Model) renderActivityRow(contentWidth int) string {
 
 func (m *Model) applyInputStyles() {
 	base := m.styles.UserBg
-	cursorLine := m.styles.UserBg
 	placeholder := m.styles.UserBg.Foreground(lipgloss.Color(theme.FgDim))
 	text := m.styles.UserBg.Foreground(lipgloss.Color(theme.Fg))
 	endOfBuffer := m.styles.UserBg.Foreground(lipgloss.Color(theme.UserSoft))
 
-	m.input.FocusedStyle.Base = base
-	m.input.FocusedStyle.CursorLine = cursorLine
-	m.input.FocusedStyle.Placeholder = placeholder
-	m.input.FocusedStyle.Prompt = base
-	m.input.FocusedStyle.Text = text
-	m.input.FocusedStyle.EndOfBuffer = endOfBuffer
-
-	m.input.BlurredStyle.Base = base
-	m.input.BlurredStyle.CursorLine = cursorLine
-	m.input.BlurredStyle.Placeholder = placeholder
-	m.input.BlurredStyle.Prompt = base
-	m.input.BlurredStyle.Text = text
-	m.input.BlurredStyle.EndOfBuffer = endOfBuffer
+	style := textarea.Style{
+		Base:        base,
+		CursorLine:  base,
+		Placeholder: placeholder,
+		Prompt:      base,
+		Text:        text,
+		EndOfBuffer: endOfBuffer,
+	}
+	m.input.FocusedStyle = style
+	m.input.BlurredStyle = style
 
 	m.input.Cursor.TextStyle = text
 	m.input.Cursor.Style = text
