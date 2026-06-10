@@ -136,7 +136,7 @@ The sandbox workspace includes a `.steiner/home/` directory that serves as an is
 - The sandbox home persists across sessions, allowing the model to maintain tool state within the project
 
 **Gitignore**:
-`.steiner/home/` is auto-added to `.gitignore` so it doesn't pollute version control.
+`.steiner/home/` is covered by `.steiner/.gitignore`, which ignores all files under `.steiner/` so they don't pollute version control.
 
 **What goes in `.steiner/home/`**:
 - `.git/` — Git metadata if the model runs `git init`

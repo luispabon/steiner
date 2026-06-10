@@ -94,59 +94,11 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 	return wrapped
 }
 
-// EnsureHome creates .steiner/home/ inside workspaceDir and adds it to .gitignore.
+// EnsureHome creates .steiner/home/ inside workspaceDir.
 func (s *Sandbox) EnsureHome() error {
 	sandboxHome := filepath.Join(s.workspace, ".steiner", "home")
 	if err := os.MkdirAll(sandboxHome, 0o755); err != nil {
 		return fmt.Errorf("create sandbox home dir: %w", err)
 	}
-
-	gitignorePath := filepath.Join(s.workspace, ".gitignore")
-	if err := ensureGitignoreEntry(gitignorePath, ".steiner/home/"); err != nil {
-		return fmt.Errorf("update .gitignore: %w", err)
-	}
 	return nil
-}
-
-// ensureGitignoreEntry adds entry to the gitignore file if not already present.
-func ensureGitignoreEntry(path, entry string) error {
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read gitignore: %w", err)
-	}
-
-	content := string(data)
-	for _, line := range splitLines(content) {
-		if line == entry {
-			return nil
-		}
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open gitignore: %w", err)
-	}
-	defer f.Close() //nolint:errcheck
-
-	_, err = fmt.Fprintf(f, "%s\n", entry)
-	return err
-}
-
-// splitLines splits s into lines, trimming trailing newline.
-func splitLines(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
 }
