@@ -416,7 +416,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	}
 }
 
-func TestSubmitPromptSkipsConversationPersistenceOnWorkflowHandoff(t *testing.T) {
+func TestSubmitPromptPersistsConversationOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
@@ -435,8 +435,82 @@ func TestSubmitPromptSkipsConversationPersistenceOnWorkflowHandoff(t *testing.T)
 
 	s.submitPrompt(context.Background(), "hello")
 
-	if got := s.Conversation(); len(got) != 1 || got[0].Role != agent.MessageRoleUser {
-		t.Fatalf("conversation after handoff = %#v, want only the submitted user prompt retained until clear", got)
+	// Conversation should be persisted with both messages after workflow handoff.
+	got := s.Conversation()
+	if len(got) != 2 {
+		t.Fatalf("conversation length = %d, want 2 (user + assistant)", len(got))
+	}
+	if got[0].Role != agent.MessageRoleUser || got[0].Content != "hello" {
+		t.Fatalf("conversation[0] = %#v, want user 'hello'", got[0])
+	}
+	if got[1].Role != agent.MessageRoleAssistant || got[1].Content != "tool call" {
+		t.Fatalf("conversation[1] = %#v, want assistant 'tool call'", got[1])
+	}
+
+	// Lineage should be populated with the full conversation.
+	s.mu.RLock()
+	lineage := s.lineage
+	s.mu.RUnlock()
+	if len(lineage.Generations) != 1 {
+		t.Fatalf("lineage generations = %d, want 1", len(lineage.Generations))
+	}
+	if lineage.NextGenerationID != 2 {
+		t.Fatalf("lineage next generation id = %d, want 2", lineage.NextGenerationID)
+	}
+	if len(lineage.Generations[0].Messages) != 2 {
+		t.Fatalf("generation messages = %d, want 2", len(lineage.Generations[0].Messages))
+	}
+}
+
+func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
+	t.Parallel()
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "hello"},
+					{Role: agent.MessageRoleAssistant, Content: "tool call"},
+				},
+				WorkflowHandoff: &tool.WorkflowHandoffTransition{
+					Next:   "implement",
+					Target: ".steiner/plans/step-2",
+				},
+			}, nil
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	s.submitPrompt(context.Background(), "hello")
+
+	saved, ok := mockStore.savedSessions[s.SessionID()]
+	if !ok {
+		t.Fatal("expected session to be saved on workflow handoff")
+	}
+	if saved.ID != s.SessionID() {
+		t.Fatalf("saved session ID = %q, want %q", saved.ID, s.SessionID())
+	}
+	if saved.Title == "" {
+		t.Fatal("expected non-empty session title after first prompt")
+	}
+	if len(saved.Lineage.Generations) != 1 {
+		t.Fatalf("saved session lineage generations = %d, want 1", len(saved.Lineage.Generations))
+	}
+	msgs := saved.Lineage.Generations[0].Messages
+	if len(msgs) != 2 {
+		t.Fatalf("saved session generation messages = %d, want 2", len(msgs))
+	}
+	if msgs[0].Content != "hello" {
+		t.Fatalf("saved msg[0].Content = %q, want %q", msgs[0].Content, "hello")
+	}
+	if msgs[1].Content != "tool call" {
+		t.Fatalf("saved msg[1].Content = %q, want %q", msgs[1].Content, "tool call")
 	}
 }
 
