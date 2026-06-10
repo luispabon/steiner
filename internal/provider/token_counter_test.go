@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/tiktoken-go/tokenizer"
@@ -128,5 +129,77 @@ func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 	calibratedDiff := math.Abs(float64(observed - calibrated.Tokens))
 	if calibratedDiff >= baseDiff {
 		t.Fatalf("calibrated diff = %.0f, want < base diff %.0f", calibratedDiff, baseDiff)
+	}
+}
+
+func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T) {
+	t.Parallel()
+
+	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	request := ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("Track these prompt tokens. ", 12)},
+		},
+	}
+
+	base, err := counter.EstimateChatRequestTokens(context.Background(), request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	cacheCreationTokens := base.Tokens / 5
+	if cacheCreationTokens < 1 {
+		cacheCreationTokens = 1
+	}
+	cacheReadTokens := base.Tokens / 10
+	if cacheReadTokens < 1 {
+		cacheReadTokens = 1
+	}
+
+	observations := []UsageStats{
+		{
+			PromptTokens:             base.Tokens + cacheCreationTokens,
+			CompletionTokens:         8,
+			CacheCreationInputTokens: cacheCreationTokens,
+		},
+		{
+			PromptTokens:         base.Tokens + cacheReadTokens,
+			CompletionTokens:     8,
+			CacheReadInputTokens: cacheReadTokens,
+		},
+		{
+			PromptTokens:             base.Tokens + cacheCreationTokens,
+			CompletionTokens:         8,
+			CacheCreationInputTokens: cacheCreationTokens,
+		},
+		{
+			PromptTokens:         base.Tokens + cacheReadTokens,
+			CompletionTokens:     8,
+			CacheReadInputTokens: cacheReadTokens,
+		},
+	}
+
+	var previous float64
+	for i, usage := range observations {
+		counter.ObserveUsage(context.Background(), request, &usage)
+
+		calibration, ok := counter.calibrationForModel(request.Model)
+		if !ok {
+			t.Fatal("expected calibration entry")
+		}
+		if calibration.samples != i+1 {
+			t.Fatalf("samples = %d, want %d", calibration.samples, i+1)
+		}
+
+		if i == 0 {
+			previous = calibration.factor
+			continue
+		}
+
+		if diff := math.Abs(calibration.factor - previous); diff > 0.05 {
+			t.Fatalf("factor swing = %.3f, want <= 0.05", diff)
+		}
+		previous = calibration.factor
 	}
 }

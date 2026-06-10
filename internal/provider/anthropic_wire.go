@@ -73,8 +73,10 @@ type anthropicResponse struct {
 }
 
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
+	InputTokens              int `json:"input_tokens,omitempty"`
+	OutputTokens             int `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool) anthropicRequest {
@@ -284,9 +286,12 @@ func (u *anthropicUsage) toUsageStats() *UsageStats {
 	if u == nil {
 		return nil
 	}
+	promptTokens := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 	usage := &UsageStats{
-		PromptTokens:     u.InputTokens,
-		CompletionTokens: u.OutputTokens,
+		PromptTokens:             promptTokens,
+		CompletionTokens:         u.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens,
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	return usage

@@ -60,9 +60,11 @@ type Message struct {
 
 // UsageStats carries token accounting returned by a provider.
 type UsageStats struct {
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-	TotalTokens      int `json:"total_tokens,omitempty"`
+	PromptTokens             int `json:"prompt_tokens,omitempty"`
+	CompletionTokens         int `json:"completion_tokens,omitempty"`
+	TotalTokens              int `json:"total_tokens,omitempty"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // ChatRequest is the normalized provider request payload.
