@@ -19,6 +19,7 @@ The reviewer is the final gate for the loop.
 - If execution reached reviewer handoff only by explicit user request despite known blockers, review the blocked implementation only within that stated purpose.
 - Derive the expected branch as `cl/YYYY-MM-DD_FEATURE_NAME`.
 - Require the expected branch to exist and be clean before review starts, except for safe reviewer artifact initialization.
+- Check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`. If exit code is 0, planning artifacts are local-only — do not stage or commit them at any point during this workflow. If exit code is non-zero, planning artifacts are version-controlled — commit them as described below.
 - Treat planner and executor artifacts as immutable inputs unless the user explicitly requests replanning or artifact correction.
 
 ## Review Flow
@@ -153,7 +154,7 @@ If the user chooses cleanup:
 
 - delete `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`
 
-- commit the deletion unless the user explicitly asks otherwise
+- if planning artifacts are version-controlled, commit the deletion unless the user explicitly asks otherwise
 - include the cleanup result in the closeout message
 
 If the user declines cleanup, create or update `review.md` with the final review and closeout state.

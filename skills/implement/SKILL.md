@@ -18,6 +18,7 @@ Treat the planning folder, feature branch, and repository state as the authorita
 - Stop if artifacts are missing, conflict materially, or cannot be parsed.
 - Derive the expected branch as `cl/YYYY-MM-DD_FEATURE_NAME`.
 - Require the expected branch to exist and be clean before implementation starts.
+- Check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`. If exit code is 0, planning artifacts are local-only — do not stage or commit them at any point during this workflow. If exit code is non-zero, planning artifacts are version-controlled — commit them as described below.
 - Treat `overview.md` and `plan.yaml` as immutable planner-owned inputs unless the user explicitly requests replanning.
 
 ## Execution Flow
@@ -31,7 +32,7 @@ Follow this sequence:
 5. Execute ready implementation steps.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
-8. Commit final executor state and hand off to review.
+8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
 
 Stop and report blockers instead of widening scope.
 
@@ -194,7 +195,7 @@ Reviewer handoff requires:
 
 Failed verification blocks reviewer handoff by default. Proceed to review with known blockers only if the user explicitly asks for review of a blocked implementation, and record that exception in `execution.md`.
 
-Commit the final executor state before handing off to review.
+If planning artifacts are version-controlled, commit the final executor state before handing off to review.
 
 Use this handoff sentence exactly as written, with only the planning folder path substituted: `Please run /clear then /review .steiner/plans/FEATURE on an empty context.`
 
