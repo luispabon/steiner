@@ -109,3 +109,9 @@ func (SteerPrompt) isInteractiveAction() {}
 type requestSessionPicker struct{}
 
 func (requestSessionPicker) isInteractiveAction() {}
+
+// RotateSession generates a new session ID and clears the session title,
+// giving the next workflow a clean identity independent of the current session.
+type RotateSession struct{}
+
+func (RotateSession) isInteractiveAction() {}

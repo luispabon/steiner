@@ -263,6 +263,20 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.handleSwitchModel(a.Name)
 	case LoadSession:
 		return true, s.loadSession(ctx, a.SessionID)
+
+	case RotateSession:
+		s.mu.Lock()
+		if s.deps.SessionStore != nil {
+			id, err := generateSessionID()
+			if err != nil {
+				s.mu.Unlock()
+				return true, fmt.Errorf("rotate session id: %w", err)
+			}
+			s.sessionID = id
+			s.sessionTitle = ""
+		}
+		s.mu.Unlock()
+		return true, nil
 	}
 	return false, nil
 }
