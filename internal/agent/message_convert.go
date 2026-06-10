@@ -48,6 +48,7 @@ func toProviderMessage(message Message) provider.Message {
 		Name:             message.Name,
 		ToolCallID:       message.ToolCallID,
 		Turn:             message.Turn,
+		ProviderMetadata: toProviderMessageMetadata(message.ProviderMetadata),
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
@@ -70,6 +71,7 @@ func fromProviderMessage(message provider.Message) Message {
 		Name:             message.Name,
 		ToolCallID:       message.ToolCallID,
 		Turn:             message.Turn,
+		ProviderMetadata: fromProviderMessageMetadata(message.ProviderMetadata),
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]ToolCall, 0, len(message.ToolCalls))
@@ -79,6 +81,32 @@ func fromProviderMessage(message provider.Message) Message {
 				Name:      call.Name,
 				Arguments: cloneInput(call.Arguments),
 			})
+		}
+	}
+	return out
+}
+
+func toProviderMessageMetadata(metadata *MessageProviderMetadata) *provider.MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	out := &provider.MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		out.Anthropic = &provider.AnthropicMessageMetadata{
+			ThinkingSignature: metadata.Anthropic.ThinkingSignature,
+		}
+	}
+	return out
+}
+
+func fromProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	out := &MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		out.Anthropic = &AnthropicMessageMetadata{
+			ThinkingSignature: metadata.Anthropic.ThinkingSignature,
 		}
 	}
 	return out

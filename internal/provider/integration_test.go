@@ -129,6 +129,74 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 			t.Fatalf("Content-Type = %q, want %q", contentType, want)
 		}
 	})
+
+	t.Run("anthropic native uses x-api-key instead of authorization", func(t *testing.T) {
+		var (
+			authHeader         string
+			apiKeyHeader       string
+			anthropicVersion   string
+			requestPath        string
+			requestContentType string
+		)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader = r.Header.Get("Authorization")
+			apiKeyHeader = r.Header.Get("x-api-key")
+			anthropicVersion = r.Header.Get("anthropic-version")
+			requestPath = r.URL.Path
+			requestContentType = r.Header.Get("Content-Type")
+			_, _ = fmt.Fprint(w, `{
+				"role":"assistant",
+				"content":[{"type":"text","text":"ok"}],
+				"stop_reason":"end_turn",
+				"usage":{"input_tokens":2,"output_tokens":1}
+			}`)
+		}))
+		defer server.Close()
+
+		provider, err := NewAnthropic(OpenAICompatConfig{
+			BaseURL:   server.URL + "/v1",
+			APIKey:    "sk-ant-test",
+			Model:     "claude-3-7-sonnet",
+			Scheduler: mustTestScheduler(t, 1),
+		})
+		if err != nil {
+			t.Fatalf("NewAnthropic() error = %v", err)
+		}
+
+		resp, err := provider.ChatCompletion(context.Background(), ChatRequest{
+			Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		})
+		if err != nil {
+			t.Fatalf("ChatCompletion() error = %v", err)
+		}
+		if got, want := apiKeyHeader, "sk-ant-test"; got != want {
+			t.Fatalf("x-api-key = %q, want %q", got, want)
+		}
+		if authHeader != "" {
+			t.Fatalf("Authorization = %q, want empty", authHeader)
+		}
+		if got, want := anthropicVersion, "2023-06-01"; got != want {
+			t.Fatalf("anthropic-version = %q, want %q", got, want)
+		}
+		if got, want := requestPath, "/v1/messages"; got != want {
+			t.Fatalf("path = %q, want %q", got, want)
+		}
+		if got, want := requestContentType, "application/json"; got != want {
+			t.Fatalf("Content-Type = %q, want %q", got, want)
+		}
+		if got, want := resp.Message.Content, "ok"; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+		if got, want := resp.FinishReason, "stop"; got != want {
+			t.Fatalf("finish_reason = %q, want %q", got, want)
+		}
+		if resp.Usage == nil {
+			t.Fatal("usage = nil, want non-nil")
+		}
+		if got, want := resp.Usage.TotalTokens, 3; got != want {
+			t.Fatalf("total_tokens = %d, want %d", got, want)
+		}
+	})
 }
 
 func TestIntegrationChatCompletionParsesResponseCorrectly(t *testing.T) {

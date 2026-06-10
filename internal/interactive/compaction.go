@@ -30,6 +30,15 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		s.emitCompactError(fmt.Errorf("resolve model: %w", err))
 		return
 	}
+	if rm.EffectiveTransport != provider.TransportConfigured && s.events != nil {
+		s.events.Emit(output.NewTransportDiagnosticEvent(
+			rm.BackendModelID,
+			string(rm.ProviderConfig.Type),
+			string(rm.EffectiveProviderType),
+			rm.MetadataSource,
+			rm.TransportOverrideReason,
+		))
+	}
 
 	prov := s.deps.Provider
 	if prov == nil && s.deps.ProviderFactory != nil {

@@ -49,11 +49,16 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 
 func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	if _, err := fmt.Fprintf(out,
-		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nlimits:\n  source: %s\n  confidence: %s\n  context_window: %d\n  max_output_tokens: %d\nderived_policy:\n  compaction_threshold: %.2f\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\nparams: %s\nextra_params: %s\nprompt_suffix: %q\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
+		"alias: %s\nprovider: %s\nbackend_id: %s\nconfidence: %s\nconfigured_provider_type: %s\neffective_provider_type: %s\neffective_transport: %s\nmetadata_source: %s\ntransport_override_reason: %s\nlimits:\n  source: %s\n  confidence: %s\n  context_window: %d\n  max_output_tokens: %d\nderived_policy:\n  compaction_threshold: %.2f\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\nparams: %s\nextra_params: %s\nprompt_suffix: %q\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
 		rm.Alias,
 		rm.ProviderAlias,
 		rm.BackendModelID,
 		rm.Confidence,
+		rm.ProviderConfig.Type,
+		rm.EffectiveProviderType,
+		rm.EffectiveTransport,
+		rm.MetadataSource,
+		rm.TransportOverrideReason,
 		rm.MetadataSource,
 		rm.Confidence,
 		rm.EffectiveLimits.ContextWindow,

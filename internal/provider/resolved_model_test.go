@@ -62,6 +62,12 @@ func TestResolve(t *testing.T) {
 				if rm.ProviderConfig.BaseURL != "http://localhost:11434/v1" {
 					t.Errorf("ProviderConfig.BaseURL=%q, want http://localhost:11434/v1", rm.ProviderConfig.BaseURL)
 				}
+				if rm.EffectiveProviderType != config.ProviderTypeOpenAICompat {
+					t.Errorf("EffectiveProviderType=%q, want %q", rm.EffectiveProviderType, config.ProviderTypeOpenAICompat)
+				}
+				if rm.EffectiveTransport != TransportConfigured {
+					t.Errorf("EffectiveTransport=%q, want %q", rm.EffectiveTransport, TransportConfigured)
+				}
 				if rm.MetadataSource != "config" {
 					t.Errorf("MetadataSource=%q, want config", rm.MetadataSource)
 				}
@@ -900,6 +906,103 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 			}
 			if rm.ReasoningEchoBack != tt.want {
 				t.Errorf("ReasoningEchoBack = %v, want %v", rm.ReasoningEchoBack, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{
+		"opencode-go":{
+			"npm":"@ai-sdk/openai-compatible",
+			"api":"https://opencode.ai/zen/go/v1/",
+			"models":{
+				"minimax-m3":{
+					"provider":{"npm":"@ai-sdk/anthropic","api":"https://api.minimax.chat/anthropic"},
+					"limit":{"context":256000,"output":8192}
+				},
+				"kimi-k2.6":{
+					"provider":{"npm":"@ai-sdk/openai-compatible","api":"https://api.moonshot.ai/v1"},
+					"limit":{"context":256000,"output":16384}
+				}
+			}
+		}
+	}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	tests := []struct {
+		name             string
+		modelID          string
+		override         config.ModelTransportType
+		wantProviderType config.ProviderType
+		wantTransport    TransportType
+		wantBaseURL      string
+	}{
+		{
+			name:             "model metadata switches minimax to anthropic",
+			modelID:          "minimax-m3",
+			wantProviderType: config.ProviderTypeAnthropic,
+			wantTransport:    TransportAnthropic,
+			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+		},
+		{
+			name:             "model metadata keeps kimi on openai compatible",
+			modelID:          "kimi-k2.6",
+			wantProviderType: config.ProviderTypeOpenAICompat,
+			wantTransport:    TransportOpenAICompat,
+			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+		},
+		{
+			name:             "config override wins over metadata",
+			modelID:          "minimax-m3",
+			override:         config.ModelTransportOpenAICompat,
+			wantProviderType: config.ProviderTypeOpenAICompat,
+			wantTransport:    TransportOpenAICompat,
+			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
+				},
+				Models: map[string]config.ModelConfig{
+					"test": {
+						Provider: "opencode-go",
+						ID:       tt.modelID,
+						Advanced: config.AdvancedConfig{
+							Transport: tt.override,
+						},
+					},
+				},
+			}
+
+			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			if err != nil {
+				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			}
+			if got := rm.EffectiveProviderType; got != tt.wantProviderType {
+				t.Fatalf("EffectiveProviderType = %q, want %q", got, tt.wantProviderType)
+			}
+			if got := rm.EffectiveTransport; got != tt.wantTransport {
+				t.Fatalf("EffectiveTransport = %q, want %q", got, tt.wantTransport)
+			}
+			if got := rm.ProviderConfig.BaseURL; got != tt.wantBaseURL {
+				t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, tt.wantBaseURL)
 			}
 		})
 	}

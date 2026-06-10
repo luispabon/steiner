@@ -103,6 +103,26 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: "models is required",
 		},
+		{
+			name: "invalid model transport override",
+			cfg: func() Config {
+				c := validBase()
+				c.Models["default"] = ModelConfig{
+					Provider: "local",
+					ID:       "qwen3-35b-a3b",
+					Retry:    c.Models["default"].Retry,
+					Advanced: AdvancedConfig{
+						Limits: AdvancedLimitsConfig{
+							ContextWindow:   32768,
+							MaxOutputTokens: 8192,
+						},
+						Transport: ModelTransportType("invalid"),
+					},
+				}
+				return c
+			}(),
+			wantErr: "models[\"default\"].advanced.transport \"invalid\" is not supported",
+		},
 
 		// Provider validation
 		{

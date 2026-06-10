@@ -150,6 +150,17 @@ models:
 |----------------------|----------------------|---------|-------------|
 | `limits`             | AdvancedLimitsConfig | see below | Token budget settings for this model. |
 | `reasoning_echo_back`| *bool                | —       | When set, controls whether reasoning tokens are echoed back in the response. Provider-dependent. |
+| `transport`          | string               | `"auto"`| Transport override for request formatting. Supported values: `auto`, `openai_compat`, `anthropic`. `auto` uses models.dev metadata when available and otherwise keeps the configured provider type. |
+
+#### Automatic transport resolution
+
+When `transport` is set to `auto` (the default), Steiner resolves the request transport per model using this precedence:
+
+1. **Explicit config override** — If `models.<alias>.advanced.transport` is set to `openai_compat` or `anthropic`, that value wins unconditionally.
+2. **models.dev metadata** — If the models.dev cache lists a provider NPM (e.g. `@ai-sdk/anthropic`) for the model, Steiner switches the effective provider type to match the metadata transport.
+3. **Configured provider type** — If neither override nor metadata is available, the transport from the model's configured `provider` entry is used.
+
+This means a single `openai_compat` provider can serve both OpenAI-compatible and Anthropic-native models as long as the metadata is available. Use `steiner model inspect <alias>` to see the resolved `effective_provider_type`, `effective_transport`, and `transport_override_reason` for any model.
 
 ### `AdvancedLimitsConfig` fields
 

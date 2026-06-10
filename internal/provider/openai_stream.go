@@ -67,10 +67,11 @@ func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(Ch
 		}
 	}
 
+	hadUsableFinalChunk := state.sawDone || state.finishReason != ""
 	if err := flushStreamState(emit, state); err != nil {
 		return err
 	}
-	if !state.sawDone {
+	if !hadUsableFinalChunk {
 		return fmt.Errorf("stream completed without a final chunk: %w", io.ErrUnexpectedEOF)
 	}
 	return nil
@@ -109,6 +110,7 @@ func handleStreamChoice(state *openAIStreamState, choice openAIChoice, emit func
 	if choice.Delta.ReasoningContent != nil {
 		reasoningDelta = *choice.Delta.ReasoningContent
 	}
+	reasoningDelta += extractReasoningDetailsText(choice.Delta.ReasoningDetails)
 	if err := handleStreamChoiceReasoning(state, reasoningDelta, emit); err != nil {
 		return err
 	}

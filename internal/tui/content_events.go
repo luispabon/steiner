@@ -220,6 +220,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeDelegationStarted:  (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationComplete: (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationFailed:   (*contentBuffer).appendDelegationEvent,
+	output.EventTypeProviderDiagnostic: (*contentBuffer).appendProviderDiagnosticEvent,
 	output.EventTypeToolCallStarted:    (*contentBuffer).appendToolCallStartedEvent,
 	output.EventTypeToolCallFinished:   (*contentBuffer).appendToolCallFinishedEvent,
 	output.EventTypeDisplayFile:        (*contentBuffer).appendDisplayFileEvent,

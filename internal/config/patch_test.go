@@ -9,6 +9,9 @@ func intPtr(v int) *int                { return &v }
 func stringPtr(v string) *string       { return &v }
 func boolPtr(v bool) *bool             { return &v }
 func durationPtr(v Duration) *Duration { return &v }
+func modelTransportTypePtr(v ModelTransportType) *ModelTransportType {
+	return &v
+}
 
 func stringAnyMapPtr(v map[string]any) *map[string]any {
 	return &v
@@ -205,6 +208,7 @@ func TestApplyModelPatch(t *testing.T) {
 						ContextWindow:   16384,
 						MaxOutputTokens: 4096,
 					},
+					Transport: ModelTransportAuto,
 				},
 			},
 			patch: modelPatch{
@@ -213,6 +217,7 @@ func TestApplyModelPatch(t *testing.T) {
 						ContextWindow:   intPtr(32768),
 						MaxOutputTokens: intPtr(8192),
 					},
+					Transport: modelTransportTypePtr(ModelTransportAnthropic),
 				},
 			},
 			want: ModelConfig{
@@ -221,6 +226,7 @@ func TestApplyModelPatch(t *testing.T) {
 						ContextWindow:   32768,
 						MaxOutputTokens: 8192,
 					},
+					Transport: ModelTransportAnthropic,
 				},
 			},
 		},

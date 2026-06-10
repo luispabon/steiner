@@ -187,6 +187,49 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 	}
 }
 
+func TestAppendEventSuppressesTransportOverrideProviderDiagnostic(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:     make([]contentSegment, 0),
+		streaming:    true,
+		streamBuffer: "assistant chunk in progress",
+	}
+
+	buffer.AppendEvent(output.NewTransportDiagnosticEvent("model-a", "configured", "effective", "fallback", "override selected"))
+
+	if len(buffer.segments) != 0 {
+		t.Fatalf("segments count = %d, want 0 for suppressible transport diagnostic", len(buffer.segments))
+	}
+	if !buffer.streaming {
+		t.Fatal("streaming = false, want active stream to remain untouched")
+	}
+	if got := buffer.streamBuffer; got != "assistant chunk in progress" {
+		t.Fatalf("streamBuffer = %q, want unchanged streaming buffer", got)
+	}
+}
+
+func TestAppendEventRendersWarningProviderDiagnostic(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	buffer.AppendEvent(output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     8,
+		Severity: "warning",
+		Message:  "provider returned transient error, retrying turn in 5s",
+	}))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1 for warning diagnostic", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentPlain {
+		t.Fatalf("segment kind = %v, want segmentPlain", seg.kind)
+	}
+	if !strings.Contains(seg.text, "status: provider turn=8 warning message=provider returned transient error, retrying turn in 5s") {
+		t.Fatalf("segment text = %q, want rendered provider warning", seg.text)
+	}
+}
+
 func TestFormatDelegationEvent(t *testing.T) {
 	tests := []struct {
 		name      string

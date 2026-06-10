@@ -175,6 +175,9 @@ func renderThinkingChunkEvent(payload ThinkingChunkEvent) Segment {
 }
 
 func renderProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Segment {
+	if payload.suppressInTranscript() {
+		return Segment{}
+	}
 	parts := []string{"provider"}
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
