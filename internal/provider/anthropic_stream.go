@@ -79,6 +79,9 @@ func decodeAnthropicStreamWithHandler(_ context.Context, body io.Reader, emit fu
 		}
 	}
 
+	if state.sawContent || state.sawThinking || state.sawToolUse {
+		return flushAnthropicStreamState(emit, &state)
+	}
 	return fmt.Errorf("stream completed without a final chunk: %w", io.ErrUnexpectedEOF)
 }
 

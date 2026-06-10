@@ -81,10 +81,15 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 	wire := anthropicRequest{
 		Model:       defaultModel,
 		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
-		MaxTokens:   request.MaxTokens,
 		Stream:      stream,
 		Params:      request.Params,
 		ExtraParams: request.ExtraParams,
+	}
+	if request.MaxTokens != nil {
+		wire.MaxTokens = request.MaxTokens
+	} else {
+		defaultMax := 4096
+		wire.MaxTokens = &defaultMax
 	}
 	if strings.TrimSpace(request.Model) != "" {
 		wire.Model = request.Model

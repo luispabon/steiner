@@ -1,7 +1,10 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -123,6 +126,30 @@ func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t
 	}
 }
 
+func TestAnthropicRequestWire_DefaultsMaxTokensWhenNil(t *testing.T) {
+	wire := anthropicRequestWire(ChatRequest{
+		Model:     "claude-3-7-sonnet",
+		MaxTokens: nil,
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+		},
+	}, "default-model", true)
+
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if got["max_tokens"] != float64(4096) {
+		t.Fatalf("max_tokens = %v, want 4096", got["max_tokens"])
+	}
+}
+
 func TestNormalizeAnthropicChatResponse_MapsTextThinkingToolUseAndUsage(t *testing.T) {
 	response, err := normalizeAnthropicChatResponse(&anthropicResponse{
 		Role: "assistant",
@@ -176,5 +203,138 @@ func TestNormalizeAnthropicChatResponse_MapsTextThinkingToolUseAndUsage(t *testi
 	}
 	if got, want := response.Usage.TotalTokens, 18; got != want {
 		t.Fatalf("total tokens = %d, want %d", got, want)
+	}
+}
+
+func TestAnthropicBuildHTTPRequest(t *testing.T) {
+	parsed, err := url.Parse("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p := &Anthropic{
+		OpenAICompat: &OpenAICompat{
+			baseURL: parsed,
+			apiKey:  "test-key",
+		},
+	}
+
+	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), false)
+	if err != nil {
+		t.Fatalf("buildHTTPRequest() error = %v", err)
+	}
+	if got, want := req.Method, http.MethodPost; got != want {
+		t.Fatalf("method = %q, want %q", got, want)
+	}
+	if got, want := req.URL.String(), "http://localhost:11434/v1/messages"; got != want {
+		t.Fatalf("URL = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Content-Type"), "application/json"; got != want {
+		t.Fatalf("Content-Type = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("x-api-key"), "test-key"; got != want {
+		t.Fatalf("x-api-key = %q, want %q", got, want)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization = %q, want empty", got)
+	}
+	if got, want := req.Header.Get("anthropic-version"), "2023-06-01"; got != want {
+		t.Fatalf("anthropic-version = %q, want %q", got, want)
+	}
+	if got := req.Header.Get("Accept"); got != "" {
+		t.Fatalf("Accept = %q, want empty", got)
+	}
+}
+
+func TestAnthropicBuildHTTPRequest_Stream(t *testing.T) {
+	parsed, err := url.Parse("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p := &Anthropic{
+		OpenAICompat: &OpenAICompat{
+			baseURL: parsed,
+			apiKey:  "test-key",
+		},
+	}
+
+	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), true)
+	if err != nil {
+		t.Fatalf("buildHTTPRequest() error = %v", err)
+	}
+	if got, want := req.Header.Get("Accept"), "text/event-stream"; got != want {
+		t.Fatalf("Accept = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("x-api-key"), "test-key"; got != want {
+		t.Fatalf("x-api-key = %q, want %q", got, want)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization = %q, want empty", got)
+	}
+	if got, want := req.Header.Get("anthropic-version"), "2023-06-01"; got != want {
+		t.Fatalf("anthropic-version = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicBuildHTTPRequest_NoAuth(t *testing.T) {
+	parsed, err := url.Parse("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p := &Anthropic{
+		OpenAICompat: &OpenAICompat{
+			baseURL: parsed,
+			apiKey:  "",
+		},
+	}
+
+	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), false)
+	if err != nil {
+		t.Fatalf("buildHTTPRequest() error = %v", err)
+	}
+	if got := req.Header.Get("x-api-key"); got != "" {
+		t.Fatalf("x-api-key = %q, want empty", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization = %q, want empty", got)
+	}
+}
+
+func TestAnthropicBuildHTTPRequest_HeaderOverrides(t *testing.T) {
+	parsed, err := url.Parse("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p := &Anthropic{
+		OpenAICompat: &OpenAICompat{
+			baseURL: parsed,
+			apiKey:  "test-key",
+			headers: map[string]string{
+				"x-api-key":         "override-key",
+				"anthropic-version": "2024-01-01",
+				"Authorization":     "Manual test auth",
+				"Content-Type":      "application/custom+json",
+				"Accept":            "application/custom-stream",
+			},
+		},
+	}
+
+	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), true)
+	if err != nil {
+		t.Fatalf("buildHTTPRequest() error = %v", err)
+	}
+	if got, want := req.Header.Get("x-api-key"), "override-key"; got != want {
+		t.Fatalf("x-api-key = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("anthropic-version"), "2024-01-01"; got != want {
+		t.Fatalf("anthropic-version = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Authorization"), "Manual test auth"; got != want {
+		t.Fatalf("Authorization = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Content-Type"), "application/custom+json"; got != want {
+		t.Fatalf("Content-Type = %q, want %q", got, want)
+	}
+	if got, want := req.Header.Get("Accept"), "application/custom-stream"; got != want {
+		t.Fatalf("Accept = %q, want %q", got, want)
 	}
 }

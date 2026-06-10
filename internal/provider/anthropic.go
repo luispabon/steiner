@@ -175,7 +175,7 @@ func (p *Anthropic) buildHTTPRequest(ctx context.Context, body []byte, stream bo
 		req.Header.Set("Accept", "text/event-stream")
 	}
 	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+		req.Header.Set("x-api-key", p.apiKey)
 	}
 	req.Header.Set("anthropic-version", "2023-06-01")
 	for key, value := range p.headers {

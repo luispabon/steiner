@@ -97,6 +97,55 @@ func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(
 	}
 }
 
+func TestDecodeAnthropicStreamWithHandler_FlushesOnEOFWithoutMessageStop(t *testing.T) {
+	stream := strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"role":"assistant","usage":{"input_tokens":5}}}`,
+		"",
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}`,
+		"",
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
+		"",
+		"event: content_block_stop",
+		`data: {"type":"content_block_stop","index":0}`,
+		"",
+	}, "\n")
+
+	var chunks []ChatChunk
+	err := decodeAnthropicStreamWithHandler(context.Background(), strings.NewReader(stream), func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("decodeAnthropicStreamWithHandler() error = %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("chunks = %d, want 2", len(chunks))
+	}
+
+	// First chunk is the text delta
+	if got, want := chunks[0].Delta.Content, "hello"; got != want {
+		t.Fatalf("text chunk = %q, want %q", got, want)
+	}
+
+	// Second chunk should be the final chunk flushed on EOF
+	final := chunks[1]
+	if !final.Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if got, want := final.Delta.Content, "hello"; got != want {
+		t.Fatalf("final content = %q, want %q", got, want)
+	}
+	if final.Usage == nil {
+		t.Fatal("final usage = nil, want usage stats")
+	}
+	if got, want := final.Usage.PromptTokens, 5; got != want {
+		t.Fatalf("prompt tokens = %d, want %d", got, want)
+	}
+}
+
 func TestDecodeAnthropicStreamWithHandler_ErrorEventEmitsTerminalErrorChunk(t *testing.T) {
 	stream := strings.Join([]string{
 		"event: error",
