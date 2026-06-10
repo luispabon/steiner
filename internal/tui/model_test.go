@@ -94,6 +94,18 @@ func (c *testController) submitWorkflowHandoffs() []interactive.SubmitWorkflowHa
 	return result
 }
 
+func (c *testController) rotateSessionActions() []interactive.RotateSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.RotateSession
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.RotateSession); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func (c *testController) skillEnabledActions() []interactive.SetSkillEnabled {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -129,7 +141,6 @@ func (c *testController) steerPrompts() []interactive.SteerPrompt {
 	}
 	return result
 }
-
 func (c *testController) countByType(target interactive.Action) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2840,6 +2851,28 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
 	}
 
+	// Verify RotateSession was sent after accept
+	rotations := ctrl.rotateSessionActions()
+	if len(rotations) != 1 {
+		t.Fatalf("rotate session actions = %d, want 1", len(rotations))
+	}
+
+	// Verify RotateSession was sent after ClearConversation
+	var sawClear, sawRotate bool
+	for _, a := range ctrl.actions {
+		switch a.(type) {
+		case interactive.ClearConversation:
+			sawClear = true
+		case interactive.RotateSession:
+			if !sawClear {
+				t.Fatal("RotateSession sent before ClearConversation")
+			}
+			sawRotate = true
+		}
+	}
+	if !sawRotate {
+		t.Fatal("RotateSession not found in actions")
+	}
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})

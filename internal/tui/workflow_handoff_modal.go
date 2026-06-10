@@ -163,6 +163,15 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 		cleared.suppressWorkflowHandoffRun = true
 		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target}
 		cleared.workflowHandoff = cleared.workflowHandoff.close()
+		// Rotate session after conversation is cleared — new workflow gets a fresh identity
+		// controller may be nil in tests; skip rotation when there's no backing session.
+		if cleared.controller != nil {
+			if err := cleared.controller.Handle(context.Background(), interactive.RotateSession{}); err != nil {
+				cleared.content.AppendLine("status: " + err.Error())
+				cleared.syncViewport()
+				return cleared, nil
+			}
+		}
 		return cleared, cmd
 	}
 	return nextModel, cmd
