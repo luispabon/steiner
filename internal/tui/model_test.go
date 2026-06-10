@@ -1777,8 +1777,12 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "cancelled", "", "", nil)})
-	if !strings.Contains(m.content.String(m.viewport.Width), "status: cancelled") {
+	rendered := m.content.String(m.viewport.Width)
+	if !strings.Contains(rendered, "cancelled") {
 		t.Fatal("expected cancelled stop reason to remain visible")
+	}
+	if !strings.Contains(rendered, "status") {
+		t.Fatal("expected cancelled stop reason to render with the status tag")
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})

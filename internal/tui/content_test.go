@@ -222,10 +222,10 @@ func TestAppendEventRendersWarningProviderDiagnostic(t *testing.T) {
 		t.Fatalf("segments count = %d, want 1 for warning diagnostic", len(buffer.segments))
 	}
 	seg := buffer.segments[0]
-	if seg.kind != segmentPlain {
-		t.Fatalf("segment kind = %v, want segmentPlain", seg.kind)
+	if seg.kind != segmentStatus {
+		t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
 	}
-	if !strings.Contains(seg.text, "status: provider turn=8 warning message=provider returned transient error, retrying turn in 5s") {
+	if !strings.Contains(seg.text, "provider turn=8 warning message=provider returned transient error, retrying turn in 5s") {
 		t.Fatalf("segment text = %q, want rendered provider warning", seg.text)
 	}
 }
