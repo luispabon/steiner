@@ -73,16 +73,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.interruptPending = false
-		m.approval = approvalState{}
-		m.content.clearApprovalState()
 		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
+		m.resetTopLevelTerminalState(true)
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.interruptPending = false
-		m.approval = approvalState{}
-		m.content.clearApprovalState()
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
+		m.resetTopLevelTerminalState(true)
 	case output.TurnStartedEvent:
 		m.sidebar.currentTurn = payload.Turn
 		m.activity = m.activity.waiting("waiting on model", turnLabel(payload.Turn))
@@ -192,6 +188,21 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
+	m.approval = approvalState{}
+	m.content.clearApprovalState()
+	if m.workflowHandoff.IsOpen() {
+		m.workflowHandoff = m.workflowHandoff.close()
+	}
+	if clearInterrupt {
+		m.interruptPending = false
+	}
+	m.input.Focus()
+	m.syncInputChrome()
+	m.syncSidebar()
+	m.syncViewport()
 }
 
 func (m *Model) shouldSuppressWorkflowHandoffEvent(event output.Event) bool {
