@@ -33,11 +33,11 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 		}
 	}
 	for _, msg := range request.Messages {
-		wireMsg, err := toOpenAIMessage(msg)
+		wireMsgs, err := toOpenAIMessages(msg)
 		if err != nil {
 			return openAIRequest{}, err
 		}
-		wire.Messages = append(wire.Messages, wireMsg)
+		wire.Messages = append(wire.Messages, wireMsgs...)
 	}
 	if request.IncludeEmptyReasoning {
 		empty := ""

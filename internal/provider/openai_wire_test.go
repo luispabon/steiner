@@ -7,16 +7,20 @@ import (
 
 func intPtr(v int) *int { return &v }
 
-func TestToOpenAIMessage_SetsReasoningContentPointerWhenPresent(t *testing.T) {
+func TestOpenAIMessages_SetsReasoningContentPointerWhenPresent(t *testing.T) {
 	msg := Message{
 		Role:             MessageRoleAssistant,
 		Content:          "answer",
 		ReasoningContent: "my reasoning",
 	}
-	wire, err := toOpenAIMessage(msg)
+	wires, err := toOpenAIMessages(msg)
 	if err != nil {
-		t.Fatalf("toOpenAIMessage() error = %v", err)
+		t.Fatalf("toOpenAIMessages() error = %v", err)
 	}
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+	wire := wires[0]
 	if wire.ReasoningContent == nil {
 		t.Fatal("ReasoningContent = nil, want non-nil pointer")
 	}
@@ -25,15 +29,19 @@ func TestToOpenAIMessage_SetsReasoningContentPointerWhenPresent(t *testing.T) {
 	}
 }
 
-func TestToOpenAIMessage_SetsReasoningContentNilWhenAbsent(t *testing.T) {
+func TestOpenAIMessages_SetsReasoningContentNilWhenAbsent(t *testing.T) {
 	msg := Message{
 		Role:    MessageRoleAssistant,
 		Content: "answer",
 	}
-	wire, err := toOpenAIMessage(msg)
+	wires, err := toOpenAIMessages(msg)
 	if err != nil {
-		t.Fatalf("toOpenAIMessage() error = %v", err)
+		t.Fatalf("toOpenAIMessages() error = %v", err)
 	}
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+	wire := wires[0]
 	if wire.ReasoningContent != nil {
 		t.Fatalf("ReasoningContent = %v, want nil", *wire.ReasoningContent)
 	}
@@ -434,5 +442,180 @@ func TestNormalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d calls, want 1", len(got))
+	}
+}
+
+func TestOpenAIMessages_UserWithImage(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleUser,
+		Content: "What is this?",
+		Images: []ImageBlock{
+			{
+				MediaType: "image/png",
+				Data:      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+				Width:     1,
+				Height:    1,
+				SizeBytes: 67,
+			},
+		},
+	}
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+	wire := wires[0]
+	if wire.Role != "user" {
+		t.Fatalf("Role = %q, want %q", wire.Role, "user")
+	}
+
+	// Content should be a slice of parts
+	parts, ok := wire.Content.([]openAIContentPart)
+	if !ok {
+		t.Fatalf("Content type = %T, want []openAIContentPart", wire.Content)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("got %d parts, want 2 (text + image)", len(parts))
+	}
+
+	// First part: text
+	if parts[0].Type != "text" {
+		t.Fatalf("parts[0].Type = %q, want %q", parts[0].Type, "text")
+	}
+	if parts[0].Text != "What is this?" {
+		t.Fatalf("parts[0].Text = %q, want %q", parts[0].Text, "What is this?")
+	}
+
+	// Second part: image_url
+	if parts[1].Type != "image_url" {
+		t.Fatalf("parts[1].Type = %q, want %q", parts[1].Type, "image_url")
+	}
+	if parts[1].ImageURL == nil {
+		t.Fatal("parts[1].ImageURL = nil, want non-nil")
+	}
+	expectedURL := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	if parts[1].ImageURL.URL != expectedURL {
+		t.Fatalf("parts[1].ImageURL.URL = %q, want %q", parts[1].ImageURL.URL, expectedURL)
+	}
+	if parts[1].ImageURL.Detail != "auto" {
+		t.Fatalf("parts[1].ImageURL.Detail = %q, want %q", parts[1].ImageURL.Detail, "auto")
+	}
+}
+
+func TestOpenAIMessages_UserNoImages(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleUser,
+		Content: "Hello, world!",
+	}
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+	wire := wires[0]
+	if wire.Role != "user" {
+		t.Fatalf("Role = %q, want %q", wire.Role, "user")
+	}
+
+	// Content should be a string (regression test)
+	content, ok := wire.Content.(string)
+	if !ok {
+		t.Fatalf("Content type = %T, want string", wire.Content)
+	}
+	if content != "Hello, world!" {
+		t.Fatalf("Content = %q, want %q", content, "Hello, world!")
+	}
+}
+
+func TestOpenAIMessages_ToolResultWithImages(t *testing.T) {
+	msg := Message{
+		Role:       MessageRoleTool,
+		Content:    "Tool executed successfully",
+		ToolCallID: "call_123",
+		Images: []ImageBlock{
+			{
+				MediaType: "image/jpeg",
+				Data:      "aGVsbG8gd29ybGQ=", // "hello world" in base64
+				Width:     100,
+				Height:    100,
+				SizeBytes: 1000,
+			},
+		},
+	}
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+	if len(wires) != 2 {
+		t.Fatalf("got %d messages, want 2 (tool result + user with image)", len(wires))
+	}
+
+	// First message: tool result
+	toolMsg := wires[0]
+	if toolMsg.Role != "tool" {
+		t.Fatalf("toolMsg.Role = %q, want %q", toolMsg.Role, "tool")
+	}
+	if toolMsg.ToolCallID != "call_123" {
+		t.Fatalf("toolMsg.ToolCallID = %q, want %q", toolMsg.ToolCallID, "call_123")
+	}
+	if toolMsg.Content != "Tool executed successfully" {
+		t.Fatalf("toolMsg.Content = %q, want %q", toolMsg.Content, "Tool executed successfully")
+	}
+
+	// Second message: user with image
+	userMsg := wires[1]
+	if userMsg.Role != "user" {
+		t.Fatalf("userMsg.Role = %q, want %q", userMsg.Role, "user")
+	}
+
+	parts, ok := userMsg.Content.([]openAIContentPart)
+	if !ok {
+		t.Fatalf("userMsg.Content type = %T, want []openAIContentPart", userMsg.Content)
+	}
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1 (image)", len(parts))
+	}
+
+	if parts[0].Type != "image_url" {
+		t.Fatalf("parts[0].Type = %q, want %q", parts[0].Type, "image_url")
+	}
+	if parts[0].ImageURL == nil {
+		t.Fatal("parts[0].ImageURL = nil, want non-nil")
+	}
+	expectedURL := "data:image/jpeg;base64,aGVsbG8gd29ybGQ="
+	if parts[0].ImageURL.URL != expectedURL {
+		t.Fatalf("parts[0].ImageURL.URL = %q, want %q", parts[0].ImageURL.URL, expectedURL)
+	}
+	if parts[0].ImageURL.Detail != "auto" {
+		t.Fatalf("parts[0].ImageURL.Detail = %q, want %q", parts[0].ImageURL.Detail, "auto")
+	}
+}
+
+func TestOpenAIMessages_ToolResultNoImages(t *testing.T) {
+	msg := Message{
+		Role:       MessageRoleTool,
+		Content:    "Success",
+		ToolCallID: "call_456",
+	}
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1 (no follow-up user message for tools without images)", len(wires))
+	}
+	wire := wires[0]
+	if wire.Role != "tool" {
+		t.Fatalf("Role = %q, want %q", wire.Role, "tool")
+	}
+	if wire.ToolCallID != "call_456" {
+		t.Fatalf("ToolCallID = %q, want %q", wire.ToolCallID, "call_456")
+	}
+	if wire.Content != "Success" {
+		t.Fatalf("Content = %q, want %q", wire.Content, "Success")
 	}
 }

@@ -83,6 +83,17 @@ type openAIToolCall struct {
 	Function openAIToolCallFunction `json:"function"`
 }
 
+type openAIContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+
+type openAIImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail"`
+}
+
 type openAIToolCallFunction struct {
 	Name      string `json:"name,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
@@ -101,7 +112,7 @@ type openAIChoice struct {
 
 // Conversion functions
 
-func toOpenAIMessage(message Message) (openAIMessage, error) {
+func toOpenAIMessages(message Message) ([]openAIMessage, error) {
 	wire := openAIMessage{
 		Role: string(message.Role),
 		Name: message.Name,
@@ -110,7 +121,33 @@ func toOpenAIMessage(message Message) (openAIMessage, error) {
 		wire.ReasoningContent = &message.ReasoningContent
 	}
 	switch message.Role {
-	case MessageRoleAssistant, MessageRoleSystem, MessageRoleUser:
+	case MessageRoleUser:
+		if len(message.Images) > 0 {
+			// When images are present, build multipart content (text + image_url parts)
+			parts := make([]openAIContentPart, 0, 1+len(message.Images))
+			if message.Content != "" {
+				parts = append(parts, openAIContentPart{
+					Type: "text",
+					Text: message.Content,
+				})
+			}
+			for _, img := range message.Images {
+				parts = append(parts, openAIContentPart{
+					Type: "image_url",
+					ImageURL: &openAIImageURL{
+						URL:    fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+						Detail: "auto",
+					},
+				})
+			}
+			wire.Content = parts
+		} else {
+			// No images: use string content
+			if message.Content != "" {
+				wire.Content = message.Content
+			}
+		}
+	case MessageRoleAssistant, MessageRoleSystem:
 		if message.Content != "" {
 			wire.Content = message.Content
 		} else if message.Role == MessageRoleAssistant {
@@ -127,7 +164,7 @@ func toOpenAIMessage(message Message) (openAIMessage, error) {
 		for _, toolCall := range message.ToolCalls {
 			args, err := json.Marshal(toolCall.Arguments)
 			if err != nil {
-				return openAIMessage{}, fmt.Errorf("encode tool call %q arguments: %w", toolCall.Name, err)
+				return nil, fmt.Errorf("encode tool call %q arguments: %w", toolCall.Name, err)
 			}
 			wire.ToolCalls = append(wire.ToolCalls, openAIToolCall{
 				ID:   toolCall.ID,
@@ -139,7 +176,28 @@ func toOpenAIMessage(message Message) (openAIMessage, error) {
 			})
 		}
 	}
-	return wire, nil
+
+	// Tool messages with images need a follow-up user message for the images
+	// (OpenAI doesn't support mixed tool_result + image in the same message)
+	msgs := []openAIMessage{wire}
+	if message.Role == MessageRoleTool && len(message.Images) > 0 {
+		parts := make([]openAIContentPart, 0, len(message.Images))
+		for _, img := range message.Images {
+			parts = append(parts, openAIContentPart{
+				Type: "image_url",
+				ImageURL: &openAIImageURL{
+					URL:    fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+					Detail: "auto",
+				},
+			})
+		}
+		msgs = append(msgs, openAIMessage{
+			Role:    "user",
+			Content: parts,
+		})
+	}
+
+	return msgs, nil
 }
 
 func normalizeChatResponse(payload *openAIResponse) (ChatResponse, error) {
