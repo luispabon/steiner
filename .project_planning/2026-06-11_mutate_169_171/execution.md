@@ -6,11 +6,12 @@
 
 ## Step Status
 
-- Current: `step-2 running`
+- Current: `step-3 running`
 - Completed:
   - `step-1` implemented and merged
+  - `step-2` implemented and merged
 - Blocked:
-  - `step-3` through `step-5`: waiting on prior steps
+  - `step-4` through `step-5`: waiting on prior steps
 - Skipped: none
 
 ## Sub-agents
@@ -21,10 +22,14 @@
 - `step-2` -> `gpt-5.4-mini` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step2`
   - Reason: cheapest safe option for a bounded mutate API step
   - Planner delegate profile: none provided
+- `step-3` -> `gpt-5.4-mini` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step3`
+  - Reason: cheapest safe option for a bounded mutate result/assertion step
+  - Planner delegate profile: none provided
 
 ## Verification
 
 - `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*Mutate.*'` -> pass in `step-1` worktree
+- `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*DeleteLine.*'` -> pass in `step-2` worktree
 
 ## Blockers
 
