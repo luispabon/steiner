@@ -37,7 +37,13 @@ Never work locally when:
 - You are about to grep then read the results — use ` + "`explore`" + `.
 - The task is separable from your current work — delegate it.
 
-All delegate tools take a single ` + "`task`" + ` parameter. Pass a self-contained task description with paths, constraints, and success criteria. Sub-agents cannot delegate further or ask the user questions.
+Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Compose self-contained tasks:
+
+- Objective: what the sub-agent must accomplish — find X, change Y, evaluate Z.
+- Context: file paths, symbols, or background the sub-agent needs. For the generic ` + "`delegate`" + ` tool, use the separate ` + "`context`" + ` parameter for lengthy background.
+- Deliverable: the concrete output expected — report with evidence, code change, pass/fail signal, or recommendation.
+- Constraints: boundaries. What not to touch, behavior to preserve, packages to stay within.
+- Success criteria: how the sub-agent knows it is done.
 
 ` + "`plan`" + ` is for focused sub-problem analysis, not overall task planning. Do not use it to delegate your own planning responsibilities.
 

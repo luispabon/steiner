@@ -26,7 +26,7 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 			"properties": map[string]any{
 				"task": map[string]any{
 					"type":        "string",
-					"description": "Required. The task description for the sub-agent.",
+					"description": "Required. Self-contained task with objective, file paths/context, expected deliverable, constraints, and success criteria.",
 				},
 			},
 			"required": []any{"task"},
