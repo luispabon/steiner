@@ -130,6 +130,8 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 		m.content.ToggleLastDelegationOutput()
 		m.syncViewport()
 		return true, m, nil
+	case tea.KeyCtrlV:
+		return true, m, pasteImageCmd()
 	case tea.KeyTab:
 		next, cmd := m.handleTabKey(msg)
 		return true, next, cmd

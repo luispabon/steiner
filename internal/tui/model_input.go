@@ -322,6 +322,7 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		}
 	}
+	m.pendingImages = nil
 	m.content.AppendUser(displayText)
 	m.input.Reset()
 	m.historyIdx = 0
