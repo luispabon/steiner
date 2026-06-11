@@ -46,6 +46,49 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 			t.Fatal("second preamble should differ when override changes")
 		}
 	})
+
+	t.Run("cache miss with different systemSuffix", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, "")
+		second := manager.CachedSystemPreamble("", false, false, "Extended thinking enabled")
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when systemSuffix changes")
+		}
+		if !strings.Contains(second, "Extended thinking enabled") {
+			t.Fatal("second preamble should contain the suffix")
+		}
+	})
+
+	t.Run("cache hit with same systemSuffix", func(t *testing.T) {
+		var manager baseContextManager
+		suffix := "Custom model instruction"
+		first := manager.CachedSystemPreamble("", false, false, suffix)
+		second := manager.CachedSystemPreamble("", false, false, suffix)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second != first {
+			t.Fatalf("second preamble should be cached when suffix is same")
+		}
+	})
+
+	t.Run("cache miss when suffix changes from non-empty to empty", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, "Some instruction")
+		second := manager.CachedSystemPreamble("", false, false, "")
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("preamble should differ when suffix is cleared")
+		}
+		if strings.Contains(second, "Some instruction") {
+			t.Fatal("second preamble should not contain the old suffix")
+		}
+	})
 }
 
 func TestBaseContextManagerRecordMutation(t *testing.T) {
