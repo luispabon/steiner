@@ -41,7 +41,7 @@ type mutateFileState struct {
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Create, overwrite, replace, line-replace, delete_line, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection — pass the hash from read/grep to fail fast if the file changed. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Create, overwrite, replace, line-replace, delete_line, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. Move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
@@ -178,9 +178,11 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 	if fileHash == "" {
 		return nil // optional — backward compat
 	}
-	// Skip verification for files that don't exist yet (create of new file)
 	if !state.exists {
-		return nil
+		return fmt.Errorf("mutate: operation %d %s: file_hash requires an existing file, but %s does not exist", index, opType, state.displayPath)
+	}
+	if state.isDir {
+		return fmt.Errorf("mutate: operation %d %s: file_hash requires a file, but %s is a directory", index, opType, state.displayPath)
 	}
 	actual := fileContentHash(state.original)
 	if actual != fileHash {
@@ -443,18 +445,18 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d move: from: %w", index, err)
 	}
+	if !from.exists {
+		return fmt.Errorf("mutate: operation %d move: %s does not exist", index, from.displayPath)
+	}
+	if from.isDir {
+		return fmt.Errorf("mutate: operation %d move: %s is a directory", index, from.displayPath)
+	}
 	if err := p.verifyFileHash(index, "move", from, op.FileHash); err != nil {
 		return err
 	}
 	to, err := p.stateFor(op.To)
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d move: to: %w", index, err)
-	}
-	if !from.exists {
-		return fmt.Errorf("mutate: operation %d move: %s does not exist", index, from.displayPath)
-	}
-	if from.isDir {
-		return fmt.Errorf("mutate: operation %d move: %s is a directory", index, from.displayPath)
 	}
 	if to.exists {
 		return fmt.Errorf("mutate: operation %d move: %s already exists", index, to.displayPath)
@@ -557,7 +559,9 @@ func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
 	content := op.Content
 	ending := detectLineEnding(lines)
 
-	// Ensure the anchor line has a proper ending before inserting after it.
+	// Allow append-style inserts at EOF even when the file lacks a trailing newline.
+	// If the anchor is newline-free, synthesize the detected line ending so the
+	// inserted block lands on its own line.
 	anchorLine := lines[op.Line-1]
 	anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
 	if anchorText == anchorLine {

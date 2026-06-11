@@ -124,6 +124,50 @@ func TestMutateOperations(t *testing.T) {
 	}
 }
 
+func TestMutateFileHashRequiresExistingTarget(t *testing.T) {
+	tests := []struct {
+		name string
+		op   map[string]any
+	}{
+		{
+			name: "create on missing target",
+			op: map[string]any{
+				"type":      "create",
+				"path":      "new.txt",
+				"content":   "new\n",
+				"file_hash": "BEEF",
+			},
+		},
+		{
+			name: "write on missing target",
+			op: map[string]any{
+				"type":      "write",
+				"path":      "new.txt",
+				"content":   "new\n",
+				"file_hash": "BEEF",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{tt.op},
+			})
+			if got.OperationsFailed != 1 {
+				t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+			}
+			if !strings.Contains(got.Output, "file_hash requires an existing file") {
+				t.Fatalf("Output = %q, want file_hash missing-target diagnostic", got.Output)
+			}
+			if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
+				t.Fatalf("new.txt exists after failed hash-guarded op, err=%v", err)
+			}
+		})
+	}
+}
+
 func TestMutateLineReplaceRepeatedSubstitutions(t *testing.T) {
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
@@ -765,6 +809,29 @@ func TestMutateMoveEdgeCases(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "old.txt")); !os.IsNotExist(err) {
 			t.Fatalf("old.txt exists after move, err=%v", err)
 		}
+	})
+
+	t.Run("destination collision does not overwrite", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "src.txt"), []byte("src\n"), 0o644); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "dest.txt"), []byte("dest\n"), 0o644); err != nil {
+			t.Fatalf("write dest: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "move", "from": "src.txt", "to": "dest.txt"},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "already exists") {
+			t.Fatalf("Output = %q, want destination collision", got.Output)
+		}
+		assertFile(t, filepath.Join(root, "src.txt"), "src\n")
+		assertFile(t, filepath.Join(root, "dest.txt"), "dest\n")
 	})
 
 	t.Run("write then move created file", func(t *testing.T) {
@@ -1458,17 +1525,22 @@ func TestMutateFileHashVerification(t *testing.T) {
 		}
 	})
 
-	t.Run("hash on create new file ignored", func(t *testing.T) {
+	t.Run("hash on create new file is rejected", func(t *testing.T) {
 		root := t.TempDir()
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
 				map[string]any{"type": "create", "path": "new.txt", "content": "new content\n", "file_hash": "BEEF"},
 			},
 		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
 		}
-		assertFile(t, filepath.Join(root, "new.txt"), "new content\n")
+		if !strings.Contains(got.Output, "file_hash requires an existing file") {
+			t.Fatalf("Output = %q, want missing-target hash diagnostic", got.Output)
+		}
+		if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
+			t.Fatalf("new.txt exists after rejected hash-guarded create, err=%v", err)
+		}
 	})
 
 	t.Run("hash on delete verified", func(t *testing.T) {
@@ -1825,6 +1897,13 @@ func TestMutateInsertAfter(t *testing.T) {
 			initial: "aaa\nbbb",
 			line:    2,
 			content: "zzz\n",
+			want:    "aaa\nbbb\nzzz\n",
+		},
+		{
+			name:    "append after final line without trailing newline and content newline",
+			initial: "aaa\nbbb",
+			line:    2,
+			content: "zzz",
 			want:    "aaa\nbbb\nzzz\n",
 		},
 		{
