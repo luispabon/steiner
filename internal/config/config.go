@@ -138,8 +138,9 @@ type RetryConfig struct {
 // ModelPrompts contains per-model prompt overrides. These override the
 // embedded default prompts and are only settable via config file.
 type ModelPrompts struct {
-	System     string `yaml:"system"`
-	Compaction string `yaml:"compaction"`
+	System       string `yaml:"system"`
+	Compaction   string `yaml:"compaction"`
+	SystemSuffix string `yaml:"system_suffix,omitempty"`
 }
 
 // LimitsConfig defines runtime limits for turns, tokens, and tools.

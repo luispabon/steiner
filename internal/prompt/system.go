@@ -98,7 +98,7 @@ Final response:
 - Mention assumptions, skipped checks, or unrelated issues noticed.`
 
 // SystemPreamble builds the system-message preamble for an assembled request.
-func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool) ContextBlock {
+func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool, systemSuffix string) ContextBlock {
 	content := strings.TrimSpace(defaultSystemPreamble)
 	if override != "" {
 		content = override
@@ -111,6 +111,10 @@ func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool) C
 
 	if cavemanMode {
 		content = content + "\n\n" + cavemanStyleInstruction
+	}
+
+	if systemSuffix != "" {
+		content = content + "\n\n" + systemSuffix
 	}
 
 	return ContextBlock{
