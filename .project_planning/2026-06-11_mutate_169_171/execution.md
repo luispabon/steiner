@@ -25,6 +25,10 @@
 - `step-3` -> `gpt-5.4-mini` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step3`
   - Reason: cheapest safe option for a bounded mutate result/assertion step
   - Planner delegate profile: none provided
+  - Escalation: retry required because `gpt-5.4-mini` returned capacity error before completing work
+- `step-3` retry -> `gpt-5.4` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step3`
+  - Reason: higher tier retry after cheaper worker capacity failure
+  - Planner delegate profile: none provided
 
 ## Verification
 
