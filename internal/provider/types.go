@@ -46,6 +46,15 @@ type MessageProviderMetadata struct {
 	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
 }
 
+// ImageBlock represents an image embedded in a message.
+type ImageBlock struct {
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	SizeBytes int    `json:"size_bytes,omitempty"`
+}
+
 // Message is the provider-facing chat message envelope.
 type Message struct {
 	Role             MessageRole              `json:"role"`
@@ -54,6 +63,7 @@ type Message struct {
 	Name             string                   `json:"name,omitempty"`
 	ToolCallID       string                   `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall               `json:"tool_calls,omitempty"`
+	Images           []ImageBlock             `json:"images,omitempty"`
 	Turn             int                      `json:"turn,omitempty"`
 	ProviderMetadata *MessageProviderMetadata `json:"provider_metadata,omitempty"`
 }

@@ -45,6 +45,15 @@ type MessageProviderMetadata struct {
 	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
 }
 
+// ImageBlock represents an image embedded in a message.
+type ImageBlock struct {
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	SizeBytes int    `json:"size_bytes,omitempty"`
+}
+
 // Message is the agent-side conversation record used across compaction flows.
 type Message struct {
 	Role             MessageRole              `json:"role"`
@@ -53,6 +62,7 @@ type Message struct {
 	Name             string                   `json:"name,omitempty"`
 	ToolCallID       string                   `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall               `json:"tool_calls,omitempty"`
+	Images           []ImageBlock             `json:"images,omitempty"`
 	Source           string                   `json:"source,omitempty"`
 	ByteSize         int                      `json:"byte_size,omitempty"`
 	Turn             int                      `json:"turn,omitempty"`

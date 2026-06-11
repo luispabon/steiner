@@ -788,3 +788,181 @@ func TestStripReasoningContent(t *testing.T) {
 		})
 	}
 }
+
+func TestMessageConvert_ToProviderMessage_Images(t *testing.T) {
+	t.Run("empty images returns nil", func(t *testing.T) {
+		msg := Message{Role: MessageRoleUser, Content: "text"}
+		result := toProviderMessage(msg)
+		if result.Images != nil {
+			t.Errorf("expected nil for no images, got %v", result.Images)
+		}
+	})
+
+	t.Run("single image copied", func(t *testing.T) {
+		msg := Message{
+			Role:    MessageRoleUser,
+			Content: "describe this",
+			Images: []ImageBlock{
+				{
+					MediaType: "image/png",
+					Data:      "iVBORw0KG...",
+					Width:     800,
+					Height:    600,
+					SizeBytes: 12345,
+				},
+			},
+		}
+		result := toProviderMessage(msg)
+		if len(result.Images) != 1 {
+			t.Fatalf("expected 1 image, got %d", len(result.Images))
+		}
+		img := result.Images[0]
+		if img.MediaType != "image/png" {
+			t.Errorf("expected image/png, got %s", img.MediaType)
+		}
+		if img.Data != "iVBORw0KG..." {
+			t.Errorf("expected iVBORw0KG..., got %s", img.Data)
+		}
+		if img.Width != 800 || img.Height != 600 {
+			t.Errorf("expected 800x600, got %dx%d", img.Width, img.Height)
+		}
+		if img.SizeBytes != 12345 {
+			t.Errorf("expected 12345 bytes, got %d", img.SizeBytes)
+		}
+	})
+
+	t.Run("multiple images copied", func(t *testing.T) {
+		msg := Message{
+			Role:    MessageRoleUser,
+			Content: "compare",
+			Images: []ImageBlock{
+				{MediaType: "image/png", Data: "data1", Width: 100, Height: 100, SizeBytes: 1000},
+				{MediaType: "image/jpeg", Data: "data2", Width: 200, Height: 200, SizeBytes: 2000},
+				{MediaType: "image/webp", Data: "data3", Width: 300, Height: 300, SizeBytes: 3000},
+			},
+		}
+		result := toProviderMessage(msg)
+		if len(result.Images) != 3 {
+			t.Fatalf("expected 3 images, got %d", len(result.Images))
+		}
+		for i, want := range []provider.ImageBlock{
+			{MediaType: "image/png", Data: "data1", Width: 100, Height: 100, SizeBytes: 1000},
+			{MediaType: "image/jpeg", Data: "data2", Width: 200, Height: 200, SizeBytes: 2000},
+			{MediaType: "image/webp", Data: "data3", Width: 300, Height: 300, SizeBytes: 3000},
+		} {
+			got := result.Images[i]
+			if got != want {
+				t.Errorf("image %d mismatch: got %#v, want %#v", i, got, want)
+			}
+		}
+	})
+}
+
+func TestMessageConvert_FromProviderMessage_Images(t *testing.T) {
+	t.Run("empty images returns nil", func(t *testing.T) {
+		msg := provider.Message{Role: provider.MessageRoleUser, Content: "text"}
+		result := fromProviderMessage(msg)
+		if result.Images != nil {
+			t.Errorf("expected nil for no images, got %v", result.Images)
+		}
+	})
+
+	t.Run("single image copied from provider", func(t *testing.T) {
+		msg := provider.Message{
+			Role:    provider.MessageRoleUser,
+			Content: "describe this",
+			Images: []provider.ImageBlock{
+				{
+					MediaType: "image/gif",
+					Data:      "GIF89a...",
+					Width:     400,
+					Height:    300,
+					SizeBytes: 5678,
+				},
+			},
+		}
+		result := fromProviderMessage(msg)
+		if len(result.Images) != 1 {
+			t.Fatalf("expected 1 image, got %d", len(result.Images))
+		}
+		img := result.Images[0]
+		if img.MediaType != "image/gif" {
+			t.Errorf("expected image/gif, got %s", img.MediaType)
+		}
+		if img.Data != "GIF89a..." {
+			t.Errorf("expected GIF89a..., got %s", img.Data)
+		}
+		if img.Width != 400 || img.Height != 300 {
+			t.Errorf("expected 400x300, got %dx%d", img.Width, img.Height)
+		}
+		if img.SizeBytes != 5678 {
+			t.Errorf("expected 5678 bytes, got %d", img.SizeBytes)
+		}
+	})
+}
+
+func TestMessageConvert_ImageRoundTrip(t *testing.T) {
+	t.Run("images round-trip through conversion", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "analyze",
+				Images: []ImageBlock{
+					{MediaType: "image/png", Data: "data1", Width: 100, Height: 100, SizeBytes: 1000},
+					{MediaType: "image/jpeg", Data: "data2", Width: 200, Height: 200, SizeBytes: 2000},
+				},
+			},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "analysis",
+			},
+		}
+		result := fromProviderMessages(ToProviderMessages(original))
+		if len(result) != 2 {
+			t.Fatalf("expected 2 messages, got %d", len(result))
+		}
+
+		userMsg := result[0]
+		if userMsg.Role != MessageRoleUser {
+			t.Errorf("expected user role, got %s", userMsg.Role)
+		}
+		if len(userMsg.Images) != 2 {
+			t.Fatalf("expected 2 images, got %d", len(userMsg.Images))
+		}
+		if userMsg.Images[0].MediaType != "image/png" || userMsg.Images[0].Data != "data1" {
+			t.Errorf("first image mismatch: %#v", userMsg.Images[0])
+		}
+		if userMsg.Images[1].MediaType != "image/jpeg" || userMsg.Images[1].Data != "data2" {
+			t.Errorf("second image mismatch: %#v", userMsg.Images[1])
+		}
+
+		assistantMsg := result[1]
+		if len(assistantMsg.Images) != 0 {
+			t.Errorf("expected no images in assistant message, got %d", len(assistantMsg.Images))
+		}
+	})
+
+	t.Run("partial images with content preserved", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "text content",
+				Images: []ImageBlock{
+					{MediaType: "image/webp", Data: "webpdata", Width: 0, Height: 0, SizeBytes: 0},
+				},
+			},
+		}
+		result := fromProviderMessages(ToProviderMessages(original))
+		if len(result) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(result))
+		}
+
+		msg := result[0]
+		if msg.Content != "text content" {
+			t.Errorf("content not preserved: got %q", msg.Content)
+		}
+		if len(msg.Images) != 1 || msg.Images[0].Data != "webpdata" {
+			t.Errorf("image not preserved: %#v", msg.Images)
+		}
+	})
+}
