@@ -873,3 +873,139 @@ func TestSummarizeCompactorUsesBaselinePath(t *testing.T) {
 		t.Fatal("summarizeCompactor does not implement Compactor")
 	}
 }
+
+func TestStripImages_DropImagesFromMessages(t *testing.T) {
+	t.Parallel()
+
+	messages := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "Check this image",
+			Images: []ImageBlock{
+				{
+					MediaType: "image/png",
+					Data:      "iVBORw0KGgo=",
+					Width:     100,
+					Height:    100,
+					SizeBytes: 1024,
+				},
+			},
+		},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "I see the image",
+			Images: []ImageBlock{
+				{
+					MediaType: "image/jpeg",
+					Data:      "/9j/4AAQ",
+					Width:     200,
+					Height:    200,
+					SizeBytes: 2048,
+				},
+			},
+		},
+	}
+
+	result := stripImages(messages)
+
+	if len(result) != 2 {
+		t.Fatalf("stripImages len = %d, want 2", len(result))
+	}
+
+	for i, msg := range result {
+		if msg.Images != nil {
+			t.Fatalf("message %d Images = %v, want nil", i, msg.Images)
+		}
+		if !strings.Contains(msg.Content, "[image was attached]") {
+			t.Fatalf("message %d Content = %q, want to contain '[image was attached]'", i, msg.Content)
+		}
+	}
+}
+
+func TestStripImages_PreserveMessagesWithoutImages(t *testing.T) {
+	t.Parallel()
+
+	messages := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "No images here",
+		},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "Also no images",
+		},
+	}
+
+	result := stripImages(messages)
+
+	if len(result) != 2 {
+		t.Fatalf("stripImages len = %d, want 2", len(result))
+	}
+
+	if got, want := result[0].Content, "No images here"; got != want {
+		t.Fatalf("message 0 Content = %q, want %q", got, want)
+	}
+	if got, want := result[1].Content, "Also no images"; got != want {
+		t.Fatalf("message 1 Content = %q, want %q", got, want)
+	}
+}
+
+func TestStripImages_AppendMarkerToExistingContent(t *testing.T) {
+	t.Parallel()
+
+	messages := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "Here is an image",
+			Images: []ImageBlock{
+				{
+					MediaType: "image/png",
+					Data:      "iVBORw0KGgo=",
+				},
+			},
+		},
+	}
+
+	result := stripImages(messages)
+
+	if len(result) != 1 {
+		t.Fatalf("stripImages len = %d, want 1", len(result))
+	}
+
+	expected := "Here is an image\n[image was attached]"
+	if got := result[0].Content; got != expected {
+		t.Fatalf("Content = %q, want %q", got, expected)
+	}
+	if result[0].Images != nil {
+		t.Fatalf("Images = %v, want nil", result[0].Images)
+	}
+}
+
+func TestStripImages_MarkerOnlyWhenNoContent(t *testing.T) {
+	t.Parallel()
+
+	messages := []Message{
+		{
+			Role: MessageRoleUser,
+			Images: []ImageBlock{
+				{
+					MediaType: "image/png",
+					Data:      "iVBORw0KGgo=",
+				},
+			},
+		},
+	}
+
+	result := stripImages(messages)
+
+	if len(result) != 1 {
+		t.Fatalf("stripImages len = %d, want 1", len(result))
+	}
+
+	if got, want := result[0].Content, "[image was attached]"; got != want {
+		t.Fatalf("Content = %q, want %q", got, want)
+	}
+	if result[0].Images != nil {
+		t.Fatalf("Images = %v, want nil", result[0].Images)
+	}
+}

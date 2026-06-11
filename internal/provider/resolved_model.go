@@ -56,6 +56,7 @@ type ResolvedModel struct {
 	TokenizerStrategy       string
 	TokenizerConfidence     string
 	TransportOverrideReason string
+	Vision                  *bool
 	Warnings                []string
 }
 
@@ -92,6 +93,7 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 		Confidence:            "high",
 		TokenizerStrategy:     tokenizerStrategy,
 		TokenizerConfidence:   tokenizerConfidence,
+		Vision:                modelCfg.Vision,
 	}
 	if modelCfg.Advanced.ReasoningEchoBack != nil {
 		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack

@@ -96,6 +96,9 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 	if patch.Advanced != nil {
 		applyAdvancedPatch(&dst.Advanced, patch.Advanced)
 	}
+	if patch.Vision != nil {
+		dst.Vision = patch.Vision
+	}
 }
 
 func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {

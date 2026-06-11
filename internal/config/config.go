@@ -123,6 +123,7 @@ type ModelConfig struct {
 	Retry        RetryConfig    `yaml:"retry"`
 	Prompts      ModelPrompts   `yaml:"prompts"`
 	Advanced     AdvancedConfig `yaml:"advanced"`
+	Vision       *bool          `yaml:"vision"`
 }
 
 // RetryConfig controls retry behaviour for model requests.

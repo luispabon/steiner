@@ -137,7 +137,7 @@ These tools are always available to the model:
 
 | Tool | Description |
 |------|-------------|
-| `read` | Read files with offset/limit pagination |
+| `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. Max image size: 5MB. |
 | `mutate` | Apply one or more structured file mutations atomically (create, write, replace, line_replace, delete, move) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |

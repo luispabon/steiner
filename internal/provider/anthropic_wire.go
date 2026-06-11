@@ -53,16 +53,23 @@ type anthropicTool struct {
 	InputSchema map[string]any `json:"input_schema,omitempty"`
 }
 
+type anthropicImageSource struct {
+	Type      string `json:"type"` // always "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
 type anthropicContentBlock struct {
-	Type      string         `json:"type"`
-	Text      string         `json:"text,omitempty"`
-	Thinking  string         `json:"thinking,omitempty"`
-	Signature string         `json:"signature,omitempty"`
-	ID        string         `json:"id,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Input     map[string]any `json:"input,omitempty"`
-	ToolUseID string         `json:"tool_use_id,omitempty"`
-	Content   string         `json:"content,omitempty"`
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	Thinking  string                `json:"thinking,omitempty"`
+	Signature string                `json:"signature,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     map[string]any        `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   string                `json:"content,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -129,13 +136,25 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 func toAnthropicMessage(message Message) *anthropicMessage {
 	switch message.Role {
 	case MessageRoleUser:
-		return &anthropicMessage{
-			Role: "user",
-			Content: []anthropicContentBlock{{
-				Type: "text",
-				Text: message.Content,
-			}},
+		content := make([]anthropicContentBlock, 0, 1+len(message.Images))
+		if message.Content != "" {
+			content = append(content, anthropicContentBlock{Type: "text", Text: message.Content})
 		}
+		for _, img := range message.Images {
+			content = append(content, anthropicContentBlock{
+				Type: "image",
+				Source: &anthropicImageSource{
+					Type:      "base64",
+					MediaType: img.MediaType,
+					Data:      img.Data,
+				},
+			})
+		}
+		if len(content) == 0 {
+			// keep at least empty text block to avoid empty content array
+			content = append(content, anthropicContentBlock{Type: "text", Text: ""})
+		}
+		return &anthropicMessage{Role: "user", Content: content}
 	case MessageRoleAssistant:
 		content := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls))
 		if message.ReasoningContent != "" {
@@ -167,14 +186,22 @@ func toAnthropicMessage(message Message) *anthropicMessage {
 		}
 		return &anthropicMessage{Role: "assistant", Content: content}
 	case MessageRoleTool:
-		return &anthropicMessage{
-			Role: "user",
-			Content: []anthropicContentBlock{{
-				Type:      "tool_result",
-				ToolUseID: message.ToolCallID,
-				Content:   message.Content,
-			}},
+		content := []anthropicContentBlock{{
+			Type:      "tool_result",
+			ToolUseID: message.ToolCallID,
+			Content:   message.Content,
+		}}
+		for _, img := range message.Images {
+			content = append(content, anthropicContentBlock{
+				Type: "image",
+				Source: &anthropicImageSource{
+					Type:      "base64",
+					MediaType: img.MediaType,
+					Data:      img.Data,
+				},
+			})
 		}
+		return &anthropicMessage{Role: "user", Content: content}
 	default:
 		if strings.TrimSpace(message.Content) == "" {
 			return nil
