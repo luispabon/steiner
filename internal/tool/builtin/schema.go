@@ -28,7 +28,7 @@ func MutateSchema() map[string]any {
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences for replace", "default": false},
 			"line":        map[string]any{"type": "integer", "description": "1-based line number for line_replace, insert_before, and insert_after", "minimum": 1},
 			"line_count":  map[string]any{"type": "integer", "description": "Number of lines to replace or delete starting from line. Cannot be combined with old_string. Omit for single-line edits with old_string.", "minimum": 1},
-			"file_hash":   map[string]any{"type": "string", "description": "4-char hex hash from read/grep result. When provided, verifies the file matches its state at call start. All operations in a batch validate against the same disk snapshot — not after prior operations. On mismatch, operation fails — re-read the file to get a fresh hash."},
+			"file_hash":   map[string]any{"type": "string", "description": "4-char hex hash from read/grep result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. On mismatch, the operation fails — re-read the file to get a fresh hash."},
 			"from":        map[string]any{"type": "string", "description": "Source path for move"},
 			"to":          map[string]any{"type": "string", "description": "Destination path for move"},
 		},
@@ -41,7 +41,7 @@ func MutateSchema() map[string]any {
 		"properties": map[string]any{
 			"operations": map[string]any{
 				"type":        "array",
-				"description": "Ordered list of file mutations. All operations are planned before any filesystem writes are committed. On partial failure, operations_skipped reports how many were never attempted.",
+				"description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
 				"minItems":    1,
 				"items":       operationSchema,
 			},

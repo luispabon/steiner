@@ -138,7 +138,7 @@ These tools are always available to the model:
 | Tool | Description |
 |------|-------------|
 | `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. Max image size: 5MB. |
-| `mutate` | Apply one or more structured file mutations atomically (create, write, replace, line_replace, delete, move) |
+| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching and initial-snapshot `file_hash` validation (create, write, replace, line_replace, delete, move) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
@@ -148,6 +148,8 @@ These tools are always available to the model:
 | `workflow_handoff` | Create a pending handoff request for an approved `.steiner/plans/...` directory in the parent session |
 
 `read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
+
+`mutate` evaluates operations in order against an in-memory snapshot of earlier edits, then commits the full batch only after planning succeeds. Any `file_hash` check compares against the disk state captured at batch start, not against later in-batch changes.
 
 ## Sandboxing
 

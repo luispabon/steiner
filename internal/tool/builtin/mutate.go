@@ -68,7 +68,6 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		p.applied++
 	}
 
-	p.result.OperationsApplied = p.applied
 	p.finalizeResult()
 	if in.DryRun {
 		p.result.Output = p.successOutput("Dry run succeeded.")
@@ -76,15 +75,17 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	}
 	if err := p.commit(); err != nil {
 		p.result.OperationsFailed = 1
+		p.result.clearCommittedMetadata()
 		p.result.Output = fmt.Sprintf("mutate: commit failed: %v", err)
 		return &p.result
 	}
+	p.result.OperationsApplied = p.applied
 	p.result.Output = p.successOutput("Success.")
 	return &p.result
 }
 
 func (p *mutatePlanner) fail(message string, total int) *MutateResult {
-	p.result.OperationsApplied = p.applied
+	p.result.clearCommittedMetadata()
 	p.result.OperationsFailed = 1
 	skipped := total - p.applied - 1
 	if skipped > 0 {

@@ -110,7 +110,45 @@ func TestMutateFailuresAreAtomic(t *testing.T) {
 	if got.OperationsFailed != 1 {
 		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
+	}
 	assertFile(t, path, "one\n")
+}
+
+func TestMutateFailedAtomicBatchDoesNotReportCommittedMetadata(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	notePath := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(notePath, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "created.txt", "content": "created\n"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "missing", "new_string": "MISSING"},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if got.WasMutated() {
+		t.Fatal("WasMutated() = true, want false")
+	}
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
+	}
+	assertFile(t, notePath, "one\n")
+	if _, err := os.Stat(filepath.Join(root, "created.txt")); !os.IsNotExist(err) {
+		t.Fatalf("created.txt exists after failed batch, err=%v", err)
+	}
 }
 
 func TestMutateDryRunDoesNotWrite(t *testing.T) {
@@ -1845,8 +1883,8 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 				map[string]any{"type": "replace", "path": "file.txt", "old_string": "ddd", "new_string": "eee"},
 			},
 		})
-		if got.OperationsApplied != 2 {
-			t.Fatalf("OperationsApplied = %d, want 2", got.OperationsApplied)
+		if got.OperationsApplied != 0 {
+			t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
 		}
 		if got.OperationsFailed != 1 {
 			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)

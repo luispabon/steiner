@@ -79,6 +79,15 @@ type MutateResult struct {
 	Output            string       `json:"output"`
 }
 
+func (r *MutateResult) clearCommittedMetadata() {
+	r.Paths = []string{}
+	r.Created = nil
+	r.Modified = nil
+	r.Deleted = nil
+	r.Moved = nil
+	r.OperationsApplied = 0
+}
+
 // WasMutated reports whether mutate actually modified the filesystem.
 func (r *MutateResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
