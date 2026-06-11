@@ -130,6 +130,8 @@ func appendAssistantMessage(state RunState, turn int, message provider.Message) 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
 	state.StopReason = StopReasonComplete
+	state.Conversation = stripImagesFromMessages(state.Conversation)
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	emitStop(in.Request.Events, state, nil)
 	return turnOutcome{State: state, Stop: true}
 }
@@ -223,6 +225,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
 	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
 }
@@ -384,4 +387,63 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 
 func buildTurnChatRequest(req RunRequest, chatRequest provider.ChatRequest) provider.ChatRequest {
 	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatRequest)
+}
+
+// imageBlockPlaceholder returns a compact text token describing an image whose
+// binary data has been stripped, e.g. "[image: 2560x1545 png 478KB]".
+func imageBlockPlaceholder(img ImageBlock) string {
+	var dims string
+	if img.Width > 0 && img.Height > 0 {
+		dims = fmt.Sprintf("%dx%d", img.Width, img.Height)
+	} else {
+		dims = "?"
+	}
+	var fmtStr string
+	if mt := img.MediaType; strings.Contains(mt, "/") {
+		fmtStr = mt[strings.LastIndex(mt, "/")+1:]
+	} else {
+		fmtStr = mt
+	}
+	var sizeStr string
+	if img.SizeBytes > 0 {
+		if img.SizeBytes >= 1024*1024 {
+			sizeStr = fmt.Sprintf("%.1fMB", float64(img.SizeBytes)/1024/1024)
+		} else {
+			sizeStr = fmt.Sprintf("%dKB", img.SizeBytes/1024)
+		}
+	}
+	if sizeStr != "" {
+		return fmt.Sprintf("[image: %s %s %s]", dims, fmtStr, sizeStr)
+	}
+	return fmt.Sprintf("[image: %s %s]", dims, fmtStr)
+}
+
+// stripImagesFromMessages clears the Data field of every ImageBlock in msgs
+// whose Data is non-empty and appends a placeholder token to the containing
+// message's Content so the model retains awareness of the image without the
+// full base64 payload being re-sent on subsequent turns.
+func stripImagesFromMessages(msgs []Message) []Message {
+	out := make([]Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		if len(out[i].Images) == 0 {
+			continue
+		}
+		imgs := make([]ImageBlock, len(out[i].Images))
+		copy(imgs, out[i].Images)
+		for j := range imgs {
+			if imgs[j].Data == "" {
+				continue
+			}
+			placeholder := imageBlockPlaceholder(imgs[j])
+			imgs[j].Data = ""
+			if out[i].Content == "" {
+				out[i].Content = placeholder
+			} else {
+				out[i].Content = out[i].Content + "\n" + placeholder
+			}
+		}
+		out[i].Images = imgs
+	}
+	return out
 }

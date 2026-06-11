@@ -44,11 +44,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSidebar()
 		return m, nil
 	case syncDebounceFiredMsg:
-		if msg.seq == m.syncDebounceSeq && m.contentDirty {
-			m.syncViewport()
-			m.contentDirty = false
-		}
-		return m, nil
+		return m.handleSyncDebounceFiredMsg(msg)
+	case clipboardImageMsg:
+		return m.handleClipboardImageMsg(msg)
 	case tea.MouseMsg:
 		return m.handleMouseMsg(msg)
 	case tea.KeyMsg:
@@ -60,12 +58,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {
+	if msg.seq == m.syncDebounceSeq && m.contentDirty {
+		m.syncViewport()
+		m.contentDirty = false
+	}
+	return m, nil
+}
+
 func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
 	return m.clearConversationState()
 }
 
 func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.content.Clear()
+	m.pendingImages = nil
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
 	for name := range m.enabledSkills {
@@ -223,4 +230,14 @@ func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	cmd := m.handleMouse(msg)
 	return m, cmd
+}
+
+func (m Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		// silently ignore — clipboard had no image, not an error to show
+		return m, nil
+	}
+	m.pendingImages = append(m.pendingImages, msg.block)
+	m.syncInputChrome()
+	return m, nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
@@ -123,6 +124,7 @@ type Model struct {
 	screenLines                  *[]string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
+	pendingImages                []agent.ImageBlock
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
@@ -331,7 +333,11 @@ func (m *Model) syncInputChrome() {
 	case m.activity.busy():
 		m.input.Placeholder = "working… esc to interrupt, or type to steer"
 	default:
-		m.input.Placeholder = "ask steiner — / for commands, @ for files"
+		if n := len(m.pendingImages); n > 0 {
+			m.input.Placeholder = fmt.Sprintf("[Image %d] ask steiner — / for commands, @ for files", n)
+		} else {
+			m.input.Placeholder = "ask steiner — / for commands, @ for files"
+		}
 	}
 	m.status.approvalActive = m.approval.active
 	m.status.streaming = m.activity.busy() && !m.approval.active

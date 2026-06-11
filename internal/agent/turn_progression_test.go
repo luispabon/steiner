@@ -1231,3 +1231,106 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testi
 		t.Fatal("DetectedReasoningEchoBack = true, want false when no reasoning_content in response")
 	}
 }
+
+func TestStripImagesFromMessages_basic(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "look at this",
+			Images: []ImageBlock{
+				{MediaType: "image/png", Data: "abc123", Width: 100, Height: 200, SizeBytes: 2048},
+			},
+		},
+	}
+	got := stripImagesFromMessages(msgs)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	img := got[0].Images[0]
+	if img.Data != "" {
+		t.Fatalf("Data = %q, want empty", img.Data)
+	}
+	// Width, Height, MediaType, SizeBytes must be preserved.
+	if img.Width != 100 || img.Height != 200 {
+		t.Fatalf("dims = %dx%d, want 100x200", img.Width, img.Height)
+	}
+	if img.MediaType != "image/png" {
+		t.Fatalf("MediaType = %q, want image/png", img.MediaType)
+	}
+	wantContent := "look at this\n[image: 100x200 png 2KB]"
+	if got[0].Content != wantContent {
+		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
+	}
+	// Original must not be mutated.
+	if msgs[0].Images[0].Data == "" {
+		t.Fatal("original message Data was mutated")
+	}
+}
+
+func TestStripImagesFromMessages_multiple(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "two images",
+			Images: []ImageBlock{
+				{MediaType: "image/png", Data: "aaa", Width: 640, Height: 480, SizeBytes: 50000},
+				{MediaType: "image/jpeg", Data: "bbb", Width: 1920, Height: 1080, SizeBytes: 2097152},
+			},
+		},
+	}
+	got := stripImagesFromMessages(msgs)
+	if got[0].Images[0].Data != "" || got[0].Images[1].Data != "" {
+		t.Fatal("expected both image Data fields to be cleared")
+	}
+	wantContent := "two images\n[image: 640x480 png 48KB]\n[image: 1920x1080 jpeg 2.0MB]"
+	if got[0].Content != wantContent {
+		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
+	}
+}
+
+func TestStripImagesFromMessages_noImages(t *testing.T) {
+	msgs := []Message{
+		{Role: MessageRoleUser, Content: "plain text"},
+		{Role: MessageRoleAssistant, Content: "response"},
+	}
+	got := stripImagesFromMessages(msgs)
+	for i, m := range got {
+		if m.Content != msgs[i].Content {
+			t.Fatalf("msg[%d].Content changed: got %q, want %q", i, m.Content, msgs[i].Content)
+		}
+	}
+}
+
+func TestStripImagesFromMessages_preservesContent(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    MessageRoleTool,
+			Content: "existing tool output",
+			Images: []ImageBlock{
+				{MediaType: "image/png", Data: "data", Width: 0, Height: 0, SizeBytes: 0},
+			},
+		},
+	}
+	got := stripImagesFromMessages(msgs)
+	wantContent := "existing tool output\n[image: ? png]"
+	if got[0].Content != wantContent {
+		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
+	}
+}
+
+func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "already stripped\n[image: 100x100 png 1KB]",
+			Images: []ImageBlock{
+				{MediaType: "image/png", Data: "", Width: 100, Height: 100, SizeBytes: 1024},
+			},
+		},
+	}
+	got := stripImagesFromMessages(msgs)
+	// No Data to strip, Content must not grow.
+	if got[0].Content != msgs[0].Content {
+		t.Fatalf("Content changed for already-stripped image: got %q, want %q", got[0].Content, msgs[0].Content)
+	}
+}

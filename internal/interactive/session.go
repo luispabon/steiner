@@ -215,7 +215,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool {
 	switch a := action.(type) {
 	case SubmitPrompt:
-		go s.submitPrompt(ctx, a.Text)
+		go s.submitPrompt(ctx, a.Text, a.Images)
 		return true
 	case SteerPrompt:
 		s.runController.Steer(a.Text)
