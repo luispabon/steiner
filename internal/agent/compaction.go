@@ -307,7 +307,7 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 
 func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
-	workingCandidate.Messages = cloneMessages(sourceMessages)
+	workingCandidate.Messages = stripImages(cloneMessages(sourceMessages))
 	request, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens)
 	if err != nil {
 		return compactionExecutionPlan{}, err
@@ -318,7 +318,7 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	}
 	return compactionExecutionPlan{
 		candidate:        workingCandidate,
-		sourceMessages:   cloneMessages(sourceMessages),
+		sourceMessages:   stripImages(cloneMessages(sourceMessages)),
 		retainedMessages: cloneMessages(retainedMessages),
 		request:          request,
 		promptText:       promptText,
@@ -707,4 +707,23 @@ func compactionBudgetIsFragile(fit prompt.RequestTokenBudget) bool {
 		return false
 	}
 	return overage*100 >= limit*compactionFragilityOveragePercent
+}
+
+// stripImages removes image attachments from messages and replaces them with a
+// marker text. This prevents images from being sent to the compaction model
+// while preserving a record that images were present.
+func stripImages(messages []Message) []Message {
+	result := make([]Message, len(messages))
+	for i, msg := range messages {
+		if len(msg.Images) > 0 {
+			msg.Images = nil
+			if msg.Content != "" {
+				msg.Content += "\n[image was attached]"
+			} else {
+				msg.Content = "[image was attached]"
+			}
+		}
+		result[i] = msg
+	}
+	return result
 }
