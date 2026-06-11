@@ -468,7 +468,7 @@ func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	s.mu.Lock()
 	conv := s.conversation
@@ -492,7 +492,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	if !called {
 		t.Fatal("expected Runner.Run to be called")
@@ -510,7 +510,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	if got := s.Conversation(); len(got) != 2 {
 		t.Fatalf("conversation length = %d, want 2", len(got))
@@ -534,7 +534,7 @@ func TestSubmitPromptPersistsConversationOnWorkflowHandoff(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	// Conversation should be persisted with both messages after workflow handoff.
 	got := s.Conversation()
@@ -588,7 +588,7 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 		},
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	saved, ok := mockStore.savedSessions[s.SessionID()]
 	if !ok {
@@ -627,7 +627,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	var found bool
 	for _, event := range events {
@@ -668,7 +668,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 		},
 	})
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	if recorded != "hello" {
 		t.Fatalf("recorded prompt = %q, want %q", recorded, "hello")
@@ -711,7 +711,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 		}
 	}()
 
-	s.submitPrompt(context.Background(), "hello")
+	s.submitPrompt(context.Background(), "hello", nil)
 
 	if !cancelled {
 		t.Fatal("expected active run to be cancelled on interrupt")
@@ -1120,7 +1120,7 @@ func TestSubmitPromptDoesNotPassSkillsUntilEnabled(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hey")
+	s.submitPrompt(context.Background(), "hey", nil)
 
 	if len(gotSkillNames) != 0 {
 		t.Fatalf("runner skill names = %v, want none", gotSkillNames)
@@ -1430,4 +1430,39 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	if got, want := toolFinished[0].Result, "file contents"; got != want {
 		t.Fatalf("tool finished result = %q, want %q", got, want)
 	}
+}
+
+func TestSubmitPromptWithImages(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+
+	// Verify SubmitPrompt struct can be constructed with Images field
+	images := []agent.ImageBlock{
+		{MediaType: "image/png", Data: "base64encodeddata"},
+	}
+	action := SubmitPrompt{
+		Text:   "hello",
+		Images: images,
+	}
+
+	// Verify the action implements Action interface
+	var _ Action = action
+
+	// Verify Images field is properly set
+	if len(action.Images) != 1 {
+		t.Fatalf("action.Images length = %d, want 1", len(action.Images))
+	}
+	if got, want := action.Images[0].MediaType, "image/png"; got != want {
+		t.Fatalf("action.Images[0].MediaType = %q, want %q", got, want)
+	}
+	if got, want := action.Images[0].Data, "base64encodeddata"; got != want {
+		t.Fatalf("action.Images[0].Data = %q, want %q", got, want)
+	}
+
+	// Verify nil Images is acceptable
+	actionNoImages := SubmitPrompt{Text: "text only"}
+	if actionNoImages.Images != nil {
+		t.Fatalf("expected nil Images for text-only SubmitPrompt")
+	}
+	_ = s // Suppress unused warning
 }

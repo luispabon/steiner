@@ -1,6 +1,10 @@
 package interactive
 
-import "context"
+import (
+	"context"
+
+	"github.com/luispabon/steiner/internal/agent"
+)
 
 // Action is the interface for all interactive-mode user actions.
 type Action interface {
@@ -16,7 +20,10 @@ type Controller interface {
 
 // SubmitPrompt represents a user submitting a new prompt during an interactive
 // session.
-type SubmitPrompt struct{ Text string }
+type SubmitPrompt struct {
+	Text   string
+	Images []agent.ImageBlock
+}
 
 func (SubmitPrompt) isInteractiveAction() {}
 

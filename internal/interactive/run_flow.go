@@ -13,10 +13,10 @@ import (
 // It appends the user message, starts a cancellable model run, records history
 // on success, updates session lineage and title, and saves the session.
 // Emits stop/error and history events consistently.
-func (s *Session) submitPrompt(ctx context.Context, text string) {
+func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.ImageBlock) {
 	s.mu.Lock()
 	isFirstPrompt := len(s.conversation) == 0
-	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text})
+	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
 	s.mu.Unlock()
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
