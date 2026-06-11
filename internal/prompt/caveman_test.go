@@ -10,7 +10,7 @@ import (
 func TestSystemPreambleCavemanModeEnabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, true).Content
+	content := SystemPreamble("", true, true, "").Content
 	if !strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}
@@ -19,7 +19,7 @@ func TestSystemPreambleCavemanModeEnabled(t *testing.T) {
 func TestSystemPreambleCavemanModeDisabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, false).Content
+	content := SystemPreamble("", true, false, "").Content
 	if strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble contains terse instruction when disabled in %q", content)
 	}
