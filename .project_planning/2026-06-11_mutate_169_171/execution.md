@@ -6,12 +6,13 @@
 
 ## Step Status
 
-- Current: `step-5 verification running`
+- Current: `complete`
 - Completed:
   - `step-1` implemented and merged
   - `step-2` implemented and merged
   - `step-3` implemented and merged
   - `step-4` implemented and merged
+  - `step-5` verification completed
 - Blocked:
   - none
 - Skipped: none
@@ -41,6 +42,8 @@
 - `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*DeleteLine.*'` -> pass in `step-2` worktree
 - `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*Assert.*|Test.*Context.*'` -> pass in `step-3` worktree
 - `make check` -> pass in `step-3` worktree
+- `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*FileHash.*|Test.*Move.*|Test.*Insert.*'` -> pass in `step-4` worktree
+- `make check` -> pass on feature branch after all merged steps
 
 ## Blockers
 
@@ -55,7 +58,8 @@
 ## Deviations
 
 - User override accepted for unrelated untracked files so execution may continue despite the initial clean-branch precondition failure.
+- Reviewer handoff proceeds with the same explicit user override for unrelated untracked files remaining in the worktree.
 
 ## Reviewer Handoff
 
-- Not ready. No implementation steps were dispatched.
+- Ready for review.
