@@ -69,7 +69,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
-			"Ask a sub-agent to find something across multiple files",
+		"Ask a sub-agent to find something across multiple files",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("delegation preamble missing %q", want)
