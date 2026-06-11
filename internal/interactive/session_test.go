@@ -10,6 +10,8 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -227,6 +229,64 @@ func TestSnapshotStoreStoreAndSnapshot(t *testing.T) {
 	}
 	if snapshot.Model != "test-model" {
 		t.Fatalf("model = %q, want %q", snapshot.Model, "test-model")
+	}
+}
+
+func TestSnapshotStoreDeepClonesProviderOwnedFields(t *testing.T) {
+	t.Parallel()
+
+	maxTokens := 32
+	store := &SnapshotStore{}
+	snapshot := RequestContextSnapshot{
+		Model: "test-model",
+		Messages: []provider.Message{
+			{
+				Role: provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{
+					{
+						ID:        "call-1",
+						Name:      "read",
+						Arguments: map[string]any{"path": "a.go"},
+					},
+				},
+				ProviderMetadata: &provider.MessageProviderMetadata{
+					Anthropic: &provider.AnthropicMessageMetadata{ThinkingSignature: "sig"},
+				},
+			},
+		},
+		Tools: []provider.ToolSpec{
+			{
+				Type: "function",
+				Function: provider.ToolFunctionSpec{
+					Name:       "read",
+					Parameters: map[string]any{"type": "object"},
+				},
+			},
+		},
+		MaxTokens: &maxTokens,
+		Blocks: []prompt.ContextBlock{
+			{Source: prompt.ContextSourceProjectContext, Path: "README.md", Content: "content"},
+		},
+	}
+
+	store.Store(snapshot)
+	got, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("Snapshot() ok = false, want true")
+	}
+
+	got.Messages[0].ToolCalls[0].Arguments["path"] = "b.go"
+	got.Messages[0].ProviderMetadata.Anthropic.ThinkingSignature = "changed"
+	got.Tools[0].Function.Parameters["type"] = "array"
+
+	if original := snapshot.Messages[0].ToolCalls[0].Arguments["path"]; original != "a.go" {
+		t.Fatalf("original path = %v, want a.go", original)
+	}
+	if original := snapshot.Messages[0].ProviderMetadata.Anthropic.ThinkingSignature; original != "sig" {
+		t.Fatalf("original signature = %q, want sig", original)
+	}
+	if original := snapshot.Tools[0].Function.Parameters["type"]; original != "object" {
+		t.Fatalf("original tool parameter = %v, want object", original)
 	}
 }
 

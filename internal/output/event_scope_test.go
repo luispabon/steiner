@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func TestWithAgentScope(t *testing.T) {
@@ -135,5 +138,49 @@ func TestNewModelCallFinishedEventTimingFields(t *testing.T) {
 				t.Errorf("OutputTPS: got %f, want %f", payload.OutputTPS, tc.outputTPS)
 			}
 		})
+	}
+}
+
+func TestNewAPIRequestEventDeepClonesProviderOwnedFields(t *testing.T) {
+	maxTokens := 64
+	messages := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{
+				{
+					ID:        "call-1",
+					Name:      "read",
+					Arguments: map[string]any{"path": "a.go"},
+				},
+			},
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{ThinkingSignature: "sig"},
+			},
+		},
+	}
+	tools := []provider.ToolSpec{
+		{
+			Type: "function",
+			Function: provider.ToolFunctionSpec{
+				Name:       "read",
+				Parameters: map[string]any{"type": "object"},
+			},
+		},
+	}
+
+	event := NewAPIRequestEvent("model", messages, tools, &maxTokens, nil, prompt.ModelTokenBudget{})
+	payload := event.Payload.(APIRequestEvent)
+	payload.Messages[0].ToolCalls[0].Arguments["path"] = "b.go"
+	payload.Messages[0].ProviderMetadata.Anthropic.ThinkingSignature = "changed"
+	payload.Tools[0].Function.Parameters["type"] = "array"
+
+	if got, want := messages[0].ToolCalls[0].Arguments["path"], "a.go"; got != want {
+		t.Fatalf("original path = %v, want %v", got, want)
+	}
+	if got, want := messages[0].ProviderMetadata.Anthropic.ThinkingSignature, "sig"; got != want {
+		t.Fatalf("original signature = %q, want %q", got, want)
+	}
+	if got, want := tools[0].Function.Parameters["type"], "object"; got != want {
+		t.Fatalf("original tool parameter = %v, want %v", got, want)
 	}
 }

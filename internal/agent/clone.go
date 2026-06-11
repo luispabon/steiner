@@ -62,40 +62,11 @@ func cloneValue(value any) any {
 }
 
 func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
-	if len(tools) == 0 {
-		return nil
-	}
-	out := make([]provider.ToolSpec, len(tools))
-	copy(out, tools)
-	for i := range out {
-		out[i].Function.Parameters = cloneInput(out[i].Function.Parameters)
-	}
-	return out
+	return provider.CloneTools(tools)
 }
 
 func cloneProviderMessages(messages []provider.Message) []provider.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]provider.Message, len(messages))
-	copy(out, messages)
-	for i := range out {
-		out[i].ToolCalls = cloneProviderToolCalls(out[i].ToolCalls)
-		out[i].ProviderMetadata = cloneProviderMessageMetadata(out[i].ProviderMetadata)
-	}
-	return out
-}
-
-func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
-	if len(calls) == 0 {
-		return nil
-	}
-	out := make([]provider.ToolCall, len(calls))
-	copy(out, calls)
-	for i := range out {
-		out[i].Arguments = cloneInput(out[i].Arguments)
-	}
-	return out
+	return provider.CloneMessages(messages)
 }
 
 func messageRetentionFromToolRetention(retention *tool.ToolRetention) *MessageRetention {
@@ -125,18 +96,6 @@ func cloneMessageProviderMetadata(metadata *MessageProviderMetadata) *MessagePro
 		return nil
 	}
 	cloned := &MessageProviderMetadata{}
-	if metadata.Anthropic != nil {
-		anthropic := *metadata.Anthropic
-		cloned.Anthropic = &anthropic
-	}
-	return cloned
-}
-
-func cloneProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *provider.MessageProviderMetadata {
-	if metadata == nil {
-		return nil
-	}
-	cloned := &provider.MessageProviderMetadata{}
 	if metadata.Anthropic != nil {
 		anthropic := *metadata.Anthropic
 		cloned.Anthropic = &anthropic

@@ -112,7 +112,10 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		return response, firstChunkTime, err
 	}
 
-	stripped := cloneProviderMessagesWithoutImages(chatRequest.Messages)
+	stripped := provider.CloneMessages(chatRequest.Messages)
+	for i := range stripped {
+		stripped[i].Images = nil
+	}
 	emitEvent(req.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Turn:     turn,
 		Severity: "warning",
@@ -141,15 +144,6 @@ func requestHasImages(messages []provider.Message) bool {
 		}
 	}
 	return false
-}
-
-func cloneProviderMessagesWithoutImages(messages []provider.Message) []provider.Message {
-	cloned := make([]provider.Message, len(messages))
-	for i, msg := range messages {
-		msg.Images = nil
-		cloned[i] = msg
-	}
-	return cloned
 }
 
 func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
@@ -248,7 +242,7 @@ func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSo
 		emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 	}
 	if len(chunk.Delta.ToolCalls) > 0 {
-		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+		message.ToolCalls = provider.CloneToolCalls(chunk.Delta.ToolCalls)
 	}
 }
 
@@ -270,13 +264,13 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 		}
 	}
 	if len(chunk.Delta.ToolCalls) > 0 {
-		message.ToolCalls = cloneProviderToolCalls(chunk.Delta.ToolCalls)
+		message.ToolCalls = provider.CloneToolCalls(chunk.Delta.ToolCalls)
 	}
 	if chunk.Delta.ReasoningContent != "" {
 		message.ReasoningContent = chunk.Delta.ReasoningContent
 	}
 	if chunk.Delta.ProviderMetadata != nil {
-		message.ProviderMetadata = cloneProviderMessageMetadata(chunk.Delta.ProviderMetadata)
+		message.ProviderMetadata = provider.CloneMessageMetadata(chunk.Delta.ProviderMetadata)
 	}
 }
 

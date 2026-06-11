@@ -192,8 +192,8 @@ func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 	defer s.mu.Unlock()
 	cloned := RequestContextSnapshot{
 		Model:       snapshot.Model,
-		Messages:    append([]provider.Message(nil), snapshot.Messages...),
-		Tools:       append([]provider.ToolSpec(nil), snapshot.Tools...),
+		Messages:    provider.CloneMessages(snapshot.Messages),
+		Tools:       provider.CloneTools(snapshot.Tools),
 		MaxTokens:   cloneOptionalInt(snapshot.MaxTokens),
 		Blocks:      append([]prompt.ContextBlock(nil), snapshot.Blocks...),
 		ModelBudget: snapshot.ModelBudget,
@@ -214,8 +214,8 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 	}
 	cloned := RequestContextSnapshot{
 		Model:       s.snapshot.Model,
-		Messages:    append([]provider.Message(nil), s.snapshot.Messages...),
-		Tools:       append([]provider.ToolSpec(nil), s.snapshot.Tools...),
+		Messages:    provider.CloneMessages(s.snapshot.Messages),
+		Tools:       provider.CloneTools(s.snapshot.Tools),
 		MaxTokens:   cloneOptionalInt(s.snapshot.MaxTokens),
 		Blocks:      append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
 		ModelBudget: s.snapshot.ModelBudget,
