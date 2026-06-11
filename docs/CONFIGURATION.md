@@ -126,6 +126,7 @@ models:
 | `retry`         | RetryConfig          | see below | Retry policy for failed or rate-limited requests. |
 | `prompts`       | ModelPrompts         | —       | Per-model system and compaction prompt overrides. |
 | `advanced`      | AdvancedConfig       | see below | Token limit and inference-level settings. |
+| `vision`        | bool or null         | null (assumed capable) | When set to `false`, image attachments are stripped from requests to this model and a diagnostic warning is emitted. When `null` or unset, vision capability is assumed. Set to `false` for older models that reject image content. |
 
 ### `RetryConfig` fields
 

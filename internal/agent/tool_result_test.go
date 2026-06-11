@@ -8,13 +8,13 @@ import (
 
 func TestNormalizeToolResultWithImage(t *testing.T) {
 	tests := []struct {
-		name           string
-		result         any
-		wantImage      bool
-		wantMediaType  string
-		wantWidth      int
-		wantHeight     int
-		wantSizeBytes  int
+		name          string
+		result        any
+		wantImage     bool
+		wantMediaType string
+		wantWidth     int
+		wantHeight    int
+		wantSizeBytes int
 	}{
 		{
 			name: "ReadResult with image pointer",
@@ -90,10 +90,8 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 				if envelope.Image.SizeBytes != tt.wantSizeBytes {
 					t.Errorf("Image.SizeBytes = %d, want %d", envelope.Image.SizeBytes, tt.wantSizeBytes)
 				}
-			} else {
-				if envelope.Image != nil {
-					t.Errorf("Image = %v, want nil", envelope.Image)
-				}
+			} else if envelope.Image != nil {
+				t.Errorf("Image = %v, want nil", envelope.Image)
 			}
 		})
 	}

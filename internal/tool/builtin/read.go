@@ -6,9 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
+	_ "image/gif"  // register GIF decoder for image.Decode
+	_ "image/jpeg" // register JPEG decoder for image.Decode
+	_ "image/png"  // register PNG decoder for image.Decode
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +19,7 @@ import (
 )
 
 // NewReadTool creates a ToolDef for the read tool backed by Dive's ReadFileTool.
+// nolint:gocyclo // handler closure complexity is unavoidable with multi-branch file type logic and pagination
 func NewReadTool(env Env) tool.ToolDef {
 	readTool := toolkit.NewReadFileTool()
 	return tool.ToolDef{

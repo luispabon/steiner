@@ -14,7 +14,9 @@ func TestReadImageFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		_ = os.Remove(tmpFile.Name())
+	}()
 
 	// Create a simple 2x2 PNG image.
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
@@ -26,7 +28,9 @@ func TestReadImageFile(t *testing.T) {
 	if err := png.Encode(tmpFile, img); err != nil {
 		t.Fatalf("Failed to encode PNG: %v", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Failed to close temp file: %v", err)
+	}
 
 	tests := []struct {
 		name          string
@@ -117,14 +121,18 @@ func TestReadImageFileTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		_ = os.Remove(tmpFile.Name())
+	}()
 
 	// Write 6MB of data.
 	sizeBytes := 6 * 1024 * 1024
 	if _, err := tmpFile.Write(make([]byte, sizeBytes)); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Failed to close temp file: %v", err)
+	}
 
 	result, err := readImageFile(tmpFile.Name(), "large_image.bin")
 	if err == nil {

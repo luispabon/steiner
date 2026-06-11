@@ -112,26 +112,20 @@ type openAIChoice struct {
 
 // Conversion functions
 
-func toOpenAIMessages(message Message) ([]openAIMessage, error) {
-	wire := openAIMessage{
-		Role: string(message.Role),
-		Name: message.Name,
-	}
-	if message.ReasoningContent != "" {
-		wire.ReasoningContent = &message.ReasoningContent
-	}
-	switch message.Role {
+// setOpenAIMessageContent sets the content field on an OpenAI message based on role and content type.
+func setOpenAIMessageContent(wire *openAIMessage, msg Message) {
+	switch msg.Role {
 	case MessageRoleUser:
-		if len(message.Images) > 0 {
+		if len(msg.Images) > 0 {
 			// When images are present, build multipart content (text + image_url parts)
-			parts := make([]openAIContentPart, 0, 1+len(message.Images))
-			if message.Content != "" {
+			parts := make([]openAIContentPart, 0, 1+len(msg.Images))
+			if msg.Content != "" {
 				parts = append(parts, openAIContentPart{
 					Type: "text",
-					Text: message.Content,
+					Text: msg.Content,
 				})
 			}
-			for _, img := range message.Images {
+			for _, img := range msg.Images {
 				parts = append(parts, openAIContentPart{
 					Type: "image_url",
 					ImageURL: &openAIImageURL{
@@ -141,24 +135,33 @@ func toOpenAIMessages(message Message) ([]openAIMessage, error) {
 				})
 			}
 			wire.Content = parts
-		} else {
+		} else if msg.Content != "" {
 			// No images: use string content
-			if message.Content != "" {
-				wire.Content = message.Content
-			}
+			wire.Content = msg.Content
 		}
 	case MessageRoleAssistant, MessageRoleSystem:
-		if message.Content != "" {
-			wire.Content = message.Content
-		} else if message.Role == MessageRoleAssistant {
+		if msg.Content != "" {
+			wire.Content = msg.Content
+		} else if msg.Role == MessageRoleAssistant {
 			wire.Content = nil
 		}
 	case MessageRoleTool:
-		wire.Content = message.Content
-		wire.ToolCallID = message.ToolCallID
+		wire.Content = msg.Content
+		wire.ToolCallID = msg.ToolCallID
 	default:
-		wire.Content = message.Content
+		wire.Content = msg.Content
 	}
+}
+
+func toOpenAIMessages(message Message) ([]openAIMessage, error) {
+	wire := openAIMessage{
+		Role: string(message.Role),
+		Name: message.Name,
+	}
+	if message.ReasoningContent != "" {
+		wire.ReasoningContent = &message.ReasoningContent
+	}
+	setOpenAIMessageContent(&wire, message)
 	if len(message.ToolCalls) > 0 {
 		wire.ToolCalls = make([]openAIToolCall, 0, len(message.ToolCalls))
 		for _, toolCall := range message.ToolCalls {
