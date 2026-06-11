@@ -1,0 +1,89 @@
+steps:
+  - id: step-1
+    title: Add SystemSuffix to config and patch structs
+    scope: |
+      Add SystemSuffix field to ModelPrompts (config.go:140-143),
+      modelPromptsPatch (patch.go:67-70), and applyModelPromptsPatch (patch_model.go:116-119).
+    files:
+      - internal/config/config.go
+      - internal/config/patch.go
+      - internal/config/patch_model.go
+    constraints:
+      - Field name SystemSuffix, YAML tag system_suffix
+      - Follow existing pattern (string type, *string in patch, setIfPresent)
+    acceptance:
+      - ModelPrompts has SystemSuffix field with yaml tag
+      - Patch struct has *string SystemSuffix
+      - applyModelPromptsPatch calls setIfPresent for SystemSuffix
+    verification:
+      - go build ./internal/config/...
+      - go test ./internal/config/... -run "Patch|Prompt"
+
+  - id: step-2
+    title: Plumb SystemSuffix through SystemPreamble
+    scope: |
+      Add systemSuffix parameter to SystemPreamble (system.go:93).
+      Append suffix after caveman block (last position).
+      Update CachedSystemPreamble (context_manager_base.go:25) to accept and cache with suffix.
+      Update preambleStep (source_plan.go:79) to pass PromptOverrides.SystemSuffix.
+      Update prepareBasePrompt (runner.go:194) to pass suffix to CachedSystemPreamble.
+    files:
+      - internal/prompt/system.go
+      - internal/prompt/source_plan.go
+      - internal/agent/context_manager_base.go
+      - internal/agent/runner.go
+    constraints:
+      - Suffix appended after caveman instructions (absolute last)
+      - Cache invalidation must include suffix in cache key
+      - Empty suffix produces identical output to current behavior
+    acceptance:
+      - SystemPreamble accepts systemSuffix param and appends it last
+      - CachedSystemPreamble invalidates when suffix changes
+      - preambleStep passes opts.PromptOverrides.SystemSuffix
+      - prepareBasePrompt passes SystemSuffix to cache
+    verification:
+      - go build ./internal/prompt/... ./internal/agent/...
+      - go test ./internal/prompt/... -run SystemPreamble
+      - go test ./internal/agent/... -run "Preamble|PromptSuffix"
+    depends_on: [step-1]
+
+  - id: step-3
+    title: Tests
+    scope: |
+      Add/update tests for:
+      - Config patch apply with SystemSuffix (internal/config/prompt_suffix_test.go or new)
+      - SystemPreamble with suffix ordering (internal/prompt/system_test.go)
+      - Cache invalidation in CachedSystemPreamble
+      - Integration through turn building if existing tests need update
+    files:
+      - internal/config/prompt_suffix_test.go
+      - internal/prompt/system_test.go
+      - internal/agent/prompt_suffix_test.go
+    constraints:
+      - Table-driven tests
+      - Test empty suffix produces unchanged output
+      - Test suffix appears after caveman instructions
+      - Test suffix appears after override (when System is set)
+    acceptance:
+      - All new tests pass
+      - No regressions in existing tests
+    verification:
+      - go test ./internal/config/... ./internal/prompt/... ./internal/agent/... -v
+    depends_on: [step-2]
+
+  - id: step-4
+    title: Documentation
+    scope: |
+      Add system_suffix to the prompts table in docs/CONFIGURATION.md (near line 145-146).
+      Add example in the full config example section.
+    files:
+      - docs/CONFIGURATION.md
+    constraints:
+      - Follow existing doc format
+      - Describe ordering (appended after all default preamble content)
+    acceptance:
+      - system_suffix documented in prompts table
+      - Example shows usage
+    verification:
+      - make check
+    depends_on: [step-3]
