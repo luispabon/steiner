@@ -6,19 +6,25 @@
 
 ## Step Status
 
-- Current: `blocked before step-1 dispatch`
-- Completed: none
+- Current: `step-2 running`
+- Completed:
+  - `step-1` implemented and merged
 - Blocked:
-  - `step-1` through `step-5`: blocked by dirty feature branch at executor start
+  - `step-3` through `step-5`: waiting on prior steps
 - Skipped: none
 
 ## Sub-agents
 
-- None dispatched yet
+- `step-1` -> `gpt-5.4-mini` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step1`
+  - Reason: cheapest safe option for a bounded mutate correctness/docs step
+  - Planner delegate profile: none provided
+- `step-2` -> `gpt-5.4-mini` via isolated worktree `/tmp/steiner-worktrees/mutate-169-171-step2`
+  - Reason: cheapest safe option for a bounded mutate API step
+  - Planner delegate profile: none provided
 
 ## Verification
 
-- Not started
+- `go test ./internal/tool/builtin -run 'TestMutate.*|Test.*Mutate.*'` -> pass in `step-1` worktree
 
 ## Blockers
 
