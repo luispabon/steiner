@@ -44,11 +44,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSidebar()
 		return m, nil
 	case syncDebounceFiredMsg:
-		if msg.seq == m.syncDebounceSeq && m.contentDirty {
-			m.syncViewport()
-			m.contentDirty = false
-		}
-		return m, nil
+		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
 	case tea.MouseMsg:
@@ -60,6 +56,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {
+	if msg.seq == m.syncDebounceSeq && m.contentDirty {
+		m.syncViewport()
+		m.contentDirty = false
+	}
+	return m, nil
 }
 
 func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {

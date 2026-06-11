@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestClipboardErrors(t *testing.T) {
 	if ErrClipboardNoImage == nil {
@@ -14,13 +17,13 @@ func TestClipboardErrors(t *testing.T) {
 	}
 
 	// Errors must be distinct.
-	if ErrClipboardNoImage == ErrClipboardUnsupported {
+	if errors.Is(ErrClipboardNoImage, ErrClipboardUnsupported) {
 		t.Error("ErrClipboardNoImage and ErrClipboardUnsupported must be distinct")
 	}
-	if ErrClipboardNoImage == ErrImageTooLarge {
+	if errors.Is(ErrClipboardNoImage, ErrImageTooLarge) {
 		t.Error("ErrClipboardNoImage and ErrImageTooLarge must be distinct")
 	}
-	if ErrClipboardUnsupported == ErrImageTooLarge {
+	if errors.Is(ErrClipboardUnsupported, ErrImageTooLarge) {
 		t.Error("ErrClipboardUnsupported and ErrImageTooLarge must be distinct")
 	}
 }
