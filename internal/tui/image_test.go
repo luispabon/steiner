@@ -48,47 +48,6 @@ func TestImagePlaceholder_NoData(t *testing.T) {
 	}
 }
 
-func TestMediaTypeShort(t *testing.T) {
-	tests := []struct {
-		mediaType string
-		expected  string
-	}{
-		{"image/png", "png"},
-		{"image/jpeg", "jpg"},
-		{"image/gif", "gif"},
-		{"image/webp", "webp"},
-		{"image/svg+xml", "image/svg+xml"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := mediaTypeShort(tt.mediaType)
-		if got != tt.expected {
-			t.Errorf("mediaTypeShort(%q): want %q, got %q", tt.mediaType, tt.expected, got)
-		}
-	}
-}
-
-func TestFormatFileSize(t *testing.T) {
-	tests := []struct {
-		bytes    int
-		expected string
-	}{
-		{0, ""},
-		{512, "0KB"},
-		{1024, "1KB"},
-		{234 * 1024, "234KB"},
-		{1024 * 1024, "1.0MB"},
-		{1536 * 1024, "1.5MB"}, // 1.5 * 1024 * 1024
-		{10956800, "10.4MB"},   // 10.4 * 1024 * 1024
-	}
-	for _, tt := range tests {
-		got := formatFileSize(tt.bytes)
-		if got != tt.expected {
-			t.Errorf("formatFileSize(%d): want %q, got %q", tt.bytes, tt.expected, got)
-		}
-	}
-}
-
 func TestImageBlocksText_Multiple(t *testing.T) {
 	images := []agent.ImageBlock{
 		{

@@ -15,6 +15,7 @@ import (
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -123,7 +124,7 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 
 	// Check size before base64 encoding (max 5MB).
 	if len(data) > 5*1024*1024 {
-		return nil, fmt.Errorf("read image: file too large (max 5MB, got %s)", formatFileSize(len(data)))
+		return nil, fmt.Errorf("read image: file too large (max 5MB, got %s)", output.FormatFileSize(len(data)))
 	}
 
 	// Detect dimensions using stdlib image package.
@@ -156,17 +157,17 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 	// Base64 encode.
 	encoded := base64.StdEncoding.EncodeToString(data)
 
-	// Build output string.
-	var output string
+	// Build summary string.
+	var summary string
 	if width > 0 {
-		output = fmt.Sprintf("[image: %dx%d %s %s]", width, height, ext[1:], formatFileSize(len(data)))
+		summary = fmt.Sprintf("[image: %dx%d %s %s]", width, height, ext[1:], output.FormatFileSize(len(data)))
 	} else {
-		output = fmt.Sprintf("[image: %s %s]", ext[1:], formatFileSize(len(data)))
+		summary = fmt.Sprintf("[image: %s %s]", ext[1:], output.FormatFileSize(len(data)))
 	}
 
 	return &ReadResult{
 		Path:   displayPath,
-		Output: output,
+		Output: summary,
 		Image: &ImageBlock{
 			MediaType: mediaType,
 			Data:      encoded,
@@ -175,20 +176,4 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 			SizeBytes: len(data),
 		},
 	}, nil
-}
-
-// formatFileSize formats bytes as a human-readable string (e.g., "234KB", "1.2MB").
-func formatFileSize(n int) string {
-	const (
-		kb = 1024
-		mb = 1024 * kb
-	)
-
-	if n >= mb {
-		return fmt.Sprintf("%.1fMB", float64(n)/float64(mb))
-	}
-	if n >= kb {
-		return fmt.Sprintf("%dKB", n/kb)
-	}
-	return fmt.Sprintf("%dB", n)
 }

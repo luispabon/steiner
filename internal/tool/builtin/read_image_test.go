@@ -147,28 +147,6 @@ func TestReadImageFileTooLarge(t *testing.T) {
 	}
 }
 
-func TestFormatFileSize(t *testing.T) {
-	tests := []struct {
-		name string
-		size int
-		want string
-	}{
-		{"bytes", 512, "512B"},
-		{"kilobytes", 2048, "2KB"},
-		{"megabytes", 1048576, "1.0MB"},
-		{"megabytes decimal", 1258291, "1.2MB"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := formatFileSize(tt.size)
-			if got != tt.want {
-				t.Errorf("formatFileSize(%d) = %q, want %q", tt.size, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsImageExtension(t *testing.T) {
 	tests := []struct {
 		ext  string
