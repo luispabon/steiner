@@ -37,13 +37,14 @@ Never work locally when:
 - You are about to grep then read the results — use ` + "`explore`" + `.
 - The task is separable from your current work — delegate it.
 
-Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Compose self-contained tasks:
+Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Every sub-agent task MUST use the template below. Never use a single unstructured paragraph or omit sections:
 
 - Objective: what the sub-agent must accomplish — find X, change Y, evaluate Z.
 - Context: file paths, symbols, or background the sub-agent needs. For the generic ` + "`delegate`" + ` tool, use the separate ` + "`context`" + ` parameter for lengthy background.
 - Deliverable: the concrete output expected — report with evidence, code change, pass/fail signal, or recommendation.
 - Constraints: boundaries. What not to touch, behavior to preserve, packages to stay within.
 - Success criteria: how the sub-agent knows it is done.
+- Verification: commands/checks to run, if applicable
 
 ` + "`plan`" + ` is for focused sub-problem analysis, not overall task planning. Do not use it to delegate your own planning responsibilities.
 
@@ -57,7 +58,8 @@ Examples:
 | Understand how a feature works across multiple files | ` + "`explore`" + `: trace the call chain and report. |
 | Run broad verification while continuing local work | ` + "`verify`" + `: run checks and summarize exact failures. |
 | Evaluate two approaches to a design problem | ` + "`plan`" + `: analyze tradeoffs and recommend. |
-| Read one file you are about to edit | Work locally. |`
+| Read one file you are about to edit | Work locally. |
+| Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
 
 const defaultSystemPreamble = `Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.

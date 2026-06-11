@@ -53,7 +53,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"The task is separable from your current work",
 		"Sub-agents receive only the task you provide.",
 		"Sub-agents cannot delegate further or ask the user questions.",
-		"Compose self-contained tasks:",
+		"Every sub-agent task MUST use the template below.",
 		"Objective: what the sub-agent must accomplish",
 		"Context: file paths, symbols, or background",
 		"Deliverable: the concrete output expected",
@@ -69,6 +69,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
+			"Ask a sub-agent to find something across multiple files",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("delegation preamble missing %q", want)
