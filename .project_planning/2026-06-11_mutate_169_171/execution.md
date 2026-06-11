@@ -28,10 +28,11 @@
   - `.project_planning/dodgy_claude_rule.md`
   - `.project_planning/image_paste.md`
   - `example.png`
+- 2026-06-11 user override: proceed and ignore the unrelated untracked files above.
 
 ## Deviations
 
-- None. Execution stopped before implementation because the required clean-branch precondition was not met.
+- User override accepted for unrelated untracked files so execution may continue despite the initial clean-branch precondition failure.
 
 ## Reviewer Handoff
 
