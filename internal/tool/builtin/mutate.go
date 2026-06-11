@@ -13,6 +13,8 @@ import (
 )
 
 const maxMutateOutputChars = 30000
+const mutateContextRadius = 2
+const mutateContextMaxLines = 7
 
 type mutatePlanner struct {
 	env     Env
@@ -39,7 +41,7 @@ type mutateFileState struct {
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Create, overwrite, replace, line-replace, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection — pass the hash from read/grep to fail fast if the file changed. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Create, overwrite, replace, line-replace, delete_line, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. Move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
@@ -68,7 +70,6 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		p.applied++
 	}
 
-	p.result.OperationsApplied = p.applied
 	p.finalizeResult()
 	if in.DryRun {
 		p.result.Output = p.successOutput("Dry run succeeded.")
@@ -76,15 +77,17 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	}
 	if err := p.commit(); err != nil {
 		p.result.OperationsFailed = 1
+		p.result.clearCommittedMetadata()
 		p.result.Output = fmt.Sprintf("mutate: commit failed: %v", err)
 		return &p.result
 	}
+	p.result.OperationsApplied = p.applied
 	p.result.Output = p.successOutput("Success.")
 	return &p.result
 }
 
 func (p *mutatePlanner) fail(message string, total int) *MutateResult {
-	p.result.OperationsApplied = p.applied
+	p.result.clearCommittedMetadata()
 	p.result.OperationsFailed = 1
 	skipped := total - p.applied - 1
 	if skipped > 0 {
@@ -95,14 +98,15 @@ func (p *mutatePlanner) fail(message string, total int) *MutateResult {
 }
 
 var allowedFields = map[string]map[string]bool{
-	"create":        {"path": true, "content": true, "file_hash": true},
-	"write":         {"path": true, "content": true, "file_hash": true},
-	"replace":       {"path": true, "old_string": true, "new_string": true, "replace_all": true, "file_hash": true},
-	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "file_hash": true},
+	"create":        {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"write":         {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"replace":       {"path": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "replace_all": true, "file_hash": true},
+	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"delete_line":   {"path": true, "line": true, "line_count": true, "assert_present": true, "assert_absent": true, "file_hash": true},
 	"delete":        {"path": true, "file_hash": true},
-	"move":          {"from": true, "to": true, "file_hash": true},
-	"insert_before": {"path": true, "line": true, "content": true, "new_string": true, "file_hash": true},
-	"insert_after":  {"path": true, "line": true, "content": true, "new_string": true, "file_hash": true},
+	"move":          {"from": true, "to": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"insert_before": {"path": true, "line": true, "content": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"insert_after":  {"path": true, "line": true, "content": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
 }
 
 func validateFields(index int, op MutateOperation) error {
@@ -120,6 +124,8 @@ func validateFields(index int, op MutateOperation) error {
 		{"content", op.Content != ""},
 		{"old_string", op.OldString != ""},
 		{"new_string", op.NewString != ""},
+		{"assert_present", len(op.AssertPresent) > 0},
+		{"assert_absent", len(op.AssertAbsent) > 0},
 		{"replace_all", op.ReplaceAll},
 		{"line", op.Line != 0},
 		{"line_count", op.LineCount != 0},
@@ -153,6 +159,8 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 		return p.planReplace(index, op)
 	case "line_replace":
 		return p.planLineReplace(index, op)
+	case "delete_line":
+		return p.planDeleteLine(index, op)
 	case "delete":
 		return p.planDelete(index, op)
 	case "move":
@@ -170,9 +178,11 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 	if fileHash == "" {
 		return nil // optional — backward compat
 	}
-	// Skip verification for files that don't exist yet (create of new file)
 	if !state.exists {
-		return nil
+		return fmt.Errorf("mutate: operation %d %s: file_hash requires an existing file, but %s does not exist", index, opType, state.displayPath)
+	}
+	if state.isDir {
+		return fmt.Errorf("mutate: operation %d %s: file_hash requires a file, but %s is a directory", index, opType, state.displayPath)
 	}
 	actual := fileContentHash(state.original)
 	if actual != fileHash {
@@ -201,6 +211,9 @@ func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	state.content = []byte(op.Content)
 	state.touched = true
 	p.result.Created = appendUnique(p.result.Created, state.displayPath)
+	if err := p.recordTextOperation(index, op, state, 0, 1); err != nil {
+		return err
+	}
 	p.addDiff(state.displayPath, before, op.Content)
 	return nil
 }
@@ -229,6 +242,9 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 		p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
 	} else {
 		p.result.Created = appendUnique(p.result.Created, state.displayPath)
+	}
+	if err := p.recordTextOperation(index, op, state, 0, 1); err != nil {
+		return err
 	}
 	p.addDiff(state.displayPath, before, op.Content)
 	return nil
@@ -261,6 +277,13 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	}
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	anchorLine := 1
+	if firstMatch := bytes.Index([]byte(before), oldBytes); firstMatch >= 0 {
+		anchorLine = lineNumberAtOffset([]byte(before), firstMatch)
+	}
+	if err := p.recordTextOperation(index, op, state, matchCount, anchorLine); err != nil {
+		return err
+	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
 }
@@ -289,13 +312,9 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 		return fmt.Errorf("mutate: operation %d line_replace: old_string cannot be used with line_count", index)
 	}
 
-	lines := splitLinesPreserveEndings(string(state.content))
-	if op.Line > len(lines) {
-		return fmt.Errorf("mutate: operation %d line_replace: line %d is outside file with %d lines", index, op.Line, len(lines))
-	}
-	endLine := op.Line - 1 + lineCount
-	if endLine > len(lines) {
-		return fmt.Errorf("mutate: operation %d line_replace: line_count %d starting at line %d exceeds file length (%d lines)", index, lineCount, op.Line, len(lines))
+	lines, endLine, err := lineEditRange(index, "line_replace", state, op.Line, lineCount)
+	if err != nil {
+		return err
 	}
 
 	before := string(state.content)
@@ -320,8 +339,61 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	state.content = []byte(strings.Join(lines, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	if err := p.recordTextOperation(index, op, state, 0, op.Line); err != nil {
+		return err
+	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
+}
+
+func (p *mutatePlanner) planDeleteLine(index int, op MutateOperation) error {
+	state, err := p.textState(index, "delete_line", op.Path)
+	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "delete_line", state, op.FileHash); err != nil {
+		return err
+	}
+	if op.Line <= 0 {
+		return fmt.Errorf("mutate: operation %d delete_line: line must be >= 1", index)
+	}
+	lineCount := op.LineCount
+	if lineCount <= 0 {
+		lineCount = 1
+	}
+
+	lines, endLine, err := lineEditRange(index, "delete_line", state, op.Line, lineCount)
+	if err != nil {
+		return err
+	}
+
+	before := string(state.content)
+	lines = spliceLineRange(lines, op.Line-1, endLine, "")
+
+	state.content = []byte(strings.Join(lines, ""))
+	state.touched = true
+	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	anchorLine := op.Line
+	if anchorLine > 1 {
+		anchorLine--
+	}
+	if err := p.recordTextOperation(index, op, state, 0, anchorLine); err != nil {
+		return err
+	}
+	p.addDiff(state.displayPath, before, string(state.content))
+	return nil
+}
+
+func lineEditRange(index int, opType string, state *mutateFileState, line, lineCount int) ([]string, int, error) {
+	lines := splitLinesPreserveEndings(string(state.content))
+	if line > len(lines) {
+		return nil, 0, fmt.Errorf("mutate: operation %d %s: line %d is outside file with %d lines", index, opType, line, len(lines))
+	}
+	endLine := line - 1 + lineCount
+	if endLine > len(lines) {
+		return nil, 0, fmt.Errorf("mutate: operation %d %s: line_count %d starting at line %d exceeds file length (%d lines)", index, opType, lineCount, line, len(lines))
+	}
+	return lines, endLine, nil
 }
 
 func spliceLineRange(lines []string, start, end int, newString string) []string {
@@ -373,18 +445,18 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d move: from: %w", index, err)
 	}
+	if !from.exists {
+		return fmt.Errorf("mutate: operation %d move: %s does not exist", index, from.displayPath)
+	}
+	if from.isDir {
+		return fmt.Errorf("mutate: operation %d move: %s is a directory", index, from.displayPath)
+	}
 	if err := p.verifyFileHash(index, "move", from, op.FileHash); err != nil {
 		return err
 	}
 	to, err := p.stateFor(op.To)
 	if err != nil {
 		return fmt.Errorf("mutate: operation %d move: to: %w", index, err)
-	}
-	if !from.exists {
-		return fmt.Errorf("mutate: operation %d move: %s does not exist", index, from.displayPath)
-	}
-	if from.isDir {
-		return fmt.Errorf("mutate: operation %d move: %s is a directory", index, from.displayPath)
 	}
 	if to.exists {
 		return fmt.Errorf("mutate: operation %d move: %s already exists", index, to.displayPath)
@@ -400,6 +472,9 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	from.content = nil
 	from.touched = true
 	p.result.Moved = append(p.result.Moved, MoveResult{From: from.displayPath, To: to.displayPath})
+	if err := p.recordMovedOperation(index, op, to); err != nil {
+		return err
+	}
 	p.addDiff(from.displayPath, string(to.content), "")
 	p.addDiff(to.displayPath, "", string(to.content))
 	return nil
@@ -447,6 +522,9 @@ func (p *mutatePlanner) planInsertBefore(index int, op MutateOperation) error {
 	state.content = []byte(strings.Join(result, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	if err := p.recordTextOperation(index, op, state, 0, op.Line); err != nil {
+		return err
+	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
 }
@@ -481,7 +559,9 @@ func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
 	content := op.Content
 	ending := detectLineEnding(lines)
 
-	// Ensure the anchor line has a proper ending before inserting after it.
+	// Allow append-style inserts at EOF even when the file lacks a trailing newline.
+	// If the anchor is newline-free, synthesize the detected line ending so the
+	// inserted block lands on its own line.
 	anchorLine := lines[op.Line-1]
 	anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
 	if anchorText == anchorLine {
@@ -502,6 +582,9 @@ func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
 	state.content = []byte(strings.Join(result, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	if err := p.recordTextOperation(index, op, state, 0, op.Line+1); err != nil {
+		return err
+	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
 }
@@ -584,12 +667,117 @@ func (p *mutatePlanner) finalizeResult() {
 	for _, state := range p.states {
 		if state.touched {
 			p.result.Paths = appendUnique(p.result.Paths, state.displayPath)
+			if state.exists && !state.isDir {
+				if p.result.FileHashes == nil {
+					p.result.FileHashes = make(map[string]string)
+				}
+				p.result.FileHashes[state.displayPath] = fileContentHash(state.content)
+			}
 		}
 	}
 	sort.Strings(p.result.Paths)
 	sort.Strings(p.result.Created)
 	sort.Strings(p.result.Modified)
 	sort.Strings(p.result.Deleted)
+}
+
+func (p *mutatePlanner) recordTextOperation(index int, op MutateOperation, state *mutateFileState, matchCount, anchorLine int) error {
+	assertions, err := verifyAssertions(index, op, state)
+	if err != nil {
+		return err
+	}
+	p.result.OperationResults = append(p.result.OperationResults, MutateOperationResult{
+		Index:      index,
+		Type:       op.Type,
+		Path:       state.displayPath,
+		MatchCount: matchCount,
+		FileHash:   fileContentHash(state.content),
+		Assertions: assertions,
+		Context:    buildMutateContext(state.content, anchorLine),
+	})
+	return nil
+}
+
+func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, state *mutateFileState) error {
+	assertions, err := verifyAssertions(index, op, state)
+	if err != nil {
+		return err
+	}
+	p.result.OperationResults = append(p.result.OperationResults, MutateOperationResult{
+		Index:      index,
+		Type:       op.Type,
+		From:       op.From,
+		To:         op.To,
+		Path:       state.displayPath,
+		FileHash:   fileContentHash(state.content),
+		Assertions: assertions,
+		Context:    buildMutateContext(state.content, 1),
+	})
+	return nil
+}
+
+func verifyAssertions(index int, op MutateOperation, state *mutateFileState) ([]MutateAssertionResult, error) {
+	assertions := make([]MutateAssertionResult, 0, len(op.AssertPresent)+len(op.AssertAbsent))
+	for _, text := range op.AssertPresent {
+		matches := bytes.Count(state.content, []byte(text))
+		if matches == 0 {
+			return nil, fmt.Errorf("mutate: operation %d %s: assert_present failed on %s for %q", index, op.Type, state.displayPath, text)
+		}
+		assertions = append(assertions, MutateAssertionResult{Kind: "present", Text: text, Matches: matches})
+	}
+	for _, text := range op.AssertAbsent {
+		matches := bytes.Count(state.content, []byte(text))
+		if matches != 0 {
+			return nil, fmt.Errorf("mutate: operation %d %s: assert_absent failed on %s for %q; found %d matches", index, op.Type, state.displayPath, text, matches)
+		}
+		assertions = append(assertions, MutateAssertionResult{Kind: "absent", Text: text, Matches: matches})
+	}
+	return assertions, nil
+}
+
+func buildMutateContext(content []byte, anchorLine int) *MutateContextResult {
+	lines := splitLinesPreserveEndings(string(content))
+	totalLines := len(lines)
+	if totalLines == 0 {
+		return nil
+	}
+	if anchorLine <= 0 {
+		anchorLine = 1
+	}
+	if anchorLine > totalLines {
+		anchorLine = totalLines
+	}
+	start := anchorLine - mutateContextRadius
+	if start < 1 {
+		start = 1
+	}
+	end := anchorLine + mutateContextRadius
+	if end > totalLines {
+		end = totalLines
+	}
+	if span := end - start + 1; span > mutateContextMaxLines {
+		end = start + mutateContextMaxLines - 1
+	}
+	return &MutateContextResult{
+		StartLine:  start,
+		EndLine:    end,
+		TotalLines: totalLines,
+		Content:    strings.Join(lines[start-1:end], ""),
+		Truncated:  start > 1 || end < totalLines,
+	}
+}
+
+func lineNumberAtOffset(content []byte, offset int) int {
+	if offset <= 0 {
+		return 1
+	}
+	line := 1
+	for i := 0; i < offset && i < len(content); i++ {
+		if content[i] == '\n' {
+			line++
+		}
+	}
+	return line
 }
 
 func (p *mutatePlanner) successOutput(prefix string) string {

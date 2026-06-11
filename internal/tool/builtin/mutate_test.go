@@ -17,6 +17,59 @@ func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
 }
 
+func TestMutateSchemaIncludesDeleteLine(t *testing.T) {
+	schema := MutateSchema()
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %T, want map[string]any", schema["properties"])
+	}
+	operations, ok := props["operations"].(map[string]any)
+	if !ok {
+		t.Fatalf("operations schema = %T, want map[string]any", props["operations"])
+	}
+	items, ok := operations["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("operations.items = %T, want map[string]any", operations["items"])
+	}
+	itemProps, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("operation properties = %T, want map[string]any", items["properties"])
+	}
+	typeField, ok := itemProps["type"].(map[string]any)
+	if !ok {
+		t.Fatalf("operation type schema = %T, want map[string]any", itemProps["type"])
+	}
+	enum, ok := typeField["enum"].([]string)
+	if !ok {
+		t.Fatalf("operation enum = %T, want []string", typeField["enum"])
+	}
+	found := false
+	for _, value := range enum {
+		if value == "delete_line" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("type enum missing delete_line: %#v", enum)
+	}
+	if got := itemProps["path"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
+		t.Fatalf("path description = %q, want delete_line", got)
+	}
+	if got := itemProps["line"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
+		t.Fatalf("line description = %q, want delete_line", got)
+	}
+	if got := itemProps["line_count"].(map[string]any)["description"].(string); !strings.Contains(got, "delete") {
+		t.Fatalf("line_count description = %q, want delete wording", got)
+	}
+	if _, ok := itemProps["assert_present"].(map[string]any); !ok {
+		t.Fatal("assert_present schema missing")
+	}
+	if _, ok := itemProps["assert_absent"].(map[string]any); !ok {
+		t.Fatal("assert_absent schema missing")
+	}
+}
+
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {
 	t.Helper()
 	result, err := toolDef.Handler(context.Background(), input)
@@ -71,6 +124,50 @@ func TestMutateOperations(t *testing.T) {
 	}
 }
 
+func TestMutateFileHashRequiresExistingTarget(t *testing.T) {
+	tests := []struct {
+		name string
+		op   map[string]any
+	}{
+		{
+			name: "create on missing target",
+			op: map[string]any{
+				"type":      "create",
+				"path":      "new.txt",
+				"content":   "new\n",
+				"file_hash": "BEEF",
+			},
+		},
+		{
+			name: "write on missing target",
+			op: map[string]any{
+				"type":      "write",
+				"path":      "new.txt",
+				"content":   "new\n",
+				"file_hash": "BEEF",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{tt.op},
+			})
+			if got.OperationsFailed != 1 {
+				t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+			}
+			if !strings.Contains(got.Output, "file_hash requires an existing file") {
+				t.Fatalf("Output = %q, want file_hash missing-target diagnostic", got.Output)
+			}
+			if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
+				t.Fatalf("new.txt exists after failed hash-guarded op, err=%v", err)
+			}
+		})
+	}
+}
+
 func TestMutateLineReplaceRepeatedSubstitutions(t *testing.T) {
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
@@ -93,6 +190,81 @@ func TestMutateLineReplaceRepeatedSubstitutions(t *testing.T) {
 	assertFile(t, path, "alpha\nfoo = 2\nbeta\nfoo = 3\ngamma\nfoo = 4\n")
 }
 
+func TestMutateDeleteLine(t *testing.T) {
+	tests := []struct {
+		name      string
+		initial   string
+		line      int
+		lineCount int
+		want      string
+	}{
+		{
+			name:    "delete single line",
+			initial: "a\nb\nc\n",
+			line:    2,
+			want:    "a\nc\n",
+		},
+		{
+			name:      "delete multiple lines",
+			initial:   "a\nb\nc\nd\n",
+			line:      2,
+			lineCount: 2,
+			want:      "a\nd\n",
+		},
+		{
+			name:    "delete last line without trailing newline",
+			initial: "a\nb\nc",
+			line:    3,
+			want:    "a\nb\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "note.txt")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			op := map[string]any{
+				"type": "delete_line",
+				"path": "note.txt",
+				"line": float64(tt.line),
+			}
+			if tt.lineCount > 0 {
+				op["line_count"] = float64(tt.lineCount)
+			}
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{op},
+			})
+			if got.OperationsFailed != 0 {
+				t.Fatalf("mutate failed: %#v", got)
+			}
+			assertFile(t, path, tt.want)
+		})
+	}
+}
+
+func TestMutateDeleteLineRejectsBinary(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "bin.dat")
+	if err := os.WriteFile(path, []byte{'a', 0, 'b'}, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "delete_line", "path": "bin.dat", "line": float64(1)},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if !strings.Contains(got.Output, "binary") {
+		t.Fatalf("Output = %q, want binary rejection", got.Output)
+	}
+}
+
 func TestMutateFailuresAreAtomic(t *testing.T) {
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
@@ -110,7 +282,45 @@ func TestMutateFailuresAreAtomic(t *testing.T) {
 	if got.OperationsFailed != 1 {
 		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
+		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
+	}
 	assertFile(t, path, "one\n")
+}
+
+func TestMutateFailedAtomicBatchDoesNotReportCommittedMetadata(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	notePath := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(notePath, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "created.txt", "content": "created\n"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "missing", "new_string": "MISSING"},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if got.WasMutated() {
+		t.Fatal("WasMutated() = true, want false")
+	}
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
+		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
+	}
+	assertFile(t, notePath, "one\n")
+	if _, err := os.Stat(filepath.Join(root, "created.txt")); !os.IsNotExist(err) {
+		t.Fatalf("created.txt exists after failed batch, err=%v", err)
+	}
 }
 
 func TestMutateDryRunDoesNotWrite(t *testing.T) {
@@ -131,6 +341,97 @@ func TestMutateDryRunDoesNotWrite(t *testing.T) {
 		t.Fatal("WasMutated() = true for dry run")
 	}
 	assertFile(t, path, "one\n")
+}
+
+func TestMutateReturnsStructuredVerificationData(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":           "replace",
+				"path":           "note.txt",
+				"old_string":     "beta",
+				"new_string":     "BETA",
+				"assert_present": []any{"BETA"},
+				"assert_absent":  []any{"beta\n"},
+			},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	if got.FileHashes["note.txt"] != fileContentHash([]byte("alpha\nBETA\ncharlie\n")) {
+		t.Fatalf("file hash = %q, want hash for final content", got.FileHashes["note.txt"])
+	}
+	if len(got.OperationResults) != 1 {
+		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	}
+	op := got.OperationResults[0]
+	if op.Index != 1 || op.Type != "replace" || op.Path != "note.txt" {
+		t.Fatalf("operation result = %#v", op)
+	}
+	if op.MatchCount != 1 {
+		t.Fatalf("MatchCount = %d, want 1", op.MatchCount)
+	}
+	if op.FileHash != got.FileHashes["note.txt"] {
+		t.Fatalf("operation file hash = %q, want %q", op.FileHash, got.FileHashes["note.txt"])
+	}
+	if len(op.Assertions) != 2 {
+		t.Fatalf("len(Assertions) = %d, want 2", len(op.Assertions))
+	}
+	if op.Assertions[0].Kind != "present" || op.Assertions[0].Text != "BETA" || op.Assertions[0].Matches != 1 {
+		t.Fatalf("present assertion = %#v", op.Assertions[0])
+	}
+	if op.Assertions[1].Kind != "absent" || op.Assertions[1].Matches != 0 {
+		t.Fatalf("absent assertion = %#v", op.Assertions[1])
+	}
+	if op.Context == nil {
+		t.Fatal("Context = nil, want bounded excerpt")
+	}
+	if op.Context.StartLine != 1 || op.Context.EndLine != 3 || op.Context.TotalLines != 3 {
+		t.Fatalf("context lines = %#v, want full 3-line excerpt", op.Context)
+	}
+	if op.Context.Content != "alpha\nBETA\ncharlie\n" {
+		t.Fatalf("context content = %q", op.Context.Content)
+	}
+}
+
+func TestMutateAssertionsFailAtomically(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":           "replace",
+				"path":           "note.txt",
+				"old_string":     "beta",
+				"new_string":     "BETA",
+				"assert_present": []any{"missing"},
+			},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.OperationResults) != 0 || len(got.FileHashes) != 0 {
+		t.Fatalf("verification metadata leaked on failed batch: %#v", got)
+	}
+	if !strings.Contains(got.Output, "assert_present failed") {
+		t.Fatalf("Output = %q, want assert_present failure", got.Output)
+	}
+	assertFile(t, path, "alpha\nbeta\n")
 }
 
 func TestMutateRejectsInvalidOperations(t *testing.T) {
@@ -510,6 +811,29 @@ func TestMutateMoveEdgeCases(t *testing.T) {
 		}
 	})
 
+	t.Run("destination collision does not overwrite", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "src.txt"), []byte("src\n"), 0o644); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "dest.txt"), []byte("dest\n"), 0o644); err != nil {
+			t.Fatalf("write dest: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "move", "from": "src.txt", "to": "dest.txt"},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "already exists") {
+			t.Fatalf("Output = %q, want destination collision", got.Output)
+		}
+		assertFile(t, filepath.Join(root, "src.txt"), "src\n")
+		assertFile(t, filepath.Join(root, "dest.txt"), "dest\n")
+	})
+
 	t.Run("write then move created file", func(t *testing.T) {
 		root := t.TempDir()
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
@@ -822,6 +1146,53 @@ func TestMutateOutputIsBounded(t *testing.T) {
 	}
 	if !strings.Contains(got.Output, "<truncated>") {
 		t.Fatalf("Output missing truncation marker")
+	}
+}
+
+func TestMutateReturnsBoundedPostEditContext(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "big.txt")
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	lines[9] = "needle"
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":       "replace",
+				"path":       "big.txt",
+				"old_string": "needle",
+				"new_string": "NEEDLE",
+			},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	if len(got.OperationResults) != 1 {
+		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	}
+	ctx := got.OperationResults[0].Context
+	if ctx == nil {
+		t.Fatal("Context = nil, want excerpt")
+	}
+	if !ctx.Truncated {
+		t.Fatalf("Truncated = false, want true for large file excerpt: %#v", ctx)
+	}
+	if ctx.StartLine != 8 || ctx.EndLine != 12 || ctx.TotalLines != 20 {
+		t.Fatalf("context = %#v, want lines 8-12 of 20", ctx)
+	}
+	if strings.Count(strings.TrimSuffix(ctx.Content, "\n"), "\n")+1 != 5 {
+		t.Fatalf("context line count = %d, want 5; content=%q", strings.Count(strings.TrimSuffix(ctx.Content, "\n"), "\n")+1, ctx.Content)
+	}
+	if !strings.Contains(ctx.Content, "NEEDLE\n") {
+		t.Fatalf("context content = %q, want edited line", ctx.Content)
 	}
 }
 
@@ -1154,17 +1525,22 @@ func TestMutateFileHashVerification(t *testing.T) {
 		}
 	})
 
-	t.Run("hash on create new file ignored", func(t *testing.T) {
+	t.Run("hash on create new file is rejected", func(t *testing.T) {
 		root := t.TempDir()
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
 				map[string]any{"type": "create", "path": "new.txt", "content": "new content\n", "file_hash": "BEEF"},
 			},
 		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
 		}
-		assertFile(t, filepath.Join(root, "new.txt"), "new content\n")
+		if !strings.Contains(got.Output, "file_hash requires an existing file") {
+			t.Fatalf("Output = %q, want missing-target hash diagnostic", got.Output)
+		}
+		if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
+			t.Fatalf("new.txt exists after rejected hash-guarded create, err=%v", err)
+		}
 	})
 
 	t.Run("hash on delete verified", func(t *testing.T) {
@@ -1524,6 +1900,13 @@ func TestMutateInsertAfter(t *testing.T) {
 			want:    "aaa\nbbb\nzzz\n",
 		},
 		{
+			name:    "append after final line without trailing newline and content newline",
+			initial: "aaa\nbbb",
+			line:    2,
+			content: "zzz",
+			want:    "aaa\nbbb\nzzz\n",
+		},
+		{
 			name:    "content without trailing newline gets one added",
 			initial: "aaa\nbbb\n",
 			line:    1,
@@ -1845,8 +2228,8 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 				map[string]any{"type": "replace", "path": "file.txt", "old_string": "ddd", "new_string": "eee"},
 			},
 		})
-		if got.OperationsApplied != 2 {
-			t.Fatalf("OperationsApplied = %d, want 2", got.OperationsApplied)
+		if got.OperationsApplied != 0 {
+			t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
 		}
 		if got.OperationsFailed != 1 {
 			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
@@ -1923,6 +2306,26 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 		op      map[string]any
 		wantErr string
 	}{
+		{
+			name:    "delete_line with content",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "content": "stuff"},
+			wantErr: `field "content" is not valid`,
+		},
+		{
+			name:    "delete_line with old_string",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "old_string": "hello"},
+			wantErr: `field "old_string" is not valid`,
+		},
+		{
+			name:    "delete_line with new_string",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "new_string": "hello"},
+			wantErr: `field "new_string" is not valid`,
+		},
+		{
+			name:    "delete_line with from",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "from": "a.txt"},
+			wantErr: `field "from" is not valid`,
+		},
 		{
 			name:    "delete with line",
 			op:      map[string]any{"type": "delete", "path": "exist.txt", "line": float64(1)},

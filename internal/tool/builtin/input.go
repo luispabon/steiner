@@ -15,17 +15,19 @@ type MutateInput struct {
 
 // MutateOperation is one ordered file mutation in a mutate call.
 type MutateOperation struct {
-	Type       string `json:"type"`
-	Path       string `json:"path,omitempty"`
-	Content    string `json:"content,omitempty"`
-	OldString  string `json:"old_string,omitempty"`
-	NewString  string `json:"new_string,omitempty"`
-	ReplaceAll bool   `json:"replace_all,omitempty"`
-	Line       int    `json:"line,omitempty"`
-	LineCount  int    `json:"line_count,omitempty"`
-	FileHash   string `json:"file_hash,omitempty"`
-	From       string `json:"from,omitempty"`
-	To         string `json:"to,omitempty"`
+	Type          string   `json:"type"`
+	Path          string   `json:"path,omitempty"`
+	Content       string   `json:"content,omitempty"`
+	OldString     string   `json:"old_string,omitempty"`
+	NewString     string   `json:"new_string,omitempty"`
+	AssertPresent []string `json:"assert_present,omitempty"`
+	AssertAbsent  []string `json:"assert_absent,omitempty"`
+	ReplaceAll    bool     `json:"replace_all,omitempty"`
+	Line          int      `json:"line,omitempty"`
+	LineCount     int      `json:"line_count,omitempty"`
+	FileHash      string   `json:"file_hash,omitempty"`
+	From          string   `json:"from,omitempty"`
+	To            string   `json:"to,omitempty"`
 }
 
 // GlobInput is the typed input for the glob tool.
