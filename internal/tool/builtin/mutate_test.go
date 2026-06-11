@@ -17,6 +17,53 @@ func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
 }
 
+func TestMutateSchemaIncludesDeleteLine(t *testing.T) {
+	schema := MutateSchema()
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %T, want map[string]any", schema["properties"])
+	}
+	operations, ok := props["operations"].(map[string]any)
+	if !ok {
+		t.Fatalf("operations schema = %T, want map[string]any", props["operations"])
+	}
+	items, ok := operations["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("operations.items = %T, want map[string]any", operations["items"])
+	}
+	itemProps, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("operation properties = %T, want map[string]any", items["properties"])
+	}
+	typeField, ok := itemProps["type"].(map[string]any)
+	if !ok {
+		t.Fatalf("operation type schema = %T, want map[string]any", itemProps["type"])
+	}
+	enum, ok := typeField["enum"].([]string)
+	if !ok {
+		t.Fatalf("operation enum = %T, want []string", typeField["enum"])
+	}
+	found := false
+	for _, value := range enum {
+		if value == "delete_line" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("type enum missing delete_line: %#v", enum)
+	}
+	if got := itemProps["path"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
+		t.Fatalf("path description = %q, want delete_line", got)
+	}
+	if got := itemProps["line"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
+		t.Fatalf("line description = %q, want delete_line", got)
+	}
+	if got := itemProps["line_count"].(map[string]any)["description"].(string); !strings.Contains(got, "delete") {
+		t.Fatalf("line_count description = %q, want delete wording", got)
+	}
+}
+
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {
 	t.Helper()
 	result, err := toolDef.Handler(context.Background(), input)
@@ -91,6 +138,81 @@ func TestMutateLineReplaceRepeatedSubstitutions(t *testing.T) {
 		t.Fatalf("mutate result = %#v", got)
 	}
 	assertFile(t, path, "alpha\nfoo = 2\nbeta\nfoo = 3\ngamma\nfoo = 4\n")
+}
+
+func TestMutateDeleteLine(t *testing.T) {
+	tests := []struct {
+		name      string
+		initial   string
+		line      int
+		lineCount int
+		want      string
+	}{
+		{
+			name:    "delete single line",
+			initial: "a\nb\nc\n",
+			line:    2,
+			want:    "a\nc\n",
+		},
+		{
+			name:      "delete multiple lines",
+			initial:   "a\nb\nc\nd\n",
+			line:      2,
+			lineCount: 2,
+			want:      "a\nd\n",
+		},
+		{
+			name:    "delete last line without trailing newline",
+			initial: "a\nb\nc",
+			line:    3,
+			want:    "a\nb\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "note.txt")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			op := map[string]any{
+				"type": "delete_line",
+				"path": "note.txt",
+				"line": float64(tt.line),
+			}
+			if tt.lineCount > 0 {
+				op["line_count"] = float64(tt.lineCount)
+			}
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{op},
+			})
+			if got.OperationsFailed != 0 {
+				t.Fatalf("mutate failed: %#v", got)
+			}
+			assertFile(t, path, tt.want)
+		})
+	}
+}
+
+func TestMutateDeleteLineRejectsBinary(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "bin.dat")
+	if err := os.WriteFile(path, []byte{'a', 0, 'b'}, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "delete_line", "path": "bin.dat", "line": float64(1)},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if !strings.Contains(got.Output, "binary") {
+		t.Fatalf("Output = %q, want binary rejection", got.Output)
+	}
 }
 
 func TestMutateFailuresAreAtomic(t *testing.T) {
@@ -1961,6 +2083,26 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 		op      map[string]any
 		wantErr string
 	}{
+		{
+			name:    "delete_line with content",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "content": "stuff"},
+			wantErr: `field "content" is not valid`,
+		},
+		{
+			name:    "delete_line with old_string",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "old_string": "hello"},
+			wantErr: `field "old_string" is not valid`,
+		},
+		{
+			name:    "delete_line with new_string",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "new_string": "hello"},
+			wantErr: `field "new_string" is not valid`,
+		},
+		{
+			name:    "delete_line with from",
+			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "from": "a.txt"},
+			wantErr: `field "from" is not valid`,
+		},
 		{
 			name:    "delete with line",
 			op:      map[string]any{"type": "delete", "path": "exist.txt", "line": float64(1)},

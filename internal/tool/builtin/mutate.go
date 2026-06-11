@@ -39,7 +39,7 @@ type mutateFileState struct {
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Create, overwrite, replace, line-replace, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection — pass the hash from read/grep to fail fast if the file changed. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Create, overwrite, replace, line-replace, delete_line, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection — pass the hash from read/grep to fail fast if the file changed. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
@@ -100,6 +100,7 @@ var allowedFields = map[string]map[string]bool{
 	"write":         {"path": true, "content": true, "file_hash": true},
 	"replace":       {"path": true, "old_string": true, "new_string": true, "replace_all": true, "file_hash": true},
 	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "file_hash": true},
+	"delete_line":   {"path": true, "line": true, "line_count": true, "file_hash": true},
 	"delete":        {"path": true, "file_hash": true},
 	"move":          {"from": true, "to": true, "file_hash": true},
 	"insert_before": {"path": true, "line": true, "content": true, "new_string": true, "file_hash": true},
@@ -154,6 +155,8 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 		return p.planReplace(index, op)
 	case "line_replace":
 		return p.planLineReplace(index, op)
+	case "delete_line":
+		return p.planDeleteLine(index, op)
 	case "delete":
 		return p.planDelete(index, op)
 	case "move":
@@ -290,13 +293,9 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 		return fmt.Errorf("mutate: operation %d line_replace: old_string cannot be used with line_count", index)
 	}
 
-	lines := splitLinesPreserveEndings(string(state.content))
-	if op.Line > len(lines) {
-		return fmt.Errorf("mutate: operation %d line_replace: line %d is outside file with %d lines", index, op.Line, len(lines))
-	}
-	endLine := op.Line - 1 + lineCount
-	if endLine > len(lines) {
-		return fmt.Errorf("mutate: operation %d line_replace: line_count %d starting at line %d exceeds file length (%d lines)", index, lineCount, op.Line, len(lines))
+	lines, endLine, err := lineEditRange(index, "line_replace", state, op.Line, lineCount)
+	if err != nil {
+		return err
 	}
 
 	before := string(state.content)
@@ -323,6 +322,49 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
+}
+
+func (p *mutatePlanner) planDeleteLine(index int, op MutateOperation) error {
+	state, err := p.textState(index, "delete_line", op.Path)
+	if err != nil {
+		return err
+	}
+	if err := p.verifyFileHash(index, "delete_line", state, op.FileHash); err != nil {
+		return err
+	}
+	if op.Line <= 0 {
+		return fmt.Errorf("mutate: operation %d delete_line: line must be >= 1", index)
+	}
+	lineCount := op.LineCount
+	if lineCount <= 0 {
+		lineCount = 1
+	}
+
+	lines, endLine, err := lineEditRange(index, "delete_line", state, op.Line, lineCount)
+	if err != nil {
+		return err
+	}
+
+	before := string(state.content)
+	lines = spliceLineRange(lines, op.Line-1, endLine, "")
+
+	state.content = []byte(strings.Join(lines, ""))
+	state.touched = true
+	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
+	p.addDiff(state.displayPath, before, string(state.content))
+	return nil
+}
+
+func lineEditRange(index int, opType string, state *mutateFileState, line, lineCount int) ([]string, int, error) {
+	lines := splitLinesPreserveEndings(string(state.content))
+	if line > len(lines) {
+		return nil, 0, fmt.Errorf("mutate: operation %d %s: line %d is outside file with %d lines", index, opType, line, len(lines))
+	}
+	endLine := line - 1 + lineCount
+	if endLine > len(lines) {
+		return nil, 0, fmt.Errorf("mutate: operation %d %s: line_count %d starting at line %d exceeds file length (%d lines)", index, opType, lineCount, line, len(lines))
+	}
+	return lines, endLine, nil
 }
 
 func spliceLineRange(lines []string, start, end int, newString string) []string {
