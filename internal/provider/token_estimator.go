@@ -17,12 +17,13 @@ var (
 )
 
 const (
-	requestOverheadTokens   = 8
-	messageOverheadTokens   = 4
-	toolCallOverheadTokens  = 6
-	toolSpecOverheadTokens  = 6
-	mapEntryOverheadTokens  = 2
-	listEntryOverheadTokens = 1
+	requestOverheadTokens    = 8
+	messageOverheadTokens    = 4
+	toolCallOverheadTokens   = 6
+	toolSpecOverheadTokens   = 6
+	mapEntryOverheadTokens   = 2
+	listEntryOverheadTokens  = 1
+	imageBlockOverheadTokens = 85
 )
 
 // EstimateMessageTokens estimates the semantic token cost of a message.
@@ -128,6 +129,18 @@ func (e *semanticTokenEstimator) countMessage(message Message) int {
 	for _, call := range message.ToolCalls {
 		total += e.countToolCall(call)
 	}
+	// Count image tokens
+	imageTokens := 0
+	for _, image := range message.Images {
+		if image.Width > 0 && image.Height > 0 {
+			imageTokens += (image.Width * image.Height) / 750
+		} else if len(image.Data) > 0 {
+			// Base64 encoded data: 3 bytes of data per 4 characters, ~4 chars per token
+			imageTokens += (len(image.Data) * 3 / 4) / 4
+		}
+		imageTokens += imageBlockOverheadTokens
+	}
+	total += imageTokens
 	return total
 }
 
