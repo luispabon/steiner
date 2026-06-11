@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/tool/builtin"
@@ -94,6 +95,31 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 				t.Errorf("Image = %v, want nil", envelope.Image)
 			}
 		})
+	}
+}
+
+func TestNormalizeToolResultStripsImageDataFromContent(t *testing.T) {
+	result := &builtin.ReadResult{
+		Path:   "image.png",
+		Output: "[image: 2x2 png 84B]",
+		Image: &builtin.ImageBlock{
+			MediaType: "image/png",
+			Data:      "base64encodeddata",
+			Width:     2,
+			Height:    2,
+			SizeBytes: 84,
+		},
+	}
+
+	envelope := normalizeToolResult(result)
+	if envelope.Image == nil {
+		t.Fatal("Image = nil, want non-nil")
+	}
+	if strings.Contains(envelope.Content, "base64encodeddata") {
+		t.Fatalf("Content leaks base64 payload: %q", envelope.Content)
+	}
+	if got, want := envelope.Content, `{"path":"image.png","start_line":0,"end_line":0,"total_lines":0,"file_hash":"","output":"[image: 2x2 png 84B]"}`; got != want {
+		t.Fatalf("Content = %q, want %q", got, want)
 	}
 }
 

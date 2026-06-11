@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -88,5 +89,112 @@ func TestHandleFinalChunkCopiesReasoningContent(t *testing.T) {
 				t.Errorf("ReasoningContent=%q, want %q", message.ReasoningContent, tc.wantReasoningContent)
 			}
 		})
+	}
+}
+
+func TestCompleteModelCallRetriesHTTP400WithoutImages(t *testing.T) {
+	prov := &fakeProvider{
+		chatFn: func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+			if len(req.Messages) == 0 {
+				t.Fatal("request has no messages")
+			}
+			if len(req.Messages[0].Images) > 0 {
+				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+			}
+			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
+		},
+	}
+	var events []output.Event
+	vision := true
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			Alias:  "test-model",
+			Vision: &vision,
+		},
+		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	}, 1, provider.ChatRequest{
+		Model: "test-model",
+		Messages: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "analyze",
+			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
+		}},
+	}, nil, prompt.ModelTokenBudget{})
+	if err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+	if got := len(prov.requests); got != 3 {
+		t.Fatalf("provider requests = %d, want 3", got)
+	}
+	if len(prov.requests[2].Messages[0].Images) != 0 {
+		t.Fatal("retry request still contains images")
+	}
+	var sawFallback bool
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ProviderDiagnosticEvent)
+		if !ok {
+			continue
+		}
+		if payload.Kind == "vision_fallback" {
+			sawFallback = true
+		}
+	}
+	if !sawFallback {
+		t.Fatal("expected vision_fallback diagnostic event")
+	}
+}
+
+func TestCompleteModelCallDoesNotRetryWithoutImages(t *testing.T) {
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+		},
+	}
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			Alias: "test-model",
+		},
+	}, 1, provider.ChatRequest{
+		Model: "test-model",
+		Messages: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "analyze",
+		}},
+	}, nil, prompt.ModelTokenBudget{})
+	if err == nil {
+		t.Fatal("completeModelCall() error = nil, want HTTPError")
+	}
+	if got := len(prov.requests); got != 2 {
+		t.Fatalf("provider requests = %d, want 2", got)
+	}
+}
+
+func TestCompleteModelCallDoesNotRetryNon400(t *testing.T) {
+	boom := errors.New("boom")
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, boom
+		},
+	}
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			Alias: "test-model",
+		},
+	}, 1, provider.ChatRequest{
+		Model: "test-model",
+		Messages: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "analyze",
+			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
+		}},
+	}, nil, prompt.ModelTokenBudget{})
+	if !errors.Is(err, boom) {
+		t.Fatalf("completeModelCall() error = %v, want %v", err, boom)
+	}
+	if got := len(prov.requests); got != 2 {
+		t.Fatalf("provider requests = %d, want 2", got)
 	}
 }

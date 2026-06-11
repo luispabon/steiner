@@ -3,6 +3,9 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -165,6 +168,106 @@ func TestDisplayFileToolEmitsPreviewAndMetadataOnlyResult(t *testing.T) {
 	}
 	if !payload.Preview.Truncated {
 		t.Fatal("payload.Preview.Truncated = false, want true")
+	}
+}
+
+func TestDisplayFileToolHandlesImageAndBinaryFilesSafely(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	var events []output.Event
+	env := Env{
+		WorkDir:     dir,
+		PathPolicy:  &policy,
+		Interactive: true,
+		EventSink: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+	}
+
+	writeImage := func(name string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatalf("Create(%s) error = %v", name, err)
+		}
+		img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+		img.Set(0, 0, color.RGBA{255, 0, 0, 255})
+		if err := png.Encode(file, img); err != nil {
+			t.Fatalf("png.Encode(%s) error = %v", name, err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("Close(%s) error = %v", name, err)
+		}
+		return name
+	}
+
+	imageResult, err := NewDisplayFileTool(env).Handler(context.Background(), map[string]any{
+		"path": writeImage("image.png"),
+	})
+	if err != nil {
+		t.Fatalf("display_file image handler error = %v", err)
+	}
+	gotImage, ok := imageResult.(*DisplayFileResult)
+	if !ok {
+		t.Fatalf("image result type = %T, want *DisplayFileResult", imageResult)
+	}
+	if gotImage.Status != "displayed" {
+		t.Fatalf("image status = %q, want displayed", gotImage.Status)
+	}
+	imageJSON, err := json.Marshal(imageResult)
+	if err != nil {
+		t.Fatalf("json.Marshal(image result) error = %v", err)
+	}
+	if strings.Contains(string(imageJSON), "\x89PNG") {
+		t.Fatalf("image result JSON leaks raw bytes: %s", imageJSON)
+	}
+	if len(events) != 1 {
+		t.Fatalf("image events len = %d, want 1", len(events))
+	}
+	imagePayload, ok := events[0].Payload.(output.DisplayFilePayload)
+	if !ok {
+		t.Fatalf("image payload type = %T, want output.DisplayFilePayload", events[0].Payload)
+	}
+	if got := flattenPreviewLines(imagePayload.Preview.Lines); !strings.Contains(got, "image preview unavailable") {
+		t.Fatalf("image preview text = %q, want safe placeholder", got)
+	}
+
+	events = events[:0]
+	binaryPath := filepath.Join(dir, "blob.bin")
+	if err := os.WriteFile(binaryPath, []byte{0x00, 0x01, 0x02, 0x03, 0x04}, 0o644); err != nil {
+		t.Fatalf("WriteFile(binary) error = %v", err)
+	}
+
+	binaryResult, err := NewDisplayFileTool(env).Handler(context.Background(), map[string]any{
+		"path": "blob.bin",
+	})
+	if err != nil {
+		t.Fatalf("display_file binary handler error = %v", err)
+	}
+	gotBinary, ok := binaryResult.(*DisplayFileResult)
+	if !ok {
+		t.Fatalf("binary result type = %T, want *DisplayFileResult", binaryResult)
+	}
+	if gotBinary.Status != "displayed" {
+		t.Fatalf("binary status = %q, want displayed", gotBinary.Status)
+	}
+	binaryJSON, err := json.Marshal(binaryResult)
+	if err != nil {
+		t.Fatalf("json.Marshal(binary result) error = %v", err)
+	}
+	if strings.Contains(string(binaryJSON), "\x00") {
+		t.Fatalf("binary result JSON leaks raw bytes: %q", binaryJSON)
+	}
+	if len(events) != 1 {
+		t.Fatalf("binary events len = %d, want 1", len(events))
+	}
+	binaryPayload, ok := events[0].Payload.(output.DisplayFilePayload)
+	if !ok {
+		t.Fatalf("binary payload type = %T, want output.DisplayFilePayload", events[0].Payload)
+	}
+	if got := flattenPreviewLines(binaryPayload.Preview.Lines); !strings.Contains(got, "binary file omitted") {
+		t.Fatalf("binary preview text = %q, want safe placeholder", got)
 	}
 }
 
