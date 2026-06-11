@@ -117,3 +117,86 @@ func TestSystemPreambleCavemanMode(t *testing.T) {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}
 }
+
+func TestSystemPreambleSystemSuffix(t *testing.T) {
+	cases := []struct {
+		name       string
+		suffix     string
+		wantIn     string
+		wantInLast bool
+	}{
+		{
+			name:       "empty suffix produces unchanged output",
+			suffix:     "",
+			wantIn:     "You are steiner",
+			wantInLast: false,
+		},
+		{
+			name:       "suffix appended after default preamble",
+			suffix:     "Custom instruction here.",
+			wantIn:     "Custom instruction here.",
+			wantInLast: true,
+		},
+		{
+			name:       "suffix appended after caveman mode",
+			suffix:     "Extended thinking enabled",
+			wantIn:     "Extended thinking enabled",
+			wantInLast: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := SystemPreamble("", false, false, tc.suffix).Content
+			if !strings.Contains(content, tc.wantIn) {
+				t.Fatalf("preamble missing %q", tc.wantIn)
+			}
+			if tc.wantInLast && tc.suffix != "" {
+				if !strings.HasSuffix(strings.TrimSpace(content), tc.suffix) {
+					t.Fatalf("suffix %q not at end of preamble", tc.suffix)
+				}
+			}
+		})
+	}
+}
+
+func TestSystemPreambleSuffixAfterCavemanBlock(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", false, true, "Extended thinking enabled").Content
+	// Verify caveman instruction comes before suffix
+	cavemanIdx := strings.Index(content, "Respond terse")
+	suffixIdx := strings.Index(content, "Extended thinking enabled")
+
+	if cavemanIdx == -1 {
+		t.Fatalf("caveman instruction not found in content")
+	}
+	if suffixIdx == -1 {
+		t.Fatalf("suffix not found in content")
+	}
+	if cavemanIdx >= suffixIdx {
+		t.Fatalf("caveman block should appear before suffix")
+	}
+	// Verify suffix is at the end
+	if !strings.HasSuffix(strings.TrimSpace(content), "Extended thinking enabled") {
+		t.Fatalf("suffix should be at the end of preamble")
+	}
+}
+
+func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
+	t.Parallel()
+
+	override := "Custom system prompt"
+	suffix := "Additional instruction"
+	content := SystemPreamble(override, false, false, suffix).Content
+
+	if !strings.Contains(content, override) {
+		t.Fatalf("override not found in content")
+	}
+	if !strings.Contains(content, suffix) {
+		t.Fatalf("suffix not found in content")
+	}
+	if !strings.HasSuffix(strings.TrimSpace(content), suffix) {
+		t.Fatalf("suffix should appear after override")
+	}
+}
