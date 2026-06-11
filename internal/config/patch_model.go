@@ -116,6 +116,7 @@ func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPa
 func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
 	setIfPresent(&dst.System, patch.System)
 	setIfPresent(&dst.Compaction, patch.Compaction)
+	setIfPresent(&dst.SystemSuffix, patch.SystemSuffix)
 }
 
 func applyRetryPatch(dst *RetryConfig, patch *retryPatch) {

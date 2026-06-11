@@ -65,8 +65,9 @@ type retryPatch struct {
 }
 
 type modelPromptsPatch struct {
-	System     *string `yaml:"system"`
-	Compaction *string `yaml:"compaction"`
+	System       *string `yaml:"system"`
+	Compaction   *string `yaml:"compaction"`
+	SystemSuffix *string `yaml:"system_suffix,omitempty"`
 }
 
 type limitsPatch struct {
