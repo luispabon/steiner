@@ -38,8 +38,8 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task":          map[string]any{"type": "string", "description": "Required. The task for the sub-agent."},
-				"context":       map[string]any{"type": "string", "description": "Optional additional context."},
+				"task":          map[string]any{"type": "string", "description": "Required. Self-contained task with objective, expected deliverable, constraints, and success criteria."},
+				"context":       map[string]any{"type": "string", "description": "Optional. File paths, symbols, or background the sub-agent needs. Use this for lengthy context to keep the task focused."},
 				"system_prompt": map[string]any{"type": "string", "description": "Optional system prompt override."},
 				"max_turns":     map[string]any{"type": "integer", "description": "Optional max turns (cannot exceed default limit)."},
 				"timeout":       map[string]any{"type": "string", "description": "Optional timeout duration string (e.g. '30s')."},

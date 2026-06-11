@@ -51,8 +51,14 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"You need to find where something is defined or used",
 		"You are about to grep then read the results",
 		"The task is separable from your current work",
-		"All delegate tools take a single `task` parameter.",
+		"Sub-agents receive only the task you provide.",
 		"Sub-agents cannot delegate further or ask the user questions.",
+		"Every sub-agent task MUST use the template below.",
+		"Objective: what the sub-agent must accomplish",
+		"Context: file paths, symbols, or background",
+		"Deliverable: the concrete output expected",
+		"Constraints: boundaries",
+		"Success criteria: how the sub-agent knows it is done",
 		"`plan` is for focused sub-problem analysis, not overall task planning.",
 		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |",
 		"| `research` | Gather information: search the web, read docs, synthesize external sources |",
@@ -63,6 +69,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
+		"Ask a sub-agent to find something across multiple files",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("delegation preamble missing %q", want)
