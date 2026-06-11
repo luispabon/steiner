@@ -1,10 +1,33 @@
-# Image Context Management
+# Image Paste Feature
 
-How steiner handles images in conversation context, and how other coding agents approach the same problem.
+How to use images in steiner, and how steiner manages images in conversation context.
 
-## Steiner's Approach: Strip After Model Response
+## Using Image Paste
 
-Images are sent to the model once, then replaced with a text placeholder on the next turn. This is the most token-efficient approach — a single image can cost ~5K-160K tokens depending on resolution, and re-sending it every turn compounds quickly.
+In the interactive TUI, use **Ctrl+V** to paste an image. Steiner reads the image from your clipboard or from a file path. Images are automatically:
+
+- **Resized** to a maximum of 2048px on the longest side to keep token costs manageable
+- **Token-accounted** using the formula `(width × height) / 750 + 85` overhead per image
+- **Displayed** as `[Image N]` in the composer until you submit
+
+You can paste multiple images before submitting — they accumulate and are all sent with your message. Use `/clear` in the TUI to dismiss pending images without sending them.
+
+**Supported formats:** PNG, JPG, JPEG, GIF, WebP  
+**Max size:** 5MB per image
+
+### What Happens After the Model Responds
+
+After the model processes your message and responds, image data is automatically removed from the conversation history and replaced with a text placeholder like `[image: 2560x1545 png 478KB]`. This keeps the conversation context lean — a single image can cost 5K-160K tokens, and re-sending the same image across many turns compounds the cost quickly.
+
+If you need the model to re-examine an image in a follow-up message, simply paste it again.
+
+### Vision Capability
+
+If your model doesn't support vision (configured with `vision: false`), images are automatically stripped before being sent to the model. The placeholder remains in your message history for reference.
+
+## Implementation Details: Strip After Model Response
+
+Steiner's approach is the most token-efficient strategy for local and cost-conscious LLMs:
 
 **Flow:**
 1. User pastes image → held as pending `ImageBlock` in TUI
@@ -12,7 +35,7 @@ Images are sent to the model once, then replaced with a text placeholder on the 
 3. Model responds → image data stripped from the message, replaced with text placeholder (e.g., `[image: 2560x1545 png 478KB]`)
 4. Subsequent turns → only the placeholder text is in history, model knows an image was discussed but cannot re-examine it
 
-**Trade-off:** The model cannot re-examine the image in follow-up turns. If the user needs the model to look at the image again, they must re-paste it.
+**Trade-off:** The model cannot re-examine the image in follow-up turns without re-pasting. This is a conscious choice to save tokens and keep context lean.
 
 ## How Other Coding Agents Handle Images
 
