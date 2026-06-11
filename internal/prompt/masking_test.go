@@ -215,7 +215,7 @@ func TestMaskConversationBeforeTurnKeepsMaskedPrefixStable(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "u3", Turn: 3},
 		{Role: provider.MessageRoleAssistant, Content: "turn 3 answer", Turn: 3},
 	}
-	extended := append(cloneProviderMessages(base), provider.Message{Role: provider.MessageRoleUser, Content: "u4", Turn: 4})
+	extended := append(provider.CloneMessages(base), provider.Message{Role: provider.MessageRoleUser, Content: "u4", Turn: 4})
 	extended = append(extended, provider.Message{Role: provider.MessageRoleAssistant, Content: "turn 4 answer", Turn: 4})
 
 	gotBase := MaskConversationBeforeTurn(base, 3)

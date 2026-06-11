@@ -31,7 +31,7 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 		}
 	}
 	if totalAssistantTurns <= effectiveWindow {
-		return cloneProviderMessages(messages)
+		return provider.CloneMessages(messages)
 	}
 
 	cutoffTurn := totalAssistantTurns - effectiveWindow
@@ -43,7 +43,7 @@ func MaskConversation(messages []provider.Message, windowTurns int) []provider.M
 		switch cloned.Role {
 		case provider.MessageRoleAssistant:
 			assistantTurn++
-			currentToolCalls = cloneProviderToolCalls(cloned.ToolCalls)
+			currentToolCalls = provider.CloneToolCalls(cloned.ToolCalls)
 			if assistantTurn <= cutoffTurn {
 				cloned.Content = maskAssistantMessage(cloned)
 			}
@@ -65,7 +65,7 @@ func MaskConversationBeforeTurn(messages []provider.Message, boundaryTurn int) [
 		return nil
 	}
 	if boundaryTurn <= 0 {
-		return cloneProviderMessages(messages)
+		return provider.CloneMessages(messages)
 	}
 
 	out := make([]provider.Message, 0, len(messages))
@@ -76,7 +76,7 @@ func MaskConversationBeforeTurn(messages []provider.Message, boundaryTurn int) [
 		switch cloned.Role {
 		case provider.MessageRoleAssistant:
 			assistantTurn++
-			currentToolCalls = cloneProviderToolCalls(cloned.ToolCalls)
+			currentToolCalls = provider.CloneToolCalls(cloned.ToolCalls)
 			if turnForMasking(cloned, assistantTurn) < boundaryTurn {
 				cloned.Content = maskAssistantMessage(cloned)
 			}
@@ -190,73 +190,9 @@ func summarizeToolArguments(arguments map[string]any) string {
 	return strings.Join(parts, ", ")
 }
 
-func cloneProviderMessages(messages []provider.Message) []provider.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]provider.Message, 0, len(messages))
-	for _, message := range messages {
-		out = append(out, cloneProviderMessage(message))
-	}
-	return out
-}
-
 func cloneProviderMessage(message provider.Message) provider.Message {
 	cloned := message
-	cloned.ToolCalls = cloneProviderToolCalls(message.ToolCalls)
-	cloned.ProviderMetadata = cloneProviderMessageMetadata(message.ProviderMetadata)
-	return cloned
-}
-
-func cloneProviderToolCalls(calls []provider.ToolCall) []provider.ToolCall {
-	if len(calls) == 0 {
-		return nil
-	}
-	out := make([]provider.ToolCall, 0, len(calls))
-	for _, call := range calls {
-		out = append(out, provider.ToolCall{
-			ID:        call.ID,
-			Name:      call.Name,
-			Arguments: cloneToolArguments(call.Arguments),
-		})
-	}
-	return out
-}
-
-func cloneToolArguments(arguments map[string]any) map[string]any {
-	if len(arguments) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(arguments))
-	for key, value := range arguments {
-		out[key] = cloneToolArgumentValue(value)
-	}
-	return out
-}
-
-func cloneToolArgumentValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return cloneToolArguments(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for i := range typed {
-			out[i] = cloneToolArgumentValue(typed[i])
-		}
-		return out
-	default:
-		return value
-	}
-}
-
-func cloneProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *provider.MessageProviderMetadata {
-	if metadata == nil {
-		return nil
-	}
-	cloned := &provider.MessageProviderMetadata{}
-	if metadata.Anthropic != nil {
-		anthropic := *metadata.Anthropic
-		cloned.Anthropic = &anthropic
-	}
+	cloned.ToolCalls = provider.CloneToolCalls(message.ToolCalls)
+	cloned.ProviderMetadata = provider.CloneMessageMetadata(message.ProviderMetadata)
 	return cloned
 }

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // Channel identifies a rendered output stream.
@@ -229,7 +231,7 @@ func (r *PlainRenderer) rememberToolCallLocked(payload ToolCallStartedEvent) {
 	}
 	r.toolCalls[payload.CallID] = retainedToolCall{
 		tool:      payload.Tool,
-		arguments: cloneMap(payload.Arguments),
+		arguments: provider.CloneToolArguments(payload.Arguments),
 	}
 }
 

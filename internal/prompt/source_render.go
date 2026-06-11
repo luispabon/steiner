@@ -104,6 +104,8 @@ func blockMessage(block ContextBlock) provider.Message {
 	case ContextSourceToolSummary, ContextSourceToolResult, ContextSourceDelegationResult:
 		message.Role = provider.MessageRoleTool
 	default:
+		// Durable context intentionally stays user-scoped here; the interactive
+		// context report uses a different role mapping for block matching.
 		message.Role = provider.MessageRoleUser
 	}
 

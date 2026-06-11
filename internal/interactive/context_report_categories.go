@@ -142,6 +142,8 @@ func blockMessage(block prompt.ContextBlock) provider.Message {
 		Content: block.Content,
 	}
 	switch block.Source {
+	// Durable context intentionally maps to system here even though prompt
+	// assembly renders it differently; the report matches persisted blocks.
 	case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary, prompt.ContextSourceDurableContext:
 		message.Role = provider.MessageRoleSystem
 	case prompt.ContextSourceToolSummary, prompt.ContextSourceToolResult, prompt.ContextSourceDelegationResult:
