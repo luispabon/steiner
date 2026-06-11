@@ -195,6 +195,7 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 		basePrompt.PromptOverrides.System,
 		basePrompt.DelegationEnabled,
 		basePrompt.CavemanMode,
+		basePrompt.PromptOverrides.SystemSuffix,
 	)
 	return basePrompt
 }

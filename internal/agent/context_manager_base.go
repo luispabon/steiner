@@ -17,20 +17,23 @@ type baseContextManager struct {
 		override          string
 		delegationEnabled bool
 		cavemanMode       bool
+		systemSuffix      string
 	}
 	minVisibleTurn int
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, cavemanMode bool) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, cavemanMode bool, systemSuffix string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
-		b.cachedPreamble.cavemanMode != cavemanMode {
-		b.cachedPreamble.content = prompt.SystemPreamble(override, delegationEnabled, cavemanMode).Content
+		b.cachedPreamble.cavemanMode != cavemanMode ||
+		b.cachedPreamble.systemSuffix != systemSuffix {
+		b.cachedPreamble.content = prompt.SystemPreamble(override, delegationEnabled, cavemanMode, systemSuffix).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
 		b.cachedPreamble.cavemanMode = cavemanMode
+		b.cachedPreamble.systemSuffix = systemSuffix
 	}
 	return b.cachedPreamble.content
 }
