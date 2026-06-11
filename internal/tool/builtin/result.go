@@ -15,15 +15,25 @@ type Result struct {
 	NextOffset int    `json:"next_offset,omitempty"`
 }
 
+// ImageBlock represents an image embedded in a tool result.
+type ImageBlock struct {
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	SizeBytes int    `json:"size_bytes"`
+}
+
 // ReadResult is the result from a read tool call.
 type ReadResult struct {
-	Path       string `json:"path"`
-	StartLine  int    `json:"start_line"`
-	EndLine    int    `json:"end_line"`
-	TotalLines int    `json:"total_lines"`
-	FileHash   string `json:"file_hash"`
-	NextOffset int    `json:"next_offset,omitempty"`
-	Output     string `json:"output"`
+	Path       string      `json:"path"`
+	StartLine  int         `json:"start_line"`
+	EndLine    int         `json:"end_line"`
+	TotalLines int         `json:"total_lines"`
+	FileHash   string      `json:"file_hash"`
+	NextOffset int         `json:"next_offset,omitempty"`
+	Output     string      `json:"output"`
+	Image      *ImageBlock `json:"image,omitempty"`
 }
 
 // GrepResult is the result from a grep tool call.

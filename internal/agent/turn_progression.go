@@ -208,6 +208,15 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	}
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
+		if normalizedResult.Image != nil {
+			toolMessage.Images = []ImageBlock{{
+				MediaType: normalizedResult.Image.MediaType,
+				Data:      normalizedResult.Image.Data,
+				Width:     normalizedResult.Image.Width,
+				Height:    normalizedResult.Image.Height,
+				SizeBytes: normalizedResult.Image.SizeBytes,
+			}}
+		}
 	}
 	return toolMessage
 }
