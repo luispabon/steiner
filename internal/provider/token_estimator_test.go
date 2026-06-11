@@ -290,3 +290,131 @@ func TestEstimateChatRequestTokensDoesNotCountWireWrapperSyntax(t *testing.T) {
 		t.Fatalf("wire JSON tokens = %d, semantic tokens = %d, want wrapper overhead gap >= 10", wireTokens, semanticTokens)
 	}
 }
+
+func TestEstimateMessageTokensWithImages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		msg       Message
+		minTokens int
+		maxTokens int
+	}{
+		{
+			name: "message with high-dimension image",
+			msg: Message{
+				Role:    MessageRoleUser,
+				Content: "Describe this image",
+				Images: []ImageBlock{
+					{
+						MediaType: "image/jpeg",
+						Width:     2560,
+						Height:    1545,
+					},
+				},
+			},
+			minTokens: 5000, // Expected ~5275 + 85 overhead = 5360
+			maxTokens: 6000,
+		},
+		{
+			name: "message with zero-dimension image falls back to data size",
+			msg: Message{
+				Role:    MessageRoleUser,
+				Content: "Check this",
+				Images: []ImageBlock{
+					{
+						MediaType: "image/png",
+						Data:      strings.Repeat("ABCD", 500), // 2000 base64 chars
+						Width:     0,
+						Height:    0,
+					},
+				},
+			},
+			minTokens: 100, // (2000 * 3 / 4) / 4 = 375 + 85 overhead = 460
+			maxTokens: 600,
+		},
+		{
+			name: "message with no images has baseline tokens",
+			msg: Message{
+				Role:    MessageRoleUser,
+				Content: "Just text",
+			},
+			minTokens: messageOverheadTokens,
+			maxTokens: 50, // Text-only, minimal overhead
+		},
+		{
+			name: "message with multiple images accumulates tokens",
+			msg: Message{
+				Role:    MessageRoleUser,
+				Content: "Two images",
+				Images: []ImageBlock{
+					{
+						MediaType: "image/jpeg",
+						Width:     1000,
+						Height:    1000,
+					},
+					{
+						MediaType: "image/png",
+						Width:     800,
+						Height:    600,
+					},
+				},
+			},
+			minTokens: 2000, // (1000*1000/750) + (800*600/750) + 2*85 = 1334 + 640 + 170 = 2144
+			maxTokens: 2500,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			count, err := EstimateMessageTokens(ctx, "gpt-4o", tt.msg)
+			if err != nil {
+				t.Fatalf("EstimateMessageTokens() error = %v", err)
+			}
+			if count < tt.minTokens || count > tt.maxTokens {
+				t.Fatalf("count = %d, want between %d and %d", count, tt.minTokens, tt.maxTokens)
+			}
+		})
+	}
+}
+
+func TestEstimateMessageTokensImageTokensAreAdditive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	textOnlyMsg := Message{
+		Role:    MessageRoleUser,
+		Content: "Please analyze this for me",
+	}
+
+	textWithImageMsg := Message{
+		Role:    MessageRoleUser,
+		Content: "Please analyze this for me",
+		Images: []ImageBlock{
+			{
+				MediaType: "image/jpeg",
+				Width:     2560,
+				Height:    1545,
+			},
+		},
+	}
+
+	textOnlyTokens, err := EstimateMessageTokens(ctx, "gpt-4o", textOnlyMsg)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens(text-only) error = %v", err)
+	}
+
+	withImageTokens, err := EstimateMessageTokens(ctx, "gpt-4o", textWithImageMsg)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens(with-image) error = %v", err)
+	}
+
+	// Image tokens should be clearly additive (at least 1000 tokens difference for a 2560x1545 image)
+	imageDiff := withImageTokens - textOnlyTokens
+	if imageDiff < 1000 {
+		t.Fatalf("image tokens = %d, want >= 1000; text-only = %d, with-image = %d",
+			imageDiff, textOnlyTokens, withImageTokens)
+	}
+}
