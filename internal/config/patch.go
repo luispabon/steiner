@@ -43,6 +43,7 @@ type modelPatch struct {
 	Retry        *retryPatch        `yaml:"retry"`
 	Prompts      *modelPromptsPatch `yaml:"prompts"`
 	Advanced     *advancedPatch     `yaml:"advanced"`
+	Vision       *bool              `yaml:"vision"`
 }
 
 type advancedPatch struct {

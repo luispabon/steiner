@@ -11,6 +11,33 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, modelAlias string, turn int, events output.EventSink) []provider.Message {
+	if vision != nil && !*vision {
+		hasImages := false
+		for _, msg := range messages {
+			if len(msg.Images) > 0 {
+				hasImages = true
+				break
+			}
+		}
+		if hasImages {
+			stripped := make([]provider.Message, len(messages))
+			for i, msg := range messages {
+				msg.Images = nil
+				stripped[i] = msg
+			}
+			emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+				Turn:     turn,
+				Severity: "warning",
+				Kind:     "vision_disabled",
+				Message:  fmt.Sprintf("model %s does not support vision; image attachments stripped from request", modelAlias),
+			}))
+			return stripped
+		}
+	}
+	return messages
+}
+
 func executeChatRequest(
 	ctx context.Context,
 	prov provider.Provider,
@@ -75,6 +102,7 @@ func executeChatRequest(
 }
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, time.Time, error) {
+	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events)
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 }
 

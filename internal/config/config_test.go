@@ -875,3 +875,131 @@ search:
 		t.Fatalf("Search.SearxngURL = %q, want %q", cfg.Search.SearxngURL, "http://localhost:8888")
 	}
 }
+
+func TestModelConfigVisionFieldNil(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Models["default"].Vision != nil {
+		t.Fatalf("models[default].vision = %v, want nil", cfg.Models["default"].Vision)
+	}
+}
+
+func TestModelConfigVisionFalse(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+    vision: false
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Models["default"].Vision == nil {
+		t.Fatal("models[default].vision = nil, want pointer to false")
+	}
+	if *cfg.Models["default"].Vision != false {
+		t.Fatalf("models[default].vision = %v, want false", *cfg.Models["default"].Vision)
+	}
+}
+
+func TestModelConfigVisionTrue(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+    vision: true
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Models["default"].Vision == nil {
+		t.Fatal("models[default].vision = nil, want pointer to true")
+	}
+	if *cfg.Models["default"].Vision != true {
+		t.Fatalf("models[default].vision = %v, want true", *cfg.Models["default"].Vision)
+	}
+}
