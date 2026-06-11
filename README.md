@@ -138,7 +138,7 @@ These tools are always available to the model:
 | Tool | Description |
 |------|-------------|
 | `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. Max image size: 5MB. |
-| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching and initial-snapshot `file_hash` validation (create, write, replace, line_replace, delete_line, delete, move) |
+| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching, initial-snapshot `file_hash` validation, post-operation assertions, and bounded verification context (create, write, replace, line_replace, delete_line, delete, move) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
@@ -149,7 +149,7 @@ These tools are always available to the model:
 
 `read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
 
-`mutate` evaluates operations in order against an in-memory snapshot of earlier edits, then commits the full batch only after planning succeeds. Line-oriented edits can target a single line or a contiguous line range with `line_replace` or `delete_line`. Any `file_hash` check compares against the disk state captured at batch start, not against later in-batch changes.
+`mutate` evaluates operations in order against an in-memory snapshot of earlier edits, then commits the full batch only after planning succeeds. Line-oriented edits can target a single line or a contiguous line range with `line_replace` or `delete_line`. Any `file_hash` check compares against the disk state captured at batch start, not against later in-batch changes. Successful results also return per-file `file_hashes` plus per-operation `operation_results` with `match_count`, assertion counts, and bounded post-edit `context` so the model can verify edits without an immediate follow-up `read`. `assert_present` and `assert_absent` run against the in-memory post-operation content, and any assertion failure aborts the batch before commit.
 
 ## Sandboxing
 

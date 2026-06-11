@@ -62,6 +62,12 @@ func TestMutateSchemaIncludesDeleteLine(t *testing.T) {
 	if got := itemProps["line_count"].(map[string]any)["description"].(string); !strings.Contains(got, "delete") {
 		t.Fatalf("line_count description = %q, want delete wording", got)
 	}
+	if _, ok := itemProps["assert_present"].(map[string]any); !ok {
+		t.Fatal("assert_present schema missing")
+	}
+	if _, ok := itemProps["assert_absent"].(map[string]any); !ok {
+		t.Fatal("assert_absent schema missing")
+	}
 }
 
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {
@@ -235,7 +241,7 @@ func TestMutateFailuresAreAtomic(t *testing.T) {
 	if got.OperationsApplied != 0 {
 		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
 	}
-	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
 		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
 	}
 	assertFile(t, path, "one\n")
@@ -264,7 +270,7 @@ func TestMutateFailedAtomicBatchDoesNotReportCommittedMetadata(t *testing.T) {
 	if got.WasMutated() {
 		t.Fatal("WasMutated() = true, want false")
 	}
-	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 {
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
 		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
 	}
 	assertFile(t, notePath, "one\n")
@@ -291,6 +297,97 @@ func TestMutateDryRunDoesNotWrite(t *testing.T) {
 		t.Fatal("WasMutated() = true for dry run")
 	}
 	assertFile(t, path, "one\n")
+}
+
+func TestMutateReturnsStructuredVerificationData(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":           "replace",
+				"path":           "note.txt",
+				"old_string":     "beta",
+				"new_string":     "BETA",
+				"assert_present": []any{"BETA"},
+				"assert_absent":  []any{"beta\n"},
+			},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	if got.FileHashes["note.txt"] != fileContentHash([]byte("alpha\nBETA\ncharlie\n")) {
+		t.Fatalf("file hash = %q, want hash for final content", got.FileHashes["note.txt"])
+	}
+	if len(got.OperationResults) != 1 {
+		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	}
+	op := got.OperationResults[0]
+	if op.Index != 1 || op.Type != "replace" || op.Path != "note.txt" {
+		t.Fatalf("operation result = %#v", op)
+	}
+	if op.MatchCount != 1 {
+		t.Fatalf("MatchCount = %d, want 1", op.MatchCount)
+	}
+	if op.FileHash != got.FileHashes["note.txt"] {
+		t.Fatalf("operation file hash = %q, want %q", op.FileHash, got.FileHashes["note.txt"])
+	}
+	if len(op.Assertions) != 2 {
+		t.Fatalf("len(Assertions) = %d, want 2", len(op.Assertions))
+	}
+	if op.Assertions[0].Kind != "present" || op.Assertions[0].Text != "BETA" || op.Assertions[0].Matches != 1 {
+		t.Fatalf("present assertion = %#v", op.Assertions[0])
+	}
+	if op.Assertions[1].Kind != "absent" || op.Assertions[1].Matches != 0 {
+		t.Fatalf("absent assertion = %#v", op.Assertions[1])
+	}
+	if op.Context == nil {
+		t.Fatal("Context = nil, want bounded excerpt")
+	}
+	if op.Context.StartLine != 1 || op.Context.EndLine != 3 || op.Context.TotalLines != 3 {
+		t.Fatalf("context lines = %#v, want full 3-line excerpt", op.Context)
+	}
+	if op.Context.Content != "alpha\nBETA\ncharlie\n" {
+		t.Fatalf("context content = %q", op.Context.Content)
+	}
+}
+
+func TestMutateAssertionsFailAtomically(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":           "replace",
+				"path":           "note.txt",
+				"old_string":     "beta",
+				"new_string":     "BETA",
+				"assert_present": []any{"missing"},
+			},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.OperationResults) != 0 || len(got.FileHashes) != 0 {
+		t.Fatalf("verification metadata leaked on failed batch: %#v", got)
+	}
+	if !strings.Contains(got.Output, "assert_present failed") {
+		t.Fatalf("Output = %q, want assert_present failure", got.Output)
+	}
+	assertFile(t, path, "alpha\nbeta\n")
 }
 
 func TestMutateRejectsInvalidOperations(t *testing.T) {
@@ -982,6 +1079,53 @@ func TestMutateOutputIsBounded(t *testing.T) {
 	}
 	if !strings.Contains(got.Output, "<truncated>") {
 		t.Fatalf("Output missing truncation marker")
+	}
+}
+
+func TestMutateReturnsBoundedPostEditContext(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "big.txt")
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	lines[9] = "needle"
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":       "replace",
+				"path":       "big.txt",
+				"old_string": "needle",
+				"new_string": "NEEDLE",
+			},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
+	}
+	if len(got.OperationResults) != 1 {
+		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	}
+	ctx := got.OperationResults[0].Context
+	if ctx == nil {
+		t.Fatal("Context = nil, want excerpt")
+	}
+	if !ctx.Truncated {
+		t.Fatalf("Truncated = false, want true for large file excerpt: %#v", ctx)
+	}
+	if ctx.StartLine != 8 || ctx.EndLine != 12 || ctx.TotalLines != 20 {
+		t.Fatalf("context = %#v, want lines 8-12 of 20", ctx)
+	}
+	if strings.Count(strings.TrimSuffix(ctx.Content, "\n"), "\n")+1 != 5 {
+		t.Fatalf("context line count = %d, want 5; content=%q", strings.Count(strings.TrimSuffix(ctx.Content, "\n"), "\n")+1, ctx.Content)
+	}
+	if !strings.Contains(ctx.Content, "NEEDLE\n") {
+		t.Fatalf("context content = %q, want edited line", ctx.Content)
 	}
 }
 
