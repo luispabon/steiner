@@ -140,10 +140,11 @@ models:
 
 ### `ModelPrompts` fields
 
-| Field        | Type   | Default | Description |
-|--------------|--------|---------|-------------|
-| `system`     | string | —       | Overrides the embedded default system prompt for this model. |
-| `compaction` | string | —       | Overrides the embedded compaction (context summarisation) prompt for this model. |
+| Field          | Type   | Default | Description |
+|----------------|--------|---------|-------------|
+| `system`       | string | —       | Overrides the embedded default system prompt for this model. |
+| `system_suffix`| string | —       | Text appended after all default preamble content (including caveman instructions). Enables per-model system prompt steering without replacing the default preamble. |
+| `compaction`   | string | —       | Overrides the embedded compaction (context summarisation) prompt for this model. |
 
 ### `AdvancedConfig` fields
 
@@ -633,6 +634,7 @@ models:
     prompt_suffix: " Answer concisely."
     prompts:
       system: "You are a concise coding assistant."
+      system_suffix: "Always respond in structured JSON when possible."
 
 default_model: local-fast
 
