@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -103,7 +104,52 @@ func executeChatRequest(
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events)
+	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+	if err == nil {
+		return response, firstChunkTime, nil
+	}
+	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
+		return response, firstChunkTime, err
+	}
+
+	stripped := cloneProviderMessagesWithoutImages(chatRequest.Messages)
+	emitEvent(req.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     turn,
+		Severity: "warning",
+		Kind:     "vision_fallback",
+		Message:  fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias),
+	}))
+	chatRequest.Messages = stripped
 	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+}
+
+func shouldRetryWithoutImages(err error, messages []provider.Message) bool {
+	if len(messages) == 0 || !requestHasImages(messages) {
+		return false
+	}
+	var httpErr *provider.HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	return httpErr.StatusCode == 400
+}
+
+func requestHasImages(messages []provider.Message) bool {
+	for _, msg := range messages {
+		if len(msg.Images) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneProviderMessagesWithoutImages(messages []provider.Message) []provider.Message {
+	cloned := make([]provider.Message, len(messages))
+	for i, msg := range messages {
+		msg.Images = nil
+		cloned[i] = msg
+	}
+	return cloned
 }
 
 func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {

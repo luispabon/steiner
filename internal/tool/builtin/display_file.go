@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -66,15 +67,37 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			contents, truncated, err := readDisplayFilePreview(absPath, in.Offset, in.Limit)
+			contents, truncated, previewKind, err := readDisplayFilePreview(absPath, in.Offset, in.Limit)
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}
 
-			preview := output.FormatFilePreviewWithLimit(displayPath, contents, in.Limit)
-			preview.Truncated = truncated
-			preview.LineLimit = in.Limit
-			preview.StartLine = in.Offset
+			preview := output.PreviewDocument{
+				Kind:      output.PreviewFormatKindFile,
+				Path:      displayPath,
+				LineLimit: in.Limit,
+				StartLine: in.Offset,
+			}
+			switch previewKind {
+			case "image":
+				preview.Language = "plain"
+				preview.Lines = []output.PreviewLine{{
+					Kind:   output.PreviewLineKindText,
+					Spans:  []output.PreviewSpan{{Text: "image preview unavailable in text overlay; use read for visual inspection"}},
+					Prefix: "",
+				}}
+			case "binary":
+				preview.Language = "plain"
+				preview.Lines = []output.PreviewLine{{
+					Kind:  output.PreviewLineKindText,
+					Spans: []output.PreviewSpan{{Text: "binary file omitted from text preview; use read for content inspection"}},
+				}}
+			default:
+				preview = output.FormatFilePreviewWithLimit(displayPath, contents, in.Limit)
+				preview.Truncated = truncated
+				preview.LineLimit = in.Limit
+				preview.StartLine = in.Offset
+			}
 
 			env.EventSink.Emit(output.NewDisplayFileEvent(output.DisplayFilePayload{
 				Path:    displayPath,
@@ -92,15 +115,22 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 	}
 }
 
-func readDisplayFilePreview(path string, offset, limit int) (string, bool, error) {
+func readDisplayFilePreview(path string, offset, limit int) (string, bool, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", false, fmt.Errorf("read file: %w", err)
+		return "", false, "", fmt.Errorf("read file: %w", err)
+	}
+
+	if IsImageExtension(filepath.Ext(path)) {
+		return "", false, "image", nil
+	}
+	if isBinary(data) {
+		return "", false, "binary", nil
 	}
 
 	lines := splitDisplayFileLines(string(data))
 	if len(lines) == 0 {
-		return "", false, nil
+		return "", false, "", nil
 	}
 
 	start := offset - 1
@@ -118,7 +148,7 @@ func readDisplayFilePreview(path string, offset, limit int) (string, bool, error
 
 	selected := lines[start:end]
 	truncated := end < len(lines)
-	return strings.Join(selected, "\n"), truncated, nil
+	return strings.Join(selected, "\n"), truncated, "", nil
 }
 
 func splitDisplayFileLines(text string) []string {

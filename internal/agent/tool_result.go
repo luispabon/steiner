@@ -26,6 +26,9 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 		}
 		// Extract image if present in the wrapped result.
 		env.Image = extractImage(v.Value)
+		if env.Image != nil {
+			env.Content = toolResultContentWithoutImage(v.Value)
+		}
 		return env
 	default:
 		env := ToolResultEnvelope{
@@ -33,6 +36,9 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 		}
 		// Extract image if present.
 		env.Image = extractImage(result)
+		if env.Image != nil {
+			env.Content = toolResultContentWithoutImage(result)
+		}
 		return env
 	}
 }
@@ -78,5 +84,25 @@ func toolResultContent(result any) string {
 			return string(data)
 		}
 		return fmt.Sprint(v)
+	}
+}
+
+func toolResultContentWithoutImage(result any) string {
+	switch v := result.(type) {
+	case *builtin.ReadResult:
+		if v == nil {
+			return ""
+		}
+		cloned := *v
+		cloned.Image = nil
+		return toolResultContent(cloned)
+	case builtin.ReadResult:
+		cloned := v
+		cloned.Image = nil
+		return toolResultContent(cloned)
+	case tool.ExecutionResult:
+		return toolResultContentWithoutImage(v.Value)
+	default:
+		return toolResultContent(result)
 	}
 }
