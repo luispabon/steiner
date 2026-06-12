@@ -60,17 +60,17 @@ func toProviderMessage(message Message) provider.Message {
 			})
 		}
 	}
-	if len(message.Images) > 0 {
-		out.Images = make([]provider.ImageBlock, 0, len(message.Images))
-		for _, img := range message.Images {
-			out.Images = append(out.Images, provider.ImageBlock{
-				MediaType: img.MediaType,
-				Data:      img.Data,
-				Width:     img.Width,
-				Height:    img.Height,
-				SizeBytes: img.SizeBytes,
-			})
+	for _, img := range message.Images {
+		if img.Data == "" {
+			continue
 		}
+		out.Images = append(out.Images, provider.ImageBlock{
+			MediaType: img.MediaType,
+			Data:      img.Data,
+			Width:     img.Width,
+			Height:    img.Height,
+			SizeBytes: img.SizeBytes,
+		})
 	}
 	return out
 }

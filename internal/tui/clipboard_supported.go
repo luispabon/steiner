@@ -3,6 +3,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,7 +24,7 @@ func ReadClipboardImage() ([]byte, string, error) {
 		if err == nil {
 			return data, mimeType, nil
 		}
-		if err == ErrImageTooLarge {
+		if errors.Is(err, ErrImageTooLarge) {
 			return nil, "", err
 		}
 	}
@@ -50,7 +52,7 @@ func ReadClipboardText() (string, error) {
 // readImageViaWlPaste reads an image from the Wayland clipboard using wl-paste.
 // Returns ErrClipboardNoImage when no image MIME type is offered.
 func readImageViaWlPaste() ([]byte, string, error) {
-	out, err := exec.Command("wl-paste", "--list-types").Output()
+	out, err := exec.CommandContext(context.Background(), "wl-paste", "--list-types").Output()
 	if err != nil {
 		return nil, "", ErrClipboardNoImage
 	}
@@ -59,7 +61,7 @@ func readImageViaWlPaste() ([]byte, string, error) {
 		if !strings.Contains(available, mime) {
 			continue
 		}
-		data, err := exec.Command("wl-paste", "--type", mime, "--no-newline").Output()
+		data, err := exec.CommandContext(context.Background(), "wl-paste", "--type", mime, "--no-newline").Output()
 		if err != nil || len(data) == 0 {
 			continue
 		}
