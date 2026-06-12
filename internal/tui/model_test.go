@@ -25,6 +25,7 @@ type testController struct {
 	mu                        sync.Mutex
 	actions                   []interactive.Action
 	err                       error
+	switchModelErr            error
 	workflowHandoffSelections map[string]interactive.WorkflowHandoffModelSelection
 }
 
@@ -32,6 +33,9 @@ func (c *testController) Handle(_ context.Context, action interactive.Action) er
 	c.mu.Lock()
 	c.actions = append(c.actions, action)
 	c.mu.Unlock()
+	if _, ok := action.(interactive.SwitchModel); ok && c.switchModelErr != nil {
+		return c.switchModelErr
+	}
 	return c.err
 }
 
@@ -3071,17 +3075,20 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
 	}
 
-	// Verify RotateSession was sent after accept
-	rotations := ctrl.rotateSessionActions()
-	if len(rotations) != 1 {
-		t.Fatalf("rotate session actions = %d, want 1", len(rotations))
-	}
-
-	// Verify RotateSession was sent after ClearConversation
-	var sawClear, sawRotate bool
+	var sawSubmit, sawSwitch, sawClear, sawRotate bool
 	for _, a := range ctrl.actions {
 		switch a.(type) {
+		case interactive.SubmitWorkflowHandoff:
+			sawSubmit = true
+		case interactive.SwitchModel:
+			if !sawSubmit {
+				t.Fatal("SwitchModel sent before SubmitWorkflowHandoff")
+			}
+			sawSwitch = true
 		case interactive.ClearConversation:
+			if !sawSwitch {
+				t.Fatal("ClearConversation sent before SwitchModel")
+			}
 			sawClear = true
 		case interactive.RotateSession:
 			if !sawClear {
@@ -3089,6 +3096,9 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 			}
 			sawRotate = true
 		}
+	}
+	if !sawSwitch {
+		t.Fatal("SwitchModel not found in actions")
 	}
 	if !sawRotate {
 		t.Fatal("RotateSession not found in actions")
@@ -3102,6 +3112,18 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-3" {
 		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
 	}
+	var sawPrompt bool
+	for _, a := range ctrl.actions {
+		if _, ok := a.(interactive.SubmitPrompt); ok {
+			if !sawRotate {
+				t.Fatal("SubmitPrompt sent before RotateSession")
+			}
+			sawPrompt = true
+		}
+	}
+	if !sawPrompt {
+		t.Fatal("SubmitPrompt not found in actions")
+	}
 	switches := ctrl.switchModelActions()
 	if len(switches) != 1 || switches[0].Name != "review-default" {
 		t.Fatalf("switch model actions = %#v, want one switch to review-default", switches)
@@ -3114,6 +3136,60 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	if got := m.primaryModel; got != "review-default" {
 		t.Fatalf("primaryModel = %q, want review-default after launch", got)
+	}
+}
+
+func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(t *testing.T) {
+	ctrl := &testController{
+		switchModelErr: fmt.Errorf("model switch failed"),
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"review": {
+				ModelAlias:  "review-default",
+				SourceLabel: "from handoff default",
+			},
+		},
+	}
+	m := newModel(Config{
+		Model:         "current-model",
+		ModelNames:    []string{"current-model", "review-default"},
+		ModelBaseURLs: map[string]string{"review-default": "http://review.example/v1"},
+		Controller:    ctrl,
+		SkillNames:    []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.content.AppendLine("old transcript")
+	m.syncViewport()
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := m.content.String(m.viewport.Width)
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to stay open on switch failure")
+	}
+	if !strings.Contains(rendered, "old transcript") {
+		t.Fatalf("content = %q, want original transcript to remain after failed switch", rendered)
+	}
+	if !strings.Contains(rendered, "model switch failed") {
+		t.Fatalf("content = %q, want status error after failed switch", rendered)
+	}
+	if got := ctrl.submitWorkflowHandoffs(); len(got) != 1 || got[0].Decision != "accept" {
+		t.Fatalf("handoff decisions = %#v, want one accept", got)
+	}
+	if got := ctrl.switchModelActions(); len(got) != 1 || got[0].Name != "review-default" {
+		t.Fatalf("switch model actions = %#v, want one switch to review-default", got)
+	}
+	if got := ctrl.rotateSessionActions(); len(got) != 0 {
+		t.Fatalf("rotate session actions = %#v, want none after failed switch", got)
+	}
+	if got := ctrl.submitPrompts(); len(got) != 0 {
+		t.Fatalf("submit prompts = %#v, want none after failed switch", got)
+	}
+	if m.pendingWorkflowHandoffLaunch != nil {
+		t.Fatalf("pending workflow handoff launch = %#v, want nil after failed switch", m.pendingWorkflowHandoffLaunch)
+	}
+	if m.suppressWorkflowHandoffRun {
+		t.Fatal("suppressWorkflowHandoffRun = true, want false after failed switch")
 	}
 }
 

@@ -197,6 +197,16 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
+				m.content.AppendLine("status: " + err.Error())
+				m.syncViewport()
+				return m, nil
+			}
+		}
+		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
+	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true
 	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
@@ -231,17 +241,6 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) launchWorkflowHandoff(next, target, modelName string) (tea.Model, tea.Cmd) {
-	modelName = strings.TrimSpace(modelName)
-	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
-		if m.controller != nil {
-			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
-				m.content.AppendLine("status: " + err.Error())
-				m.syncViewport()
-				return m, nil
-			}
-		}
-		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
-	}
 	return m.executeInvokeSkillAction(next, target)
 }
 
