@@ -101,8 +101,8 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 		Background(lipgloss.Color(theme.BgElev)).
 		Padding(1, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(b.styles.FgMute.GetForeground()).
-		Width(width)
+		BorderForeground(b.styles.FgDim.GetForeground()).
+		Width(width - 2)
 
 	// Render the box.
 	boxed := boxStyle.Render(styledContent)
