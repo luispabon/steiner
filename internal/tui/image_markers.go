@@ -171,9 +171,7 @@ func (m *Model) restoreCursorFromRuneOffset(value string, targetRuneOff int) {
 			m.input.SetValue(value)
 			m.input.CursorStart()
 			for m.input.Line() > 0 {
-				// move to row 0 — textarea has no direct SetRow
-				// use repeated Up; if already at 0, this is a no-op
-				break
+				m.input.CursorUp()
 			}
 			for i := 0; i < row; i++ {
 				m.input.CursorDown()
