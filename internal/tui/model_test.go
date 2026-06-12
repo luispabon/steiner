@@ -2860,7 +2860,13 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 			t.Fatalf("rendered modal = %q, want %q", rendered, want)
 		}
 	}
-	if acceptIdx, changeIdx, dismissIdx := strings.Index(rendered, "Accept: Clear + Implement"), strings.Index(rendered, "Change Model"), strings.Index(rendered, "Dismiss"); acceptIdx < 0 || changeIdx < 0 || dismissIdx < 0 || !(acceptIdx < changeIdx && changeIdx < dismissIdx) {
+	acceptIdx := strings.Index(rendered, "Accept: Clear + Implement")
+	changeIdx := strings.Index(rendered, "Change Model")
+	dismissIdx := strings.Index(rendered, "Dismiss")
+	if acceptIdx < 0 || changeIdx < 0 || dismissIdx < 0 {
+		t.Fatalf("rendered modal = %q, want Accept, Change Model, Dismiss in order", rendered)
+	}
+	if acceptIdx >= changeIdx || changeIdx >= dismissIdx {
 		t.Fatalf("rendered modal = %q, want Accept, Change Model, Dismiss in order", rendered)
 	}
 

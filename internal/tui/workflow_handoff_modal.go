@@ -240,7 +240,7 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) launchWorkflowHandoff(next, target, modelName string) (tea.Model, tea.Cmd) {
+func (m Model) launchWorkflowHandoff(next, target string, _ string) (tea.Model, tea.Cmd) {
 	return m.executeInvokeSkillAction(next, target)
 }
 
