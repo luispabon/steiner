@@ -1,0 +1,148 @@
+steps:
+  - id: step-1
+    title: Add workflow handoff model defaults to config
+    scope: >
+      Add a config-owned workflow handoff block that maps destination workflow
+      names to model aliases, with merge/patch support and validation against
+      configured models.
+    files:
+      - internal/config/config.go
+      - internal/config/defaults.go
+      - internal/config/patch.go
+      - internal/config/patch_model.go
+      - internal/config/validate.go
+      - internal/config/config_test.go
+      - internal/config/patch_test.go
+      - internal/config/validate_test.go
+      - docs/CONFIGURATION.md
+    constraints:
+      - Keep config ownership in internal/config.
+      - Do not mutate config from one-off TUI picker selections.
+      - Validate configured aliases for known workflow destinations and reject aliases not present in models.
+      - Keep defaults empty so existing behavior falls back to the current session model.
+    acceptance:
+      - Config accepts workflow_handoff.models.implement and workflow_handoff.models.review aliases.
+      - Config merging preserves existing defaults and supports partial override of the handoff model map.
+      - Validation fails with a clear lowercase wrapped error when a configured handoff model alias is unknown.
+      - docs/CONFIGURATION.md documents the new block and includes an example.
+    verification:
+      - go test ./internal/config -run 'WorkflowHandoff|Validate|Patch|Config'
+
+  - id: step-2
+    title: Extend handoff state and model preselection
+    scope: >
+      Carry selected handoff model state through the interactive TUI handoff
+      flow. Preselect the configured per-destination default when present,
+      otherwise the current session model, and track the source label shown in
+      the modal.
+    files:
+      - internal/tui/model.go
+      - internal/tui/workflow_handoff_modal.go
+      - internal/tui/model_events.go
+      - internal/tui/model_test.go
+      - internal/interactive/session.go
+      - internal/interactive/actions.go
+      - internal/interactive/session_test.go
+    constraints:
+      - Do not switch the active session model when the handoff modal opens.
+      - Do not switch the active session model when the picker selection changes.
+      - Preserve existing accept/dismiss behavior when no handoff model default is configured.
+      - Keep source labels concise, for example "from handoff default" and "current session".
+    acceptance:
+      - Opening an implement handoff preselects workflow_handoff.models.implement when valid.
+      - Opening a review handoff preselects workflow_handoff.models.review when valid.
+      - Without a configured default, the modal preselects the current session model.
+      - The rendered modal includes a Model line and keeps action buttons free of model aliases.
+    verification:
+      - go test ./internal/tui -run 'WorkflowHandoff'
+      - go test ./internal/interactive -run 'SwitchModel|WorkflowHandoff'
+    depends_on:
+      - step-1
+
+  - id: step-3
+    title: Reuse model picker from handoff modal
+    scope: >
+      Add a handoff-specific model picker mode or placement that reuses the
+      existing model picker filtering, keyboard navigation, and selection
+      behavior. The picker should be opened by the Change Model action and
+      should return to the handoff modal on select or cancel.
+    files:
+      - internal/tui/model_picker.go
+      - internal/tui/model_input.go
+      - internal/tui/model_update_keys.go
+      - internal/tui/model_view.go
+      - internal/tui/workflow_handoff_modal.go
+      - internal/tui/model_test.go
+    constraints:
+      - Reuse modelPickerOverlay logic; do not fork a second picker implementation.
+      - Keep normal /model picker behavior unchanged.
+      - Esc in the handoff picker cancels only model selection and returns to the handoff modal.
+      - Enter in the handoff picker updates pending handoff model state but does not switch the active model.
+      - Place the picker where it reads as attached to the handoff flow rather than the normal bottom command picker.
+    acceptance:
+      - The handoff modal exposes Change Model as a focusable action between accept and dismiss.
+      - Selecting Change Model opens a titled picker such as "Select model for implementation".
+      - Selecting a model updates the handoff modal Model line.
+      - Cancelling the picker leaves the previous handoff model selection unchanged.
+      - Long model aliases are visible in the picker and do not distort the handoff action row.
+    verification:
+      - go test ./internal/tui -run 'WorkflowHandoff|ModelPicker'
+    depends_on:
+      - step-2
+
+  - id: step-4
+    title: Apply selected model when accepting handoff
+    scope: >
+      Ensure accepted workflow handoffs switch to the selected model before the
+      next workflow skill is launched, while preserving the existing clear,
+      rotate-session, and launch sequence.
+    files:
+      - internal/tui/workflow_handoff_modal.go
+      - internal/tui/model_events.go
+      - internal/tui/model_test.go
+      - internal/interactive/session.go
+      - internal/interactive/session_test.go
+    constraints:
+      - Switch the model before launching the next skill.
+      - If model switching fails, do not clear, rotate, or launch the handoff.
+      - Preserve the existing submit handoff decision semantics.
+      - Avoid changing the workflow_handoff tool schema unless required by implementation evidence.
+    acceptance:
+      - Accepting a handoff calls interactive.SwitchModel with the pending selected alias before launching the next skill.
+      - Failed model switching leaves the current conversation intact and reports a status error.
+      - Accepted handoff still clears conversation state, rotates session identity, and launches implement/review with the target folder.
+      - Dismissed handoff never switches model.
+    verification:
+      - go test ./internal/tui -run 'WorkflowHandoff'
+      - go test ./internal/interactive -run 'SwitchModel|WorkflowHandoff'
+    depends_on:
+      - step-3
+
+  - id: step-5
+    title: Update docs and run final verification
+    scope: >
+      Update user-facing docs for the new handoff model defaults and run the
+      repository's required verification commands after formatting.
+    files:
+      - README.md
+      - docs/CONFIGURATION.md
+      - .project_planning/2026-06-12_handoff-model-selection/overview.md
+      - .project_planning/2026-06-12_handoff-model-selection/plan.yaml
+    constraints:
+      - Documentation must explain fallback to the current session model.
+      - Documentation must distinguish config defaults from one-off picker overrides.
+      - Run gofmt and goimports on changed Go files before checks.
+      - Run make check before finalizing; if it cannot run, report exact command and failure.
+    acceptance:
+      - README or configuration docs mention workflow handoff model defaults where users discover model configuration.
+      - All changed Go files are gofmt/goimports formatted.
+      - Targeted tests pass.
+      - make check passes or any failure is documented with exact command output.
+    verification:
+      - gofmt -w <changed-go-files>
+      - goimports -w <changed-go-files>
+      - go test ./internal/config ./internal/interactive ./internal/tui ./internal/tool/builtin
+      - go test ./...
+      - make check
+    depends_on:
+      - step-4
