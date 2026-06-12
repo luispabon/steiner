@@ -890,6 +890,13 @@ limits:
   max_turns: 25
 `)
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
 	}
@@ -944,6 +951,13 @@ search:
   searxng_url: http://localhost:8888
 `)
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
 	}

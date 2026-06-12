@@ -11,10 +11,11 @@ var (
 
 // CLIOverrides contains command-line override values.
 type CLIOverrides struct {
-	ConfigPath  string
-	Model       string
-	Verbose     bool
-	CavemanMode *bool
+	ConfigPath    string
+	Model         string
+	Verbose       bool
+	CavemanMode   *bool
+	HumanizerMode *bool
 }
 
 // LoadOptions contains options for loading configuration.

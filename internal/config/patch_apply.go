@@ -5,6 +5,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 	if patch.CavemanMode != nil {
 		cfg.CavemanMode = *patch.CavemanMode
 	}
+	if patch.HumanizerMode != nil {
+		cfg.HumanizerMode = *patch.HumanizerMode
+	}
 	applySchedulerConfigPatch(cfg, patch)
 	applyModelConfigPatch(cfg, patch)
 	applyLimitsConfigPatch(cfg, patch)

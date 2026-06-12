@@ -18,6 +18,9 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.CavemanMode != nil {
 		cfg.CavemanMode = *cli.CavemanMode
 	}
+	if cli.HumanizerMode != nil {
+		cfg.HumanizerMode = *cli.HumanizerMode
+	}
 }
 
 // normalizePaths expands ~ to home directory in path fields.
