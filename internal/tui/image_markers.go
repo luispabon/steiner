@@ -141,7 +141,7 @@ func reconcileMarkers(value string, markers []imageMarker) (string, []imageMarke
 	return cleaned, survivors
 }
 
-func snapCursorPastMarkers(value string, runeOffset int, markers []imageMarker, direction int) int {
+func snapCursorPastMarkers(value string, runeOffset int, _ []imageMarker, direction int) int {
 	locs := imageMarkerPattern.FindAllStringIndex(value, -1)
 	for _, loc := range locs {
 		startRune := len([]rune(value[:loc[0]]))

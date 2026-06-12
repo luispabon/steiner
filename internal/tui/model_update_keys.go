@@ -170,33 +170,9 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnter()
 	}
 
-	// Atomic image marker deletion
 	if len(m.imageMarkers) > 0 {
-		value := m.input.Value()
-		runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
-
-		if msg.Type == tea.KeyBackspace {
-			if idx, _, atEnd, _ := markerAtCursor(value, runeOff, m.imageMarkers); atEnd && idx >= 0 {
-				removedLabel := m.imageMarkers[idx].label
-				removedLen := len([]rune(removedLabel))
-				value = removeMarkerFromValue(value, m.imageMarkers[idx])
-				m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
-				value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
-				m.restoreCursorFromRuneOffset(value, runeOff-removedLen)
-				m.relayoutInput()
-				return m, nil
-			}
-		}
-
-		if msg.Type == tea.KeyDelete {
-			if idx, atStart, _, _ := markerAtCursor(value, runeOff, m.imageMarkers); atStart && idx >= 0 {
-				value = removeMarkerFromValue(value, m.imageMarkers[idx])
-				m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
-				value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
-				m.restoreCursorFromRuneOffset(value, runeOff)
-				m.relayoutInput()
-				return m, nil
-			}
+		if result, handled := m.tryDeleteMarker(msg); handled {
+			return result, nil
 		}
 	}
 
@@ -232,43 +208,77 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 
-	// Snap cursor out of markers after arrow movement
 	if len(m.imageMarkers) > 0 {
-		if msg.Type == tea.KeyLeft || msg.Type == tea.KeyRight {
-			direction := 1
-			if msg.Type == tea.KeyLeft {
-				direction = -1
-			}
-			value := m.input.Value()
-			runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
-			newOff := snapCursorPastMarkers(value, runeOff, m.imageMarkers, direction)
-			if newOff != runeOff {
-				m.restoreCursorFromRuneOffset(value, newOff)
-			}
-		}
-
-		// Safety-net reconciliation after any edit key
-		if isEditKey(msg) {
-			value := m.input.Value()
-			newValue, newMarkers := reconcileMarkers(value, m.imageMarkers)
-			if newValue != value {
-				runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
-				m.imageMarkers = newMarkers
-				m.input.SetValue(newValue)
-				maxOff := len([]rune(newValue))
-				if runeOff > maxOff {
-					runeOff = maxOff
-				}
-				m.restoreCursorFromRuneOffset(newValue, runeOff)
-			} else {
-				m.imageMarkers = newMarkers
-			}
-		}
+		m = m.applyMarkerPostEdit(msg)
 	}
 
 	m = m.maybeReopenPickers()
 	m.relayoutInput()
 	return m, cmd
+}
+
+func (m Model) tryDeleteMarker(msg tea.KeyMsg) (Model, bool) {
+	value := m.input.Value()
+	runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+
+	if msg.Type == tea.KeyBackspace {
+		if idx, _, atEnd, _ := markerAtCursor(value, runeOff, m.imageMarkers); atEnd && idx >= 0 {
+			removedLen := len([]rune(m.imageMarkers[idx].label))
+			value = removeMarkerFromValue(value, m.imageMarkers[idx])
+			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
+			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.restoreCursorFromRuneOffset(value, runeOff-removedLen)
+			m.relayoutInput()
+			return m, true
+		}
+	}
+
+	if msg.Type == tea.KeyDelete {
+		if idx, atStart, _, _ := markerAtCursor(value, runeOff, m.imageMarkers); atStart && idx >= 0 {
+			value = removeMarkerFromValue(value, m.imageMarkers[idx])
+			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
+			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.restoreCursorFromRuneOffset(value, runeOff)
+			m.relayoutInput()
+			return m, true
+		}
+	}
+
+	return m, false
+}
+
+func (m Model) applyMarkerPostEdit(msg tea.KeyMsg) Model {
+	if msg.Type == tea.KeyLeft || msg.Type == tea.KeyRight {
+		direction := 1
+		if msg.Type == tea.KeyLeft {
+			direction = -1
+		}
+		value := m.input.Value()
+		runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+		newOff := snapCursorPastMarkers(value, runeOff, m.imageMarkers, direction)
+		if newOff != runeOff {
+			m.restoreCursorFromRuneOffset(value, newOff)
+		}
+	}
+
+	if isEditKey(msg) {
+		value := m.input.Value()
+		newValue, newMarkers := reconcileMarkers(value, m.imageMarkers)
+		if newValue != value {
+			runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+			m.imageMarkers = newMarkers
+			m.input.SetValue(newValue)
+			maxOff := len([]rune(newValue))
+			if runeOff > maxOff {
+				runeOff = maxOff
+			}
+			m.restoreCursorFromRuneOffset(newValue, runeOff)
+		} else {
+			m.imageMarkers = newMarkers
+		}
+	}
+
+	return m
 }
 
 func isEditKey(msg tea.KeyMsg) bool {
