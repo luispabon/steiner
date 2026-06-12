@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,15 +18,16 @@ var defaultHTTPClient = &http.Client{}
 
 // OpenAICompatConfig configures an OpenAI-compatible provider client.
 type OpenAICompatConfig struct {
-	BaseURL      string
-	APIKey       string
-	Headers      map[string]string
-	Model        string
-	Timeout      time.Duration
-	Retry        RetryConfig
-	HTTPClient   *http.Client
-	Scheduler    *Scheduler
-	ProviderType string
+	BaseURL        string
+	APIKey         string
+	Headers        map[string]string
+	Model          string
+	Timeout        time.Duration
+	Retry          RetryConfig
+	HTTPClient     *http.Client
+	Scheduler      *Scheduler
+	ProviderType   string
+	StreamErrorLog *StreamErrorLogger
 }
 
 // RetryConfig controls retry behavior for transient provider failures.
@@ -39,18 +41,19 @@ type RetryConfig struct {
 
 // OpenAICompat implements the Provider interface for OpenAI-compatible APIs.
 type OpenAICompat struct {
-	baseURL      *url.URL
-	apiKey       string
-	headers      map[string]string
-	model        string
-	retry        RetryConfig
-	httpClient   *http.Client
-	scheduler    *Scheduler
-	providerType string
-	sleep        func(context.Context, time.Duration) error
-	jitter       func(time.Duration) time.Duration
-	randMu       sync.Mutex
-	rand         *rand.Rand
+	baseURL        *url.URL
+	apiKey         string
+	headers        map[string]string
+	model          string
+	retry          RetryConfig
+	httpClient     *http.Client
+	scheduler      *Scheduler
+	providerType   string
+	streamErrorLog *StreamErrorLogger
+	sleep          func(context.Context, time.Duration) error
+	jitter         func(time.Duration) time.Duration
+	randMu         sync.Mutex
+	rand           *rand.Rand
 }
 
 // NewOpenAICompat creates a new OpenAI-compatible provider client.
@@ -89,16 +92,17 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 		client = &cloned
 	}
 	provider := &OpenAICompat{
-		baseURL:      parsed,
-		apiKey:       cfg.APIKey,
-		headers:      copyHeaders(cfg.Headers),
-		model:        cfg.Model,
-		retry:        cfg.Retry,
-		httpClient:   client,
-		scheduler:    cfg.Scheduler,
-		providerType: cfg.ProviderType,
-		sleep:        defaultRetrySleep,
-		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		baseURL:        parsed,
+		apiKey:         cfg.APIKey,
+		headers:        copyHeaders(cfg.Headers),
+		model:          cfg.Model,
+		retry:          cfg.Retry,
+		httpClient:     client,
+		scheduler:      cfg.Scheduler,
+		providerType:   cfg.ProviderType,
+		streamErrorLog: cfg.StreamErrorLog,
+		sleep:          defaultRetrySleep,
+		rand:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	provider.jitter = provider.fullJitter
 	return provider, nil
@@ -206,7 +210,14 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		return err
 	}
 
-	return p.withRetry(ctx, func(_ int) (bool, error) {
+	var (
+		streamStart     time.Time
+		chunksReceived  int
+		contentBytes    int
+		lastRespHeaders http.Header
+	)
+
+	err = p.withRetry(ctx, func(_ int) (bool, error) {
 		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, true)
 		if err != nil {
 			return false, err
@@ -214,6 +225,11 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		defer func() {
 			_ = resp.Body.Close()
 		}()
+
+		streamStart = time.Now()
+		chunksReceived = 0
+		contentBytes = 0
+		lastRespHeaders = resp.Header
 
 		partialStream := false
 		err = decodeChatStreamWithHandler(ctx, resp.Body, func(chunk ChatChunk) error {
@@ -225,6 +241,10 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 			}
 			select {
 			case out <- chunk:
+				if chunk.Delta.Content != "" {
+					contentBytes += len(chunk.Delta.Content)
+				}
+				chunksReceived++
 				return nil
 			case <-ctx.Done():
 				return ctx.Err()
@@ -232,6 +252,22 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		})
 		return partialStream, err
 	}, p.classifyRetryError, func(info retryAttemptInfo) {
+		p.streamErrorLog.Log(streamErrorRecord{
+			Timestamp:       time.Now(),
+			Event:           "stream_retry",
+			Attempt:         info.Attempt,
+			Max:             info.MaxAttempts,
+			Error:           info.Reason,
+			StreamAlive:     time.Since(streamStart).String(),
+			ChunksReceived:  chunksReceived,
+			ContentBytes:    contentBytes,
+			PartialStream:   info.PartialStream,
+			RetryDelay:      info.Delay.String(),
+			RequestURL:      p.baseURL.String(),
+			RequestHeaders:  providerConfigHeaders(p),
+			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
+			RequestBody:     json.RawMessage(body),
+		})
 		if !info.PartialStream {
 			return
 		}
@@ -244,6 +280,22 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		case <-ctx.Done():
 		}
 	})
+	if err != nil {
+		p.streamErrorLog.Log(streamErrorRecord{
+			Timestamp:       time.Now(),
+			Event:           "stream_exhausted",
+			Error:           err.Error(),
+			StreamAlive:     time.Since(streamStart).String(),
+			ChunksReceived:  chunksReceived,
+			ContentBytes:    contentBytes,
+			RequestURL:      p.baseURL.String(),
+			RequestHeaders:  providerConfigHeaders(p),
+			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
+			RequestBody:     json.RawMessage(body),
+		})
+		return err
+	}
+	return nil
 }
 
 func (p *OpenAICompat) buildAndExecuteHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
@@ -369,4 +421,36 @@ func (p *OpenAICompat) fullJitter(cap time.Duration) time.Duration {
 	p.randMu.Lock()
 	defer p.randMu.Unlock()
 	return time.Duration(p.rand.Int63n(max + 1))
+}
+
+// sanitizeHeaders strips the Authorization header and copies the rest.
+func sanitizeHeaders(h http.Header) map[string]string {
+	if h == nil {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, vs := range h {
+		if strings.EqualFold(k, "authorization") {
+			continue
+		}
+		if len(vs) > 0 {
+			out[k] = vs[0]
+		}
+	}
+	return out
+}
+
+// providerConfigHeaders returns the provider's configured headers with the API key stripped.
+func providerConfigHeaders(p *OpenAICompat) map[string]string {
+	if p == nil {
+		return nil
+	}
+	out := make(map[string]string, len(p.headers))
+	for k, v := range p.headers {
+		if strings.EqualFold(k, "authorization") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
