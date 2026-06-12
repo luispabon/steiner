@@ -318,13 +318,13 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 		m.historyIdx = 0
 	}
 	// Capture images before clearing
-	images := m.pendingImages
+	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		}
 	}
-	m.pendingImages = nil
+	m.imageMarkers = nil
 	m.content.AppendUser(displayText)
 	m.input.Reset()
 	m.historyIdx = 0
