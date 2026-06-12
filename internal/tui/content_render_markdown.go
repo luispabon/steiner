@@ -72,52 +72,62 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	return sb.String()
 }
 
-// renderPendingSteerSegment renders a queued steering message: dashed muted bar,
-// "queued: " prefix, italic dim text.
+// renderPendingSteerSegment renders a queued steering message in a boxed
+// "pill" with a titled top border and italic dim text. Falls back to a
+// simple dim line when the viewport is narrower than 14 columns.
 func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width int) string {
-	contentWidth := width - 1
-	if contentWidth < 2 {
-		contentWidth = 2
+	// Narrow viewport fallback: simple dim line.
+	if width < 14 {
+		return b.styles.FgDim.Render("queued: "+segment.text) + "\n"
 	}
 
-	bar := b.styles.FgMute.Render("┇")
-	prefix := b.styles.FgDim.Render("queued: ")
-	prefixW := lipgloss.Width(prefix)
-
-	italicDim := lipgloss.NewStyle().Italic(true).Foreground(b.styles.FgDim.GetForeground())
-
-	// First line gets the "queued: " prefix; continuation lines indent to match.
-	indent := strings.Repeat(" ", prefixW)
-	firstLineW := contentWidth - 2 - prefixW
-	if firstLineW < 1 {
-		firstLineW = 1
-	}
-	contLineW := contentWidth - 2 - prefixW
-	if contLineW < 1 {
-		contLineW = 1
+	// Build the boxed pill.
+	textWidth := width - 4
+	if textWidth < 1 {
+		textWidth = 1
 	}
 
-	lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
+	// Wrap segment text and style it italic+dim.
+	textStyle := lipgloss.NewStyle().Italic(true).Foreground(b.styles.FgDim.GetForeground())
+	var wrappedParts []string
+	for _, line := range strings.Split(strings.TrimRight(segment.text, "\n"), "\n") {
+		wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
+		wrappedParts = append(wrappedParts, wrapped)
+	}
+	styledContent := textStyle.Render(strings.Join(wrappedParts, "\n"))
 
-	var sb strings.Builder
-	first := true
-	for _, line := range lines {
-		w := contLineW
-		pfx := indent
-		if first {
-			w = firstLineW
-			pfx = prefix
-			first = false
+	// Build the box style.
+	boxStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BgElev)).
+		Padding(1, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(b.styles.FgMute.GetForeground()).
+		Width(width)
+
+	// Render the box.
+	boxed := boxStyle.Render(styledContent)
+
+	// Split into lines and replace the auto-generated top border with the titled version.
+	lines := strings.Split(boxed, "\n")
+	if len(lines) > 0 {
+		interiorWidth := width - 2
+		if interiorWidth < 0 {
+			interiorWidth = 0
 		}
-		wrapped := lipgloss.NewStyle().Width(w).Render(line)
-		for _, vl := range strings.Split(strings.TrimRight(wrapped, "\n"), "\n") {
-			vl = strings.TrimRight(vl, " ")
-			sb.WriteString(bar + "  " + pfx + italicDim.Render(vl) + "\n")
-			pfx = indent
+		titleInterior := "─ queued ─ will send when model is ready ─"
+		titleWidth := lipgloss.Width(titleInterior)
+		fillCount := interiorWidth - titleWidth
+		if fillCount < 0 {
+			fillCount = 0
 		}
+		titleLine := "╭" + titleInterior + strings.Repeat("─", fillCount) + "╮"
+		titleStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BgElev)).
+			Foreground(b.styles.FgDim.GetForeground())
+		lines[0] = titleStyle.Render(titleLine)
 	}
-	sb.WriteString("\n")
-	return sb.String()
+
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // renderUserMarkdownSegment renders a markdown-like user prompt with glamour
