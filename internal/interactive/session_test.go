@@ -517,7 +517,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	}
 }
 
-func TestSubmitPromptPersistsConversationOnWorkflowHandoff(t *testing.T) {
+func TestSubmitPromptSkipsConversationUpdateOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
@@ -536,19 +536,19 @@ func TestSubmitPromptPersistsConversationOnWorkflowHandoff(t *testing.T) {
 
 	s.submitPrompt(context.Background(), "hello", nil)
 
-	// Conversation should be persisted with both messages after workflow handoff.
+	// s.conversation must NOT be updated from result on workflow_handoff.
+	// The TUI sends ClearConversation before this goroutine finishes; skipping
+	// the update here ensures that clear is not overwritten, so the next skill
+	// run starts with a clean context.
 	got := s.Conversation()
-	if len(got) != 2 {
-		t.Fatalf("conversation length = %d, want 2 (user + assistant)", len(got))
+	if len(got) != 1 {
+		t.Fatalf("conversation length = %d, want 1 (user message only, not overwritten by result)", len(got))
 	}
 	if got[0].Role != agent.MessageRoleUser || got[0].Content != "hello" {
 		t.Fatalf("conversation[0] = %#v, want user 'hello'", got[0])
 	}
-	if got[1].Role != agent.MessageRoleAssistant || got[1].Content != "tool call" {
-		t.Fatalf("conversation[1] = %#v, want assistant 'tool call'", got[1])
-	}
 
-	// Lineage should be populated with the full conversation.
+	// Lineage IS updated from the full result so the session can be saved.
 	s.mu.RLock()
 	lineage := s.lineage
 	s.mu.RUnlock()
