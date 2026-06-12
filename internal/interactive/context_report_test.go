@@ -15,7 +15,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model: "gpt-4o",
 		Messages: []provider.Message{
-			{Role: provider.MessageRoleSystem, Content: prompt.SystemPreamble("", false, false, "").Content},
+			{Role: provider.MessageRoleSystem, Content: prompt.SystemPreamble("", false, false, false, "").Content},
 			{Role: provider.MessageRoleSystem, Name: "/tmp/global/AGENTS.md", Content: "global agents"},
 			{Role: provider.MessageRoleSystem, Name: "/tmp/project/AGENTS.md", Content: "project agents"},
 			{Role: provider.MessageRoleUser, Name: "/tmp/project/README.md", Content: "project readme"},
@@ -40,7 +40,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		},
 		MaxTokens: &maxTokens,
 		Blocks: []prompt.ContextBlock{
-			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreamble("", false, false, "").Content},
+			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreamble("", false, false, false, "").Content},
 			{Source: prompt.ContextSourceGlobalAgentsMD, Path: "/tmp/global/AGENTS.md", Content: "global agents"},
 			{Source: prompt.ContextSourceProjectAgentsMD, Path: "/tmp/project/AGENTS.md", Content: "project agents"},
 			{Source: prompt.ContextSourceProjectContext, Path: "/tmp/project/README.md", Content: "project readme"},

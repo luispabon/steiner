@@ -27,6 +27,7 @@ type BootstrapDeps struct {
 	MaxTokens            *int
 	StreamingPreferred   bool
 	CavemanMode          bool
+	HumanizerMode        bool
 	// Sandbox is the parent sandbox to inherit. Child sandbox permissions cannot
 	// exceed parent permissions: the parent sandbox is passed as-is to the child
 	// executor. A nil Sandbox means unsafe mode (no sandboxing).
@@ -55,10 +56,10 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CavemanMode)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CavemanMode, deps.HumanizerMode)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode, deps.HumanizerMode, deps.Sandbox)
 	return req, limits, nil
 }
 
@@ -75,7 +76,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // conversation message so the assembled provider request has one system message.
 // Project context (AGENTS.md, configured extra files) is included so child
 // agents inherit project conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool, humanizerMode bool) prompt.AssemblyOptions {
 	systemPrompt := spec.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = defaultChildSystemPrompt
@@ -94,6 +95,7 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
 		ProjectContextBudgetBytes: pcc.MaxTokens,
 		CavemanMode:               cavemanMode,
+		HumanizerMode:             humanizerMode,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},

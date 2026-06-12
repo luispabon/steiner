@@ -68,6 +68,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		ModelBudget:     modelBudget,
 		PromptOverrides: rm.Prompts,
 		CavemanMode:     s.deps.Config.CavemanMode,
+		HumanizerMode:   s.deps.Config.HumanizerMode,
 	}
 
 	compactReq := agent.RunRequest{
@@ -77,6 +78,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		ResolvedModel:     rm,
 		Events:            s.events,
 		CavemanMode:       s.deps.Config.CavemanMode,
+		HumanizerMode:     s.deps.Config.HumanizerMode,
 		CompactionLogPath: s.deps.CompactionLogPath,
 	}
 

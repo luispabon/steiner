@@ -10,7 +10,7 @@ import (
 func TestSystemPreambleCavemanModeEnabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, true, "").Content
+	content := SystemPreamble("", true, true, false, "").Content
 	if !strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}
@@ -19,7 +19,7 @@ func TestSystemPreambleCavemanModeEnabled(t *testing.T) {
 func TestSystemPreambleCavemanModeDisabled(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, false, "").Content
+	content := SystemPreamble("", true, false, false, "").Content
 	if strings.Contains(content, "Respond terse") {
 		t.Fatalf("caveman mode preamble contains terse instruction when disabled in %q", content)
 	}
@@ -32,7 +32,7 @@ func TestBuildConversationCompactionPromptCavemanModeEnabled(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "hello"},
 		{Role: provider.MessageRoleAssistant, Content: "hi"},
 	}
-	result := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, true)
+	result := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, true, false)
 	if len(result) == 0 {
 		t.Fatal("BuildConversationCompactionPrompt returned empty result")
 	}
@@ -49,7 +49,7 @@ func TestBuildConversationCompactionPromptCavemanModeDisabled(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "hello"},
 		{Role: provider.MessageRoleAssistant, Content: "hi"},
 	}
-	result := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, false)
+	result := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, false, false)
 	if len(result) == 0 {
 		t.Fatal("BuildConversationCompactionPrompt returned empty result")
 	}

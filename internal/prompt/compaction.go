@@ -136,13 +136,13 @@ const (
 )
 
 // BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, cavemanMode bool) []provider.Message {
+func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, cavemanMode bool, humanizerMode bool) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
 		return nil
 	}
 
-	systemContent := RenderConversationCompactionInstruction(override, mode, cavemanMode)
+	systemContent := RenderConversationCompactionInstruction(override, mode, cavemanMode, humanizerMode)
 	userPrompt := renderConversationCompactionSource(turns, state)
 	return []provider.Message{
 		{Role: provider.MessageRoleSystem, Content: systemContent},
@@ -152,13 +152,16 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 
 // RenderConversationCompactionInstruction renders the final instruction used to
 // ask a model to compact the already-assembled conversation context.
-func RenderConversationCompactionInstruction(override string, mode CompactionMode, cavemanMode bool) string {
+func RenderConversationCompactionInstruction(override string, mode CompactionMode, cavemanMode bool, humanizerMode bool) string {
 	content := compactionPromptSystem()
 	if cavemanMode {
 		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody
 	}
 	if override != "" {
 		content = override
+	}
+	if humanizerMode {
+		content = content + "\n\n" + humanizerStyleInstruction
 	}
 	if mode == CompactionModeEmergency {
 		content = content + "\n\n" + compactionPromptEmergencyInstruction

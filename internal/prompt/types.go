@@ -142,6 +142,11 @@ type AssemblyOptions struct {
 	// token usage. When true, system/compaction/child prompts are prepended
 	// with terse-style instructions.
 	CavemanMode bool
+
+	// HumanizerMode makes the model write like a human to avoid AI-writing
+	// tells. When true, the system preamble is appended with anti-AI-writing
+	// instructions.
+	HumanizerMode bool
 }
 
 // Assembly is the rendered prompt plus its contributing context blocks.
