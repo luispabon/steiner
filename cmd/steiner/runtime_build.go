@@ -65,7 +65,7 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, erro
 	return cfg, nil
 }
 
-func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (func(provider.ResolvedModel) (provider.Provider, error), error) {
+func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (func(provider.ResolvedModel) (provider.Provider, error), error) {
 	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
 	if err != nil {
 		return nil, err
@@ -82,16 +82,16 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client) (fu
 		switch providerType {
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
-			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, scheduler, httpClient))
+			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, scheduler, httpClient, streamErrorLog))
 		case config.ProviderTypeAnthropic:
-			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient))
+			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog))
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
 	}, nil
 }
 
-func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client) provider.OpenAICompatConfig {
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.OpenAICompatConfig {
 	return provider.OpenAICompatConfig{
 		BaseURL: rm.ProviderConfig.BaseURL,
 		APIKey:  rm.ProviderConfig.APIKey,
@@ -105,9 +105,10 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 			MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
 			RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
 		},
-		ProviderType: string(providerType),
-		Scheduler:    scheduler,
-		HTTPClient:   httpClient,
+		ProviderType:   string(providerType),
+		Scheduler:      scheduler,
+		HTTPClient:     httpClient,
+		StreamErrorLog: streamErrorLog,
 	}
 }
 
@@ -221,6 +222,15 @@ func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store,
 func buildDelegationLogger(cfg config.Config, flags *cliFlags) (*delegation.TraceLogger, error) {
 	logPath := delegation.LogPath(runtimeLogFile(cfg, flags))
 	return delegation.NewTraceLogger(logPath)
+}
+
+func buildStreamErrorLogger(cfg config.Config, flags *cliFlags) (*provider.StreamErrorLogger, error) {
+	path := provider.StreamErrorLogPath(runtimeLogFile(cfg, flags))
+	l, err := provider.NewStreamErrorLogger(path)
+	if err != nil {
+		return nil, fmt.Errorf("stream error logger: %w", err)
+	}
+	return l, nil
 }
 
 func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() error) {

@@ -59,6 +59,7 @@ type cliRuntime struct {
 	historyWriter     *history.Writer
 	sessionStore      *session.Store
 	delegationLogger  *delegation.TraceLogger
+	streamErrorLog    *provider.StreamErrorLogger
 	compactionLogFile string
 }
 
@@ -77,15 +78,19 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		return cliRuntime{}, err
 	}
 	httpClient := runtimeHTTPClient()
-	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient)
-	if err != nil {
-		return cliRuntime{}, err
-	}
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}
 	delegationLogger, err := buildDelegationLogger(cfg, flags)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
+	if err != nil {
+		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
+	}
+	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
 	if err != nil {
 		return cliRuntime{}, err
 	}
@@ -139,6 +144,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 		historyWriter:     historyWriter,
 		sessionStore:      sessionStore,
 		delegationLogger:  delegationLogger,
+		streamErrorLog:    streamErrorLog,
 		compactionLogFile: compactionLogFile,
 	}, nil
 }
@@ -150,6 +156,15 @@ func closeRuntime(rt *cliRuntime) {
 				Kind:     "session_health",
 				Severity: "warning",
 				Notes:    []string{fmt.Sprintf("failed to close delegation logger: %v", err)},
+			}))
+		}
+	}
+	if rt.streamErrorLog != nil {
+		if err := rt.streamErrorLog.Close(); err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("close stream error log: %s", err)},
 			}))
 		}
 	}
