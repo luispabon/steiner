@@ -87,11 +87,9 @@ verification_results:
     result: passed
   - step: step-5
     command: make check
-    result: failed
-    notes: golangci-lint reports 17 existing issues outside feature-owned files, including internal/provider/anthropic.go bodyclose, internal/agent/compaction_log_test.go errcheck, internal/provider/stream_error_log_test.go errcheck, internal/tool/builtin/read.go gocyclo, internal/tool/builtin/bash_session.go noctx, internal/delegation/contract.go revive, and internal/tool/types.go revive
+    result: passed
+    notes: passed after clearing golangci-lint cache; prior failure was stale linter output referencing deleted temporary worktree paths
 deviations:
   - step-2 implementation also introduced accepted-handoff model switching plumbing that overlaps planned step-4 scope; keep step-4 focused on finishing picker-integrated accept/failure semantics after step-3.
-blockers:
-  - make check remains red due repository lint findings outside this feature's scope
 manual_verification: []
-reviewer_handoff: blocked_by_external_lint
+reviewer_handoff: ready_for_review
