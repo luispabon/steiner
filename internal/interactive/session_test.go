@@ -1053,6 +1053,65 @@ func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
 	}
 }
 
+func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			DefaultModel: "current",
+			Models: map[string]config.ModelConfig{
+				"current":           {Provider: "local", ID: "current-id"},
+				"implement-default": {Provider: "local", ID: "implement-id"},
+				"review-default":    {Provider: "local", ID: "review-id"},
+			},
+		},
+	})
+	s.deps.Config.WorkflowHandoff.Models = map[string]string{
+		"implement": "implement-default",
+		"review":    "review-default",
+	}
+
+	if got, want := s.WorkflowHandoffModelSelection("implement"), (WorkflowHandoffModelSelection{
+		ModelAlias:  "implement-default",
+		SourceLabel: "from handoff default",
+	}); got != want {
+		t.Fatalf("WorkflowHandoffModelSelection(implement) = %#v, want %#v", got, want)
+	}
+	if got, want := s.WorkflowHandoffModelSelection("review"), (WorkflowHandoffModelSelection{
+		ModelAlias:  "review-default",
+		SourceLabel: "from handoff default",
+	}); got != want {
+		t.Fatalf("WorkflowHandoffModelSelection(review) = %#v, want %#v", got, want)
+	}
+	if got, want := s.CurrentModelAlias(), "current"; got != want {
+		t.Fatalf("CurrentModelAlias() = %q, want %q", got, want)
+	}
+}
+
+func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			DefaultModel: "current",
+			Models: map[string]config.ModelConfig{
+				"current": {Provider: "local", ID: "current-id"},
+			},
+		},
+	})
+
+	if got, want := s.WorkflowHandoffModelSelection("implement"), (WorkflowHandoffModelSelection{
+		ModelAlias:  "current",
+		SourceLabel: "current session",
+	}); got != want {
+		t.Fatalf("WorkflowHandoffModelSelection(implement) = %#v, want %#v", got, want)
+	}
+	if got, want := s.WorkflowHandoffModelSelection("review"), (WorkflowHandoffModelSelection{
+		ModelAlias:  "current",
+		SourceLabel: "current session",
+	}); got != want {
+		t.Fatalf("WorkflowHandoffModelSelection(review) = %#v, want %#v", got, want)
+	}
+}
+
 func TestHandleToggleCavemanMode(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{

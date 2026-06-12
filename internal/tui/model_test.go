@@ -22,9 +22,10 @@ import (
 
 // testController records all actions received by Handle for test verification.
 type testController struct {
-	mu      sync.Mutex
-	actions []interactive.Action
-	err     error
+	mu                        sync.Mutex
+	actions                   []interactive.Action
+	err                       error
+	workflowHandoffSelections map[string]interactive.WorkflowHandoffModelSelection
 }
 
 func (c *testController) Handle(_ context.Context, action interactive.Action) error {
@@ -32,6 +33,15 @@ func (c *testController) Handle(_ context.Context, action interactive.Action) er
 	c.actions = append(c.actions, action)
 	c.mu.Unlock()
 	return c.err
+}
+
+func (c *testController) WorkflowHandoffModelSelection(destination string) interactive.WorkflowHandoffModelSelection {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.workflowHandoffSelections == nil {
+		return interactive.WorkflowHandoffModelSelection{}
+	}
+	return c.workflowHandoffSelections[destination]
 }
 
 func (c *testController) countSubmitPrompt() int {
@@ -100,6 +110,18 @@ func (c *testController) rotateSessionActions() []interactive.RotateSession {
 	var result []interactive.RotateSession
 	for _, a := range c.actions {
 		if v, ok := a.(interactive.RotateSession); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func (c *testController) switchModelActions() []interactive.SwitchModel {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.SwitchModel
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.SwitchModel); ok {
 			result = append(result, v)
 		}
 	}
@@ -2660,8 +2682,17 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
-	ctrl := &testController{}
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"implement": {
+				ModelAlias:  "implement-default",
+				SourceLabel: "from handoff default",
+			},
+		},
+	}
 	m := newModel(Config{
+		Model:      "current-model",
+		ModelNames: []string{"current-model", "implement-default"},
 		Controller: ctrl,
 		SkillNames: []string{"implement", "review"},
 	}, nil)
@@ -2678,6 +2709,7 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to implementation?",
+		"Model: implement-default (from handoff default)",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Implement",
 		"Dismiss",
@@ -2695,11 +2727,23 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 	if len(ctrl.submitWorkflowHandoffs()) != 0 {
 		t.Fatalf("handoff decisions = %d, want 0 before input", len(ctrl.submitWorkflowHandoffs()))
 	}
+	if got := ctrl.switchModelActions(); len(got) != 0 {
+		t.Fatalf("switch model actions = %#v, want none when modal opens", got)
+	}
 }
 
 func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
-	ctrl := &testController{}
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"review": {
+				ModelAlias:  "session-model",
+				SourceLabel: "current session",
+			},
+		},
+	}
 	m := newModel(Config{
+		Model:      "session-model",
+		ModelNames: []string{"session-model"},
 		Controller: ctrl,
 		SkillNames: []string{"implement", "review"},
 	}, nil)
@@ -2716,6 +2760,7 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
+		"Model: session-model (current session)",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Review",
 		"Dismiss",
@@ -2734,8 +2779,17 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
-	ctrl := &testController{}
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"review": {
+				ModelAlias:  "session-model",
+				SourceLabel: "current session",
+			},
+		},
+	}
 	m := newModel(Config{
+		Model:      "session-model",
+		ModelNames: []string{"session-model"},
 		Controller: ctrl,
 		SkillNames: []string{"implement", "review"},
 	}, nil)
@@ -2813,10 +2867,20 @@ func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.
 }
 
 func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
-	ctrl := &testController{}
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"review": {
+				ModelAlias:  "review-default",
+				SourceLabel: "from handoff default",
+			},
+		},
+	}
 	m := newModel(Config{
-		Controller: ctrl,
-		SkillNames: []string{"implement", "review"},
+		Model:         "current-model",
+		ModelNames:    []string{"current-model", "review-default"},
+		ModelBaseURLs: map[string]string{"review-default": "http://review.example/v1"},
+		Controller:    ctrl,
+		SkillNames:    []string{"implement", "review"},
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.content.AppendLine("old transcript")
@@ -2826,6 +2890,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
+		"Model: review-default (from handoff default)",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Review",
 		"Dismiss",
@@ -2882,11 +2947,51 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-3" {
 		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
 	}
+	switches := ctrl.switchModelActions()
+	if len(switches) != 1 || switches[0].Name != "review-default" {
+		t.Fatalf("switch model actions = %#v, want one switch to review-default", switches)
+	}
 	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "/review .steiner/plans/step-3") {
 		t.Fatalf("content = %q, want launched workflow command", got)
 	}
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill enabled after launch")
+	}
+	if got := m.primaryModel; got != "review-default" {
+		t.Fatalf("primaryModel = %q, want review-default after launch", got)
+	}
+}
+
+func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testing.T) {
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"implement": {
+				ModelAlias:  "current-model",
+				SourceLabel: "current session",
+			},
+		},
+	}
+	m := newModel(Config{
+		Model:      "current-model",
+		ModelNames: []string{"current-model"},
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-4", "")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})
+	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+
+	if got := ctrl.switchModelActions(); len(got) != 0 {
+		t.Fatalf("switch model actions = %#v, want none for current session handoff", got)
+	}
+	prompts := ctrl.submitPrompts()
+	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-4" {
+		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
 	}
 }
 

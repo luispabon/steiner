@@ -57,6 +57,19 @@ type SubmitWorkflowHandoff struct {
 
 func (SubmitWorkflowHandoff) isInteractiveAction() {}
 
+// WorkflowHandoffModelSelection describes the model alias preselected for a
+// pending workflow handoff along with the concise source label shown in the UI.
+type WorkflowHandoffModelSelection struct {
+	ModelAlias  string
+	SourceLabel string
+}
+
+// WorkflowHandoffModelSelector resolves the preselected model for a workflow
+// handoff destination without mutating the active session model.
+type WorkflowHandoffModelSelector interface {
+	WorkflowHandoffModelSelection(destination string) WorkflowHandoffModelSelection
+}
+
 // InterruptActiveRun represents a user request to interrupt the currently
 // active model run during an interactive session.
 type InterruptActiveRun struct{}

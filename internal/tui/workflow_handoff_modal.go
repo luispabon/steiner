@@ -22,10 +22,12 @@ type workflowHandoffModalState struct {
 	next           string
 	target         string
 	message        string
+	modelAlias     string
+	modelSource    string
 	selectedAction int
 }
 
-func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffEvent) workflowHandoffModalState {
+func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffEvent, selection interactive.WorkflowHandoffModelSelection) workflowHandoffModalState {
 	shell := OverlayShell{}.WithPreferredWidth(72)
 	shell = shell.WithDimensions(width, height).WithTitle("workflow handoff").openShell()
 	return workflowHandoffModalState{
@@ -33,6 +35,8 @@ func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffE
 		next:           strings.TrimSpace(payload.Next),
 		target:         strings.TrimSpace(payload.Target),
 		message:        strings.TrimSpace(payload.Message),
+		modelAlias:     strings.TrimSpace(selection.ModelAlias),
+		modelSource:    strings.TrimSpace(selection.SourceLabel),
 		selectedAction: workflowHandoffActionAccept,
 	}
 }
@@ -88,6 +92,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 			Render("This will clear the current conversation and start the next workflow."),
 		"",
 		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.promptText()),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.modelLine()),
 		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Planning folder: " + s.target),
 	}
 	if s.message != "" {
@@ -128,6 +133,18 @@ func (m *Model) renderWorkflowHandoffModal() string {
 	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
 }
 
+func (s workflowHandoffModalState) modelLine() string {
+	modelAlias := strings.TrimSpace(s.modelAlias)
+	modelSource := strings.TrimSpace(s.modelSource)
+	if modelAlias == "" {
+		return "Model:"
+	}
+	if modelSource == "" {
+		return "Model: " + modelAlias
+	}
+	return "Model: " + modelAlias + " (" + modelSource + ")"
+}
+
 func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyLeft, tea.KeyUp:
@@ -148,6 +165,7 @@ func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	next := strings.TrimSpace(m.workflowHandoff.next)
 	target := strings.TrimSpace(m.workflowHandoff.target)
+	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
 			m.content.AppendLine("status: " + err.Error())
@@ -157,11 +175,11 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true
-	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target}
+	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
 	nextModel, cmd := m.clearConversationState()
 	if cleared, ok := nextModel.(Model); ok {
 		cleared.suppressWorkflowHandoffRun = true
-		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target}
+		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
 		cleared.workflowHandoff = cleared.workflowHandoff.close()
 		// Rotate session after conversation is cleared — new workflow gets a fresh identity
 		// controller may be nil in tests; skip rotation when there's no backing session.
@@ -188,6 +206,17 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) launchWorkflowHandoff(next, target string) (tea.Model, tea.Cmd) {
+func (m Model) launchWorkflowHandoff(next, target, modelName string) (tea.Model, tea.Cmd) {
+	modelName = strings.TrimSpace(modelName)
+	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
+				m.content.AppendLine("status: " + err.Error())
+				m.syncViewport()
+				return m, nil
+			}
+		}
+		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
+	}
 	return m.executeInvokeSkillAction(next, target)
 }
