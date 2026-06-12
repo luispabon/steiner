@@ -966,3 +966,35 @@ func TestMessageConvert_ImageRoundTrip(t *testing.T) {
 		}
 	})
 }
+
+func TestMessageConvert_ToProviderMessage_StrippedImagesOmitted(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleUser,
+		Content: "look at this\n[image: 100x200 png 2KB]",
+		Images: []ImageBlock{
+			{MediaType: "image/png", Data: "", Width: 100, Height: 200, SizeBytes: 2048},
+		},
+	}
+	result := toProviderMessage(msg)
+	if len(result.Images) != 0 {
+		t.Fatalf("stripped image leaked into provider message: %v", result.Images)
+	}
+}
+
+func TestMessageConvert_ToProviderMessage_MixedStrippedAndLive(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleUser,
+		Content: "two images",
+		Images: []ImageBlock{
+			{MediaType: "image/png", Data: "", Width: 100, Height: 100, SizeBytes: 1024},
+			{MediaType: "image/jpeg", Data: "livedata", Width: 200, Height: 200, SizeBytes: 2048},
+		},
+	}
+	result := toProviderMessage(msg)
+	if len(result.Images) != 1 {
+		t.Fatalf("expected 1 live image, got %d", len(result.Images))
+	}
+	if result.Images[0].Data != "livedata" {
+		t.Errorf("wrong image preserved: %v", result.Images[0])
+	}
+}

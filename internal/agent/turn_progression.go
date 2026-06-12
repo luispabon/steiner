@@ -443,7 +443,7 @@ func stripImagesFromMessages(msgs []Message) []Message {
 				out[i].Content = out[i].Content + "\n" + placeholder
 			}
 		}
-		out[i].Images = imgs
+		out[i].Images = nil
 	}
 	return out
 }

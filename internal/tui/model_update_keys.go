@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -169,15 +170,19 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnter()
 	}
 
+	if len(m.imageMarkers) > 0 {
+		if result, handled := m.tryDeleteMarker(msg); handled {
+			return result, nil
+		}
+	}
+
 	if msg.Type == tea.KeyRunes {
 		for _, r := range msg.Runes {
 			if r == '/' && strings.TrimSpace(m.input.Value()) == "" {
-				// Open slash overlay when "/" is typed at start of input
 				items := m.buildSlashOverlayItems()
 				m.slashOverlay = m.slashOverlay.Open(items)
 				m.slashOverlay.width = m.width
 				m.slashOverlay.height = m.height
-				// Mirror "/" into the input box so typed text is visible
 				var cmd tea.Cmd
 				m.input, cmd = m.input.Update(msg)
 				m.syncSlashOverlayWithComposer()
@@ -202,9 +207,87 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+
+	if len(m.imageMarkers) > 0 {
+		m = m.applyMarkerPostEdit(msg)
+	}
+
 	m = m.maybeReopenPickers()
 	m.relayoutInput()
 	return m, cmd
+}
+
+func (m Model) tryDeleteMarker(msg tea.KeyMsg) (Model, bool) {
+	value := m.input.Value()
+	runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+
+	if msg.Type == tea.KeyBackspace {
+		if idx, _, atEnd, _ := markerAtCursor(value, runeOff, m.imageMarkers); atEnd && idx >= 0 {
+			removedLen := len([]rune(m.imageMarkers[idx].label))
+			value = removeMarkerFromValue(value, m.imageMarkers[idx])
+			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
+			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.restoreCursorFromRuneOffset(value, runeOff-removedLen)
+			m.relayoutInput()
+			return m, true
+		}
+	}
+
+	if msg.Type == tea.KeyDelete {
+		if idx, atStart, _, _ := markerAtCursor(value, runeOff, m.imageMarkers); atStart && idx >= 0 {
+			value = removeMarkerFromValue(value, m.imageMarkers[idx])
+			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
+			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.restoreCursorFromRuneOffset(value, runeOff)
+			m.relayoutInput()
+			return m, true
+		}
+	}
+
+	return m, false
+}
+
+func (m Model) applyMarkerPostEdit(msg tea.KeyMsg) Model {
+	if msg.Type == tea.KeyLeft || msg.Type == tea.KeyRight {
+		direction := 1
+		if msg.Type == tea.KeyLeft {
+			direction = -1
+		}
+		value := m.input.Value()
+		runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+		newOff := snapCursorPastMarkers(value, runeOff, m.imageMarkers, direction)
+		if newOff != runeOff {
+			m.restoreCursorFromRuneOffset(value, newOff)
+		}
+	}
+
+	if isEditKey(msg) {
+		value := m.input.Value()
+		newValue, newMarkers := reconcileMarkers(value, m.imageMarkers)
+		if newValue != value {
+			runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
+			m.imageMarkers = newMarkers
+			m.input.SetValue(newValue)
+			maxOff := len([]rune(newValue))
+			if runeOff > maxOff {
+				runeOff = maxOff
+			}
+			m.restoreCursorFromRuneOffset(newValue, runeOff)
+		} else {
+			m.imageMarkers = newMarkers
+		}
+	}
+
+	return m
+}
+
+func isEditKey(msg tea.KeyMsg) bool {
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete, tea.KeyRunes,
+		tea.KeyCtrlK, tea.KeyCtrlU, tea.KeyCtrlW:
+		return true
+	}
+	return false
 }
 
 func (m Model) maybeReopenPickers() Model {

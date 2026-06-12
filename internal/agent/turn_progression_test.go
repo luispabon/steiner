@@ -1246,16 +1246,8 @@ func TestStripImagesFromMessages_basic(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
-	img := got[0].Images[0]
-	if img.Data != "" {
-		t.Fatalf("Data = %q, want empty", img.Data)
-	}
-	// Width, Height, MediaType, SizeBytes must be preserved.
-	if img.Width != 100 || img.Height != 200 {
-		t.Fatalf("dims = %dx%d, want 100x200", img.Width, img.Height)
-	}
-	if img.MediaType != "image/png" {
-		t.Fatalf("MediaType = %q, want image/png", img.MediaType)
+	if got[0].Images != nil {
+		t.Fatalf("Images = %v, want nil", got[0].Images)
 	}
 	wantContent := "look at this\n[image: 100x200 png 2KB]"
 	if got[0].Content != wantContent {
@@ -1279,8 +1271,8 @@ func TestStripImagesFromMessages_multiple(t *testing.T) {
 		},
 	}
 	got := stripImagesFromMessages(msgs)
-	if got[0].Images[0].Data != "" || got[0].Images[1].Data != "" {
-		t.Fatal("expected both image Data fields to be cleared")
+	if got[0].Images != nil {
+		t.Fatal("expected Images to be nil after stripping")
 	}
 	wantContent := "two images\n[image: 640x480 png 48KB]\n[image: 1920x1080 jpeg 2.0MB]"
 	if got[0].Content != wantContent {
