@@ -82,6 +82,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		streamingPreferred: true,
 		currentAlias:       sess.CurrentModelAlias,
 		cavemanMode:        sess.CavemanMode,
+		humanizerMode:      sess.HumanizerMode,
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

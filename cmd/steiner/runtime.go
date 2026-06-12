@@ -31,6 +31,7 @@ type cliFlags struct {
 	maxTurns          int
 	enableStreaming   bool
 	caveman           bool
+	humanizer         bool
 	resume            string
 	unsafe            bool
 }
