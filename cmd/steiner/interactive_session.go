@@ -147,11 +147,8 @@ type sessionRunner struct {
 
 func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (interactive.RunResult, error) {
 	result, err := r.runner.Run(ctx, conversation, skillNames, steerCh)
-	if err != nil {
-		return interactive.RunResult{}, err
-	}
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,
-	}, nil
+	}, err
 }
