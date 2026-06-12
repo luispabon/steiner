@@ -37,9 +37,7 @@ func TestRenderPendingSteerSegment(t *testing.T) {
 				if !strings.Contains(output, "queued") {
 					t.Errorf("output missing 'queued'")
 				}
-				if !strings.Contains(output, "will send when model is ready") {
-					t.Errorf("output missing title text")
-				}
+
 				if !strings.Contains(output, "hello") {
 					t.Errorf("output missing segment text")
 				}

@@ -114,7 +114,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 		if interiorWidth < 0 {
 			interiorWidth = 0
 		}
-		titleInterior := "─ queued ─ will send when model is ready ─"
+		titleInterior := "─ queued ─"
 		titleWidth := lipgloss.Width(titleInterior)
 		fillCount := interiorWidth - titleWidth
 		if fillCount < 0 {
