@@ -110,6 +110,7 @@ Code changes must update corresponding documentation in a single commit:
    * Update the relevant field entry in docs/CONFIGURATION.md
    * Update defaults section if default values change
    * Update config examples in README.md if a commonly-used field is affected
+   * If the field is a user-facing prompt-injection toggle (e.g. `caveman_mode`, `humanizer_mode`), also add a feature subsection to README.md mirroring the existing pattern (description, config example, env var, CLI flag, TUI toggle)
 
 3. **`internal/delegation` changes** (add/remove sub-agent type or change tool allowlist):
    * Update the sub-agent types table in docs/SUBAGENT_DELEGATION.md

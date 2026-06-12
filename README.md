@@ -210,6 +210,23 @@ STEINER_CAVEMAN_MODE=true   # environment variable
 /caveman                    # TUI toggle (persists for the session)
 ```
 
+### Humanizer mode
+
+Humanizer mode injects a compact "avoid AI-writing tells" instruction into the system preamble, compaction prompts, and sub-agent prompts. It strips em/en dashes, AI vocabulary ("delve", "showcase", "leverage", ...), rule-of-three lists, significance inflation, copula avoidance, chatbot artifacts, and similar patterns. The instruction is a derivative of the MIT-licensed [blader/humanizer](https://github.com/blader/humanizer) skill, compressed in the same terse style as the caveman instruction.
+
+Disabled by default. Enable via config, env var, CLI flag, or `/humanizer` in the interactive TUI. Humanizer and caveman can be enabled simultaneously — both instructions are appended to the same prompt.
+
+```yaml
+# config.yaml
+humanizer_mode: true
+```
+
+```bash
+STEINER_HUMANIZER_MODE=true   # environment variable
+--humanizer                   # CLI flag
+/humanizer                    # TUI toggle (persists for the session)
+```
+
 ### Web search
 
 The `web_search` tool lets the model search the web and return URL, title, and description results. It is **disabled by default** — it only appears in the tool registry when `search.backend` is set in config.
