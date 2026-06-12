@@ -144,7 +144,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 
 		factory, err := buildRuntimeProviderFactory(config.Config{
 			Scheduler: config.SchedulerConfig{Parallelism: wantParallelism},
-		}, httpClient)
+		}, httpClient, nil)
 		if err != nil {
 			t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 		}
