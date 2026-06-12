@@ -35,6 +35,7 @@ Key environment variables:
 |---------------------|----------|-------------|-------------|
 | `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
 | `caveman_mode`      | bool     | `false`     | When `true`, enables caveman mode — extremely terse model output for minimal token use. |
+| `workflow_handoff`  | block    | empty       | Optional handoff model aliases for destination workflows. When unset, handoff uses the current session model. |
 
 ---
 
@@ -297,6 +298,28 @@ sub_agent:
     research:
       model: claude-sonnet-4
 ```
+
+---
+
+## `workflow_handoff` block
+
+Configures model aliases for destination workflows that should hand off to a
+specific model rather than the current session model. Supported destination keys
+are `implement` and `review`.
+
+| Field    | Type               | Default | Description |
+|----------|--------------------|---------|-------------|
+| `models` | map[string]string  | —       | Map of workflow destination name to model alias. Each alias must reference a key in `models`. |
+
+```yaml
+workflow_handoff:
+  models:
+    implement: local-fast
+    review: local-accurate
+```
+
+Use partial overrides to change only one destination while preserving existing
+entries from lower-precedence config files.
 
 ---
 

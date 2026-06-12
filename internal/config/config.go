@@ -99,6 +99,7 @@ type Config struct {
 	Permissions       PermissionsConfig         `yaml:"permissions"`
 	HostMounts        []HostMount               `yaml:"host_mounts"`
 	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
+	WorkflowHandoff   workflowHandoffConfig     `yaml:"workflow_handoff"`
 	Tools             map[string]ToolConfig     `yaml:"tools"`
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
 	Paths             PathsConfig               `yaml:"paths"`
@@ -165,6 +166,10 @@ type SubAgentConfig struct {
 	MaxTokens    int                    `yaml:"max_tokens"`
 	AllowedTools []string               `yaml:"allowed_tools"`
 	Agents       map[string]AgentConfig `yaml:"agents"`
+}
+
+type workflowHandoffConfig struct {
+	Models map[string]string `yaml:"models"`
 }
 
 // ToolConfig defines an externally configured tool.

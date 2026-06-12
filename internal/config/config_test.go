@@ -48,6 +48,13 @@ func TestDefaultConfigReadAnnotationsDefaultsToTrue(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if len(cfg.WorkflowHandoff.Models) != 0 {
+		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.WorkflowHandoff.Models)
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -243,6 +250,87 @@ models:
 		RetryAfterMax:  MustDuration("30s"),
 	}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("models[custom].retry = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadAppliesWorkflowHandoffModelOverrides(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	projectDir := filepath.Join(tempDir, "project")
+	globalDir := filepath.Join(homeDir, ".config", "steiner")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+
+	mustMkdirAll(t, globalDir)
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: qwen3-35b-a3b
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+  implement:
+    provider: local
+    id: implement-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+workflow_handoff:
+  models:
+    implement: implement
+`)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `workflow_handoff:
+  models:
+    review: review
+models:
+  review:
+    provider: local
+    id: review-model
+    retry:
+      enabled: true
+      max_attempts: 3
+      initial_backoff: 250ms
+      max_backoff: 5s
+      retry_after_max: 30s
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: homeDir,
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got, want := cfg.WorkflowHandoff.Models["implement"], "implement"; got != want {
+		t.Fatalf("workflow_handoff.models[implement] = %q, want %q", got, want)
+	}
+	if got, want := cfg.WorkflowHandoff.Models["review"], "review"; got != want {
+		t.Fatalf("workflow_handoff.models[review] = %q, want %q", got, want)
 	}
 }
 

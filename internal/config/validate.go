@@ -12,6 +12,7 @@ func validate(cfg Config) error {
 	validateProvidersConfig(&problems, cfg.Providers)
 	validateSchedulerConfig(&problems, cfg.Scheduler)
 	validateModelsConfig(&problems, cfg.Models, cfg.Providers)
+	validateWorkflowHandoffConfig(&problems, cfg.WorkflowHandoff, cfg.Models)
 	validateLimitsConfig(&problems, cfg.Limits)
 	validateSubAgentConfig(&problems, cfg.SubAgent)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
@@ -33,5 +34,22 @@ func validateDefaultModel(problems *[]string, cfg Config) {
 	}
 	if _, ok := cfg.Models[cfg.DefaultModel]; !ok {
 		*problems = append(*problems, fmt.Sprintf("default_model %q is not defined in models", cfg.DefaultModel))
+	}
+}
+
+var validWorkflowHandoffDestinations = map[string]bool{
+	"implement": true,
+	"review":    true,
+}
+
+func validateWorkflowHandoffConfig(problems *[]string, cfg workflowHandoffConfig, models map[string]ModelConfig) {
+	for destination, alias := range cfg.Models {
+		if !validWorkflowHandoffDestinations[destination] {
+			*problems = append(*problems, fmt.Sprintf("workflow_handoff.models contains unknown destination %q", destination))
+			continue
+		}
+		if _, ok := models[alias]; !ok {
+			*problems = append(*problems, fmt.Sprintf("workflow_handoff.models[%q] %q is not defined in models", destination, alias))
+		}
 	}
 }

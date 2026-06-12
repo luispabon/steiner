@@ -43,6 +43,9 @@ func applyModelConfigPatch(cfg *Config, patch configPatch) {
 			cfg.Models[name] = current
 		}
 	}
+	if patch.WorkflowHandoff != nil {
+		applyWorkflowHandoffPatch(&cfg.WorkflowHandoff, patch.WorkflowHandoff)
+	}
 }
 
 func newModelConfigBase(cfg Config) ModelConfig {
@@ -117,6 +120,18 @@ func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
 	setIfPresent(&dst.System, patch.System)
 	setIfPresent(&dst.Compaction, patch.Compaction)
 	setIfPresent(&dst.SystemSuffix, patch.SystemSuffix)
+}
+
+func applyWorkflowHandoffPatch(dst *workflowHandoffConfig, patch *workflowHandoffPatch) {
+	if patch.Models == nil {
+		return
+	}
+	if dst.Models == nil {
+		dst.Models = make(map[string]string)
+	}
+	for name, alias := range *patch.Models {
+		dst.Models[name] = alias
+	}
 }
 
 func applyRetryPatch(dst *RetryConfig, patch *retryPatch) {
