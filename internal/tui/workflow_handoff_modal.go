@@ -14,6 +14,7 @@ import (
 
 const (
 	workflowHandoffActionAccept = iota
+	workflowHandoffActionChangeModel
 	workflowHandoffActionDismiss
 )
 
@@ -47,7 +48,7 @@ func (s workflowHandoffModalState) close() workflowHandoffModalState {
 }
 
 func (s workflowHandoffModalState) moveSelection(delta int) workflowHandoffModalState {
-	const actions = 2
+	const actions = 3
 	s.selectedAction = ((s.selectedAction+delta)%actions + actions) % actions
 	return s
 }
@@ -106,31 +107,43 @@ func (m *Model) renderWorkflowHandoffModal() string {
 	}
 
 	acceptButton := m.renderExitModalButton(s.acceptLabel(), s.selectedAction == workflowHandoffActionAccept)
+	changeModelButton := m.renderExitModalButton("Change Model", s.selectedAction == workflowHandoffActionChangeModel)
 	dismissButton := m.renderExitModalButton("Dismiss", s.selectedAction == workflowHandoffActionDismiss)
-	buttonRow := strings.Repeat(" ", contentWidth)
-	buttonRow = composeOverlayLine(buttonRow, acceptButton, contentWidth, 0, lipgloss.Width(acceptButton))
-	buttonRow = composeOverlayLine(buttonRow, dismissButton, contentWidth, contentWidth-lipgloss.Width(dismissButton), lipgloss.Width(dismissButton))
+	buttonRow := m.renderWorkflowHandoffActionRow(contentWidth, acceptButton, changeModelButton, dismissButton)
+
+	sections := []string{
+		title,
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
+	}
+	if m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() {
+		sections = append(sections, "", m.modelPicker.ViewAttached(contentWidth))
+	}
+	sections = append(sections, "", buttonRow)
 
 	divider := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.BorderSoft)).
 		Render(strings.Repeat("─", contentWidth))
-	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm   " + FooterChip("esc") + " dismiss"
+	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm"
+	if m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() {
+		footerText += "   " + FooterChip("esc") + " back"
+	} else {
+		footerText += "   " + FooterChip("esc") + " dismiss"
+	}
 	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgMute)).
 		Width(contentWidth).
 		Render(footerText)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
-		"",
-		buttonRow,
-		divider,
-		footer,
-	)
+	sections = append(sections, divider, footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
 	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+}
+
+func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {
+	row := lipgloss.JoinHorizontal(lipgloss.Top, acceptButton, "  ", changeModelButton, "  ", dismissButton)
+	return lipgloss.NewStyle().Width(contentWidth).Render(row)
 }
 
 func (s workflowHandoffModalState) modelLine() string {
@@ -152,14 +165,25 @@ func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
 		m.workflowHandoff = m.workflowHandoff.moveSelection(1)
 	case tea.KeyEnter:
-		if m.workflowHandoff.selectedAction == workflowHandoffActionAccept {
+		switch m.workflowHandoff.selectedAction {
+		case workflowHandoffActionAccept:
 			return m.acceptWorkflowHandoff()
+		case workflowHandoffActionChangeModel:
+			return m.openWorkflowHandoffModelPicker(), nil
 		}
 		return m.dismissWorkflowHandoff()
 	case tea.KeyEsc:
 		return m.dismissWorkflowHandoff()
 	}
 	return m, nil
+}
+
+func (m Model) openWorkflowHandoffModelPicker() Model {
+	title := m.workflowHandoff.modelPickerTitle()
+	m.modelPicker = m.modelPicker.OpenForWorkflowHandoff(title, m.modelNames, m.workflowHandoff.modelAlias)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+	return m
 }
 
 func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
@@ -219,4 +243,15 @@ func (m Model) launchWorkflowHandoff(next, target, modelName string) (tea.Model,
 		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
 	}
 	return m.executeInvokeSkillAction(next, target)
+}
+
+func (s workflowHandoffModalState) modelPickerTitle() string {
+	switch s.next {
+	case "implement":
+		return "Select model for implementation"
+	case "review":
+		return "Select model for review"
+	default:
+		return "Select model for next workflow"
+	}
 }

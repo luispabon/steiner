@@ -1254,6 +1254,42 @@ func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	}
 }
 
+func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Model:         "small",
+		ModelNames:    []string{"small", "large"},
+		ModelContexts: map[string]int{"small": 1024, "large": 8192},
+		ModelBaseURLs: map[string]string{"large": "http://large.example/v1"},
+		Controller:    ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	m.input.SetValue("/model")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = false, want true after /model")
+	}
+	if m.modelPicker.IsWorkflowHandoff() {
+		t.Fatal("modelPicker.IsWorkflowHandoff() = true, want false for command picker")
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = true, want false after selection")
+	}
+	if got, want := m.primaryModel, "large"; got != want {
+		t.Fatalf("primaryModel = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.provider, "http://large.example/v1"; got != want {
+		t.Fatalf("sidebar.provider = %q, want %q", got, want)
+	}
+}
+
 func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
 	repo := initTUITestRepo(t)
 	writeRepoFile(t, repo, "tracked.txt", "one\n")
@@ -2775,6 +2811,125 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 	}
 	if acceptIdx, dismissIdx := strings.Index(rendered, "Accept: Clear + Review"), strings.Index(rendered, "Dismiss"); acceptIdx < 0 || dismissIdx < 0 || acceptIdx > dismissIdx {
 		t.Fatalf("rendered modal = %q, want accept button before dismiss button", rendered)
+	}
+}
+
+func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t *testing.T) {
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"implement": {
+				ModelAlias:  "implement-default",
+				SourceLabel: "from handoff default",
+			},
+		},
+	}
+	longAlias := "implementation-model-alias-with-clear-visible-suffix"
+	m := newModel(Config{
+		Model:      "current-model",
+		ModelNames: []string{"current-model", "implement-default", longAlias},
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("workflowHandoff.IsOpen() = false, want true while picker is open")
+	}
+	if !m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = false, want true after Change Model")
+	}
+	if !m.modelPicker.IsWorkflowHandoff() {
+		t.Fatal("modelPicker.IsWorkflowHandoff() = false, want true for handoff picker")
+	}
+
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Select model for implementation",
+		"Change Model",
+		longAlias,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
+	if acceptIdx, changeIdx, dismissIdx := strings.Index(rendered, "Accept: Clear + Implement"), strings.Index(rendered, "Change Model"), strings.Index(rendered, "Dismiss"); acceptIdx < 0 || changeIdx < 0 || dismissIdx < 0 || !(acceptIdx < changeIdx && changeIdx < dismissIdx) {
+		t.Fatalf("rendered modal = %q, want Accept, Change Model, Dismiss in order", rendered)
+	}
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = true, want false after handoff selection")
+	}
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("workflowHandoff.IsOpen() = false, want true after returning from picker")
+	}
+	if got, want := m.workflowHandoff.modelAlias, longAlias; got != want {
+		t.Fatalf("workflowHandoff.modelAlias = %q, want %q", got, want)
+	}
+	if got, want := m.workflowHandoff.modelSource, "selected for handoff"; got != want {
+		t.Fatalf("workflowHandoff.modelSource = %q, want %q", got, want)
+	}
+	if got, want := m.primaryModel, "current-model"; got != want {
+		t.Fatalf("primaryModel = %q, want %q", got, want)
+	}
+	if got := ctrl.switchModelActions(); len(got) != 0 {
+		t.Fatalf("switch model actions = %#v, want none while handoff picker updates pending selection", got)
+	}
+
+	rendered = ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Model: " + longAlias,
+		"(selected for handoff)",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want updated handoff model line fragment %q", rendered, want)
+		}
+	}
+}
+
+func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
+	ctrl := &testController{
+		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
+			"review": {
+				ModelAlias:  "review-default",
+				SourceLabel: "from handoff default",
+			},
+		},
+	}
+	m := newModel(Config{
+		Model:      "current-model",
+		ModelNames: []string{"current-model", "review-default", "review-alt"},
+		Controller: ctrl,
+		SkillNames: []string{"implement", "review"},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = true, want false after Esc")
+	}
+	if !m.workflowHandoff.IsOpen() {
+		t.Fatal("workflowHandoff.IsOpen() = false, want true after Esc cancels picker")
+	}
+	if got, want := m.workflowHandoff.modelAlias, "review-default"; got != want {
+		t.Fatalf("workflowHandoff.modelAlias = %q, want %q after cancel", got, want)
+	}
+	if got, want := m.workflowHandoff.modelSource, "from handoff default"; got != want {
+		t.Fatalf("workflowHandoff.modelSource = %q, want %q after cancel", got, want)
+	}
+	if got := ctrl.submitWorkflowHandoffs(); len(got) != 0 {
+		t.Fatalf("handoff decisions = %#v, want none while cancelling picker", got)
 	}
 }
 
