@@ -244,8 +244,7 @@ func (m Model) renderInputView(contentWidth int) string {
 		}
 
 		if renderedLine == line {
-			lineStyle := lipgloss.NewStyle().Width(innerWidth)
-			renderedLine = lineStyle.Render(line)
+			renderedLine = renderInputLine(line, innerWidth, m.styles.AccentColor, m.styles.UserBg.GetBackground())
 		}
 		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
@@ -381,6 +380,23 @@ func insertComposerCursorAnsi(s string, pos int) string {
 		result.WriteRune(cursorChar)
 	}
 	return result.String()
+}
+
+func styleImageMarkers(line string, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
+	markerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(accentColor).
+		Background(bgColor)
+	return imageMarkerPattern.ReplaceAllStringFunc(line, func(match string) string {
+		return markerStyle.Render(match)
+	})
+}
+
+func renderInputLine(line string, width int, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
+	if styled := styleImageMarkers(line, accentColor, bgColor); styled != line {
+		return styled
+	}
+	return lipgloss.NewStyle().Width(width).Render(line)
 }
 
 func renderPlaceholderLines(placeholder string, width int) []string {

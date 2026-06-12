@@ -86,7 +86,6 @@ func cursorRuneOffset(value string, row, col int) int {
 
 func markerAtCursor(value string, runeOffset int, markers []imageMarker) (idx int, atStart, atEnd, inside bool) {
 	locs := imageMarkerPattern.FindAllStringIndex(value, -1)
-	runeValue := []rune(value)
 	for i, loc := range locs {
 		startRune := len([]rune(value[:loc[0]]))
 		endRune := startRune + len([]rune(value[loc[0]:loc[1]]))
@@ -102,7 +101,6 @@ func markerAtCursor(value string, runeOffset int, markers []imageMarker) (idx in
 		if markerIdx == -1 {
 			markerIdx = i
 		}
-		_ = runeValue
 
 		if runeOffset == startRune {
 			return markerIdx, true, false, false
