@@ -126,7 +126,7 @@ func TestNewStreamErrorLogger(t *testing.T) {
 }
 
 func TestStreamErrorLogger_Log(t *testing.T) {
-	t.Run("nil receiver no-op", func(t *testing.T) {
+	t.Run("nil receiver no-op", func(_ *testing.T) {
 		var l *StreamErrorLogger
 		l.Log(streamErrorRecord{Event: "stream_retry"})
 	})
