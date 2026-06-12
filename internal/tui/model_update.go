@@ -234,10 +234,11 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		// silently ignore — clipboard had no image, not an error to show
 		return m, nil
 	}
-	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg.block})
+	label := nextMarkerLabel(m.imageMarkers)
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: label, image: msg.block})
+	m.input.InsertString(label)
 	m.syncInputChrome()
 	return m, nil
 }
