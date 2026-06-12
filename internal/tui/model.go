@@ -30,8 +30,9 @@ type approvalState struct {
 }
 
 type workflowHandoffLaunch struct {
-	next   string
-	target string
+	next      string
+	target    string
+	modelName string
 }
 
 type tickMsg struct{}

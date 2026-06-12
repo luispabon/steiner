@@ -35,6 +35,7 @@ Key environment variables:
 |---------------------|----------|-------------|-------------|
 | `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
 | `caveman_mode`      | bool     | `false`     | When `true`, enables caveman mode — extremely terse model output for minimal token use. |
+| `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
 
 ---
 
@@ -297,6 +298,35 @@ sub_agent:
     research:
       model: claude-sonnet-4
 ```
+
+---
+
+## `workflow_handoff` block
+
+Configures persistent model defaults for destination workflows. Supported
+destination keys are `implement` and `review`.
+
+If a destination workflow does not have a configured alias, Steiner falls back
+to the current session model when the handoff opens. The interactive handoff
+picker can still override the pending model for one handoff without changing
+configuration.
+
+| Field    | Type               | Default | Description |
+|----------|--------------------|---------|-------------|
+| `models` | map[string]string  | —       | Map of workflow destination name to model alias. Each alias must reference a key in `models`. |
+
+```yaml
+workflow_handoff:
+  models:
+    implement: local-fast
+    review: local-accurate
+```
+
+Use partial overrides to change only one destination while preserving existing
+entries from lower-precedence config files.
+
+If the user changes the model in the handoff picker, that selection applies to
+the pending handoff only and does not rewrite this block.
 
 ---
 

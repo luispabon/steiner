@@ -17,6 +17,10 @@ func stringAnyMapPtr(v map[string]any) *map[string]any {
 	return &v
 }
 
+func stringMapPtr(v map[string]string) *map[string]string {
+	return &v
+}
+
 func TestApplySchedulerPatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -281,6 +285,75 @@ func TestApplyModelPatch(t *testing.T) {
 			applyModelPatch(&dst, &tt.patch)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applyModelPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyWorkflowHandoffPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial workflowHandoffConfig
+		patch   workflowHandoffPatch
+		want    workflowHandoffConfig
+	}{
+		{
+			name:    "sets workflow aliases",
+			initial: workflowHandoffConfig{},
+			patch: workflowHandoffPatch{
+				Models: stringMapPtr(map[string]string{
+					"implement": "fast-model",
+					"review":    "careful-model",
+				}),
+			},
+			want: workflowHandoffConfig{
+				Models: map[string]string{
+					"implement": "fast-model",
+					"review":    "careful-model",
+				},
+			},
+		},
+		{
+			name: "partial override preserves existing entries",
+			initial: workflowHandoffConfig{
+				Models: map[string]string{
+					"implement": "existing-implement",
+					"review":    "existing-review",
+				},
+			},
+			patch: workflowHandoffPatch{
+				Models: stringMapPtr(map[string]string{
+					"review": "new-review",
+				}),
+			},
+			want: workflowHandoffConfig{
+				Models: map[string]string{
+					"implement": "existing-implement",
+					"review":    "new-review",
+				},
+			},
+		},
+		{
+			name: "nil models leaves value untouched",
+			initial: workflowHandoffConfig{
+				Models: map[string]string{
+					"implement": "existing",
+				},
+			},
+			patch: workflowHandoffPatch{},
+			want: workflowHandoffConfig{
+				Models: map[string]string{
+					"implement": "existing",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyWorkflowHandoffPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyWorkflowHandoffPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -139,6 +140,36 @@ func (s *Session) CurrentModelAlias() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.deps.Config.DefaultModel
+}
+
+// WorkflowHandoffModelSelection returns the configured handoff model for the
+// destination when present, otherwise the current session model alias.
+func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHandoffModelSelection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	current := strings.TrimSpace(s.deps.Config.DefaultModel)
+	selection := WorkflowHandoffModelSelection{
+		ModelAlias:  current,
+		SourceLabel: "current session",
+	}
+
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		return selection
+	}
+
+	alias := strings.TrimSpace(s.deps.Config.WorkflowHandoff.Models[destination])
+	if alias == "" {
+		return selection
+	}
+	if _, ok := s.deps.Config.Models[alias]; !ok {
+		return selection
+	}
+
+	selection.ModelAlias = alias
+	selection.SourceLabel = "from handoff default"
+	return selection
 }
 
 // CavemanMode returns whether caveman-style terse prompting is enabled.

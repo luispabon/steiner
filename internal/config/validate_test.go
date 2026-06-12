@@ -455,6 +455,46 @@ func TestValidate(t *testing.T) {
 			wantErr: ``,
 		},
 		{
+			name: "workflow handoff known aliases accepted",
+			cfg: func() Config {
+				c := validBase()
+				c.WorkflowHandoff = workflowHandoffConfig{
+					Models: map[string]string{
+						"implement": "default",
+						"review":    "default",
+					},
+				}
+				return c
+			}(),
+			wantErr: ``,
+		},
+		{
+			name: "workflow handoff unknown alias rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.WorkflowHandoff = workflowHandoffConfig{
+					Models: map[string]string{
+						"implement": "missing-model",
+					},
+				}
+				return c
+			}(),
+			wantErr: `workflow_handoff.models["implement"] "missing-model" is not defined in models`,
+		},
+		{
+			name: "workflow handoff unknown destination rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.WorkflowHandoff = workflowHandoffConfig{
+					Models: map[string]string{
+						"plan": "default",
+					},
+				}
+				return c
+			}(),
+			wantErr: `workflow_handoff.models contains unknown destination "plan"`,
+		},
+		{
 			name: "subagent agents validated even when disabled",
 			cfg: func() Config {
 				c := validBase()

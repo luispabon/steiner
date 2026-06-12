@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -158,7 +159,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.WorkflowHandoffEvent:
 		switch event.Type {
 		case output.EventTypeWorkflowHandoffRequested:
-			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload)
+			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, m.workflowHandoffModelSelection(payload.Next))
 			m.input.Blur()
 			m.syncViewport()
 			return nil
@@ -238,13 +239,34 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 		if launch == nil {
 			return nil
 		}
-		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target)
+		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.modelName)
 		if updated, ok := next.(Model); ok {
 			*m = updated
 		}
 		return cmd
 	}
 	return nil
+}
+
+func (m Model) workflowHandoffModelSelection(destination string) interactive.WorkflowHandoffModelSelection {
+	if selector, ok := m.controller.(interactive.WorkflowHandoffModelSelector); ok {
+		selection := selector.WorkflowHandoffModelSelection(destination)
+		if strings.TrimSpace(selection.ModelAlias) != "" {
+			if strings.TrimSpace(selection.SourceLabel) == "" {
+				selection.SourceLabel = "current session"
+			}
+			return selection
+		}
+	}
+
+	modelAlias := strings.TrimSpace(m.primaryModel)
+	if modelAlias == "" {
+		return interactive.WorkflowHandoffModelSelection{}
+	}
+	return interactive.WorkflowHandoffModelSelection{
+		ModelAlias:  modelAlias,
+		SourceLabel: "current session",
+	}
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {

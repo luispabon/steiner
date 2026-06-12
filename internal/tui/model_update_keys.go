@@ -45,6 +45,9 @@ func (m Model) recentWheelMouseInput() bool {
 
 func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	switch {
+	case m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff():
+		next, cmd := m.handleModelPickerKey(msg)
+		return true, next, cmd
 	case m.workflowHandoff.IsOpen():
 		next, cmd := m.handleWorkflowHandoffModalKey(msg)
 		return true, next, cmd
@@ -438,11 +441,19 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.modelPicker = m.modelPicker.Close()
-		m.input.Reset()
-		m.historyIdx = 0
+		if !m.modelPicker.IsWorkflowHandoff() {
+			m.input.Reset()
+			m.historyIdx = 0
+		}
 	case tea.KeyEnter:
 		if name := m.modelPicker.SelectedName(); name != "" {
+			isWorkflowHandoff := m.modelPicker.IsWorkflowHandoff()
 			m.modelPicker = m.modelPicker.Close()
+			if isWorkflowHandoff {
+				m.workflowHandoff.modelAlias = name
+				m.workflowHandoff.modelSource = "selected for handoff"
+				return m, nil
+			}
 			m.input.Reset()
 			m.historyIdx = 0
 			return m.executeModelAction(name)

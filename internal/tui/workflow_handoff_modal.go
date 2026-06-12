@@ -14,6 +14,7 @@ import (
 
 const (
 	workflowHandoffActionAccept = iota
+	workflowHandoffActionChangeModel
 	workflowHandoffActionDismiss
 )
 
@@ -22,10 +23,12 @@ type workflowHandoffModalState struct {
 	next           string
 	target         string
 	message        string
+	modelAlias     string
+	modelSource    string
 	selectedAction int
 }
 
-func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffEvent) workflowHandoffModalState {
+func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffEvent, selection interactive.WorkflowHandoffModelSelection) workflowHandoffModalState {
 	shell := OverlayShell{}.WithPreferredWidth(72)
 	shell = shell.WithDimensions(width, height).WithTitle("workflow handoff").openShell()
 	return workflowHandoffModalState{
@@ -33,6 +36,8 @@ func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffE
 		next:           strings.TrimSpace(payload.Next),
 		target:         strings.TrimSpace(payload.Target),
 		message:        strings.TrimSpace(payload.Message),
+		modelAlias:     strings.TrimSpace(selection.ModelAlias),
+		modelSource:    strings.TrimSpace(selection.SourceLabel),
 		selectedAction: workflowHandoffActionAccept,
 	}
 }
@@ -43,7 +48,7 @@ func (s workflowHandoffModalState) close() workflowHandoffModalState {
 }
 
 func (s workflowHandoffModalState) moveSelection(delta int) workflowHandoffModalState {
-	const actions = 2
+	const actions = 3
 	s.selectedAction = ((s.selectedAction+delta)%actions + actions) % actions
 	return s
 }
@@ -88,6 +93,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 			Render("This will clear the current conversation and start the next workflow."),
 		"",
 		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.promptText()),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.modelLine()),
 		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Planning folder: " + s.target),
 	}
 	if s.message != "" {
@@ -101,31 +107,55 @@ func (m *Model) renderWorkflowHandoffModal() string {
 	}
 
 	acceptButton := m.renderExitModalButton(s.acceptLabel(), s.selectedAction == workflowHandoffActionAccept)
+	changeModelButton := m.renderExitModalButton("Change Model", s.selectedAction == workflowHandoffActionChangeModel)
 	dismissButton := m.renderExitModalButton("Dismiss", s.selectedAction == workflowHandoffActionDismiss)
-	buttonRow := strings.Repeat(" ", contentWidth)
-	buttonRow = composeOverlayLine(buttonRow, acceptButton, contentWidth, 0, lipgloss.Width(acceptButton))
-	buttonRow = composeOverlayLine(buttonRow, dismissButton, contentWidth, contentWidth-lipgloss.Width(dismissButton), lipgloss.Width(dismissButton))
+	buttonRow := m.renderWorkflowHandoffActionRow(contentWidth, acceptButton, changeModelButton, dismissButton)
+
+	sections := []string{
+		title,
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
+	}
+	if m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() {
+		sections = append(sections, "", m.modelPicker.ViewAttached(contentWidth))
+	}
+	sections = append(sections, "", buttonRow)
 
 	divider := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.BorderSoft)).
 		Render(strings.Repeat("─", contentWidth))
-	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm   " + FooterChip("esc") + " dismiss"
+	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm"
+	if m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() {
+		footerText += "   " + FooterChip("esc") + " back"
+	} else {
+		footerText += "   " + FooterChip("esc") + " dismiss"
+	}
 	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.FgMute)).
 		Width(contentWidth).
 		Render(footerText)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
-		"",
-		buttonRow,
-		divider,
-		footer,
-	)
+	sections = append(sections, divider, footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
 	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+}
+
+func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {
+	row := lipgloss.JoinHorizontal(lipgloss.Top, acceptButton, "  ", changeModelButton, "  ", dismissButton)
+	return lipgloss.NewStyle().Width(contentWidth).Render(row)
+}
+
+func (s workflowHandoffModalState) modelLine() string {
+	modelAlias := strings.TrimSpace(s.modelAlias)
+	modelSource := strings.TrimSpace(s.modelSource)
+	if modelAlias == "" {
+		return "Model:"
+	}
+	if modelSource == "" {
+		return "Model: " + modelAlias
+	}
+	return "Model: " + modelAlias + " (" + modelSource + ")"
 }
 
 func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -135,8 +165,11 @@ func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
 		m.workflowHandoff = m.workflowHandoff.moveSelection(1)
 	case tea.KeyEnter:
-		if m.workflowHandoff.selectedAction == workflowHandoffActionAccept {
+		switch m.workflowHandoff.selectedAction {
+		case workflowHandoffActionAccept:
 			return m.acceptWorkflowHandoff()
+		case workflowHandoffActionChangeModel:
+			return m.openWorkflowHandoffModelPicker(), nil
 		}
 		return m.dismissWorkflowHandoff()
 	case tea.KeyEsc:
@@ -145,9 +178,18 @@ func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+func (m Model) openWorkflowHandoffModelPicker() Model {
+	title := m.workflowHandoff.modelPickerTitle()
+	m.modelPicker = m.modelPicker.OpenForWorkflowHandoff(title, m.modelNames, m.workflowHandoff.modelAlias)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+	return m
+}
+
 func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	next := strings.TrimSpace(m.workflowHandoff.next)
 	target := strings.TrimSpace(m.workflowHandoff.target)
+	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
 			m.content.AppendLine("status: " + err.Error())
@@ -155,13 +197,23 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
+				m.content.AppendLine("status: " + err.Error())
+				m.syncViewport()
+				return m, nil
+			}
+		}
+		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
+	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true
-	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target}
+	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
 	nextModel, cmd := m.clearConversationState()
 	if cleared, ok := nextModel.(Model); ok {
 		cleared.suppressWorkflowHandoffRun = true
-		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target}
+		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
 		cleared.workflowHandoff = cleared.workflowHandoff.close()
 		// Rotate session after conversation is cleared — new workflow gets a fresh identity
 		// controller may be nil in tests; skip rotation when there's no backing session.
@@ -188,6 +240,17 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) launchWorkflowHandoff(next, target string) (tea.Model, tea.Cmd) {
+func (m Model) launchWorkflowHandoff(next, target string, _ string) (tea.Model, tea.Cmd) {
 	return m.executeInvokeSkillAction(next, target)
+}
+
+func (s workflowHandoffModalState) modelPickerTitle() string {
+	switch s.next {
+	case "implement":
+		return "Select model for implementation"
+	case "review":
+		return "Select model for review"
+	default:
+		return "Select model for next workflow"
+	}
 }
