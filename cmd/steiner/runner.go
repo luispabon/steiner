@@ -69,7 +69,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		err,
 	))
 	if err != nil {
-		return runResult{}, err
+		return runResult{Conversation: state.Conversation}, err
 	}
 
 	return runResult{

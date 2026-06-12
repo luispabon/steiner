@@ -21,24 +21,24 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
 		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), s.runController.SteerCh())
+
+		s.mu.Lock()
+		if len(result.Conversation) > 0 {
+			if result.WorkflowHandoff == nil {
+				s.conversation = result.Conversation
+			}
+			s.lineage = agent.ConversationLineage{
+				Generations: []agent.ConversationGeneration{
+					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
+				},
+				NextGenerationID: 2,
+			}
+		}
+		s.mu.Unlock()
+
 		if err != nil {
 			return err
 		}
-		s.mu.Lock()
-		// workflow_handoff: skip updating s.conversation so that ClearConversation
-		// from the TUI (sent before this goroutine finishes) is not overwritten,
-		// ensuring the next skill run starts with a clean context. Lineage is still
-		// updated so the session can be saved with the completed run's history.
-		if result.WorkflowHandoff == nil {
-			s.conversation = result.Conversation
-		}
-		s.lineage = agent.ConversationLineage{
-			Generations: []agent.ConversationGeneration{
-				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
-			},
-			NextGenerationID: 2,
-		}
-		s.mu.Unlock()
 		return nil
 	})
 
