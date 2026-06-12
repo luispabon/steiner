@@ -72,7 +72,7 @@ func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.content.Clear()
-	m.pendingImages = nil
+	m.imageMarkers = nil
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
 	for name := range m.enabledSkills {
@@ -237,7 +237,7 @@ func (m Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cm
 		// silently ignore — clipboard had no image, not an error to show
 		return m, nil
 	}
-	m.pendingImages = append(m.pendingImages, msg.block)
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg.block})
 	m.syncInputChrome()
 	return m, nil
 }

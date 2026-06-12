@@ -7,7 +7,7 @@ import (
 )
 
 func TestPendingImagesAccumulate(t *testing.T) {
-	// Test that multiple clipboardImageMsg events accumulate pendingImages
+	// Test that multiple clipboardImageMsg events accumulate imageMarkers
 	m := Model{}
 	block1 := agent.ImageBlock{MediaType: "image/png", Data: "abc", Width: 100, Height: 100}
 	block2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "def", Width: 200, Height: 200}
@@ -20,29 +20,29 @@ func TestPendingImagesAccumulate(t *testing.T) {
 	if msg1.err != nil {
 		t.Fatal("unexpected error")
 	}
-	m.pendingImages = append(m.pendingImages, msg1.block)
-	m.pendingImages = append(m.pendingImages, msg2.block)
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg1.block})
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg2.block})
 
-	if len(m.pendingImages) != 2 {
-		t.Fatalf("pendingImages len = %d, want 2", len(m.pendingImages))
+	if len(m.imageMarkers) != 2 {
+		t.Fatalf("imageMarkers len = %d, want 2", len(m.imageMarkers))
 	}
-	if m.pendingImages[0].MediaType != "image/png" {
-		t.Errorf("pendingImages[0].MediaType = %q, want image/png", m.pendingImages[0].MediaType)
+	if m.imageMarkers[0].image.MediaType != "image/png" {
+		t.Errorf("imageMarkers[0].image.MediaType = %q, want image/png", m.imageMarkers[0].image.MediaType)
 	}
-	if m.pendingImages[1].MediaType != "image/jpeg" {
-		t.Errorf("pendingImages[1].MediaType = %q, want image/jpeg", m.pendingImages[1].MediaType)
+	if m.imageMarkers[1].image.MediaType != "image/jpeg" {
+		t.Errorf("imageMarkers[1].image.MediaType = %q, want image/jpeg", m.imageMarkers[1].image.MediaType)
 	}
 }
 
 func TestPendingImagesClearedOnSubmit(t *testing.T) {
 	m := Model{
-		pendingImages: []agent.ImageBlock{
-			{MediaType: "image/png", Data: "abc"},
+		imageMarkers: []imageMarker{
+			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
 		},
 	}
-	m.pendingImages = nil
-	if len(m.pendingImages) != 0 {
-		t.Fatalf("pendingImages not cleared, len = %d", len(m.pendingImages))
+	m.imageMarkers = nil
+	if len(m.imageMarkers) != 0 {
+		t.Fatalf("imageMarkers not cleared, len = %d", len(m.imageMarkers))
 	}
 }
 
@@ -54,10 +54,10 @@ func TestClipboardImageMsgErrSilentlyIgnored(t *testing.T) {
 	if msg.err != nil {
 		// silently ignore — no append
 	} else {
-		m.pendingImages = append(m.pendingImages, msg.block)
+		m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg.block})
 	}
 
-	if len(m.pendingImages) != 0 {
-		t.Fatalf("pendingImages should be empty on error, got len = %d", len(m.pendingImages))
+	if len(m.imageMarkers) != 0 {
+		t.Fatalf("imageMarkers should be empty on error, got len = %d", len(m.imageMarkers))
 	}
 }
