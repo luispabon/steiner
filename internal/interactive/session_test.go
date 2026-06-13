@@ -30,6 +30,7 @@ var (
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
 	_ Action = ToggleCavemanMode{}
+	_ Action = ToggleHumanizerMode{}
 	_ Action = LoadSession{}
 	_ Action = RotateSession{}
 	_ Action = requestSessionPicker{}
@@ -409,6 +410,7 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"RotateSession", RotateSession{}},
 		{"ClearConversation", ClearConversation{}},
+		{"ToggleHumanizerMode", ToggleHumanizerMode{}},
 		{"ToggleCavemanMode", ToggleCavemanMode{}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
 		{"TriggerManualCompaction", TriggerManualCompaction{}},
@@ -1139,6 +1141,32 @@ func TestHandleToggleCavemanMode(t *testing.T) {
 	}
 }
 
+func TestHandleToggleHumanizerMode(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			HumanizerMode: false,
+		},
+	})
+
+	if got := s.HumanizerMode(); got != false {
+		t.Fatalf("HumanizerMode() before toggle = %v, want false", got)
+	}
+
+	if err := s.Handle(context.Background(), ToggleHumanizerMode{}); err != nil {
+		t.Fatalf("Handle(ToggleHumanizerMode) = %v, want nil", err)
+	}
+	if got := s.HumanizerMode(); got != true {
+		t.Fatalf("HumanizerMode() after first toggle = %v, want true", got)
+	}
+
+	if err := s.Handle(context.Background(), ToggleHumanizerMode{}); err != nil {
+		t.Fatalf("Handle(ToggleHumanizerMode) = %v, want nil", err)
+	}
+	if got := s.HumanizerMode(); got != false {
+		t.Fatalf("HumanizerMode() after second toggle = %v, want false", got)
+	}
+}
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{

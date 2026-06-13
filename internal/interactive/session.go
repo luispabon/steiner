@@ -179,6 +179,13 @@ func (s *Session) CavemanMode() bool {
 	return s.deps.Config.CavemanMode
 }
 
+// HumanizerMode returns whether humanizer-style prompting is enabled.
+func (s *Session) HumanizerMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config.HumanizerMode
+}
+
 // CurrentModelConfig returns the currently active model config.
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
@@ -290,6 +297,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case ToggleCavemanMode:
 		s.handleToggleCavemanMode()
 		return true, nil
+	case ToggleHumanizerMode:
+		s.handleToggleHumanizerMode()
+		return true, nil
 	case SwitchModel:
 		return true, s.handleSwitchModel(a.Name)
 	case LoadSession:
@@ -310,6 +320,17 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *Session) handleToggleHumanizerMode() {
+	s.mu.Lock()
+	s.deps.Config.HumanizerMode = !s.deps.Config.HumanizerMode
+	state := "off"
+	if s.deps.Config.HumanizerMode {
+		state = "on"
+	}
+	s.mu.Unlock()
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Humanizer mode: %s", state)))
 }
 
 func (s *Session) handleToggleCavemanMode() {

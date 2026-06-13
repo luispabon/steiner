@@ -386,7 +386,7 @@ func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
 		RetainedSummaries: []DurableSummaryEntry{
 			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
 		},
-	}, "", CompactionModeNormal, false)
+	}, "", CompactionModeNormal, false, false)
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}
@@ -415,7 +415,7 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 
 	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
 		{Role: provider.MessageRoleUser, Content: "keep only what matters"},
-	}, DurableContextState{}, "", CompactionModeEmergency, false)
+	}, DurableContextState{}, "", CompactionModeEmergency, false, false)
 	if got, want := len(promptMessages), 2; got != want {
 		t.Fatalf("prompt messages = %d, want %d", got, want)
 	}
@@ -427,7 +427,7 @@ func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *te
 func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T) {
 	t.Parallel()
 
-	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
+	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, false, false)
 	if !strings.Contains(normal, "You are compacting the current working context for a coding agent.") {
 		t.Fatalf("normal compaction instruction = %q, want standard instruction body", normal)
 	}
@@ -435,7 +435,7 @@ func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T)
 		t.Fatalf("normal compaction instruction = %q, want no emergency guidance", normal)
 	}
 
-	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, false)
+	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, false, false)
 	if !strings.Contains(emergency, "You are compacting the current working context for a coding agent.") {
 		t.Fatalf("emergency compaction instruction = %q, want standard instruction body", emergency)
 	}
@@ -447,12 +447,12 @@ func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T)
 func TestRenderConversationCompactionInstructionPreservesOverrideAndCaveman(t *testing.T) {
 	t.Parallel()
 
-	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, true)
+	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, true, false)
 	if got, want := override, "custom compaction prompt"; got != want {
 		t.Fatalf("override compaction instruction = %q, want %q", got, want)
 	}
 
-	caveman := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
+	caveman := RenderConversationCompactionInstruction("", CompactionModeNormal, true, false)
 	if !strings.Contains(caveman, "compact working context for coding agent") {
 		t.Fatalf("caveman compaction instruction = %q, want caveman body", caveman)
 	}

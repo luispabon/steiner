@@ -71,6 +71,7 @@ func defaultConfig() Config {
 		ContextManagement: ContextManagementConfig{
 			ReadAnnotations: true,
 		},
-		CavemanMode: false,
+		CavemanMode:   false,
+		HumanizerMode: false,
 	}
 }

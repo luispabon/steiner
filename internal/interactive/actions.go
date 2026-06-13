@@ -114,6 +114,12 @@ type ToggleCavemanMode struct{}
 
 func (ToggleCavemanMode) isInteractiveAction() {}
 
+// ToggleHumanizerMode represents a user request to toggle humanizer mode on or
+// off during an interactive session.
+type ToggleHumanizerMode struct{}
+
+func (ToggleHumanizerMode) isInteractiveAction() {}
+
 // LoadSession represents a user request to load a previously saved session
 // into the current interactive session, replacing the current conversation.
 type LoadSession struct{ SessionID string }

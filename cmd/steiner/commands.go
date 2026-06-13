@@ -56,6 +56,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().BoolVar(&flags.caveman, "caveman", false, "enable caveman mode (overrides config)")
+	rootCmd.PersistentFlags().BoolVar(&flags.humanizer, "humanizer", false, "enable humanizer mode (overrides config)")
 	rootCmd.PersistentFlags().BoolVar(&flags.unsafe, "unsafe", false, "disable sandbox (bubblewrap) for tool execution")
 	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
 	rootCmd.Flag("resume").NoOptDefVal = ""
@@ -92,12 +93,17 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 			if cmd.Flags().Changed("caveman") {
 				cavemanOverride = &flags.caveman
 			}
+			humanizerOverride := (*bool)(nil)
+			if cmd.Flags().Changed("humanizer") {
+				humanizerOverride = &flags.humanizer
+			}
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
-					ConfigPath:  flags.configPath,
-					Model:       flags.model,
-					Verbose:     flags.verbose,
-					CavemanMode: cavemanOverride,
+					ConfigPath:    flags.configPath,
+					Model:         flags.model,
+					Verbose:       flags.verbose,
+					CavemanMode:   cavemanOverride,
+					HumanizerMode: humanizerOverride,
 				},
 			})
 			if err != nil {

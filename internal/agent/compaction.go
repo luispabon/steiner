@@ -365,7 +365,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	}
 	messages := append(cloneProviderMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CavemanMode),
+		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CavemanMode, basePrompt.HumanizerMode),
 	})
 	request := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,

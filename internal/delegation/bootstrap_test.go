@@ -146,7 +146,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
+			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -173,7 +173,7 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{}, false)
+	}, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -372,7 +372,7 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
+	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 	if opts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
 	}
