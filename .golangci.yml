@@ -39,6 +39,7 @@ linters:
   exclusions:
     paths:
       - testdata
+      - .claude
     rules:
       - path: _test\.go
         linters:
@@ -56,3 +57,4 @@ formatters:
   exclusions:
     paths:
       - testdata
+      - .claude
