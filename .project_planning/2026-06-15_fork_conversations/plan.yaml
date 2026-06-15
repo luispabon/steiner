@@ -64,6 +64,8 @@ steps:
       Handle /fork in the command dispatch to emit ForkSession action.
       Add fork keybinding (f) in session picker overlay to emit
       ForkSavedSession with the highlighted session's ID.
+      Update session picker entry rendering to prefix each entry with
+      datetime in "[ YYYY-MM-DD HH:MM:SS ]" format using UpdatedAt.
       Update help.go with /fork entry.
     files:
       - internal/tui/model_input.go
@@ -74,12 +76,15 @@ steps:
       - Session picker fork key should not conflict with existing bindings
       - /fork while no conversation exists should show informative message
       - Help text consistent with existing entries
+      - Session picker datetime uses UpdatedAt, formatted as "[ 2026-06-15 14:30:00 ]"
+      - Use local time, not UTC, for the datetime display
     acceptance:
       - /fork appears in slash command autocomplete
       - /fork triggers ForkSession action on current session
       - f key in session picker triggers ForkSavedSession for highlighted entry
       - /fork with empty conversation shows appropriate message
       - Help screen shows /fork entry
+      - Session picker entries prefixed with "[ YYYY-MM-DD HH:MM:SS ] " before title
     verification:
       - gofmt -w internal/tui/model_input.go internal/tui/model_update_keys.go internal/tui/help.go
       - goimports -w internal/tui/model_input.go internal/tui/model_update_keys.go internal/tui/help.go

@@ -18,6 +18,7 @@ The implementation touches three layers:
 - **Title includes origin**: "Fork of: <original title>" makes lineage visible without needing a tree structure. Truncated to 80 chars per existing `TitleFromPrompt` convention.
 - **Same model preserved**: forked session uses the same model ID as the source, maximizing prompt cache hits as stated in the issue.
 - **Session picker fork**: adds a fork keybinding (e.g. `f`) in the session picker overlay, operating on the highlighted saved session without loading it first.
+- **Session picker datetime**: each entry in the session picker shows a leading datetime in `[ YYYY-MM-DD HH:MM:SS ]` format for easier identification.
 
 ## Tradeoffs
 
@@ -69,5 +70,6 @@ The implementation touches three layers:
 | Fork = deep copy, no parent link | 2026-06-15 | Simplicity; avoids orphan references when sessions are evicted |
 | Auto-switch to fork | 2026-06-15 | Matches ChatGPT pattern; intuitive "try something different" flow |
 | Support both live and saved session forking | 2026-06-15 | User requirement from issue discussion |
+| Session picker datetime format `[ YYYY-MM-DD HH:MM:SS ]` | 2026-06-15 | Easier identification of sessions by time |
 | Title convention "Fork of: X" | 2026-06-15 | Lightweight lineage visibility without schema changes |
 | No fork tree in v1 | 2026-06-15 | Complexity vs. value; title convention sufficient for now |
