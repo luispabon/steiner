@@ -107,13 +107,14 @@ func (s sessionPickerOverlay) View() string {
 }
 
 func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidth int) string {
+	datetime := fmt.Sprintf("[ %s ] ", entry.UpdatedAt.Local().Format("2006-01-02 15:04:05"))
 	modelStr := fmt.Sprintf(" (%s)", entry.Model)
-	relTime := relativeTime(entry.UpdatedAt)
 	idSuffix := fmt.Sprintf(" [%s]", entry.ID[len(entry.ID)-8:])
 	spacer := " "
 
-	suffixWidth := lipgloss.Width(modelStr) + lipgloss.Width(spacer) + lipgloss.Width(relTime) + lipgloss.Width(spacer) + lipgloss.Width(idSuffix)
-	titleMaxWidth := maxWidth - suffixWidth
+	prefixWidth := lipgloss.Width(datetime)
+	suffixWidth := lipgloss.Width(modelStr) + lipgloss.Width(spacer) + lipgloss.Width(idSuffix)
+	titleMaxWidth := maxWidth - prefixWidth - suffixWidth
 	if titleMaxWidth < 10 {
 		titleMaxWidth = 10
 	}
@@ -123,7 +124,7 @@ func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidt
 		title = title[:titleMaxWidth-1] + "…"
 	}
 
-	return title + modelStr + spacer + relTime + spacer + idSuffix
+	return datetime + title + modelStr + spacer + idSuffix
 }
 
 func relativeTime(t time.Time) string {

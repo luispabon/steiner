@@ -1332,6 +1332,7 @@ func newMockSessionStore() *mockSessionStore {
 
 func (m *mockSessionStore) Save(s session.Session) error {
 	m.savedSessions[s.ID] = s
+	m.loadedSessions[s.ID] = s
 	return nil
 }
 
