@@ -13,9 +13,6 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: read
-
 jobs:
   build:
     name: Build (${{ matrix.os }}/${{ matrix.arch }})
