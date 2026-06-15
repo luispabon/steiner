@@ -362,7 +362,7 @@ func (s *Session) handleSwitchModel(name string) error {
 }
 
 // handleForkSession forks the current live session after saving it, then switches to the fork.
-func (s *Session) handleForkSession(ctx context.Context) error {
+func (s *Session) handleForkSession(_ context.Context) error {
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewContextReportEvent("session store not configured"))
 		return nil
@@ -406,7 +406,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 }
 
 // handleForkSavedSession forks a saved session by ID, saves the fork, then switches to it.
-func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
+func (s *Session) handleForkSavedSession(_ context.Context, sessionID string) error {
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewContextReportEvent("session store not configured"))
 		return nil
