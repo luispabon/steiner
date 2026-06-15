@@ -36,6 +36,7 @@ func MutateSchema() map[string]any {
 				"items":       map[string]any{"type": "string"},
 			},
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences for replace", "default": false},
+			"allow_empty": map[string]any{"type": "boolean", "description": "Allow writing empty content to an existing file with content. Required when content is empty and the target file is non-empty, to prevent accidental data loss.", "default": false},
 			"line":        map[string]any{"type": "integer", "description": "1-based line number for line_replace, delete_line, insert_before, and insert_after. insert_after supports appending after the final line, even when the file has no trailing newline.", "minimum": 1},
 			"line_count":  map[string]any{"type": "integer", "description": "Number of lines to replace or delete starting from line. Omit for single-line edits.", "minimum": 1, "default": 1},
 			"file_hash":   map[string]any{"type": "string", "description": "4-char hex hash from read/grep result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted."},

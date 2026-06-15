@@ -1196,6 +1196,79 @@ func TestMutateReturnsBoundedPostEditContext(t *testing.T) {
 	}
 }
 
+func TestMutateWriteRejectsEmptyContentOnExistingFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "note.txt", "content": ""},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+	}
+	if !strings.Contains(got.Output, "content is empty") {
+		t.Fatalf("Output = %q, want content is empty diagnostic", got.Output)
+	}
+	assertFile(t, path, "hello\n")
+}
+
+func TestMutateWriteAllowsEmptyContentWithFlag(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "note.txt", "content": "", "allow_empty": true},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0; output=%q", got.OperationsFailed, got.Output)
+	}
+	if got.OperationsApplied != 1 {
+		t.Fatalf("OperationsApplied = %d, want 1", got.OperationsApplied)
+	}
+	assertFile(t, path, "")
+}
+
+func TestMutateWriteEmptyContentOnNewFileSucceeds(t *testing.T) {
+	root := t.TempDir()
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "new.txt", "content": ""},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0; output=%q", got.OperationsFailed, got.Output)
+	}
+	assertFile(t, filepath.Join(root, "new.txt"), "")
+}
+
+func TestMutateWriteEmptyContentOnEmptyFileSucceeds(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "empty.txt")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "empty.txt", "content": ""},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0; output=%q", got.OperationsFailed, got.Output)
+	}
+}
+
 func TestMutateLineReplaceWholeLineReplacement(t *testing.T) {
 	tests := []struct {
 		name    string
