@@ -99,7 +99,7 @@ func (s sessionPickerOverlay) View() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("… and %d more", len(s.candidates)-(s.scrollOffset+maxDisplay))))
 	}
 
-	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
+	footerText := FooterChip("↵") + " select   " + FooterChip("f") + " fork   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"
 	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
