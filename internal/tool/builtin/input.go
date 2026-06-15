@@ -26,6 +26,7 @@ type MutateOperation struct {
 	Line          int      `json:"line,omitempty"`
 	LineCount     int      `json:"line_count,omitempty"`
 	FileHash      string   `json:"file_hash,omitempty"`
+	AllowEmpty    bool     `json:"allow_empty,omitempty"`
 	From          string   `json:"from,omitempty"`
 	To            string   `json:"to,omitempty"`
 }

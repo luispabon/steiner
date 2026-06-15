@@ -98,8 +98,8 @@ func (p *mutatePlanner) fail(message string, total int) *MutateResult {
 }
 
 var allowedFields = map[string]map[string]bool{
-	"create":        {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true},
-	"write":         {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+	"create":        {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true, "allow_empty": true},
+	"write":         {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true, "allow_empty": true},
 	"replace":       {"path": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "replace_all": true, "file_hash": true},
 	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
 	"delete_line":   {"path": true, "line": true, "line_count": true, "assert_present": true, "assert_absent": true, "file_hash": true},
@@ -130,6 +130,7 @@ func validateFields(index int, op MutateOperation) error {
 		{"line", op.Line != 0},
 		{"line_count", op.LineCount != 0},
 		{"file_hash", op.FileHash != ""},
+		{"allow_empty", op.AllowEmpty},
 		{"from", op.From != ""},
 		{"to", op.To != ""},
 	}
@@ -231,6 +232,9 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	}
 	if err := ensureParentDir(state.path); err != nil {
 		return fmt.Errorf("mutate: operation %d write: %w", index, err)
+	}
+	if op.Content == "" && state.exists && len(state.content) > 0 && !op.AllowEmpty {
+		return fmt.Errorf("mutate: operation %d write: content is empty but %s has %d bytes — use delete to remove the file, or set allow_empty to confirm", index, state.displayPath, len(state.content))
 	}
 	before := string(state.content)
 	wasExisting := state.exists
