@@ -15,6 +15,28 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+func assertSharedChildSystemPrompt(t *testing.T, content string) {
+	t.Helper()
+
+	for _, want := range []string{
+		"You are steiner, a lean coding agent.",
+		"Core rules:",
+		"Prefer smallest correct change.",
+		"Before editing:",
+		"Read the relevant files and nearby tests before making changes.",
+		"While editing:",
+		"Verification:",
+		"Final response:",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("shared child system prompt missing %q in %q", want, content)
+		}
+	}
+	if strings.Contains(content, "## Delegation") {
+		t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
+	}
+}
+
 func TestDeriveChildLimits(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -201,6 +223,32 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	if assembly.Messages[1].Content != "do something" {
 		t.Fatalf("message[1].Content = %q, want task", assembly.Messages[1].Content)
 	}
+}
+
+func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T) {
+	t.Parallel()
+
+	promptOpts := buildChildPrompt(DelegationSpec{
+		Task:    "do something",
+		AgentID: "test-shared-system",
+	}, t.TempDir(), "", config.ProjectContextConfig{}, false, false)
+
+	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
+		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
+	}
+
+	assembly, err := prompt.Assemble(context.Background(), promptOpts)
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+	if len(assembly.Messages) == 0 {
+		t.Fatal("assembled prompt has no messages")
+	}
+	if assembly.Messages[0].Role != provider.MessageRoleSystem {
+		t.Fatalf("message[0].Role = %q, want system", assembly.Messages[0].Role)
+	}
+
+	assertSharedChildSystemPrompt(t, assembly.Messages[0].Content)
 }
 
 func TestBuildChildRegistries(t *testing.T) {
@@ -679,11 +727,25 @@ func TestBuildChildRun(t *testing.T) {
 				if req.Limits.MaxTokens != 100000 {
 					t.Errorf("MaxTokens=%d, want 100000", req.Limits.MaxTokens)
 				}
+				if req.Prompt.PromptOverrides.System != "" {
+					t.Errorf("PromptOverrides.System=%q, want empty shared base", req.Prompt.PromptOverrides.System)
+				}
 				if len(req.Prompt.Conversation) != 1 {
 					t.Fatalf("Conversation length=%d, want 1", len(req.Prompt.Conversation))
 				}
-				if !strings.HasPrefix(req.Prompt.PromptOverrides.System, "You are a sub-agent. Complete the task given to you.") {
-					t.Errorf("PromptOverrides.System=%q, want to start with default system prompt", req.Prompt.PromptOverrides.System)
+				assembly, err := prompt.Assemble(context.Background(), req.Prompt)
+				if err != nil {
+					t.Fatalf("Assemble() error = %v", err)
+				}
+				if len(assembly.Messages) == 0 {
+					t.Fatal("assembled prompt has no messages")
+				}
+				if assembly.Messages[0].Role != provider.MessageRoleSystem {
+					t.Fatalf("message[0].Role = %q, want system", assembly.Messages[0].Role)
+				}
+				assertSharedChildSystemPrompt(t, assembly.Messages[0].Content)
+				if len(assembly.Messages) < 2 {
+					t.Fatalf("assembled prompt message count=%d, want at least 2", len(assembly.Messages))
 				}
 				if req.Prompt.Conversation[0].Role != provider.MessageRoleUser {
 					t.Errorf("Conversation[0].Role=%q, want %q", req.Prompt.Conversation[0].Role, provider.MessageRoleUser)

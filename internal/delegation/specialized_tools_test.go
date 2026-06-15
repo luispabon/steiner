@@ -160,9 +160,10 @@ func TestAllSpecializedToolDefs_ExcludeTypes(t *testing.T) {
 
 func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
 	// Verify that the handler builds the child RunRequest with the correct
-	// system prompt for the agent type. We capture the RunRequest via the
-	// mock runner and inspect the prompt.
-	for _, agentType := range AllAgentTypes() {
+	// system prompt for the agent type. Code now uses the shared base prompt,
+	// so this test stays focused on the types that still supply explicit
+	// overrides.
+	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypePlan, AgentTypeVerify} {
 		agentType := agentType
 		t.Run(string(agentType), func(t *testing.T) {
 			var capturedReq agent.RunRequest
