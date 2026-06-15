@@ -318,6 +318,10 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		}
 		s.mu.Unlock()
 		return true, nil
+	case ForkSession:
+		return true, s.handleForkSession(ctx)
+	case ForkSavedSession:
+		return true, s.handleForkSavedSession(ctx, a.SessionID)
 	}
 	return false, nil
 }
@@ -354,6 +358,91 @@ func (s *Session) handleSwitchModel(name string) error {
 	}
 	s.deps.Config.DefaultModel = name
 	s.mu.Unlock()
+	return nil
+}
+
+// handleForkSession forks the current live session after saving it, then switches to the fork.
+func (s *Session) handleForkSession(ctx context.Context) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		return nil
+	}
+
+	// Save current session before forking
+	if err := s.saveSession(); err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: save failed: %v", err)))
+		return err
+	}
+
+	// Get current session info
+	s.mu.RLock()
+	currentSession := session.Session{
+		ID:      s.sessionID,
+		Title:   s.sessionTitle,
+		Model:   s.deps.Config.Models[s.deps.Config.DefaultModel].ID,
+		Lineage: s.lineage,
+	}
+	s.mu.RUnlock()
+
+	// Fork the session
+	forked, err := session.Fork(currentSession)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: %v", err)))
+		return err
+	}
+
+	// Switch to the forked session
+	s.mu.Lock()
+	originalTitle := s.sessionTitle
+	s.sessionID = forked.ID
+	s.sessionTitle = forked.Title
+	s.lineage = forked.Lineage
+	s.mu.Unlock()
+
+	// Emit context report event with fork confirmation
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", originalTitle)))
+
+	return nil
+}
+
+// handleForkSavedSession forks a saved session by ID, saves the fork, then switches to it.
+func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		return nil
+	}
+
+	// Load the saved session
+	loadedSession, err := s.deps.SessionStore.Load(sessionID)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session failed: %v", err)))
+		return err
+	}
+
+	// Fork the loaded session
+	forked, err := session.Fork(loadedSession)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: %v", err)))
+		return err
+	}
+
+	// Save the fork
+	if err := s.deps.SessionStore.Save(forked); err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: save failed: %v", err)))
+		return err
+	}
+
+	// Switch to the forked session
+	s.mu.Lock()
+	s.sessionID = forked.ID
+	s.sessionTitle = forked.Title
+	s.lineage = forked.Lineage
+	s.conversation = forked.Lineage.FullMessages()
+	s.mu.Unlock()
+
+	// Emit context report event with fork confirmation
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", loadedSession.Title)))
+
 	return nil
 }
 
