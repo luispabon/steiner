@@ -406,8 +406,11 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 			m.sessionPicker = m.sessionPicker.Close()
 			if m.controller != nil {
-				if err := m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID}); err != nil {
-					m.content.AppendLine("status: " + err.Error())
+				ctrl := m.controller
+				sid := selected.ID
+				return m, func() tea.Msg {
+					_ = ctrl.Handle(context.Background(), interactive.LoadSession{SessionID: sid})
+					return nil
 				}
 			}
 		}
@@ -417,8 +420,11 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 				m.sessionPicker = m.sessionPicker.Close()
 				if m.controller != nil {
-					if err := m.controller.Handle(context.Background(), interactive.ForkSavedSession{SessionID: selected.ID}); err != nil {
-						m.content.AppendLine("status: " + err.Error())
+					ctrl := m.controller
+					sid := selected.ID
+					return m, func() tea.Msg {
+						_ = ctrl.Handle(context.Background(), interactive.ForkSavedSession{SessionID: sid})
+						return nil
 					}
 				}
 			}

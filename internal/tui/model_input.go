@@ -340,14 +340,16 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.ForkSession{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncViewport()
+	if m.controller != nil {
+		ctrl := m.controller
+		return m, func() tea.Msg {
+			_ = ctrl.Handle(context.Background(), interactive.ForkSession{})
+			return nil
+		}
+	}
 	return m, nil
 }
 
