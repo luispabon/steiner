@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+const (
+	testIdentityMarker   = "You are steiner, a lean coding agent."
+	testDelegationMarker = "## Delegation"
+	testCoreRulesMarker  = "Core rules:"
+	testWorkflowMarker   = "Before editing:"
+	testCavemanMarker    = "Respond terse"
+	testHumanizerMarker  = "Write like a human"
+)
+
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
@@ -29,12 +38,127 @@ func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	}
 }
 
+func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		override        string
+		delegation      bool
+		caveman         bool
+		humanizer       bool
+		suffix          string
+		wantPresent     []string
+		wantAbsent      []string
+		wantOrder       []string
+		wantSuffixLast  bool
+		wantCoreAbsent  []string
+		wantIdentityCnt int
+	}{
+		{
+			name:            "delegation enabled",
+			delegation:      true,
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below.", "Use `delegate` for separable work another agent can complete independently and summarize back."},
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "delegation disabled",
+			delegation:      false,
+			wantPresent:     []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantAbsent:      []string{testDelegationMarker},
+			wantOrder:       []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below."},
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "caveman and humanizer append after base sections",
+			delegation:      true,
+			caveman:         true,
+			humanizer:       true,
+			suffix:          "system suffix",
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCavemanMarker, testHumanizerMarker, "system suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCavemanMarker, testHumanizerMarker, "system suffix"},
+			wantSuffixLast:  true,
+			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below."},
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "override preserves identity and delegation",
+			override:        "Custom override content",
+			delegation:      true,
+			suffix:          "suffix",
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantSuffixLast:  true,
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "override without delegation",
+			override:        "Custom override content",
+			delegation:      false,
+			wantPresent:     []string{testIdentityMarker, "Custom override content"},
+			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, "Custom override content"},
+			wantIdentityCnt: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := SystemPreamble(tc.override, tc.delegation, tc.caveman, tc.humanizer, tc.suffix).Content
+
+			for _, want := range tc.wantPresent {
+				if !strings.Contains(content, want) {
+					t.Fatalf("system preamble missing %q in %q", want, content)
+				}
+			}
+			for _, forbidden := range tc.wantAbsent {
+				if strings.Contains(content, forbidden) {
+					t.Fatalf("system preamble unexpectedly contains %q in %q", forbidden, content)
+				}
+			}
+			if got := strings.Count(content, testIdentityMarker); got != tc.wantIdentityCnt {
+				t.Fatalf("identity count = %d, want %d in %q", got, tc.wantIdentityCnt, content)
+			}
+
+			for i := 1; i < len(tc.wantOrder); i++ {
+				prev := strings.Index(content, tc.wantOrder[i-1])
+				next := strings.Index(content, tc.wantOrder[i])
+				if prev == -1 || next == -1 {
+					t.Fatalf("missing ordering marker in %q", content)
+				}
+				if prev >= next {
+					t.Fatalf("marker %q (index %d) should appear before %q (index %d) in %q", tc.wantOrder[i-1], prev, tc.wantOrder[i], next, content)
+				}
+			}
+
+			if tc.wantSuffixLast && tc.suffix != "" && !strings.HasSuffix(strings.TrimSpace(content), tc.suffix) {
+				t.Fatalf("suffix %q not at end of preamble in %q", tc.suffix, content)
+			}
+
+			coreStart := strings.Index(content, testCoreRulesMarker)
+			workflowStart := strings.Index(content, testWorkflowMarker)
+			if coreStart != -1 && workflowStart != -1 && coreStart < workflowStart {
+				coreSection := content[coreStart:workflowStart]
+				for _, forbidden := range tc.wantCoreAbsent {
+					if strings.Contains(coreSection, forbidden) {
+						t.Fatalf("core rules section unexpectedly contains %q in %q", forbidden, coreSection)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	t.Parallel()
 
 	content := SystemPreamble("", true, false, false, "").Content
 	for _, want := range []string{
-		"## Delegation",
+		testDelegationMarker,
 		"Every file you read locally stays in your context for the rest of the conversation",
 		"Sub-agent context is ephemeral",
 		"Default to delegation; work locally only when the conditions below are clearly met.",
@@ -98,29 +222,11 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	}
 }
 
-func TestSystemPreambleDelegationAbsentWhenDisabled(t *testing.T) {
-	t.Parallel()
-
-	content := SystemPreamble("", false, false, false, "").Content
-	if strings.Contains(content, "## Delegation") {
-		t.Fatalf("delegation instructions present when delegationEnabled=false")
-	}
-}
-
-func TestSystemPreambleDelegationIncludedWhenEnabled(t *testing.T) {
-	t.Parallel()
-
-	content := SystemPreamble("", true, false, false, "").Content
-	if !strings.Contains(content, "## Delegation") {
-		t.Fatalf("delegation instructions missing when enabled")
-	}
-}
-
 func TestSystemPreambleCavemanMode(t *testing.T) {
 	t.Parallel()
 
 	content := SystemPreamble("", false, true, false, "").Content
-	if !strings.Contains(content, "Respond terse") {
+	if !strings.Contains(content, testCavemanMarker) {
 		t.Fatalf("caveman mode preamble missing terse instruction in %q", content)
 	}
 }
@@ -167,29 +273,6 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 	}
 }
 
-func TestSystemPreambleSuffixAfterCavemanBlock(t *testing.T) {
-	t.Parallel()
-
-	content := SystemPreamble("", false, true, false, "Extended thinking enabled").Content
-	// Verify caveman instruction comes before suffix
-	cavemanIdx := strings.Index(content, "Respond terse")
-	suffixIdx := strings.Index(content, "Extended thinking enabled")
-
-	if cavemanIdx == -1 {
-		t.Fatalf("caveman instruction not found in content")
-	}
-	if suffixIdx == -1 {
-		t.Fatalf("suffix not found in content")
-	}
-	if cavemanIdx >= suffixIdx {
-		t.Fatalf("caveman block should appear before suffix")
-	}
-	// Verify suffix is at the end
-	if !strings.HasSuffix(strings.TrimSpace(content), "Extended thinking enabled") {
-		t.Fatalf("suffix should be at the end of preamble")
-	}
-}
-
 func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
 	t.Parallel()
 
@@ -213,13 +296,13 @@ func TestSystemPreambleHumanizerMode(t *testing.T) {
 
 	// Enabled
 	content := SystemPreamble("", false, false, true, "").Content
-	if !strings.Contains(content, "Write like a human") {
+	if !strings.Contains(content, testHumanizerMarker) {
 		t.Fatalf("humanizer mode preamble missing humanizer instruction in %q", content)
 	}
 
 	// Disabled
 	content2 := SystemPreamble("", false, false, false, "").Content
-	if strings.Contains(content2, "Write like a human") {
+	if strings.Contains(content2, testHumanizerMarker) {
 		t.Fatalf("humanizer mode preamble contains humanizer instruction when disabled in %q", content2)
 	}
 }
