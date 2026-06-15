@@ -253,6 +253,20 @@ Paste images directly in the interactive TUI with **Ctrl+V**. Images are read fr
 
 Supported formats: PNG, JPG, JPEG, GIF, WebP. Max size: 5MB.
 
+### Conversation forking
+
+Fork the current conversation or any saved session into a new independent session. The new session carries the full conversation history from the source, allowing you to explore alternative directions without modifying the original.
+
+**In interactive mode**, use `/fork` to fork the current live session:
+
+```
+/fork
+```
+
+**In the session picker**, press `f` on any saved session to fork it. The new session is created with the title "Fork of: <original title>" and can be resumed, edited, or deleted like any other session.
+
+Forks are independent — changes in one session do not affect the source.
+
 ## Development
 
 ```bash
