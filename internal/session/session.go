@@ -77,3 +77,22 @@ func (s Session) WithLineage(lineage agent.ConversationLineage) Session {
 	s.UpdatedAt = time.Now().UTC()
 	return s
 }
+
+// Fork creates a new session as a fork of the given session.
+// The fork has a new ID, cloned lineage, same model, and title prefixed with "Fork of: ".
+func Fork(s Session) (Session, error) {
+	id, err := generateID()
+	if err != nil {
+		return Session{}, fmt.Errorf("fork: %w", err)
+	}
+	now := time.Now().UTC()
+	forkTitle := TitleFromPrompt("Fork of: " + s.Title)
+	return Session{
+		ID:        id,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     forkTitle,
+		Model:     s.Model,
+		Lineage:   s.Lineage.Clone(),
+	}, nil
+}

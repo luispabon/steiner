@@ -318,6 +318,10 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		}
 		s.mu.Unlock()
 		return true, nil
+	case ForkSession:
+		return true, s.handleForkSession(ctx)
+	case ForkSavedSession:
+		return true, s.handleForkSavedSession(ctx, a.SessionID)
 	}
 	return false, nil
 }
@@ -355,6 +359,71 @@ func (s *Session) handleSwitchModel(name string) error {
 	s.deps.Config.DefaultModel = name
 	s.mu.Unlock()
 	return nil
+}
+
+// handleForkSession forks the current live session after saving it, then switches to the fork.
+func (s *Session) handleForkSession(ctx context.Context) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		return nil
+	}
+
+	if err := s.saveSession(); err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: save failed: %v", err)))
+		return err
+	}
+
+	s.mu.RLock()
+	currentSession := session.Session{
+		ID:      s.sessionID,
+		Title:   s.sessionTitle,
+		Model:   s.deps.Config.Models[s.deps.Config.DefaultModel].ID,
+		Lineage: s.lineage,
+	}
+	originalTitle := s.sessionTitle
+	s.mu.RUnlock()
+
+	forked, err := session.Fork(currentSession)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: %v", err)))
+		return err
+	}
+
+	if err := s.deps.SessionStore.Save(forked); err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: save fork failed: %v", err)))
+		return err
+	}
+
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", originalTitle)))
+	return s.loadSession(ctx, forked.ID)
+}
+
+// handleForkSavedSession forks a saved session by ID, saves the fork, then switches to it.
+func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		return nil
+	}
+
+	loadedSession, err := s.deps.SessionStore.Load(sessionID)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session failed: %v", err)))
+		return err
+	}
+
+	forked, err := session.Fork(loadedSession)
+	if err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: %v", err)))
+		return err
+	}
+
+	if err := s.deps.SessionStore.Save(forked); err != nil {
+		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: save failed: %v", err)))
+		return err
+	}
+
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", loadedSession.Title)))
+	return s.loadSession(ctx, forked.ID)
 }
 
 // Run enters the interactive session loop. It loads history if a writer is

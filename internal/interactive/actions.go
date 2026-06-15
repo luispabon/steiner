@@ -141,3 +141,13 @@ func (requestSessionPicker) isInteractiveAction() {}
 type RotateSession struct{}
 
 func (RotateSession) isInteractiveAction() {}
+
+// ForkSession forks the current live session, saving it first before forking.
+type ForkSession struct{}
+
+func (ForkSession) isInteractiveAction() {}
+
+// ForkSavedSession forks a previously saved session by ID.
+type ForkSavedSession struct{ SessionID string }
+
+func (ForkSavedSession) isInteractiveAction() {}

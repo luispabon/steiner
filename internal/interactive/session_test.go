@@ -33,6 +33,8 @@ var (
 	_ Action = ToggleHumanizerMode{}
 	_ Action = LoadSession{}
 	_ Action = RotateSession{}
+	_ Action = ForkSession{}
+	_ Action = ForkSavedSession{}
 	_ Action = requestSessionPicker{}
 )
 
@@ -1330,6 +1332,7 @@ func newMockSessionStore() *mockSessionStore {
 
 func (m *mockSessionStore) Save(s session.Session) error {
 	m.savedSessions[s.ID] = s
+	m.loadedSessions[s.ID] = s
 	return nil
 }
 
@@ -1552,4 +1555,241 @@ func TestSubmitPromptWithImages(t *testing.T) {
 		t.Fatalf("expected nil Images for text-only SubmitPrompt")
 	}
 	_ = s // Suppress unused warning
+}
+
+func TestForkSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("forks current session and switches to fork", func(t *testing.T) {
+		var events []output.Event
+		mockStore := newMockSessionStore()
+		s := testNewSession(t, Dependencies{
+			BaseEvents: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+			SessionStore: mockStore,
+			Config: config.Config{
+				DefaultModel: "test",
+				Models: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
+			},
+		})
+
+		// Set up session with title and conversation
+		originalID := s.SessionID()
+		originalTitle := "Test Session"
+		s.mu.Lock()
+		s.sessionTitle = originalTitle
+		s.conversation = []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}
+		s.lineage = agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+				},
+			},
+			NextGenerationID: 2,
+		}
+		s.mu.Unlock()
+
+		// Execute ForkSession
+		if err := s.Handle(context.Background(), ForkSession{}); err != nil {
+			t.Fatalf("Handle(ForkSession) = %v, want nil", err)
+		}
+
+		// Verify new session was created with different ID
+		if newID := s.SessionID(); newID == originalID {
+			t.Fatalf("session ID unchanged after fork: %q", newID)
+		}
+
+		// Verify new title has "Fork of:" prefix
+		newTitle := s.SessionTitle()
+		if !strings.HasPrefix(newTitle, "Fork of:") {
+			t.Fatalf("fork session title = %q, want prefix 'Fork of:'", newTitle)
+		}
+
+		// Verify context report event was emitted
+		var found bool
+		for _, event := range events {
+			if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+				if strings.Contains(payload.Content, "Forked from:") && strings.Contains(payload.Content, originalTitle) {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("events = %#v, want ContextReportEvent with 'Forked from'", events)
+		}
+
+		// Verify original session was saved
+		savedOrig, ok := mockStore.savedSessions[originalID]
+		if !ok {
+			t.Fatal("original session was not saved before fork")
+		}
+		if savedOrig.Title != originalTitle {
+			t.Fatalf("saved original title = %q, want %q", savedOrig.Title, originalTitle)
+		}
+	})
+
+	t.Run("noop when SessionStore is nil", func(t *testing.T) {
+		s := testNewSession(t, Dependencies{})
+		originalID := s.SessionID()
+
+		if err := s.Handle(context.Background(), ForkSession{}); err != nil {
+			t.Fatalf("Handle(ForkSession) with nil store = %v, want nil", err)
+		}
+
+		// Session ID should not change if store is nil
+		if s.SessionID() != originalID {
+			t.Fatalf("session ID changed with nil store: %q -> %q", originalID, s.SessionID())
+		}
+	})
+}
+
+func TestForkSavedSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("forks saved session and switches to fork", func(t *testing.T) {
+		var events []output.Event
+		mockStore := newMockSessionStore()
+
+		// Create a mock saved session
+		originalSession := session.Session{
+			ID:    "saved-session-id",
+			Title: "Original Saved Session",
+			Model: "test-model",
+			Lineage: agent.ConversationLineage{
+				Generations: []agent.ConversationGeneration{
+					{
+						ID:       1,
+						Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "old message"}},
+					},
+				},
+				NextGenerationID: 2,
+			},
+		}
+		mockStore.loadedSessions["saved-session-id"] = originalSession
+
+		s := testNewSession(t, Dependencies{
+			BaseEvents: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+			SessionStore: mockStore,
+			Config: config.Config{
+				DefaultModel: "test",
+				Models: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
+			},
+		})
+
+		originalSessionID := s.SessionID()
+
+		// Execute ForkSavedSession
+		if err := s.Handle(context.Background(), ForkSavedSession{SessionID: "saved-session-id"}); err != nil {
+			t.Fatalf("Handle(ForkSavedSession) = %v, want nil", err)
+		}
+
+		// Verify current session switched to fork (different ID than before)
+		if newID := s.SessionID(); newID == originalSessionID {
+			t.Fatalf("session ID should change on fork saved session, got %q", newID)
+		}
+
+		// Verify new title has "Fork of:" prefix
+		newTitle := s.SessionTitle()
+		if !strings.HasPrefix(newTitle, "Fork of:") {
+			t.Fatalf("fork saved session title = %q, want prefix 'Fork of:'", newTitle)
+		}
+
+		// Verify context report event was emitted
+		var found bool
+		for _, event := range events {
+			if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+				if strings.Contains(payload.Content, "Forked from:") && strings.Contains(payload.Content, "Original Saved Session") {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("events = %#v, want ContextReportEvent with correct fork message", events)
+		}
+
+		// Verify fork was saved to the store
+		forkedID := s.SessionID()
+		savedFork, ok := mockStore.savedSessions[forkedID]
+		if !ok {
+			t.Fatal("forked session was not saved to store")
+		}
+		if !strings.HasPrefix(savedFork.Title, "Fork of:") {
+			t.Fatalf("saved fork title = %q, want prefix 'Fork of:'", savedFork.Title)
+		}
+
+		// Verify conversation was loaded from fork lineage
+		conv := s.Conversation()
+		if len(conv) != 1 || conv[0].Content != "old message" {
+			t.Fatalf("conversation after fork = %v, want original message", conv)
+		}
+	})
+
+	t.Run("error on non-existent session ID", func(t *testing.T) {
+		var events []output.Event
+		mockStore := newMockSessionStore()
+
+		s := testNewSession(t, Dependencies{
+			BaseEvents: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+			SessionStore: mockStore,
+			Config: config.Config{
+				DefaultModel: "test",
+				Models: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
+			},
+		})
+
+		originalID := s.SessionID()
+
+		// Execute ForkSavedSession with non-existent ID
+		err := s.Handle(context.Background(), ForkSavedSession{SessionID: "non-existent"})
+		if err == nil {
+			t.Fatal("Handle(ForkSavedSession) with non-existent ID = nil, want error")
+		}
+
+		// Verify session ID did not change
+		if s.SessionID() != originalID {
+			t.Fatalf("session ID changed on error: %q -> %q", originalID, s.SessionID())
+		}
+
+		// Verify error event was emitted
+		var found bool
+		for _, event := range events {
+			if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+				if strings.Contains(payload.Content, "failed") {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("events = %#v, want ContextReportEvent with error", events)
+		}
+	})
+
+	t.Run("noop when SessionStore is nil", func(t *testing.T) {
+		s := testNewSession(t, Dependencies{})
+		originalID := s.SessionID()
+
+		if err := s.Handle(context.Background(), ForkSavedSession{SessionID: "any-id"}); err != nil {
+			t.Fatalf("Handle(ForkSavedSession) with nil store = %v, want nil", err)
+		}
+
+		// Session ID should not change if store is nil
+		if s.SessionID() != originalID {
+			t.Fatalf("session ID changed with nil store: %q -> %q", originalID, s.SessionID())
+		}
+	})
 }

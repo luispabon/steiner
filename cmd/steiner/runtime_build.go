@@ -118,11 +118,13 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 }
 
 func runtimeHTTPClient() *http.Client {
-	// No client-level timeout — streams can run indefinitely (Timeout = 0).
-	// Transport.ResponseHeaderTimeout defaults to 30s as a safety net so a
-	// stuck server doesn't hang forever. If a provider needs more time for
-	// slow prompt processing, set its config timeout — it propagates to
-	// both client.Timeout and Transport.ResponseHeaderTimeout.
+	// No client-level timeout — without a provider timeout, streams can run
+	// indefinitely. Transport.ResponseHeaderTimeout acts as a 30s safety net
+	// for the header phase so a stuck server doesn't hang forever on the
+	// initial read. Providers that set config.timeout get Client.Timeout
+	// applied in NewOpenAICompat, which bounds the entire request including
+	// the streaming body; that path does not touch the Transport to avoid
+	// breaking the http2 wiring.
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{

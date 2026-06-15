@@ -406,10 +406,32 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 			m.sessionPicker = m.sessionPicker.Close()
 			if m.controller != nil {
-				if err := m.controller.Handle(context.Background(), interactive.LoadSession{SessionID: selected.ID}); err != nil {
-					m.content.AppendLine("status: " + err.Error())
+				ctrl := m.controller
+				sid := selected.ID
+				return m, func() tea.Msg {
+					_ = ctrl.Handle(context.Background(), interactive.LoadSession{SessionID: sid})
+					return nil
 				}
 			}
+		}
+	case tea.KeyRunes:
+		if msg.String() == "f" {
+			if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
+				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
+				m.sessionPicker = m.sessionPicker.Close()
+				if m.controller != nil {
+					ctrl := m.controller
+					sid := selected.ID
+					return m, func() tea.Msg {
+						_ = ctrl.Handle(context.Background(), interactive.ForkSavedSession{SessionID: sid})
+						return nil
+					}
+				}
+			}
+		} else {
+			var cmd tea.Cmd
+			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+			return m, cmd
 		}
 	default:
 		var cmd tea.Cmd

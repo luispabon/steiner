@@ -76,19 +76,11 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 		client = defaultHTTPClient
 	}
 	if cfg.Timeout > 0 {
+		// Only set Client.Timeout. Mutating Transport via Clone() drops the
+		// unexported http2 wiring (ALPN-negotiated h2) and produces
+		// "malformed HTTP response" errors when the upstream selects h2.
 		cloned := *client
 		cloned.Timeout = cfg.Timeout
-		if cloned.Transport != nil {
-			if transport, ok := cloned.Transport.(*http.Transport); ok {
-				transportClone := transport.Clone()
-				transportClone.ResponseHeaderTimeout = cfg.Timeout
-				cloned.Transport = transportClone
-			}
-		} else {
-			cloned.Transport = &http.Transport{
-				ResponseHeaderTimeout: cfg.Timeout,
-			}
-		}
 		client = &cloned
 	}
 	provider := &OpenAICompat{
