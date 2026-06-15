@@ -59,6 +59,7 @@ func renderHelp(styles theme.Styles, width int) string {
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
 				{"/caveman", "toggle caveman mode"},
+				{"/fork", "fork current conversation"},
 				{"/humanizer", "toggle humanizer mode"},
 				{"/context", "inspect last request"},
 				{"/resume", "resume a previous session"},

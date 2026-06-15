@@ -65,6 +65,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
 	}
+	if action.forkSession {
+		return m.executeForkSessionAction()
+	}
 	if action.invokeSkill != "" {
 		return m.executeInvokeSkillAction(action.invokeSkill, action.invokeSkillArgs)
 	}
@@ -327,6 +330,27 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
+	// Check if there are any segments/messages in the conversation
+	if len(m.content.segments) == 0 {
+		m.content.AppendLine("status: no conversation to fork")
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.ForkSession{}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
+	}
+	m.input.Reset()
+	m.historyIdx = 0
+	m.syncViewport()
+	return m, nil
+}
+
 func (m Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
 	// prepend to history (non-empty submits only)
 	if value != "" {
@@ -418,6 +442,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/config", name: "Inspect config", desc: "show configuration", source: ""},
 		{command: "/context", name: "Inspect context", desc: "inspect last request", source: ""},
 		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
+		{command: "/fork", name: "Fork conversation", desc: "fork current conversation into a new session", source: ""},
 		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},
 		{command: "/model", name: "Switch model", desc: "pick a language model", source: ""},
 		{command: "/implement", name: "Implement plan", desc: "start implementation from a plan", source: ""},

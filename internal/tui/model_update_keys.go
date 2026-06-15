@@ -411,6 +411,22 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case tea.KeyRunes:
+		if msg.String() == "f" {
+			if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
+				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
+				m.sessionPicker = m.sessionPicker.Close()
+				if m.controller != nil {
+					if err := m.controller.Handle(context.Background(), interactive.ForkSavedSession{SessionID: selected.ID}); err != nil {
+						m.content.AppendLine("status: " + err.Error())
+					}
+				}
+			}
+		} else {
+			var cmd tea.Cmd
+			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+			return m, cmd
+		}
 	default:
 		var cmd tea.Cmd
 		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
