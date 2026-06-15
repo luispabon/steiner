@@ -7,6 +7,46 @@ const cavemanStyleInstruction = ` - Respond terse like smart caveman. All techni
 
 const identity = "You are steiner, a lean coding agent."
 
+type sectionID string
+
+const (
+	sectionIdentity   sectionID = "identity"
+	sectionDelegation sectionID = "delegation"
+	sectionCoreRules  sectionID = "core_rules"
+	sectionWorkflow   sectionID = "workflow"
+)
+
+type sectionContext struct {
+	delegationEnabled bool
+}
+
+type sectionRenderer func(sectionContext) string
+
+var defaultSectionOrder = []sectionID{
+	sectionIdentity,
+	sectionDelegation,
+	sectionCoreRules,
+	sectionWorkflow,
+}
+
+var systemSections = map[sectionID]sectionRenderer{
+	sectionIdentity: func(sectionContext) string {
+		return identity
+	},
+	sectionDelegation: func(ctx sectionContext) string {
+		if !ctx.delegationEnabled {
+			return ""
+		}
+		return delegationInstructions
+	},
+	sectionCoreRules: func(sectionContext) string {
+		return coreRules
+	},
+	sectionWorkflow: func(sectionContext) string {
+		return workflowInstructions
+	},
+}
+
 const delegationInstructions = `## Delegation
 
 Every file you read locally stays in your context for the rest of the conversation, increasing cost for all subsequent turns. Sub-agent context is ephemeral — it vanishes after the agent reports back. Default to delegation; work locally only when the conditions below are clearly met.
@@ -61,17 +101,17 @@ Examples:
 | Read one file you are about to edit | Work locally. |
 | Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
 
-const defaultSystemPreamble = `Core rules:
+const coreRules = `Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
 - Prefer smallest correct change. Every changed line must trace to task.
 - Match existing project style.
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
 - Push back on overcomplicated, risky, or unnecessary requests.
-- Surface important tradeoffs briefly.
+- Surface important tradeoffs briefly.`
 
-Before editing:
-- For multi-file inspection, delegate to ` + "`explore`" + `. Do not pull many files into parent context.
+const workflowInstructions = `Before editing:
+- Read the relevant files and nearby tests before making changes.
 - State a short plan for non-trivial work.
 - Define success check.
 - Ask for user's permission before editing.
@@ -88,6 +128,8 @@ Verification:
 - Prefer tests that reproduce bug or prove new behavior.
 - Run narrowest relevant checks first.
 - If checks fail, fix task-related failures only.
+- Do not report completion with failing task-related checks.
+- Quote exact errors on failure.
 - If checks cannot run, say exactly why and what should run.
 
 When skills are enabled, follow matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. User can override skill explicitly.
@@ -95,19 +137,15 @@ When skills are enabled, follow matching skill workflow for requests in that ski
 Final response:
 - Summarize what changed.
 - List verification and results.
+- List files modified with a one-line summary per file.
 - Mention assumptions, skipped checks, or unrelated issues noticed.`
 
 // SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool, humanizerMode bool, systemSuffix string) ContextBlock {
-	content := strings.TrimSpace(defaultSystemPreamble)
+	content := buildSystemPreamble(delegationEnabled)
 	if override != "" {
-		content = override
+		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled)
 	}
-	if delegationEnabled {
-		content = delegationInstructions + "\n\n" + content
-	}
-
-	content = identity + "\n\n" + content
 
 	if cavemanMode {
 		content = content + "\n\n" + cavemanStyleInstruction
@@ -126,4 +164,33 @@ func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool, h
 		Content:  content,
 		ByteSize: len(content),
 	}
+}
+
+func buildOverridePreamble(override string, delegationEnabled bool) string {
+	sections := []string{identity}
+	if delegationEnabled {
+		sections = append(sections, strings.TrimSpace(delegationInstructions))
+	}
+	sections = append(sections, override)
+	return strings.Join(sections, "\n\n")
+}
+
+func buildSystemPreamble(delegationEnabled bool) string {
+	ctx := sectionContext{
+		delegationEnabled: delegationEnabled,
+	}
+
+	sections := make([]string, 0, len(defaultSectionOrder))
+	for _, id := range defaultSectionOrder {
+		render, ok := systemSections[id]
+		if !ok {
+			continue
+		}
+		content := strings.TrimSpace(render(ctx))
+		if content == "" {
+			continue
+		}
+		sections = append(sections, content)
+	}
+	return strings.Join(sections, "\n\n")
 }
