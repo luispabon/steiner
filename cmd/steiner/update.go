@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -14,7 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/update"
 )
 
-var updateFunc = update.Update
+var updateFunc = update.Channel
 
 func accentColor() lipgloss.Color {
 	p, err := prefs.Load()
@@ -28,20 +29,34 @@ func accentColor() lipgloss.Color {
 	return lipgloss.Color(hex)
 }
 
+// isDevBuild returns true if the version is a dev build that cannot be
+// semver-compared: the literal "dev" or any version prefixed with "dev-".
+func isDevBuild(v string) bool {
+	return v == "dev" || strings.HasPrefix(v, "dev-")
+}
+
 func newUpdateCommand() *cobra.Command {
-	return &cobra.Command{
+	var devFlag bool
+
+	cmd := &cobra.Command{
 		Use:     "update",
 		Short:   "Update steiner to the latest release",
 		Aliases: []string{"upgrade"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if version == "dev" {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev build cannot self-update (no version to compare against).")
+			if isDevBuild(version) && !devFlag {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev build cannot self-update without --dev. Use 'steiner update --dev' to update from the dev channel.")
 				return nil
 			}
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Checking for updates…")
-			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token)
+
+			channel := "stable"
+			if devFlag {
+				channel = "dev"
+			}
+
+			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token, channel)
 			if errors.Is(err, update.ErrUpToDate) {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "steiner is already up to date")
 				printVersionInfo(cmd.OutOrStdout(), version, latestVer)
@@ -54,6 +69,9 @@ func newUpdateCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&devFlag, "dev", false, "Update from the dev channel instead of the latest stable release")
+	return cmd
 }
 
 func versionStyle(v string) string {

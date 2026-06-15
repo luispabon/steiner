@@ -28,7 +28,19 @@ type release struct {
 // token in the Authorization header.
 func fetchLatestRelease(ctx context.Context, owner, repo, token string) (*release, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	return fetchRelease(ctx, url, token)
+}
 
+// fetchReleaseByTag fetches a GitHub release by its tag name. If token is
+// non-empty, it is passed as a Bearer token in the Authorization header.
+func fetchReleaseByTag(ctx context.Context, owner, repo, tag, token string) (*release, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", owner, repo, tag)
+	return fetchRelease(ctx, url, token)
+}
+
+// fetchRelease performs a GET request to the given GitHub API URL and returns
+// the parsed release. If token is non-empty, it is passed as a Bearer token.
+func fetchRelease(ctx context.Context, url, token string) (*release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

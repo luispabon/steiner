@@ -18,7 +18,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln check
 
 build: build-binaries
 
@@ -38,6 +38,10 @@ build-binaries-slim:
 			}; \
 			upx --best $(BIN_DIR)/steiner ;; \
 	esac
+
+build-binaries-dev:
+	mkdir -p $(BIN_DIR)
+	$(CGO_BUILD_PREFIX)go build -ldflags="-X main.version=dev-$(shell git rev-parse --short HEAD)" -o $(BIN_DIR)/steiner ./cmd/steiner
 
 test:
 	go test ./...

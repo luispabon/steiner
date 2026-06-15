@@ -63,6 +63,7 @@ go run ./cmd/steiner --exec "explain the auth package"
 |---------|--------------|
 | `version` | Print the build version |
 | `config` | Print the resolved configuration (providers, models, limits) |
+| `update` / `upgrade` | Self-update to the latest stable release |
 | `tools` | List configured tools and their approval status |
 | `skills` | List discovered skills |
 | `--help` | Print all flags and usage |
@@ -266,6 +267,34 @@ Fork the current conversation or any saved session into a new independent sessio
 **In the session picker**, press `f` on any saved session to fork it. The new session is created with the title "Fork of: <original title>" and can be resumed, edited, or deleted like any other session.
 
 Forks are independent — changes in one session do not affect the source.
+
+## Self-update
+
+Steiner can self-update via the `update` (or `upgrade`) command. It fetches the
+latest release from GitHub, verifies the binary checksum, and atomically
+replaces the running executable.
+
+A GitHub token is not strictly required, but GitHub API rate limits may apply
+without one. Set `STEINER_GITHUB_TOKEN` in your environment to authenticate:
+
+```bash
+export STEINER_GITHUB_TOKEN=ghp_...
+```
+
+### Dev channel
+
+Use `--dev` to update from the dev channel, which publishes a build on every
+merge to `main`:
+
+```bash
+steiner update --dev
+# or
+steiner upgrade --dev
+```
+
+Dev builds carry a `dev` or `dev-<sha>` version string and skip semver
+comparison — the dev binary is always replaced with the latest dev release.
+Running a dev build without `--dev` prints a warning and exits.
 
 ## Development
 
