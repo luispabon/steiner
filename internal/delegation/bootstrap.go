@@ -12,7 +12,9 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-const defaultChildSystemPrompt = "You are a sub-agent. Complete the task given to you."
+// defaultChildSystemPrompt stays empty so child agents use the shared system
+// preamble unless a spec provides an explicit override.
+const defaultChildSystemPrompt = ""
 
 // BootstrapDeps holds the dependencies needed to assemble a child agent run request.
 type BootstrapDeps struct {
@@ -72,23 +74,17 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 }
 
 // buildChildPrompt assembles the prompt.AssemblyOptions for a child agent.
-// The child system prompt is supplied as the preamble override instead of a
-// conversation message so the assembled provider request has one system message.
-// Project context (AGENTS.md, configured extra files) is included so child
-// agents inherit project conventions without the parent forwarding them.
+// Specified system prompts are forwarded as prompt overrides; otherwise the
+// shared system preamble is left intact. Project context (AGENTS.md,
+// configured extra files) is included so child agents inherit project
+// conventions without the parent forwarding them.
 func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool, humanizerMode bool) prompt.AssemblyOptions {
-	systemPrompt := spec.SystemPrompt
-	if systemPrompt == "" {
-		systemPrompt = defaultChildSystemPrompt
-	}
-
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
 	}
 
-	return prompt.AssemblyOptions{
-		PromptOverrides:           config.ModelPrompts{System: systemPrompt},
+	opts := prompt.AssemblyOptions{
 		HomeDir:                   homeDir,
 		ProjectRoot:               workDir,
 		ProjectContextExtraFiles:  pcc.ExtraFiles,
@@ -100,6 +96,11 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},
 	}
+	if spec.SystemPrompt != "" {
+		opts.PromptOverrides.System = spec.SystemPrompt
+	}
+
+	return opts
 }
 
 // buildChildRegistries produces both the visible tool registry (tools the model
