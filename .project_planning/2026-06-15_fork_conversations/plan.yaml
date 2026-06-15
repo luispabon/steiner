@@ -74,6 +74,7 @@ steps:
     constraints:
       - Follow existing slash command patterns (/clear, /resume)
       - Session picker fork key should not conflict with existing bindings
+      - Session picker must show key hints (e.g. "enter: load · f: fork · esc: close") so user knows f is available
       - /fork while no conversation exists should show informative message
       - Help text consistent with existing entries
       - Session picker datetime uses UpdatedAt, formatted as "[ 2026-06-15 14:30:00 ]"
@@ -85,6 +86,7 @@ steps:
       - /fork with empty conversation shows appropriate message
       - Help screen shows /fork entry
       - Session picker entries prefixed with "[ YYYY-MM-DD HH:MM:SS ] " before title
+      - Session picker shows key hints footer with available actions
     verification:
       - gofmt -w internal/tui/model_input.go internal/tui/model_update_keys.go internal/tui/help.go
       - goimports -w internal/tui/model_input.go internal/tui/model_update_keys.go internal/tui/help.go
