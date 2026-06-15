@@ -47,8 +47,15 @@ func TestAgentSystemPrompt(t *testing.T) {
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {
 			p := AgentSystemPrompt(at)
-			if p == "" {
-				t.Fatalf("AgentSystemPrompt(%q) returned empty string", at)
+			switch at {
+			case AgentTypeCode:
+				if p != "" {
+					t.Fatalf("AgentSystemPrompt(%q) = %q, want empty shared-base prompt", at, p)
+				}
+			default:
+				if p == "" {
+					t.Fatalf("AgentSystemPrompt(%q) returned empty string", at)
+				}
 			}
 		})
 	}
