@@ -1,22 +1,23 @@
-name: release
+name: dev
 
 on:
   push:
-    tags:
-      - v*
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build binaries
+    name: Build dev binaries
     uses: ./.github/workflows/build-binaries.yml
     with:
-      version: ${{ github.ref_name }}
+      version: dev-${{ github.sha }}
+      artifact_prefix: dev-
 
   release:
-    name: Create release
+    name: Create/update dev release
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -40,14 +41,11 @@ jobs:
           for dir in dist/*/; do
             cp "$dir"* release/
           done
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          (cd release && sha256sum steiner-* > "steiner_${VERSION}_checksums.txt")
+          (cd release && sha256sum steiner-* > steiner_dev_checksums.txt)
 
-      - name: Create release
+      - name: Create or update dev release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          gh release create "${{ github.ref_name }}" release/* --generate-notes --title "v${VERSION}"
+          gh release create dev release/* --prerelease --title "dev" --notes "Development build from main" || true
+          gh release upload dev release/* --clobber

@@ -1,0 +1,89 @@
+name: build-binaries
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version string to inject via ldflags"
+        required: true
+        type: string
+      artifact_prefix:
+        description: "Prefix for artifact name (default: empty)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            binary_ext: ""
+            cgo_enabled: "0"
+          - os: linux
+            arch: arm64
+            binary_ext: ""
+            cgo_enabled: "0"
+          - os: darwin
+            arch: amd64
+            binary_ext: ""
+          - os: darwin
+            arch: arm64
+            binary_ext: ""
+          - os: windows
+            arch: amd64
+            binary_ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install UPX
+        if: matrix.os != 'darwin'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y upx-ucl
+
+      - name: Build
+        env:
+          BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+        run: |
+          mkdir -p dist
+          # Strip leading "v" from version if present.
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+          else
+            GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o "dist/${BINARY}" ./cmd/steiner
+          fi
+
+      - name: Compress with UPX
+        if: matrix.os != 'darwin'
+        env:
+          BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+        run: |
+          upx --best "dist/${BINARY}"
+
+      - name: Upload per-platform artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_prefix }}steiner-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}

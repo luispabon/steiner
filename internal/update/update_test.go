@@ -901,3 +901,234 @@ func TestDownloadURL_Non200(t *testing.T) {
 		t.Errorf("downloadURL: error = %v, want download returned 418", err)
 	}
 }
+
+func TestChannel_Dev_HappyPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	exePath := filepath.Join(tmpDir, "steiner")
+	if err := os.WriteFile(exePath, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	defer saveOSExecutable()()
+	osExecutable = func() (string, error) {
+		return exePath, nil
+	}
+
+	an := assetName()
+	binaryContent := []byte("dev binary content")
+	hash := sha256.Sum256(binaryContent)
+	hexHash := hex.EncodeToString(hash[:])
+	// Dev checksums file uses "dev" as version.
+	checksumsContent := hexHash + "  " + an + "\n"
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/tags/dev":
+			w.Header().Set("Content-Type", "application/json")
+			rel := release{
+				TagName: "dev",
+				Assets: []asset{
+					{Name: an, DownloadURL: server.URL + "/asset"},
+					{Name: "steiner_dev_checksums.txt", DownloadURL: server.URL + "/checksums"},
+				},
+			}
+			if err := json.NewEncoder(w).Encode(rel); err != nil {
+				t.Errorf("encode release: %v", err)
+			}
+		case "/asset":
+			_, _ = w.Write(binaryContent)
+		case "/checksums":
+			_, _ = w.Write([]byte(checksumsContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	tag, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev")
+	if err != nil {
+		t.Fatalf("Channel(dev): %v", err)
+	}
+	if tag != "dev" {
+		t.Errorf("Channel(dev) tag = %q, want %q", tag, "dev")
+	}
+
+	got, err := os.ReadFile(exePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(binaryContent) {
+		t.Errorf("Channel(dev): executable content = %q, want %q", got, binaryContent)
+	}
+}
+
+func TestChannel_Dev_Non200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev")
+	if err == nil {
+		t.Fatal("Channel(dev): expected error for 404, got nil")
+	}
+	if !strings.Contains(err.Error(), "fetch dev release") {
+		t.Errorf("Channel(dev): error = %v, want fetch dev release error", err)
+	}
+}
+
+func TestChannel_StableIsDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	exePath := filepath.Join(tmpDir, "steiner")
+	if err := os.WriteFile(exePath, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	defer saveOSExecutable()()
+	osExecutable = func() (string, error) {
+		return exePath, nil
+	}
+
+	an := assetName()
+	binaryContent := []byte("new binary content")
+	hash := sha256.Sum256(binaryContent)
+	hexHash := hex.EncodeToString(hash[:])
+	checksumsContent := hexHash + "  " + an + "\n"
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/latest":
+			w.Header().Set("Content-Type", "application/json")
+			rel := release{
+				TagName: "v2.0.0",
+				Assets: []asset{
+					{Name: an, DownloadURL: server.URL + "/asset"},
+					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
+				},
+			}
+			if err := json.NewEncoder(w).Encode(rel); err != nil {
+				t.Errorf("encode release: %v", err)
+			}
+		case "/asset":
+			_, _ = w.Write(binaryContent)
+		case "/checksums":
+			_, _ = w.Write([]byte(checksumsContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	if err != nil {
+		t.Fatalf("Channel(stable): %v", err)
+	}
+
+	got, err := os.ReadFile(exePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(binaryContent) {
+		t.Errorf("Channel(stable): executable content = %q, want %q", got, binaryContent)
+	}
+}
+
+func TestChannel_UnknownChannelIsStable(t *testing.T) {
+	tmpDir := t.TempDir()
+	exePath := filepath.Join(tmpDir, "steiner")
+	if err := os.WriteFile(exePath, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	defer saveOSExecutable()()
+	osExecutable = func() (string, error) {
+		return exePath, nil
+	}
+
+	an := assetName()
+	binaryContent := []byte("new binary content")
+	hash := sha256.Sum256(binaryContent)
+	hexHash := hex.EncodeToString(hash[:])
+	checksumsContent := hexHash + "  " + an + "\n"
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/latest":
+			w.Header().Set("Content-Type", "application/json")
+			rel := release{
+				TagName: "v2.0.0",
+				Assets: []asset{
+					{Name: an, DownloadURL: server.URL + "/asset"},
+					{Name: "steiner_2.0.0_checksums.txt", DownloadURL: server.URL + "/checksums"},
+				},
+			}
+			if err := json.NewEncoder(w).Encode(rel); err != nil {
+				t.Errorf("encode release: %v", err)
+			}
+		case "/asset":
+			_, _ = w.Write(binaryContent)
+		case "/checksums":
+			_, _ = w.Write([]byte(checksumsContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "unknown")
+	if err != nil {
+		t.Fatalf("Channel(unknown): %v", err)
+	}
+
+	got, err := os.ReadFile(exePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(binaryContent) {
+		t.Errorf("Channel(unknown): executable content = %q, want %q", got, binaryContent)
+	}
+}
+
+func TestChannel_Dev_MissingAsset(t *testing.T) {
+	an := assetName()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{
+			TagName: "dev",
+			Assets: []asset{
+				{Name: "nonexistent-asset", DownloadURL: server.URL + "/asset"},
+				{Name: "steiner_dev_checksums.txt", DownloadURL: server.URL + "/checksums"},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := Channel(context.Background(), "dev", "owner", "repo", "", "dev")
+	if err == nil {
+		t.Fatal("Channel(dev): expected error for missing asset, got nil")
+	}
+	if !strings.Contains(err.Error(), "no asset found for "+an) {
+		t.Errorf("Channel(dev): error = %v, want missing asset error", err)
+	}
+}

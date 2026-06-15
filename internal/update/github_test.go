@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -122,5 +123,56 @@ func TestFetchLatestRelease_MalformedJSON(t *testing.T) {
 	}
 	if err.Error() != "decode release: invalid character 'i' looking for beginning of object key string" {
 		t.Errorf("fetchLatestRelease error = %q, want decode error", err.Error())
+	}
+}
+
+func TestFetchReleaseByTag_HappyPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/releases/tags/dev" {
+			t.Errorf("unexpected path: %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		resp := release{
+			TagName: "dev",
+			Assets: []asset{
+				{Name: "steiner-linux-amd64", DownloadURL: "https://example.com/linux"},
+			},
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	rel, err := fetchReleaseByTag(context.Background(), "owner", "repo", "dev", "")
+	if err != nil {
+		t.Fatalf("fetchReleaseByTag: %v", err)
+	}
+	if rel.TagName != "dev" {
+		t.Errorf("TagName = %q, want %q", rel.TagName, "dev")
+	}
+	if len(rel.Assets) != 1 {
+		t.Fatalf("len(Assets) = %d, want 1", len(rel.Assets))
+	}
+}
+
+func TestFetchReleaseByTag_Non200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := fetchReleaseByTag(context.Background(), "owner", "repo", "dev", "")
+	if err == nil {
+		t.Fatal("fetchReleaseByTag: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "GitHub API returned 404") {
+		t.Errorf("fetchReleaseByTag error = %q, want GitHub API 404", err.Error())
 	}
 }

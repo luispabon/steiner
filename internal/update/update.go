@@ -212,48 +212,18 @@ func replaceBinary(exePath string, newData []byte) (retErr error) {
 	return nil
 }
 
-// Update checks the latest release of steiner on GitHub, downloads a matching
-// binary for the current platform, verifies its checksum, and atomically
-// replaces the running executable.
-//
-// currentVersion should be the current semver string (with or without "v"
-// prefix). owner and repo identify the GitHub repository. If token is
-// non-empty, it is used as a Bearer token for GitHub API requests.
-//
-// On success, the latest release tag name is returned. If the current version
-// is already up to date, ErrUpToDate is returned alongside the latest tag.
-func Update(ctx context.Context, currentVersion, owner, repo, token string) (string, error) {
-	// Fetch the latest release.
-	release, err := fetchLatestRelease(ctx, owner, repo, token)
-	if err != nil {
-		return "", fmt.Errorf("fetch latest release: %w", err)
-	}
-
-	// Compare versions.
-	latestTag := release.TagName
-	latestVer, err := parseVersion(latestTag)
-	if err != nil {
-		return "", fmt.Errorf("parse latest version %q: %w", latestTag, err)
-	}
-
-	currVer, err := parseVersion(currentVersion)
-	if err != nil {
-		return "", fmt.Errorf("parse current version %q: %w", currentVersion, err)
-	}
-
-	if !currVer.isOlderThan(latestVer) {
-		return latestTag, ErrUpToDate
-	}
-
-	// Find the matching asset.
+// downloadAndVerify downloads the binary and checksums assets for a release,
+// verifies the binary against the checksums, and replaces the running
+// executable. releaseTag is used to find the checksums file in the release.
+func downloadAndVerify(ctx context.Context, release *release, releaseTag, token string) (string, error) {
 	name := assetName()
 	asset := findAsset(release, name)
 	if asset == nil {
-		return "", fmt.Errorf("no asset found for %s in release %s", name, latestTag)
+		return "", fmt.Errorf("no asset found for %s in release %s", name, releaseTag)
 	}
 
-	// Find the checksums asset.
-	strippedTag := strings.TrimPrefix(latestTag, "v")
+	// The checksums file uses the version without a leading "v".
+	strippedTag := strings.TrimPrefix(releaseTag, "v")
 	strippedTag = strings.TrimPrefix(strippedTag, "V")
 	checksumAsset := findChecksumAsset(release, strippedTag)
 	if checksumAsset == nil {
@@ -304,5 +274,68 @@ func Update(ctx context.Context, currentVersion, owner, repo, token string) (str
 		return "", fmt.Errorf("replace binary: %w", err)
 	}
 
-	return latestTag, nil
+	return releaseTag, nil
+}
+
+// Channel checks for an update on the specified release channel and
+// replaces the running binary if a newer version is available.
+//
+// Channel "stable" fetches the latest stable release and compares semver.
+// Channel "dev" fetches the release tagged "dev" and skips version comparison.
+//
+// currentVersion should be the current semver string (with or without "v"
+// prefix) for stable updates. owner and repo identify the GitHub repository.
+// If token is non-empty, it is used as a Bearer token for GitHub API requests.
+//
+// On success, the release tag name is returned. For stable updates, if the
+// current version is already up to date, ErrUpToDate is returned alongside the
+// latest tag.
+func Channel(ctx context.Context, currentVersion, owner, repo, token, channel string) (string, error) {
+	switch channel {
+	case "dev":
+		release, err := fetchReleaseByTag(ctx, owner, repo, "dev", token)
+		if err != nil {
+			return "", fmt.Errorf("fetch dev release: %w", err)
+		}
+		return downloadAndVerify(ctx, release, release.TagName, token)
+
+	default:
+		// Fetch the latest release.
+		release, err := fetchLatestRelease(ctx, owner, repo, token)
+		if err != nil {
+			return "", fmt.Errorf("fetch latest release: %w", err)
+		}
+
+		// Compare versions.
+		latestTag := release.TagName
+		latestVer, err := parseVersion(latestTag)
+		if err != nil {
+			return "", fmt.Errorf("parse latest version %q: %w", latestTag, err)
+		}
+
+		currVer, err := parseVersion(currentVersion)
+		if err != nil {
+			return "", fmt.Errorf("parse current version %q: %w", currentVersion, err)
+		}
+
+		if !currVer.isOlderThan(latestVer) {
+			return latestTag, ErrUpToDate
+		}
+
+		return downloadAndVerify(ctx, release, latestTag, token)
+	}
+}
+
+// Update checks the latest stable release of steiner on GitHub, downloads a
+// matching binary for the current platform, verifies its checksum, and
+// atomically replaces the running executable.
+//
+// currentVersion should be the current semver string (with or without "v"
+// prefix). owner and repo identify the GitHub repository. If token is
+// non-empty, it is used as a Bearer token for GitHub API requests.
+//
+// On success, the latest release tag name is returned. If the current version
+// is already up to date, ErrUpToDate is returned alongside the latest tag.
+func Update(ctx context.Context, currentVersion, owner, repo, token string) (string, error) {
+	return Channel(ctx, currentVersion, owner, repo, token, "stable")
 }
