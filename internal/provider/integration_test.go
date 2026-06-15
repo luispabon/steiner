@@ -2,12 +2,14 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
@@ -473,6 +475,67 @@ func TestIntegrationStreamChatCompletionHTTPError(t *testing.T) {
 			}
 			if _, ok := <-ch; ok {
 				t.Fatal("stream produced unexpected extra chunk after error")
+			}
+		})
+	}
+}
+
+// TestIntegrationH2TimeoutDoesNotBreakTransport is a regression test for the
+// bug where setting a provider timeout cloned the shared http.Transport, which
+// dropped the unexported http2 wiring and produced
+// "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
+// errors when the upstream negotiated h2. It runs the same chat request
+// against an h2-capable server with and without Timeout set, and expects both
+// to succeed without transport errors. The transport mirrors the shape of
+// runtimeHTTPClient (plain *http.Transport, no http2.ConfigureTransport).
+func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	})
+	srv := httptest.NewUnstartedServer(mux)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	// Mirror runtimeHTTPClient shape: plain *http.Transport, ResponseHeaderTimeout
+	// set, no explicit http2.ConfigureTransport. The previous bug cloned this
+	// transport and dropped the h2 wiring; the test now ensures we do not
+	// touch the Transport at all when applying a provider timeout.
+	transport := &http.Transport{
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		ResponseHeaderTimeout: 30 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+	httpClient := &http.Client{Transport: transport}
+
+	cases := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{"no timeout", 0},
+		{"with timeout", 30 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, err := NewOpenAICompat(OpenAICompatConfig{
+				BaseURL:    srv.URL + "/v1",
+				APIKey:     "sk-test-key",
+				Model:      "gpt-4",
+				Timeout:    tc.timeout,
+				HTTPClient: httpClient,
+				Scheduler:  mustTestScheduler(t, 1),
+			})
+			if err != nil {
+				t.Fatalf("NewOpenAICompat() error = %v", err)
+			}
+
+			_, err = provider.ChatCompletion(context.Background(), ChatRequest{
+				Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
+			})
+			if err != nil {
+				t.Fatalf("ChatCompletion with %s failed: %v", tc.name, err)
 			}
 		})
 	}
