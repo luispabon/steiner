@@ -194,38 +194,21 @@ See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full document
 
 ## Optional features
 
-### Caveman mode
+### `cave_human`
 
-Caveman mode makes the model respond tersely — stripping filler, articles, pleasantries, and hedging. This reduces output token growth and response length while preserving technical content. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so terseness is consistent throughout a session.
+`cave_human` combines terse-output behavior with an anti-AI-writing style instruction. It keeps responses short and direct while avoiding filler, hedging, and common AI-writing tells. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so it stays consistent throughout a session.
 
-Disabled by default. Enable via config, env var, CLI flag, or `/caveman` in the interactive TUI:
-
-```yaml
-# config.yaml
-caveman_mode: true
-```
-
-```bash
-STEINER_CAVEMAN_MODE=true   # environment variable
---caveman                   # CLI flag
-/caveman                    # TUI toggle (persists for the session)
-```
-
-### Humanizer mode
-
-Humanizer mode injects a compact "avoid AI-writing tells" instruction into the system preamble, compaction prompts, and sub-agent prompts. It strips em/en dashes, AI vocabulary ("delve", "showcase", "leverage", ...), rule-of-three lists, significance inflation, copula avoidance, chatbot artifacts, and similar patterns. The instruction is a derivative of the MIT-licensed [blader/humanizer](https://github.com/blader/humanizer) skill, compressed in the same terse style as the caveman instruction.
-
-Disabled by default. Enable via config, env var, CLI flag, or `/humanizer` in the interactive TUI. Humanizer and caveman can be enabled simultaneously — both instructions are appended to the same prompt.
+Disabled by default. Enable via config, env var, CLI flag, or `/cave-human` in the interactive TUI:
 
 ```yaml
 # config.yaml
-humanizer_mode: true
+cave_human: true
 ```
 
 ```bash
-STEINER_HUMANIZER_MODE=true   # environment variable
---humanizer                   # CLI flag
-/humanizer                    # TUI toggle (persists for the session)
+STEINER_CAVE_HUMAN=true     # environment variable
+--cave-human                # CLI flag
+/cave-human                 # TUI toggle (persists for the session)
 ```
 
 ### Web search
