@@ -558,7 +558,7 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 	startedToolCalls := map[string]struct{}{}
 	pendingDelegates := map[string]agent.ToolCall{}
 	for _, msg := range msgs {
-		if msg.Content == "" && len(msg.ToolCalls) == 0 {
+		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
 		}
 		switch msg.Role {
@@ -577,7 +577,6 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, startedToolCalls map[string]struct{}) {
 	for _, call := range calls {
 		if isDelegateToolCall(call.Name) {
-			s.events.Emit(output.NewDelegationStartedEvent(call.ID, taskFromArgs(call.Arguments)))
 			pendingDelegates[call.ID] = call
 		} else {
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
@@ -598,8 +597,10 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 			turns = msg.Retention.TurnCount
 			tokens = msg.Retention.TokenCount
 		}
+		task := taskFromArgs(pending.Arguments)
+		s.events.Emit(output.NewDelegationStartedEvent(agentID, task))
 		if status == "failed" {
-			s.events.Emit(output.NewDelegationFailedEvent(agentID, taskFromArgs(pending.Arguments), msg.Content))
+			s.events.Emit(output.NewDelegationFailedEvent(agentID, task, msg.Content))
 		} else {
 			s.events.Emit(output.NewDelegationCompleteEvent(agentID, status, turns, tokens, 0, msg.Content))
 		}

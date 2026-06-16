@@ -1867,7 +1867,7 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 	if got, want := len(delegationStarted), 1; got != want {
 		t.Fatalf("delegation started events = %d, want %d", got, want)
 	}
-	if got, want := delegationStarted[0].AgentID, "call_explore_1"; got != want {
+	if got, want := delegationStarted[0].AgentID, "agent-abc123"; got != want {
 		t.Fatalf("delegation started agent id = %q, want %q", got, want)
 	}
 	if got, want := delegationStarted[0].TaskPreview, "find auth files"; got != want {
@@ -2006,7 +2006,7 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 	if got, want := len(delegationStarted), 1; got != want {
 		t.Fatalf("delegation started events = %d, want %d", got, want)
 	}
-	if got, want := delegationStarted[0].AgentID, "call_delegate_2"; got != want {
+	if got, want := delegationStarted[0].AgentID, "agent-call_delegate_2"; got != want {
 		t.Fatalf("delegation started agent id = %q, want %q", got, want)
 	}
 
@@ -2163,7 +2163,7 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 	if got, want := len(delegationStarted), 1; got != want {
 		t.Fatalf("delegation started events = %d, want %d", got, want)
 	}
-	if got, want := delegationStarted[0].AgentID, "call_del_1"; got != want {
+	if got, want := delegationStarted[0].AgentID, "agent-exp-1"; got != want {
 		t.Fatalf("delegation started agent id = %q, want %q", got, want)
 	}
 	if got, want := delegationStarted[0].TaskPreview, "find tests"; got != want {
