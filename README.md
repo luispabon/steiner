@@ -222,6 +222,8 @@ advisor:
 
 `model` must reference a key in `models` when the feature is enabled. `max_tokens` is optional.
 
+See [docs/ADVISOR_SUBAGENT.md](docs/ADVISOR_SUBAGENT.md) for the full behavior and implementation reference.
+
 
 ### Web search
 
