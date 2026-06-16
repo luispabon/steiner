@@ -1,0 +1,250 @@
+steps:
+  - id: step-1
+    title: Add advisor config block
+    scope: >
+      Introduce an AdvisorConfig struct and wire it into the top-level Config with
+      defaults, merging/patching, and validation. Fields: Enabled (default false),
+      Model (string alias, resolved against existing models config), MaxUsesPerRun
+      (int, per-run call cap), MaxTokens (*int, advisor output bound). Mirror the
+      existing SubAgentConfig pattern end-to-end.
+    files:
+      - internal/config/config.go
+      - internal/config/defaults.go
+      - internal/config/validate.go
+      - internal/config/validate_runtime.go
+      - internal/config/patch_apply.go
+      - internal/config/patch_runtime.go
+      - internal/config/config_test.go
+      - internal/config/validate_test.go
+    constraints:
+      - Default Enabled=false (opt-in); zero-value config must mean advisor off.
+      - Validate Model is non-empty when Enabled; MaxUsesPerRun >= 1 when Enabled; MaxTokens > 0 if set.
+      - Follow existing SubAgentConfig merge/patch/validate idioms exactly; no new util packages.
+      - Use 0o octal literals if any; keep symbols unexported unless cross-package use needed.
+    acceptance:
+      - AdvisorConfig exists on Config with yaml tags and documented exported fields.
+      - Defaults yield Enabled=false; validation rejects enabled-without-model and bad caps.
+      - Patch/merge round-trips advisor fields like SubAgent does.
+    verification:
+      - go test ./internal/config -run Advisor
+      - gofmt -w <changed files>; go vet ./internal/config
+
+  - id: step-2
+    title: Live-conversation snapshot accessor in the agent loop
+    scope: >
+      Provide a per-tool-call snapshot of the live conversation to tool handlers via
+      context, without changing the tool.Executor interface. In internal/agent, add a
+      context key plus ContextWithConversation(ctx, snapshot) and ConversationFrom
+      Context(ctx) helpers, and set the current conversation snapshot into ctx
+      immediately before the Executor.Execute call in turn_progression.go. Snapshot is
+      provided as []provider.Message (already converted, replay-safe) so consumers do
+      not import internal/agent.
+    files:
+      - internal/agent/turn_progression.go
+      - internal/agent/context_state.go
+      - internal/agent/turn_progression_test.go
+    constraints:
+      - Do NOT change the Executor.Execute(ctx, name, input) signature.
+      - Snapshot must be the live conversation at call time (set per tool call), not a stale copy.
+      - Reuse existing agent->provider message conversion (ToReplaySafeProviderMessages); do not reimplement.
+      - internal/agent must NOT import internal/advisor (avoid import cycle); advisor reads via the exported accessor.
+      - Keep change minimal and within the agent package boundary.
+    acceptance:
+      - ConversationFromContext returns the current conversation during a tool call and nil when unset.
+      - Snapshot reflects messages accumulated up to the tool call (verified in a turn-progression test).
+    verification:
+      - go test ./internal/agent -run Conversation
+      - gofmt -w <changed files>; go vet ./internal/agent
+
+  - id: step-3
+    title: internal/advisor package - request build and model call
+    scope: >
+      New internal/advisor package that, given the live conversation snapshot
+      ([]provider.Message), an advisor system prompt, the resolved advisor model, and
+      provider, builds and runs a single non-streaming advisor inference and returns
+      bounded free-form guidance text. No tools, no child agent loop, no mutation - a
+      pure reasoning pass. Conversation is sent as-is (no extra cap/trim; it is already
+      bounded by compaction + delegation summaries upstream). Apply MaxTokens to the
+      advisor call if configured.
+    files:
+      - internal/advisor/advisor.go
+      - internal/advisor/prompt.go
+      - internal/advisor/advisor_test.go
+    constraints:
+      - Pure reasoning pass - advisor gets no tool registry and cannot mutate or call tools.
+      - Send the conversation snapshot unmodified; no summarisation, no head/tail cap.
+      - Thread context.Context through the provider call; wrap errors as fmt.Errorf("advisor: %w", err).
+      - Advisor system prompt instructs high-level steering only and that it cannot see inside delegations.
+      - Define small consumer-side interfaces; depend on internal/provider, not internal/agent.
+      - Table-driven tests with a stub provider; avoid large inline literals (use testdata if needed).
+    acceptance:
+      - Given a snapshot + stub provider, returns the provider's text as guidance.
+      - Provider error surfaces wrapped; empty/blank guidance handled deterministically.
+      - MaxTokens, when set, is passed to the provider request.
+    verification:
+      - go test ./internal/advisor
+      - gofmt -w <changed files>; go vet ./internal/advisor
+
+  - id: step-4
+    title: advisor tool definition with handler-enforced per-run cap
+    scope: >
+      Define the model-facing advisor tool (tool.ToolDef) with a minimal schema
+      (no meaningful input; an optional empty/ignored object). The handler reads the
+      live conversation via the agent accessor (from ctx), enforces MaxUsesPerRun with
+      a per-run counter held in handler state, and on/over budget short-circuits and
+      returns a plain tool result ("advisor budget exhausted for this run (N/N);
+      proceed on your own judgment") WITHOUT calling the advisor model. Under budget it
+      calls internal/advisor and returns the guidance as a bounded tool result.
+    files:
+      - internal/advisor/tool.go
+      - internal/advisor/tool_test.go
+    constraints:
+      - NEVER mutate/add/remove the tool definition during a run - the schema is byte-identical for the whole run (prompt-cache integrity). Cap is enforced in the handler only. Add a code comment citing this and the divergence from Anthropic's remove-at-cap guidance.
+      - Counter is per-run state; reset semantics live with the run-scoped handler instance built per run.
+      - Approval policy: auto (read-only, no side effects), consistent with delegation tools.
+      - Tool name "advisor"; description states it is a stronger-model steering advisor, not a code-mutating sub-agent.
+      - Return bounded output per steiner tool-output rules.
+    acceptance:
+      - Calls up to MaxUsesPerRun invoke the advisor; the next call returns the exhausted-budget result without invoking the advisor.
+      - Tool definition/schema is unchanged across all calls in a run.
+      - Handler retrieves the live conversation snapshot from ctx.
+    verification:
+      - go test ./internal/advisor -run Tool
+      - gofmt -w <changed files>; go vet ./internal/advisor
+
+  - id: step-5
+    title: Layer A steering preamble in internal/prompt
+    scope: >
+      Add an AdvisorEnabled flag to AssemblyOptions and thread it into SystemPreamble
+      (mirroring DelegationEnabled/CaveHuman). When advisor is enabled, append the
+      approved Layer A base-preamble text (high-level steering only; cannot see inside
+      delegations; when to call: before committing to an approach/interpretation, when
+      stuck, before declaring done, when changing approach; orientation is not
+      substantive work; give advice serious weight but adapt to evidence; budget is
+      limited).
+    files:
+      - internal/prompt/types.go
+      - internal/prompt/system.go
+      - internal/prompt/source_plan.go
+      - internal/prompt/system_test.go
+    constraints:
+      - Preamble text only appears when AdvisorEnabled is true; default off changes nothing.
+      - Follow the exact pattern used for DelegationEnabled in SystemPreamble/source_plan.
+      - Keep preamble concise to respect the preamble byte budget.
+      - Update internal/prompt tests; context assembly order/precedence unchanged.
+    acceptance:
+      - SystemPreamble includes the advisor block iff AdvisorEnabled.
+      - Existing preamble tests pass; new test asserts presence/absence by flag.
+    verification:
+      - go test ./internal/prompt -run Preamble
+      - gofmt -w <changed files>; go vet ./internal/prompt
+
+  - id: step-6
+    title: Wire advisor tool and AdvisorEnabled in cmd/steiner
+    scope: >
+      In buildActiveRegistry, when cfg.Advisor.Enabled, resolve the advisor model
+      (ResolveWithDiscovery, like specialised delegate tools) and register the advisor
+      tool with deps: provider/resolved advisor model, agent.ConversationFromContext
+      accessor, config (MaxUsesPerRun/MaxTokens), event sink. Set AssemblyOptions.
+      AdvisorEnabled from cfg in the prompt assembly path. Build a fresh handler
+      instance per run so the per-run counter resets each run.
+    files:
+      - cmd/steiner/runner.go
+      - cmd/steiner/runner_run.go
+      - cmd/steiner/runner_test.go
+    constraints:
+      - cmd/steiner is the composition root - wiring/flags only, no business logic.
+      - Advisor model resolution uses ResolveWithDiscovery (consistent with delegate tools).
+      - Tool registered only when Advisor.Enabled; otherwise registry/prompt unchanged.
+      - Per-run handler instance (counter resets per run); registry built per run as today.
+    acceptance:
+      - With advisor enabled, the active registry contains the advisor tool and AdvisorEnabled is set in assembly.
+      - With advisor disabled (default), neither the tool nor the preamble appears.
+    verification:
+      - go test ./cmd/steiner -run Advisor
+      - gofmt -w <changed files>; go vet ./cmd/steiner
+
+  - id: step-7
+    title: Surface advisor lifecycle in output and TUI
+    scope: >
+      Emit advisor lifecycle events (consulting started / complete / budget-exhausted)
+      and render them: a visible "consulting advisor" status while the call blocks and
+      a bounded/collapsible guidance result. Mirror how delegation lifecycle events are
+      modelled and rendered.
+    files:
+      - internal/output/events.go
+      - internal/output/render.go
+      - internal/tui/event_state.go
+      - internal/tui/render.go
+      - internal/output/events_test.go
+      - internal/tui/render_test.go
+    constraints:
+      - Reuse delegation event/render patterns; keep render/event/preview concerns split per file-org rules.
+      - Bounded, collapsible output; do not dump full guidance unbounded.
+      - Wire events from the advisor tool handler via the existing EventSink.
+    acceptance:
+      - Advisor call emits started + terminal (complete or budget-exhausted) events.
+      - TUI shows a consulting indicator and a collapsible result.
+    verification:
+      - go test ./internal/output ./internal/tui -run Advisor
+      - gofmt -w <changed files>; go vet ./internal/output ./internal/tui
+
+  - id: step-8
+    title: Layer B situated advisor nudges in coding-loop skills
+    scope: >
+      Add concise advisor guidance to the plan, implement, and review SKILL.md files:
+      plan - consult before finalizing the approach / before writing plan.yaml on
+      architectural or tradeoff-heavy work; implement - consult before committing to an
+      implementation approach and after unresolving verification failures; review -
+      consult on whether changes satisfy the plan and on residual risks before
+      declaring review complete. Phrase so guidance is meaningful only when an advisor
+      tool is available.
+    files:
+      - skills/plan/SKILL.md
+      - skills/implement/SKILL.md
+      - skills/review/SKILL.md
+    constraints:
+      - Skills are auxiliary context - must not override user instructions, tool policy, or repo code.
+      - Keep additions short; do not restructure existing skill phases.
+      - Do not add guidance to pull-request skill (out of scope).
+    acceptance:
+      - Each of the three skills mentions consulting the advisor at its decision points.
+      - Embedded skills still build (//go:embed unaffected).
+    verification:
+      - go build ./...
+      - go test ./internal/skill
+
+  - id: step-9
+    title: Documentation
+    scope: >
+      Update docs per CLAUDE.md maintenance rules. README: add advisor to the built-in
+      tools section and a new "Advisor" feature section (description + config example,
+      mirroring cave_human pattern). CONFIGURATION.md: document the advisor config block
+      and defaults. SUBAGENT_DELEGATION.md: cross-reference the advisor and state how it
+      differs (stronger model, no tools, no child loop, pure reasoning pass over the
+      parent conversation).
+    files:
+      - README.md
+      - docs/CONFIGURATION.md
+      - docs/SUBAGENT_DELEGATION.md
+    constraints:
+      - Document disabled-by-default and the handler-enforced cap (not tool-def mutation) and the cache rationale.
+      - Keep examples consistent with the actual config field names/defaults from step-1.
+    acceptance:
+      - README, CONFIGURATION.md, and SUBAGENT_DELEGATION.md all reflect the advisor feature accurately.
+    verification:
+      - go build ./...
+
+  - id: step-10
+    title: Full verification pass
+    scope: Run the repo-mandated full check suite and fix any failures introduced by the feature.
+    files: []
+    depends_on: [step-1, step-2, step-3, step-4, step-5, step-6, step-7, step-8, step-9]
+    constraints:
+      - Run golangci-lint cache clean before make check to avoid stale-cache false positives.
+      - Fix only feature-introduced failures; do not widen scope to pre-existing warnings.
+    acceptance:
+      - make check passes (tidy-check fmt-check imports-check build-binaries test test-race vet lint vuln).
+    verification:
+      - golangci-lint cache clean
+      - make check
