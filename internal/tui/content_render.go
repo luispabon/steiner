@@ -9,9 +9,15 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// isUserSegment reports whether kind is a user-prompt segment kind.
+func isUserSegment(kind contentSegmentKind) bool {
+	return kind == segmentUser || kind == segmentUserMarkdown
+}
+
 func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
+	kinds := make([]contentSegmentKind, 0, len(b.segments)+2)
 	for i := range b.segments {
 		if b.skipHiddenSegment(i) {
 			continue
@@ -28,6 +34,7 @@ func (b *contentBuffer) String(width int) string {
 			b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
 			if stripped != "" {
 				parts = append(parts, stripped)
+				kinds = append(kinds, seg.kind)
 			}
 			continue
 		}
@@ -39,14 +46,47 @@ func (b *contentBuffer) String(width int) string {
 		b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
 		if rendered != "" {
 			parts = append(parts, rendered)
+			kinds = append(kinds, seg.kind)
 		}
 	}
 	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, strings.TrimRight(preview, "\n"))
+		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	result := strings.Join(parts, "\n")
-	return b.fillEmptyLines(result, width)
+	return b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+}
+
+// joinWithUserMargin joins parts with "\n", inserting a blank line ("\n\n")
+// above and below any user-prompt segment. Parts whose kind entry is -1 are
+// preview sentinels and only receive single-newline separators.
+func joinWithUserMargin(parts []string, kinds []contentSegmentKind) string {
+	var sb strings.Builder
+	lastKind := contentSegmentKind(-1)
+	for i, p := range parts {
+		if i > 0 {
+			sep := joinSeparator(lastKind, kinds[i])
+			sb.WriteString(sep)
+		}
+		sb.WriteString(p)
+		if kinds[i] >= 0 {
+			lastKind = kinds[i]
+		}
+	}
+	return sb.String()
+}
+
+// joinSeparator returns the separator to place between two adjacent parts.
+// Preview sentinels (kind < 0) collapse to a single newline so the streaming
+// preview does not introduce blank-line gaps.
+func joinSeparator(prev, next contentSegmentKind) string {
+	if prev < 0 || next < 0 {
+		return "\n"
+	}
+	if isUserSegment(prev) || isUserSegment(next) {
+		return "\n\n"
+	}
+	return "\n"
 }
 
 func (b *contentBuffer) skipHiddenSegment(index int) bool {
