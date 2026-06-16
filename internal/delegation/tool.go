@@ -63,8 +63,7 @@ type DelegateHandlerDeps struct {
 	ResolvedModel        provider.ResolvedModel
 	MaxTokens            *int
 	StreamingPreferred   bool
-	CavemanMode          bool
-	HumanizerMode        bool
+	CaveHuman            bool
 	TraceLogger          *TraceLogger
 	SessionStore         *SessionStore
 	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
@@ -115,7 +114,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			ResolvedModel:        deps.ResolvedModel,
 			MaxTokens:            deps.MaxTokens,
 			StreamingPreferred:   deps.StreamingPreferred,
-			HumanizerMode:        deps.HumanizerMode,
+			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
 		}, spec)
 		if err != nil {
