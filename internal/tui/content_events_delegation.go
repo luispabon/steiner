@@ -349,6 +349,36 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	return true
 }
 
+func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
+	childAgentID := extractFollowUpAgentID(payload.Arguments)
+	childToolLabel := ""
+	if childAgentID != "" {
+		_, childToolLabel = b.findChildDelegationInfo(childAgentID)
+	}
+
+	summary := summarizeFollowUpArgs(payload.Arguments)
+	promptText := extractFollowUpMessage(payload.Arguments)
+
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			toolLabel:       childToolLabel,
+			taskPreview:     summary,
+			promptText:      promptText,
+			promptCollapsed: true,
+			parentCallID:    payload.CallID,
+			parentArgs:      summary,
+			status:          "active",
+			collapsed:       true,
+			isFollowUp:      true,
+			followUpAgentID: childAgentID,
+		},
+		renderDirty: true,
+	})
+	b.pendingDelegateParents = append(b.pendingDelegateParents, idx)
+}
+
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
 	if idx, found := b.dequeuePendingDelegationStartSegment(); found {
 		b.bindParentDelegateCall(idx, payload)
@@ -620,4 +650,56 @@ func previewDelegationText(text string) string {
 
 func normalizeDelegationText(text string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+}
+
+// extractFollowUpAgentID extracts the agent_id from follow_up tool arguments.
+func extractFollowUpAgentID(args map[string]any) string {
+	if args == nil {
+		return ""
+	}
+	agentID, ok := args["agent_id"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(agentID)
+}
+
+// extractFollowUpMessage extracts the message from follow_up tool arguments.
+func extractFollowUpMessage(args map[string]any) string {
+	if args == nil {
+		return ""
+	}
+	msg, ok := args["message"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(msg)
+}
+
+// summarizeFollowUpArgs returns a human-readable summary of follow_up arguments.
+func summarizeFollowUpArgs(args map[string]any) string {
+	msg := extractFollowUpMessage(args)
+	if msg != "" {
+		return msg
+	}
+	return "follow up"
+}
+
+// findChildDelegationInfo searches for a delegation segment by agentID and returns
+// its label and toolLabel. Falls back gracefully if not found.
+func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabel string) {
+	if agentID == "" {
+		return "", ""
+	}
+	// Search backwards for the most recent delegation with this agentID
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := b.segments[i]
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.agentID == agentID {
+			return agentID, seg.delegData.toolLabel
+		}
+	}
+	return agentID, ""
 }

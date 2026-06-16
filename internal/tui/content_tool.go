@@ -15,11 +15,12 @@ import (
 // and should be rendered as a single delegation box in the TUI.
 // Keep this list in sync with internal/delegation agent types — do not import that package.
 var specializedDelegateTools = map[string]bool{
-	"explore":  true,
-	"research": true,
-	"code":     true,
-	"plan":     true,
-	"verify":   true,
+	"explore":   true,
+	"research":  true,
+	"code":      true,
+	"plan":      true,
+	"verify":    true,
+	"follow_up": true,
 }
 
 // isSpecializedDelegateTool reports whether tool is a specialized delegate tool.
@@ -31,6 +32,9 @@ func isSpecializedDelegateTool(tool string) bool {
 func summarizeArgs(tool string, args map[string]any) string {
 	if args == nil {
 		return tool
+	}
+	if strings.EqualFold(strings.TrimSpace(tool), "follow_up") {
+		return summarizeFollowUpArgs(args)
 	}
 	if strings.EqualFold(strings.TrimSpace(tool), "delegate") || isSpecializedDelegateTool(tool) {
 		return summarizeDelegateArgs(args)

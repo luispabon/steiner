@@ -3134,6 +3134,158 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 		})
 	}
 }
+func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) {
+	b := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	// First create an original delegation with "code" label
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID:    "parent-1",
+			Tool:      "code",
+			Arguments: map[string]any{"task": "implement feature"},
+		},
+	})
+
+	// Then trigger DelegationStarted to bind the child agent
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-1",
+			TaskPreview: "implement feature",
+		},
+	})
+
+	// Now simulate a follow_up tool call with agent_id referring to child-1
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID: "parent-2",
+			Tool:   "follow_up",
+			Arguments: map[string]any{
+				"agent_id": "child-1",
+				"message":  "add error handling",
+			},
+		},
+	})
+
+	// Verify two delegation segments exist
+	if len(b.segments) < 2 {
+		t.Fatalf("got %d segments, want at least 2", len(b.segments))
+	}
+
+	// Verify second segment is delegation (follow_up)
+	if b.segments[1].kind != segmentDelegation {
+		t.Errorf("segments[1].kind = %v, want segmentDelegation", b.segments[1].kind)
+	}
+
+	dd := b.segments[1].delegData
+	if dd == nil {
+		t.Fatal("segments[1].delegData is nil")
+	}
+
+	// Verify it's marked as follow_up
+	if !dd.isFollowUp {
+		t.Errorf("isFollowUp = false, want true")
+	}
+
+	// Verify it captured the child agent ID
+	if dd.followUpAgentID != "child-1" {
+		t.Errorf("followUpAgentID = %q, want %q", dd.followUpAgentID, "child-1")
+	}
+
+	// Verify it matched the original child's tool label
+	if dd.toolLabel != "code" {
+		t.Errorf("toolLabel = %q, want %q", dd.toolLabel, "code")
+	}
+
+	// Verify the task preview contains the follow-up message
+	if !strings.Contains(dd.taskPreview, "add error handling") {
+		t.Errorf("taskPreview = %q, want to contain %q", dd.taskPreview, "add error handling")
+	}
+}
+
+func TestFollowUpHeaderRendersWithChildAgentID(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentAmber)
+	b := &contentBuffer{
+		styles:        styles,
+		segments:      nil,
+		collapseState: make(map[int]bool),
+		showThinking:  true,
+	}
+
+	dd := &delegationDisplayState{
+		isFollowUp:      true,
+		followUpAgentID: "child-3",
+		toolLabel:       "explore",
+		status:          "active",
+		collapsed:       false,
+	}
+
+	header := b.renderDelegationHeader(dd, 80)
+
+	// Header should contain " - follow up child-3"
+	if !strings.Contains(header, "follow up") {
+		t.Errorf("header doesn't contain 'follow up': %q", header)
+	}
+	if !strings.Contains(header, "child-3") {
+		t.Errorf("header doesn't contain 'child-3': %q", header)
+	}
+	if !strings.Contains(header, "explore") {
+		t.Errorf("header doesn't contain label 'explore': %q", header)
+	}
+}
+
+func TestFollowUpFallsBackGracefullyWhenChildNotFound(t *testing.T) {
+	b := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	// Create a follow_up call for a child that doesn't exist in the buffer
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID: "parent-1",
+			Tool:   "follow_up",
+			Arguments: map[string]any{
+				"agent_id": "nonexistent-child",
+				"message":  "continue work",
+			},
+		},
+	})
+
+	// Should create a delegation segment without a toolLabel
+	if len(b.segments) < 1 {
+		t.Fatal("no segments created")
+	}
+
+	if b.segments[0].kind != segmentDelegation {
+		t.Errorf("segments[0].kind = %v, want segmentDelegation", b.segments[0].kind)
+	}
+
+	dd := b.segments[0].delegData
+	if dd == nil {
+		t.Fatal("segments[0].delegData is nil")
+	}
+
+	// Should still be marked as follow_up
+	if !dd.isFollowUp {
+		t.Errorf("isFollowUp = false, want true")
+	}
+
+	// Should have the agent ID even though toolLabel is empty
+	if dd.followUpAgentID != "nonexistent-child" {
+		t.Errorf("followUpAgentID = %q, want %q", dd.followUpAgentID, "nonexistent-child")
+	}
+
+	// toolLabel will be empty (fallback)
+	// This is acceptable per the spec: "fall back gracefully if the child segment is not found"
+}
+
 func useTrueColor(t *testing.T) {
 	t.Helper()
 

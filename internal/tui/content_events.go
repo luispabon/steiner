@@ -163,6 +163,9 @@ type delegationDisplayState struct {
 	currentOperation string
 	entries          []delegationTranscriptEntry
 	childToolEntries map[string]int
+	// follow_up state: set when this is a follow-up call to an existing child
+	isFollowUp      bool
+	followUpAgentID string // the child agent being followed up on
 }
 
 type contentSegment struct {
