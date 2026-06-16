@@ -555,6 +555,7 @@ func taskFromArgs(args map[string]any) string {
 // so the TUI can reconstruct the session view on resume. Delegate tool calls
 // emit delegation events; regular tool calls emit tool call events.
 func (s *Session) replaySessionMessages(msgs []agent.Message) {
+	paired := pairedToolResultIDs(msgs)
 	startedToolCalls := map[string]struct{}{}
 	pendingDelegates := map[string]agent.ToolCall{}
 	for _, msg := range msgs {
@@ -566,7 +567,7 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 			s.events.Emit(output.NewUserInputEvent(msg.Content, "resume"))
 		case agent.MessageRoleAssistant:
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
-			s.replayAssistantToolCalls(msg.ToolCalls, pendingDelegates, startedToolCalls)
+			s.replayAssistantToolCalls(msg.ToolCalls, pendingDelegates, startedToolCalls, paired)
 		case agent.MessageRoleTool:
 			s.replayToolResult(msg, pendingDelegates, startedToolCalls)
 		}
@@ -574,15 +575,31 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 }
 
 // replayAssistantToolCalls emits events for each tool call in an assistant message.
-func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, startedToolCalls map[string]struct{}) {
+// Only tool calls with a paired tool result are emitted; orphaned calls (e.g. an
+// accepted workflow_handoff that stops the run without appending a result) are
+// skipped so the TUI does not show them as still-running.
+func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, startedToolCalls map[string]struct{}, paired map[string]struct{}) {
 	for _, call := range calls {
 		if isDelegateToolCall(call.Name) {
 			pendingDelegates[call.ID] = call
-		} else {
+		} else if _, ok := paired[call.ID]; ok {
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			startedToolCalls[call.ID] = struct{}{}
 		}
 	}
+}
+
+// pairedToolResultIDs returns the set of tool call IDs that have a matching
+// tool result message in msgs. Tool calls absent from this set stopped the run
+// without producing a result (e.g. an accepted workflow_handoff).
+func pairedToolResultIDs(msgs []agent.Message) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, msg := range msgs {
+		if msg.Role == agent.MessageRoleTool && msg.ToolCallID != "" {
+			ids[msg.ToolCallID] = struct{}{}
+		}
+	}
+	return ids
 }
 
 // replayToolResult emits the completion event for a tool result message.

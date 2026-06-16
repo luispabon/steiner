@@ -1522,6 +1522,68 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	}
 }
 
+func TestLoadSessionSkipsOrphanedToolCallWithNoResult(t *testing.T) {
+	t.Parallel()
+
+	// Simulate a session that ended with an accepted workflow_handoff: the
+	// assistant message has a tool call but no paired tool result exists because
+	// WorkflowHandoffAccepted stops the run without appending one.
+	const sessionID = "handoff-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Handoff Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "hand off"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_handoff_1", Name: "workflow_handoff", Arguments: map[string]any{"next": "implement", "target": ".steiner/plans/foo"}},
+							},
+						},
+						// no tool result: workflow_handoff accepted stops run without one
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	for _, event := range events {
+		if event.Type == output.EventTypeToolCallStarted {
+			payload, _ := event.Payload.(output.ToolCallStartedEvent)
+			t.Errorf("unexpected ToolCallStarted event for orphaned tool call %q; TUI would show it as still-running", payload.Tool)
+		}
+		if event.Type == output.EventTypeToolCallFinished {
+			payload, _ := event.Payload.(output.ToolCallFinishedEvent)
+			t.Errorf("unexpected ToolCallFinished event for orphaned tool call %q", payload.Tool)
+		}
+	}
+}
+
 func TestSubmitPromptWithImages(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
