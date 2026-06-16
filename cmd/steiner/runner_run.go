@@ -182,7 +182,7 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		CaveHuman:          r.caveHuman != nil && r.caveHuman(),
+		CaveHuman:          r.runtime.cfg.CaveHuman,
 		Events:             events,
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,

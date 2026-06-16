@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -46,9 +45,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.toggleThinking {
 		return m.executeToggleThinkingAction()
-	}
-	if action.caveHumanToggle {
-		return m.executeToggleCaveHumanModeAction()
 	}
 	if action.setAccent != "" {
 		return m.executeSetAccentAction(action.setAccent)
@@ -251,19 +247,6 @@ func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
 }
 
-func (m Model) executeToggleCaveHumanModeAction() (tea.Model, tea.Cmd) {
-	m.input.Reset()
-	m.historyIdx = 0
-	if m.controller != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := m.controller.Handle(ctx, interactive.ToggleCaveHuman{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
-	return m, nil
-}
-
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
@@ -436,7 +419,6 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
 		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
-		{command: "/cave-human", name: "Toggle cave_human mode", desc: "terse, human voice on/off", source: ""},
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
 	}
