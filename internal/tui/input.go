@@ -8,7 +8,6 @@ type inputAction struct {
 	quit                 bool
 	clear                bool
 	compaction           bool
-	inspectContext       bool
 	inspectConfig        bool
 	listSkills           bool
 	listFiles            bool
@@ -66,8 +65,6 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{compaction: true}, true
 	case "/config":
 		return inputAction{inspectConfig: true}, true
-	case "/context":
-		return inputAction{inspectContext: true}, true
 	case "/fork":
 		return inputAction{forkSession: true}, true
 	case "/resume":
@@ -157,7 +154,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", false
 	}
-	builtins := []string{"/exit", "/clear", "/compact", "/config", "/context", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent"}
+	builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent"}
 	for _, cmd := range builtins {
 		if trimmed == cmd {
 			return cmd, true
@@ -181,7 +178,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {
-	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
+	base := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

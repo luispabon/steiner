@@ -45,16 +45,16 @@ func TestWorkflowHandoffSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("next.enum type = %T, want []string", nextProp["enum"])
 	}
-	if len(enum) != 2 || enum[0] != workflowHandoffNextImplement || enum[1] != workflowHandoffNextReview {
-		t.Fatalf("next.enum = %v, want [%s %s]", enum, workflowHandoffNextImplement, workflowHandoffNextReview)
+	if len(enum) != 2 || enum[0] != "implement" || enum[1] != "review" {
+		t.Fatalf("next.enum = %v, want [implement review]", enum)
 	}
 
 	targetProp, ok := props["target"].(map[string]any)
 	if !ok {
 		t.Fatal("target property missing or malformed")
 	}
-	if desc := targetProp["description"]; !strings.Contains(toString(desc), workflowHandoffTargetPrefix) {
-		t.Fatalf("target description = %q, want mention of %q", desc, workflowHandoffTargetPrefix)
+	if desc := targetProp["description"]; !strings.Contains(toString(desc), "directory") {
+		t.Fatalf("target description = %q, want mention of directory", desc)
 	}
 
 	messageProp, ok := props["message"].(map[string]any)
@@ -78,7 +78,7 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 
 	msg := "  " + strings.Repeat("handoff note ", 60) + "  "
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
-		"next":    workflowHandoffNextImplement,
+		"next":    "implement",
 		"target":  ".steiner/plans/step-1",
 		"message": msg,
 	})
@@ -103,8 +103,8 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 	if !ok {
 		t.Fatalf("event payload type = %T, want output.WorkflowHandoffEvent", (*events)[0].Payload)
 	}
-	if payload.Next != workflowHandoffNextImplement {
-		t.Fatalf("event payload next = %q, want %q", payload.Next, workflowHandoffNextImplement)
+	if payload.Next != "implement" {
+		t.Fatalf("event payload next = %q, want implement", payload.Next)
 	}
 	if payload.Target != ".steiner/plans/step-1" {
 		t.Fatalf("event payload target = %q, want .steiner/plans/step-1", payload.Target)
@@ -125,7 +125,7 @@ func TestWorkflowHandoffToolReturnsAcceptedControlResult(t *testing.T) {
 	toolDef := NewWorkflowHandoffTool(env)
 
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
-		"next":   workflowHandoffNextImplement,
+		"next":   "implement",
 		"target": ".steiner/plans/step-1",
 	})
 	if err != nil {
@@ -136,8 +136,8 @@ func TestWorkflowHandoffToolReturnsAcceptedControlResult(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want tool.WorkflowHandoffAccepted", resultI)
 	}
-	if got, want := result.Transition.Next, workflowHandoffNextImplement; got != want {
-		t.Fatalf("Transition.Next = %q, want %q", got, want)
+	if got, want := result.Transition.Next, "implement"; got != want {
+		t.Fatalf("Transition.Next = %q, want implement", got)
 	}
 	if got, want := result.Transition.Target, ".steiner/plans/step-1"; got != want {
 		t.Fatalf("Transition.Target = %q, want %q", got, want)
@@ -152,7 +152,7 @@ func TestWorkflowHandoffToolReturnsUnsupportedInNonInteractiveMode(t *testing.T)
 	toolDef := NewWorkflowHandoffTool(env)
 
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
-		"next":   workflowHandoffNextReview,
+		"next":   "review",
 		"target": ".steiner/plans/step-1",
 	})
 	if err != nil {
@@ -191,7 +191,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "unsafe absolute target",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": filepath.Join(os.TempDir(), "plans", "step-1"),
 			},
 			want: "relative .steiner/plans",
@@ -199,7 +199,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with newline",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1\nchild",
 			},
 			want: "control characters",
@@ -207,7 +207,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with in-tree traversal",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1/../step-1",
 			},
 			want: "traversal",
@@ -215,7 +215,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with control character",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1\x07child",
 			},
 			want: "control characters",
@@ -223,7 +223,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with shell metacharacter semicolon",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1;child",
 			},
 			want: "shell metacharacters",
@@ -231,7 +231,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with shell metacharacter ampersand",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1&child",
 			},
 			want: "shell metacharacters",
@@ -239,7 +239,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with shell metacharacter backtick",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1`child",
 			},
 			want: "shell metacharacters",
@@ -247,7 +247,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "target with shell metacharacter backslash",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/step-1\\child",
 			},
 			want: "shell metacharacters",
@@ -255,7 +255,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "missing target directory",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/missing",
 			},
 			want: "does not exist",
@@ -263,7 +263,7 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 		{
 			name: "missing plan artifacts",
 			input: map[string]any{
-				"next":   workflowHandoffNextReview,
+				"next":   "review",
 				"target": ".steiner/plans/incomplete",
 			},
 			want: "missing plan.yaml",
@@ -291,9 +291,49 @@ func TestWorkflowHandoffToolRejectsInvalidInputWithoutEvents(t *testing.T) {
 	}
 }
 
+func TestWorkflowHandoffRegisteredTargetsHaveValidKeys(t *testing.T) {
+	schema := WorkflowHandoffSchema()
+	props := schemaProperties(schema)
+	nextProp := props["next"].(map[string]any)
+	enum := nextProp["enum"].([]string)
+
+	enumMap := make(map[string]struct{})
+	for _, k := range enum {
+		enumMap[k] = struct{}{}
+	}
+
+	if len(enumMap) != len(enum) {
+		t.Fatal("schema enum has duplicate keys")
+	}
+
+	for _, k := range enum {
+		if lookupWorkflowTarget(k) == nil {
+			t.Fatalf("schema enum %q not found in registered targets", k)
+		}
+	}
+}
+
+func TestWorkflowHandoffValidateUnknownTarget(t *testing.T) {
+	env, _ := workflowHandoffTestEnv(t, true, workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: false},
+	})
+	toolDef := NewWorkflowHandoffTool(env)
+
+	_, err := toolDef.Handler(context.Background(), map[string]any{
+		"next":   "unknown",
+		"target": ".steiner/plans/step-1",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown target, got nil")
+	}
+	if !strings.Contains(err.Error(), "next must be one of") {
+		t.Fatalf("error = %v, want substring 'next must be one of'", err)
+	}
+}
+
 func TestWorkflowHandoffInputDecodeRejectsUnknownFields(t *testing.T) {
 	_, err := decodeInput[WorkflowHandoffInput](map[string]any{
-		"next":          workflowHandoffNextImplement,
+		"next":          "implement",
 		"target":        ".steiner/plans/step-1",
 		"clear_context": true,
 	})

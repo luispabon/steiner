@@ -51,7 +51,7 @@ func TestSlashOverlayFilterByCommand(t *testing.T) {
 	items := []slashOverlayItem{
 		{command: "/clear", name: "Clear", desc: "reset", source: ""},
 		{command: "/config", name: "Config", desc: "show config", source: ""},
-		{command: "/context", name: "Context", desc: "inspect context", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
 	}
 
 	overlay = overlay.Open(items)
@@ -73,7 +73,7 @@ func TestSlashOverlaySyncQueryUsesSlashToken(t *testing.T) {
 	items := []slashOverlayItem{
 		{command: "/clear", name: "Clear", desc: "reset", source: ""},
 		{command: "/config", name: "Config", desc: "show config", source: ""},
-		{command: "/context", name: "Context", desc: "inspect context", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
 	}
 
 	overlay = overlay.Open(items)
@@ -202,30 +202,30 @@ func TestSlashOverlayFuzzyQueryMatchesAbbreviatedCommand(t *testing.T) {
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
-		{command: "/context", name: "Context", desc: "inspect current context", source: ""},
-		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
 		{command: "/config", name: "Config", desc: "show config", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
+		{command: "/clear", name: "Clear", desc: "clear screen", source: ""},
 	}
 
 	overlay = overlay.Open(items)
-	overlay.syncQuery("/ctxt")
+	overlay.syncQuery("/comp")
 
 	if len(overlay.candidates) == 0 {
 		t.Fatal("expected fuzzy matches for abbreviated slash query")
 	}
 	found := false
 	for i, candidate := range overlay.candidates {
-		if candidate.command != "/context" {
+		if candidate.command != "/compact" {
 			continue
 		}
 		found = true
 		if len(overlay.matchIndexes[i].commandIndexes) == 0 && len(overlay.matchIndexes[i].descIndexes) == 0 && len(overlay.matchIndexes[i].nameIndexes) == 0 {
-			t.Fatal("expected match indexes for /context candidate")
+			t.Fatal("expected match indexes for /compact candidate")
 		}
 		break
 	}
 	if !found {
-		t.Fatalf("candidates = %#v, want /context to be matched", overlay.candidates)
+		t.Fatalf("candidates = %#v, want /compact to be matched", overlay.candidates)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestSlashOverlayBackspace(t *testing.T) {
 	items := []slashOverlayItem{
 		{command: "/clear", name: "Clear", desc: "reset", source: ""},
 		{command: "/config", name: "Config", desc: "show config", source: ""},
-		{command: "/context", name: "Context", desc: "inspect context", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
 	}
 
 	overlay = overlay.Open(items)
@@ -247,7 +247,7 @@ func TestSlashOverlayBackspace(t *testing.T) {
 	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config"[2:3])})
 
 	if len(overlay.candidates) != 2 {
-		t.Fatalf("after 'con': candidates = %d, want 2 (matches /config and /context)", len(overlay.candidates))
+		t.Fatalf("after 'con': candidates = %d, want 2 (matches /config and /compact)", len(overlay.candidates))
 	}
 
 	// Backspace
@@ -391,21 +391,21 @@ func TestSlashOverlayViewHighlightsMatchedCharacters(t *testing.T) {
 	overlay.width = 80
 	overlay.height = 24
 	overlay.candidates = []slashOverlayItem{
-		{command: "/context", name: "Context", desc: "inspect current context", source: ""},
+		{command: "/compact", name: "Compact", desc: "compress context", source: ""},
 	}
 	overlay.matchIndexes = []slashOverlayMatch{{
 		commandIndexes: []int{1, 4, 6},
 		nameIndexes:    []int{0, 3},
 		descIndexes:    []int{0, 8},
 	}}
-	overlay.query = "/ctxt"
+	overlay.query = "/comp"
 
 	view := overlay.View()
 	plain := stripANSI(view)
-	if !strings.Contains(plain, "/context") {
+	if !strings.Contains(plain, "/compact") {
 		t.Fatalf("view = %q, want candidate text", plain)
 	}
-	if strings.Contains(view, "/context  Context  |  inspect current context") {
+	if strings.Contains(view, "/compact  Compact  |  compress context") {
 		t.Fatalf("raw view = %q, want inline escape sequences inside matched candidate", view)
 	}
 }

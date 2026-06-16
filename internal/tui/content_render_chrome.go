@@ -408,9 +408,14 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 		labelStyle = b.styles.DelegateTagDefault
 	}
 	left := disclosure + " " + labelStyle.Render(label)
-	if agentID != "" {
+
+	// Format header differently for follow_up calls
+	if dd.isFollowUp && dd.followUpAgentID != "" {
+		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
+	} else if agentID != "" {
 		left += " " + b.styles.FgDim.Render(agentID)
 	}
+
 	if dd.status == "active" && dd.contextFillPct > 0 {
 		left += " " + b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct))))
 	}

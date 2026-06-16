@@ -7,9 +7,9 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func TestRenderHelpIncludesContextCommand(t *testing.T) {
+func TestRenderHelpIncludesContextKeybind(t *testing.T) {
 	help := renderHelp(theme.Default().LipGlossStyles(), 60)
-	if !strings.Contains(help, "/context") {
-		t.Fatalf("help = %q, want /context entry", help)
+	if !strings.Contains(help, "ctrl+t") {
+		t.Fatalf("help = %q, want ctrl+t entry", help)
 	}
 }

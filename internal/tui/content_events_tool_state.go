@@ -14,6 +14,10 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			return
 		}
 		if strings.EqualFold(payload.Tool, "delegate") || isSpecializedDelegateTool(payload.Tool) {
+			if strings.EqualFold(payload.Tool, "follow_up") {
+				b.handleFollowUpToolCallStarted(payload)
+				return
+			}
 			b.handleParentDelegateToolCallStarted(payload)
 			return
 		}

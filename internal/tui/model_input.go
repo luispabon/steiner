@@ -31,9 +31,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.inspectConfig {
 		return m.executeInspectConfigAction()
 	}
-	if action.inspectContext {
-		return m.executeInspectContextAction()
-	}
 	if action.listSkills {
 		return m.executeListSkillsAction()
 	}
@@ -163,18 +160,6 @@ func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
 func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
-	m.input.Reset()
-	m.historyIdx = 0
-	m.syncViewport()
-	return m, nil
-}
-
-func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		}
 	}
@@ -409,7 +394,6 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/clear", name: "Clear conversation", desc: "reset the current session", source: ""},
 		{command: "/compact", name: "Compact context", desc: "trigger compaction", source: ""},
 		{command: "/config", name: "Inspect config", desc: "show configuration", source: ""},
-		{command: "/context", name: "Inspect context", desc: "inspect last request", source: ""},
 		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
 		{command: "/fork", name: "Fork conversation", desc: "fork current conversation into a new session", source: ""},
 		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},

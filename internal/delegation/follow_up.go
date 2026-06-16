@@ -16,7 +16,7 @@ const FollowUpToolName = "follow_up"
 func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
 		Name:        FollowUpToolName,
-		Description: "Resume an existing sub-agent session by agent ID with a new user follow-up message.",
+		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to guide incomplete work, ask for refinements, or request additional investigation from a previous delegation.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
