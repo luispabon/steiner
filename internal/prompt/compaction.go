@@ -15,7 +15,7 @@ const (
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
 	compactionPromptEmergencyInstruction = "This is an emergency handoff. Be shorter and more lossy than usual while preserving the essential task, the current state, and any irreversible decisions."
-	compactionPromptCavemanBody          = `You compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.
+	compactionPromptCaveHumanBody        = `You compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.
 
 Include:
 1. Task and Goal — user request, end state, success criteria, constraints, assumptions.
@@ -155,7 +155,7 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 func RenderConversationCompactionInstruction(override string, mode CompactionMode, caveHuman bool) string {
 	content := compactionPromptSystem()
 	if caveHuman {
-		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody + "\n\n" + caveHumanInstruction
+		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCaveHumanBody + "\n\n" + caveHumanInstruction
 	}
 	if override != "" {
 		content = override
