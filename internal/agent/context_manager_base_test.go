@@ -90,7 +90,7 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 		}
 	})
 
-	t.Run("cache miss with different humanizerMode", func(t *testing.T) {
+	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
 		first := manager.CachedSystemPreamble("", true, false, "")
 		second := manager.CachedSystemPreamble("", true, true, "")
