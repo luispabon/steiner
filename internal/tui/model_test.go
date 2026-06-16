@@ -573,17 +573,17 @@ func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
 		t.Fatalf("slash query = %q, want /co", got)
 	}
 	foundConfig := false
-	foundContext := false
+	foundCompact := false
 	for _, candidate := range m.slashOverlay.candidates {
 		if candidate.command == "/config" {
 			foundConfig = true
 		}
-		if candidate.command == "/context" {
-			foundContext = true
+		if candidate.command == "/compact" {
+			foundCompact = true
 		}
 	}
-	if !foundConfig || !foundContext {
-		t.Fatalf("candidates = %#v, want /config and /context present", m.slashOverlay.candidates)
+	if !foundConfig || !foundCompact {
+		t.Fatalf("candidates = %#v, want /config and /compact present", m.slashOverlay.candidates)
 	}
 }
 
@@ -886,7 +886,7 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	}
 }
 
-func TestModelHandlesContextCommandLocally(t *testing.T) {
+func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -894,8 +894,7 @@ func TestModelHandlesContextCommandLocally(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	m.input.SetValue("/context")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())

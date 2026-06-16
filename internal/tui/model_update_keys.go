@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -129,6 +130,13 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	case tea.KeyCtrlB:
 		m.sidebar.Toggle()
 		m.layout()
+		return true, m, nil
+	case tea.KeyCtrlT:
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
+				m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			}
+		}
 		return true, m, nil
 	case tea.KeyCtrlX:
 		m.content.ToggleLastDelegationOutput()
