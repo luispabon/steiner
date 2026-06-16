@@ -848,6 +848,44 @@ func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
 	}
 }
 
+func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 14})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewUserInputEvent("resumed prompt", "resume")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+
+	seg := m.content.segments[1].toolData
+	if seg == nil {
+		t.Fatal("toolData = nil, want standalone tool call after resumed prompt")
+	}
+	if !seg.collapsed {
+		t.Fatal("standalone tool call should start collapsed")
+	}
+
+	rendered := stripANSI(m.content.String(m.viewport.Width))
+	lines := strings.Split(rendered, "\n")
+	toolRow := -1
+	for i, line := range lines {
+		if strings.Contains(line, "bash") && strings.Contains(line, "pwd") {
+			toolRow = i
+			break
+		}
+	}
+	if toolRow < 0 {
+		t.Fatalf("rendered content missing tool header: %q", rendered)
+	}
+
+	m.contentTopPad = 0
+	m.viewport.YOffset = 0
+	clickY := toolRow + m.viewportContentTopOffset()
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickY})
+	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickY})
+
+	if seg.collapsed {
+		t.Fatal("standalone tool call should expand on visible row click after resumed prompt gap")
+	}
+}
+
 func TestModelHandlesContextCommandLocally(t *testing.T) {
 	ctrl := &testController{}
 

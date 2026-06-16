@@ -166,19 +166,11 @@ func (m *Model) handleLeftClick(termY int) {
 		return
 	}
 
-	// Walk segmentHeights to find which segment index this line falls in
-	cumulative := 0
-	for i, h := range m.content.segmentHeights {
-		if h == 0 {
-			continue
-		}
-		if contentLine < cumulative+h {
-			seg := &m.content.segments[i]
-			m.handleSegmentClick(seg, contentLine-cumulative)
-			return
-		}
-		cumulative += h
+	segIndex, rowInSegment, ok := m.content.segmentAtContentLine(contentLine)
+	if !ok {
+		return
 	}
+	m.handleSegmentClick(&m.content.segments[segIndex], rowInSegment)
 }
 
 func (m Model) viewportContentTopOffset() int {
@@ -186,6 +178,39 @@ func (m Model) viewportContentTopOffset() int {
 	// layout replaces that with a leading blank row, so content starts one row
 	// below the pane top in both cases.
 	return 1
+}
+
+func (b *contentBuffer) segmentAtContentLine(contentLine int) (segIndex int, rowInSegment int, ok bool) {
+	if contentLine < 0 || len(b.segmentHeights) != len(b.segments) {
+		return 0, 0, false
+	}
+
+	cumulative := 0
+	lastKind := contentSegmentKind(-1)
+	firstVisible := true
+	for i := range b.segments {
+		if b.skipHiddenSegment(i) {
+			continue
+		}
+
+		seg := &b.segments[i]
+		if !firstVisible && joinSeparator(lastKind, seg.kind) == "\n\n" {
+			if contentLine == cumulative {
+				return 0, 0, false
+			}
+			cumulative++
+		}
+
+		h := b.segmentHeights[i]
+		if h > 0 && contentLine < cumulative+h {
+			return i, contentLine - cumulative, true
+		}
+		cumulative += h
+		lastKind = seg.kind
+		firstVisible = false
+	}
+
+	return 0, 0, false
 }
 
 func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, rowInSegment, width int) int {

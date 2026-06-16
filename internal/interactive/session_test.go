@@ -1522,6 +1522,68 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	}
 }
 
+func TestLoadSessionSkipsOrphanedToolCallWithNoResult(t *testing.T) {
+	t.Parallel()
+
+	// Simulate a session that ended with an accepted workflow_handoff: the
+	// assistant message has a tool call but no paired tool result exists because
+	// WorkflowHandoffAccepted stops the run without appending one.
+	const sessionID = "handoff-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Handoff Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "hand off"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_handoff_1", Name: "workflow_handoff", Arguments: map[string]any{"next": "implement", "target": ".steiner/plans/foo"}},
+							},
+						},
+						// no tool result: workflow_handoff accepted stops run without one
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	for _, event := range events {
+		if event.Type == output.EventTypeToolCallStarted {
+			payload, _ := event.Payload.(output.ToolCallStartedEvent)
+			t.Errorf("unexpected ToolCallStarted event for orphaned tool call %q; TUI would show it as still-running", payload.Tool)
+		}
+		if event.Type == output.EventTypeToolCallFinished {
+			payload, _ := event.Payload.(output.ToolCallFinishedEvent)
+			t.Errorf("unexpected ToolCallFinished event for orphaned tool call %q", payload.Tool)
+		}
+	}
+}
+
 func TestSubmitPromptWithImages(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
@@ -1904,7 +1966,7 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 		t.Fatalf("delegation complete output = %q, want %q", got, want)
 	}
 
-	// Verify NO ToolCallStarted events for the delegate call
+	// Verify ToolCallStarted event for the delegate call so replay uses the live TUI path
 	var toolStarted []output.ToolCallStartedEvent
 	for _, event := range events {
 		if event.Type == output.EventTypeToolCallStarted {
@@ -1915,10 +1977,14 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 			toolStarted = append(toolStarted, payload)
 		}
 	}
-	for _, ts := range toolStarted {
-		if ts.CallID == "call_explore_1" {
-			t.Fatalf("unexpected ToolCallStarted for delegation call %q", ts.CallID)
-		}
+	if got, want := len(toolStarted), 1; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
+	}
+	if got, want := toolStarted[0].CallID, "call_explore_1"; got != want {
+		t.Fatalf("tool started call id = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[0].Tool, "explore"; got != want {
+		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 
 	// Verify NO ToolCallFinished events for the delegate call
@@ -2036,6 +2102,9 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 	if got, want := delegationComplete[0].TokenCount, 0; got != want {
 		t.Fatalf("delegation complete token count = %d, want %d (no retention)", got, want)
 	}
+	if got, want := delegationComplete[0].Output, "done"; got != want {
+		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	}
 }
 
 func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
@@ -2115,13 +2184,19 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 			toolStarted = append(toolStarted, payload)
 		}
 	}
-	if got, want := len(toolStarted), 1; got != want {
-		t.Fatalf("tool started events = %d, want %d (regular call only)", got, want)
+	if got, want := len(toolStarted), 2; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
 	}
 	if got, want := toolStarted[0].CallID, "call_reg_1"; got != want {
 		t.Fatalf("tool started call id = %q, want %q", got, want)
 	}
 	if got, want := toolStarted[0].Tool, "read"; got != want {
+		t.Fatalf("tool started tool = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[1].CallID, "call_del_1"; got != want {
+		t.Fatalf("tool started call id = %q, want %q", got, want)
+	}
+	if got, want := toolStarted[1].Tool, "explore"; got != want {
 		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 
@@ -2195,5 +2270,284 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 	}
 	if got, want := delegationComplete[0].TokenCount, 300; got != want {
 		t.Fatalf("delegation complete token count = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].Output, "found tests"; got != want {
+		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	}
+}
+
+func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "delegation-structured-result-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Delegation Structured Result Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "plan this work"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_plan_1", Name: "plan", Arguments: map[string]any{"task": "plan the rollout"}},
+							},
+						},
+						{
+							Role:       agent.MessageRoleTool,
+							Content:    `{"agent_id":"agent-plan-1","status":"partial","output":"final prose output","summary":"summary text","turn_count":3,"token_count":456,"tool_call_count":2}`,
+							ToolCallID: "call_plan_1",
+							Name:       "plan",
+						},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	var toolStarted []output.ToolCallStartedEvent
+	var delegationStarted []output.DelegationStartedEvent
+	var delegationComplete []output.DelegationCompleteEvent
+	for _, event := range events {
+		switch event.Type {
+		case output.EventTypeToolCallStarted:
+			payload, ok := event.Payload.(output.ToolCallStartedEvent)
+			if !ok {
+				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
+			}
+			toolStarted = append(toolStarted, payload)
+		case output.EventTypeDelegationStarted:
+			payload, ok := event.Payload.(output.DelegationStartedEvent)
+			if !ok {
+				t.Fatalf("delegation started payload type = %T, want output.DelegationStartedEvent", event.Payload)
+			}
+			delegationStarted = append(delegationStarted, payload)
+		case output.EventTypeDelegationComplete:
+			payload, ok := event.Payload.(output.DelegationCompleteEvent)
+			if !ok {
+				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
+			}
+			delegationComplete = append(delegationComplete, payload)
+		}
+	}
+
+	if got, want := len(toolStarted), 1; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
+	}
+	if got, want := toolStarted[0].Tool, "plan"; got != want {
+		t.Fatalf("tool started tool = %q, want %q", got, want)
+	}
+	if got, want := len(delegationStarted), 1; got != want {
+		t.Fatalf("delegation started events = %d, want %d", got, want)
+	}
+	if got, want := delegationStarted[0].AgentID, "agent-plan-1"; got != want {
+		t.Fatalf("delegation started agent id = %q, want %q", got, want)
+	}
+	if got, want := delegationStarted[0].TaskPreview, "plan the rollout"; got != want {
+		t.Fatalf("delegation started task preview = %q, want %q", got, want)
+	}
+	if got, want := len(delegationComplete), 1; got != want {
+		t.Fatalf("delegation complete events = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].AgentID, "agent-plan-1"; got != want {
+		t.Fatalf("delegation complete agent id = %q, want %q", got, want)
+	}
+	if got, want := delegationComplete[0].Status, "partial"; got != want {
+		t.Fatalf("delegation complete status = %q, want %q", got, want)
+	}
+	if got, want := delegationComplete[0].TurnCount, 3; got != want {
+		t.Fatalf("delegation complete turn count = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].TokenCount, 456; got != want {
+		t.Fatalf("delegation complete token count = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].ToolCallCount, 2; got != want {
+		t.Fatalf("delegation complete tool call count = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].Output, "final prose output"; got != want {
+		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	}
+}
+
+func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "delegation-structured-failure-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Delegation Structured Failure Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "verify the fix"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_verify_1", Name: "verify", Arguments: map[string]any{"task": "verify the fix"}},
+							},
+						},
+						{
+							Role:       agent.MessageRoleTool,
+							Content:    `{"agent_id":"agent-verify-1","status":"failed","error":"verification failed after tests","turn_count":4,"token_count":789}`,
+							ToolCallID: "call_verify_1",
+							Name:       "verify",
+						},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	var delegationFailed []output.DelegationFailedEvent
+	for _, event := range events {
+		if event.Type != output.EventTypeDelegationFailed {
+			continue
+		}
+		payload, ok := event.Payload.(output.DelegationFailedEvent)
+		if !ok {
+			t.Fatalf("delegation failed payload type = %T, want output.DelegationFailedEvent", event.Payload)
+		}
+		delegationFailed = append(delegationFailed, payload)
+	}
+
+	if got, want := len(delegationFailed), 1; got != want {
+		t.Fatalf("delegation failed events = %d, want %d", got, want)
+	}
+	if got, want := delegationFailed[0].AgentID, "agent-verify-1"; got != want {
+		t.Fatalf("delegation failed agent id = %q, want %q", got, want)
+	}
+	if got, want := delegationFailed[0].Error, "verification failed after tests"; got != want {
+		t.Fatalf("delegation failed error = %q, want %q", got, want)
+	}
+}
+
+func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "delegation-malformed-result-session"
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Delegation Malformed Result Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "research docs"},
+						{
+							Role: agent.MessageRoleAssistant,
+							ToolCalls: []agent.ToolCall{
+								{ID: "call_research_1", Name: "research", Arguments: map[string]any{"task": "research docs"}},
+							},
+						},
+						{
+							Role:       agent.MessageRoleTool,
+							Content:    "{not-json",
+							ToolCallID: "call_research_1",
+							Name:       "research",
+						},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Config: config.Config{
+			DefaultModel: "test",
+			Models: map[string]config.ModelConfig{
+				"test": {ID: "test-model"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	var toolStarted []output.ToolCallStartedEvent
+	var delegationComplete []output.DelegationCompleteEvent
+	for _, event := range events {
+		switch event.Type {
+		case output.EventTypeToolCallStarted:
+			payload, ok := event.Payload.(output.ToolCallStartedEvent)
+			if !ok {
+				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
+			}
+			toolStarted = append(toolStarted, payload)
+		case output.EventTypeDelegationComplete:
+			payload, ok := event.Payload.(output.DelegationCompleteEvent)
+			if !ok {
+				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
+			}
+			delegationComplete = append(delegationComplete, payload)
+		}
+	}
+
+	if got, want := len(toolStarted), 1; got != want {
+		t.Fatalf("tool started events = %d, want %d", got, want)
+	}
+	if got, want := len(delegationComplete), 1; got != want {
+		t.Fatalf("delegation complete events = %d, want %d", got, want)
+	}
+	if got, want := delegationComplete[0].AgentID, "agent-call_research_1"; got != want {
+		t.Fatalf("delegation complete agent id = %q, want %q", got, want)
+	}
+	if got, want := delegationComplete[0].Output, "{not-json"; got != want {
+		t.Fatalf("delegation complete output = %q, want %q", got, want)
 	}
 }
