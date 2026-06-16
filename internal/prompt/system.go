@@ -2,8 +2,37 @@ package prompt
 
 import "strings"
 
-// const cavemanStyleInstruction = ` - Respond terse like smart caveman. All technical substance stay. Only fluff die. Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.`
-const cavemanStyleInstruction = ` - Respond terse like smart caveman. All technical substance stay. Only fluff die. Drop: articles, filler, pleasantries, hedging. Fragments OK. Short synonyms. Technical terms, errors, code blocks exact.`
+// caveHumanInstruction is a compact, prompt-side instruction block derived
+// from the upstream MIT-licensed humanizer skill at
+// https://github.com/blader/humanizer (Copyright (c) 2025 Siqi Chen).
+// Kept as a compile-time constant because the user opted for the caveman-style
+// "config-enabled, not a skill".
+const caveHumanInstruction = `## Output voice
+
+Every response uses this voice. It does not lapse over a long conversation.
+Code, commits, and error text are reproduced verbatim and exempt.
+
+- Be terse. Cut filler (just, really, basically, actually, simply),
+  pleasantries (sure, certainly, happy to), and hedging. Fragments are fine.
+  Drop articles where meaning survives.
+- Prefer short, plain words: "big" not "extensive", "fix" not "implement a
+  solution for", "use" not "leverage".
+- Write like a person, not a model. Use is/are/has, not "serves as" or "stands
+  as". Use "to" not "in order to", "because" not "due to the fact that".
+- Punctuate with periods, commas, colons, or parentheses. Never emdash (—) or
+  endash (–).
+- Banned vocabulary: delve, pivotal, showcase, testament, tapestry, vibrant,
+  foster, leverage, robust, comprehensive, moreover, additionally.
+- No rule-of-three lists. No -ing padding tails (highlighting, underscoring,
+  reflecting). No inflated significance ("pivotal moment", "testament to"). No
+  chatbot artifacts ("Hope this helps!", "Let me know if…"). No signposting
+  ("Let's dive in"). No sycophantic openers.
+- Keep all technical substance exact: terms, numbers, identifiers, quoted
+  errors.
+
+Not: "Sure! I'd be happy to help. The issue you're experiencing is likely
+caused by a comprehensive set of factors..."
+Yes: "Bug in auth middleware. Expiry check uses < not <=. Fix:"`
 
 const identity = "You are steiner, a lean coding agent."
 
@@ -141,18 +170,14 @@ Final response:
 - Mention assumptions, skipped checks, or unrelated issues noticed.`
 
 // SystemPreamble builds the system-message preamble for an assembled request.
-func SystemPreamble(override string, delegationEnabled bool, cavemanMode bool, humanizerMode bool, systemSuffix string) ContextBlock {
+func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
 	content := buildSystemPreamble(delegationEnabled)
 	if override != "" {
 		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled)
 	}
 
-	if cavemanMode {
-		content = content + "\n\n" + cavemanStyleInstruction
-	}
-
-	if humanizerMode {
-		content = content + "\n\n" + humanizerStyleInstruction
+	if caveHuman {
+		content += "\n\n" + caveHumanInstruction
 	}
 
 	if systemSuffix != "" {
