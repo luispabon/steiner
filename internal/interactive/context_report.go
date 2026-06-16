@@ -66,11 +66,11 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	}
 	lines = append(lines, "")
 	lines = append(lines, "## Categories")
+	lines = append(lines, "")
+	lines = append(lines, "| Category | Tokens |")
+	lines = append(lines, "|----------|--------|")
 	for _, category := range categories {
-		lines = append(lines, fmt.Sprintf("- %s: `%d`", category.Title, category.Total))
-		for i, item := range category.Items {
-			lines = append(lines, fmt.Sprintf("  %d. %s (`%d`)", i+1, item.Label, item.Tokens))
-		}
+		lines = append(lines, fmt.Sprintf("| %s | %d |", category.Title, category.Total))
 	}
 	lines = append(lines, "")
 	lines = append(lines, "Compaction threshold: `70%`")
@@ -83,5 +83,23 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 		lines = append(lines, "Hard prompt limit: `n/a`")
 		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d`", promptTokens))
 	}
+
+	// Add context contents section if blocks are present
+	if len(snapshot.Blocks) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, "---")
+		lines = append(lines, "## Context Contents")
+		lines = append(lines, "")
+		for _, block := range snapshot.Blocks {
+			lines = append(lines, fmt.Sprintf("### %s", block.Source))
+			if block.Path != "" {
+				lines = append(lines, fmt.Sprintf("**Path:** `%s`", block.Path))
+			}
+			lines = append(lines, "")
+			lines = append(lines, block.Content)
+			lines = append(lines, "")
+		}
+	}
+
 	return strings.Join(lines, "\n"), nil
 }
