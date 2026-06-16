@@ -1141,6 +1141,136 @@ func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
 	}
 }
 
+func TestUserSegmentMargin(t *testing.T) {
+	tests := []struct {
+		name              string
+		segments          []contentSegment
+		wantMarginAbove   bool // blank line above first user segment
+		wantMarginBelow   bool // blank line below last user segment
+		wantMarginBetween bool // blank line between consecutive user segments
+	}{
+		{
+			name: "between two assistants",
+			segments: []contentSegment{
+				{kind: segmentAssistantProse, text: "hello from assistant one"},
+				{kind: segmentUser, text: "user message"},
+				{kind: segmentAssistantProse, text: "hello from assistant two"},
+			},
+			wantMarginAbove: true,
+			wantMarginBelow: true,
+		},
+		{
+			name: "user followed by assistant",
+			segments: []contentSegment{
+				{kind: segmentUserMarkdown, text: "# User Title\ncontent"},
+				{kind: segmentAssistantProse, text: "assistant response"},
+			},
+			wantMarginAbove: false,
+			wantMarginBelow: true,
+		},
+		{
+			name: "two consecutive users",
+			segments: []contentSegment{
+				{kind: segmentUser, text: "first user says hi"},
+				{kind: segmentUserMarkdown, text: "# Second user\nwith text"},
+			},
+			wantMarginAbove:   false,
+			wantMarginBelow:   false,
+			wantMarginBetween: true,
+		},
+		{
+			name: "single user alone",
+			segments: []contentSegment{
+				{kind: segmentUser, text: "just me"},
+			},
+			wantMarginAbove: false,
+			wantMarginBelow: false,
+		},
+		{
+			name: "assistant followed by user",
+			segments: []contentSegment{
+				{kind: segmentAssistantProse, text: "assistant says something"},
+				{kind: segmentUser, text: "user reply"},
+			},
+			wantMarginAbove: true,
+			wantMarginBelow: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				styles:        theme.BuildStyles(theme.AccentAmber),
+				collapseState: make(map[int]bool),
+			}
+			b.segments = tt.segments
+			got := b.String(80)
+			lines := strings.Split(got, "\n")
+
+			// Collect indices of lines containing the user bar character.
+			var userLineIdxs []int
+			for i, line := range lines {
+				if strings.Contains(line, "\u2503") {
+					userLineIdxs = append(userLineIdxs, i)
+				}
+			}
+
+			if len(userLineIdxs) == 0 {
+				t.Fatal("no user lines (\u2503) found in output")
+			}
+
+			firstUser := userLineIdxs[0]
+			lastUser := userLineIdxs[len(userLineIdxs)-1]
+
+			// Promote "no ┃" helper for blank-line detection.
+			// A background-blank line has lipgloss.Width == 80 and contains no ┃.
+			isBlankLine := func(line string) bool {
+				return !strings.Contains(line, "\u2503") && lipgloss.Width(line) == 80
+			}
+
+			// Margin above the first user segment.
+			if tt.wantMarginAbove {
+				if firstUser == 0 {
+					t.Errorf("want blank line above user segment, but first line of output contains \u2503")
+				} else if !isBlankLine(lines[firstUser-1]) {
+					t.Errorf("line before first user line is not a background-blank line: %q", lines[firstUser-1])
+				}
+			} else {
+				if firstUser > 0 {
+					t.Errorf("no blank line expected above user, but first user line is at index %d (not first line)", firstUser)
+				}
+			}
+
+			// Margin below the last user segment.
+			if tt.wantMarginBelow {
+				if lastUser == len(lines)-1 {
+					t.Errorf("want blank line below user segment, but last line of output contains \u2503")
+				} else if !isBlankLine(lines[lastUser+1]) {
+					t.Errorf("line after last user line is not a background-blank line: %q", lines[lastUser+1])
+				}
+			} else {
+				if lastUser < len(lines)-1 && isBlankLine(lines[lastUser+1]) {
+					t.Errorf("no blank line expected below user, but line after last user is a background-blank line")
+				}
+			}
+
+			// Margin between consecutive user segments.
+			if tt.wantMarginBetween {
+				foundGap := false
+				for i := 1; i < len(userLineIdxs); i++ {
+					if userLineIdxs[i] > userLineIdxs[i-1]+1 {
+						foundGap = true
+						break
+					}
+				}
+				if !foundGap {
+					t.Errorf("want blank line between consecutive user segments, but all user lines are contiguous")
+				}
+			}
+		})
+	}
+}
+
 func TestPluralTurns(t *testing.T) {
 	tests := []struct {
 		count int
