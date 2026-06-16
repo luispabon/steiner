@@ -15,9 +15,6 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"
 	}
-	if cli.CaveHuman != nil {
-		cfg.CaveHuman = *cli.CaveHuman
-	}
 }
 
 // normalizePaths expands ~ to home directory in path fields.

@@ -14,7 +14,6 @@ type CLIOverrides struct {
 	ConfigPath string
 	Model      string
 	Verbose    bool
-	CaveHuman  *bool
 }
 
 // LoadOptions contains options for loading configuration.
