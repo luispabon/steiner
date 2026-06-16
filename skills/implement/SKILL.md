@@ -124,21 +124,34 @@ Safe isolated execution is available only when Steiner delegation tools are avai
 
 When safe isolated execution is available, each implementation or fix pass runs in a dedicated worktree attached to a temporary branch created from the current feature branch.
 
+### Worktree Provisioning
+
+Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
+
+After running `git worktree add`, verify the directory actually exists:
+
+1. Run `ls -d <worktree-path>` to confirm the directory was created.
+2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
+3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct execution.
+
+### Execution Steps
+
 The executor must:
 
-1. create the temporary branch and worktree
-2. delegate the scoped task inside that worktree
-3. require the delegated agent to commit on the temporary branch
-4. review the result against the step contract
-5. merge it back to the feature branch
-6. run required verification for that point in the flow
-7. update `execution.md`
-8. close the delegated agent
-9. delete the worktree and merged temporary branch
+1. create the temporary branch and worktree under `.steiner/worktrees/`
+2. verify the worktree is accessible (see provisioning checks above)
+3. delegate the scoped task inside that worktree
+4. require the delegated agent to commit on the temporary branch
+5. review the result against the step contract
+6. merge it back to the feature branch
+7. run required verification for that point in the flow
+8. update `execution.md`
+9. close the delegated agent
+10. delete the worktree and merged temporary branch
 
 Sub-agents must not merge, rebase, clean up executor-owned git state, or commit directly to the feature branch.
 
-If safe isolated execution is unavailable, execute directly only as a fallback. Record the reason in `execution.md` and preserve the same step boundaries.
+If safe isolated execution is unavailable or worktree provisioning fails after verification, execute directly as a fallback. Record the reason in `execution.md` and preserve the same step boundaries.
 
 ## Steiner Delegation
 
@@ -161,10 +174,23 @@ Every delegated task must be tight and self-contained. Include:
 - constraints, non-goals, and forbidden changes
 - expected output and commit expectations
 - verification to run or report
+- the pre-commit checklist below
 
 Do not pass broad conversation history or vague prompts. Do not make the delegated agent rediscover context the main agent already has.
 
+### Pre-Commit Checklist
+
+Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`:
+
+1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
+2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
+3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+If any check fails, the sub-agent must not commit. It must report the mismatch and let the executor recover.
+
 ## Verification Policy
+
+Before running `make check` or `golangci-lint run`, run `golangci-lint cache clean` to avoid false positives from stale cache entries pointing at deleted worktree paths.
 
 Use the narrowest meaningful verification that gives sufficient confidence.
 

@@ -103,14 +103,27 @@ Safe isolated execution is available only when Steiner delegation tools are avai
 
 When safe isolated execution is available, run the approved fix pass in a dedicated temporary branch and worktree. The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
 
+### Worktree Provisioning
+
+Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
+
+After running `git worktree add`, verify the directory actually exists:
+
+1. Run `ls -d <worktree-path>` to confirm the directory was created.
+2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
+3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct fixes.
+
+### Review-Fix Delegation
+
 The review-fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
+- run the pre-commit checklist before committing (see below)
 - commit its changes on the temporary branch
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-If safe isolated execution is unavailable, direct fixes are allowed only as a fallback. Record the reason if `review.md` exists, and keep the same approved fix-pass boundary.
+If safe isolated execution is unavailable or worktree provisioning fails after verification, direct fixes are allowed only as a fallback. Record the reason if `review.md` exists, and keep the same approved fix-pass boundary.
 
 Review-fix work is sequential. Do not parallelize it.
 
@@ -125,9 +138,21 @@ Use Steiner's specialised tools directly:
 - `research({"task": "..."})` only for approved current/external research
 - `delegate({...})` only when no specialised profile fits
 
-Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, and non-goals.
+Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the pre-commit checklist below.
+
+### Pre-Commit Checklist
+
+Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`:
+
+1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
+2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
+3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+If any check fails, the sub-agent must not commit. It must report the mismatch and let the reviewer recover.
 
 ## Verification After Fixes
+
+Before running `make check` or `golangci-lint run`, run `golangci-lint cache clean` to avoid false positives from stale cache entries pointing at deleted worktree paths.
 
 Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
 
