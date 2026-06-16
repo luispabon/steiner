@@ -211,3 +211,26 @@ func TestCompactionBoxUsesNilGuard(t *testing.T) {
 		t.Errorf("nil compactionData should produce empty string, got %q", out)
 	}
 }
+
+func TestRenderDelegationHeaderAdvisor(t *testing.T) {
+	b := newTestBuffer(t)
+	header := b.renderDelegationHeader(&delegationDisplayState{
+		isAdvisor:      true,
+		toolLabel:      "advisor",
+		status:         "budget_exhausted",
+		modelName:      "advisor-model",
+		advisorUse:     2,
+		advisorMaxUses: 2,
+		collapsed:      true,
+	}, 80)
+
+	if !strings.Contains(header, "advisor") {
+		t.Fatalf("header = %q, want advisor label", header)
+	}
+	if strings.Contains(header, "pending") {
+		t.Fatalf("header = %q, must not show pending agent id", header)
+	}
+	if !strings.Contains(header, "budget exhausted") {
+		t.Fatalf("header = %q, want budget status", header)
+	}
+}

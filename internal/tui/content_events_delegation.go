@@ -30,6 +30,20 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	}
 }
 
+func (b *contentBuffer) appendAdvisorEvent(event output.Event) {
+	b.finishStreaming()
+	switch event.Type {
+	case output.EventTypeAdvisorStarted:
+		b.handleAdvisorStarted(event)
+	case output.EventTypeAdvisorComplete:
+		b.handleAdvisorComplete(event)
+	case output.EventTypeAdvisorBudgetExhausted:
+		b.handleAdvisorBudgetExhausted(event)
+	default:
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
+	}
+}
+
 func (b *contentBuffer) appendScopedDelegationEvent(event output.Event) bool {
 	agentID := event.Scope.AgentID
 	if agentID == "" {
@@ -505,6 +519,88 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	b.segments = append(b.segments, contentSegment{
 		kind:        segmentDelegation,
 		delegData:   &delegationDisplayState{agentID: payload.AgentID, status: "failed", collapsed: true},
+		renderDirty: true,
+	})
+}
+
+func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
+	payload, ok := event.Payload.(output.AdvisorStartedEvent)
+	if !ok {
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
+		return
+	}
+	idx := len(b.segments)
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			isAdvisor:        true,
+			toolLabel:        "advisor",
+			taskPreview:      "stronger-model steering",
+			currentOperation: "consulting stronger-model advisor",
+			status:           "active",
+			collapsed:        true,
+			modelName:        payload.Model,
+			advisorUse:       payload.UseNumber,
+			advisorMaxUses:   payload.MaxUses,
+			startTime:        nanoNow(),
+		},
+		renderDirty: true,
+	})
+	b.activeAdvisorSegment = idx + 1
+}
+
+func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
+	payload, ok := event.Payload.(output.AdvisorCompleteEvent)
+	if !ok {
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
+		return
+	}
+	idx := b.activeAdvisorSegment - 1
+	if idx < 0 || idx >= len(b.segments) || b.segments[idx].kind != segmentDelegation || b.segments[idx].delegData == nil || !b.segments[idx].delegData.isAdvisor {
+		idx = len(b.segments)
+		b.segments = append(b.segments, contentSegment{
+			kind:        segmentDelegation,
+			delegData:   &delegationDisplayState{isAdvisor: true, toolLabel: "advisor", collapsed: true},
+			renderDirty: true,
+		})
+	}
+	dd := b.segments[idx].delegData
+	dd.modelName = payload.Model
+	dd.advisorUse = payload.UseNumber
+	dd.advisorMaxUses = payload.MaxUses
+	dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+	dd.output = payload.Note
+	dd.status = "complete"
+	dd.resultStatus = "complete"
+	if strings.TrimSpace(payload.Error) != "" {
+		dd.output = payload.Error
+		dd.status = "failed"
+		dd.resultStatus = "failed"
+	}
+	b.segments[idx].renderDirty = true
+	b.activeAdvisorSegment = 0
+}
+
+func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
+	payload, ok := event.Payload.(output.AdvisorBudgetExhaustedEvent)
+	if !ok {
+		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
+		return
+	}
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentDelegation,
+		delegData: &delegationDisplayState{
+			isAdvisor:      true,
+			toolLabel:      "advisor",
+			taskPreview:    "stronger-model steering",
+			status:         "budget_exhausted",
+			resultStatus:   "budget exhausted",
+			output:         payload.Message,
+			collapsed:      true,
+			modelName:      payload.Model,
+			advisorUse:     payload.Used,
+			advisorMaxUses: payload.MaxUses,
+		},
 		renderDirty: true,
 	})
 }

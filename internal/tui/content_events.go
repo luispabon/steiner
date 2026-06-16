@@ -134,6 +134,7 @@ type delegationTranscriptEntry struct {
 
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
+	isAdvisor       bool
 	agentID         string
 	toolLabel       string // specialized tool name (e.g. "explore"), empty means "delegate"
 	taskPreview     string // truncated to ~80 chars
@@ -166,6 +167,8 @@ type delegationDisplayState struct {
 	// follow_up state: set when this is a follow-up call to an existing child
 	isFollowUp      bool
 	followUpAgentID string // the child agent being followed up on
+	advisorUse      int
+	advisorMaxUses  int
 }
 
 type contentSegment struct {
@@ -209,6 +212,7 @@ type contentBuffer struct {
 	activeDelegations       map[string]int // agentID → segment index (for in-flight delegations)
 	pendingDelegateParents  []int          // segment indexes awaiting DelegationStartedEvent binding
 	pendingDelegationStarts []int          // segment indexes awaiting parent delegate tool binding
+	activeAdvisorSegment    int            // 1-based segment index; 0 means none active
 	skillNames              []string       // skill names for command prefix matching
 	maxDelegationBodyLines  int            // max lines for delegation body (transcript + prompt); 0 = uncapped
 }
@@ -216,31 +220,34 @@ type contentBuffer struct {
 type contentEventHandler func(*contentBuffer, output.Event)
 
 var contentEventHandlers = map[string]contentEventHandler{
-	output.EventTypeThinkingChunk:      (*contentBuffer).appendThinkingChunkEvent,
-	output.EventTypeAssistantChunk:     (*contentBuffer).appendAssistantChunkEvent,
-	output.EventTypeApprovalRequested:  (*contentBuffer).appendApprovalRequestedEvent,
-	output.EventTypeApprovalAccepted:   (*contentBuffer).appendApprovalDecisionEvent,
-	output.EventTypeApprovalDenied:     (*contentBuffer).appendApprovalDecisionEvent,
-	output.EventTypeDelegationStarted:  (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationComplete: (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationFailed:   (*contentBuffer).appendDelegationEvent,
-	output.EventTypeProviderDiagnostic: (*contentBuffer).appendProviderDiagnosticEvent,
-	output.EventTypeToolCallStarted:    (*contentBuffer).appendToolCallStartedEvent,
-	output.EventTypeToolCallFinished:   (*contentBuffer).appendToolCallFinishedEvent,
-	output.EventTypeDisplayFile:        (*contentBuffer).appendDisplayFileEvent,
-	output.EventTypeStopReason:         (*contentBuffer).appendStopReasonEvent,
-	output.EventTypeAssistantMessage:   (*contentBuffer).appendAssistantMessageEvent,
-	output.EventTypeContextReport:      (*contentBuffer).appendContextReportEvent,
-	output.EventTypeModelCallStarted:   (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeModelCallFinished:  (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeContextDiagnostics: (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeUserInput:          (*contentBuffer).appendUserInputEvent,
-	output.EventTypeRunStarted:         func(*contentBuffer, output.Event) {},
-	output.EventTypeRunFinished:        func(*contentBuffer, output.Event) {},
-	output.EventTypeTurnStarted:        func(*contentBuffer, output.Event) {},
-	output.EventTypeTurnFinished:       func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIRequest:         func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIResponse:        func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	output.EventTypeThinkingChunk:          (*contentBuffer).appendThinkingChunkEvent,
+	output.EventTypeAssistantChunk:         (*contentBuffer).appendAssistantChunkEvent,
+	output.EventTypeApprovalRequested:      (*contentBuffer).appendApprovalRequestedEvent,
+	output.EventTypeApprovalAccepted:       (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeApprovalDenied:         (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeDelegationStarted:      (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
+	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeAdvisorComplete:        (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeAdvisorBudgetExhausted: (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeProviderDiagnostic:     (*contentBuffer).appendProviderDiagnosticEvent,
+	output.EventTypeToolCallStarted:        (*contentBuffer).appendToolCallStartedEvent,
+	output.EventTypeToolCallFinished:       (*contentBuffer).appendToolCallFinishedEvent,
+	output.EventTypeDisplayFile:            (*contentBuffer).appendDisplayFileEvent,
+	output.EventTypeStopReason:             (*contentBuffer).appendStopReasonEvent,
+	output.EventTypeAssistantMessage:       (*contentBuffer).appendAssistantMessageEvent,
+	output.EventTypeContextReport:          (*contentBuffer).appendContextReportEvent,
+	output.EventTypeModelCallStarted:       (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeModelCallFinished:      (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeContextDiagnostics:     (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeUserInput:              (*contentBuffer).appendUserInputEvent,
+	output.EventTypeRunStarted:             func(*contentBuffer, output.Event) {},
+	output.EventTypeRunFinished:            func(*contentBuffer, output.Event) {},
+	output.EventTypeTurnStarted:            func(*contentBuffer, output.Event) {},
+	output.EventTypeTurnFinished:           func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIRequest:             func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIResponse:            func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
 	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no
 	// content line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},

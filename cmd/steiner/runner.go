@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/wonton/web"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -53,7 +55,10 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
 	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
-	activeRegistry := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, setup.provider, events, r.runtime.workDir, r.runtime.homeDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
+	activeRegistry, err := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, r.runtime.cfg.Advisor, setup.provider, events, r.runtime.workDir, r.runtime.homeDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
+	if err != nil {
+		return runResult{}, err
+	}
 	runner := agent.NewRunner()
 	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events, steerCh))
 	reason := string(state.StopReason)
@@ -152,11 +157,35 @@ func (p loggingProvider) SupportsUsageStats() bool {
 // An extended base registry is also built that includes real tools (web_search
 // when a searcher is available, fetch_url always via Builtins) so child
 // registries can filter them in via their per-type allowlists.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) *tool.Registry {
-	if !subAgentCfg.Enabled {
-		return base
+func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, advisorCfg config.AdvisorConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) (*tool.Registry, error) {
+	if !subAgentCfg.Enabled && !advisorCfg.Enabled {
+		return base, nil
 	}
 	cloned := base.Clone()
+
+	if advisorCfg.Enabled {
+		advisorResolved, err := provider.ResolveWithDiscovery(cfg, advisorCfg.Model, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("resolve advisor model %q: %w", advisorCfg.Model, err)
+		}
+		advisorProvider, err := resolveToolProvider(prov, rm, advisorResolved, providerFactory)
+		if err != nil {
+			return nil, fmt.Errorf("build advisor provider for %q: %w", advisorCfg.Model, err)
+		}
+		cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
+			Provider: advisorProvider,
+			Model:    advisorResolved,
+			Events:   events,
+			Config: advisor.Config{
+				MaxUsesPerRun: advisorCfg.MaxUsesPerRun,
+				MaxTokens:     advisorCfg.MaxTokens,
+			},
+		})))
+	}
+
+	if !subAgentCfg.Enabled {
+		return cloned, nil
+	}
 	mt := maxTokens
 	store := delegation.NewSessionStore()
 
@@ -224,5 +253,15 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		cloned.Register(def)
 	}
 
-	return cloned
+	return cloned, nil
+}
+
+func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) (provider.Provider, error) {
+	if providerFactory != nil {
+		return providerFactory(target)
+	}
+	if current != nil && currentModel.ProviderAlias == target.ProviderAlias && currentModel.EffectiveProviderType == target.EffectiveProviderType {
+		return current, nil
+	}
+	return nil, fmt.Errorf("provider factory is required for advisor model %q", target.Alias)
 }

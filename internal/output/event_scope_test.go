@@ -184,3 +184,20 @@ func TestNewAPIRequestEventDeepClonesProviderOwnedFields(t *testing.T) {
 		t.Fatalf("original tool parameter = %v, want %v", got, want)
 	}
 }
+
+func TestAdvisorEventsRender(t *testing.T) {
+	start := renderEvent(NewAdvisorStartedEvent("advisor-model", 1, 2))
+	if got := start.Text; !strings.Contains(got, "advisor started") || !strings.Contains(got, "use=1/2") {
+		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
+	}
+
+	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", nil))
+	if got := complete.Text; !strings.Contains(got, "advisor complete") || !strings.Contains(got, "note=check tests first") {
+		t.Fatalf("complete text = %q, want advisor note summary", got)
+	}
+
+	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
+	if got := exhausted.Text; !strings.Contains(got, "advisor budget exhausted") || !strings.Contains(got, "use=2/2") {
+		t.Fatalf("exhausted text = %q, want advisor budget summary", got)
+	}
+}

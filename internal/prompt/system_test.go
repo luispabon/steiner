@@ -44,6 +44,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		name            string
 		override        string
 		delegation      bool
+		advisor         bool
 		caveHuman       bool
 		suffix          string
 		wantPresent     []string
@@ -101,11 +102,18 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantOrder:       []string{testIdentityMarker, "Custom override content"},
 			wantIdentityCnt: 1,
 		},
+		{
+			name:            "advisor enabled",
+			advisor:         true,
+			wantPresent:     []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testWorkflowMarker},
+			wantIdentityCnt: 1,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := SystemPreamble(tc.override, tc.delegation, tc.caveHuman, tc.suffix).Content
+			content := systemPreambleWithAdvisor(tc.override, tc.delegation, tc.advisor, tc.caveHuman, tc.suffix).Content
 
 			for _, want := range tc.wantPresent {
 				if !strings.Contains(content, want) {
@@ -225,6 +233,21 @@ func TestSystemPreambleCaveHumanMode(t *testing.T) {
 	content := SystemPreamble("", false, true, "").Content
 	if !strings.Contains(content, testCaveHumanMarker) {
 		t.Fatalf("cave-human preamble missing output voice block in %q", content)
+	}
+}
+
+func TestSystemPreambleAdvisorGuidance(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor("", false, true, false, "").Content
+	for _, want := range []string{
+		"## Advisor",
+		"If you need a stronger-model strategic check, call `advisor`.",
+		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("advisor preamble missing %q in %q", want, content)
+		}
 	}
 }
 

@@ -138,6 +138,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextExtraFiles:  append([]string(nil), r.runtime.cfg.ProjectContext.ExtraFiles...),
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
+		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
 		Conversation:              toProviderConversation(conversation),
 		CaveHuman:                 r.runtime.cfg.CaveHuman,
 	}

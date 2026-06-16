@@ -31,11 +31,14 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 		payload := event.Payload.(ContextReportEvent)
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	},
-	reflect.TypeOf(DisplayFilePayload{}):     typedRenderer(renderDisplayFileEvent),
-	reflect.TypeOf(ModelCallStartedEvent{}):  typedRenderer(renderModelCallStartedEvent),
-	reflect.TypeOf(ModelCallFinishedEvent{}): typedRenderer(renderModelCallFinishedEvent),
-	reflect.TypeOf(ToolCallStartedEvent{}):   typedRenderer(renderToolCallStartedEvent),
-	reflect.TypeOf(ToolCallFinishedEvent{}):  typedRenderer(renderToolCallFinishedEvent),
+	reflect.TypeOf(DisplayFilePayload{}):          typedRenderer(renderDisplayFileEvent),
+	reflect.TypeOf(ModelCallStartedEvent{}):       typedRenderer(renderModelCallStartedEvent),
+	reflect.TypeOf(ModelCallFinishedEvent{}):      typedRenderer(renderModelCallFinishedEvent),
+	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
+	reflect.TypeOf(ToolCallFinishedEvent{}):       typedRenderer(renderToolCallFinishedEvent),
+	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
+	reflect.TypeOf(AdvisorCompleteEvent{}):        typedRenderer(renderAdvisorCompleteEvent),
+	reflect.TypeOf(AdvisorBudgetExhaustedEvent{}): typedRenderer(renderAdvisorBudgetExhaustedEvent),
 	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
 		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
 	},
@@ -261,6 +264,52 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
+}
+
+func renderAdvisorStartedEvent(payload AdvisorStartedEvent) Segment {
+	parts := []string{"advisor started"}
+	if payload.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
+	}
+	if payload.MaxUses > 0 {
+		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.UseNumber, payload.MaxUses))
+	}
+	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
+}
+
+func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
+	parts := []string{"advisor complete"}
+	if payload.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
+	}
+	if payload.MaxUses > 0 {
+		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.UseNumber, payload.MaxUses))
+	}
+	if payload.Note != "" {
+		parts = append(parts, fmt.Sprintf("note=%s", payload.Note))
+	}
+	channel := ChannelStatus
+	label := "advisor"
+	if payload.Error != "" {
+		channel = ChannelError
+		label = "error"
+		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
+	}
+	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
+}
+
+func renderAdvisorBudgetExhaustedEvent(payload AdvisorBudgetExhaustedEvent) Segment {
+	parts := []string{"advisor budget exhausted"}
+	if payload.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
+	}
+	if payload.MaxUses > 0 {
+		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.Used, payload.MaxUses))
+	}
+	if payload.Message != "" {
+		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
+	}
+	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
 }
 
 func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
