@@ -34,7 +34,31 @@ Key environment variables:
 |---------------------|----------|-------------|-------------|
 | `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
 | `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
+| `advisor`           | block    | empty       | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
 | `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
+
+## `advisor` block
+
+Controls the optional advisor reasoning pass. The advisor is disabled by default.
+When enabled, it uses a stronger model to review the live parent conversation and
+return concise strategic guidance. The tool definition stays stable for the whole
+run; the `max_uses_per_run` cap is enforced in handler state rather than by
+removing or mutating the tool mid-conversation.
+
+| Field              | Type   | Default | Description |
+|--------------------|--------|---------|-------------|
+| `enabled`          | bool   | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering. |
+| `model`            | string | `""`    | Model alias used for advisor calls. Must reference a key in `models` when enabled. |
+| `max_uses_per_run` | int    | `0`     | Per-run use cap enforced in handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
+| `max_tokens`       | *int   | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request. |
+
+```yaml
+advisor:
+  enabled: true
+  model: advisor-model
+  max_uses_per_run: 2
+  max_tokens: 256
+```
 
 ---
 

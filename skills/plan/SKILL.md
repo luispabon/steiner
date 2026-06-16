@@ -240,6 +240,9 @@ Use Steiner's specialised model-facing tools by name:
 
 Every Steiner delegated task must be self-contained and include relevant context already known by the main agent. Do not make delegated agents rediscover context unnecessarily.
 
+If an advisor tool is available, use it as a brief steering check before freezing an
+approach on architectural or tradeoff-heavy work.
+
 ## Handoff
 
 **Mandatory end-of-work.** If planning artifacts are version-controlled, commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Deliver the exact handoff sentence below, then call `workflow_handoff` with `next: implement` and `target: .steiner/plans/FEATURE`. Do not imply the implement workflow has already started. Do not offer to implement, delegate, review, or continue.

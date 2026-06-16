@@ -136,7 +136,7 @@ Workflow handoff defaults live in the `workflow_handoff` block in that reference
 
 ## Built-in tools
 
-These tools are always available to the model:
+These built-in tools are available to the model; some are gated by config:
 
 | Tool | Description |
 |------|-------------|
@@ -148,6 +148,7 @@ These tools are always available to the model:
 | `bash` | Run shell commands |
 | `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
 | `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
+| `advisor` | Ask a stronger-model steering advisor for concise guidance when `advisor.enabled` is true |
 | `workflow_handoff` | Create a workflow handoff request to transition to a different workflow with approved artifacts |
 
 `read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
@@ -204,6 +205,22 @@ Disabled by default. Enable via config file only:
 # config.yaml
 cave_human: true
 ```
+
+### Advisor
+
+`advisor` is a stronger-model steering pass for the main loop. It reviews the live parent conversation and returns concise guidance, but it does not call tools, mutate state, or spawn a child loop. The advisor tool definition stays static during a run; `max_uses_per_run` is enforced in handler state so prompt-cache state does not churn mid-conversation.
+
+Disabled by default. Enable via config file only:
+
+```yaml
+advisor:
+  enabled: true
+  model: advisor-model
+  max_uses_per_run: 2
+  max_tokens: 256
+```
+
+`model` must reference a key in `models` when the feature is enabled. `max_tokens` is optional.
 
 
 ### Web search
