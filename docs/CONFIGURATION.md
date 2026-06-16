@@ -22,8 +22,7 @@ Key environment variables:
 | `STEINER_SCHEDULER_PARALLELISM` | `scheduler.parallelism`         |
 | `STEINER_MAX_TURNS`           | `limits.max_turns`                |
 | `STEINER_MAX_TOKENS`          | `limits.max_tokens`               |
-| `STEINER_CAVEMAN_MODE`        | `caveman_mode`                    |
-| `STEINER_HUMANIZER_MODE`      | `humanizer_mode`                  |
+| `STEINER_CAVE_HUMAN`          | `cave_human`                      |
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |
@@ -35,8 +34,7 @@ Key environment variables:
 | Field               | Type     | Default     | Description |
 |---------------------|----------|-------------|-------------|
 | `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
-| `caveman_mode`      | bool     | `false`     | When `true`, enables caveman mode — extremely terse model output for minimal token use. |
-| `humanizer_mode`    | bool     | `false`     | When `true`, enables humanizer mode — appends an "avoid AI-writing tells" instruction (MIT-licensed derivative of blader/humanizer) to the system preamble, compaction prompts, and sub-agent prompts. Stacks with `caveman_mode`. |
+| `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
 | `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
 
 ---
@@ -146,7 +144,7 @@ models:
 | Field          | Type   | Default | Description |
 |----------------|--------|---------|-------------|
 | `system`       | string | —       | Overrides the embedded default system prompt for this model. |
-| `system_suffix`| string | —       | Text appended after all default preamble content (including caveman and humanizer instructions). Enables per-model system prompt steering without replacing the default preamble. |
+| `system_suffix`| string | —       | Text appended after all default preamble content (including `cave_human` instructions). Enables per-model system prompt steering without replacing the default preamble. |
 | `compaction`   | string | —       | Overrides the embedded compaction (context summarisation) prompt for this model. |
 
 ### `AdvancedConfig` fields
@@ -767,6 +765,5 @@ search:
   backend: searxng
   searxng_url: http://localhost:8080
 
-caveman_mode: false
-humanizer_mode: false
+cave_human: false
 ```
