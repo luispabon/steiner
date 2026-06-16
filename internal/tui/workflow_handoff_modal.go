@@ -84,17 +84,18 @@ func (m *Model) renderWorkflowHandoffModal() string {
 		Foreground(lipgloss.Color(theme.Fg)).
 		Bold(true).
 		Width(contentWidth).
-		Render("Pending workflow handoff")
+		Render(s.promptText())
 
+	warningText := s.warningText()
 	bodyLines := []string{
 		lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.FgMute)).
+			Bold(true).
 			Width(contentWidth).
-			Render("This will clear the current conversation and start the next workflow."),
+			Render(warningText),
 		"",
-		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.promptText()),
 		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.modelLine()),
-		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render("Planning folder: " + s.target),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(s.planningFolderLine()),
 	}
 	if s.message != "" {
 		bodyLines = append(bodyLines,
@@ -146,16 +147,30 @@ func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton str
 	return lipgloss.NewStyle().Width(contentWidth).Render(row)
 }
 
+func (s workflowHandoffModalState) warningText() string {
+	jobName := s.next
+	if jobName == "" {
+		jobName = "workflow"
+	}
+	return "This will clear the context and start the '" + jobName + "' job"
+}
+
 func (s workflowHandoffModalState) modelLine() string {
 	modelAlias := strings.TrimSpace(s.modelAlias)
 	modelSource := strings.TrimSpace(s.modelSource)
+	label := lipgloss.NewStyle().Bold(true).Render("Model:")
 	if modelAlias == "" {
-		return "Model:"
+		return label
 	}
 	if modelSource == "" {
-		return "Model: " + modelAlias
+		return label + " " + modelAlias
 	}
-	return "Model: " + modelAlias + " (" + modelSource + ")"
+	return label + " " + modelAlias + " (" + modelSource + ")"
+}
+
+func (s workflowHandoffModalState) planningFolderLine() string {
+	label := lipgloss.NewStyle().Bold(true).Render("Planning folder:")
+	return label + " " + s.target
 }
 
 func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
