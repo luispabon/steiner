@@ -61,14 +61,14 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
 		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
-	caveHuman := s.deps.Config.CaveHuman
 	assembly := prompt.AssemblyOptions{
 		HomeDir:         s.deps.HomeDir,
 		ProjectRoot:     s.deps.WorkDir,
 		SkillsRoots:     prompt.SkillRoots(s.deps.HomeDir, s.deps.WorkDir),
 		ModelBudget:     modelBudget,
 		PromptOverrides: rm.Prompts,
-		CaveHuman:       caveHuman,
+		CavemanMode:     s.deps.Config.CavemanMode,
+		HumanizerMode:   s.deps.Config.HumanizerMode,
 	}
 
 	compactReq := agent.RunRequest{
@@ -77,7 +77,8 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		ModelBudget:       modelBudget,
 		ResolvedModel:     rm,
 		Events:            s.events,
-		CaveHuman:         caveHuman,
+		CavemanMode:       s.deps.Config.CavemanMode,
+		HumanizerMode:     s.deps.Config.HumanizerMode,
 		CompactionLogPath: s.deps.CompactionLogPath,
 	}
 

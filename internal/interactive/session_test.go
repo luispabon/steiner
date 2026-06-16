@@ -1120,7 +1120,7 @@ func TestHandleToggleCavemanMode(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			CaveHuman: false,
+			CavemanMode: false,
 		},
 	})
 
@@ -1147,7 +1147,7 @@ func TestHandleToggleHumanizerMode(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			CaveHuman: false,
+			HumanizerMode: false,
 		},
 	})
 

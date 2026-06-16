@@ -33,7 +33,7 @@ func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *too
 // BuildChildRun) is responsible for registry and prompt assembly.
 // sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
 // executor unchanged, enforcing child sandbox ≤ parent sandbox.
-func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper) agent.RunRequest {
+func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, cavemanMode bool, humanizerMode bool, sandbox tool.SandboxWrapper) agent.RunRequest {
 	_ = spec
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(spec.AgentID, events)
@@ -54,7 +54,8 @@ func buildChildRunRequest(workDir string, spec DelegationSpec, prov provider.Pro
 		ModelBudget:        modelBudget,
 		MaxTokens:          maxTokens,
 		StreamingPreferred: streamingPreferred,
-		CaveHuman:          caveHuman,
+		CavemanMode:        cavemanMode,
+		HumanizerMode:      humanizerMode,
 	}
 
 	return req

@@ -172,18 +172,18 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	return selection
 }
 
-// CavemanMode returns whether cave-human prompting is enabled.
+// CavemanMode returns whether caveman-style terse prompting is enabled.
 func (s *Session) CavemanMode() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.CaveHuman
+	return s.deps.Config.CavemanMode
 }
 
-// HumanizerMode returns whether cave-human prompting is enabled.
+// HumanizerMode returns whether humanizer-style prompting is enabled.
 func (s *Session) HumanizerMode() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.CaveHuman
+	return s.deps.Config.HumanizerMode
 }
 
 // CurrentModelConfig returns the currently active model config.
@@ -328,24 +328,24 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) handleToggleHumanizerMode() {
 	s.mu.Lock()
-	s.deps.Config.CaveHuman = !s.deps.Config.CaveHuman
+	s.deps.Config.HumanizerMode = !s.deps.Config.HumanizerMode
 	state := "off"
-	if s.deps.Config.CaveHuman {
+	if s.deps.Config.HumanizerMode {
 		state = "on"
 	}
 	s.mu.Unlock()
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Cave-human mode: %s", state)))
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Humanizer mode: %s", state)))
 }
 
 func (s *Session) handleToggleCavemanMode() {
 	s.mu.Lock()
-	s.deps.Config.CaveHuman = !s.deps.Config.CaveHuman
+	s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
 	state := "off"
-	if s.deps.Config.CaveHuman {
+	if s.deps.Config.CavemanMode {
 		state = "on"
 	}
 	s.mu.Unlock()
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Cave-human mode: %s", state)))
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
 }
 
 func (s *Session) handleSwitchModel(name string) error {

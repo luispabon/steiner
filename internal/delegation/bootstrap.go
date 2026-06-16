@@ -58,11 +58,10 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	caveHuman := deps.CavemanMode || deps.HumanizerMode
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, caveHuman)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CavemanMode, deps.HumanizerMode)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, caveHuman, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode, deps.HumanizerMode, deps.Sandbox)
 	return req, limits, nil
 }
 
@@ -79,7 +78,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool, humanizerMode bool) prompt.AssemblyOptions {
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
@@ -91,7 +90,8 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextExtraFiles:  pcc.ExtraFiles,
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
 		ProjectContextBudgetBytes: pcc.MaxTokens,
-		CaveHuman:                 caveHuman,
+		CavemanMode:               cavemanMode,
+		HumanizerMode:             humanizerMode,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},
