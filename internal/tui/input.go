@@ -24,8 +24,7 @@ type inputAction struct {
 	openModelPicker      bool
 	invokeSkill          string // skill name for direct invocation
 	invokeSkillArgs      string // optional args to pass with skill invocation
-	cavemanToggle        bool
-	humanizerToggle      bool
+	caveHumanToggle      bool
 }
 
 func parseInput(value string) inputAction {
@@ -80,10 +79,8 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{openModelPicker: true}, true
 	case "/thinking":
 		return inputAction{toggleThinking: true}, true
-	case "/caveman":
-		return inputAction{cavemanToggle: true}, true
-	case "/humanizer":
-		return inputAction{humanizerToggle: true}, true
+	case "/cave-human":
+		return inputAction{caveHumanToggle: true}, true
 	case "/ls":
 		return inputAction{listFiles: true}, true
 	default:
@@ -163,8 +160,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", false
 	}
-	builtins := []string{"/exit", "/clear", "/compact", "/config", "/context", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/caveman",
-		"/humanizer", "/accent"}
+	builtins := []string{"/exit", "/clear", "/compact", "/config", "/context", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/cave-human", "/accent"}
 	for _, cmd := range builtins {
 		if trimmed == cmd {
 			return cmd, true
@@ -189,8 +185,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 // Candidates are built-in slash commands plus "/skill <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {
 	base := []string{"/exit", "/clear", "/compact", "/config", "/context", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
-		"/caveman",
-		"/humanizer",
+		"/cave-human",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
