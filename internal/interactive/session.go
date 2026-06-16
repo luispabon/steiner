@@ -581,7 +581,12 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, startedToolCalls map[string]struct{}, paired map[string]struct{}) {
 	for _, call := range calls {
 		if isDelegateToolCall(call.Name) {
+			if _, ok := paired[call.ID]; !ok {
+				continue
+			}
 			pendingDelegates[call.ID] = call
+			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+			startedToolCalls[call.ID] = struct{}{}
 		} else if _, ok := paired[call.ID]; ok {
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			startedToolCalls[call.ID] = struct{}{}
@@ -605,21 +610,20 @@ func pairedToolResultIDs(msgs []agent.Message) map[string]struct{} {
 // replayToolResult emits the completion event for a tool result message.
 func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string]agent.ToolCall, startedToolCalls map[string]struct{}) {
 	if pending, ok := pendingDelegates[msg.ToolCallID]; ok {
-		agentID := "agent-" + msg.ToolCallID
-		status := "complete"
-		turns, tokens := 0, 0
-		if msg.Retention != nil {
-			agentID = msg.Retention.AgentID
-			status = msg.Retention.Status
-			turns = msg.Retention.TurnCount
-			tokens = msg.Retention.TokenCount
-		}
+		state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
 		task := taskFromArgs(pending.Arguments)
-		s.events.Emit(output.NewDelegationStartedEvent(agentID, task))
-		if status == "failed" {
-			s.events.Emit(output.NewDelegationFailedEvent(agentID, task, msg.Content))
+		s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
+		if state.status == "failed" {
+			s.events.Emit(output.NewDelegationFailedEvent(state.agentID, task, state.error))
 		} else {
-			s.events.Emit(output.NewDelegationCompleteEvent(agentID, status, turns, tokens, 0, msg.Content))
+			s.events.Emit(output.NewDelegationCompleteEvent(
+				state.agentID,
+				state.status,
+				state.turnCount,
+				state.tokenCount,
+				state.toolCallCount,
+				state.output,
+			))
 		}
 		delete(pendingDelegates, msg.ToolCallID)
 	} else if _, ok := startedToolCalls[msg.ToolCallID]; ok {

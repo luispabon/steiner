@@ -2520,6 +2520,52 @@ func TestDelegationHeaderKeepsDelegateLabelForBaseDelegate(t *testing.T) {
 	}
 }
 
+func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	jsonBlob := `{"agent_id":"agent-plan-1","status":"complete","output":"final prose output","tool_call_count":2}`
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_plan_1", map[string]any{
+		"task": "plan the rollout\nwith full prompt text",
+	}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-plan-1", "plan the rollout\nwith full prompt text"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-plan-1", "complete", 3, 456, 2, "final prose output"))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil")
+	}
+	if got, want := dd.toolLabel, "plan"; got != want {
+		t.Fatalf("toolLabel = %q, want %q", got, want)
+	}
+	if got, want := dd.promptText, "plan the rollout\nwith full prompt text"; got != want {
+		t.Fatalf("promptText = %q, want %q", got, want)
+	}
+	if !dd.promptCollapsed {
+		t.Fatal("promptCollapsed = false, want true")
+	}
+
+	buffer.ToggleLastDelegationOutput()
+	dd.promptCollapsed = false
+	buffer.segments[0].renderDirty = true
+
+	rendered := stripANSI(buffer.String(80))
+	for _, want := range []string{"plan", "▾ prompt", "plan the rollout", "with full prompt text", "output", "final prose output"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("replay delegation render %q missing %q", rendered, want)
+		}
+	}
+	if strings.Contains(rendered, `"agent_id"`) || strings.Contains(rendered, `"output"`) || strings.Contains(rendered, jsonBlob) {
+		t.Fatalf("replay delegation render leaked serialized json: %q", rendered)
+	}
+}
+
 func lineHasHighlightedSpan(line output.PreviewLine) bool {
 	for _, span := range line.Spans {
 		if span.Type != chroma.Text {
