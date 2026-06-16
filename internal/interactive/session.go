@@ -172,18 +172,11 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	return selection
 }
 
-// CavemanMode returns whether caveman-style terse prompting is enabled.
-func (s *Session) CavemanMode() bool {
+// CaveHuman returns whether cave_human-style terse prompting is enabled.
+func (s *Session) CaveHuman() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.CavemanMode
-}
-
-// HumanizerMode returns whether humanizer-style prompting is enabled.
-func (s *Session) HumanizerMode() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.deps.Config.HumanizerMode
+	return s.deps.Config.CaveHuman
 }
 
 // CurrentModelConfig returns the currently active model config.
@@ -294,11 +287,8 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SubmitWorkflowHandoff:
 		s.handoffCoordinator.Submit(a)
 		return true, nil
-	case ToggleCavemanMode:
-		s.handleToggleCavemanMode()
-		return true, nil
-	case ToggleHumanizerMode:
-		s.handleToggleHumanizerMode()
+	case ToggleCaveHuman:
+		s.handleToggleCaveHuman()
 		return true, nil
 	case SwitchModel:
 		return true, s.handleSwitchModel(a.Name)
@@ -326,26 +316,15 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	return false, nil
 }
 
-func (s *Session) handleToggleHumanizerMode() {
+func (s *Session) handleToggleCaveHuman() {
 	s.mu.Lock()
-	s.deps.Config.HumanizerMode = !s.deps.Config.HumanizerMode
+	s.deps.Config.CaveHuman = !s.deps.Config.CaveHuman
 	state := "off"
-	if s.deps.Config.HumanizerMode {
+	if s.deps.Config.CaveHuman {
 		state = "on"
 	}
 	s.mu.Unlock()
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Humanizer mode: %s", state)))
-}
-
-func (s *Session) handleToggleCavemanMode() {
-	s.mu.Lock()
-	s.deps.Config.CavemanMode = !s.deps.Config.CavemanMode
-	state := "off"
-	if s.deps.Config.CavemanMode {
-		state = "on"
-	}
-	s.mu.Unlock()
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Caveman mode: %s", state)))
+	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("CaveHuman mode: %s", state)))
 }
 
 func (s *Session) handleSwitchModel(name string) error {
