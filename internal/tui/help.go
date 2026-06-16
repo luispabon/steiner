@@ -55,11 +55,11 @@ func renderHelp(styles theme.Styles, width int) string {
 			bindings: []binding{
 				{"ctrl+b", "toggle sidebar"},
 				{"ctrl+p", "command palette"},
+				{"ctrl+t", "inspect context"},
 				{"ctrl+x", "toggle delegation output"},
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
 				{"/fork", "fork current conversation"},
-				{"/context", "inspect last request"},
 				{"/resume", "resume a previous session"},
 				{"/accent <preset>", "switch accent color"},
 				{"/thinking", "toggle thinking blocks"},
