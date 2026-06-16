@@ -44,21 +44,16 @@ func ensureSteinerProjectDir(workDir string) error {
 }
 
 func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags) (config.Config, error) {
-	cavemanOverride := (*bool)(nil)
-	if cmd.Flags().Changed("caveman") {
-		cavemanOverride = &flags.caveman
-	}
-	humanizerOverride := (*bool)(nil)
-	if cmd.Flags().Changed("humanizer") {
-		humanizerOverride = &flags.humanizer
+	caveHumanOverride := (*bool)(nil)
+	if cmd.Flags().Changed("cave-human") {
+		caveHumanOverride = &flags.caveHuman
 	}
 	cfg, err := config.Load(config.LoadOptions{
 		CLI: config.CLIOverrides{
-			ConfigPath:    flags.configPath,
-			Model:         flags.model,
-			Verbose:       flags.verbose,
-			CavemanMode:   cavemanOverride,
-			HumanizerMode: humanizerOverride,
+			ConfigPath: flags.configPath,
+			Model:      flags.model,
+			Verbose:    flags.verbose,
+			CaveHuman:  caveHumanOverride,
 		},
 	})
 	if err != nil {

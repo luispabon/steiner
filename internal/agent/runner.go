@@ -41,15 +41,8 @@ type RunRequest struct {
 	// fallback. Interactive mode sets this to true; --exec defaults to false.
 	StreamingPreferred bool
 
-	// CavemanMode makes the model speak tersely like a caveman to reduce
-	// token usage. When true, system/compaction/child prompts are prepended
-	// with terse-style instructions.
-	CavemanMode bool
-
-	// HumanizerMode makes the model write like a human to avoid AI-writing
-	// tells. When true, the system preamble is appended with anti-AI-writing
-	// instructions.
-	HumanizerMode bool
+	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
+	CaveHuman bool
 
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
@@ -188,9 +181,8 @@ func postIngestionState(ctx context.Context, req RunRequest, state RunState) (Ru
 func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
-	// Plumb caveman and humanizer modes through to prompt assembly.
-	basePrompt.CavemanMode = req.CavemanMode
-	basePrompt.HumanizerMode = req.HumanizerMode
+	// Plumb the merged cave/human prompt mode through to prompt assembly.
+	basePrompt.CaveHuman = req.CaveHuman
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
 	manager := req.ContextManager
@@ -200,8 +192,7 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt.CachedPreamble = manager.CachedSystemPreamble(
 		basePrompt.PromptOverrides.System,
 		basePrompt.DelegationEnabled,
-		basePrompt.CavemanMode,
-		basePrompt.HumanizerMode,
+		basePrompt.CaveHuman,
 		basePrompt.PromptOverrides.SystemSuffix,
 	)
 	return basePrompt

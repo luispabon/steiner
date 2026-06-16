@@ -28,8 +28,7 @@ type BootstrapDeps struct {
 	ResolvedModel        provider.ResolvedModel
 	MaxTokens            *int
 	StreamingPreferred   bool
-	CavemanMode          bool
-	HumanizerMode        bool
+	CaveHuman            bool
 	// Sandbox is the parent sandbox to inherit. Child sandbox permissions cannot
 	// exceed parent permissions: the parent sandbox is passed as-is to the child
 	// executor. A nil Sandbox means unsafe mode (no sandboxing).
@@ -58,10 +57,10 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CavemanMode, deps.HumanizerMode)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CavemanMode, deps.HumanizerMode, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
 	return req, limits, nil
 }
 
@@ -78,7 +77,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, cavemanMode bool, humanizerMode bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool) prompt.AssemblyOptions {
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
@@ -90,8 +89,7 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextExtraFiles:  pcc.ExtraFiles,
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
 		ProjectContextBudgetBytes: pcc.MaxTokens,
-		CavemanMode:               cavemanMode,
-		HumanizerMode:             humanizerMode,
+		CaveHuman:                 caveHuman,
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: taskContent},
 		},

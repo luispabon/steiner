@@ -15,7 +15,7 @@ const (
 	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
 	compactionPromptEmergencyInstruction = "This is an emergency handoff. Be shorter and more lossy than usual while preserving the essential task, the current state, and any irreversible decisions."
-	compactionPromptCavemanBody          = `You compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.
+	compactionPromptCaveHumanBody        = `You compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.
 
 Include:
 1. Task and Goal — user request, end state, success criteria, constraints, assumptions.
@@ -136,13 +136,13 @@ const (
 )
 
 // BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, cavemanMode bool, humanizerMode bool) []provider.Message {
+func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, caveHuman bool) []provider.Message {
 	turns := splitConversationTurns(messages)
 	if len(turns) == 0 {
 		return nil
 	}
 
-	systemContent := RenderConversationCompactionInstruction(override, mode, cavemanMode, humanizerMode)
+	systemContent := RenderConversationCompactionInstruction(override, mode, caveHuman)
 	userPrompt := renderConversationCompactionSource(turns, state)
 	return []provider.Message{
 		{Role: provider.MessageRoleSystem, Content: systemContent},
@@ -152,16 +152,13 @@ func BuildConversationCompactionPrompt(messages []provider.Message, state Durabl
 
 // RenderConversationCompactionInstruction renders the final instruction used to
 // ask a model to compact the already-assembled conversation context.
-func RenderConversationCompactionInstruction(override string, mode CompactionMode, cavemanMode bool, humanizerMode bool) string {
+func RenderConversationCompactionInstruction(override string, mode CompactionMode, caveHuman bool) string {
 	content := compactionPromptSystem()
-	if cavemanMode {
-		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCavemanBody
+	if caveHuman {
+		content = compactionPromptSystemInstruction + "\n\n" + compactionPromptCaveHumanBody + "\n\n" + caveHumanInstruction
 	}
 	if override != "" {
 		content = override
-	}
-	if humanizerMode {
-		content = content + "\n\n" + humanizerStyleInstruction
 	}
 	if mode == CompactionModeEmergency {
 		content = content + "\n\n" + compactionPromptEmergencyInstruction

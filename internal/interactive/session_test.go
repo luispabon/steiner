@@ -29,8 +29,7 @@ var (
 	_ Action = SwitchModel{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
-	_ Action = ToggleCavemanMode{}
-	_ Action = ToggleHumanizerMode{}
+	_ Action = ToggleCaveHuman{}
 	_ Action = LoadSession{}
 	_ Action = RotateSession{}
 	_ Action = ForkSession{}
@@ -412,8 +411,7 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"RotateSession", RotateSession{}},
 		{"ClearConversation", ClearConversation{}},
-		{"ToggleHumanizerMode", ToggleHumanizerMode{}},
-		{"ToggleCavemanMode", ToggleCavemanMode{}},
+		{"ToggleCaveHuman", ToggleCaveHuman{}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
 		{"TriggerManualCompaction", TriggerManualCompaction{}},
 	}
@@ -1116,57 +1114,46 @@ func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
 	}
 }
 
-func TestHandleToggleCavemanMode(t *testing.T) {
+func TestHandleToggleCaveHuman(t *testing.T) {
 	t.Parallel()
+	var events []output.Event
 	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
 		Config: config.Config{
-			CavemanMode: false,
+			CaveHuman: false,
 		},
 	})
 
-	if got := s.CavemanMode(); got != false {
-		t.Fatalf("CavemanMode() before toggle = %v, want false", got)
+	if got := s.CaveHuman(); got != false {
+		t.Fatalf("CaveHuman() before toggle = %v, want false", got)
 	}
 
-	if err := s.Handle(context.Background(), ToggleCavemanMode{}); err != nil {
-		t.Fatalf("Handle(ToggleCavemanMode) = %v, want nil", err)
+	if err := s.Handle(context.Background(), ToggleCaveHuman{}); err != nil {
+		t.Fatalf("Handle(ToggleCaveHuman) = %v, want nil", err)
 	}
-	if got := s.CavemanMode(); got != true {
-		t.Fatalf("CavemanMode() after first toggle = %v, want true", got)
-	}
-
-	if err := s.Handle(context.Background(), ToggleCavemanMode{}); err != nil {
-		t.Fatalf("Handle(ToggleCavemanMode) = %v, want nil", err)
-	}
-	if got := s.CavemanMode(); got != false {
-		t.Fatalf("CavemanMode() after second toggle = %v, want false", got)
-	}
-}
-
-func TestHandleToggleHumanizerMode(t *testing.T) {
-	t.Parallel()
-	s := testNewSession(t, Dependencies{
-		Config: config.Config{
-			HumanizerMode: false,
-		},
-	})
-
-	if got := s.HumanizerMode(); got != false {
-		t.Fatalf("HumanizerMode() before toggle = %v, want false", got)
+	if got := s.CaveHuman(); got != true {
+		t.Fatalf("CaveHuman() after first toggle = %v, want true", got)
 	}
 
-	if err := s.Handle(context.Background(), ToggleHumanizerMode{}); err != nil {
-		t.Fatalf("Handle(ToggleHumanizerMode) = %v, want nil", err)
+	if err := s.Handle(context.Background(), ToggleCaveHuman{}); err != nil {
+		t.Fatalf("Handle(ToggleCaveHuman) = %v, want nil", err)
 	}
-	if got := s.HumanizerMode(); got != true {
-		t.Fatalf("HumanizerMode() after first toggle = %v, want true", got)
+	if got := s.CaveHuman(); got != false {
+		t.Fatalf("CaveHuman() after second toggle = %v, want false", got)
 	}
-
-	if err := s.Handle(context.Background(), ToggleHumanizerMode{}); err != nil {
-		t.Fatalf("Handle(ToggleHumanizerMode) = %v, want nil", err)
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
 	}
-	if got := s.HumanizerMode(); got != false {
-		t.Fatalf("HumanizerMode() after second toggle = %v, want false", got)
+	for i, want := range []string{"CaveHuman mode: on", "CaveHuman mode: off"} {
+		payload, ok := events[i].Payload.(output.ContextReportEvent)
+		if !ok {
+			t.Fatalf("events[%d].Payload = %T, want output.ContextReportEvent", i, events[i].Payload)
+		}
+		if got := payload.Content; got != want {
+			t.Fatalf("events[%d].Content = %q, want %q", i, got, want)
+		}
 	}
 }
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {

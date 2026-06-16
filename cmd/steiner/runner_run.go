@@ -139,6 +139,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		Conversation:              toProviderConversation(conversation),
+		CaveHuman:                 r.runtime.cfg.CaveHuman,
 	}
 }
 
@@ -181,8 +182,7 @@ func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRe
 			MaxTurns:  r.maxTurns,
 			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
 		},
-		CavemanMode:        r.cavemanMode != nil && r.cavemanMode(),
-		HumanizerMode:      r.humanizerMode != nil && r.humanizerMode(),
+		CaveHuman:          r.caveHuman != nil && r.caveHuman(),
 		Events:             events,
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,

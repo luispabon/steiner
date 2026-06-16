@@ -133,20 +133,12 @@ type AssemblyOptions struct {
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
-	// is used directly, bypassing SystemPreamble. Both inputs to SystemPreamble
-	// (PromptOverrides.System and DelegationEnabled) are
-	// session-constants, so caching once per session is safe.
+	// is used directly, bypassing SystemPreamble. All inputs to SystemPreamble
+	// are session-constants, so caching once per session is safe.
 	CachedPreamble string
 
-	// CavemanMode makes the model speak tersely like a caveman to reduce
-	// token usage. When true, system/compaction/child prompts are prepended
-	// with terse-style instructions.
-	CavemanMode bool
-
-	// HumanizerMode makes the model write like a human to avoid AI-writing
-	// tells. When true, the system preamble is appended with anti-AI-writing
-	// instructions.
-	HumanizerMode bool
+	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
+	CaveHuman bool
 }
 
 // Assembly is the rendered prompt plus its contributing context blocks.

@@ -29,10 +29,10 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 			alias := args[0]
 			cfg, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
-					ConfigPath:  flags.configPath,
-					Model:       flags.model,
-					Verbose:     flags.verbose,
-					CavemanMode: &flags.caveman,
+					ConfigPath: flags.configPath,
+					Model:      flags.model,
+					Verbose:    flags.verbose,
+					CaveHuman:  &flags.caveHuman,
 				},
 			})
 			if err != nil {

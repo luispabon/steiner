@@ -168,7 +168,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
+			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -195,7 +195,7 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
+	}, "/tmp/work", "", config.ProjectContextConfig{}, false)
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -231,7 +231,7 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 	promptOpts := buildChildPrompt(DelegationSpec{
 		Task:    "do something",
 		AgentID: "test-shared-system",
-	}, t.TempDir(), "", config.ProjectContextConfig{}, false, false)
+	}, t.TempDir(), "", config.ProjectContextConfig{}, false)
 
 	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
@@ -420,7 +420,7 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
+	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
 	if opts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
 	}

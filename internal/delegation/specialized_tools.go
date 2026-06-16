@@ -99,7 +99,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			ResolvedModel:        resolvedModel,
 			MaxTokens:            deps.MaxTokens,
 			StreamingPreferred:   deps.StreamingPreferred,
-			HumanizerMode:        deps.HumanizerMode,
+			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
 		}, spec)
 		if err != nil {

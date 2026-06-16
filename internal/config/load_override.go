@@ -15,11 +15,8 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"
 	}
-	if cli.CavemanMode != nil {
-		cfg.CavemanMode = *cli.CavemanMode
-	}
-	if cli.HumanizerMode != nil {
-		cfg.HumanizerMode = *cli.HumanizerMode
+	if cli.CaveHuman != nil {
+		cfg.CaveHuman = *cli.CaveHuman
 	}
 }
 

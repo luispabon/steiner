@@ -8,6 +8,62 @@ import (
 	"testing"
 )
 
+func TestToAnthropicMessage_DropsUnsignedThinkingBlock(t *testing.T) {
+	// Reasoning text without a captured signature must not be replayed as a
+	// thinking block; the Anthropic Messages API rejects thinking blocks that
+	// lack a signature with a 400.
+	cases := []struct {
+		name     string
+		metadata *MessageProviderMetadata
+	}{
+		{name: "nil metadata"},
+		{name: "nil anthropic", metadata: &MessageProviderMetadata{}},
+		{name: "empty signature", metadata: &MessageProviderMetadata{Anthropic: &AnthropicMessageMetadata{}}},
+		{name: "blank signature", metadata: &MessageProviderMetadata{Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "   "}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := toAnthropicMessage(Message{
+				Role:             MessageRoleAssistant,
+				ReasoningContent: "unsigned reasoning",
+				Content:          "answer",
+				ProviderMetadata: tc.metadata,
+			})
+			if msg == nil {
+				t.Fatalf("toAnthropicMessage() = nil, want assistant message")
+			}
+			for _, block := range msg.Content {
+				if block.Type == "thinking" {
+					t.Fatalf("emitted thinking block without signature: %#v", block)
+				}
+			}
+			if len(msg.Content) != 1 || msg.Content[0].Type != "text" {
+				t.Fatalf("content = %#v, want single text block", msg.Content)
+			}
+		})
+	}
+}
+
+func TestToAnthropicMessage_KeepsSignedThinkingBlock(t *testing.T) {
+	msg := toAnthropicMessage(Message{
+		Role:             MessageRoleAssistant,
+		ReasoningContent: "signed reasoning",
+		Content:          "answer",
+		ProviderMetadata: &MessageProviderMetadata{
+			Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig_123"},
+		},
+	})
+	if msg == nil {
+		t.Fatalf("toAnthropicMessage() = nil, want assistant message")
+	}
+	if len(msg.Content) != 2 {
+		t.Fatalf("content = %#v, want thinking + text blocks", msg.Content)
+	}
+	if msg.Content[0].Type != "thinking" || msg.Content[0].Signature != "sig_123" {
+		t.Fatalf("first block = %#v, want signed thinking", msg.Content[0])
+	}
+}
+
 func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t *testing.T) {
 	wire := anthropicRequestWire(ChatRequest{
 		Model:     "claude-3-7-sonnet",

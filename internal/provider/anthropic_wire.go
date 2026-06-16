@@ -158,14 +158,21 @@ func toAnthropicMessage(message Message) *anthropicMessage {
 	case MessageRoleAssistant:
 		content := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls))
 		if message.ReasoningContent != "" {
-			block := anthropicContentBlock{
-				Type:     "thinking",
-				Thinking: message.ReasoningContent,
-			}
+			// The Anthropic Messages API rejects replayed thinking blocks that
+			// lack a signature. Only emit the block when we captured one;
+			// otherwise drop the reasoning text rather than send an invalid
+			// request.
+			var signature string
 			if metadata := message.ProviderMetadata; metadata != nil && metadata.Anthropic != nil {
-				block.Signature = metadata.Anthropic.ThinkingSignature
+				signature = metadata.Anthropic.ThinkingSignature
 			}
-			content = append(content, block)
+			if strings.TrimSpace(signature) != "" {
+				content = append(content, anthropicContentBlock{
+					Type:      "thinking",
+					Thinking:  message.ReasoningContent,
+					Signature: signature,
+				})
+			}
 		}
 		if message.Content != "" {
 			content = append(content, anthropicContentBlock{
