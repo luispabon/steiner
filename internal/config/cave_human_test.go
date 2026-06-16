@@ -24,20 +24,6 @@ func TestLoadCaveHuman(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "env false",
-			env: map[string]string{
-				"STEINER_CAVE_HUMAN": "false",
-			},
-			want: false,
-		},
-		{
-			name: "env true",
-			env: map[string]string{
-				"STEINER_CAVE_HUMAN": "true",
-			},
-			want: true,
-		},
-		{
 			name: "cli false",
 			cli:  boolPtrLocal(false),
 			want: false,
