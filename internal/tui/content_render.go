@@ -54,27 +54,39 @@ func (b *contentBuffer) String(width int) string {
 		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	// Custom join: insert blank line above and below user segments.
+	return b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+}
+
+// joinWithUserMargin joins parts with "\n", inserting a blank line ("\n\n")
+// above and below any user-prompt segment. Parts whose kind entry is -1 are
+// preview sentinels and only receive single-newline separators.
+func joinWithUserMargin(parts []string, kinds []contentSegmentKind) string {
 	var sb strings.Builder
 	lastKind := contentSegmentKind(-1)
 	for i, p := range parts {
 		if i > 0 {
-			// Preview (sentinel -1) always joins with single newline.
-			if lastKind < 0 || kinds[i] < 0 {
-				sb.WriteString("\n")
-			} else if isUserSegment(lastKind) || isUserSegment(kinds[i]) {
-				sb.WriteString("\n\n")
-			} else {
-				sb.WriteString("\n")
-			}
+			sep := joinSeparator(lastKind, kinds[i])
+			sb.WriteString(sep)
 		}
 		sb.WriteString(p)
 		if kinds[i] >= 0 {
 			lastKind = kinds[i]
 		}
 	}
-	result := sb.String()
-	return b.fillEmptyLines(result, width)
+	return sb.String()
+}
+
+// joinSeparator returns the separator to place between two adjacent parts.
+// Preview sentinels (kind < 0) collapse to a single newline so the streaming
+// preview does not introduce blank-line gaps.
+func joinSeparator(prev, next contentSegmentKind) string {
+	if prev < 0 || next < 0 {
+		return "\n"
+	}
+	if isUserSegment(prev) || isUserSegment(next) {
+		return "\n\n"
+	}
+	return "\n"
 }
 
 func (b *contentBuffer) skipHiddenSegment(index int) bool {
