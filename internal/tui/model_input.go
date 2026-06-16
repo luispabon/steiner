@@ -169,18 +169,6 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeInspectContextAction() (tea.Model, tea.Cmd) {
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
-		}
-	}
-	m.input.Reset()
-	m.historyIdx = 0
-	m.syncViewport()
-	return m, nil
-}
-
 func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.RequestConfigReport{}); err != nil {

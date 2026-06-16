@@ -412,10 +412,8 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	// Format header differently for follow_up calls
 	if dd.isFollowUp && dd.followUpAgentID != "" {
 		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
-	} else {
-		if agentID != "" {
-			left += " " + b.styles.FgDim.Render(agentID)
-		}
+	} else if agentID != "" {
+		left += " " + b.styles.FgDim.Render(agentID)
 	}
 
 	if dd.status == "active" && dd.contextFillPct > 0 {

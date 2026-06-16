@@ -132,11 +132,7 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 		m.layout()
 		return true, m, nil
 	case tea.KeyCtrlT:
-		if m.controller != nil {
-			if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
-				m.content.AppendLine(fmt.Sprintf("status: %v", err))
-			}
-		}
+		m.openContextOverlayImmediate()
 		return true, m, nil
 	case tea.KeyCtrlX:
 		m.content.ToggleLastDelegationOutput()
@@ -174,6 +170,15 @@ func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 	}
 	return false, m, nil
+}
+
+func (m Model) openContextOverlayImmediate() {
+	if m.controller == nil {
+		return
+	}
+	if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: %v", err))
+	}
 }
 
 func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
