@@ -30,7 +30,6 @@ type cliFlags struct {
 	compactionLogFile string
 	maxTurns          int
 	enableStreaming   bool
-	caveHuman         bool
 	resume            string
 	unsafe            bool
 }

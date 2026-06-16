@@ -22,7 +22,6 @@ Key environment variables:
 | `STEINER_SCHEDULER_PARALLELISM` | `scheduler.parallelism`         |
 | `STEINER_MAX_TURNS`           | `limits.max_turns`                |
 | `STEINER_MAX_TOKENS`          | `limits.max_tokens`               |
-| `STEINER_CAVE_HUMAN`          | `cave_human`                      |
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |

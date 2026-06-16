@@ -136,91 +136,111 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 func toAnthropicMessage(message Message) *anthropicMessage {
 	switch message.Role {
 	case MessageRoleUser:
-		content := make([]anthropicContentBlock, 0, 1+len(message.Images))
-		if message.Content != "" {
-			content = append(content, anthropicContentBlock{Type: "text", Text: message.Content})
-		}
-		for _, img := range message.Images {
-			content = append(content, anthropicContentBlock{
-				Type: "image",
-				Source: &anthropicImageSource{
-					Type:      "base64",
-					MediaType: img.MediaType,
-					Data:      img.Data,
-				},
-			})
-		}
-		if len(content) == 0 {
-			// keep at least empty text block to avoid empty content array
-			content = append(content, anthropicContentBlock{Type: "text", Text: ""})
-		}
-		return &anthropicMessage{Role: "user", Content: content}
+		return userMessageToAnthropic(message)
 	case MessageRoleAssistant:
-		content := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls))
-		if message.ReasoningContent != "" {
-			// The Anthropic Messages API rejects replayed thinking blocks that
-			// lack a signature. Only emit the block when we captured one;
-			// otherwise drop the reasoning text rather than send an invalid
-			// request.
-			var signature string
-			if metadata := message.ProviderMetadata; metadata != nil && metadata.Anthropic != nil {
-				signature = metadata.Anthropic.ThinkingSignature
-			}
-			if strings.TrimSpace(signature) != "" {
-				content = append(content, anthropicContentBlock{
-					Type:      "thinking",
-					Thinking:  message.ReasoningContent,
-					Signature: signature,
-				})
-			}
-		}
-		if message.Content != "" {
-			content = append(content, anthropicContentBlock{
-				Type: "text",
-				Text: message.Content,
-			})
-		}
-		for _, toolCall := range message.ToolCalls {
-			content = append(content, anthropicContentBlock{
-				Type:  "tool_use",
-				ID:    toolCall.ID,
-				Name:  toolCall.Name,
-				Input: cloneToolArguments(toolCall.Arguments),
-			})
-		}
-		if len(content) == 0 {
-			return nil
-		}
-		return &anthropicMessage{Role: "assistant", Content: content}
+		return assistantMessageToAnthropic(message)
 	case MessageRoleTool:
-		content := []anthropicContentBlock{{
-			Type:      "tool_result",
-			ToolUseID: message.ToolCallID,
-			Content:   message.Content,
-		}}
-		for _, img := range message.Images {
-			content = append(content, anthropicContentBlock{
-				Type: "image",
-				Source: &anthropicImageSource{
-					Type:      "base64",
-					MediaType: img.MediaType,
-					Data:      img.Data,
-				},
-			})
-		}
-		return &anthropicMessage{Role: "user", Content: content}
+		return toolMessageToAnthropic(message)
 	default:
-		if strings.TrimSpace(message.Content) == "" {
-			return nil
-		}
-		return &anthropicMessage{
-			Role: string(message.Role),
-			Content: []anthropicContentBlock{{
-				Type: "text",
-				Text: message.Content,
-			}},
-		}
+		return genericMessageToAnthropic(message)
 	}
+}
+
+func userMessageToAnthropic(message Message) *anthropicMessage {
+	content := make([]anthropicContentBlock, 0, 1+len(message.Images))
+	if message.Content != "" {
+		content = append(content, anthropicContentBlock{Type: "text", Text: message.Content})
+	}
+	content = appendImageBlocks(content, message.Images)
+	if len(content) == 0 {
+		// keep at least empty text block to avoid empty content array
+		content = append(content, anthropicContentBlock{Type: "text", Text: ""})
+	}
+	return &anthropicMessage{Role: "user", Content: content}
+}
+
+func assistantMessageToAnthropic(message Message) *anthropicMessage {
+	content := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls))
+	if thinking := assistantThinkingBlock(message); thinking != nil {
+		content = append(content, *thinking)
+	}
+	if message.Content != "" {
+		content = append(content, anthropicContentBlock{
+			Type: "text",
+			Text: message.Content,
+		})
+	}
+	for _, toolCall := range message.ToolCalls {
+		content = append(content, anthropicContentBlock{
+			Type:  "tool_use",
+			ID:    toolCall.ID,
+			Name:  toolCall.Name,
+			Input: cloneToolArguments(toolCall.Arguments),
+		})
+	}
+	if len(content) == 0 {
+		return nil
+	}
+	return &anthropicMessage{Role: "assistant", Content: content}
+}
+
+func assistantThinkingBlock(message Message) *anthropicContentBlock {
+	if message.ReasoningContent == "" {
+		return nil
+	}
+	// The Anthropic Messages API rejects replayed thinking blocks that
+	// lack a signature. Only emit the block when we captured one;
+	// otherwise drop the reasoning text rather than send an invalid
+	// request.
+	var signature string
+	if metadata := message.ProviderMetadata; metadata != nil && metadata.Anthropic != nil {
+		signature = metadata.Anthropic.ThinkingSignature
+	}
+	if strings.TrimSpace(signature) == "" {
+		return nil
+	}
+	return &anthropicContentBlock{
+		Type:      "thinking",
+		Thinking:  message.ReasoningContent,
+		Signature: signature,
+	}
+}
+
+func toolMessageToAnthropic(message Message) *anthropicMessage {
+	content := []anthropicContentBlock{{
+		Type:      "tool_result",
+		ToolUseID: message.ToolCallID,
+		Content:   message.Content,
+	}}
+	content = appendImageBlocks(content, message.Images)
+	return &anthropicMessage{Role: "user", Content: content}
+}
+
+func genericMessageToAnthropic(message Message) *anthropicMessage {
+	if strings.TrimSpace(message.Content) == "" {
+		return nil
+	}
+	return &anthropicMessage{
+		Role: string(message.Role),
+		Content: []anthropicContentBlock{{
+			Type: "text",
+			Text: message.Content,
+		}},
+	}
+}
+
+func appendImageBlocks(content []anthropicContentBlock, images []ImageBlock) []anthropicContentBlock {
+	for _, img := range images {
+		content = append(content, anthropicContentBlock{
+			Type: "image",
+			Source: &anthropicImageSource{
+				Type:      "base64",
+				MediaType: img.MediaType,
+				Data:      img.Data,
+			},
+		})
+	}
+	return content
 }
 
 func normalizeAnthropicChatResponse(payload *anthropicResponse) (ChatResponse, error) {

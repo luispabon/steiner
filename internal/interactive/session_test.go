@@ -29,7 +29,6 @@ var (
 	_ Action = SwitchModel{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
-	_ Action = ToggleCaveHuman{}
 	_ Action = LoadSession{}
 	_ Action = RotateSession{}
 	_ Action = ForkSession{}
@@ -411,7 +410,6 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"RotateSession", RotateSession{}},
 		{"ClearConversation", ClearConversation{}},
-		{"ToggleCaveHuman", ToggleCaveHuman{}},
 		{"SwitchModel", SwitchModel{Name: "gpt-4"}},
 		{"TriggerManualCompaction", TriggerManualCompaction{}},
 	}
@@ -1111,49 +1109,6 @@ func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
 		SourceLabel: "current session",
 	}); got != want {
 		t.Fatalf("WorkflowHandoffModelSelection(review) = %#v, want %#v", got, want)
-	}
-}
-
-func TestHandleToggleCaveHuman(t *testing.T) {
-	t.Parallel()
-	var events []output.Event
-	s := testNewSession(t, Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-		Config: config.Config{
-			CaveHuman: false,
-		},
-	})
-
-	if got := s.CaveHuman(); got != false {
-		t.Fatalf("CaveHuman() before toggle = %v, want false", got)
-	}
-
-	if err := s.Handle(context.Background(), ToggleCaveHuman{}); err != nil {
-		t.Fatalf("Handle(ToggleCaveHuman) = %v, want nil", err)
-	}
-	if got := s.CaveHuman(); got != true {
-		t.Fatalf("CaveHuman() after first toggle = %v, want true", got)
-	}
-
-	if err := s.Handle(context.Background(), ToggleCaveHuman{}); err != nil {
-		t.Fatalf("Handle(ToggleCaveHuman) = %v, want nil", err)
-	}
-	if got := s.CaveHuman(); got != false {
-		t.Fatalf("CaveHuman() after second toggle = %v, want false", got)
-	}
-	if len(events) != 2 {
-		t.Fatalf("events = %d, want 2", len(events))
-	}
-	for i, want := range []string{"CaveHuman mode: on", "CaveHuman mode: off"} {
-		payload, ok := events[i].Payload.(output.ContextReportEvent)
-		if !ok {
-			t.Fatalf("events[%d].Payload = %T, want output.ContextReportEvent", i, events[i].Payload)
-		}
-		if got := payload.Content; got != want {
-			t.Fatalf("events[%d].Content = %q, want %q", i, got, want)
-		}
 	}
 }
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {

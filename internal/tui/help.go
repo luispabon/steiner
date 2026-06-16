@@ -58,7 +58,6 @@ func renderHelp(styles theme.Styles, width int) string {
 				{"ctrl+x", "toggle delegation output"},
 				{"/clear", "clear screen"},
 				{"/compact", "trigger compaction"},
-				{"/cave-human", "toggle cave_human mode"},
 				{"/fork", "fork current conversation"},
 				{"/context", "inspect last request"},
 				{"/resume", "resume a previous session"},

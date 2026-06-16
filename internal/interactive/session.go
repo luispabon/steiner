@@ -287,9 +287,6 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SubmitWorkflowHandoff:
 		s.handoffCoordinator.Submit(a)
 		return true, nil
-	case ToggleCaveHuman:
-		s.handleToggleCaveHuman()
-		return true, nil
 	case SwitchModel:
 		return true, s.handleSwitchModel(a.Name)
 	case LoadSession:
@@ -314,17 +311,6 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.handleForkSavedSession(ctx, a.SessionID)
 	}
 	return false, nil
-}
-
-func (s *Session) handleToggleCaveHuman() {
-	s.mu.Lock()
-	s.deps.Config.CaveHuman = !s.deps.Config.CaveHuman
-	state := "off"
-	if s.deps.Config.CaveHuman {
-		state = "on"
-	}
-	s.mu.Unlock()
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("CaveHuman mode: %s", state)))
 }
 
 func (s *Session) handleSwitchModel(name string) error {

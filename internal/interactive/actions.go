@@ -108,12 +108,6 @@ type TriggerManualCompaction struct{}
 
 func (TriggerManualCompaction) isInteractiveAction() {}
 
-// ToggleCaveHuman represents a user request to toggle cave_human mode on or
-// off during an interactive session.
-type ToggleCaveHuman struct{}
-
-func (ToggleCaveHuman) isInteractiveAction() {}
-
 // LoadSession represents a user request to load a previously saved session
 // into the current interactive session, replacing the current conversation.
 type LoadSession struct{ SessionID string }
