@@ -9,9 +9,15 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// isUserSegment reports whether kind is a user-prompt segment kind.
+func isUserSegment(kind contentSegmentKind) bool {
+	return kind == segmentUser || kind == segmentUserMarkdown
+}
+
 func (b *contentBuffer) String(width int) string {
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
+	kinds := make([]contentSegmentKind, 0, len(b.segments)+2)
 	for i := range b.segments {
 		if b.skipHiddenSegment(i) {
 			continue
@@ -28,6 +34,7 @@ func (b *contentBuffer) String(width int) string {
 			b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
 			if stripped != "" {
 				parts = append(parts, stripped)
+				kinds = append(kinds, seg.kind)
 			}
 			continue
 		}
@@ -39,13 +46,34 @@ func (b *contentBuffer) String(width int) string {
 		b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
 		if rendered != "" {
 			parts = append(parts, rendered)
+			kinds = append(kinds, seg.kind)
 		}
 	}
 	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, strings.TrimRight(preview, "\n"))
+		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	result := strings.Join(parts, "\n")
+	// Custom join: insert blank line above and below user segments.
+	var sb strings.Builder
+	lastKind := contentSegmentKind(-1)
+	for i, p := range parts {
+		if i > 0 {
+			// Preview (sentinel -1) always joins with single newline.
+			if lastKind < 0 || kinds[i] < 0 {
+				sb.WriteString("\n")
+			} else if isUserSegment(lastKind) || isUserSegment(kinds[i]) {
+				sb.WriteString("\n\n")
+			} else {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString(p)
+		if kinds[i] >= 0 {
+			lastKind = kinds[i]
+		}
+	}
+	result := sb.String()
 	return b.fillEmptyLines(result, width)
 }
 
