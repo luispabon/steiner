@@ -55,6 +55,9 @@ func defaultConfig() Config {
 			MaxTokens:    100000,
 			AllowedTools: []string{"read", "glob", "grep", "ls", "bash"},
 		},
+		Advisor: AdvisorConfig{
+			Enabled: false,
+		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
 			MaxTokens: 2000,

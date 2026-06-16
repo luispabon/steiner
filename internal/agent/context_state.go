@@ -1,5 +1,11 @@
 package agent
 
+import (
+	"context"
+
+	"github.com/luispabon/steiner/internal/provider"
+)
+
 // ContextState holds durable agent state that must survive compaction.
 type ContextState struct {
 	RetainedSummaries  []RetainedSummary
@@ -54,4 +60,21 @@ func cloneStrings(items []string) []string {
 	out := make([]string, len(items))
 	copy(out, items)
 	return out
+}
+
+type conversationSnapshotContextKey struct{}
+
+// WithConversationSnapshot returns a context carrying a cloned provider-message
+// snapshot for tool-adjacent consumers.
+func WithConversationSnapshot(ctx context.Context, snapshot []provider.Message) context.Context {
+	return context.WithValue(ctx, conversationSnapshotContextKey{}, provider.CloneMessages(snapshot))
+}
+
+// ConversationSnapshotFromContext returns a cloned conversation snapshot when present.
+func ConversationSnapshotFromContext(ctx context.Context) ([]provider.Message, bool) {
+	snapshot, ok := ctx.Value(conversationSnapshotContextKey{}).([]provider.Message)
+	if !ok {
+		return nil, false
+	}
+	return provider.CloneMessages(snapshot), true
 }

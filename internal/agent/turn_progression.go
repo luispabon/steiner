@@ -164,6 +164,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, res
 func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
 	emitEvent(in.Request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 
+	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		cancelled = replaySafeRunState(cancelled)
@@ -184,6 +185,14 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	return state, turnOutcome{}
+}
+
+func liveConversationSnapshot(state RunState) []provider.Message {
+	conversation := state.Lineage.FullMessages()
+	if len(conversation) == 0 {
+		conversation = state.Conversation
+	}
+	return ToReplaySafeProviderMessages(conversation)
 }
 
 func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error) Message {

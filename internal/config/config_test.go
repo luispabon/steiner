@@ -55,6 +55,102 @@ func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Advisor.Enabled {
+		t.Fatal("advisor.enabled = true, want false")
+	}
+	if cfg.Advisor.Model != "" {
+		t.Fatalf("advisor.model = %q, want empty", cfg.Advisor.Model)
+	}
+	if cfg.Advisor.MaxUsesPerRun != 0 {
+		t.Fatalf("advisor.max_uses_per_run = %d, want 0", cfg.Advisor.MaxUsesPerRun)
+	}
+	if cfg.Advisor.MaxTokens != nil {
+		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
+	}
+}
+
+func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
+	patch, err := parseConfigPatch("test.yaml", `advisor:
+  enabled: true
+  model: advisor-model
+  max_uses_per_run: 2
+  max_tokens: 512
+`)
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	if patch.Advisor == nil {
+		t.Fatal("patch.Advisor = nil, want parsed advisor patch")
+	}
+
+	dst := AdvisorConfig{}
+	applyAdvisorPatch(&dst, patch.Advisor)
+
+	want := AdvisorConfig{
+		Enabled:       true,
+		Model:         "advisor-model",
+		MaxUsesPerRun: 2,
+		MaxTokens:     intPtr(512),
+	}
+	if !reflect.DeepEqual(dst, want) {
+		t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, want)
+	}
+}
+
+func TestApplyAdvisorPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial AdvisorConfig
+		patch   advisorPatch
+		want    AdvisorConfig
+	}{
+		{
+			name:    "sets advisor fields",
+			initial: AdvisorConfig{},
+			patch: advisorPatch{
+				Enabled:       boolPtr(true),
+				Model:         stringPtr("advisor"),
+				MaxUsesPerRun: intPtr(3),
+				MaxTokens:     intPtr(256),
+			},
+			want: AdvisorConfig{
+				Enabled:       true,
+				Model:         "advisor",
+				MaxUsesPerRun: 3,
+				MaxTokens:     intPtr(256),
+			},
+		},
+		{
+			name: "nil fields leave values untouched",
+			initial: AdvisorConfig{
+				Enabled:       true,
+				Model:         "existing",
+				MaxUsesPerRun: 1,
+				MaxTokens:     intPtr(128),
+			},
+			patch: advisorPatch{},
+			want: AdvisorConfig{
+				Enabled:       true,
+				Model:         "existing",
+				MaxUsesPerRun: 1,
+				MaxTokens:     intPtr(128),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyAdvisorPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 

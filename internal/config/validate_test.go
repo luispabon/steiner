@@ -556,6 +556,78 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateAdvisorConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{
+			name: "disabled advisor allows empty fields",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{}
+			},
+		},
+		{
+			name: "enabled advisor requires model",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+			},
+			wantErr: "advisor.model is required when enabled",
+		},
+		{
+			name: "enabled advisor requires max uses",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, Model: "advisor-model"}
+			},
+			wantErr: "advisor.max_uses_per_run must be at least 1 when enabled",
+		},
+		{
+			name: "advisor max tokens must be positive when set",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{
+					Enabled:       true,
+					Model:         "advisor-model",
+					MaxUsesPerRun: 1,
+					MaxTokens:     intPtr(0),
+				}
+			},
+			wantErr: "advisor.max_tokens must be greater than zero when set",
+		},
+		{
+			name: "valid advisor config",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{
+					Enabled:       true,
+					Model:         "advisor-model",
+					MaxUsesPerRun: 2,
+					MaxTokens:     intPtr(256),
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBase()
+			tt.mutate(&cfg)
+			err := validate(cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validate() error = nil, want substring %q", tt.wantErr)
+			}
+			if got := err.Error(); !strings.Contains(got, tt.wantErr) {
+				t.Fatalf("validate() error = %q, want substring %q", got, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSearchConfigValidation(t *testing.T) {
 	tests := []struct {
 		name         string

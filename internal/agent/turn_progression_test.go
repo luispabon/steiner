@@ -1181,6 +1181,88 @@ func TestPrepareTurn_SetsIncludeEmptyReasoningFromResolvedModel(t *testing.T) {
 	}
 }
 
+func TestConversationSnapshotFromContextReturnsClonedSnapshot(t *testing.T) {
+	original := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
+
+	ctx := WithConversationSnapshot(context.Background(), original)
+	got, ok := ConversationSnapshotFromContext(ctx)
+	if !ok {
+		t.Fatal("ConversationSnapshotFromContext() ok = false, want true")
+	}
+	if len(got) != 1 || got[0].Content != "hello" {
+		t.Fatalf("ConversationSnapshotFromContext() = %#v, want original content", got)
+	}
+
+	got[0].Content = "mutated"
+	again, ok := ConversationSnapshotFromContext(ctx)
+	if !ok {
+		t.Fatal("ConversationSnapshotFromContext() second ok = false, want true")
+	}
+	if again[0].Content != "hello" {
+		t.Fatalf("ConversationSnapshotFromContext() returned shared data %q, want %q", again[0].Content, "hello")
+	}
+}
+
+func TestExecuteSingleToolCallSetsConversationSnapshot(t *testing.T) {
+	var snapshot []provider.Message
+	executor := &fakeExecutor{
+		execute: func(ctx context.Context, _ string, _ map[string]any) (any, error) {
+			var ok bool
+			snapshot, ok = ConversationSnapshotFromContext(ctx)
+			if !ok {
+				t.Fatal("ConversationSnapshotFromContext() ok = false, want true during tool execution")
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	}
+
+	state := RunState{
+		TurnCount: 1,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hi"},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "checking the file first",
+				ToolCalls: []ToolCall{{
+					ID:   "call-1",
+					Name: "bash",
+					Arguments: map[string]any{
+						"cmd": "pwd",
+					},
+				}},
+			},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	in := turnInput{
+		Request: RunRequest{
+			Executor:       executor,
+			ContextManager: NewContextStateManager(),
+			Events:         output.NoopSink{},
+		},
+		State: state,
+	}
+
+	progressor := newTurnProgressor(&Runner{})
+	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "pwd"}}
+	_, outcome := progressor.executeSingleToolCall(context.Background(), in, state, 1, call)
+	if outcome.Stop {
+		t.Fatalf("executeSingleToolCall() stop = true, want false")
+	}
+
+	want := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: "checking the file first",
+		},
+	}
+	if fmt.Sprintf("%#v", snapshot) != fmt.Sprintf("%#v", want) {
+		t.Fatalf("tool snapshot = %#v, want %#v", snapshot, want)
+	}
+}
+
 func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{

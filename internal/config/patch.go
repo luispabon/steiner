@@ -9,6 +9,7 @@ type configPatch struct {
 	Models            *map[string]modelPatch    `yaml:"models"`
 	Limits            *limitsPatch              `yaml:"limits"`
 	SubAgent          *subAgentPatch            `yaml:"sub_agent"`
+	Advisor           *advisorPatch             `yaml:"advisor"`
 	WorkflowHandoff   *workflowHandoffPatch     `yaml:"workflow_handoff"`
 	Tools             *map[string]toolPatch     `yaml:"tools"`
 	ProjectContext    *projectContextPatch      `yaml:"project_context"`
@@ -89,6 +90,13 @@ type subAgentPatch struct {
 	MaxTokens    *int                         `yaml:"max_tokens"`
 	AllowedTools *[]string                    `yaml:"allowed_tools"`
 	Agents       *map[string]agentConfigPatch `yaml:"agents"`
+}
+
+type advisorPatch struct {
+	Enabled       *bool   `yaml:"enabled"`
+	Model         *string `yaml:"model"`
+	MaxUsesPerRun *int    `yaml:"max_uses_per_run"`
+	MaxTokens     *int    `yaml:"max_tokens"`
 }
 
 type workflowHandoffPatch struct {
