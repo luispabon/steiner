@@ -494,6 +494,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.mu.Unlock()
 
 	startedToolCalls := map[string]struct{}{}
+	pendingDelegates := map[string]agent.ToolCall{}
 	for _, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 {
 			continue
@@ -504,11 +505,56 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		case agent.MessageRoleAssistant:
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
 			for _, call := range msg.ToolCalls {
-				s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-				startedToolCalls[call.ID] = struct{}{}
+				if isDelegateToolCall(call.Name) {
+					// Extract task from arguments
+					task := ""
+					if args := call.Arguments; args != nil {
+						if taskVal, ok := args["task"]; ok {
+							if taskStr, ok := taskVal.(string); ok {
+								task = taskStr
+							}
+						}
+					}
+					s.events.Emit(output.NewDelegationStartedEvent(call.ID, task))
+					pendingDelegates[call.ID] = call
+				} else {
+					s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+					startedToolCalls[call.ID] = struct{}{}
+				}
 			}
 		case agent.MessageRoleTool:
-			if _, ok := startedToolCalls[msg.ToolCallID]; ok {
+			// Check if this is a delegate result first
+			if pending, ok := pendingDelegates[msg.ToolCallID]; ok {
+				// Determine agentID, status, turns, tokens from retention data
+				agentID := "agent-" + msg.ToolCallID
+				status := "complete"
+				turns := 0
+				tokens := 0
+				if msg.Retention != nil {
+					agentID = msg.Retention.AgentID
+					status = msg.Retention.Status
+					turns = msg.Retention.TurnCount
+					tokens = msg.Retention.TokenCount
+				}
+
+				// Extract task from pending delegate call
+				task := ""
+				if args := pending.Arguments; args != nil {
+					if taskVal, ok := args["task"]; ok {
+						if taskStr, ok := taskVal.(string); ok {
+							task = taskStr
+						}
+					}
+				}
+
+				if status == "failed" {
+					s.events.Emit(output.NewDelegationFailedEvent(agentID, task, msg.Content))
+				} else {
+					s.events.Emit(output.NewDelegationCompleteEvent(agentID, status, turns, tokens, 0, msg.Content))
+				}
+				delete(pendingDelegates, msg.ToolCallID)
+			} else if _, ok := startedToolCalls[msg.ToolCallID]; ok {
+				// Regular tool result
 				s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, nil))
 			}
 		}
@@ -546,6 +592,15 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}))
 
 	return nil
+}
+
+// isDelegateToolCall returns true if the tool name is a known delegate tool.
+func isDelegateToolCall(name string) bool {
+	switch name {
+	case "delegate", "explore", "research", "code", "plan", "verify":
+		return true
+	}
+	return false
 }
 
 func usagePercent(promptTokens, contextWindow int) float64 {
