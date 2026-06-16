@@ -1,0 +1,163 @@
+steps:
+  - id: step-1
+    title: "#197 — Workflow handoff modal UX text and styling"
+    scope: >
+      Pure presentation changes to the pending workflow-handoff modal. Rename the
+      header to "Continue to implementation?" and remove the duplicate sub-header;
+      make the clear-context warning more visible and reword it to
+      "This will clear the context and start the 'JOB_NAME' job" where JOB_NAME is
+      the handoff target/next step; bold the "Model:" and "Planning folder:" labels.
+      No behaviour change.
+    files:
+      - internal/tui/workflow_handoff_modal.go
+      - internal/tui/workflow_handoff_modal_test.go
+    constraints:
+      - No changes to handoff logic, validation, or the workflow_handoff tool.
+      - Reuse existing theme/lipgloss styles for bold; do not introduce new colours.
+      - JOB_NAME must be derived from the actual handoff request (next/target), not hardcoded.
+      - Keep the file under the ~300 line target; split only if it already exceeds.
+    acceptance:
+      - Modal header reads "Continue to implementation?" with no redundant sub-header line.
+      - Warning text reads "This will clear the context and start the '<job>' job" and is visually emphasised.
+      - "Model:" and "Planning folder:" labels render bold.
+      - Existing modal tests updated to assert the new strings/styling.
+    verification:
+      - gofmt -w internal/tui/workflow_handoff_modal.go internal/tui/workflow_handoff_modal_test.go
+      - go test ./internal/tui/ -run WorkflowHandoff
+
+  - id: step-2
+    title: "#188 — Genericise workflow_handoff via a per-target validator seam"
+    scope: >
+      Remove plan-loop specificity from the workflow_handoff tool. Introduce a
+      small per-target validator descriptor (allowed path prefix, required files,
+      label/next-key) and drive the tool from a table of registered targets instead
+      of hardcoded implement/review enum, ".steiner/plans" prefix, and the
+      overview.md+plan.yaml artifact check. The existing plan loop is registered as
+      one target (covering both implement and review next-steps). Build the schema
+      "next" enum from the registered keys. Reword the tool Description and any
+      model-facing guidance to be workflow-agnostic (no plan/implement/review
+      assumptions in the generic core).
+    files:
+      - internal/tool/builtin/workflow_handoff.go
+      - internal/tool/builtin/workflow_handoff_test.go
+      - internal/tool/workflow_handoff.go
+      - README.md
+      - docs/SUBAGENT_DELEGATION.md
+    constraints:
+      - Keep Option-1 scope (minimal seam); do NOT build an injected/config-driven registry.
+      - Preserve all existing path-safety checks (traversal, shell metachars, abs-path rejection).
+      - Preserve existing behaviour for the plan loop target — implement/review still validate against .steiner/plans with overview.md+plan.yaml.
+      - Tool description/guidance must not name the plan/implement/review loop as the only workflow.
+      - Per CLAUDE.md internal/tool changes: update README "Built-in tools" section and any handoff guidance docs in the same commit.
+      - Wrap errors as fmt.Errorf("<lowercase action>: %w", err); keep symbols unexported unless cross-package use requires export.
+    acceptance:
+      - No ".steiner/plans", "implement", "review", "overview.md", or "plan.yaml" literals remain in the generic decode/validate path; they live only in the registered plan target descriptor.
+      - Adding a hypothetical second target requires only a new descriptor entry, no core-flow edits.
+      - Schema "next" enum is derived from registered target keys.
+      - Table-driven tests cover: valid plan handoff, unknown next-step, traversal/unsafe target, missing required artifact, and (new) a second synthetic target validating against a different prefix/files.
+      - Docs updated to describe workflow_handoff generically.
+    verification:
+      - gofmt -w internal/tool/builtin/workflow_handoff.go internal/tool/builtin/workflow_handoff_test.go internal/tool/workflow_handoff.go
+      - go test ./internal/tool/... -run WorkflowHandoff
+    depends_on: [step-1]
+
+  - id: step-3
+    title: "#190 — Render follow_up as a sub-agent box and improve its guidance"
+    scope: >
+      Make the follow_up tool render as a delegation/sub-agent box instead of the
+      default JSON tool box. Route follow_up tool-call events through the existing
+      delegation rendering path; match the colour/type of the original child by its
+      agent ID (e.g. child-3) by finding that child's first delegation segment and
+      reusing its toolLabel/border colour. Change the box header to the
+      "<label> - follow up <child-id>" form (e.g. "verify - follow up child-3").
+      Separately, revise the follow_up tool guidance so the model actually reaches
+      for it (it is currently underused unless explicitly requested).
+    files:
+      - internal/tui/content_events_delegation.go
+      - internal/tui/content_render_chrome.go
+      - internal/tui/content_tool.go
+      - internal/tui/content_events.go
+      - internal/delegation/follow_up.go
+      - internal/delegation/contract.go
+    constraints:
+      - Reuse existing delegation rendering helpers; do not fork a parallel renderer.
+      - Colour/type match must key off the original child agent ID; fall back gracefully if the child segment is not found.
+      - Do not change follow_up execution semantics — rendering and guidance only.
+      - Keep TUI render/update/event-state concerns split per CLAUDE.md file-organisation rules; respect the ~300/500 line targets.
+      - Guidance wording lives with the tool definition; keep it concise and action-oriented.
+    acceptance:
+      - A follow_up tool call renders inside a delegation-style box, not the default parameter-dump tool box.
+      - The box border/label colour matches the original child agent's box.
+      - The header shows the "<label> - follow up <child-id>" format.
+      - follow_up tool guidance is revised to prompt natural use (covered by a guidance/string test or snapshot where one exists).
+      - Tests cover the colour/header derivation including the missing-child fallback.
+    verification:
+      - gofmt -w internal/tui/content_events_delegation.go internal/tui/content_render_chrome.go internal/tui/content_tool.go internal/delegation/follow_up.go
+      - go test ./internal/tui/ -run 'Delegation|FollowUp'
+      - go test ./internal/delegation/ -run FollowUp
+    depends_on: [step-2]
+
+  - id: step-4
+    title: "#101 + #98 — Merge context modal, table report on top, open via ctrl+t keybind"
+    scope: >
+      Replace the /context slash command with a ctrl+t keybind that opens a single
+      context modal immediately (like ctrl+b toggles the sidebar). The modal shows
+      the context report at the top rendered as a table, followed by the full
+      context contents below in the existing scrollable overlay. Remove the
+      /context command wiring (slash item + handler path) and move its help entry
+      from the slash-command list to the keybind list. Reuse and extend the
+      existing contextOverlay state rather than building a new overlay.
+    files:
+      - internal/tui/context_overlay.go
+      - internal/tui/context_overlay_test.go
+      - internal/tui/model_update_keys.go
+      - internal/tui/model_input.go
+      - internal/tui/help.go
+      - internal/tui/help_test.go
+      - internal/interactive/reports.go
+      - internal/interactive/session.go
+      - README.md
+    constraints:
+      - ctrl+t is the chosen binding; wire it in handleNavigationKeyMsg mirroring the ctrl+b case.
+      - Opening must be immediate (build/request the report and open the overlay on the keypress), not deferred to end-of-turn.
+      - Report section must render as a table (not nested lists); content section remains scrollable markdown.
+      - Remove the /context entry from buildSlashOverlayItems / slash items and the corresponding help slash-list line; add a ctrl+t entry to the keybind help list.
+      - Do not leave dead RequestContext wiring if nothing else uses it; keep the underlying report builder reachable from the keybind path.
+      - Keep the merged report+contents within the overlay's scroll/window handling; preserve esc-to-close and scroll keys.
+      - Per CLAUDE.md, reflect the keybind and /context removal in README (keybindings/usage).
+    acceptance:
+      - Pressing ctrl+t opens the context modal immediately with a table report at the top and full context contents scrollable below.
+      - /context is no longer offered as a slash command and no longer appears in the slash help list.
+      - Help keybind list includes "ctrl+t — inspect context" (or equivalent), and the old slash entry is gone.
+      - esc closes the modal; up/down/pgup/pgdn still scroll the contents.
+      - Tests updated: context_overlay_test, help_test, and any slash-overlay/model-input test referencing /context.
+    verification:
+      - gofmt -w internal/tui/context_overlay.go internal/tui/model_update_keys.go internal/tui/model_input.go internal/tui/help.go internal/interactive/reports.go
+      - go test ./internal/tui/ -run 'Context|Help|Slash'
+      - go test ./internal/interactive/ -run Report
+    depends_on: [step-3]
+
+  - id: step-5
+    title: "Closeout — full gate, docs sweep, single PR closing all five issues"
+    scope: >
+      Run the full verification gate, confirm all mandated docs are updated, then
+      open one pull request from cl/2026-06-16_simple_issues_batch that closes
+      #197, #190, #188, #101, and #98. The PR description must reference each issue
+      with a closing keyword so GitHub auto-closes them on merge.
+    files:
+      - README.md
+      - docs/SUBAGENT_DELEGATION.md
+    constraints:
+      - Run make check and ensure it passes before opening the PR; if a check cannot run, report the exact command and failure instead of proceeding.
+      - PR body MUST include "Closes #197", "Closes #190", "Closes #188", "Closes #101", "Closes #98" (one closing keyword per issue).
+      - PR title and body summarise the five changes and note the merged #98+#101 modal and the /context-to-ctrl+t change.
+      - Do not include any unrelated cave_human WIP; the branch is based off clean main.
+      - End the commit message and PR body with the required Co-Authored-By / Generated-with trailers per repo conventions.
+    acceptance:
+      - make check passes (or failure is reported precisely with the command).
+      - All CLAUDE.md doc-maintenance obligations triggered by steps 2-4 are satisfied in-branch.
+      - A single PR exists closing all five issues via closing keywords.
+    verification:
+      - make check
+      - gh pr view --json title,body --jq '.body' | rg -n "Closes #(197|190|188|101|98)"
+    depends_on: [step-1, step-2, step-3, step-4]
