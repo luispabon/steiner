@@ -83,11 +83,8 @@ func applyEnvIntOverrides(cfg *Config, lookup func(string) (string, bool)) error
 }
 
 func applyEnvBoolOverrides(cfg *Config, lookup func(string) (string, bool)) {
-	if value, ok := lookup("STEINER_CAVEMAN_MODE"); ok {
-		cfg.CavemanMode = value == "true" || value == "1"
-	}
-	if value, ok := lookup("STEINER_HUMANIZER_MODE"); ok {
-		cfg.HumanizerMode = value == "true" || value == "1"
+	if value, ok := lookup("STEINER_CAVE_HUMAN"); ok {
+		cfg.CaveHuman = value == "true" || value == "1"
 	}
 }
 

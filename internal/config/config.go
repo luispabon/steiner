@@ -105,8 +105,7 @@ type Config struct {
 	Paths             PathsConfig               `yaml:"paths"`
 	Logging           LoggingConfig             `yaml:"logging"`
 	ContextManagement ContextManagementConfig   `yaml:"context_management"`
-	CavemanMode       bool                      `yaml:"caveman_mode"`
-	HumanizerMode     bool                      `yaml:"humanizer_mode"`
+	CaveHuman         bool                      `yaml:"cave_human"`
 	Search            SearchConfig              `yaml:"search"`
 }
 
