@@ -331,6 +331,76 @@ func TestWorkflowHandoffValidateUnknownTarget(t *testing.T) {
 	}
 }
 
+// TestWorkflowHandoffGenericTargetSeam proves the generic validate path works for
+// a synthetic target with a non-plan path prefix and different required files,
+// without touching the registered plan target. This guards the #188 genericisation
+// seam against regressing back to hardcoded plan-loop assumptions.
+func TestWorkflowHandoffGenericTargetSeam(t *testing.T) {
+	const prefix = "custom/specs"
+	requiredFiles := []string{"spec.md", "design.md"}
+
+	root := t.TempDir()
+	abs := filepath.Join(root, prefix, "feature")
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", abs, err)
+	}
+	for _, name := range requiredFiles {
+		if err := os.WriteFile(filepath.Join(abs, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", name, err)
+		}
+	}
+
+	tests := []struct {
+		name          string
+		target        string
+		prefix        string
+		requiredFiles []string
+		wantErr       string
+	}{
+		{
+			name:          "valid synthetic target",
+			target:        filepath.Join(prefix, "feature"),
+			prefix:        prefix,
+			requiredFiles: requiredFiles,
+		},
+		{
+			name:          "prefix mismatch rejected",
+			target:        ".steiner/plans/feature",
+			prefix:        prefix,
+			requiredFiles: requiredFiles,
+			wantErr:       "must be under " + prefix,
+		},
+		{
+			name:          "missing required file rejected",
+			target:        filepath.Join(prefix, "feature"),
+			prefix:        prefix,
+			requiredFiles: []string{"spec.md", "missing.md"},
+			wantErr:       "missing missing.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, absTarget, err := normalizeWorkflowHandoffTarget(root, tc.target, tc.prefix)
+			if err == nil {
+				err = validateWorkflowHandoffArtifacts(absTarget, tc.requiredFiles)
+			}
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error = %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestWorkflowHandoffInputDecodeRejectsUnknownFields(t *testing.T) {
 	_, err := decodeInput[WorkflowHandoffInput](map[string]any{
 		"next":          "implement",
