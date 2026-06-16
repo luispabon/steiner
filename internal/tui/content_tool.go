@@ -11,9 +11,10 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-// specializedDelegateTools is the set of tool names that are specialized delegates
-// and should be rendered as a single delegation box in the TUI.
-// Keep this list in sync with internal/delegation agent types — do not import that package.
+// specializedDelegateTools is the set of tool names rendered as a single
+// delegation box in the TUI. It contains the specialized delegate agent types
+// plus follow_up, which resumes an existing child and reuses the same box.
+// Keep this list in sync with internal/delegation — do not import that package.
 var specializedDelegateTools = map[string]bool{
 	"explore":   true,
 	"research":  true,
