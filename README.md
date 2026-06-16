@@ -198,18 +198,13 @@ See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full document
 
 `cave_human` combines terse-output behavior with an anti-AI-writing style instruction. It keeps responses short and direct while avoiding filler, hedging, and common AI-writing tells. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so it stays consistent throughout a session.
 
-Disabled by default. Enable via config, env var, CLI flag, or `/cave-human` in the interactive TUI:
+Disabled by default. Enable via config file only:
 
 ```yaml
 # config.yaml
 cave_human: true
 ```
 
-```bash
-STEINER_CAVE_HUMAN=true     # environment variable
---cave-human                # CLI flag
-/cave-human                 # TUI toggle (persists for the session)
-```
 
 ### Web search
 
