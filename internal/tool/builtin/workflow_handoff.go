@@ -13,10 +13,7 @@ import (
 
 const (
 	workflowHandoffToolName        = "workflow_handoff"
-	workflowHandoffNextImplement   = "implement"
-	workflowHandoffNextReview      = "review"
 	workflowHandoffMessageMaxRunes = 512
-	workflowHandoffTargetPrefix    = ".steiner/plans"
 )
 
 var workflowHandoffTargetUnsafeRunes = map[rune]struct{}{
@@ -41,6 +38,30 @@ var workflowHandoffTargetUnsafeRunes = map[rune]struct{}{
 	'}':  {},
 }
 
+// workflowTarget describes a registered workflow target with validation constraints.
+type workflowTarget struct {
+	key               string   // enum value for "next" field
+	label             string   // human-readable label
+	allowedPathPrefix string   // required path prefix (e.g. ".steiner/plans")
+	requiredFiles     []string // required files in target directory (e.g. ["overview.md", "plan.yaml"])
+}
+
+// workflowTargets is the registry of available workflow targets.
+var workflowTargets = []workflowTarget{
+	{
+		key:               "implement",
+		label:             "plan loop implementation",
+		allowedPathPrefix: ".steiner/plans",
+		requiredFiles:     []string{"overview.md", "plan.yaml"},
+	},
+	{
+		key:               "review",
+		label:             "plan loop review",
+		allowedPathPrefix: ".steiner/plans",
+		requiredFiles:     []string{"overview.md", "plan.yaml"},
+	},
+}
+
 // WorkflowHandoffInput is the model-facing input for the workflow_handoff tool.
 type WorkflowHandoffInput struct {
 	Next    string `json:"next"`
@@ -50,17 +71,22 @@ type WorkflowHandoffInput struct {
 
 // WorkflowHandoffSchema returns the JSON schema for the workflow_handoff tool.
 func WorkflowHandoffSchema() map[string]any {
+	nextEnum := make([]string, len(workflowTargets))
+	for i, wt := range workflowTargets {
+		nextEnum[i] = wt.key
+	}
+
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"next": map[string]any{
 				"type":        "string",
-				"description": "Required. The next workflow step to hand off to.",
-				"enum":        []string{workflowHandoffNextImplement, workflowHandoffNextReview},
+				"description": "Required. The workflow target to hand off to.",
+				"enum":        nextEnum,
 			},
 			"target": map[string]any{
 				"type":        "string",
-				"description": "Required. A safe relative .steiner/plans/... directory that contains overview.md and plan.yaml.",
+				"description": "Required. A safe relative directory with workflow artifacts.",
 			},
 			"message": map[string]any{
 				"type":        "string",
@@ -77,7 +103,7 @@ func WorkflowHandoffSchema() map[string]any {
 func NewWorkflowHandoffTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            workflowHandoffToolName,
-		Description:     "Create a workflow handoff request for an approved plan directory. The target must be a relative .steiner/plans/... directory with overview.md and plan.yaml.",
+		Description:     "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
 		ParameterSchema: WorkflowHandoffSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			return handleWorkflowHandoff(ctx, env, input)
@@ -100,13 +126,18 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 		return nil, err
 	}
 
-	target, absTarget, err := normalizeWorkflowHandoffTarget(env.WorkDir, in.Target)
+	wt := lookupWorkflowTarget(in.Next)
+	if wt == nil {
+		return nil, fmt.Errorf("workflow_handoff: unknown target %q", in.Next)
+	}
+
+	target, absTarget, err := normalizeWorkflowHandoffTarget(env.WorkDir, in.Target, wt.allowedPathPrefix)
 	if err != nil {
 		return nil, err
 	}
 	in.Target = target
 
-	if err := validateWorkflowHandoffArtifacts(absTarget); err != nil {
+	if err := validateWorkflowHandoffArtifacts(absTarget, wt.requiredFiles); err != nil {
 		return nil, err
 	}
 
@@ -148,16 +179,28 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 	}, nil
 }
 
-func validateWorkflowHandoffNext(next string) error {
-	switch next {
-	case workflowHandoffNextImplement, workflowHandoffNextReview:
-		return nil
-	default:
-		return fmt.Errorf("workflow_handoff: next must be one of %s, %s", workflowHandoffNextImplement, workflowHandoffNextReview)
+// lookupWorkflowTarget finds a registered target by key.
+func lookupWorkflowTarget(key string) *workflowTarget {
+	for i := range workflowTargets {
+		if workflowTargets[i].key == key {
+			return &workflowTargets[i]
+		}
 	}
+	return nil
 }
 
-func normalizeWorkflowHandoffTarget(workDir, raw string) (string, string, error) {
+func validateWorkflowHandoffNext(next string) error {
+	if lookupWorkflowTarget(next) == nil {
+		keys := make([]string, len(workflowTargets))
+		for i, wt := range workflowTargets {
+			keys[i] = wt.key
+		}
+		return fmt.Errorf("workflow_handoff: next must be one of %v", keys)
+	}
+	return nil
+}
+
+func normalizeWorkflowHandoffTarget(workDir, raw string, prefix string) (string, string, error) {
 	if raw == "" {
 		return "", "", fmt.Errorf("workflow_handoff: target is required")
 	}
@@ -170,15 +213,15 @@ func normalizeWorkflowHandoffTarget(workDir, raw string) (string, string, error)
 		return "", "", fmt.Errorf("workflow_handoff: target is required")
 	}
 	if filepath.IsAbs(raw) {
-		return "", "", fmt.Errorf("workflow_handoff: target must be a relative %s/... directory", workflowHandoffTargetPrefix)
+		return "", "", fmt.Errorf("workflow_handoff: target must be a relative %s/... directory", prefix)
 	}
 
 	cleaned := filepath.Clean(raw)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("workflow_handoff: target must stay under %s", workflowHandoffTargetPrefix)
+		return "", "", fmt.Errorf("workflow_handoff: target must stay under %s", prefix)
 	}
-	if cleaned != workflowHandoffTargetPrefix && !strings.HasPrefix(cleaned, workflowHandoffTargetPrefix+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("workflow_handoff: target must be under %s", workflowHandoffTargetPrefix)
+	if cleaned != prefix && !strings.HasPrefix(cleaned, prefix+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("workflow_handoff: target must be under %s", prefix)
 	}
 
 	baseDir := strings.TrimSpace(workDir)
@@ -213,7 +256,7 @@ func validateWorkflowHandoffTargetSafety(raw string) error {
 	return nil
 }
 
-func validateWorkflowHandoffArtifacts(absTarget string) error {
+func validateWorkflowHandoffArtifacts(absTarget string, requiredFiles []string) error {
 	info, err := os.Stat(absTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -225,7 +268,7 @@ func validateWorkflowHandoffArtifacts(absTarget string) error {
 		return fmt.Errorf("workflow_handoff: target %q must be a directory", absTarget)
 	}
 
-	for _, name := range []string{"overview.md", "plan.yaml"} {
+	for _, name := range requiredFiles {
 		path := filepath.Join(absTarget, name)
 		fileInfo, statErr := os.Stat(path)
 		if statErr != nil {

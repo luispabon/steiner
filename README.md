@@ -148,7 +148,7 @@ These tools are always available to the model:
 | `bash` | Run shell commands |
 | `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
 | `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
-| `workflow_handoff` | Create a pending handoff request for an approved `.steiner/plans/...` directory in the parent session |
+| `workflow_handoff` | Create a workflow handoff request to transition to a different workflow with approved artifacts |
 
 `read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
 
