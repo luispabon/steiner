@@ -65,12 +65,6 @@ func printVersionPanel(w io.Writer) {
 	printVersionLine(w, "channel", channel)
 }
 
-// printVersionBlock writes 2 lines: current version and latest version.
-func printVersionBlock(w io.Writer, current, latest string) {
-	printVersionLine(w, "current", current)
-	printVersionLine(w, "latest", latest)
-}
-
 // precomputedVersionPanelString returns the full version panel as a string.
 // Called once in init() and cached in versionPanelString.
 func precomputedVersionPanelString() string {
