@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -44,15 +45,12 @@ func newUpdateCommand() *cobra.Command {
 		Aliases: []string{"upgrade"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if isDevBuild(version) && !devFlag {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev build cannot self-update without --dev. Use 'steiner update --dev' to update from the dev channel.")
-				return nil
-			}
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Checking for updates…")
 
+			// Subcommand --dev overrides the root --dev flag.
 			channel := "stable"
-			if devFlag {
+			if rootDev := devFlagFromCmd(cmd); rootDev || devFlag {
 				channel = "dev"
 			}
 
@@ -72,6 +70,21 @@ func newUpdateCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&devFlag, "dev", false, "Update from the dev channel instead of the latest stable release")
 	return cmd
+}
+
+// devFlagFromCmd returns the value of the root-level persistent --dev flag,
+// or false if it was not registered. It is used so `steiner --dev update` and
+// `steiner update --dev` both select the dev release channel.
+func devFlagFromCmd(cmd *cobra.Command) bool {
+	flag := cmd.Root().PersistentFlags().Lookup("dev")
+	if flag == nil {
+		return false
+	}
+	val, err := strconv.ParseBool(flag.Value.String())
+	if err != nil {
+		return false
+	}
+	return val
 }
 
 func versionStyle(v string) string {
