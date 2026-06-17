@@ -3,32 +3,16 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/luispabon/steiner/internal/tui/prefs"
-	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/update"
 )
 
 var updateFunc = update.Channel
-
-func accentColor() lipgloss.Color {
-	p, err := prefs.Load()
-	if err != nil {
-		return lipgloss.Color(theme.AccentPresets["amber"])
-	}
-	hex := theme.AccentPresets[p.Accent]
-	if hex == "" {
-		hex = theme.AccentPresets["amber"]
-	}
-	return lipgloss.Color(hex)
-}
 
 // isDevBuild returns true if the version is a dev build that cannot be
 // semver-compared: the literal "dev" or any version prefixed with "dev-".
@@ -45,25 +29,47 @@ func newUpdateCommand() *cobra.Command {
 		Aliases: []string{"upgrade"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			token := os.Getenv("STEINER_GITHUB_TOKEN")
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Checking for updates…")
+			// 1. Dev build warning (re-enabled).
+			// If this is a dev build and --dev is not set, warn and exit.
+			if isDevBuild(version) {
+				devSet := devFlag || devFlagFromCmd(cmd)
+				if !devSet {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev builds cannot check for stable updates. Use --dev to update to the latest dev build.")
+					return nil
+				}
+			}
 
-			// Subcommand --dev overrides the root --dev flag.
+			// 2. Determine channel.
 			channel := "stable"
-			if rootDev := devFlagFromCmd(cmd); rootDev || devFlag {
+			if devFlagFromCmd(cmd) || devFlag {
 				channel = "dev"
 			}
 
+			token := os.Getenv("STEINER_GITHUB_TOKEN")
+
+			// 3. Print current version before the download spinner.
+			printVersionLine(cmd.OutOrStdout(), "current", version)
+
+			// 4. Start spinner. Always deferred-stop to prevent goroutine leaks.
+			sp := NewSpinner(cmd.OutOrStdout(), "Downloading…")
+			sp.Start()
+			defer sp.Stop(false, "aborted")
+
+			// 5. Call updateFunc (fetch + download + verify + replace).
 			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token, channel)
+
+			// 6. Handle results.
 			if errors.Is(err, update.ErrUpToDate) {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "steiner is already up to date")
-				printVersionInfo(cmd.OutOrStdout(), version, latestVer)
+				sp.Stop(true, "already up to date")
+				printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
 				return nil
 			}
 			if err != nil {
+				sp.Stop(false, err.Error())
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "steiner updated successfully to %s\n", versionStyle(latestVer))
+			sp.Stop(true, "updated to "+latestVer)
+			printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
 			return nil
 		},
 	}
@@ -85,21 +91,4 @@ func devFlagFromCmd(cmd *cobra.Command) bool {
 		return false
 	}
 	return val
-}
-
-func versionStyle(v string) string {
-	accent := accentColor()
-	return lipgloss.NewStyle().Foreground(accent).Bold(true).Render(v)
-}
-
-func printVersionInfo(w io.Writer, current, latest string) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgDim))
-	const labelWidth = 18
-	currentLabel := labelStyle.Width(labelWidth).Render("current version")
-	latestLabel := labelStyle.Width(labelWidth).Render("latest version")
-
-	_, _ = fmt.Fprintf(w, "\n  %s %s\n  %s %s\n",
-		currentLabel, versionStyle(current),
-		latestLabel, versionStyle(latest),
-	)
 }

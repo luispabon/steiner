@@ -2,11 +2,15 @@ package main
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
 
 var version = "dev"
+var commit = "none"
+var buildDate = "unknown"
+var goVersion = runtime.Version()
 
 var newScheduler = provider.NewScheduler
 var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {

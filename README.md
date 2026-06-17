@@ -61,12 +61,42 @@ go run ./cmd/steiner --exec "explain the auth package"
 
 | Command | What it does |
 |---------|--------------|
-| `version` | Print the build version |
+| `version` | Print the build version; `--short` for script-friendly output |
 | `config` | Print the resolved configuration (providers, models, limits) |
 | `update` / `upgrade` | Self-update to the latest stable release |
 | `tools` | List configured tools and their approval status |
 | `skills` | List discovered skills |
 | `--help` | Print all flags and usage |
+
+### Output format
+
+`steiner --version` and `steiner version` print a multi-line panel with
+build metadata:
+
+```
+  version    v0.1.0
+  commit     abc1234
+  built      2026-06-17T12:00:00Z
+  go         go1.25.0
+  channel    stable
+```
+
+Labels are bold with the configured accent color; values use the default foreground. Use
+`steiner version --short` to print only the raw version string (no styling,
+no labels) for scripts and CI.
+
+`steiner update` (alias `upgrade`) shows a four-stage output:
+
+```
+  current    v0.1.0
+  Downloading…
+  ✔ updated to v0.2.0
+  latest     v0.2.0
+```
+
+A spinner animates during the download. On a non-TTY or when `NO_COLOR` is
+set, the spinner degrades to a static line. Dev builds without `--dev` print
+a warning and exit without contacting GitHub.
 
 ## Configuration
 

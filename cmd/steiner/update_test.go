@@ -9,19 +9,30 @@ import (
 	"github.com/luispabon/steiner/internal/update"
 )
 
+// assertOrder checks that before appears before after in s.
+func assertOrder(t *testing.T, s, before, after string) {
+	t.Helper()
+	i := strings.Index(s, before)
+	j := strings.Index(s, after)
+	if i == -1 {
+		t.Errorf("output missing %q", before)
+		return
+	}
+	if j == -1 {
+		t.Errorf("output missing %q", after)
+		return
+	}
+	if i >= j {
+		t.Errorf("expected %q before %q in output:\n%s", before, after, s)
+	}
+}
+
 func TestUpdateCommand_DevBuild(t *testing.T) {
 	oldVersion := version
 	version = "dev"
 	t.Cleanup(func() { version = oldVersion })
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
-		if channel != "stable" {
-			t.Errorf("updateFunc channel = %q, want %q", channel, "stable")
-		}
-		return "v0.0.22", nil
-	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	// No updateFunc mock needed; it should not be called.
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -33,11 +44,11 @@ func TestUpdateCommand_DevBuild(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully to v0.0.22") {
-		t.Errorf("stdout = %q, want success message with stable version", stdout.String())
+	if !strings.Contains(stderr.String(), "Warning: dev builds cannot check for stable updates") {
+		t.Errorf("stderr = %q, want warning about dev builds", stderr.String())
 	}
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -46,14 +57,7 @@ func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
 	version = "dev-abc1234"
 	t.Cleanup(func() { version = oldVersion })
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
-		if channel != "stable" {
-			t.Errorf("updateFunc channel = %q, want %q", channel, "stable")
-		}
-		return "v0.0.22", nil
-	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	// No updateFunc mock needed; it should not be called.
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -65,11 +69,11 @@ func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully to v0.0.22") {
-		t.Errorf("stdout = %q, want success message with stable version", stdout.String())
+	if !strings.Contains(stderr.String(), "Warning: dev builds cannot check for stable updates") {
+		t.Errorf("stderr = %q, want warning about dev builds", stderr.String())
 	}
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -97,9 +101,15 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully") {
-		t.Errorf("stdout = %q, want success message", stdout.String())
+	got := stdout.String()
+	if !strings.Contains(got, "Downloading…") {
+		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
 	}
+	if !strings.Contains(got, "updated to dev") {
+		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -129,9 +139,15 @@ func TestUpdateCommand_RootDevFlag(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully") {
-		t.Errorf("stdout = %q, want success message", stdout.String())
+	got := stdout.String()
+	if !strings.Contains(got, "Downloading…") {
+		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
 	}
+	if !strings.Contains(got, "updated to dev") {
+		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -175,9 +191,15 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully") {
-		t.Errorf("stdout = %q, want success message", stdout.String())
+	got := stdout.String()
+	if !strings.Contains(got, "Downloading…") {
+		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
 	}
+	if !strings.Contains(got, "updated to v0.2.0") {
+		t.Errorf("stdout = %q, want substring %q", got, "updated to v0.2.0")
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -204,9 +226,18 @@ func TestUpdateCommand_UpToDate(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner is already up to date") {
-		t.Errorf("stdout = %q, want up-to-date message", stdout.String())
+	got := stdout.String()
+	if !strings.Contains(got, "already up to date") {
+		t.Errorf("stdout = %q, want up-to-date message", got)
 	}
+	if !strings.Contains(got, "current") {
+		t.Errorf("stdout = %q, want version block label 'current'", got)
+	}
+	if !strings.Contains(got, "latest") {
+		t.Errorf("stdout = %q, want version block label 'latest'", got)
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "already up to date", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -233,12 +264,67 @@ func TestUpdateCommand_Success(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "steiner updated successfully") {
-		t.Errorf("stdout = %q, want success message", stdout.String())
+	got := stdout.String()
+	if !strings.Contains(got, "Downloading…") {
+		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
 	}
-	if !strings.Contains(stdout.String(), "v0.2.0") {
-		t.Errorf("stdout = %q, want version v0.2.0", stdout.String())
+	if !strings.Contains(got, "updated to v0.2.0") {
+		t.Errorf("stdout = %q, want substring %q", got, "updated to v0.2.0")
 	}
+	if !strings.Contains(got, "current") {
+		t.Errorf("stdout = %q, want version block label 'current'", got)
+	}
+	if !strings.Contains(got, "latest") {
+		t.Errorf("stdout = %q, want version block label 'latest'", got)
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_NoTTY(t *testing.T) {
+	oldVersion := version
+	version = "v0.1.0"
+	t.Cleanup(func() { version = oldVersion })
+
+	oldUpdateFunc := updateFunc
+	updateFunc = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+		return "v0.2.0", nil
+	}
+	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	// Non-TTY (bytes.Buffer): spinner writes static "Downloading…" line,
+	// followed by "✔ updated to v0.2.0" line. No \r, no braille glyphs.
+	if !strings.Contains(got, "Downloading…") {
+		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
+	}
+	if strings.Contains(got, "\r") {
+		t.Errorf("non-TTY output should not contain \\r: %q", got)
+	}
+	if strings.Contains(got, "⣾") {
+		t.Errorf("non-TTY output should not contain braille: %q", got)
+	}
+	if !strings.Contains(got, "✔") {
+		t.Errorf("stdout = %q, want checkmark", got)
+	}
+	if !strings.Contains(got, "v0.2.0") {
+		t.Errorf("stdout = %q, want version v0.2.0", got)
+	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "✔", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}

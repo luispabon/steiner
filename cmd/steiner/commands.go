@@ -67,19 +67,28 @@ func newRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newModelCommand(flags))
 	rootCmd.AddCommand(newModelMetadataCommand())
 	rootCmd.AddCommand(newUpdateCommand())
+	rootCmd.SetVersionTemplate(versionPanelString)
 	return rootCmd
 }
 
 func newVersionCommand() *cobra.Command {
-	return &cobra.Command{
+	var short bool
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the steiner version",
+		Long:  "Print the steiner version information.\n\nUse --short for script-friendly output (bare version string only).",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Steiner v%s\n", version)
-			return err
+			if short {
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", version)
+				return err
+			}
+			printVersionPanel(cmd.OutOrStdout())
+			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&short, "short", false, "print only the version string")
+	return cmd
 }
 
 func newConfigCommand(flags *cliFlags) *cobra.Command {
