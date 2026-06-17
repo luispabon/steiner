@@ -15,6 +15,23 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestAdvisorToolCallSuppression(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	// Send ToolCallStarted for advisor — should NOT produce a segmentToolCall.
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "advisor", "call-advisor-1", nil))
+	if len(buffer.segments) != 0 {
+		t.Fatalf("segments count after ToolCallStarted = %d, want 0 (suppressed)", len(buffer.segments))
+	}
+
+	// Send ToolCallFinished for advisor — should not panic and not add a segment.
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "advisor", "call-advisor-1", "done", nil))
+	if len(buffer.segments) != 0 {
+		t.Fatalf("segments count after ToolCallFinished = %d, want 0 (suppressed)", len(buffer.segments))
+	}
+}
 func TestAppendEventDelegationStarted(t *testing.T) {
 	event := output.NewDelegationStartedEvent("child-1", "fix the bug in module X")
 
