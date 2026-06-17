@@ -14,6 +14,15 @@ func TestUpdateCommand_DevBuild(t *testing.T) {
 	version = "dev"
 	t.Cleanup(func() { version = oldVersion })
 
+	oldUpdateFunc := updateFunc
+	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
+		if channel != "stable" {
+			t.Errorf("updateFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v0.0.22", nil
+	}
+	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -24,12 +33,11 @@ func TestUpdateCommand_DevBuild(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty", stdout.String())
+	if !strings.Contains(stdout.String(), "steiner updated successfully to v0.0.22") {
+		t.Errorf("stdout = %q, want success message with stable version", stdout.String())
 	}
-	want := "Warning: dev build cannot self-update without --dev"
-	if !strings.Contains(stderr.String(), want) {
-		t.Errorf("stderr = %q, want substring %q", stderr.String(), want)
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }
 
@@ -38,6 +46,15 @@ func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
 	version = "dev-abc1234"
 	t.Cleanup(func() { version = oldVersion })
 
+	oldUpdateFunc := updateFunc
+	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
+		if channel != "stable" {
+			t.Errorf("updateFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v0.0.22", nil
+	}
+	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -48,12 +65,11 @@ func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty", stdout.String())
+	if !strings.Contains(stdout.String(), "steiner updated successfully to v0.0.22") {
+		t.Errorf("stdout = %q, want success message with stable version", stdout.String())
 	}
-	want := "Warning: dev build cannot self-update without --dev"
-	if !strings.Contains(stderr.String(), want) {
-		t.Errorf("stderr = %q, want substring %q", stderr.String(), want)
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }
 
@@ -76,6 +92,38 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
 	cmd.SetArgs([]string{"update", "--dev"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "steiner updated successfully") {
+		t.Errorf("stdout = %q, want success message", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_RootDevFlag(t *testing.T) {
+	oldVersion := version
+	version = "v0.1.0"
+	t.Cleanup(func() { version = oldVersion })
+
+	oldUpdateFunc := updateFunc
+	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
+		if channel != "dev" {
+			t.Errorf("updateFunc channel = %q, want %q", channel, "dev")
+		}
+		return "dev", nil
+	}
+	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--dev", "update"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)

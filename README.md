@@ -280,18 +280,25 @@ export STEINER_GITHUB_TOKEN=ghp_...
 
 ### Dev channel
 
-Use `--dev` to update from the dev channel, which publishes a build on every
-merge to `main`:
+The `update` command selects the release channel via the `--dev` flag, which is
+a root-level persistent flag and also works on the `update` subcommand:
 
 ```bash
+# Stable channel (default): dev builds upgrade to the latest stable release.
+steiner update
+steiner --dev=false update
+
+# Dev channel: pulls the build published on every merge to main.
 steiner update --dev
-# or
-steiner upgrade --dev
+steiner --dev update
 ```
 
-Dev builds carry a `dev` or `dev-<sha>` version string and skip semver
-comparison — the dev binary is always replaced with the latest dev release.
-Running a dev build without `--dev` prints a warning and exits.
+`--dev` selects the dev release channel; its absence selects the stable
+channel. Both a dev build version string (`dev` or `dev-<sha>`) and a stable
+semver (`vX.Y.Z`) honor the flag, so a dev build can update to a stable
+release by running `steiner update` (no `--dev`). The dev binary is always
+replaced with the latest dev release; the stable binary is only replaced when
+a newer semver is available.
 
 ## Development
 

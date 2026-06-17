@@ -277,6 +277,12 @@ func downloadAndVerify(ctx context.Context, release *release, releaseTag, token 
 	return releaseTag, nil
 }
 
+// isDevVersion reports whether v is a dev build version string that cannot be
+// semver-compared: the literal "dev" or any version prefixed with "dev-".
+func isDevVersion(v string) bool {
+	return v == "dev" || strings.HasPrefix(v, "dev-")
+}
+
 // Channel checks for an update on the specified release channel and
 // replaces the running binary if a newer version is available.
 //
@@ -284,7 +290,9 @@ func downloadAndVerify(ctx context.Context, release *release, releaseTag, token 
 // Channel "dev" fetches the release tagged "dev" and skips version comparison.
 //
 // currentVersion should be the current semver string (with or without "v"
-// prefix) for stable updates. owner and repo identify the GitHub repository.
+// prefix) for stable updates. A dev build version ("dev" or "dev-<sha>") is
+// always treated as older than the latest stable release, allowing a dev build
+// to update to a stable one. owner and repo identify the GitHub repository.
 // If token is non-empty, it is used as a Bearer token for GitHub API requests.
 //
 // On success, the release tag name is returned. For stable updates, if the
@@ -311,6 +319,12 @@ func Channel(ctx context.Context, currentVersion, owner, repo, token, channel st
 		latestVer, err := parseVersion(latestTag)
 		if err != nil {
 			return "", fmt.Errorf("parse latest version %q: %w", latestTag, err)
+		}
+
+		// A dev build is never semver-comparable; always treat it as older
+		// than the latest stable release so dev builds can update to stable.
+		if isDevVersion(currentVersion) {
+			return downloadAndVerify(ctx, release, latestTag, token)
 		}
 
 		currVer, err := parseVersion(currentVersion)

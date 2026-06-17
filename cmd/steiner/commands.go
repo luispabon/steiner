@@ -56,6 +56,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().IntVar(&flags.maxTurns, "max-turns", 0, "maximum agent turns for --exec mode (0 uses config default)")
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().BoolVar(&flags.unsafe, "unsafe", false, "disable sandbox (bubblewrap) for tool execution")
+	rootCmd.PersistentFlags().BoolVar(&flags.dev, "dev", false, "select the dev release channel for `steiner update`")
 	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
 	rootCmd.Flag("resume").NoOptDefVal = ""
 

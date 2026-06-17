@@ -1044,6 +1044,83 @@ func TestChannel_StableIsDefault(t *testing.T) {
 	}
 }
 
+func TestChannel_StableFromDevBuild(t *testing.T) {
+	// A dev build current version should be treated as older than any stable
+	// release so dev builds can update to stable.
+	tests := []struct {
+		name           string
+		currentVersion string
+	}{
+		{"literal dev", "dev"},
+		{"dev with sha", "dev-abc1234"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			exePath := filepath.Join(tmpDir, "steiner")
+			if err := os.WriteFile(exePath, []byte("old binary"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			defer saveOSExecutable()()
+			osExecutable = func() (string, error) {
+				return exePath, nil
+			}
+
+			an := assetName()
+			binaryContent := []byte("stable binary content")
+			hash := sha256.Sum256(binaryContent)
+			hexHash := hex.EncodeToString(hash[:])
+			checksumsContent := hexHash + "  " + an + "\n"
+
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/owner/repo/releases/latest":
+					w.Header().Set("Content-Type", "application/json")
+					rel := release{
+						TagName: "v0.0.22",
+						Assets: []asset{
+							{Name: an, DownloadURL: server.URL + "/asset"},
+							{Name: "steiner_0.0.22_checksums.txt", DownloadURL: server.URL + "/checksums"},
+						},
+					}
+					if err := json.NewEncoder(w).Encode(rel); err != nil {
+						t.Errorf("encode release: %v", err)
+					}
+				case "/asset":
+					_, _ = w.Write(binaryContent)
+				case "/checksums":
+					_, _ = w.Write([]byte(checksumsContent))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			defer saveHTTPClient()()
+			httpClient = newTestClient(server.URL)
+
+			tag, err := Channel(context.Background(), tt.currentVersion, "owner", "repo", "", "stable")
+			if err != nil {
+				t.Fatalf("Channel(stable, %q): %v", tt.currentVersion, err)
+			}
+			if tag != "v0.0.22" {
+				t.Errorf("Channel(stable, %q) tag = %q, want %q", tt.currentVersion, tag, "v0.0.22")
+			}
+
+			got, err := os.ReadFile(exePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != string(binaryContent) {
+				t.Errorf("Channel(stable, %q): executable content = %q, want %q", tt.currentVersion, got, binaryContent)
+			}
+		})
+	}
+}
+
 func TestChannel_UnknownChannelIsStable(t *testing.T) {
 	tmpDir := t.TempDir()
 	exePath := filepath.Join(tmpDir, "steiner")

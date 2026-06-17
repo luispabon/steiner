@@ -32,6 +32,7 @@ type cliFlags struct {
 	enableStreaming   bool
 	resume            string
 	unsafe            bool
+	dev               bool
 }
 
 type cliRuntime struct {
