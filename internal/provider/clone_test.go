@@ -80,8 +80,8 @@ func TestCloneHelpersPreserveNilAndEmptyConventions(t *testing.T) {
 	if got := CloneToolArguments(nil); got != nil {
 		t.Fatalf("CloneToolArguments(nil) = %#v, want nil", got)
 	}
-	if got := CloneToolArguments(map[string]any{}); got != nil {
-		t.Fatalf("CloneToolArguments(empty) = %#v, want nil", got)
+	if got := CloneToolArguments(map[string]any{}); got == nil {
+		t.Fatal("CloneToolArguments(empty) = nil, want empty map")
 	}
 }
 
@@ -117,5 +117,35 @@ func TestCloneToolsDeepCopyParameters(t *testing.T) {
 
 	if got, want := original[0].Function.Parameters["schema"].(map[string]any)["type"], "object"; got != want {
 		t.Fatalf("original schema type = %v, want %v", got, want)
+	}
+}
+
+func TestCloneToolsPreserveEmptyNestedSchemaMaps(t *testing.T) {
+	t.Parallel()
+
+	original := []ToolSpec{
+		{
+			Type: "function",
+			Function: ToolFunctionSpec{
+				Name: "advisor",
+				Parameters: map[string]any{
+					"type":                 "object",
+					"additionalProperties": false,
+					"properties":           map[string]any{},
+				},
+			},
+		},
+	}
+
+	cloned := CloneTools(original)
+	properties, ok := cloned[0].Function.Parameters["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want empty map", cloned[0].Function.Parameters["properties"])
+	}
+	if properties == nil {
+		t.Fatal("properties = nil, want empty map")
+	}
+	if len(properties) != 0 {
+		t.Fatalf("len(properties) = %d, want 0", len(properties))
 	}
 }

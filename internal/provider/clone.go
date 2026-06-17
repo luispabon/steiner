@@ -44,7 +44,7 @@ func CloneToolCalls(calls []ToolCall) []ToolCall {
 
 // CloneToolArguments deep-copies provider tool arguments recursively.
 func CloneToolArguments(arguments map[string]any) map[string]any {
-	if len(arguments) == 0 {
+	if arguments == nil {
 		return nil
 	}
 	cloned := make(map[string]any, len(arguments))

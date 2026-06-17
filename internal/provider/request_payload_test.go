@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -103,5 +104,68 @@ func TestChatRequestWire_IncludeEmptyReasoning_PreservesExistingReasoning(t *tes
 	}
 	if *wire.Messages[0].ReasoningContent != "deep thought" {
 		t.Fatalf("*ReasoningContent = %q, want %q", *wire.Messages[0].ReasoningContent, "deep thought")
+	}
+}
+
+func TestBuildRequestPayload_PreservesEmptyNestedToolSchemaMaps(t *testing.T) {
+	tools := CloneTools([]ToolSpec{
+		{
+			Type: "function",
+			Function: ToolFunctionSpec{
+				Name: "advisor",
+				Parameters: map[string]any{
+					"type":                 "object",
+					"additionalProperties": false,
+					"properties":           map[string]any{},
+				},
+			},
+		},
+	})
+
+	p := &OpenAICompat{model: "gpt-4"}
+	req := ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Tools:    tools,
+	}
+
+	data, err := p.buildRequestPayload(req, false)
+	if err != nil {
+		t.Fatalf("buildRequestPayload error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	rawTools, ok := payload["tools"].([]any)
+	if !ok {
+		t.Fatal("tools missing from payload")
+	}
+	if len(rawTools) != 1 {
+		t.Fatalf("tools length = %d, want 1", len(rawTools))
+	}
+
+	tool, ok := rawTools[0].(map[string]any)
+	if !ok {
+		t.Fatal("tool is not a map")
+	}
+	function, ok := tool["function"].(map[string]any)
+	if !ok {
+		t.Fatal("function is not a map")
+	}
+	parameters, ok := function["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("parameters = %#v, want map", function["parameters"])
+	}
+	properties, ok := parameters["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want empty map", parameters["properties"])
+	}
+	if properties == nil {
+		t.Fatal("properties = nil, want empty map")
+	}
+	if len(properties) != 0 {
+		t.Fatalf("len(properties) = %d, want 0", len(properties))
 	}
 }
