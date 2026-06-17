@@ -72,6 +72,40 @@ type anthropicContentBlock struct {
 	Source    *anthropicImageSource `json:"source,omitempty"`
 }
 
+func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
+	m := map[string]any{
+		"type": b.Type,
+	}
+	if b.Text != "" {
+		m["text"] = b.Text
+	}
+	if b.Thinking != "" {
+		m["thinking"] = b.Thinking
+	}
+	if b.Signature != "" {
+		m["signature"] = b.Signature
+	}
+	if b.ID != "" {
+		m["id"] = b.ID
+	}
+	if b.Name != "" {
+		m["name"] = b.Name
+	}
+	if b.Input != nil {
+		m["input"] = b.Input
+	}
+	if b.ToolUseID != "" {
+		m["tool_use_id"] = b.ToolUseID
+	}
+	if b.Content != "" {
+		m["content"] = b.Content
+	}
+	if b.Source != nil {
+		m["source"] = b.Source
+	}
+	return json.Marshal(m)
+}
+
 type anthropicResponse struct {
 	Role       string                  `json:"role,omitempty"`
 	Content    []anthropicContentBlock `json:"content,omitempty"`
@@ -175,7 +209,7 @@ func assistantMessageToAnthropic(message Message) *anthropicMessage {
 			Type:  "tool_use",
 			ID:    toolCall.ID,
 			Name:  toolCall.Name,
-			Input: cloneToolArguments(toolCall.Arguments),
+			Input: anthropicToolInput(toolCall.Arguments),
 		})
 	}
 	if len(content) == 0 {
@@ -319,6 +353,16 @@ func normalizeAnthropicFinishReason(reason string) string {
 	default:
 		return reason
 	}
+}
+
+func anthropicToolInput(arguments map[string]any) map[string]any {
+	if arguments == nil {
+		return nil
+	}
+	if len(arguments) == 0 {
+		return map[string]any{}
+	}
+	return cloneToolArguments(arguments)
 }
 
 func cloneToolArguments(input map[string]any) map[string]any {

@@ -64,6 +64,34 @@ func TestToAnthropicMessage_KeepsSignedThinkingBlock(t *testing.T) {
 	}
 }
 
+func TestToAnthropicMessage_PreservesEmptyToolArguments(t *testing.T) {
+	msg := toAnthropicMessage(Message{
+		Role:    MessageRoleAssistant,
+		Content: "call advisor",
+		ToolCalls: []ToolCall{{
+			ID:        "toolu_empty",
+			Name:      "advisor",
+			Arguments: map[string]any{},
+		}},
+	})
+	if msg == nil {
+		t.Fatalf("toAnthropicMessage() = nil, want assistant message")
+	}
+	if len(msg.Content) != 2 {
+		t.Fatalf("content = %#v, want text + tool_use blocks", msg.Content)
+	}
+	toolUse := msg.Content[1]
+	if got, want := toolUse.Type, "tool_use"; got != want {
+		t.Fatalf("tool_use.Type = %q, want %q", got, want)
+	}
+	if toolUse.Input == nil {
+		t.Fatal("tool_use.Input = nil, want empty object")
+	}
+	if len(toolUse.Input) != 0 {
+		t.Fatalf("len(tool_use.Input) = %d, want 0", len(toolUse.Input))
+	}
+}
+
 func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t *testing.T) {
 	wire := anthropicRequestWire(ChatRequest{
 		Model:     "claude-3-7-sonnet",
@@ -179,6 +207,69 @@ func TestAnthropicRequestMarshalJSON_MapsSystemUserAssistantToolResultAndTools(t
 	tools, ok := got["tools"].([]any)
 	if !ok || len(tools) != 1 {
 		t.Fatalf("tools = %#v, want one tool", got["tools"])
+	}
+}
+
+func TestAnthropicRequestMarshalJSON_PreservesEmptyToolUseInput(t *testing.T) {
+	wire := anthropicRequestWire(ChatRequest{
+		Model: "claude-3-7-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleAssistant,
+				Content: "call advisor",
+				ToolCalls: []ToolCall{{
+					ID:        "call_function_ob6p78gx6o2d_1",
+					Name:      "advisor",
+					Arguments: map[string]any{},
+				}},
+			},
+		},
+		Tools: []ToolSpec{{
+			Type: "function",
+			Function: ToolFunctionSpec{
+				Name:        "advisor",
+				Description: "Ask for steering",
+				Parameters: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{},
+					"additionalProperties": false,
+				},
+			},
+		}},
+	}, "default-model", false)
+
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	messages, ok := got["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("messages = %#v, want one message", got["messages"])
+	}
+	assistant, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("assistant message type = %T, want map[string]any", messages[0])
+	}
+	content, ok := assistant["content"].([]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("assistant content = %#v, want text + tool_use", assistant["content"])
+	}
+	toolUse, ok := content[1].(map[string]any)
+	if !ok {
+		t.Fatalf("tool use block type = %T, want map[string]any", content[1])
+	}
+	input, ok := toolUse["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("tool_use.input = %#v, want empty object", toolUse["input"])
+	}
+	if len(input) != 0 {
+		t.Fatalf("len(tool_use.input) = %d, want 0", len(input))
 	}
 }
 
