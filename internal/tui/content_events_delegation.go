@@ -584,6 +584,13 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	if body := strings.TrimSpace(dd.output); body != "" {
 		b.appendLabeledBlock("Advisor output", body)
 	}
+
+	// Trailing blank margin after the closing separator.
+	b.segments = append(b.segments, contentSegment{
+		kind:        segmentPlain,
+		text:        " ",
+		renderDirty: true,
+	})
 }
 
 func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
