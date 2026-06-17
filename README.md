@@ -177,6 +177,7 @@ These built-in tools are available to the model; some are gated by config:
 | `ls` | List directory contents |
 | `bash` | Run shell commands |
 | `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
+| `fetch_url` | Fetch a URL and return its content. Web pages are converted to markdown; image URLs (png, jpeg, gif, webp) return image data for vision-capable providers (5MB cap). The uncollapsed view shows a status block (URL, max_size, http code, content length, title, description) above the markdown body. |
 | `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
 | `advisor` | Ask a stronger-model steering advisor for concise guidance when `advisor.enabled` is true |
 | `workflow_handoff` | Create a workflow handoff request to transition to a different workflow with approved artifacts |
