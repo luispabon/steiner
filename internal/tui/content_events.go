@@ -110,7 +110,8 @@ type compactionBannerData struct {
 }
 
 type separatorData struct {
-	label string
+	label   string
+	closing bool
 }
 
 type delegationTranscriptEntryKind int
@@ -270,12 +271,22 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 }
 
 // AppendCompactionResult appends a centered separator line with the given label
-// followed by the summary text rendered as a markdown block.
+// followed by the summary text rendered as a markdown block, then a closing separator.
 func (b *contentBuffer) AppendCompactionResult(label string, summaryText string) {
+	b.appendLabeledBlock(label, summaryText)
+}
+
+// appendLabeledBlock appends opening separator, markdown body, and closing separator.
+func (b *contentBuffer) appendLabeledBlock(label string, body string) {
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSeparator,
 		separatorData: &separatorData{label: label},
 		renderDirty:   true,
 	})
-	b.appendMarkdownBlock(summaryText)
+	b.appendMarkdownBlock(body)
+	b.segments = append(b.segments, contentSegment{
+		kind:          segmentSeparator,
+		separatorData: &separatorData{label: label, closing: true},
+		renderDirty:   true,
+	})
 }
