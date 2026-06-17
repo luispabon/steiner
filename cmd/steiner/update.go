@@ -29,25 +29,44 @@ func newUpdateCommand() *cobra.Command {
 		Aliases: []string{"upgrade"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			token := os.Getenv("STEINER_GITHUB_TOKEN")
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Checking for updates…")
+			// 1. Dev build warning (re-enabled).
+			// If this is a dev build and --dev is not set, warn and exit.
+			if isDevBuild(version) {
+				devSet := devFlag || devFlagFromCmd(cmd)
+				if !devSet {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev builds cannot check for stable updates. Use --dev to update to the latest dev build.")
+					return nil
+				}
+			}
 
-			// Subcommand --dev overrides the root --dev flag.
+			// 2. Determine channel.
 			channel := "stable"
-			if rootDev := devFlagFromCmd(cmd); rootDev || devFlag {
+			if devFlagFromCmd(cmd) || devFlag {
 				channel = "dev"
 			}
 
+			token := os.Getenv("STEINER_GITHUB_TOKEN")
+
+			// 3. Start spinner. Always deferred-stop to prevent goroutine leaks.
+			sp := NewSpinner(cmd.OutOrStdout(), "Downloading…")
+			sp.Start()
+			defer sp.Stop(false, "aborted")
+
+			// 4. Call updateFunc (fetch + download + verify + replace).
 			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token, channel)
+
+			// 5. Handle results.
 			if errors.Is(err, update.ErrUpToDate) {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "steiner is already up to date")
+				sp.Stop(true, "already up to date")
 				printVersionBlock(cmd.OutOrStdout(), version, latestVer)
 				return nil
 			}
 			if err != nil {
+				sp.Stop(false, err.Error())
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "steiner updated successfully to %s\n", valueStyle(latestVer))
+			sp.Stop(true, "updated to "+latestVer)
+			printVersionBlock(cmd.OutOrStdout(), version, latestVer)
 			return nil
 		},
 	}
