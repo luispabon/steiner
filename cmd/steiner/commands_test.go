@@ -33,8 +33,34 @@ func TestCommandsVersion(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.HasPrefix(got, "Steiner v") {
-		t.Fatalf("version output = %q, want Steiner v prefix", got)
+	for _, key := range []string{"version", "commit", "built", "go", "channel"} {
+		if !strings.Contains(got, key) {
+			t.Errorf("output missing key %q: %q", key, got)
+		}
+	}
+	if !strings.Contains(got, version) {
+		t.Errorf("output missing version value %q: %q", version, got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestVersionShort_PrintsBareVersion(t *testing.T) {
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"version", "--short"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	want := version + "\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
