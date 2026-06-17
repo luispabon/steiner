@@ -34,7 +34,7 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetch image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read up to maxImageBytes + 1 to detect oversize.
 	limited := io.LimitReader(resp.Body, maxImageBytes+1)

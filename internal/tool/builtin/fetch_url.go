@@ -31,6 +31,7 @@ type FetchURLError struct {
 }
 
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
+// nolint:gocyclo // handler closure complexity is unavoidable with multi-branch content-type routing and image extension fallback
 func NewFetchURLTool(_ Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
@@ -66,7 +67,7 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 				headResp, doErr := httpClient.Do(headReq)
 				if doErr == nil {
 					contentType = headResp.Header.Get("Content-Type")
-					headResp.Body.Close()
+					_ = headResp.Body.Close()
 				}
 				// On HEAD failure, fall through to wonton/fetch.
 			}
