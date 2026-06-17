@@ -38,16 +38,6 @@ func accentColor() lipgloss.Color {
 	return lipgloss.Color(hex)
 }
 
-// valueStyle renders text in bold + accent foreground.
-func valueStyle(text string) string {
-	return lipgloss.NewStyle().Foreground(accentColor()).Bold(true).Render(text)
-}
-
-// labelStyle returns a dimmed, fixed-width label style (width 10).
-func labelStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgDim)).Width(10)
-}
-
 // checkMark returns a green ✔ glyph styled with theme.Added.
 func checkMark() string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added)).Render("✔")
@@ -58,21 +48,27 @@ func crossMark() string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed)).Render("✗")
 }
 
+// printVersionLine writes a single key/value line.
+// The key is bold with the accent colour; the value uses the default foreground.
+func printVersionLine(w io.Writer, label, value string) {
+	keyStyle := lipgloss.NewStyle().Foreground(accentColor()).Bold(true).Width(10)
+	valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	_, _ = fmt.Fprintf(w, "  %s %s\n", keyStyle.Render(label), valStyle.Render(value))
+}
+
 // printVersionPanel writes a 5-line panel: version, commit, buildDate, goVersion, channel.
 func printVersionPanel(w io.Writer) {
-	lbl := labelStyle()
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("version"), valueStyle(version))
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("commit"), valueStyle(commit))
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("built"), valueStyle(buildDate))
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("go"), valueStyle(goVersion))
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("channel"), valueStyle(channel))
+	printVersionLine(w, "version", version)
+	printVersionLine(w, "commit", commit)
+	printVersionLine(w, "built", buildDate)
+	printVersionLine(w, "go", goVersion)
+	printVersionLine(w, "channel", channel)
 }
 
 // printVersionBlock writes 2 lines: current version and latest version.
 func printVersionBlock(w io.Writer, current, latest string) {
-	lbl := labelStyle()
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("current"), valueStyle(current))
-	_, _ = fmt.Fprintf(w, "  %s %s\n", lbl.Render("latest"), valueStyle(latest))
+	printVersionLine(w, "current", current)
+	printVersionLine(w, "latest", latest)
 }
 
 // precomputedVersionPanelString returns the full version panel as a string.

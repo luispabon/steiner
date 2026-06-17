@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -20,6 +23,65 @@ import (
 	"github.com/luispabon/steiner/internal/metadata"
 	"github.com/luispabon/steiner/internal/output"
 )
+
+func TestVersionOutput_Styling(t *testing.T) {
+	oldRenderer := lipgloss.DefaultRenderer()
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	lipgloss.SetDefaultRenderer(r)
+	t.Cleanup(func() { lipgloss.SetDefaultRenderer(oldRenderer) })
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+
+	for _, key := range []string{"version", "commit", "built", "go", "channel"} {
+		// Find the key and extract the full line (from previous newline or start).
+		idx := strings.Index(got, key)
+		if idx == -1 {
+			t.Errorf("output missing key %q: %q", key, got)
+			continue
+		}
+		// Find start of line (previous newline or 0).
+		lineStart := strings.LastIndex(got[:idx], "\n")
+		if lineStart == -1 {
+			lineStart = 0
+		} else {
+			lineStart++ // skip past the newline
+		}
+		eol := strings.Index(got[idx:], "\n")
+		if eol == -1 {
+			eol = len(got) - idx
+		}
+		line := got[lineStart : idx+eol]
+		// Key should be styled with bold ANSI escape (ESC[1...).
+		if !strings.Contains(line, "\x1b[1") {
+			t.Errorf("key %q line should contain bold ANSI escape: %q", key, line)
+		}
+		// Value portion (after the key and padding) should not be bold.
+		keyEnd := idx - lineStart + len(key)
+		valPrefix := strings.TrimLeft(line[keyEnd:], " ")
+		if strings.Contains(valPrefix, "\x1b[1") {
+			t.Errorf("value after key %q should not be bold, got: %q", key, valPrefix)
+		}
+	}
+
+	if !strings.Contains(got, version) {
+		t.Errorf("output missing version value %q: %q", version, got)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
 
 func TestCommandsVersion(t *testing.T) {
 	cmd := newRootCommand()

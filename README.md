@@ -81,7 +81,7 @@ build metadata:
   channel    stable
 ```
 
-Labels are dimmed; values are bold with the configured accent color. Use
+Labels are bold with the configured accent color; values use the default foreground. Use
 `steiner version --short` to print only the raw version string (no styling,
 no labels) for scripts and CI.
 
@@ -89,9 +89,9 @@ no labels) for scripts and CI.
 
 ```
   current    v0.1.0
-  latest     v0.2.0
   Downloading…
   ✔ updated to v0.2.0
+  latest     v0.2.0
 ```
 
 A spinner animates during the download. On a non-TTY or when `NO_COLOR` is

@@ -72,6 +72,7 @@ func (s *Spinner) Stop(success bool, final string) {
 	if s.tty {
 		close(s.stopCh)
 		<-s.doneCh
+		s.ticker.Stop()
 		// Clear line and write final
 		mark := checkMark()
 		if !success {
