@@ -34,7 +34,7 @@ func newUpdateCommand() *cobra.Command {
 			if isDevBuild(version) {
 				devSet := devFlag || devFlagFromCmd(cmd)
 				if !devSet {
-					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev builds cannot check for stable updates. Use --dev to update to the latest dev build.")
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev builds cannot check for stable updates. Use --dev to update to the latest dev build.")
 					return nil
 				}
 			}

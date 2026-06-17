@@ -54,7 +54,7 @@ func (s *Spinner) Start() {
 		go s.run()
 	} else {
 		// Non-TTY: write one static line
-		fmt.Fprintf(s.w, "  %s\n", s.label)
+		_, _ = fmt.Fprintf(s.w, "  %s\n", s.label)
 	}
 }
 
@@ -77,13 +77,13 @@ func (s *Spinner) Stop(success bool, final string) {
 		if !success {
 			mark = crossMark()
 		}
-		fmt.Fprintf(s.w, "\r  \x1b[2K%s %s\n", mark, s.style.Render(final))
+		_, _ = fmt.Fprintf(s.w, "\r  \x1b[2K%s %s\n", mark, s.style.Render(final))
 	} else {
 		mark := checkMark()
 		if !success {
 			mark = crossMark()
 		}
-		fmt.Fprintf(s.w, "  %s %s\n", mark, final)
+		_, _ = fmt.Fprintf(s.w, "  %s %s\n", mark, final)
 	}
 }
 
@@ -99,7 +99,7 @@ func (s *Spinner) run() {
 			frame := frames[idx]
 			idx = (idx + 1) % len(frames)
 			rendered := s.style.Render(frame)
-			fmt.Fprintf(s.w, "\r  \x1b[2K%s %s", rendered, s.label)
+			_, _ = fmt.Fprintf(s.w, "\r  \x1b[2K%s %s", rendered, s.label)
 		}
 	}
 }
