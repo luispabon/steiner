@@ -226,8 +226,10 @@ func summarizeLSArgs(args map[string]any) string {
 // previewBodyKind determines how to render the tool body using structured preview data first.
 func previewBodyKind(tool string, preview output.ToolPreview) string {
 	switch preview.Kind {
-	case output.ToolPreviewKindReadFile, output.ToolPreviewKindFetchURL, output.ToolPreviewKindWebSearch:
+	case output.ToolPreviewKindReadFile, output.ToolPreviewKindWebSearch:
 		return "file"
+	case output.ToolPreviewKindFetchURL:
+		return "fetch_url"
 	case output.ToolPreviewKindGlobList:
 		return "glob"
 	case output.ToolPreviewKindLSList:
@@ -451,6 +453,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		lines = b.buildGrepLines(tc)
 	case "file":
 		lines = b.buildFilePreviewLines(tc, rowWidth-2)
+	case "fetch_url":
+		lines = b.buildFetchURLLines(tc, rowWidth-2)
 	case "mutate":
 		lines = b.buildMutateLines(tc, rowWidth-2)
 	default:

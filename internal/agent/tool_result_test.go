@@ -123,6 +123,35 @@ func TestNormalizeToolResultStripsImageDataFromContent(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolResultStripsFetchURLImageDataFromContent(t *testing.T) {
+	result := &builtin.FetchURLResult{
+		URL:        "https://example.com/photo.png",
+		StatusCode: 200,
+		Image: &builtin.ImageBlock{
+			MediaType: "image/png",
+			Data:      "base64encodeddata",
+			Width:     2,
+			Height:    2,
+			SizeBytes: 84,
+		},
+	}
+
+	envelope := normalizeToolResult(result)
+	if envelope.Image == nil {
+		t.Fatal("Image = nil, want non-nil")
+	}
+	if strings.Contains(envelope.Content, "base64encodeddata") {
+		t.Fatalf("Content leaks base64 payload: %q", envelope.Content)
+	}
+	// Content should be JSON without the image field.
+	if !strings.Contains(envelope.Content, `"url"`) {
+		t.Fatalf("Content missing url field: %q", envelope.Content)
+	}
+	if strings.Contains(envelope.Content, `"image"`) {
+		t.Fatalf("Content still contains image field: %q", envelope.Content)
+	}
+}
+
 func TestExtractImage(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -163,6 +192,39 @@ func TestExtractImage(t *testing.T) {
 		{
 			name:      "non-ReadResult",
 			result:    "string",
+			wantImage: false,
+		},
+		{
+			name: "FetchURLResult pointer with image",
+			result: &builtin.FetchURLResult{
+				URL: "https://example.com/photo.png",
+				Image: &builtin.ImageBlock{
+					MediaType: "image/png",
+					Data:      "test",
+					Width:     10,
+					Height:    10,
+					SizeBytes: 100,
+				},
+			},
+			wantImage: true,
+		},
+		{
+			name: "FetchURLResult value with image",
+			result: builtin.FetchURLResult{
+				URL: "https://example.com/photo.jpg",
+				Image: &builtin.ImageBlock{
+					MediaType: "image/jpeg",
+					Data:      "data",
+					Width:     5,
+					Height:    5,
+					SizeBytes: 50,
+				},
+			},
+			wantImage: true,
+		},
+		{
+			name:      "FetchURLResult pointer without image",
+			result:    &builtin.FetchURLResult{URL: "https://example.com"},
 			wantImage: false,
 		},
 	}

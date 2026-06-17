@@ -79,6 +79,10 @@ type ToolPreview struct {
 	NextOffset       int
 	OutputMode       string
 	StartLine        int
+	StatusCode       int
+	ContentLength    int
+	FetchTitle       string
+	FetchDescription string
 	Entries          []ToolPreviewListEntry
 	GrepFiles        []ToolPreviewGrepFile
 	PatchAdded       []string
