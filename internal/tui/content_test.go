@@ -299,10 +299,10 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
-	if len(buffer.segments) != 2 {
-		t.Fatalf("segments count after budget event = %d, want 2", len(buffer.segments))
+	if len(buffer.segments) != 5 {
+		t.Fatalf("segments count after budget event = %d, want 5", len(buffer.segments))
 	}
-	last := buffer.segments[1]
+	last := buffer.segments[4]
 	if last.delegData == nil || last.delegData.status != "budget_exhausted" {
 		t.Fatalf("last advisor segment = %#v, want budget_exhausted", last.delegData)
 	}

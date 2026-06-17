@@ -703,6 +703,9 @@ func (b *contentBuffer) wrapStyledDelegationLines(text string, width int, style 
 }
 
 func (b *contentBuffer) renderDelegationOutput(dd *delegationDisplayState, width int) []string {
+	if dd.isAdvisor {
+		return nil
+	}
 	outputText := strings.TrimSpace(dd.output)
 	if outputText == "" {
 		return nil
