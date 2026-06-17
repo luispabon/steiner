@@ -143,7 +143,7 @@ const advisorInstructions = `## Advisor
 
 If you need a stronger-model strategic check, call ` + "`advisor`" + `. Use it sparingly for ambiguity, risk, or a final sanity check. It gives steering only; it does not mutate code, run tools, or replace your judgment.`
 
-const coreRules = `Core rules:
+const coreRules = `## Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
 - Prefer smallest correct change. Every changed line must trace to task.
@@ -184,7 +184,12 @@ Final response:
 
 // SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	return systemPreambleWithAdvisor(override, delegationEnabled, false, caveHuman, systemSuffix)
+	return SystemPreambleWithAdvisor(override, delegationEnabled, false, caveHuman, systemSuffix)
+}
+
+// SystemPreambleWithAdvisor builds the system-message preamble with optional advisor guidance.
+func SystemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
+	return systemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, caveHuman, systemSuffix)
 }
 
 func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {

@@ -43,7 +43,7 @@ Fields:
 |-------|---------|-------------|
 | `enabled` | `false` | Enables the advisor tool and advisor prompt steering. |
 | `model` | `""` | Model alias used for advisor calls. Required when enabled, and must exist in `models`. |
-| `max_uses_per_run` | `0` | Per-run call cap. Required to be at least `1` when enabled. |
+| `max_uses_per_run` | `3` | Per-run call cap. Required to be at least `1` when enabled. |
 | `max_tokens` | `nil` | Optional output-token limit forwarded to the advisor provider request. |
 
 The advisor model is resolved through the same model configuration and provider discovery path as other runtime models.

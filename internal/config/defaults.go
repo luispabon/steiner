@@ -56,7 +56,8 @@ func defaultConfig() Config {
 			AllowedTools: []string{"read", "glob", "grep", "ls", "bash"},
 		},
 		Advisor: AdvisorConfig{
-			Enabled: false,
+			Enabled:       false,
+			MaxUsesPerRun: 3,
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{

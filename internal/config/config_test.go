@@ -63,8 +63,8 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.Model != "" {
 		t.Fatalf("advisor.model = %q, want empty", cfg.Advisor.Model)
 	}
-	if cfg.Advisor.MaxUsesPerRun != 0 {
-		t.Fatalf("advisor.max_uses_per_run = %d, want 0", cfg.Advisor.MaxUsesPerRun)
+	if cfg.Advisor.MaxUsesPerRun != 3 {
+		t.Fatalf("advisor.max_uses_per_run = %d, want 3", cfg.Advisor.MaxUsesPerRun)
 	}
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
