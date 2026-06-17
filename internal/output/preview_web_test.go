@@ -28,7 +28,12 @@ func TestBuildFetchURLPreview(t *testing.T) {
 		{
 			name:   "empty content",
 			result: `{"url":"https://example.com","content":""}`,
-			want:   plainToolPreview(),
+			want: ToolPreview{
+				Kind:     ToolPreviewKindFetchURL,
+				Path:     "https://example.com",
+				Language: "markdown",
+				Contents: "",
+			},
 		},
 		{
 			name:   "malformed JSON",
