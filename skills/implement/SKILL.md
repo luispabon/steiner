@@ -77,6 +77,7 @@ Optional fields:
 - `depends_on`
 - `parallel_group`
 - `delegate_profile`
+- `no_delegate`
 
 Do not infer missing implementation plans from `overview.md` alone.
 
@@ -114,15 +115,17 @@ The executor owns orchestration:
 - verification orchestration
 - reviewer handoff
 
-Implementation edits, verification-failure fixes, and manual-verification issue fixes belong to Steiner `code` delegates whenever safe isolated execution is available.
+Implementation edits, verification-failure fixes, and manual-verification issue fixes belong to Steiner `code` delegates whenever delegation is available.
 
-## Isolated Worktree Model
+## Delegation Model
 
-The feature branch is owned by the executor. Sub-agents must not work directly on it.
+The feature branch is owned by the executor. Implementation work belongs to delegated sub-agents. The executor prefers the highest available delegation tier:
 
-Safe isolated execution is available only when Steiner delegation tools are available, git worktrees and temporary branches can be created, and the repository state is clean enough to provision them safely.
+1. **Isolated delegation** (preferred): sub-agent works in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
+2. **Direct delegation** (fallback): sub-agent works directly on the feature branch. Used when worktrees are unavailable or provisioning fails.
+3. **Inline execution** (last resort): executor applies changes directly. Used only when delegation tools themselves are unavailable. Record the reason in `execution.md`.
 
-When safe isolated execution is available, each implementation or fix pass runs in a dedicated worktree attached to a temporary branch created from the current feature branch.
+Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline execution just because worktrees failed.
 
 ### Worktree Provisioning
 
@@ -132,11 +135,11 @@ After running `git worktree add`, verify the directory actually exists:
 
 1. Run `ls -d <worktree-path>` to confirm the directory was created.
 2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
-3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct execution.
+3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.
 
-### Execution Steps
+### Isolated Delegation Steps
 
-The executor must:
+When using isolated delegation, the executor must:
 
 1. create the temporary branch and worktree under `.steiner/worktrees/`
 2. verify the worktree is accessible (see provisioning checks above)
@@ -151,7 +154,33 @@ The executor must:
 
 Sub-agents must not merge, rebase, clean up executor-owned git state, or commit directly to the feature branch.
 
-If safe isolated execution is unavailable or worktree provisioning fails after verification, execute directly as a fallback. Record the reason in `execution.md` and preserve the same step boundaries.
+### Direct Delegation Steps
+
+When using direct delegation, the executor must:
+
+1. delegate the scoped task on the feature branch
+2. require the delegated agent to commit on the feature branch
+3. review the result against the step contract
+4. run required verification for that point in the flow
+5. update `execution.md`
+6. close the delegated agent
+
+### Pre-Commit Checklist
+
+Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
+
+**Isolated delegation mode:**
+
+1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
+2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
+3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+**Direct delegation mode:**
+
+1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.
+2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+If any check fails, the sub-agent must not commit. It must report the mismatch and let the executor recover.
 
 ## Steiner Delegation
 
@@ -177,19 +206,9 @@ Every delegated task must be tight and self-contained. Include:
 - constraints, non-goals, and forbidden changes
 - expected output and commit expectations
 - verification to run or report
-- the pre-commit checklist below
+- the appropriate pre-commit checklist from the Delegation Model section
 
 Do not pass broad conversation history or vague prompts. Do not make the delegated agent rediscover context the main agent already has.
-
-### Pre-Commit Checklist
-
-Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`:
-
-1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
-2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
-3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
-
-If any check fails, the sub-agent must not commit. It must report the mismatch and let the executor recover.
 
 ## Verification Policy
 

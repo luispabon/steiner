@@ -30,7 +30,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Run the review pass.
 4. If blocking findings exist, ask approval for one consolidated fix plan.
-5. Run approved review-fix work through isolated Steiner delegation when available.
+5. Run approved review-fix work through Steiner delegation.
 6. Rerun relevant checks.
 7. Repeat only if new blocking findings remain.
 8. Mark final status.
@@ -99,9 +99,15 @@ Do not edit code before a review pass has produced concrete findings and the use
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 
-Safe isolated execution is available only when Steiner delegation tools are available, git worktrees and temporary branches can be created, and the repository state is clean enough to provision them safely.
+The reviewer prefers the highest available delegation tier for fix passes:
 
-When safe isolated execution is available, run the approved fix pass in a dedicated temporary branch and worktree. The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
+1. **Isolated delegation** (preferred): fix pass runs in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
+2. **Direct delegation** (fallback): fix pass runs directly on the feature branch via a `code` sub-agent. Used when worktrees are unavailable or provisioning fails.
+3. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable.
+
+Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline fixes just because worktrees failed.
+
+The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
 
 ### Worktree Provisioning
 
@@ -111,7 +117,7 @@ After running `git worktree add`, verify the directory actually exists:
 
 1. Run `ls -d <worktree-path>` to confirm the directory was created.
 2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
-3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct fixes.
+3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.
 
 ### Review-Fix Delegation
 
@@ -119,13 +125,28 @@ The review-fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
 - run the pre-commit checklist before committing (see below)
-- commit its changes on the temporary branch
+- commit its changes on the working branch (temporary branch for isolated delegation, feature branch for direct delegation)
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-If safe isolated execution is unavailable or worktree provisioning fails after verification, direct fixes are allowed only as a fallback. Record the reason if `review.md` exists, and keep the same approved fix-pass boundary.
-
 Review-fix work is sequential. Do not parallelize it.
+
+### Pre-Commit Checklist
+
+Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
+
+**Isolated delegation mode:**
+
+1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
+2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
+3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+**Direct delegation mode:**
+
+1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.
+2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+
+If any check fails, the sub-agent must not commit. It must report the mismatch and let the reviewer recover.
 
 ## Steiner Delegation
 
@@ -138,20 +159,10 @@ Use Steiner's specialised tools directly:
 - `research({"task": "..."})` only for approved current/external research
 - `delegate({...})` only when no specialised profile fits
 
-Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the pre-commit checklist below.
+Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the appropriate pre-commit checklist from the Review-Fix Loop section.
 
 If an advisor tool is available, use it before declaring review complete to sanity-check
 plan fit and residual risk.
-
-### Pre-Commit Checklist
-
-Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`:
-
-1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
-2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
-3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
-
-If any check fails, the sub-agent must not commit. It must report the mismatch and let the reviewer recover.
 
 ## Verification After Fixes
 
