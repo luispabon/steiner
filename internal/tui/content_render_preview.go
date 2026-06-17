@@ -218,6 +218,67 @@ func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []
 	return lines
 }
 
+func (b *contentBuffer) buildFetchURLLines(tc *toolCallSegment, width int) []string {
+	rule := b.styles.FgMute.Render(strings.Repeat("─", max(1, width)))
+
+	lines := make([]string, 0, 12)
+	lines = append(lines, rule)
+
+	// URL
+	if tc.preview.Path != "" {
+		lines = append(lines, b.styles.FgDim.Render("url:         "+tc.preview.Path))
+	}
+
+	// max_size from tool arguments
+	if tc.rawArgs != nil {
+		if maxSize, ok := tc.rawArgs["max_size"]; ok {
+			lines = append(lines, b.styles.FgDim.Render(fmt.Sprintf("max_size:    %v", maxSize)))
+		}
+	}
+
+	// HTTP status code
+	if tc.preview.StatusCode > 0 {
+		lines = append(lines, b.styles.FgDim.Render(fmt.Sprintf("http:        %d", tc.preview.StatusCode)))
+	}
+
+	// content_length
+	if tc.preview.ContentLength > 0 {
+		lines = append(lines, b.styles.FgDim.Render(fmt.Sprintf("size:        %d runes", tc.preview.ContentLength)))
+	}
+
+	// title
+	if tc.preview.FetchTitle != "" {
+		lines = append(lines, b.styles.FgDim.Render("title:       "+tc.preview.FetchTitle))
+	}
+
+	// description
+	if tc.preview.FetchDescription != "" {
+		lines = append(lines, b.styles.FgDim.Render("description: "+tc.preview.FetchDescription))
+	}
+
+	lines = append(lines, rule)
+
+	// Body
+	if tc.preview.Language == "image" {
+		// Image placeholder
+		lines = append(lines, b.styles.FgDim.Render(tc.preview.Contents))
+		lines = append(lines, b.styles.FgMute.Render("image returned to model"))
+	} else {
+		// Markdown body via existing preview document formatting.
+		doc := b.previewDocument(tc)
+		if doc.Kind != "" {
+			for _, line := range doc.Lines {
+				lines = append(lines, b.renderPreviewLine(line))
+			}
+			if doc.Truncated {
+				lines = append(lines, b.styles.FgFaint.Render("   …  1 more"))
+			}
+		}
+	}
+
+	return lines
+}
+
 func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
 	if tc.displayPreview != nil {
 		return *tc.displayPreview
