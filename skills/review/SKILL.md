@@ -105,7 +105,7 @@ The reviewer prefers the highest available delegation tier for fix passes:
 2. **Direct delegation** (fallback): fix pass runs directly on the feature branch via a `code` sub-agent. Used when worktrees are unavailable or provisioning fails.
 3. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable.
 
-Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline fixes just because worktrees failed.
+Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline fixes just because worktrees failed. A judgment that isolation is unnecessary or that the fixes are simple does not justify skipping isolated delegation — only concrete errors (worktree provisioning failure, sub-agent dispatch error) do.
 
 The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
 
