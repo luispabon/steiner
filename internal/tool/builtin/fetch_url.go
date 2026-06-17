@@ -14,11 +14,13 @@ import (
 
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
-	URL           string `json:"url"`
-	Title         string `json:"title,omitempty"`
-	Description   string `json:"description,omitempty"`
-	Content       string `json:"content"`
-	ContentLength int    `json:"content_length"`
+	URL           string      `json:"url"`
+	Title         string      `json:"title,omitempty"`
+	Description   string      `json:"description,omitempty"`
+	Content       string      `json:"content"`
+	ContentLength int         `json:"content_length"`
+	StatusCode    int         `json:"status_code,omitempty"`
+	Image         *ImageBlock `json:"image,omitempty"`
 }
 
 // FetchURLError is an error result from a fetch_url tool call.
@@ -31,7 +33,7 @@ type FetchURLError struct {
 func NewFetchURLTool(_ Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
-		Description:     "Fetch and convert a URL to markdown content. Returns structured result with title, description, and markdown content.",
+		Description:     "Fetch a URL and return its content. Web pages are converted to markdown. Image URLs (png, jpeg, gif, webp) are returned as image data for vision-capable providers.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)
