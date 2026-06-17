@@ -298,13 +298,160 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("output after complete = %q, want advisor note", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
-	if len(buffer.segments) != 2 {
-		t.Fatalf("segments count after budget event = %d, want 2", len(buffer.segments))
+	// After complete, buffer should have 4 segments: advisor box + 3 labeled-block segments.
+	if len(buffer.segments) != 4 {
+		t.Fatalf("segments count after complete = %d, want 4 (advisor box + labeled block)", len(buffer.segments))
 	}
-	last := buffer.segments[1]
+
+	// Index 1: opening separator with label "Advisor output", closing=false.
+	s := buffer.segments[1]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[1] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Advisor output" {
+		t.Errorf("segment[1] label = %q, want %q", s.separatorData.label, "Advisor output")
+	}
+	if s.separatorData.closing {
+		t.Errorf("segment[1] closing = true, want false")
+	}
+
+	// Index 2: body segment (prose or markdown).
+	s = buffer.segments[2]
+	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[2] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	}
+	if s.text != "check tests first" {
+		t.Errorf("segment[2] text = %q, want %q", s.text, "check tests first")
+	}
+
+	// Index 3: closing separator with label "Advisor output", closing=true.
+	s = buffer.segments[3]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[3] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Advisor output" {
+		t.Errorf("segment[3] label = %q, want %q", s.separatorData.label, "Advisor output")
+	}
+	if !s.separatorData.closing {
+		t.Errorf("segment[3] closing = false, want true")
+	}
+
+	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
+	if len(buffer.segments) != 5 {
+		t.Fatalf("segments count after budget event = %d, want 5", len(buffer.segments))
+	}
+	last := buffer.segments[4]
 	if last.delegData == nil || last.delegData.status != "budget_exhausted" {
 		t.Fatalf("last advisor segment = %#v, want budget_exhausted", last.delegData)
+	}
+}
+
+func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count after start = %d, want 1", len(buffer.segments))
+	}
+
+	// Complete with an error.
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", errors.New("something went wrong")))
+
+	if len(buffer.segments) != 4 {
+		t.Fatalf("segments count after complete with error = %d, want 4 (advisor box + labeled block)", len(buffer.segments))
+	}
+
+	// Index 0: advisor box with status "failed" and isAdvisor.
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegation || seg.delegData == nil {
+		t.Fatalf("segment[0] kind=%v, want segmentDelegation", seg.kind)
+	}
+	if !seg.delegData.isAdvisor {
+		t.Error("segment[0] delegData.isAdvisor = false, want true")
+	}
+	if seg.delegData.status != "failed" {
+		t.Errorf("segment[0] delegData.status = %q, want %q", seg.delegData.status, "failed")
+	}
+
+	// Index 1: opening separator with label "Advisor output", closing=false.
+	s := buffer.segments[1]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[1] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Advisor output" {
+		t.Errorf("segment[1] label = %q, want %q", s.separatorData.label, "Advisor output")
+	}
+	if s.separatorData.closing {
+		t.Errorf("segment[1] closing = true, want false")
+	}
+
+	// Index 2: body segment containing the error text.
+	s = buffer.segments[2]
+	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[2] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	}
+	if s.text != "something went wrong" {
+		t.Errorf("segment[2] text = %q, want %q", s.text, "something went wrong")
+	}
+
+	// Index 3: closing separator with label "Advisor output", closing=true.
+	s = buffer.segments[3]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[3] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Advisor output" {
+		t.Errorf("segment[3] label = %q, want %q", s.separatorData.label, "Advisor output")
+	}
+	if !s.separatorData.closing {
+		t.Errorf("segment[3] closing = false, want true")
+	}
+}
+
+func TestAppendCompactionResultLabeledBlock(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	buffer.AppendCompactionResult("Compaction", "summary text")
+
+	if len(buffer.segments) != 3 {
+		t.Fatalf("segments count = %d, want 3", len(buffer.segments))
+	}
+
+	// Index 0: opening separator with label "Compaction", closing=false.
+	s := buffer.segments[0]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[0] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Compaction" {
+		t.Errorf("segment[0] label = %q, want %q", s.separatorData.label, "Compaction")
+	}
+	if s.separatorData.closing {
+		t.Errorf("segment[0] closing = true, want false")
+	}
+
+	// Index 1: body segment.
+	s = buffer.segments[1]
+	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[1] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	}
+	if s.text != "summary text" {
+		t.Errorf("segment[1] text = %q, want %q", s.text, "summary text")
+	}
+
+	// Index 2: closing separator with label "Compaction", closing=true.
+	s = buffer.segments[2]
+	if s.kind != segmentSeparator || s.separatorData == nil {
+		t.Fatalf("segment[2] kind=%v, want segmentSeparator with separatorData", s.kind)
+	}
+	if s.separatorData.label != "Compaction" {
+		t.Errorf("segment[2] label = %q, want %q", s.separatorData.label, "Compaction")
+	}
+	if !s.separatorData.closing {
+		t.Errorf("segment[2] closing = false, want true")
 	}
 }
 

@@ -579,6 +579,11 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	}
 	b.segments[idx].renderDirty = true
 	b.activeAdvisorSegment = 0
+
+	// Append labeled block with advisor note outside the box.
+	if body := strings.TrimSpace(dd.output); body != "" {
+		b.appendLabeledBlock("Advisor output", body)
+	}
 }
 
 func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {

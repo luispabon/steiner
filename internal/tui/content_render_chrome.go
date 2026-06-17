@@ -142,7 +142,16 @@ func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int
 	if segment.separatorData == nil {
 		return ""
 	}
-	return b.renderCenteredDashes(segment.separatorData.label, width) + "\n"
+	sd := segment.separatorData
+	label := sd.label
+	if sd.closing {
+		label = "End of " + label
+	}
+	line := b.renderCenteredDashes(label, width)
+	if sd.closing {
+		return "\n" + line + "\n"
+	}
+	return line + "\n"
 }
 
 // compactionBoxRows builds the inner lines of the compaction box.
@@ -698,6 +707,9 @@ func (b *contentBuffer) wrapStyledDelegationLines(text string, width int, style 
 }
 
 func (b *contentBuffer) renderDelegationOutput(dd *delegationDisplayState, width int) []string {
+	if dd.isAdvisor {
+		return nil
+	}
 	outputText := strings.TrimSpace(dd.output)
 	if outputText == "" {
 		return nil
