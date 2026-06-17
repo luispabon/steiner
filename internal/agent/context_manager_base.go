@@ -16,6 +16,7 @@ type baseContextManager struct {
 		content           string
 		override          string
 		delegationEnabled bool
+		advisorEnabled    bool
 		caveHuman         bool
 		systemSuffix      string
 	}
@@ -23,15 +24,17 @@ type baseContextManager struct {
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
+		b.cachedPreamble.advisorEnabled != advisorEnabled ||
 		b.cachedPreamble.caveHuman != caveHuman ||
 		b.cachedPreamble.systemSuffix != systemSuffix {
-		b.cachedPreamble.content = prompt.SystemPreamble(override, delegationEnabled, caveHuman, systemSuffix).Content
+		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, caveHuman, systemSuffix).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
+		b.cachedPreamble.advisorEnabled = advisorEnabled
 		b.cachedPreamble.caveHuman = caveHuman
 		b.cachedPreamble.systemSuffix = systemSuffix
 	}

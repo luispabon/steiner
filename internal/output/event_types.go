@@ -71,6 +71,13 @@ const (
 	EventTypeDelegationFailed = "delegation_failed"
 	// EventTypeDelegationExtension records delegation-specific auxiliary events.
 	EventTypeDelegationExtension = "delegation_extension"
+	// EventTypeAdvisorStarted marks the start of an advisor call.
+	EventTypeAdvisorStarted = "advisor_started"
+	// EventTypeAdvisorComplete marks the end of an advisor call.
+	EventTypeAdvisorComplete = "advisor_complete"
+	// EventTypeAdvisorBudgetExhausted marks a skipped advisor call because the
+	// per-run budget was already exhausted.
+	EventTypeAdvisorBudgetExhausted = "advisor_budget_exhausted"
 
 	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
 	// file to the user. The event payload carries an explicit preview document so
@@ -371,6 +378,31 @@ type DelegationExtensionEvent struct {
 	AgentID       string `json:"agent_id"`
 	Extension     int    `json:"extension"`
 	MaxExtensions int    `json:"max_extensions"`
+}
+
+// AdvisorStartedEvent records a stronger-model advisor call beginning.
+type AdvisorStartedEvent struct {
+	Model     string `json:"model,omitempty"`
+	UseNumber int    `json:"use_number"`
+	MaxUses   int    `json:"max_uses"`
+}
+
+// AdvisorCompleteEvent records a completed advisor call.
+type AdvisorCompleteEvent struct {
+	Model     string `json:"model,omitempty"`
+	UseNumber int    `json:"use_number"`
+	MaxUses   int    `json:"max_uses"`
+	Note      string `json:"note,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
+// budget was exhausted.
+type AdvisorBudgetExhaustedEvent struct {
+	Model   string `json:"model,omitempty"`
+	Used    int    `json:"used"`
+	MaxUses int    `json:"max_uses"`
+	Message string `json:"message,omitempty"`
 }
 
 // HistoryLoadedEvent carries previously recorded prompt strings for display.

@@ -268,6 +268,46 @@ func TestFormatDelegationEvent(t *testing.T) {
 	}
 }
 
+func TestAppendEventAdvisorLifecycle(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count after start = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegation || seg.delegData == nil {
+		t.Fatalf("segment = %#v, want advisor delegation box", seg)
+	}
+	if !seg.delegData.isAdvisor {
+		t.Fatal("delegData.isAdvisor = false, want true")
+	}
+	if got := seg.delegData.status; got != "active" {
+		t.Fatalf("status after start = %q, want active", got)
+	}
+
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", nil))
+	seg = buffer.segments[0]
+	if got := seg.delegData.status; got != "complete" {
+		t.Fatalf("status after complete = %q, want complete", got)
+	}
+	if got := seg.delegData.output; got != "check tests first" {
+		t.Fatalf("output after complete = %q, want advisor note", got)
+	}
+
+	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count after budget event = %d, want 2", len(buffer.segments))
+	}
+	last := buffer.segments[1]
+	if last.delegData == nil || last.delegData.status != "budget_exhausted" {
+		t.Fatalf("last advisor segment = %#v, want budget_exhausted", last.delegData)
+	}
+}
+
 func TestDelegationSpinnerAdvancement(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),

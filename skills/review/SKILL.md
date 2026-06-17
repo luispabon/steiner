@@ -140,6 +140,9 @@ Use Steiner's specialised tools directly:
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the pre-commit checklist below.
 
+If an advisor tool is available, use it before declaring review complete to sanity-check
+plan fit and residual risk.
+
 ### Pre-Commit Checklist
 
 Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`:

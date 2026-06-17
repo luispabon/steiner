@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -128,7 +129,10 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	found := false
 	foundFollowUp := false
@@ -159,7 +163,10 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	names := reg.Names()
 	nameSet := make(map[string]bool, len(names))
@@ -185,7 +192,10 @@ func TestBuildActiveRegistry_WebSearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	for _, n := range reg.Names() {
 		if n == "web_search" {
@@ -198,7 +208,10 @@ func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	for _, n := range reg.Names() {
 		if n == "research" {
@@ -211,7 +224,10 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	for _, n := range reg.Names() {
 		if n == delegation.DelegateToolName || n == delegation.FollowUpToolName {
@@ -224,9 +240,37 @@ func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 	base := tool.NewRegistry()
 	subAgentCfg := config.SubAgentConfig{Enabled: false}
 	cfg := config.Config{}
-	reg := buildActiveRegistry(base, subAgentCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	reg, err := buildActiveRegistry(base, subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 	if reg != base {
 		t.Error("expected same registry pointer when sub_agent disabled")
+	}
+}
+
+func TestBuildActiveRegistry_AdvisorPresent_WhenEnabled(t *testing.T) {
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	advisorCfg := config.AdvisorConfig{Enabled: true, Model: "advisor-alias", MaxUsesPerRun: 2}
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: map[string]config.ModelConfig{
+			"advisor-alias": {Provider: "testprov", ID: "advisor-model"},
+		},
+	}
+
+	reg, err := buildActiveRegistry(base, config.SubAgentConfig{}, advisorCfg, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{ProviderAlias: "testprov", EffectiveProviderType: config.ProviderTypeOpenAICompat}, 0, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
+
+	if _, ok := reg.Get(advisor.ToolName); !ok {
+		t.Fatalf("advisor tool not found in registry; got %v", reg.Names())
+	}
+	if _, ok := base.Get(advisor.ToolName); ok {
+		t.Fatalf("advisor tool leaked into base registry; got %v", base.Names())
 	}
 }
 
@@ -346,7 +390,10 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 		return failProvider{}, nil
 	}
 
-	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), "", provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil, nil)
+	reg, err := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, t.TempDir(), "", provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
 	if !ok {
@@ -404,7 +451,10 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 		return failProvider{}, nil
 	}
 
-	reg := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, stubProvider{}, noopSink{}, t.TempDir(), "", provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, srv.Client(), nil)
+	reg, err := buildActiveRegistry(tool.NewRegistry(), subAgentCfg, config.AdvisorConfig{}, stubProvider{}, noopSink{}, t.TempDir(), "", provider.ResolvedModel{}, 0, false, nil, cfg, providerFactory, srv.Client(), nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
 
 	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
 	if !ok {

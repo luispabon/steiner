@@ -130,6 +130,7 @@ type AssemblyOptions struct {
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
 	DelegationEnabled         bool
+	AdvisorEnabled            bool
 	Conversation              []provider.Message
 	ToolResults               []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it

@@ -2,6 +2,8 @@
 
 `steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. This document covers both user-facing usage (tools, configuration, safety) and the internal delegation machinery.
 
+`advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
+
 ---
 
 ## Part 1 — User guide
@@ -21,6 +23,10 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees seven
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
 The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+
+### Advisor
+
+The `advisor` tool is a pure reasoning pass for the parent agent. It reads the live parent conversation, calls a stronger model, and returns concise strategic guidance. It does **not** expose any tools, does **not** start a child loop, and does **not** mutate state. Its per-run cap is enforced in handler state so the tool definition stays stable for prompt-cache integrity.
 
 ### When to use each
 

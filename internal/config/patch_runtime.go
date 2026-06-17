@@ -6,6 +6,12 @@ func applySubAgentConfigPatch(cfg *Config, patch configPatch) {
 	}
 }
 
+func applyAdvisorConfigPatch(cfg *Config, patch configPatch) {
+	if patch.Advisor != nil {
+		applyAdvisorPatch(&cfg.Advisor, patch.Advisor)
+	}
+}
+
 func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.Enabled != nil {
 		dst.Enabled = *patch.Enabled
@@ -30,6 +36,22 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 			}
 			dst.Agents[name] = current
 		}
+	}
+}
+
+func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
+	if patch.Enabled != nil {
+		dst.Enabled = *patch.Enabled
+	}
+	if patch.Model != nil {
+		dst.Model = *patch.Model
+	}
+	if patch.MaxUsesPerRun != nil {
+		dst.MaxUsesPerRun = *patch.MaxUsesPerRun
+	}
+	if patch.MaxTokens != nil {
+		value := *patch.MaxTokens
+		dst.MaxTokens = &value
 	}
 }
 

@@ -13,8 +13,8 @@ import (
 func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same parameters", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, "")
-		second := manager.CachedSystemPreamble("alpha", false, false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, false, "")
+		second := manager.CachedSystemPreamble("alpha", false, false, false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -25,8 +25,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, "")
-		second := manager.CachedSystemPreamble("", true, true, "")
+		first := manager.CachedSystemPreamble("", true, false, false, "")
+		second := manager.CachedSystemPreamble("", true, false, true, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -37,8 +37,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different override", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, "")
-		second := manager.CachedSystemPreamble("beta", false, false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, false, "")
+		second := manager.CachedSystemPreamble("beta", false, false, false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -49,8 +49,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, "")
-		second := manager.CachedSystemPreamble("", false, false, "Extended thinking enabled")
+		first := manager.CachedSystemPreamble("", false, false, false, "")
+		second := manager.CachedSystemPreamble("", false, false, false, "Extended thinking enabled")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -65,8 +65,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
 		suffix := "Custom model instruction"
-		first := manager.CachedSystemPreamble("", false, false, suffix)
-		second := manager.CachedSystemPreamble("", false, false, suffix)
+		first := manager.CachedSystemPreamble("", false, false, false, suffix)
+		second := manager.CachedSystemPreamble("", false, false, false, suffix)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -77,8 +77,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss when suffix changes from non-empty to empty", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, "Some instruction")
-		second := manager.CachedSystemPreamble("", false, false, "")
+		first := manager.CachedSystemPreamble("", false, false, false, "Some instruction")
+		second := manager.CachedSystemPreamble("", false, false, false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -92,13 +92,28 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, "")
-		second := manager.CachedSystemPreamble("", true, true, "")
+		first := manager.CachedSystemPreamble("", true, false, false, "")
+		second := manager.CachedSystemPreamble("", true, false, true, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
 		if second == first {
 			t.Fatal("second preamble should differ when caveHuman changes")
+		}
+	})
+
+	t.Run("cache miss with different advisorEnabled", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, false, "")
+		second := manager.CachedSystemPreamble("", false, true, false, "")
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when advisorEnabled changes")
+		}
+		if !strings.Contains(second, "## Advisor") {
+			t.Fatal("second preamble should contain advisor guidance")
 		}
 	})
 }

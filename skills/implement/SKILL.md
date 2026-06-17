@@ -166,6 +166,9 @@ Use Steiner's specialised tools directly:
 
 Specialised Steiner tools accept only `task`. Do not try to configure their prompts or models inline.
 
+If an advisor tool is available, consult it before locking an implementation approach
+and again after an unresolved verification failure before choosing the next fix path.
+
 Every delegated task must be tight and self-contained. Include:
 
 - the parent step id and goal

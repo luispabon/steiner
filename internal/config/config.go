@@ -99,6 +99,7 @@ type Config struct {
 	Permissions       PermissionsConfig         `yaml:"permissions"`
 	HostMounts        []HostMount               `yaml:"host_mounts"`
 	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
+	Advisor           AdvisorConfig             `yaml:"advisor"`
 	WorkflowHandoff   workflowHandoffConfig     `yaml:"workflow_handoff"`
 	Tools             map[string]ToolConfig     `yaml:"tools"`
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
@@ -166,6 +167,14 @@ type SubAgentConfig struct {
 	MaxTokens    int                    `yaml:"max_tokens"`
 	AllowedTools []string               `yaml:"allowed_tools"`
 	Agents       map[string]AgentConfig `yaml:"agents"`
+}
+
+// AdvisorConfig controls the optional advisor reasoning pass.
+type AdvisorConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	Model         string `yaml:"model"`
+	MaxUsesPerRun int    `yaml:"max_uses_per_run"`
+	MaxTokens     *int   `yaml:"max_tokens"`
 }
 
 type workflowHandoffConfig struct {

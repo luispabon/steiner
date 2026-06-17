@@ -478,3 +478,48 @@ func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 		},
 	}
 }
+
+// NewAdvisorStartedEvent creates an advisor_started event.
+func NewAdvisorStartedEvent(model string, useNumber, maxUses int) Event {
+	return Event{
+		Type:      EventTypeAdvisorStarted,
+		Timestamp: time.Now().UTC(),
+		Payload: AdvisorStartedEvent{
+			Model:     strings.TrimSpace(model),
+			UseNumber: useNumber,
+			MaxUses:   maxUses,
+		},
+	}
+}
+
+// NewAdvisorCompleteEvent creates an advisor_complete event.
+func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, err error) Event {
+	payload := AdvisorCompleteEvent{
+		Model:     strings.TrimSpace(model),
+		UseNumber: useNumber,
+		MaxUses:   maxUses,
+		Note:      TruncateWithEllipsis(strings.TrimSpace(note), 240),
+	}
+	if err != nil {
+		payload.Error = err.Error()
+	}
+	return Event{
+		Type:      EventTypeAdvisorComplete,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
+// NewAdvisorBudgetExhaustedEvent creates an advisor_budget_exhausted event.
+func NewAdvisorBudgetExhaustedEvent(model string, used, maxUses int, message string) Event {
+	return Event{
+		Type:      EventTypeAdvisorBudgetExhausted,
+		Timestamp: time.Now().UTC(),
+		Payload: AdvisorBudgetExhaustedEvent{
+			Model:   strings.TrimSpace(model),
+			Used:    used,
+			MaxUses: maxUses,
+			Message: strings.TrimSpace(message),
+		},
+	}
+}

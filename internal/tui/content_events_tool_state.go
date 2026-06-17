@@ -155,6 +155,7 @@ func (b *contentBuffer) Clear() {
 	b.activeDelegations = nil
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
+	b.activeAdvisorSegment = 0
 }
 
 func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {

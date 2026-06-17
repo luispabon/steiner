@@ -41,12 +41,14 @@ type sectionID string
 const (
 	sectionIdentity   sectionID = "identity"
 	sectionDelegation sectionID = "delegation"
+	sectionAdvisor    sectionID = "advisor"
 	sectionCoreRules  sectionID = "core_rules"
 	sectionWorkflow   sectionID = "workflow"
 )
 
 type sectionContext struct {
 	delegationEnabled bool
+	advisorEnabled    bool
 }
 
 type sectionRenderer func(sectionContext) string
@@ -54,6 +56,7 @@ type sectionRenderer func(sectionContext) string
 var defaultSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
+	sectionAdvisor,
 	sectionCoreRules,
 	sectionWorkflow,
 }
@@ -67,6 +70,12 @@ var systemSections = map[sectionID]sectionRenderer{
 			return ""
 		}
 		return delegationInstructions
+	},
+	sectionAdvisor: func(ctx sectionContext) string {
+		if !ctx.advisorEnabled {
+			return ""
+		}
+		return advisorInstructions
 	},
 	sectionCoreRules: func(sectionContext) string {
 		return coreRules
@@ -130,7 +139,11 @@ Examples:
 | Read one file you are about to edit | Work locally. |
 | Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
 
-const coreRules = `Core rules:
+const advisorInstructions = `## Advisor
+
+If you need a stronger-model strategic check, call ` + "`advisor`" + `. Use it sparingly for ambiguity, risk, or a final sanity check. It gives steering only; it does not mutate code, run tools, or replace your judgment.`
+
+const coreRules = `## Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
 - Prefer smallest correct change. Every changed line must trace to task.
@@ -171,9 +184,18 @@ Final response:
 
 // SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	content := buildSystemPreamble(delegationEnabled)
+	return SystemPreambleWithAdvisor(override, delegationEnabled, false, caveHuman, systemSuffix)
+}
+
+// SystemPreambleWithAdvisor builds the system-message preamble with optional advisor guidance.
+func SystemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
+	return systemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, caveHuman, systemSuffix)
+}
+
+func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
+	content := buildSystemPreamble(delegationEnabled, advisorEnabled)
 	if override != "" {
-		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled)
+		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled, advisorEnabled)
 	}
 
 	if caveHuman {
@@ -191,18 +213,22 @@ func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, sys
 	}
 }
 
-func buildOverridePreamble(override string, delegationEnabled bool) string {
+func buildOverridePreamble(override string, delegationEnabled bool, advisorEnabled bool) string {
 	sections := []string{identity}
 	if delegationEnabled {
 		sections = append(sections, strings.TrimSpace(delegationInstructions))
+	}
+	if advisorEnabled {
+		sections = append(sections, strings.TrimSpace(advisorInstructions))
 	}
 	sections = append(sections, override)
 	return strings.Join(sections, "\n\n")
 }
 
-func buildSystemPreamble(delegationEnabled bool) string {
+func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool) string {
 	ctx := sectionContext{
 		delegationEnabled: delegationEnabled,
+		advisorEnabled:    advisorEnabled,
 	}
 
 	sections := make([]string, 0, len(defaultSectionOrder))

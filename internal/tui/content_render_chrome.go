@@ -387,34 +387,12 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 	meta := b.renderDelegationHeaderMeta(dd)
 	metaWidth := lipgloss.Width(meta)
 
-	agentID := strings.TrimSpace(dd.agentID)
-	if agentID == "" {
-		agentID = "pending"
-	}
-
 	disclosure := "▾"
 	if dd.collapsed {
 		disclosure = "▸"
 	}
 
-	label := "delegate"
-	if dd.toolLabel != "" {
-		label = dd.toolLabel
-	}
-	var labelStyle lipgloss.Style
-	if dd.toolLabel != "" {
-		labelStyle = b.delegationToolLabelStyle(dd.toolLabel)
-	} else {
-		labelStyle = b.styles.DelegateTagDefault
-	}
-	left := disclosure + " " + labelStyle.Render(label)
-
-	// Format header differently for follow_up calls
-	if dd.isFollowUp && dd.followUpAgentID != "" {
-		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
-	} else if agentID != "" {
-		left += " " + b.styles.FgDim.Render(agentID)
-	}
+	left := disclosure + " " + b.renderDelegationHeaderIdentity(dd)
 
 	if dd.status == "active" && dd.contextFillPct > 0 {
 		left += " " + b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct))))
@@ -443,6 +421,40 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 		header += strings.Repeat(" ", padding) + meta
 	}
 	return header
+}
+
+func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayState) string {
+	label, labelStyle := b.delegationHeaderLabel(dd)
+	left := labelStyle.Render(label)
+	switch {
+	case dd.isFollowUp && dd.followUpAgentID != "":
+		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
+	case delegationHeaderAgentID(dd) != "":
+		left += " " + b.styles.FgDim.Render(delegationHeaderAgentID(dd))
+	}
+	return left
+}
+
+func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (string, lipgloss.Style) {
+	switch {
+	case dd.isAdvisor:
+		return "advisor", b.delegationToolLabelStyle("advisor")
+	case dd.toolLabel != "":
+		return dd.toolLabel, b.delegationToolLabelStyle(dd.toolLabel)
+	default:
+		return "delegate", b.styles.DelegateTagDefault
+	}
+}
+
+func delegationHeaderAgentID(dd *delegationDisplayState) string {
+	if dd == nil || dd.isAdvisor {
+		return ""
+	}
+	agentID := strings.TrimSpace(dd.agentID)
+	if agentID == "" {
+		return "pending"
+	}
+	return agentID
 }
 
 // delegationStyles returns both the tag and border lipgloss styles for the given
@@ -486,6 +498,8 @@ func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState)
 		styled = b.styles.FgMute.Render(frame)
 	case "complete":
 		styled = b.styles.SuccessStyle.Render("✓")
+	case "budget_exhausted":
+		styled = b.styles.Warn.Render("!")
 	case "failed":
 		styled = b.styles.ErrorStyle.Render("✗")
 	default:
@@ -503,37 +517,60 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 			parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
 		}
 	case "complete":
-		meta := []string{}
-		statusText := strings.TrimSpace(dd.resultStatus)
-		if statusText == "" {
-			statusText = "complete"
-		}
-		meta = append(meta, statusText)
-		if dd.turnCount > 0 {
-			meta = append(meta, pluralTurns(dd.turnCount))
-		}
-		if dd.toolCallCount > 0 {
-			meta = append(meta, pluralToolCalls(dd.toolCallCount))
-		}
-		if dd.tokenCount > 0 {
-			meta = append(meta, fmt.Sprintf("%d tokens", dd.tokenCount))
-		}
-		if dd.elapsed != "" {
-			meta = append(meta, dd.elapsed)
-		}
-		parts = append(parts, b.styles.FgDim.Render(strings.Join(meta, " · ")))
+		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationCompleteMeta(dd), " · ")))
+	case "budget_exhausted":
+		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationBudgetMeta(dd), " · ")))
 	case "failed":
-		label := "failed"
-		if dd.elapsed != "" {
-			label += " · " + dd.elapsed
-		}
-		parts = append(parts, b.styles.FgDim.Render(label))
+		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationFailedMeta(dd), " · ")))
 	}
 	return strings.Join(parts, " ")
 }
 
+func delegationCompleteMeta(dd *delegationDisplayState) []string {
+	status := strings.TrimSpace(dd.resultStatus)
+	if status == "" {
+		status = "complete"
+	}
+	meta := []string{status}
+	if dd.turnCount > 0 {
+		meta = append(meta, pluralTurns(dd.turnCount))
+	}
+	if dd.toolCallCount > 0 {
+		meta = append(meta, pluralToolCalls(dd.toolCallCount))
+	}
+	if dd.tokenCount > 0 {
+		meta = append(meta, fmt.Sprintf("%d tokens", dd.tokenCount))
+	}
+	if dd.elapsed != "" {
+		meta = append(meta, dd.elapsed)
+	}
+	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
+		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
+	}
+	return meta
+}
+
+func delegationBudgetMeta(dd *delegationDisplayState) []string {
+	meta := []string{"budget exhausted"}
+	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
+		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
+	}
+	return meta
+}
+
+func delegationFailedMeta(dd *delegationDisplayState) []string {
+	meta := []string{"failed"}
+	if dd.elapsed != "" {
+		meta = append(meta, dd.elapsed)
+	}
+	return meta
+}
+
 func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplayState, width int) string {
 	operation := strings.TrimSpace(dd.currentOperation)
+	if operation == "" && dd.isAdvisor {
+		operation = "stronger-model steering"
+	}
 	if operation == "" && dd.status == "active" {
 		operation = strings.TrimSpace(dd.taskPreview)
 	}
@@ -699,9 +736,20 @@ func (b *contentBuffer) renderDelegationFooterSeparator(width int) string {
 }
 
 func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) string {
-	parts := make([]string, 0, 5)
+	parts := delegationStatsParts(b, dd)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "    ")
+}
+
+func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string {
+	parts := make([]string, 0, 7)
 	if badge := renderModelBadge(b.styles, dd.modelName); badge != "" {
 		parts = append(parts, badge)
+	}
+	if dd.isAdvisor && dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Use: %d/%d", dd.advisorUse, dd.advisorMaxUses)))
 	}
 	if dd.turnCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Turns: %d", dd.turnCount)))
@@ -712,31 +760,43 @@ func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) str
 	if dd.tokenCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tokens: %d", dd.tokenCount)))
 	}
+	if duration := delegationStatsDuration(dd); duration != "" {
+		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
+	}
+	if status := delegationStatsStatus(dd); status != "" {
+		parts = append(parts, b.renderDelegationStatsStatus(status))
+	}
+	if ctx := delegationStatsContext(dd); ctx != "" {
+		parts = append(parts, b.styles.FgDim.Render(ctx))
+	}
+	return parts
+}
+
+func delegationStatsDuration(dd *delegationDisplayState) string {
 	duration := strings.TrimSpace(dd.elapsed)
 	if duration == "" && dd.status == "active" && dd.startTime > 0 {
 		duration = formatElapsed(dd.startTime, nanoNow())
 	}
-	if duration != "" {
-		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
-	}
+	return duration
+}
+
+func delegationStatsStatus(dd *delegationDisplayState) string {
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
 		status = dd.status
 	}
-	if status != "" {
-		parts = append(parts, b.renderDelegationStatsStatus(status))
-	}
-	if dd.contextFillPct > 0 {
-		ctx := fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct)))
-		if dd.promptTokens > 0 && dd.contextWindow > 0 {
-			ctx += fmt.Sprintf(" (%s / %s)", formatCompactCount(dd.promptTokens), formatCompactCount(dd.contextWindow))
-		}
-		parts = append(parts, b.styles.FgDim.Render(ctx))
-	}
-	if len(parts) == 0 {
+	return status
+}
+
+func delegationStatsContext(dd *delegationDisplayState) string {
+	if dd.contextFillPct <= 0 {
 		return ""
 	}
-	return strings.Join(parts, "    ")
+	ctx := fmt.Sprintf("Ctx: %d%%", int(math.Round(dd.contextFillPct)))
+	if dd.promptTokens > 0 && dd.contextWindow > 0 {
+		ctx += fmt.Sprintf(" (%s / %s)", formatCompactCount(dd.promptTokens), formatCompactCount(dd.contextWindow))
+	}
+	return ctx
 }
 
 func (b *contentBuffer) renderDelegationStatsStatus(status string) string {
@@ -744,6 +804,8 @@ func (b *contentBuffer) renderDelegationStatsStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "complete":
 		return label + b.styles.SuccessStyle.Render(status)
+	case "budget exhausted":
+		return label + b.styles.Warn.Render(status)
 	case "failed", "error":
 		return label + b.styles.ErrorStyle.Render(status)
 	default:
