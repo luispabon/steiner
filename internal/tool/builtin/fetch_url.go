@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -57,6 +58,60 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 			NormalizeFetchURL(&in)
 
 			httpClient := toolkit.SafeHTTPClient(15 * time.Second)
+
+			// Peek at Content-Type via HEAD to decide how to handle the response.
+			contentType := ""
+			headReq, headErr := http.NewRequestWithContext(ctx, http.MethodHead, in.URL, nil)
+			if headErr == nil {
+				headResp, doErr := httpClient.Do(headReq)
+				if doErr == nil {
+					contentType = headResp.Header.Get("Content-Type")
+					headResp.Body.Close()
+				}
+				// On HEAD failure, fall through to wonton/fetch.
+			}
+
+			// Decide how to handle based on Content-Type.
+			switch {
+			case isImageContentType(contentType):
+				imgBlock, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
+				if imgErr != nil {
+					return &FetchURLError{
+						URL:   in.URL,
+						Error: imgErr.Error(),
+					}, nil
+				}
+				return &FetchURLResult{
+					URL:        in.URL,
+					StatusCode: statusCode,
+					Image:      imgBlock,
+				}, nil
+
+			case contentType == "" || cleanContentType(contentType) == "application/octet-stream":
+				// Extension fallback: treat as image if URL suggests an image.
+				if hasImageExtension(in.URL) {
+					imgBlock, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
+					if imgErr != nil {
+						return &FetchURLError{
+							URL:   in.URL,
+							Error: imgErr.Error(),
+						}, nil
+					}
+					return &FetchURLResult{
+						URL:        in.URL,
+						StatusCode: statusCode,
+						Image:      imgBlock,
+					}, nil
+				}
+				// No image extension — fall through to wonton/fetch.
+
+			case !isTextLikeContentType(contentType):
+				return &FetchURLError{
+					URL:   in.URL,
+					Error: fmt.Sprintf("unsupported content type: %s", cleanContentType(contentType)),
+				}, nil
+			}
+
 			fetcher := fetch.NewHTTPFetcher(fetch.HTTPFetcherOptions{
 				Client:  httpClient,
 				Timeout: 15 * time.Second,
@@ -96,6 +151,7 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 				Description:   resp.Metadata.Description,
 				Content:       content,
 				ContentLength: len(runes),
+				StatusCode:    resp.StatusCode,
 			}, nil
 		},
 	}
