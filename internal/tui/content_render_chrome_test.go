@@ -234,3 +234,29 @@ func TestRenderDelegationHeaderAdvisor(t *testing.T) {
 		t.Fatalf("header = %q, want budget status", header)
 	}
 }
+
+func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
+	b := newTestBuffer(t)
+	b.appendLabeledBlock("Compaction", "summary text")
+
+	out := b.String(80)
+
+	// The closing delimiter should be preceded by a blank line.
+	lines := strings.Split(out, "\n")
+	var bodyIndex int
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "summary text" {
+			bodyIndex = i
+			break
+		}
+	}
+	if bodyIndex == 0 {
+		t.Fatalf("body line not found in output:\n%s", out)
+	}
+	if bodyIndex+1 >= len(lines) || strings.TrimSpace(lines[bodyIndex+1]) != "" {
+		t.Errorf("expected blank line immediately after body, got %q:\n%s", lines[bodyIndex+1], out)
+	}
+	if bodyIndex+2 >= len(lines) || !strings.Contains(lines[bodyIndex+2], "End of Compaction") {
+		t.Errorf("expected closing delimiter after blank line:\n%s", out)
+	}
+}

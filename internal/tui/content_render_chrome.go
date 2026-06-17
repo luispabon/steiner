@@ -147,7 +147,11 @@ func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int
 	if sd.closing {
 		label = "End of " + label
 	}
-	return b.renderCenteredDashes(label, width) + "\n"
+	line := b.renderCenteredDashes(label, width)
+	if sd.closing {
+		return "\n" + line + "\n"
+	}
+	return line + "\n"
 }
 
 // compactionBoxRows builds the inner lines of the compaction box.
