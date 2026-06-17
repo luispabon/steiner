@@ -47,18 +47,21 @@ func newUpdateCommand() *cobra.Command {
 
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
 
-			// 3. Start spinner. Always deferred-stop to prevent goroutine leaks.
+			// 3. Print current version before the download spinner.
+			printVersionLine(cmd.OutOrStdout(), "current", version)
+
+			// 4. Start spinner. Always deferred-stop to prevent goroutine leaks.
 			sp := NewSpinner(cmd.OutOrStdout(), "Downloading…")
 			sp.Start()
 			defer sp.Stop(false, "aborted")
 
-			// 4. Call updateFunc (fetch + download + verify + replace).
+			// 5. Call updateFunc (fetch + download + verify + replace).
 			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token, channel)
 
-			// 5. Handle results.
+			// 6. Handle results.
 			if errors.Is(err, update.ErrUpToDate) {
 				sp.Stop(true, "already up to date")
-				printVersionBlock(cmd.OutOrStdout(), version, latestVer)
+				printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
 				return nil
 			}
 			if err != nil {
@@ -66,7 +69,7 @@ func newUpdateCommand() *cobra.Command {
 				return err
 			}
 			sp.Stop(true, "updated to "+latestVer)
-			printVersionBlock(cmd.OutOrStdout(), version, latestVer)
+			printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
 			return nil
 		},
 	}

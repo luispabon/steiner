@@ -9,6 +9,24 @@ import (
 	"github.com/luispabon/steiner/internal/update"
 )
 
+// assertOrder checks that before appears before after in s.
+func assertOrder(t *testing.T, s, before, after string) {
+	t.Helper()
+	i := strings.Index(s, before)
+	j := strings.Index(s, after)
+	if i == -1 {
+		t.Errorf("output missing %q", before)
+		return
+	}
+	if j == -1 {
+		t.Errorf("output missing %q", after)
+		return
+	}
+	if i >= j {
+		t.Errorf("expected %q before %q in output:\n%s", before, after, s)
+	}
+}
+
 func TestUpdateCommand_DevBuild(t *testing.T) {
 	oldVersion := version
 	version = "dev"
@@ -90,6 +108,8 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 	if !strings.Contains(got, "updated to dev") {
 		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -126,6 +146,8 @@ func TestUpdateCommand_RootDevFlag(t *testing.T) {
 	if !strings.Contains(got, "updated to dev") {
 		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -176,6 +198,8 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 	if !strings.Contains(got, "updated to v0.2.0") {
 		t.Errorf("stdout = %q, want substring %q", got, "updated to v0.2.0")
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -212,6 +236,8 @@ func TestUpdateCommand_UpToDate(t *testing.T) {
 	if !strings.Contains(got, "latest") {
 		t.Errorf("stdout = %q, want version block label 'latest'", got)
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "already up to date", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -251,6 +277,8 @@ func TestUpdateCommand_Success(t *testing.T) {
 	if !strings.Contains(got, "latest") {
 		t.Errorf("stdout = %q, want version block label 'latest'", got)
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "updated to", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -295,6 +323,8 @@ func TestUpdateCommand_NoTTY(t *testing.T) {
 	if !strings.Contains(got, "v0.2.0") {
 		t.Errorf("stdout = %q, want version v0.2.0", got)
 	}
+	assertOrder(t, got, "current", "Downloading…")
+	assertOrder(t, got, "✔", "latest")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
