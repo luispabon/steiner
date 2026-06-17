@@ -66,6 +66,26 @@ func extractImage(result any) *ImageBlock {
 				SizeBytes: v.Image.SizeBytes,
 			}
 		}
+	case *builtin.FetchURLResult:
+		if v != nil && v.Image != nil {
+			return &ImageBlock{
+				MediaType: v.Image.MediaType,
+				Data:      v.Image.Data,
+				Width:     v.Image.Width,
+				Height:    v.Image.Height,
+				SizeBytes: v.Image.SizeBytes,
+			}
+		}
+	case builtin.FetchURLResult:
+		if v.Image != nil {
+			return &ImageBlock{
+				MediaType: v.Image.MediaType,
+				Data:      v.Image.Data,
+				Width:     v.Image.Width,
+				Height:    v.Image.Height,
+				SizeBytes: v.Image.SizeBytes,
+			}
+		}
 	}
 	return nil
 }
@@ -97,6 +117,17 @@ func toolResultContentWithoutImage(result any) string {
 		cloned.Image = nil
 		return toolResultContent(cloned)
 	case builtin.ReadResult:
+		cloned := v
+		cloned.Image = nil
+		return toolResultContent(cloned)
+	case *builtin.FetchURLResult:
+		if v == nil {
+			return ""
+		}
+		cloned := *v
+		cloned.Image = nil
+		return toolResultContent(cloned)
+	case builtin.FetchURLResult:
 		cloned := v
 		cloned.Image = nil
 		return toolResultContent(cloned)
