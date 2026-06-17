@@ -28,7 +28,9 @@ Follow this sequence:
 7. Overview checkpoint
    ▸ GATE — user approval required before proceeding
 8. Implementation-step planning
-9. Handoff
+9. Advisor sanity check
+   ▸ STOP — planner continues only after advisor returns
+10. Handoff
    ▸ STOP — planner ceases all activity after delivering handoff and workflow_handoff
 
 Do not write planning artifacts before the research decision is resolved.
@@ -249,8 +251,14 @@ Use Steiner's specialised model-facing tools by name:
 
 Every Steiner delegated task must be self-contained and include relevant context already known by the main agent. Do not make delegated agents rediscover context unnecessarily.
 
-If an advisor tool is available, use it as a brief steering check before freezing an
-approach on architectural or tradeoff-heavy work.
+### Advisor Sanity Check
+
+After `plan.yaml` is written, call the advisor as a sanity check before
+delivering the handoff sentence. Skip only if the run’s advisor budget is
+exhausted or `AdvisorEnabled` is off.
+
+Capture the advisor’s note in `overview.md` under a `## Advisor Sanity Check`
+subsection. If the note is short, record it in the Decision Log instead.
 
 ## Handoff
 
