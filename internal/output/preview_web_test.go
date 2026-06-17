@@ -23,7 +23,12 @@ func TestBuildFetchURLPreview(t *testing.T) {
 		{
 			name:   "error payload",
 			result: `{"url":"https://example.com","content":"","error":"404 not found"}`,
-			want:   plainToolPreview(),
+			want: ToolPreview{
+				Kind:     ToolPreviewKindFetchURL,
+				Path:     "https://example.com",
+				Language: "error",
+				Contents: "404 not found",
+			},
 		},
 		{
 			name:   "empty content",

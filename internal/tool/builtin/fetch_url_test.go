@@ -207,6 +207,195 @@ func TestFetchURLTool(t *testing.T) {
 	})
 }
 
+func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
+	// The handler uses toolkit.SafeHTTPClient internally which blocks 127.0.0.1.
+	// Handler-level integration testing with httptest.Server is not possible
+	// without refactoring the handler to accept an injectable *http.Client.
+	// The individual helpers (fetchImageBytes, isImageContentType, etc.) are
+	// tested in TestFetchImageBytes and TestContentTypeHelpers.
+	// This test validates the routing helpers directly, with emphasis on
+	// case-insensitive Content-Type matching (F5 fix).
+
+	t.Run("cleanContentType normalizes case and strips params", func(t *testing.T) {
+		tests := []struct {
+			input string
+			want  string
+		}{
+			{"image/png", "image/png"},
+			{"IMAGE/PNG", "image/png"},
+			{"Image/Png", "image/png"},
+			{"text/html; charset=utf-8", "text/html"},
+			{"TEXT/HTML; CHARSET=UTF-8", "text/html"},
+			{" application/octet-stream ", "application/octet-stream"},
+			{"", ""},
+		}
+		for _, tt := range tests {
+			got := cleanContentType(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanContentType(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		}
+	})
+
+	t.Run("isImageContentType case-insensitive", func(t *testing.T) {
+		tests := []struct {
+			ct   string
+			want bool
+		}{
+			{"Image/Png", true},
+			{"IMAGE/JPEG", true},
+			{"image/GIF", true},
+			{"IMAGE/WEBP", true},
+			{"image/SVG+XML", true},
+			{"Text/Html", false},
+			{"Application/Pdf", false},
+		}
+		for _, tt := range tests {
+			got := isImageContentType(tt.ct)
+			if got != tt.want {
+				t.Errorf("isImageContentType(%q) = %v, want %v", tt.ct, got, tt.want)
+			}
+		}
+	})
+
+	t.Run("isTextLikeContentType case-insensitive", func(t *testing.T) {
+		tests := []struct {
+			ct   string
+			want bool
+		}{
+			{"Text/Html", true},
+			{"TEXT/PLAIN", true},
+			{"text/Markdown", true},
+			{"APPLICATION/JSON", true},
+			{"Application/Xhtml+Xml", true},
+			{"Application/Pdf", false},
+			{"Image/Png", false},
+		}
+		for _, tt := range tests {
+			got := isTextLikeContentType(tt.ct)
+			if got != tt.want {
+				t.Errorf("isTextLikeContentType(%q) = %v, want %v", tt.ct, got, tt.want)
+			}
+		}
+	})
+
+	t.Run("routing decision logic matches handler switch", func(t *testing.T) {
+		// Replicate the handler's switch/case decision logic to verify
+		// the routing conditions are correct.
+		tests := []struct {
+			name        string
+			contentType string
+			url         string
+			wantImage   bool // would handler take image path?
+			wantText    bool // would handler take wonton/fetch text path?
+			wantError   bool // would handler return unsupported error?
+		}{
+			{
+				name:        "image/png",
+				contentType: "image/png",
+				url:         "http://example.com/f.png",
+				wantImage:   true,
+				wantText:    false,
+				wantError:   false,
+			},
+			{
+				name:        "Image/PNG (mixed case)",
+				contentType: "Image/PNG",
+				url:         "http://example.com/f.png",
+				wantImage:   true,
+				wantText:    false,
+				wantError:   false,
+			},
+			{
+				name:        "empty content-type, .png url",
+				contentType: "",
+				url:         "http://example.com/photo.png",
+				wantImage:   true,
+				wantText:    false,
+				wantError:   false,
+			},
+			{
+				name:        "empty content-type, .html url",
+				contentType: "",
+				url:         "http://example.com/page.html",
+				wantImage:   false,
+				wantText:    true,
+				wantError:   false,
+			},
+			{
+				name:        "octet-stream, .jpg url",
+				contentType: "application/octet-stream",
+				url:         "http://example.com/photo.jpg",
+				wantImage:   true,
+				wantText:    false,
+				wantError:   false,
+			},
+			{
+				name:        "APPLICATION/OCTET-STREAM (mixed case), .jpg url",
+				contentType: "APPLICATION/OCTET-STREAM",
+				url:         "http://example.com/photo.jpg",
+				wantImage:   true,
+				wantText:    false,
+				wantError:   false,
+			},
+			{
+				name:        "application/pdf returns error",
+				contentType: "application/pdf",
+				url:         "http://example.com/doc.pdf",
+				wantImage:   false,
+				wantText:    false,
+				wantError:   true,
+			},
+			{
+				name:        "APPLICATION/PDF (mixed case) returns error",
+				contentType: "APPLICATION/PDF",
+				url:         "http://example.com/doc.pdf",
+				wantImage:   false,
+				wantText:    false,
+				wantError:   true,
+			},
+			{
+				name:        "text/html goes to wonton",
+				contentType: "text/html",
+				url:         "http://example.com/page.html",
+				wantImage:   false,
+				wantText:    true,
+				wantError:   false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ct := cleanContentType(tt.contentType)
+
+				gotImage := isImageContentType(tt.contentType)
+				extFallback := false
+				if !gotImage && (ct == "" || ct == "application/octet-stream") {
+					extFallback = hasImageExtension(tt.url)
+				}
+
+				takesImagePath := gotImage || extFallback
+				if takesImagePath && !tt.wantImage {
+					t.Errorf("takes image path = true, want false (isImage=%v, extFallback=%v)", gotImage, extFallback)
+				}
+				if !takesImagePath && tt.wantImage {
+					t.Errorf("takes image path = false, want true (isImage=%v, extFallback=%v)", gotImage, extFallback)
+				}
+
+				takesTextPath := !gotImage && !extFallback && isTextLikeContentType(tt.contentType)
+				if takesTextPath != tt.wantText {
+					t.Errorf("takes text path = %v, want %v", takesTextPath, tt.wantText)
+				}
+
+				takesErrorPath := !gotImage && !extFallback && !isTextLikeContentType(tt.contentType)
+				if takesErrorPath != tt.wantError {
+					t.Errorf("takes error path = %v, want %v", takesErrorPath, tt.wantError)
+				}
+			})
+		}
+	})
+}
+
 // newTestPNG returns a PNG-encoded 2x2 test image as bytes and the expected dimensions.
 func newTestPNG() ([]byte, int, int) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))

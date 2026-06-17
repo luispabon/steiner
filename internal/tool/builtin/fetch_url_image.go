@@ -101,7 +101,7 @@ func cleanContentType(contentType string) string {
 	if idx := strings.Index(contentType, ";"); idx >= 0 {
 		contentType = strings.TrimSpace(contentType[:idx])
 	}
-	return strings.TrimSpace(contentType)
+	return strings.ToLower(strings.TrimSpace(contentType))
 }
 
 // isImageContentType reports whether contentType indicates an image.

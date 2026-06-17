@@ -14,7 +14,12 @@ func buildFetchURLPreview(result string) ToolPreview {
 		return plainToolPreview()
 	}
 	if errPayload.Error != "" {
-		return plainToolPreview()
+		return ToolPreview{
+			Kind:     ToolPreviewKindFetchURL,
+			Path:     errPayload.URL,
+			Language: "error",
+			Contents: errPayload.Error,
+		}
 	}
 
 	// Parse full success result.

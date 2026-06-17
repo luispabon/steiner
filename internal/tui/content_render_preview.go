@@ -259,11 +259,14 @@ func (b *contentBuffer) buildFetchURLLines(tc *toolCallSegment, width int) []str
 	lines = append(lines, rule)
 
 	// Body
-	if tc.preview.Language == "image" {
+	switch tc.preview.Language {
+	case "error":
+		lines = append(lines, b.styles.FgDim.Render(fmt.Sprintf("%s · error · %s", tc.preview.Path, tc.preview.Contents)))
+	case "image":
 		// Image placeholder
 		lines = append(lines, b.styles.FgDim.Render(tc.preview.Contents))
 		lines = append(lines, b.styles.FgMute.Render("image returned to model"))
-	} else {
+	default:
 		// Markdown body via existing preview document formatting.
 		doc := b.previewDocument(tc)
 		if doc.Kind != "" {

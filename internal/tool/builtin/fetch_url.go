@@ -35,7 +35,7 @@ type FetchURLError struct {
 func NewFetchURLTool(_ Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
-		Description:     "Fetch a URL and return its content. Web pages are converted to markdown. Image URLs (png, jpeg, gif, webp) are returned as image data for vision-capable providers.",
+		Description:     "Fetch a URL and return its content as markdown, or as image data (png, jpeg, gif, webp) for vision-capable providers.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)
