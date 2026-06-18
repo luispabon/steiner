@@ -97,6 +97,34 @@ setting is the user's explicit, durable authorization for the push/PR.
   proceed safely, the run **stops cleanly** and reports the phase reached and the
   state left behind.
 
+### Sandbox, git worktree, and signals
+
+Three execution constraints surfaced in advisor review that the implementation
+must honour:
+
+- **Sandbox writable-root vs agent workDir are decoupled.** A git worktree's
+  `.git` is a pointer to `<mainrepo>/.git/worktrees/<id>` and objects live in the
+  shared `<mainrepo>/.git/objects`, both *outside* the worktree subtree. If the
+  sandbox made only the worktree writable, `git commit`/`git status` would fail
+  read-only — breaking the model-driven commit mechanism. Therefore the **sandbox
+  writable-root stays the project root** (which contains both the worktree subdir
+  and the parent `.git`), while the **agent's operational workDir = the worktree**
+  (prompt paths, path policy, tool cwd). These are two separate concepts; the
+  step-1 refactor must split them rather than equate "re-pointed runtime" with
+  "sandbox workspace = worktree."
+- **`.steiner` presence in a fresh worktree.** A worktree checked out from
+  `origin/main` does not contain the runtime-created, git-ignored `.steiner/`
+  scaffolding. The orchestrator runs the equivalent of `ensureSteinerProjectDir`
+  against the worktree immediately after `git worktree add`, writes planning
+  artifacts under the worktree's `.steiner/plans/...` (so they are ignored and
+  consistent with the existing handoff path convention), and the "tree clean"
+  boundary check ignores `.steiner/`.
+- **Single signal owner.** The orchestrator owns one interrupt context for the
+  whole run; phase runs receive a child context and must not install their own
+  signal handlers. SIGINT means: abort the current phase, persist the manifest,
+  release the lock, and leave the worktree in place — never a half-released,
+  stale-locked state.
+
 ### Steering during autonomous runs
 
 Steering (`SteerCh` — between-turn user messages, non-blocking) **remains
@@ -135,6 +163,11 @@ its phase runs. Phase prose mandates advisor use at key moments and treats it as
   unresolved verification failure. (budget 3)
 - **review**: interleaved fix + advisor loop until checks are green AND the
   advisor has no remaining concerns, or bound. (round cap 3, budget 4)
+
+These round caps and per-phase advisor budgets live as **named constants in
+`internal/oneshot`** (not config) for this iteration. The orchestrator threads a
+per-phase `AdvisorConfig` override (`Enabled: true`, per-phase budget) into
+registry construction **without mutating the global config**.
 
 ### Model configuration
 
@@ -213,8 +246,11 @@ emitted as the final message.
 - **In-process vs subprocess phases.** Subprocess-per-phase (`steiner --exec` in
   the worktree) would give trivial context isolation and a simple workDir story,
   but heavier IPC and harder live streaming/aggregation in the TUI. We chose
-  in-process; cost is making workDir/runtime construction parameterizable per run
-  (the core refactor).
+  in-process; the real cost is larger than "parameterize workDir": it requires
+  decoupling the sandbox writable-root from the agent workDir (see Sandbox, git
+  worktree, and signals), exposing a PhaseRunner factory that rebinds
+  registry/executor/sandbox/prompt/advisor per phase, and single-owner signal
+  handling. This is the load-bearing, regression-prone part of the build.
 - **Orchestrator-gated commits vs model-driven commits.** A Go `commit` tool gated
   on verification would make git fully deterministic, but the user wants commit
   timing to be a model judgment expressed in prose. We keep git mechanics owned by
@@ -326,3 +362,9 @@ mandated final gate.
 - 2026-06-18 — Auto-PR: config-gated `oneshot.auto_pr` (default false); enabling
   is durable authorization. (user)
 - 2026-06-18 — Research: not needed (repo-local Go, stable git semantics). (planner, accepted)
+- 2026-06-18 — Advisor (architect) sanity check run on overview + plan; verdict
+  has-gaps. Folded in: sandbox-root/workDir decoupling, single signal owner,
+  atomic lock + worktree-prune races, `.steiner` scaffolding in fresh worktree +
+  tree-clean ignore, advisor force-enable threading + budget constants, engine→TUI
+  event contract, group-carrying RotateSession, auto-PR push credentials. Step-1
+  split into 1a/1b. (planner)
