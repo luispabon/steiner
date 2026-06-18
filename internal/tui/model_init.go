@@ -71,7 +71,7 @@ func newModelInput() textarea.Model {
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
 	input.SetHeight(1)
-	input.MaxHeight = 10
+	input.MaxHeight = 30
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
 	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"))
 	input.Focus()
