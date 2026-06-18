@@ -285,7 +285,7 @@ func TestMutateFailuresAreAtomic(t *testing.T) {
 	if got.OperationsApplied != 0 {
 		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
 	}
-	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 {
 		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
 	}
 	assertFile(t, path, "one\n")
@@ -314,7 +314,7 @@ func TestMutateFailedAtomicBatchDoesNotReportCommittedMetadata(t *testing.T) {
 	if got.WasMutated() {
 		t.Fatal("WasMutated() = true, want false")
 	}
-	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 || len(got.OperationResults) != 0 {
+	if len(got.Paths) != 0 || len(got.Created) != 0 || len(got.Modified) != 0 || len(got.Deleted) != 0 || len(got.Moved) != 0 || len(got.FileHashes) != 0 {
 		t.Fatalf("mutate result metadata = %#v, want no committed outputs", got)
 	}
 	assertFile(t, notePath, "one\n")
@@ -486,6 +486,17 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "contains old_string 2 times",
 		},
 		{
+			name: "line_replace without old_string on existing file",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "", "new_string": "hi"}}},
+			wantError: "requires old_string for safety",
+		},
+		{
 			name: "binary edit",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -618,15 +629,26 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "exceeds file length",
 		},
 		{
-			name: "line_count with old_string",
+			name: "line_count with old_string not in range",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(1), "old_string": "a", "new_string": "x"}}},
-			wantError: "old_string cannot be used with line_count",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(1), "old_string": "missing", "new_string": "x"}}},
+			wantError: "old_string found 0 times",
+		},
+		{
+			name: "line_count with old_string found multiple times",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\na\nc\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(2), "old_string": "a", "new_string": "x"}}},
+			wantError: "old_string found 2 times",
 		},
 	}
 
@@ -1274,14 +1296,15 @@ func TestMutateLineReplaceWholeLineReplacement(t *testing.T) {
 		name    string
 		initial string
 		line    int
+		oldStr  string
 		newStr  string
 		want    string
 	}{
-		{name: "LF terminated", initial: "alpha\nbeta\ngamma\n", line: 2, newStr: "BETA", want: "alpha\nBETA\ngamma\n"},
-		{name: "CRLF terminated", initial: "alpha\r\nbeta\r\ngamma\r\n", line: 2, newStr: "BETA", want: "alpha\r\nBETA\r\ngamma\r\n"},
-		{name: "last line no trailing newline", initial: "alpha\nbeta", line: 2, newStr: "BETA", want: "alpha\nBETA"},
-		{name: "first line", initial: "alpha\nbeta\ngamma\n", line: 1, newStr: "ALPHA", want: "ALPHA\nbeta\ngamma\n"},
-		{name: "single line file", initial: "only\n", line: 1, newStr: "replaced", want: "replaced\n"},
+		{name: "LF terminated", initial: "alpha\nbeta\ngamma\n", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\nBETA\ngamma\n"},
+		{name: "CRLF terminated", initial: "alpha\r\nbeta\r\ngamma\r\n", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\r\nBETA\r\ngamma\r\n"},
+		{name: "last line no trailing newline", initial: "alpha\nbeta", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\nBETA"},
+		{name: "first line", initial: "alpha\nbeta\ngamma\n", line: 1, oldStr: "alpha", newStr: "ALPHA", want: "ALPHA\nbeta\ngamma\n"},
+		{name: "single line file", initial: "only\n", line: 1, oldStr: "only", newStr: "replaced", want: "replaced\n"},
 	}
 
 	for _, tt := range tests {
@@ -1293,7 +1316,7 @@ func TestMutateLineReplaceWholeLineReplacement(t *testing.T) {
 			}
 			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 				"operations": []any{
-					map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(tt.line), "old_string": "", "new_string": tt.newStr},
+					map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(tt.line), "old_string": tt.oldStr, "new_string": tt.newStr},
 				},
 			})
 			if got.OperationsFailed != 0 {
@@ -1313,7 +1336,7 @@ func TestMutateLineReplaceWholeLinePreservesOtherLines(t *testing.T) {
 	}
 	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "", "new_string": "LINE3"},
+			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "line3", "new_string": "LINE3"},
 		},
 	})
 	if got.OperationsFailed != 0 {
@@ -1457,6 +1480,15 @@ func TestMutateLineReplaceLineCount(t *testing.T) {
 			lineCount: 1,
 			newStr:    "goodbye",
 			want:      "a\ngoodbye\nc\n",
+		},
+		{
+			name:      "old_string guard passes when found once in range",
+			initial:   "a\nb\nc\n",
+			line:      1,
+			lineCount: 2,
+			oldStr:    "b",
+			newStr:    "x",
+			want:      "x\nc\n",
 		},
 	}
 

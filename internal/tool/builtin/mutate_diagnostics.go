@@ -17,7 +17,9 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText string) stri
 		if matchedText, mln, ok := extractNormalizedMatch(content, oldText); ok {
 			matchLineNum = mln
 			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
-			lines = append(lines, fmt.Sprintf("  %q", matchedText))
+			for _, l := range strings.Split(matchedText, "\n") {
+				lines = append(lines, "  | "+l)
+			}
 		}
 	}
 
