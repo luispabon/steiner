@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFormatDuration(t *testing.T) {
 	cases := []struct {
@@ -38,6 +41,57 @@ func TestFormatTPS(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("formatTPS(%f) = %q, want %q", tc.tps, got, tc.want)
 		}
+	}
+}
+
+func TestModelSectionProviderLabel(t *testing.T) {
+	cases := []struct {
+		name         string
+		provider     string
+		providerName string
+		wantLabel    string
+		wantValue    string
+	}{
+		{
+			name:         "uses providerName when set",
+			provider:     "https://api.anthropic.com",
+			providerName: "anthropic",
+			wantLabel:    "provider",
+			wantValue:    "anthropic",
+		},
+		{
+			name:         "falls back to stripProviderURL when providerName empty",
+			provider:     "https://api.openai.com",
+			providerName: "",
+			wantLabel:    "provider",
+			wantValue:    "api.openai.com",
+		},
+		{
+			name:         "shows n/a when both empty",
+			provider:     "",
+			providerName: "",
+			wantLabel:    "provider",
+			wantValue:    "n/a",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := sidebarState{
+				provider:     tc.provider,
+				providerName: tc.providerName,
+			}
+			lines := s.modelSection(32)
+			joined := strings.Join(lines, "\n")
+			if !strings.Contains(joined, tc.wantLabel) {
+				t.Errorf("modelSection() missing label %q in %q", tc.wantLabel, joined)
+			}
+			if !strings.Contains(joined, tc.wantValue) {
+				t.Errorf("modelSection() missing value %q in %q", tc.wantValue, joined)
+			}
+			if strings.Contains(joined, "host") {
+				t.Errorf("modelSection() must not contain old label %q, got %q", "host", joined)
+			}
+		})
 	}
 }
 

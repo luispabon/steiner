@@ -35,28 +35,29 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:          external,
-		autoScroll:        true,
-		skillNames:        append([]string(nil), cfg.SkillNames...),
-		skillDescriptions: cloneStringMap(cfg.SkillDescriptions),
-		enabledSkills:     enabledSkills,
-		modelNames:        append([]string(nil), cfg.ModelNames...),
-		modelContexts:     cloneModelContexts(cfg.ModelContexts),
-		modelBaseURLs:     cloneModelBaseURLs(cfg.ModelBaseURLs),
-		controller:        cfg.Controller,
-		activeTheme:       resolveTheme(cfg.Theme),
-		styles:            theme.BuildStyles(accentHex),
-		inputHistory:      []string{},
-		historyIdx:        0,
-		historyDraft:      "",
-		fileHistory:       []string{},
-		fileHistoryIdx:    -1,
-		showThinking:      cfg.ShowThinking,
-		accentPreset:      cfg.AccentPreset,
-		sidebarPosition:   cfg.SidebarPosition,
-		mousePressX:       -1,
-		mousePressY:       -1,
-		screenLines:       new([]string),
+		external:           external,
+		autoScroll:         true,
+		skillNames:         append([]string(nil), cfg.SkillNames...),
+		skillDescriptions:  cloneStringMap(cfg.SkillDescriptions),
+		enabledSkills:      enabledSkills,
+		modelNames:         append([]string(nil), cfg.ModelNames...),
+		modelContexts:      cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:      cloneModelBaseURLs(cfg.ModelBaseURLs),
+		modelProviderNames: cloneModelProviderNames(cfg.ModelProviderNames),
+		controller:         cfg.Controller,
+		activeTheme:        resolveTheme(cfg.Theme),
+		styles:             theme.BuildStyles(accentHex),
+		inputHistory:       []string{},
+		historyIdx:         0,
+		historyDraft:       "",
+		fileHistory:        []string{},
+		fileHistoryIdx:     -1,
+		showThinking:       cfg.ShowThinking,
+		accentPreset:       cfg.AccentPreset,
+		sidebarPosition:    cfg.SidebarPosition,
+		mousePressX:        -1,
+		mousePressY:        -1,
+		screenLines:        new([]string),
 	}
 
 	m.configureModelState(cfg, accentHex)
@@ -99,6 +100,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
+	m.sidebar.providerName = strings.TrimSpace(cfg.ProviderName)
 	m.sidebar.maxTurns = cfg.MaxTurns
 	m.sidebar.homeDir = strings.TrimSpace(cfg.HomeDir)
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)

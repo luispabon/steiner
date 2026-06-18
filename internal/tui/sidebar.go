@@ -23,6 +23,7 @@ type sidebarState struct {
 	version        string
 	quant          string
 	provider       string
+	providerName   string
 	homeDir        string
 	promptUsed     int
 	budgetUsed     int

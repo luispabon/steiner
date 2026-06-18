@@ -44,3 +44,16 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 	}
 	return urls
 }
+
+func modelProviderNames(cfg config.Config) map[string]string {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	names := make(map[string]string, len(cfg.Models))
+	for name, model := range cfg.Models {
+		if _, ok := cfg.Providers[model.Provider]; ok {
+			names[name] = model.Provider
+		}
+	}
+	return names
+}
