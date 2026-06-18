@@ -87,6 +87,20 @@ func (s *Session) EventSink() output.EventSink {
 	return s.events
 }
 
+// ProjectRoot returns the session's project root directory.
+func (s *Session) ProjectRoot() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.WorkDir
+}
+
+// Config returns a copy of the session's configuration.
+func (s *Session) Config() config.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Config
+}
+
 // DisplaySink returns the session's ForwardSink, which forwards events to
 // whatever target is set via Set. The display_file tool uses this to emit
 // display events before the TUI sink is wired in.

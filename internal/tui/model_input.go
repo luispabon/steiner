@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 //nolint:gocyclo // command parsing branches intentionally stay explicit
@@ -60,6 +62,12 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if action.invokeSkill != "" {
 		return m.executeInvokeSkillAction(action.invokeSkill, action.invokeSkillArgs)
+	}
+	if action.launchOneshotTask != "" {
+		return m.executeLaunchOneshotAction(action.launchOneshotTask)
+	}
+	if action.resumeOneshotID != "" {
+		return m.executeResumeOneshotAction(action.resumeOneshotID)
 	}
 	if action.submit != "" {
 		return m.executeSubmitAction(value, action.submit, value)
@@ -418,4 +426,162 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 	}
 
 	return items
+}
+
+func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
+	if m.oneshotRunnerFactory == nil {
+		m.content.AppendLine("status: oneshot runner factory not configured")
+		m.syncViewport()
+		return m, nil
+	}
+
+	if m.controller == nil {
+		m.content.AppendLine("status: controller not available")
+		m.syncViewport()
+		return m, nil
+	}
+
+	// Create run identity
+	runIdentity, err := oneshot.NewRunIdentity(strings.TrimSpace(task))
+	if err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: launch oneshot failed: %v", err))
+		m.syncViewport()
+		return m, nil
+	}
+
+	// Create steer channel
+	m.oneshotSteerCh = make(chan string, 4)
+
+	sessionStore := m.sessionStore
+
+	// Spawn orchestrator goroutine
+	go func() {
+		// Type assertion is safe here; we know from wiring in cmd/steiner that
+		// the controller is always a *Session
+		sess := m.controller.(*interactive.Session)
+
+		// Cast sessionStore to oneshot.SessionStore interface
+		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+		if !ok {
+			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
+			return
+		}
+
+		deps := oneshot.Dependencies{
+			ProjectRoot:   sess.ProjectRoot(),
+			Identity:      runIdentity,
+			Task:          strings.TrimSpace(task),
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory,
+			Events:        sess.EventSink(),
+			SteerCh:       m.oneshotSteerCh,
+		}
+
+		orchestrator, err := oneshot.NewOrchestrator(deps)
+		if err != nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot failed: %v", err)))
+			return
+		}
+
+		_, err = orchestrator.Run(context.Background())
+		if err != nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run failed: %v", err)))
+		}
+
+		// Close steer channel when done
+		close(m.oneshotSteerCh)
+	}()
+
+	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
+	m.syncViewport()
+	return m, nil
+}
+
+func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
+	if m.oneshotRunnerFactory == nil {
+		m.content.AppendLine("status: oneshot runner factory not configured")
+		m.syncViewport()
+		return m, nil
+	}
+
+	if m.controller == nil {
+		m.content.AppendLine("status: controller not available")
+		m.syncViewport()
+		return m, nil
+	}
+
+	sessionStore := m.sessionStore
+
+	// Create steer channel
+	m.oneshotSteerCh = make(chan string, 4)
+
+	// Spawn orchestrator goroutine
+	go func() {
+		// Type assertion is safe here; we know from wiring in cmd/steiner that
+		// the controller is always a *Session
+		sess := m.controller.(*interactive.Session)
+		projectRoot := sess.ProjectRoot()
+
+		manifest, err := oneshot.ListRuns(projectRoot)
+		if err != nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("resume oneshot failed: %v", err)))
+			return
+		}
+
+		var targetRun *oneshot.ResumableRun
+		for i := range manifest {
+			if manifest[i].RunID == strings.TrimSpace(runID) {
+				targetRun = &manifest[i]
+				break
+			}
+		}
+
+		if targetRun == nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run %q not found", runID)))
+			return
+		}
+
+		// Reconstruct RunIdentity from ResumableRun
+		identity := oneshot.RunIdentity{
+			ID:   targetRun.RunID,
+			Slug: targetRun.Slug,
+		}
+
+		// Cast sessionStore to oneshot.SessionStore interface
+		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+		if !ok {
+			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
+			return
+		}
+
+		deps := oneshot.Dependencies{
+			ProjectRoot:   projectRoot,
+			Identity:      identity,
+			Task:          targetRun.Task,
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory,
+			Events:        sess.EventSink(),
+			SteerCh:       m.oneshotSteerCh,
+		}
+
+		orchestrator, err := oneshot.NewOrchestrator(deps)
+		if err != nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+			return
+		}
+
+		_, err = orchestrator.Resume(context.Background())
+		if err != nil {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+		}
+
+		// Close steer channel when done
+		close(m.oneshotSteerCh)
+	}()
+
+	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
+	m.syncViewport()
+	return m, nil
 }

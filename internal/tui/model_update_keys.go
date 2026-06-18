@@ -715,6 +715,14 @@ func (m Model) executeSteerAction() tea.Model {
 	if m.controller != nil {
 		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
 	}
+	// Send to oneshot steer channel if active (non-blocking)
+	if m.oneshotSteerCh != nil {
+		select {
+		case m.oneshotSteerCh <- text:
+		default:
+			// Channel full or closed, skip
+		}
+	}
 	m.input.Reset()
 	m.content.AppendPendingSteer(text)
 	m.steerQueued = true

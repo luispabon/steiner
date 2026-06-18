@@ -23,6 +23,8 @@ type inputAction struct {
 	openModelPicker      bool
 	invokeSkill          string // skill name for direct invocation
 	invokeSkillArgs      string // optional args to pass with skill invocation
+	launchOneshotTask    string // task for /oneshot <task>
+	resumeOneshotID      string // run id for /oneshot --resume <id>
 }
 
 func parseInput(value string) inputAction {
@@ -122,6 +124,19 @@ func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputA
 		return inputAction{switchModel: name}, true
 	case strings.HasPrefix(trimmed, "/skill "):
 		return parseSkillCommand(strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill ")), enabledSkills), true
+	case strings.HasPrefix(trimmed, "/oneshot "):
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "/oneshot "))
+		if rest == "" {
+			return inputAction{}, true
+		}
+		if strings.HasPrefix(rest, "--resume ") {
+			resumeID := strings.TrimSpace(strings.TrimPrefix(rest, "--resume "))
+			if resumeID == "" {
+				return inputAction{}, true
+			}
+			return inputAction{resumeOneshotID: resumeID}, true
+		}
+		return inputAction{launchOneshotTask: rest}, true
 	default:
 		return inputAction{}, false
 	}
@@ -154,7 +169,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", false
 	}
-	builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent"}
+	builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
 	for _, cmd := range builtins {
 		if trimmed == cmd {
 			return cmd, true
@@ -178,7 +193,7 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
 func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {
-	base := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking",
+	base := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
 		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	for _, name := range skillNames {
 		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
