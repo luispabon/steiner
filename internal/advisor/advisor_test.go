@@ -42,6 +42,12 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 				},
 			}},
 		},
+		{
+			Role:       provider.MessageRoleTool,
+			Name:       "read",
+			ToolCallID: "call-1",
+			Content:    "package config",
+		},
 	}
 	prov := &fakeProvider{
 		response: provider.ChatResponse{
@@ -81,21 +87,57 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 	if req.Messages[0].Role != provider.MessageRoleSystem || !strings.Contains(req.Messages[0].Content, "internal advisor") {
 		t.Fatalf("request.Messages[0] = %#v, want advisor system prompt", req.Messages[0])
 	}
-	for i := range snapshot {
-		got := req.Messages[i+1]
-		want := snapshot[i]
-		if got.Role != want.Role || got.Content != want.Content || len(got.ToolCalls) != len(want.ToolCalls) {
-			t.Fatalf("request.Messages[%d] = %#v, want snapshot %#v", i+1, got, want)
-		}
+
+	// snapshot[0]: user message passes through unchanged
+	if got := req.Messages[1]; got.Role != provider.MessageRoleUser || got.Content != "fix the failing test" {
+		t.Fatalf("request.Messages[1] = %#v, want user pass-through", got)
 	}
+
+	// snapshot[1]: assistant tool calls flattened to text, ToolCalls cleared
+	assistantMsg := req.Messages[2]
+	if assistantMsg.Role != provider.MessageRoleAssistant {
+		t.Fatalf("request.Messages[2].Role = %q, want assistant", assistantMsg.Role)
+	}
+	if len(assistantMsg.ToolCalls) != 0 {
+		t.Fatalf("request.Messages[2].ToolCalls not cleared: %#v", assistantMsg.ToolCalls)
+	}
+	if !strings.Contains(assistantMsg.Content, "[tool_call: read") {
+		t.Fatalf("request.Messages[2].Content missing tool_call line: %q", assistantMsg.Content)
+	}
+
+	// snapshot[2]: tool result flattened to user message, ToolCallID and Name cleared
+	toolResultMsg := req.Messages[3]
+	if toolResultMsg.Role != provider.MessageRoleUser {
+		t.Fatalf("request.Messages[3].Role = %q, want user", toolResultMsg.Role)
+	}
+	if !strings.HasPrefix(toolResultMsg.Content, "[tool_result: read]") {
+		t.Fatalf("request.Messages[3].Content missing prefix: %q", toolResultMsg.Content)
+	}
+	if !strings.Contains(toolResultMsg.Content, "package config") {
+		t.Fatalf("request.Messages[3].Content missing original content: %q", toolResultMsg.Content)
+	}
+	if toolResultMsg.ToolCallID != "" {
+		t.Fatalf("request.Messages[3].ToolCallID not cleared: %q", toolResultMsg.ToolCallID)
+	}
+	if toolResultMsg.Name != "" {
+		t.Fatalf("request.Messages[3].Name not cleared: %q", toolResultMsg.Name)
+	}
+
 	last := req.Messages[len(req.Messages)-1]
 	if last.Role != provider.MessageRoleUser || !strings.Contains(last.Content, "advisory note") {
 		t.Fatalf("last advisor message = %#v, want advisor user prompt", last)
 	}
 
+	// snapshot must not be mutated by flattening
 	req.Messages[1].Content = "mutated"
 	if snapshot[0].Content != "fix the failing test" {
-		t.Fatalf("snapshot mutated to %q, want original", snapshot[0].Content)
+		t.Fatalf("snapshot[0] mutated to %q, want original", snapshot[0].Content)
+	}
+	if len(snapshot[1].ToolCalls) != 1 {
+		t.Fatalf("snapshot[1].ToolCalls mutated, want original tool calls preserved")
+	}
+	if snapshot[2].ToolCallID != "call-1" {
+		t.Fatalf("snapshot[2].ToolCallID mutated to %q, want original", snapshot[2].ToolCallID)
 	}
 }
 

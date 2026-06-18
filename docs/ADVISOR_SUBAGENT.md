@@ -20,10 +20,10 @@ The advisor is for strategic steering. It is not a code executor, verifier, revi
 1. The main model decides to call `advisor`.
 2. The tool handler snapshots the live parent conversation from the current run context.
 3. Steiner builds an advisor request with an advisor system prompt, the parent conversation snapshot, and a short user prompt asking for guidance.
-4. The configured advisor model receives no tools and runs one non-streaming chat completion.
+4. The configured advisor model receives no tools and runs one non-streaming chat completion. Any `tool_use`/`tool_result` messages in the snapshot are flattened to plain text before sending, so the advisor request contains no structured tool content and requires no tool definitions.
 5. The advisor's text is returned as the tool result and added to the parent conversation.
 
-The conversation snapshot is sent as-is after Steiner's normal context management. That means prior compaction and delegation summaries already bound the transcript. Steiner does not run a second advisor-specific summarisation or context-selection pass.
+The conversation snapshot is sent after Steiner's normal context management with one transformation applied: `tool_use` blocks in assistant messages are rendered as `[tool_call: <name> <args-json>]` lines, and `tool_result` messages are converted to user messages prefixed with `[tool_result: <name>]`. All original content is preserved in text form. This keeps the advisor request provider-agnostic and eliminates the need for a matching `toolConfig`.
 
 ## Configuration
 
