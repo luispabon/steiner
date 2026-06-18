@@ -312,10 +312,6 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	if lineCount <= 0 {
 		lineCount = 1
 	}
-	if op.OldString != "" && useRange {
-		return fmt.Errorf("mutate: operation %d line_replace: old_string cannot be used with line_count", index)
-	}
-
 	lines, endLine, err := lineEditRange(index, "line_replace", state, op.Line, lineCount)
 	if err != nil {
 		return err
@@ -324,19 +320,24 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 	before := string(state.content)
 
 	if !useRange {
-		// Single-line: existing behavior — replaces line content, preserving the line's own ending.
+		// Single-line: old_string required to prevent silent corruption when line numbers shift.
 		line := lines[op.Line-1]
 		lineText := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-		lineEnding := line[len(lineText):]
 		if op.OldString == "" {
-			lines[op.Line-1] = op.NewString + lineEnding
-		} else {
-			if count := strings.Count(lineText, op.OldString); count != 1 {
-				return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
-			}
-			lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
+			return fmt.Errorf("mutate: operation %d line_replace: line_replace on existing file requires old_string for safety — provide the expected line content", index)
 		}
+		if count := strings.Count(lineText, op.OldString); count != 1 {
+			return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
+		}
+		lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
 	} else {
+		if op.OldString != "" {
+			// old_string acts as a validation guard: must appear exactly once in the target range.
+			rangeText := strings.Join(lines[op.Line-1:endLine], "")
+			if count := strings.Count(rangeText, op.OldString); count != 1 {
+				return fmt.Errorf("mutate: operation %d line_replace: old_string found %d times in lines %d–%d (want exactly 1)", index, count, op.Line, endLine)
+			}
+		}
 		lines = spliceLineRange(lines, op.Line-1, endLine, op.NewString)
 	}
 

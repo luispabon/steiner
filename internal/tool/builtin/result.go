@@ -117,7 +117,6 @@ func (r *MutateResult) clearCommittedMetadata() {
 	r.Deleted = nil
 	r.Moved = nil
 	r.FileHashes = nil
-	r.OperationResults = nil
 	r.OperationsApplied = 0
 }
 

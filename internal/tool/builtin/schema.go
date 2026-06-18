@@ -23,7 +23,7 @@ func MutateSchema() map[string]any {
 			"type":       map[string]any{"type": "string", "enum": []string{"create", "write", "replace", "line_replace", "delete_line", "delete", "move", "insert_before", "insert_after"}, "description": "Operation type"},
 			"path":       map[string]any{"type": "string", "description": "Target path for create, write, replace, line_replace, delete_line, and delete"},
 			"content":    map[string]any{"type": "string", "description": "File content for create, write, insert_before, and insert_after"},
-			"old_string": map[string]any{"type": "string", "description": "Exact text to replace. Optional for line_replace: when omitted, replaces the entire line content."},
+			"old_string": map[string]any{"type": "string", "description": "Exact text to replace. Required for line_replace on existing files (prevents silent corruption from shifted line numbers). With line_count, acts as a validation guard: must appear exactly once in the target line range."},
 			"new_string": map[string]any{"type": "string", "description": "Replacement text"},
 			"assert_present": map[string]any{
 				"type":        "array",
