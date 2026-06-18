@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 )
@@ -32,26 +33,27 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
-	Model              string
-	ModelNames         []string
-	ModelContexts      map[string]int
-	ModelBaseURLs      map[string]string
-	ModelProviderNames map[string]string
-	ProviderBaseURL    string
-	ProviderName       string
-	HomeDir            string
-	WorkingDir         string
-	MaxTurns           int
-	SkillNames         []string
-	SkillDescriptions  map[string]string // skill name -> short summary
-	SkillSources       map[string]string // skill name -> "project"/"user"/"global"
-	Theme              string
-	AccentPreset       string
-	ShowThinking       bool
-	SidebarPosition    string
-	Version            string
-	Controller         interactive.Controller
-	SessionStore       SessionLister
+	Model                string
+	ModelNames           []string
+	ModelContexts        map[string]int
+	ModelBaseURLs        map[string]string
+	ModelProviderNames   map[string]string
+	ProviderBaseURL      string
+	ProviderName         string
+	HomeDir              string
+	WorkingDir           string
+	MaxTurns             int
+	SkillNames           []string
+	SkillDescriptions    map[string]string // skill name -> short summary
+	SkillSources         map[string]string // skill name -> "project"/"user"/"global"
+	Theme                string
+	AccentPreset         string
+	ShowThinking         bool
+	SidebarPosition      string
+	Version              string
+	Controller           interactive.Controller
+	SessionStore         SessionLister
+	OneshotRunnerFactory oneshot.PhaseRunnerFactory
 }
 
 // App wires the TUI runtime and event bridge.

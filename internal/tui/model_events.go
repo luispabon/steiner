@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -175,6 +176,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.content.AppendUser(payload.Text)
 		m.steerQueued = false
 		m.syncInputChrome()
+	case output.PhaseTransitionEvent:
+		return m.handlePhaseTransition(payload)
+	case output.PhaseIndicatorEvent:
+		m.handlePhaseIndicator(payload)
 	}
 
 	var cmds []tea.Cmd
@@ -278,5 +283,50 @@ func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
 		return false
 	default:
 		return true
+	}
+}
+
+func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.Cmd {
+	switch strings.TrimSpace(payload.Status) {
+	case "starting":
+		// Insert phase divider with phase name
+		phaseName := strings.TrimSpace(payload.To)
+		if phaseName != "" {
+			m.content.AppendPhaseDivider(phaseName)
+		}
+		// Rotate session with run group to stamp session and reset model context
+		return func() tea.Msg {
+			if m.controller != nil {
+				if err := m.controller.Handle(context.Background(), interactive.RotateSessionWithGroup{
+					Group: strings.TrimSpace(payload.RunID),
+				}); err != nil {
+					m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", err))
+				}
+			}
+			return nil
+		}
+	case "completed", "failed":
+		m.activity = m.activity.static("phase "+strings.TrimSpace(payload.Status), strings.TrimSpace(payload.To))
+	}
+	return nil
+}
+
+func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
+	phaseName := strings.TrimSpace(payload.Phase)
+	state := strings.TrimSpace(payload.State)
+	message := strings.TrimSpace(payload.Message)
+
+	// Update status mode to show phase and state
+	modeText := phaseName
+	if state != "" && state != "running" {
+		modeText = fmt.Sprintf("%s (%s)", phaseName, state)
+	}
+	m.status.mode = modeText
+
+	// Update activity
+	if message != "" {
+		m.activity = m.activity.waiting(state, message)
+	} else {
+		m.activity = m.activity.waiting(state, phaseName)
 	}
 }

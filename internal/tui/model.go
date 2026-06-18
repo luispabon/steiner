@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -126,6 +127,8 @@ type Model struct {
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 	imageMarkers                 []imageMarker
+	oneshotSteerCh               chan string
+	oneshotRunnerFactory         oneshot.PhaseRunnerFactory
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
