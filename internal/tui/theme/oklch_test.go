@@ -81,6 +81,7 @@ func TestHexToRGB(t *testing.T) {
 		{name: "empty string", hex: "", wantR: 0, wantG: 0, wantB: 0},
 		{name: "short hex", hex: "#FFF", wantR: 0, wantG: 0, wantB: 0},
 		{name: "5-digit hex", hex: "#12345", wantR: 0, wantG: 0, wantB: 0},
+		{name: "invalid hex chars", hex: "#GGGGGG", wantR: 0, wantG: 0, wantB: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
