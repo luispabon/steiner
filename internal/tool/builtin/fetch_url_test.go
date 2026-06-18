@@ -266,8 +266,11 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 			{"Text/Html", true},
 			{"TEXT/PLAIN", true},
 			{"text/Markdown", true},
+			{"TEXT/CSV", true},
 			{"APPLICATION/JSON", true},
 			{"Application/Xhtml+Xml", true},
+			{"Application/Javascript", true},
+			{"Application/Yaml", true},
 			{"Application/Pdf", false},
 			{"Image/Png", false},
 		}
@@ -538,15 +541,29 @@ func TestContentTypeHelpers(t *testing.T) {
 			ct   string
 			want bool
 		}{
+			// Existing text/* and application types
 			{"text/html", true},
 			{"text/plain", true},
 			{"text/xml", true},
 			{"application/xhtml+xml", true},
 			{"application/json", true},
-			{"image/png", false},
-			{"application/pdf", false},
 			{"", true}, // missing Content-Type treated as text-like
 			{"text/html; charset=utf-8", true},
+			// New text/* prefix matches
+			{"text/csv", true},
+			{"text/calendar", true},
+			// New explicit application types
+			{"application/javascript", true},
+			{"application/typescript", true},
+			{"application/yaml", true},
+			{"application/x-yaml", true},
+			{"application/ld+json", true},
+			{"application/graphql", true},
+			{"application/x-www-form-urlencoded", true},
+			// Binary types that should not match
+			{"application/pdf", false},
+			{"image/png", false},
+			{"video/mp4", false},
 		}
 		for _, tt := range tests {
 			got := isTextLikeContentType(tt.ct)

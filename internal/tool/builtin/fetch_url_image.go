@@ -110,14 +110,25 @@ func isImageContentType(contentType string) bool {
 }
 
 // isTextLikeContentType reports whether contentType is safe to pass to
-// wonton/fetch for HTML-to-markdown conversion.
+// wonton/fetch for HTML-to-markdown conversion. It accepts any text/* type
+// plus common application text types (javascript, yaml, json, etc).
 func isTextLikeContentType(contentType string) bool {
 	ct := cleanContentType(contentType)
 	if ct == "" {
 		return true
 	}
+
+	// Accept all text/* types.
+	if strings.HasPrefix(ct, "text/") {
+		return true
+	}
+
+	// Accept explicit application text types.
 	switch ct {
-	case "text/html", "text/plain", "text/markdown", "text/xml",
+	case "application/javascript", "application/typescript",
+		"application/yaml", "application/x-yaml",
+		"application/ld+json", "application/graphql",
+		"application/x-www-form-urlencoded",
 		"application/xhtml+xml", "application/xml", "application/json":
 		return true
 	default:
