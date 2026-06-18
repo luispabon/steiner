@@ -493,12 +493,13 @@ func NewAdvisorStartedEvent(model string, useNumber, maxUses int) Event {
 }
 
 // NewAdvisorCompleteEvent creates an advisor_complete event.
-func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, err error) Event {
+func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, truncated bool, err error) Event {
 	payload := AdvisorCompleteEvent{
 		Model:     strings.TrimSpace(model),
 		UseNumber: useNumber,
 		MaxUses:   maxUses,
-		Note:      TruncateWithEllipsis(strings.TrimSpace(note), 240),
+		Note:      strings.TrimSpace(note),
+		Truncated: truncated,
 	}
 	if err != nil {
 		payload.Error = err.Error()

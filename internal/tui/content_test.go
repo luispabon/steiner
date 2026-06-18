@@ -306,7 +306,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
@@ -383,7 +383,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", errors.New("something went wrong")))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong")))
 
 	if len(buffer.segments) != 5 {
 		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
@@ -442,7 +442,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil))
 
 	rendered := stripANSI(buffer.String(80))
 
