@@ -191,6 +191,7 @@ func (s *Store) updateIndexLocked(session Session) error {
 		UpdatedAt: session.UpdatedAt,
 		Title:     session.Title,
 		Model:     session.Model,
+		Group:     session.Group,
 	}
 
 	for i, e := range s.index {

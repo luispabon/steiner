@@ -32,6 +32,7 @@ type Session struct {
 	lineage             agent.ConversationLineage
 	sessionID           string
 	sessionTitle        string
+	sessionGroup        string
 	done                chan struct{}
 	exitOnce            sync.Once
 }
@@ -293,18 +294,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.loadSession(ctx, a.SessionID)
 
 	case RotateSession:
-		s.mu.Lock()
-		if s.deps.SessionStore != nil {
-			id, err := generateSessionID()
-			if err != nil {
-				s.mu.Unlock()
-				return true, fmt.Errorf("rotate session id: %w", err)
-			}
-			s.sessionID = id
-			s.sessionTitle = ""
-		}
-		s.mu.Unlock()
-		return true, nil
+		return true, s.rotateSession("", false)
+	case RotateSessionWithGroup:
+		return true, s.rotateSession(a.Group, true)
 	case ForkSession:
 		return true, s.handleForkSession(ctx)
 	case ForkSavedSession:
@@ -343,6 +335,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		ID:      s.sessionID,
 		Title:   s.sessionTitle,
 		Model:   s.deps.Config.Models[s.deps.Config.DefaultModel].ID,
+		Group:   s.sessionGroup,
 		Lineage: s.lineage,
 	}
 	originalTitle := s.sessionTitle
@@ -423,7 +416,16 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	sess, err := session.NewSession(s.deps.Config.Models[s.deps.Config.DefaultModel].ID, s.lineage)
+	modelID := s.deps.Config.Models[s.deps.Config.DefaultModel].ID
+	var (
+		sess session.Session
+		err  error
+	)
+	if s.sessionGroup != "" {
+		sess, err = session.NewSession(modelID, s.lineage, s.sessionGroup)
+	} else {
+		sess, err = session.NewSession(modelID, s.lineage)
+	}
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
@@ -434,6 +436,27 @@ func (s *Session) saveSession() error {
 	}
 
 	return s.deps.SessionStore.Save(sess)
+}
+
+// rotateSession assigns a fresh session identity and optionally updates the group.
+func (s *Session) rotateSession(group string, updateGroup bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.deps.SessionStore == nil {
+		return nil
+	}
+
+	id, err := generateSessionID()
+	if err != nil {
+		return fmt.Errorf("rotate session id: %w", err)
+	}
+	s.sessionID = id
+	s.sessionTitle = ""
+	if updateGroup {
+		s.sessionGroup = strings.TrimSpace(group)
+	}
+	return nil
 }
 
 // loadSession replaces the current conversation and lineage with a previously
@@ -455,6 +478,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
 	s.sessionTitle = sess.Title
+	s.sessionGroup = strings.TrimSpace(sess.Group)
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 

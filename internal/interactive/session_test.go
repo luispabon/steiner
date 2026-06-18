@@ -31,6 +31,7 @@ var (
 	_ Action = TriggerManualCompaction{}
 	_ Action = LoadSession{}
 	_ Action = RotateSession{}
+	_ Action = RotateSessionWithGroup{}
 	_ Action = ForkSession{}
 	_ Action = ForkSavedSession{}
 	_ Action = requestSessionPicker{}
@@ -449,6 +450,38 @@ func TestRotateSession(t *testing.T) {
 		_ = oldTitle // used
 	})
 
+	t.Run("stamps supplied group", func(t *testing.T) {
+		mockStore := newMockSessionStore()
+		s := testNewSession(t, Dependencies{
+			SessionStore: mockStore,
+			Config: config.Config{
+				DefaultModel: "test",
+				Models:       map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		})
+		oldID := s.SessionID()
+
+		if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "run-123"}); err != nil {
+			t.Fatalf("RotateSessionWithGroup: %v", err)
+		}
+		if s.SessionID() == oldID {
+			t.Fatal("expected new session ID after group rotation")
+		}
+		if got, want := s.sessionGroup, "run-123"; got != want {
+			t.Fatalf("session group = %q, want %q", got, want)
+		}
+		if err := s.saveSession(); err != nil {
+			t.Fatalf("saveSession after group rotation: %v", err)
+		}
+		saved, ok := mockStore.savedSessions[s.SessionID()]
+		if !ok {
+			t.Fatalf("savedSessions missing session %q", s.SessionID())
+		}
+		if got, want := saved.Group, "run-123"; got != want {
+			t.Fatalf("saved group = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("noop when SessionStore is nil", func(t *testing.T) {
 		s := testNewSession(t, Dependencies{})
 		oldID := s.SessionID()
@@ -460,6 +493,7 @@ func TestRotateSession(t *testing.T) {
 		}
 	})
 }
+
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
@@ -1234,6 +1268,7 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 	s.mu.Lock()
 	s.sessionID = sessionID
 	s.sessionTitle = sessionTitle
+	s.sessionGroup = "run-123"
 	s.lineage = lineage
 	s.mu.Unlock()
 
@@ -1253,6 +1288,9 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 	}
 	if got, want := saved.Model, "test-model"; got != want {
 		t.Fatalf("saved model = %q, want %q", got, want)
+	}
+	if got, want := saved.Group, "run-123"; got != want {
+		t.Fatalf("saved group = %q, want %q", got, want)
 	}
 	if got, want := saved.Lineage.FullMessages(), lineage.FullMessages(); len(got) != len(want) || got[0].Content != want[0].Content {
 		t.Fatalf("saved lineage = %#v, want %#v", got, want)

@@ -16,6 +16,7 @@ type Session struct {
 	UpdatedAt time.Time                 `json:"updated_at"`
 	Title     string                    `json:"title"`
 	Model     string                    `json:"model"`
+	Group     string                    `json:"group,omitempty"`
 	Lineage   agent.ConversationLineage `json:"lineage"`
 }
 
@@ -26,6 +27,7 @@ type IndexEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Title     string    `json:"title"`
 	Model     string    `json:"model"`
+	Group     string    `json:"group,omitempty"`
 }
 
 // generateID creates a random hex ID.
@@ -47,19 +49,24 @@ func TitleFromPrompt(prompt string) string {
 	return title
 }
 
-// NewSession creates a new session with the given model and lineage.
-func NewSession(model string, lineage agent.ConversationLineage) (Session, error) {
+// NewSession creates a new session with the given model, lineage, and optional group.
+func NewSession(model string, lineage agent.ConversationLineage, group ...string) (Session, error) {
 	id, err := generateID()
 	if err != nil {
 		return Session{}, err
 	}
 	now := time.Now().UTC()
+	sessionGroup := ""
+	if len(group) > 0 {
+		sessionGroup = strings.TrimSpace(group[0])
+	}
 	return Session{
 		ID:        id,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Title:     "",
 		Model:     model,
+		Group:     sessionGroup,
 		Lineage:   lineage,
 	}, nil
 }
@@ -93,6 +100,7 @@ func Fork(s Session) (Session, error) {
 		UpdatedAt: now,
 		Title:     forkTitle,
 		Model:     s.Model,
+		Group:     strings.TrimSpace(s.Group),
 		Lineage:   s.Lineage.Clone(),
 	}, nil
 }

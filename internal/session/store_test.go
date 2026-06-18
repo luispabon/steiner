@@ -52,6 +52,7 @@ func TestSaveAndLoad(t *testing.T) {
 		UpdatedAt: time.Now().UTC(),
 		Title:     "Test Session",
 		Model:     "test-model",
+		Group:     "run-123",
 		Lineage:   lineage,
 	}
 
@@ -72,6 +73,9 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if loaded.Model != original.Model {
 		t.Errorf("Model mismatch: got %q, want %q", loaded.Model, original.Model)
+	}
+	if loaded.Group != original.Group {
+		t.Errorf("Group mismatch: got %q, want %q", loaded.Group, original.Group)
 	}
 
 	if len(loaded.Lineage.Generations) != len(original.Lineage.Generations) {
@@ -214,6 +218,9 @@ func TestLoadLegacyConversationFallbackPreservesToolAndDelegationMessages(t *tes
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
+	if loaded.Group != "" {
+		t.Fatalf("loaded legacy group = %q, want empty", loaded.Group)
+	}
 
 	got := loaded.Lineage.FullMessages()
 	if got, want := len(got), 4; got != want {
@@ -313,6 +320,7 @@ func TestList(t *testing.T) {
 			UpdatedAt: time.Now().UTC().Add(-2 * time.Second),
 			Title:     "First",
 			Model:     "model-1",
+			Group:     "run-a",
 			Lineage:   agent.ConversationLineage{},
 		},
 		{
@@ -321,6 +329,7 @@ func TestList(t *testing.T) {
 			UpdatedAt: time.Now().UTC().Add(-1 * time.Second),
 			Title:     "Second",
 			Model:     "model-2",
+			Group:     "run-b",
 			Lineage:   agent.ConversationLineage{},
 		},
 		{
@@ -329,6 +338,7 @@ func TestList(t *testing.T) {
 			UpdatedAt: time.Now().UTC(),
 			Title:     "Third",
 			Model:     "model-3",
+			Group:     "run-c",
 			Lineage:   agent.ConversationLineage{},
 		},
 	}
@@ -351,11 +361,20 @@ func TestList(t *testing.T) {
 	if entries[0].ID != "session-3" {
 		t.Errorf("newest should be first, got %q", entries[0].ID)
 	}
+	if entries[0].Group != "run-c" {
+		t.Errorf("newest group = %q, want %q", entries[0].Group, "run-c")
+	}
 	if entries[1].ID != "session-2" {
 		t.Errorf("second newest should be second, got %q", entries[1].ID)
 	}
+	if entries[1].Group != "run-b" {
+		t.Errorf("second newest group = %q, want %q", entries[1].Group, "run-b")
+	}
 	if entries[2].ID != "session-1" {
 		t.Errorf("oldest should be last, got %q", entries[2].ID)
+	}
+	if entries[2].Group != "run-a" {
+		t.Errorf("oldest group = %q, want %q", entries[2].Group, "run-a")
 	}
 }
 
@@ -374,6 +393,7 @@ func TestEvictionAt26Sessions(t *testing.T) {
 			UpdatedAt: now.Add(time.Duration(i) * time.Second),
 			Title:     "Session",
 			Model:     "test",
+			Group:     "run-evict",
 			Lineage:   agent.ConversationLineage{},
 		}
 		if err := store.Save(session); err != nil {
@@ -409,6 +429,7 @@ func TestDelete(t *testing.T) {
 		UpdatedAt: time.Now().UTC(),
 		Title:     "To Delete",
 		Model:     "test",
+		Group:     "run-delete",
 		Lineage:   agent.ConversationLineage{},
 	}
 
@@ -508,6 +529,7 @@ func TestConcurrentSaves(t *testing.T) {
 				UpdatedAt: now.Add(time.Duration(idx) * time.Second),
 				Title:     "Concurrent",
 				Model:     "test",
+				Group:     "run-concurrent",
 				Lineage:   agent.ConversationLineage{},
 			}
 			done <- store.Save(session)
