@@ -21,6 +21,7 @@
   - `step-10`
   - `step-11`
   - `step-12`
+  - `step-13`
 - Blocked steps: none
 - Skipped steps: none
 - Sub-agents used:
@@ -78,6 +79,7 @@
   - `step-10` — `go test ./cmd/steiner/...` — passed
   - `step-11` — `go test ./internal/tui/... ./internal/interactive/...` — passed; `make check` — passed (after fixing pre-existing lint issues from steps 1–10 in a follow-up commit)
   - `step-12` — documentation review only; `make check` final gate passed (0 lint issues)
+  - `step-13` — added `internal/oneshot/integration_test.go` + `internal/oneshot/testdata/plan/` fixtures (happy path → report, boundary clean-stop + failure report, SIGINT-then-resume, same-id lock blocking, worktree-commit). `go test ./internal/oneshot/...` passed; `go test -race ./...` clean; `golangci-lint run ./...` 0 issues; `go vet ./...` clean; `go build ./...` ok. `govulncheck` not installed in this environment (environmental gap, not a code defect).
 - Deviations and blockers:
   - `step-2` scope was expanded with explicit user approval to include `internal/config/validate.go` and minimal config tests because the original planner file list omitted the validation dispatcher and the step was otherwise incomplete.
 - Manual verification notes: none
