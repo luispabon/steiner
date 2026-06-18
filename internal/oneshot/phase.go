@@ -14,12 +14,9 @@ import (
 )
 
 const (
-	advisorPlanRoundCap      = 3
-	advisorPlanBudget        = 4
-	advisorImplementRoundCap = 3
-	advisorImplementBudget   = 3
-	advisorReviewRoundCap    = 3
-	advisorReviewBudget      = 4
+	advisorPlanBudget      = 4
+	advisorImplementBudget = 3
+	advisorReviewBudget    = 4
 )
 
 // PhaseRunnerFactory builds a fresh phase runner for each oneshot phase.
@@ -95,11 +92,11 @@ func phaseOrder() []Phase {
 func phaseSpec(phase Phase) (PhaseSpec, bool) {
 	switch phase {
 	case PhasePlan:
-		return PhaseSpec{Phase: phase, AdvisorRoundCap: advisorPlanRoundCap, AdvisorBudget: advisorPlanBudget}, true
+		return PhaseSpec{Phase: phase, AdvisorBudget: advisorPlanBudget}, true
 	case PhaseImplement:
-		return PhaseSpec{Phase: phase, AdvisorRoundCap: advisorImplementRoundCap, AdvisorBudget: advisorImplementBudget}, true
+		return PhaseSpec{Phase: phase, AdvisorBudget: advisorImplementBudget}, true
 	case PhaseReview:
-		return PhaseSpec{Phase: phase, AdvisorRoundCap: advisorReviewRoundCap, AdvisorBudget: advisorReviewBudget}, true
+		return PhaseSpec{Phase: phase, AdvisorBudget: advisorReviewBudget}, true
 	default:
 		return PhaseSpec{}, false
 	}
@@ -107,9 +104,8 @@ func phaseSpec(phase Phase) (PhaseSpec, bool) {
 
 // PhaseSpec captures the bounded execution policy for a phase.
 type PhaseSpec struct {
-	Phase           Phase
-	AdvisorRoundCap int
-	AdvisorBudget   int
+	Phase         Phase
+	AdvisorBudget int
 }
 
 func phaseModelAlias(cfg config.Config, phase Phase) string {

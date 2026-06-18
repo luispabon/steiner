@@ -136,15 +136,11 @@ func (f *recordingRunnerFactory) NewPhaseRunner(_ context.Context, phase Phase, 
 func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
-	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
-	if err != nil {
-		t.Fatalf("ProvisionWorktree failed: %v", err)
-	}
 	t.Cleanup(func() {
 		_ = CleanupWorktree(context.Background(), projectRoot, identity)
 	})
 
-	planningPath := identity.PlanningPath(worktree.Path)
+	planningPath := identity.PlanningPath(identity.WorktreePath(projectRoot))
 	sessionStore := &recordingSessionStore{}
 	events := make([]output.Event, 0, 12)
 	runnerFactory := &recordingRunnerFactory{
@@ -192,6 +188,17 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	manifest, err := orch.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
+	}
+
+	worktreePath := identity.WorktreePath(projectRoot)
+	if stat, err := os.Stat(worktreePath); err != nil {
+		t.Fatalf("worktree not provisioned by Run: %v", err)
+	} else if !stat.IsDir() {
+		t.Fatalf("worktree path is not a directory: %s", worktreePath)
+	}
+	gotBranch := strings.TrimSpace(mustGitOutput(t, worktreePath, "branch", "--show-current"))
+	if wantBranch := identity.BranchName(); gotBranch != wantBranch {
+		t.Fatalf("worktree branch = %q, want %q", gotBranch, wantBranch)
 	}
 
 	if got, want := manifest.PhaseStatuses[PhasePlan], PhaseStatusDone; got != want {
@@ -269,17 +276,13 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
-	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
-	if err != nil {
-		t.Fatalf("ProvisionWorktree failed: %v", err)
-	}
 	t.Cleanup(func() {
 		_ = CleanupWorktree(context.Background(), projectRoot, identity)
 	})
 
 	sessionStore := &recordingSessionStore{}
 	runnerFactory := &recordingRunnerFactory{
-		planningPath: identity.PlanningPath(worktree.Path),
+		planningPath: identity.PlanningPath(identity.WorktreePath(projectRoot)),
 		runners: map[Phase]*phaseRunnerStub{
 			PhasePlan: {writePlan: false},
 		},
@@ -320,10 +323,6 @@ func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
-	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
-	if err != nil {
-		t.Fatalf("ProvisionWorktree failed: %v", err)
-	}
 	t.Cleanup(func() {
 		_ = CleanupWorktree(context.Background(), projectRoot, identity)
 	})
@@ -332,7 +331,7 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 	var signalCancel context.CancelFunc
 	sessionStore := &recordingSessionStore{}
 	runnerFactory := &recordingRunnerFactory{
-		planningPath: identity.PlanningPath(worktree.Path),
+		planningPath: identity.PlanningPath(identity.WorktreePath(projectRoot)),
 		runners: map[Phase]*phaseRunnerStub{
 			PhasePlan: {blockOnCancel: true, started: started},
 		},
@@ -382,5 +381,78 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 	}
 	if _, err := os.Stat(identity.LockPath(projectRoot)); !os.IsNotExist(err) {
 		t.Fatalf("lock file still exists after cancellation: %v", err)
+	}
+}
+
+func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	id1, err := NewRunIdentity("concurrent task alpha")
+	if err != nil {
+		t.Fatalf("NewRunIdentity: %v", err)
+	}
+	id2, err := NewRunIdentity("concurrent task beta")
+	if err != nil {
+		t.Fatalf("NewRunIdentity: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CleanupWorktree(context.Background(), projectRoot, id1)
+		_ = CleanupWorktree(context.Background(), projectRoot, id2)
+	})
+
+	type result struct {
+		manifest Manifest
+		err      error
+	}
+
+	makeOrch := func(identity RunIdentity) *Orchestrator {
+		planningPath := identity.PlanningPath(identity.WorktreePath(projectRoot))
+		orch, err := NewOrchestrator(Dependencies{
+			ProjectRoot:  projectRoot,
+			Identity:     identity,
+			Task:         "concurrent task",
+			Config:       config.Config{DefaultModel: "m"},
+			SessionStore: &recordingSessionStore{},
+			RunnerFactory: &recordingRunnerFactory{
+				planningPath: planningPath,
+				runners: map[Phase]*phaseRunnerStub{
+					PhasePlan:      {writePlan: true},
+					PhaseImplement: {},
+					PhaseReview:    {},
+				},
+			},
+			ManifestStore:    NewManifestStore(identity.ManifestPath(projectRoot)),
+			InterruptFactory: context.WithCancel,
+		})
+		if err != nil {
+			t.Fatalf("NewOrchestrator: %v", err)
+		}
+		return orch
+	}
+
+	ch1 := make(chan result, 1)
+	ch2 := make(chan result, 1)
+	go func() {
+		m, e := makeOrch(id1).Run(context.Background())
+		ch1 <- result{m, e}
+	}()
+	go func() {
+		m, e := makeOrch(id2).Run(context.Background())
+		ch2 <- result{m, e}
+	}()
+
+	r1 := <-ch1
+	r2 := <-ch2
+
+	if r1.err != nil {
+		t.Fatalf("run 1 failed: %v", r1.err)
+	}
+	if r2.err != nil {
+		t.Fatalf("run 2 failed: %v", r2.err)
+	}
+	if r1.manifest.Branch == r2.manifest.Branch {
+		t.Fatalf("concurrent runs share branch %q", r1.manifest.Branch)
+	}
+	if r1.manifest.WorktreePath == r2.manifest.WorktreePath {
+		t.Fatalf("concurrent runs share worktree %q", r1.manifest.WorktreePath)
 	}
 }

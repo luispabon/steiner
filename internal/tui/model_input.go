@@ -468,14 +468,15 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:   sess.ProjectRoot(),
-			Identity:      runIdentity,
-			Task:          strings.TrimSpace(task),
-			Config:        sess.Config(),
-			SessionStore:  oneshotSessionStore,
-			RunnerFactory: m.oneshotRunnerFactory,
-			Events:        sess.EventSink(),
-			SteerCh:       m.oneshotSteerCh,
+			ProjectRoot:      sess.ProjectRoot(),
+			Identity:         runIdentity,
+			Task:             strings.TrimSpace(task),
+			Config:           sess.Config(),
+			SessionStore:     oneshotSessionStore,
+			RunnerFactory:    m.oneshotRunnerFactory,
+			Events:           sess.EventSink(),
+			SteerCh:          m.oneshotSteerCh,
+			InterruptFactory: context.WithCancel,
 		}
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
@@ -489,8 +490,9 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run failed: %v", err)))
 		}
 
-		// Close steer channel when done
-		close(m.oneshotSteerCh)
+		// Do not close the steer channel — sending to a closed channel panics.
+		// The buffered channel becomes inert once the orchestrator goroutine exits;
+		// sends hit the select/default branch and the channel is GC'd when replaced.
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
@@ -556,14 +558,15 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:   projectRoot,
-			Identity:      identity,
-			Task:          targetRun.Task,
-			Config:        sess.Config(),
-			SessionStore:  oneshotSessionStore,
-			RunnerFactory: m.oneshotRunnerFactory,
-			Events:        sess.EventSink(),
-			SteerCh:       m.oneshotSteerCh,
+			ProjectRoot:      projectRoot,
+			Identity:         identity,
+			Task:             targetRun.Task,
+			Config:           sess.Config(),
+			SessionStore:     oneshotSessionStore,
+			RunnerFactory:    m.oneshotRunnerFactory,
+			Events:           sess.EventSink(),
+			SteerCh:          m.oneshotSteerCh,
+			InterruptFactory: context.WithCancel,
 		}
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
@@ -576,9 +579,6 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
 		}
-
-		// Close steer channel when done
-		close(m.oneshotSteerCh)
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))

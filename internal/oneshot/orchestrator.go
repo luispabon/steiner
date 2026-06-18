@@ -19,7 +19,11 @@ func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("orchestrator is required")
 	}
 
-	worktreePath := o.deps.Identity.WorktreePath(o.deps.ProjectRoot)
+	worktree, err := ProvisionWorktree(ctx, o.deps.ProjectRoot, o.deps.Identity)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("provision worktree: %w", err)
+	}
+	worktreePath := worktree.Path
 	planningPath := o.deps.Identity.PlanningPath(worktreePath)
 	store := o.deps.ManifestStore
 	if store == nil {

@@ -343,7 +343,7 @@ func sanitizeValidationRuns(runs []ValidationRun) []ValidationRun {
 	if len(runs) == 0 {
 		return nil
 	}
-	out := make([]ValidationRun, 0, minInt(len(runs), finalReportItemLimit))
+	out := make([]ValidationRun, 0, min(len(runs), finalReportItemLimit))
 	for _, run := range runs {
 		if len(out) >= finalReportItemLimit {
 			break
@@ -361,7 +361,7 @@ func sanitizeFixIterations(iterations []ReviewFixIteration) []ReviewFixIteration
 	if len(iterations) == 0 {
 		return nil
 	}
-	out := make([]ReviewFixIteration, 0, minInt(len(iterations), finalReportItemLimit))
+	out := make([]ReviewFixIteration, 0, min(len(iterations), finalReportItemLimit))
 	for _, iteration := range iterations {
 		if len(out) >= finalReportItemLimit {
 			break
@@ -379,7 +379,7 @@ func sanitizeStrings(values []string, limit int) []string { //nolint:unparam
 	if len(values) == 0 || limit <= 0 {
 		return nil
 	}
-	out := make([]string, 0, minInt(len(values), limit))
+	out := make([]string, 0, min(len(values), limit))
 	for _, value := range values {
 		if len(out) >= limit {
 			break
@@ -434,11 +434,4 @@ func pickFirst(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
