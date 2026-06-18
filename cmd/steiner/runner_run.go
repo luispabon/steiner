@@ -128,8 +128,8 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
 	return prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,
-		ProjectRoot:               r.runtime.workDir,
-		SkillsRoots:               prompt.SkillRoots(r.runtime.homeDir, r.runtime.workDir),
+		ProjectRoot:               r.runtime.projectRoot,
+		SkillsRoots:               prompt.SkillRoots(r.runtime.homeDir, r.runtime.projectRoot),
 		SkillNames:                append([]string(nil), skillNames...),
 		SkillsBundledFS:           r.runtime.skillBundledFS,
 		ModelBudget:               modelBudget,
