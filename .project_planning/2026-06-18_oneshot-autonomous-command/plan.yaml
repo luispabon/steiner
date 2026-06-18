@@ -1,0 +1,349 @@
+steps:
+  - id: step-1
+    title: Parameterize run construction by workDir and model alias
+    scope: >
+      Refactor steiner's run-building plumbing so a single process can construct
+      an agent run bound to an explicit workDir and an explicit model alias,
+      instead of the process-wide os.Getwd() workDir and DefaultModel. Expose a
+      narrow phase-runner entry point that internal/oneshot can call to execute
+      one phase run (given workDir, model alias, seed conversation, approver,
+      steer channel) and receive the result. This is the load-bearing foundation;
+      keep existing exec/interactive behaviour unchanged.
+    files:
+      - cmd/steiner/runtime.go
+      - cmd/steiner/runtime_build.go
+      - cmd/steiner/runner.go
+      - cmd/steiner/runner_run.go
+      - cmd/steiner/tools.go
+    constraints:
+      - Do not change observable exec or interactive behaviour; existing tests must pass unchanged.
+      - Registry, executor, sandbox, and prompt assembly must all bind to the passed workDir.
+      - The phase-runner abstraction is defined as a consumer interface in internal/oneshot; cmd/steiner implements it. No internal -> main imports.
+      - Respect package boundaries in CLAUDE.md; cmd/steiner stays composition-only.
+    acceptance:
+      - A run can be built and executed for an arbitrary workDir and model alias.
+      - cmd/steiner exposes a phase-runner factory consumable by internal/oneshot.
+      - Existing exec/interactive paths still resolve workDir from os.Getwd() and model from selection as before.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go build ./...
+      - go test ./cmd/steiner/...
+
+  - id: step-2
+    title: Add oneshot config block (models + auto_pr)
+    scope: >
+      Introduce an OneShot config struct with a models map (plan/implement/review
+      -> alias) and an auto_pr bool. Wire defaults, validation (aliases must exist
+      in Config.Models; phase keys constrained), and config patching. Update
+      configuration docs.
+    files:
+      - internal/config/config.go
+      - internal/config/defaults.go
+      - internal/config/validate_runtime.go
+      - internal/config/patch.go
+      - internal/config/patch_runtime.go
+      - internal/config/patch_apply.go
+      - docs/CONFIGURATION.md
+    constraints:
+      - auto_pr defaults to false.
+      - Unset phase models fall back to DefaultModel at resolution time, not at load time.
+      - Mirror the existing workflow_handoff.models validation pattern.
+      - Update docs/CONFIGURATION.md in the same change (CLAUDE.md doc rule for config).
+    acceptance:
+      - oneshot.models and oneshot.auto_pr parse, default, validate, and patch correctly.
+      - Invalid phase aliases produce a clear validation problem.
+      - CONFIGURATION.md documents the new block and defaults.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/config/...
+    parallel_group: foundations
+    depends_on: [step-1]
+
+  - id: step-3
+    title: Add run-id/group field to Session model and store
+    scope: >
+      Add a lightweight run-id/group field to session.Session and IndexEntry so
+      the three oneshot phase sessions are linkable as one run. Thread it through
+      NewSession (option), store Save/Load/index, and Fork. Keep backward
+      compatibility with existing saved sessions (empty group = ungrouped).
+    files:
+      - internal/session/session.go
+      - internal/session/store.go
+    constraints:
+      - Existing sessions without the field must still load (omitempty / zero value).
+      - Do not change ID generation semantics.
+      - Keep the field optional and additive.
+    acceptance:
+      - Sessions can be created and persisted with a group/run id and round-trip through the store.
+      - The index lists the group field for grouped presentation.
+      - Pre-existing session JSON still loads.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/session/...
+    parallel_group: foundations
+    depends_on: [step-1]
+
+  - id: step-4
+    title: oneshot run identity, manifest, worktree lifecycle and lock
+    scope: >
+      Create the internal/oneshot package foundation - no agent execution yet.
+      Derive run id + feature slug; provision a worktree from origin/main at
+      .steiner/worktrees/oneshot-<id> on branch oneshot/<slug>-<id>; implement a
+      per-run lock recording owner + timestamp with stale detection; implement the
+      durable run manifest (.steiner/oneshot/<id>/run.json) write/update/read; and
+      worktree cleanup. Define the PhaseRunner consumer interface here.
+    files:
+      - internal/oneshot/identity.go
+      - internal/oneshot/worktree.go
+      - internal/oneshot/lock.go
+      - internal/oneshot/manifest.go
+      - internal/oneshot/runner.go
+    constraints:
+      - Worktrees live under .steiner/worktrees/ in the project root, never /tmp.
+      - After git worktree add, verify the directory exists and is on the expected branch.
+      - Lock must be reclaimable when its owner is gone or its heartbeat is stale.
+      - Manifest records run id, slug, task, branch, worktree path, model snapshot, current phase, per-phase status, per-phase session ids, commit milestones.
+      - No agent/provider calls in this step; pure orchestration scaffolding.
+    acceptance:
+      - A run provisions a verified worktree + branch and a manifest, takes a lock, and cleans up.
+      - Concurrent runs get distinct ids/branches/worktrees and never collide.
+      - Stale locks are detected and reclaimable; live locks block a second run.
+      - Manifest round-trips and updates atomically.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    depends_on: [step-1]
+
+  - id: step-5
+    title: Autonomous phase prose (plan / implement / review)
+    scope: >
+      Author the embedded autonomous phase prompts for plan, implement, and review,
+      distinct from skills/*/SKILL.md. Encode: no user-approval gates; no
+      clarifying questions; bounded recorded assumptions; commit-per-validated-unit
+      driven by the model; sub-agents work directly in the shared worktree (no
+      per-step worktrees); advisor as a loop driver in plan and review and
+      point-consult in implement; review drives all blocking + non-blocking
+      findings to resolution; phase-completion contract. Provide embed + loader.
+    files:
+      - internal/oneshot/prompts/plan.md
+      - internal/oneshot/prompts/implement.md
+      - internal/oneshot/prompts/review.md
+      - internal/oneshot/prompts.go
+    constraints:
+      - Prose must forbid stop-to-ask and require bounded assumptions recorded for the report.
+      - Implement prose must direct sub-agents to work in the shared worktree and the model to commit accepted units.
+      - Review prose must drive all findings (blocking and non-blocking) to green + advisor sign-off within bounds.
+      - Prose is orchestrator-internal, not registered as a user slash-command skill.
+    acceptance:
+      - The three prompts embed and load by phase name.
+      - Content invariants (no-gates, commit-per-unit, advisor loops, worktree-direct sub-agents) are asserted by tests.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    parallel_group: foundations
+    depends_on: [step-1]
+
+  - id: step-6
+    title: Phase orchestration loop with re-pointed runtime, advisor, approver, steering
+    scope: >
+      Implement the core engine that drives plan -> implement -> review via the
+      injected PhaseRunner. Each phase is a fresh run bound to the worktree workDir
+      with: the phase prose, an empty conversation seeded with task + on-disk
+      artifact pointers, the per-phase model from oneshot.models (fallback
+      DefaultModel), the advisor force-enabled with per-phase budget, a
+      worktree-scoped auto-approver, and the steer channel wired in. Enforce
+      mechanical boundary contracts (artifacts present, tree clean) and update the
+      manifest + per-phase session group id at each transition. Termination bounds
+      (advisor budget + round caps) prevent thrashing; residuals are surfaced.
+    files:
+      - internal/oneshot/orchestrator.go
+      - internal/oneshot/phase.go
+      - internal/oneshot/approver.go
+      - internal/oneshot/boundary.go
+    constraints:
+      - Model context resets between phases; cross-phase state is disk artifacts + git only.
+      - Auto-approver is scoped to the worktree; the bash sandbox stays the guardrail.
+      - Steering must be non-blocking; the run never waits for user input.
+      - Advisor is force-enabled per phase regardless of global AdvisorConfig.Enabled.
+      - Boundary contract failure stops the run cleanly and records the reached phase.
+      - No nested sub-agents; the orchestrator is machinery, not an agent.
+    acceptance:
+      - A full plan->implement->review run executes unattended against a stubbed phase runner.
+      - Each phase gets the correct model, a fresh context, advisor enabled, and the steer channel.
+      - Boundary failures stop cleanly with manifest state intact.
+      - Per-phase sessions are persisted and grouped by run id.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    depends_on: [step-2, step-3, step-4, step-5]
+
+  - id: step-7
+    title: Final report assembly (success and failure shapes)
+    scope: >
+      Assemble the structured final report from manifest + git + review outcome:
+      task summary, changes, files changed, validation run/results, review outcome,
+      review-fix iterations, assumptions, risks/limitations, completion flag. Define
+      the failure-report shape (what was attempted, what blocked, what was left
+      behind). Write the report to the worktree planning folder and return it as the
+      orchestrator's final result for emission.
+    files:
+      - internal/oneshot/report.go
+    constraints:
+      - Report must list per-phase session ids and the branch/worktree for later navigation.
+      - Failure reports must state whether changes were left behind.
+      - Keep the report concise and bounded.
+    acceptance:
+      - Success and failure reports render with all required fields.
+      - The report is written to disk and returned to the caller.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    depends_on: [step-6]
+
+  - id: step-8
+    title: Phase-level resume and run listing
+    scope: >
+      Implement manifest-driven resume: validate/re-provision the worktree from the
+      branch, reclaim a stale lock, determine the first incomplete phase, and re-run
+      it from its start using on-disk artifacts + committed work; skip completed
+      phases. Implement run listing that surfaces resumable runs from manifests.
+    files:
+      - internal/oneshot/resume.go
+      - internal/oneshot/list.go
+    constraints:
+      - Resume is phase-level only; do not attempt mid-phase turn restoration.
+      - A missing worktree is re-provisioned from the existing branch.
+      - Refuse to resume a run whose lock is still live.
+    acceptance:
+      - An interrupted run resumes at the first incomplete phase and completes.
+      - Completed phases are not re-run.
+      - Run listing enumerates resumable runs with status.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    depends_on: [step-6, step-7]
+
+  - id: step-9
+    title: Config-gated auto-PR closeout step
+    scope: >
+      When oneshot.auto_pr is enabled, perform the closeout PR/MR step after a
+      passing review: detect the remote provider, push the branch, and open a PR/MR
+      with a body assembled from overview.md's overview section, the loop's non-merge
+      commit messages, and the final review outcome/risks. Reuse the existing
+      provider flows (GitHub gh, GitLab push options, Azure az); report cleanly for
+      unsupported providers. When disabled, closeout stops at the report.
+    files:
+      - internal/oneshot/closeout.go
+    constraints:
+      - No push/PR when auto_pr is false.
+      - Provider target branch selection mirrors the review/pull-request skill order.
+      - Unsupported providers do not invalidate the reviewed work; report and continue.
+    acceptance:
+      - With auto_pr true and a passing review, a PR/MR is created via the detected provider.
+      - With auto_pr false, no outward-facing action occurs.
+      - Unsupported provider is reported without failing the run.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/oneshot/...
+    depends_on: [step-6, step-7, step-2]
+
+  - id: step-10
+    title: CLI subcommand steiner oneshot (run / resume / list)
+    scope: >
+      Add the steiner oneshot CLI subcommand wiring the engine: run a task
+      (steiner oneshot "<task>"), --resume <id>, and --list. Provide the cmd-side
+      phase-runner factory (from step-1) and event streaming. CLI runs with no steer
+      source by default; the autonomy contract is identical.
+    files:
+      - cmd/steiner/cmd_oneshot.go
+      - cmd/steiner/commands.go
+      - cmd/steiner/main.go
+    constraints:
+      - cmd/steiner stays composition/wiring only; orchestration logic lives in internal/oneshot.
+      - Headless run requires no interactive input and never blocks.
+      - Reuse buildRuntime/phase-runner factory; no duplicated run construction.
+    acceptance:
+      - steiner oneshot "<task>" runs end-to-end headless and prints the final report.
+      - --resume and --list operate against manifests.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go build ./...
+      - go test ./cmd/steiner/...
+    depends_on: [step-6, step-7, step-8, step-9]
+
+  - id: step-11
+    title: TUI /oneshot command, scrollback dividers, steering, resume entry
+    scope: >
+      Add the /oneshot command to the interactive TUI: parse the command, launch the
+      engine in-session, wire the session steer channel across phases, and on each
+      phase transition keep the on-screen transcript while inserting a
+      "-- Phase N: <name> --" divider and resetting only the model context. Add a
+      live phase indicator and a resume entry. Persist per-phase sessions grouped by
+      run id.
+    files:
+      - internal/tui/input.go
+      - internal/tui/model.go
+      - internal/tui/model_events.go
+      - internal/interactive/actions.go
+      - internal/interactive/session.go
+    constraints:
+      - Do not reuse workflow_handoff's wipe-on-transition; keep scrollback with dividers.
+      - Steering stays available and non-blocking across phase boundaries.
+      - Only the model context resets on transition; displayed/persisted history is retained.
+      - Do not alter existing workflow_handoff behaviour.
+    acceptance:
+      - /oneshot <task> launches an autonomous run with live phase dividers and a phase indicator.
+      - Steering typed mid-run reaches the active phase without stopping it.
+      - The user can scroll back through all phases at the end and resume an interrupted run.
+    verification:
+      - gofmt -w + goimports -w on touched files
+      - go test ./internal/tui/... ./internal/interactive/...
+    depends_on: [step-6, step-7, step-8]
+
+  - id: step-12
+    title: Documentation for the oneshot feature
+    scope: >
+      Document the new top-level feature: a README feature section (description +
+      config example + CLI/TUI usage), a dedicated docs/ONESHOT.md detailing the
+      mechanism (phases, worktree/identity, advisor loops, resume, auto-PR,
+      visibility), CONFIGURATION coverage cross-check, and a new maintenance rule in
+      CLAUDE.md for internal/oneshot changes.
+    files:
+      - README.md
+      - docs/ONESHOT.md
+      - CLAUDE.md
+    constraints:
+      - Follow CLAUDE.md documentation-maintenance rules for a new top-level feature.
+      - Keep README changes focused; deep detail goes in docs/ONESHOT.md.
+    acceptance:
+      - README has an oneshot feature section with a config example and usage.
+      - docs/ONESHOT.md documents the full mechanism.
+      - CLAUDE.md gains an internal/oneshot maintenance rule.
+    verification:
+      - Prose review; links resolve; config example matches step-2 schema.
+    depends_on: [step-2, step-9, step-10, step-11]
+
+  - id: step-13
+    title: End-to-end integration test and full verification gate
+    scope: >
+      Add a functional integration test exercising a oneshot run against a stubbed
+      provider/fixtures: happy path (plan->implement->review->report), a boundary
+      failure clean-stop, and a phase-level resume. Then run the full repo
+      verification gate.
+    files:
+      - internal/oneshot/integration_test.go
+      - testdata/oneshot/
+    constraints:
+      - Use testdata fixtures; avoid large inline literals.
+      - Tests must be deterministic and not require network or a real model.
+      - Cover concurrency safety of identity/lock at least at unit level.
+    acceptance:
+      - Integration test covers happy path, clean failure stop, and resume.
+      - make check passes; race detector is clean.
+    verification:
+      - golangci-lint cache clean
+      - go test -race ./...
+      - golangci-lint run ./...
+      - govulncheck ./...
+      - make check
+    depends_on: [step-10, step-11, step-12]
