@@ -75,6 +75,8 @@ Focus on:
 
 Review touched files and directly adjacent regression-risk areas: call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code.
 
+For inspection, use native tools directly — `read` to examine files, `grep` and `glob` to locate code and call sites, `mutate` for `review.md`. Do not route through `bash` when a dedicated tool exists.
+
 Prefer evidence over speculation. Findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
 
 ## Findings
