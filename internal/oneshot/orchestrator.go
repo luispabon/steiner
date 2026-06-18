@@ -14,7 +14,7 @@ import (
 // Run executes the autonomous plan -> implement -> review loop.
 //
 //nolint:gocyclo
-func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
+func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 	if o == nil {
 		return Manifest{}, fmt.Errorf("orchestrator is required")
 	}
@@ -25,6 +25,13 @@ func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 	}
 	worktreePath := worktree.Path
 	planningPath := o.deps.Identity.PlanningPath(worktreePath)
+
+	defer func() {
+		if err != nil && manifest.RunID != "" {
+			o.tryFailureReport(ctx, &manifest, planningPath)
+		}
+	}()
+
 	store := o.deps.ManifestStore
 	if store == nil {
 		store = NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
@@ -45,7 +52,7 @@ func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("create planning directory: %w", err)
 	}
 
-	manifest := Manifest{
+	manifest = Manifest{
 		RunID:         o.deps.Identity.ID,
 		Slug:          o.deps.Identity.Slug,
 		Task:          o.deps.Task,
@@ -79,6 +86,7 @@ func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 		emitPhaseTransition(o.deps.Events, manifest.RunID, previousPhase, phase, phaseTransitionStarting, modelAlias, "")
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorStarting, "phase starting")
 
+		lock.Heartbeat()
 		manifest.CurrentPhase = phase
 		manifest.PhaseStatuses[phase] = PhaseStatusRunning
 		if err := store.Write(manifest); err != nil {
@@ -150,6 +158,8 @@ func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 		previousPhase = phase
 	}
 
+	o.finalizeRun(ctx, &manifest, planningPath)
+
 	return manifest, nil
 }
 
@@ -196,4 +206,60 @@ func cloneAgentMessages(messages []agent.Message) []agent.Message {
 	out := make([]agent.Message, len(messages))
 	copy(out, messages)
 	return out
+}
+
+// tryFailureReport attempts to generate a failure report on error.
+func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest, planningPath string) {
+	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
+		return
+	}
+	outcome := ReviewOutcome{
+		Passed:    false,
+		Attempted: string(manifest.CurrentPhase),
+	}
+	report, err := GenerateFinalReport(ctx, *manifest, outcome)
+	if err != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("generate failure report: %v", err))
+		return
+	}
+	manifest.ReportPath = report.ReportPath
+}
+
+// finalizeRun generates the final report and runs closeout for a successful run.
+func (o *Orchestrator) finalizeRun(ctx context.Context, manifest *Manifest, planningPath string) {
+	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
+		return
+	}
+	outcome := ReviewOutcome{
+		Passed:  manifest.PhaseStatuses[PhaseReview] == PhaseStatusDone,
+		Summary: "review phase completed",
+	}
+	if !outcome.Passed {
+		outcome.Attempted = string(manifest.CurrentPhase)
+	}
+
+	report, err := GenerateFinalReport(ctx, *manifest, outcome)
+	if err != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("generate report: %v", err))
+		return
+	}
+	manifest.ReportPath = report.ReportPath
+
+	overview := ""
+	data, readErr := os.ReadFile(filepath.Join(planningPath, "overview.md"))
+	if readErr == nil {
+		overview = string(data)
+	}
+
+	input := CloseoutInput{
+		Manifest: *manifest,
+		Report:   report,
+		Overview: overview,
+	}
+	result, closeoutErr := Closeout(ctx, o.deps.Config, input)
+	if closeoutErr != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("closeout: %v", closeoutErr))
+		return
+	}
+	_ = result
 }

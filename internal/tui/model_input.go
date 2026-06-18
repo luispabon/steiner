@@ -485,9 +485,12 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 			return
 		}
 
-		_, err = orchestrator.Run(context.Background())
+		manifest, err := orchestrator.Run(context.Background())
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run failed: %v", err)))
+		}
+		if manifest.ReportPath != "" {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
 		}
 
 		// Do not close the steer channel — sending to a closed channel panics.
@@ -575,9 +578,12 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 			return
 		}
 
-		_, err = orchestrator.Resume(context.Background())
+		runManifest, err := orchestrator.Resume(context.Background())
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+		}
+		if runManifest.ReportPath != "" {
+			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", runManifest.ReportPath)))
 		}
 	}()
 

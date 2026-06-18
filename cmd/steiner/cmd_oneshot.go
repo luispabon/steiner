@@ -104,6 +104,9 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	if err != nil {
 		return err
 	}
+	if manifest.ReportPath != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "report: %s\n", manifest.ReportPath)
+	}
 	return printOneshotManifest(cmd.OutOrStdout(), manifest)
 }
 
@@ -146,6 +149,9 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 	updated, err := orch.Resume(cmd.Context())
 	if err != nil {
 		return err
+	}
+	if updated.ReportPath != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "report: %s\n", updated.ReportPath)
 	}
 	return printOneshotManifest(cmd.OutOrStdout(), updated)
 }

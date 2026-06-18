@@ -57,6 +57,7 @@ type Manifest struct {
 	PhaseStatuses    map[Phase]PhaseStatus `json:"phase_statuses,omitempty"`
 	PhaseSessionIDs  map[Phase]string      `json:"phase_session_ids,omitempty"`
 	CommitMilestones []CommitMilestone     `json:"commit_milestones,omitempty"`
+	ReportPath       string                `json:"report_path,omitempty"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
 }

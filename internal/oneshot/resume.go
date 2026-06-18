@@ -47,11 +47,11 @@ func (o *Orchestrator) Resume(ctx context.Context) (Manifest, error) {
 	}
 	manifest.WorktreePath = worktree.Path
 
-	return o.resumeFromManifest(ctx, store, manifest, worktree)
+	return o.resumeFromManifest(ctx, store, manifest, worktree, lock)
 }
 
 //nolint:gocyclo
-func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree) (Manifest, error) {
+func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree, lock *RunLock) (ret Manifest, retErr error) {
 	startPhase, ok := firstIncompletePhase(manifest)
 	if !ok {
 		return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
@@ -61,6 +61,13 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 	defer interruptStop()
 
 	planningPath := o.deps.Identity.PlanningPath(worktree.Path)
+
+	defer func() {
+		if retErr != nil && manifest.RunID != "" {
+			o.tryFailureReport(ctx, &manifest, planningPath)
+		}
+	}()
+
 	if err := os.MkdirAll(planningPath, 0o755); err != nil {
 		return Manifest{}, fmt.Errorf("create planning directory: %w", err)
 	}
@@ -94,6 +101,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		emitPhaseTransition(o.deps.Events, manifest.RunID, previousPhase, phase, phaseTransitionStarting, modelAlias, "")
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorStarting, "phase starting")
 
+		lock.Heartbeat()
 		manifest.CurrentPhase = phase
 		manifest.PhaseStatuses[phase] = PhaseStatusRunning
 		if err := store.Write(manifest); err != nil {
@@ -140,8 +148,8 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		}
 
 		requiredArtifacts := []string{
-			joinPlanningArtifact(planningPath, "overview.md"),
-			joinPlanningArtifact(planningPath, "plan.yaml"),
+			filepath.Join(planningPath, "overview.md"),
+			filepath.Join(planningPath, "plan.yaml"),
 		}
 		if err := CheckBoundary(phaseCtx, phase, worktree.Path, requiredArtifacts); err != nil {
 			cancel()
@@ -156,6 +164,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 
 		cancel()
 		manifest.PhaseStatuses[phase] = PhaseStatusDone
+		lock.Heartbeat()
 		manifest.CurrentPhase = phase
 		if err := store.Write(manifest); err != nil {
 			return manifest, err
@@ -164,6 +173,8 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		emitPhaseTransition(o.deps.Events, manifest.RunID, phase, phase, phaseTransitionCompleted, modelAlias, sessionID)
 		previousPhase = phase
 	}
+
+	o.finalizeRun(ctx, &manifest, planningPath)
 
 	return manifest, nil
 }
@@ -213,8 +224,4 @@ func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunI
 	}
 
 	return ProvisionWorktree(ctx, projectRoot, identity)
-}
-
-func joinPlanningArtifact(planningPath, name string) string {
-	return filepath.Join(planningPath, name)
 }
