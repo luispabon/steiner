@@ -524,3 +524,33 @@ func NewAdvisorBudgetExhaustedEvent(model string, used, maxUses int, message str
 		},
 	}
 }
+
+// NewPhaseTransitionEvent creates a phase_transition event.
+func NewPhaseTransitionEvent(runID, from, to, status, model, sessionID string) Event {
+	return Event{
+		Type:      EventTypePhaseTransition,
+		Timestamp: time.Now().UTC(),
+		Payload: PhaseTransitionEvent{
+			RunID:     strings.TrimSpace(runID),
+			From:      strings.TrimSpace(from),
+			To:        strings.TrimSpace(to),
+			Status:    strings.TrimSpace(status),
+			Model:     strings.TrimSpace(model),
+			SessionID: strings.TrimSpace(sessionID),
+		},
+	}
+}
+
+// NewPhaseIndicatorEvent creates a phase_indicator event.
+func NewPhaseIndicatorEvent(runID, phase, state, message string) Event {
+	return Event{
+		Type:      EventTypePhaseIndicator,
+		Timestamp: time.Now().UTC(),
+		Payload: PhaseIndicatorEvent{
+			RunID:   strings.TrimSpace(runID),
+			Phase:   strings.TrimSpace(phase),
+			State:   strings.TrimSpace(state),
+			Message: strings.TrimSpace(message),
+		},
+	}
+}

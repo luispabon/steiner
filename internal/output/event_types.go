@@ -78,6 +78,10 @@ const (
 	// EventTypeAdvisorBudgetExhausted marks a skipped advisor call because the
 	// per-run budget was already exhausted.
 	EventTypeAdvisorBudgetExhausted = "advisor_budget_exhausted"
+	// EventTypePhaseTransition marks a oneshot phase transition.
+	EventTypePhaseTransition = "phase_transition"
+	// EventTypePhaseIndicator marks a oneshot phase status indicator.
+	EventTypePhaseIndicator = "phase_indicator"
 
 	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
 	// file to the user. The event payload carries an explicit preview document so
@@ -403,6 +407,24 @@ type AdvisorBudgetExhaustedEvent struct {
 	Model   string `json:"model,omitempty"`
 	Used    int    `json:"used"`
 	MaxUses int    `json:"max_uses"`
+	Message string `json:"message,omitempty"`
+}
+
+// PhaseTransitionEvent records a oneshot phase handoff.
+type PhaseTransitionEvent struct {
+	RunID     string `json:"run_id,omitempty"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Model     string `json:"model,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// PhaseIndicatorEvent records a oneshot phase state update.
+type PhaseIndicatorEvent struct {
+	RunID   string `json:"run_id,omitempty"`
+	Phase   string `json:"phase,omitempty"`
+	State   string `json:"state,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
