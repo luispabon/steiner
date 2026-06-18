@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -30,17 +31,23 @@ type cliRunner struct {
 	currentAlias       func() string
 }
 
-type runResult struct {
-	Conversation    []agent.Message
-	Reply           string
-	Diagnostics     []output.Event
-	WorkflowHandoff *tool.WorkflowHandoffTransition
-}
+type runResult = oneshot.RunResult
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
+	return r.run(runCtx, conversation, skillNames, steerCh)
+}
+
+// RunPhase executes a single phase run without installing a signal handler.
+// The caller owns cancellation and interrupt handling for phase orchestration.
+func (r cliRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
+	resetFallbackModelWarnings()
+	return r.run(ctx, conversation, skillNames, steerCh)
+}
+
+func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
 	setup, err := r.prepareRun(conversation, skillNames)
 	if err != nil {
 		return runResult{}, err
@@ -60,7 +67,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()
-	state, err := runner.Run(runCtx, buildRunRequest(r, conversation, setup, activeRegistry, events, steerCh))
+	state, err := runner.Run(ctx, buildRunRequest(r, conversation, setup, activeRegistry, events, steerCh))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)
@@ -81,6 +88,7 @@ func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillN
 		Reply:           lastAssistantReply(state.Conversation),
 		Diagnostics:     cloneEvents(*diagnostics),
 		WorkflowHandoff: state.WorkflowHandoff,
+		Lineage:         state.Lineage,
 	}, nil
 }
 
