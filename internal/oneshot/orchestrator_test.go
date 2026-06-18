@@ -111,7 +111,7 @@ type recordingRunnerFactory struct {
 	calls        map[Phase]recordedPhaseInput
 }
 
-func (f *recordingRunnerFactory) NewPhaseRunner(ctx context.Context, phase Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (PhaseRunner, error) {
+func (f *recordingRunnerFactory) NewPhaseRunner(_ context.Context, phase Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (PhaseRunner, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.calls == nil {
@@ -150,9 +150,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
-			PhasePlan:      &phaseRunnerStub{writePlan: true},
-			PhaseImplement: &phaseRunnerStub{},
-			PhaseReview:    &phaseRunnerStub{},
+			PhasePlan:      {writePlan: true},
+			PhaseImplement: {},
+			PhaseReview:    {},
 		},
 	}
 
@@ -281,7 +281,7 @@ func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: identity.PlanningPath(worktree.Path),
 		runners: map[Phase]*phaseRunnerStub{
-			PhasePlan: &phaseRunnerStub{writePlan: false},
+			PhasePlan: {writePlan: false},
 		},
 	}
 
@@ -334,7 +334,7 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: identity.PlanningPath(worktree.Path),
 		runners: map[Phase]*phaseRunnerStub{
-			PhasePlan: &phaseRunnerStub{blockOnCancel: true, started: started},
+			PhasePlan: {blockOnCancel: true, started: started},
 		},
 	}
 	orch, err := NewOrchestrator(Dependencies{

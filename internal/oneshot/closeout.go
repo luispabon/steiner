@@ -50,6 +50,8 @@ type CloseoutResult struct {
 //
 // That keeps the user's existing git credentials, SSH agent, gh auth state, and
 // Azure CLI login visible to the push/PR command when oneshot.auto_pr is enabled.
+//
+//nolint:gocyclo
 func Closeout(ctx context.Context, cfg config.Config, input CloseoutInput) (CloseoutResult, error) {
 	if !cfg.OneShot.AutoPR {
 		return CloseoutResult{
@@ -74,10 +76,7 @@ func Closeout(ctx context.Context, cfg config.Config, input CloseoutInput) (Clos
 		return CloseoutResult{State: closeoutStateFailed}, fmt.Errorf("closeout: branch name is required")
 	}
 
-	remoteName, err := trackingRemote(ctx, worktreePath, branch)
-	if err != nil {
-		return CloseoutResult{State: closeoutStateFailed}, err
-	}
+	remoteName := trackingRemote(ctx, worktreePath, branch)
 
 	remoteURL, err := gitOutput(ctx, worktreePath, "remote", "get-url", remoteName)
 	if err != nil {
@@ -228,15 +227,15 @@ func closeoutTitle(report FinalReport) string {
 	return title
 }
 
-func trackingRemote(ctx context.Context, worktreePath, branch string) (string, error) {
+func trackingRemote(ctx context.Context, worktreePath, branch string) string {
 	remote, err := gitOutput(ctx, worktreePath, "config", "--get", "branch."+branch+".remote")
 	if err == nil {
 		remote = strings.TrimSpace(remote)
 		if remote != "" {
-			return remote, nil
+			return remote
 		}
 	}
-	return "origin", nil
+	return "origin"
 }
 
 func resolveTargetBranch(ctx context.Context, worktreePath, remote string) (string, error) {

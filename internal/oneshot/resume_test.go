@@ -92,8 +92,8 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
-			PhaseImplement: &phaseRunnerStub{writePlan: false},
-			PhaseReview:    &phaseRunnerStub{writePlan: false},
+			PhaseImplement: {writePlan: false},
+			PhaseReview:    {writePlan: false},
 		},
 	}
 	orch, err := NewOrchestrator(Dependencies{

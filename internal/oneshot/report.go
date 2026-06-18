@@ -375,7 +375,7 @@ func sanitizeFixIterations(iterations []ReviewFixIteration) []ReviewFixIteration
 	return out
 }
 
-func sanitizeStrings(values []string, limit int) []string {
+func sanitizeStrings(values []string, limit int) []string { //nolint:unparam
 	if len(values) == 0 || limit <= 0 {
 		return nil
 	}

@@ -12,6 +12,7 @@ import (
 // Phase identifies a top-level oneshot phase.
 type Phase string
 
+// Phase constants identify the three ordered oneshot phases.
 const (
 	PhasePlan      Phase = "plan"
 	PhaseImplement Phase = "implement"
@@ -21,6 +22,7 @@ const (
 // PhaseStatus captures the lifecycle state of a phase.
 type PhaseStatus string
 
+// PhaseStatus constants describe the lifecycle state of a phase within a run.
 const (
 	PhaseStatusPending PhaseStatus = "pending"
 	PhaseStatusRunning PhaseStatus = "running"

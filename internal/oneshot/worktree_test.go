@@ -104,7 +104,7 @@ func setupGitRepo(t *testing.T) string {
 
 func mustGitOutput(t *testing.T, workDir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", workDir}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", workDir}, args...)...) //nolint:noctx
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
@@ -114,7 +114,7 @@ func mustGitOutput(t *testing.T, workDir string, args ...string) string {
 
 func runGitTest(t *testing.T, workDir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", workDir}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", workDir}, args...)...) //nolint:noctx
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)

@@ -12,6 +12,8 @@ import (
 )
 
 // Run executes the autonomous plan -> implement -> review loop.
+//
+//nolint:gocyclo
 func (o *Orchestrator) Run(ctx context.Context) (Manifest, error) {
 	if o == nil {
 		return Manifest{}, fmt.Errorf("orchestrator is required")

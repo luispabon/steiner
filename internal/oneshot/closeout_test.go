@@ -368,7 +368,7 @@ exit 1
 	return binDir
 }
 
-func loadCloseoutConfig(t *testing.T, autoPR bool) config.Config {
+func loadCloseoutConfig(t *testing.T, autoPR bool) config.Config { //nolint:unparam
 	t.Helper()
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")

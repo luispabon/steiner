@@ -18,7 +18,7 @@ func NewWorktreeAutoApprover(worktreeRoot string) tool.ApprovalResponder {
 	return worktreeAutoApprover{worktreeRoot: filepath.Clean(strings.TrimSpace(worktreeRoot))}
 }
 
-func (a worktreeAutoApprover) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
+func (a worktreeAutoApprover) RequestApproval(_ context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return nil
 	}

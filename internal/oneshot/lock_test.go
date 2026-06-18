@@ -2,6 +2,7 @@ package oneshot
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ func TestAcquireRunLockBlocksSecondHolder(t *testing.T) {
 		_ = lock.Release()
 	})
 
-	if _, err := acquireRunLock(dir, identity, time.Hour); err != errLockHeld {
+	if _, err := acquireRunLock(dir, identity, time.Hour); !errors.Is(err, errLockHeld) {
 		t.Fatalf("second acquire error = %v, want errLockHeld", err)
 	}
 }

@@ -239,9 +239,9 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	}
 
 	repoRoot := t.TempDir()
-	runGit := func(dir string, args ...string) string {
+	runGit := func(dir string, args ...string) string { //nolint:unparam
 		t.Helper()
-		cmd := exec.Command(gitPath, args...)
+		cmd := exec.Command(gitPath, args...) //nolint:noctx
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
 		if err != nil {

@@ -179,7 +179,7 @@ type phaseRunnerFactory struct {
 	identity oneshot.RunIdentity
 }
 
-func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
 	return newPhaseRunner(ctx, f.cmd, f.flags, f.rootDir, f.identity.WorktreePath(f.rootDir), modelAlias, approver, advisorCfg, 0, "oneshot", false)
 }
 

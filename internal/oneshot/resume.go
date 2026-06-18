@@ -50,6 +50,7 @@ func (o *Orchestrator) Resume(ctx context.Context) (Manifest, error) {
 	return o.resumeFromManifest(ctx, store, manifest, worktree)
 }
 
+//nolint:gocyclo
 func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree) (Manifest, error) {
 	startPhase, ok := firstIncompletePhase(manifest)
 	if !ok {
