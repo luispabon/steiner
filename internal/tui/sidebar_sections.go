@@ -58,11 +58,16 @@ func (s sidebarState) modelSection(width int) []string {
 	if q := strings.TrimSpace(s.quant); q != "" {
 		lines = append(lines, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
 	}
-	host := fitText(stripProviderURL(s.provider), width-7)
-	if host == "" {
-		host = "n/a"
+	providerDisplay := strings.TrimSpace(s.providerName)
+	if providerDisplay == "" {
+		providerDisplay = fitText(stripProviderURL(s.provider), width-7)
+	} else {
+		providerDisplay = fitText(providerDisplay, width-11)
 	}
-	return append(lines, cardField("host", s.styles.FgDim, host, s.styles))
+	if providerDisplay == "" {
+		providerDisplay = "n/a"
+	}
+	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
 }
 
 func (s sidebarState) contextSection(width int) []string {

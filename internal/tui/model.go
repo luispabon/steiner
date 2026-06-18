@@ -74,6 +74,7 @@ type Model struct {
 	modelNames                   []string
 	modelContexts                map[string]int
 	modelBaseURLs                map[string]string
+	modelProviderNames           map[string]string
 	controller                   interactive.Controller
 	activeTheme                  theme.Theme
 	styles                       theme.Styles
@@ -132,6 +133,9 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.status.model = m.primaryModel
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
+	if name, ok := m.modelProviderNames[modelName]; ok {
+		m.sidebar.providerName = name
+	}
 	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
@@ -146,6 +150,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 func (m *Model) syncSidebar() {
 	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
+	m.sidebar.providerName = strings.TrimSpace(m.sidebar.providerName)
 	m.sidebar.activeSkill = m.activeSkillName()
 	if snap := m.git.Snapshot(); snap.ready {
 		m.sidebar.branch = snap.branch
@@ -233,6 +238,17 @@ func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+func cloneModelProviderNames(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func cloneModelBaseURLs(src map[string]string) map[string]string {

@@ -32,24 +32,26 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
-	Model             string
-	ModelNames        []string
-	ModelContexts     map[string]int
-	ModelBaseURLs     map[string]string
-	ProviderBaseURL   string
-	HomeDir           string
-	WorkingDir        string
-	MaxTurns          int
-	SkillNames        []string
-	SkillDescriptions map[string]string // skill name -> short summary
-	SkillSources      map[string]string // skill name -> "project"/"user"/"global"
-	Theme             string
-	AccentPreset      string
-	ShowThinking      bool
-	SidebarPosition   string
-	Version           string
-	Controller        interactive.Controller
-	SessionStore      SessionLister
+	Model              string
+	ModelNames         []string
+	ModelContexts      map[string]int
+	ModelBaseURLs      map[string]string
+	ModelProviderNames map[string]string
+	ProviderBaseURL    string
+	ProviderName       string
+	HomeDir            string
+	WorkingDir         string
+	MaxTurns           int
+	SkillNames         []string
+	SkillDescriptions  map[string]string // skill name -> short summary
+	SkillSources       map[string]string // skill name -> "project"/"user"/"global"
+	Theme              string
+	AccentPreset       string
+	ShowThinking       bool
+	SidebarPosition    string
+	Version            string
+	Controller         interactive.Controller
+	SessionStore       SessionLister
 }
 
 // App wires the TUI runtime and event bridge.
