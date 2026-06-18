@@ -35,6 +35,7 @@ Key environment variables:
 | `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
 | `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
+| `oneshot`           | block    | empty       | Per-phase model aliases and closeout settings for autonomous oneshot runs. Unset phase aliases fall back to `default_model` at runtime, not during load. |
 | `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
 
 ## `advisor` block
@@ -58,6 +59,28 @@ advisor:
   model: advisor-model
   max_uses_per_run: 2
   max_tokens: 256
+```
+
+---
+
+## `oneshot` block
+
+Controls per-phase model aliases and the optional closeout PR flow for the
+autonomous `oneshot` mode. `models` is sparse: omit a phase to let runtime use
+`default_model` when that phase is resolved.
+
+| Field     | Type   | Default | Description |
+|-----------|--------|---------|-------------|
+| `models`  | map    | empty   | Per-phase model aliases keyed by `plan`, `implement`, and `review`. Each value must reference a key in `models`. Missing phases fall back to `default_model` at runtime. |
+| `auto_pr` | bool   | `false` | When `true`, oneshot closeout may push the branch and open a PR/MR after a passing review. |
+
+```yaml
+oneshot:
+  models:
+    plan: planner-model
+    implement: coder-model
+    review: reviewer-model
+  auto_pr: false
 ```
 
 ---

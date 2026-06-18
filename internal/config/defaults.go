@@ -59,6 +59,9 @@ func defaultConfig() Config {
 			Enabled:       false,
 			MaxUsesPerRun: 3,
 		},
+		OneShot: oneshotConfig{
+			AutoPR: false,
+		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
 			MaxTokens: 2000,

@@ -10,6 +10,7 @@ type configPatch struct {
 	Limits            *limitsPatch              `yaml:"limits"`
 	SubAgent          *subAgentPatch            `yaml:"sub_agent"`
 	Advisor           *advisorPatch             `yaml:"advisor"`
+	OneShot           *oneshotPatch             `yaml:"oneshot"`
 	WorkflowHandoff   *workflowHandoffPatch     `yaml:"workflow_handoff"`
 	Tools             *map[string]toolPatch     `yaml:"tools"`
 	ProjectContext    *projectContextPatch      `yaml:"project_context"`
@@ -97,6 +98,11 @@ type advisorPatch struct {
 	Model         *string `yaml:"model"`
 	MaxUsesPerRun *int    `yaml:"max_uses_per_run"`
 	MaxTokens     *int    `yaml:"max_tokens"`
+}
+
+type oneshotPatch struct {
+	Models *map[string]string `yaml:"models"`
+	AutoPR *bool              `yaml:"auto_pr"`
 }
 
 type workflowHandoffPatch struct {

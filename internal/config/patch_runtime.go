@@ -12,6 +12,12 @@ func applyAdvisorConfigPatch(cfg *Config, patch configPatch) {
 	}
 }
 
+func applyOneShotConfigPatch(cfg *Config, patch configPatch) {
+	if patch.OneShot != nil {
+		applyOneShotPatch(&cfg.OneShot, patch.OneShot)
+	}
+}
+
 func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.Enabled != nil {
 		dst.Enabled = *patch.Enabled
@@ -52,6 +58,20 @@ func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
 	if patch.MaxTokens != nil {
 		value := *patch.MaxTokens
 		dst.MaxTokens = &value
+	}
+}
+
+func applyOneShotPatch(dst *oneshotConfig, patch *oneshotPatch) {
+	if patch.AutoPR != nil {
+		dst.AutoPR = *patch.AutoPR
+	}
+	if patch.Models != nil {
+		if dst.Models == nil {
+			dst.Models = make(map[string]string)
+		}
+		for phase, alias := range *patch.Models {
+			dst.Models[phase] = alias
+		}
 	}
 }
 

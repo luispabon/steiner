@@ -359,6 +359,84 @@ func TestApplyWorkflowHandoffPatch(t *testing.T) {
 	}
 }
 
+func TestApplyOneShotPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial oneshotConfig
+		patch   oneshotPatch
+		want    oneshotConfig
+	}{
+		{
+			name:    "sets models and auto_pr",
+			initial: oneshotConfig{},
+			patch: oneshotPatch{
+				Models: stringMapPtr(map[string]string{
+					"plan":      "planner-model",
+					"implement": "implement-model",
+					"review":    "review-model",
+				}),
+				AutoPR: boolPtr(true),
+			},
+			want: oneshotConfig{
+				Models: map[string]string{
+					"plan":      "planner-model",
+					"implement": "implement-model",
+					"review":    "review-model",
+				},
+				AutoPR: true,
+			},
+		},
+		{
+			name: "partial override preserves existing entries",
+			initial: oneshotConfig{
+				Models: map[string]string{
+					"plan":      "existing-plan",
+					"implement": "existing-implement",
+				},
+				AutoPR: true,
+			},
+			patch: oneshotPatch{
+				Models: stringMapPtr(map[string]string{
+					"review": "new-review",
+				}),
+			},
+			want: oneshotConfig{
+				Models: map[string]string{
+					"plan":      "existing-plan",
+					"implement": "existing-implement",
+					"review":    "new-review",
+				},
+				AutoPR: true,
+			},
+		},
+		{
+			name: "nil fields leave value untouched",
+			initial: oneshotConfig{
+				Models: map[string]string{
+					"plan": "existing",
+				},
+				AutoPR: false,
+			},
+			patch: oneshotPatch{},
+			want: oneshotConfig{
+				Models: map[string]string{
+					"plan": "existing",
+				},
+				AutoPR: false,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyOneShotPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyOneShotPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
 func TestCloneModelConfig(t *testing.T) {
 	original := ModelConfig{
 		Provider:     "local",

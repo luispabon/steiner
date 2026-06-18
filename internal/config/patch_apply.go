@@ -10,6 +10,7 @@ func applyPatch(cfg *Config, patch configPatch) {
 	applyLimitsConfigPatch(cfg, patch)
 	applySubAgentConfigPatch(cfg, patch)
 	applyAdvisorConfigPatch(cfg, patch)
+	applyOneShotConfigPatch(cfg, patch)
 	applyToolConfigPatch(cfg, patch)
 	applyProjectContextConfigPatch(cfg, patch)
 	applyPathsConfigPatch(cfg, patch)

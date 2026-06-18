@@ -495,6 +495,47 @@ func TestValidate(t *testing.T) {
 			wantErr: `workflow_handoff.models contains unknown destination "plan"`,
 		},
 		{
+			name: "oneshot known aliases accepted",
+			cfg: func() Config {
+				c := validBase()
+				c.OneShot = oneshotConfig{
+					Models: map[string]string{
+						"plan":      "default",
+						"implement": "default",
+						"review":    "default",
+					},
+				}
+				return c
+			}(),
+			wantErr: ``,
+		},
+		{
+			name: "oneshot unknown alias rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.OneShot = oneshotConfig{
+					Models: map[string]string{
+						"plan": "missing-model",
+					},
+				}
+				return c
+			}(),
+			wantErr: `oneshot.models["plan"] "missing-model" is not defined in models`,
+		},
+		{
+			name: "oneshot unknown phase rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.OneShot = oneshotConfig{
+					Models: map[string]string{
+						"bogus": "default",
+					},
+				}
+				return c
+			}(),
+			wantErr: `oneshot.models contains unknown phase "bogus"`,
+		},
+		{
 			name: "subagent agents validated even when disabled",
 			cfg: func() Config {
 				c := validBase()
