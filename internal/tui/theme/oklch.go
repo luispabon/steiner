@@ -90,9 +90,9 @@ func hexToRGB(hex string) (uint8, uint8, uint8) {
 	if len(hex) != 6 {
 		return 0, 0, 0
 	}
-	r, _ := strconv.ParseInt(hex[0:2], 16, 64)
-	g, _ := strconv.ParseInt(hex[2:4], 16, 64)
-	b, _ := strconv.ParseInt(hex[4:6], 16, 64)
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
 	return uint8(r), uint8(g), uint8(b)
 }
 
