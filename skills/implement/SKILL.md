@@ -102,31 +102,33 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Executor-Owned Work
 
-The executor acts only as an orchestrator. The following are the only direct actions it takes — everything else is delegated:
+The executor acts only as an orchestrator. It performs these actions directly using the native tool for each — do not route through `bash` when a dedicated tool exists:
 
-- artifact loading
-- branch checkout
-- step scheduling
-- `execution.md` updates
-- temporary branch and worktree provisioning
-- Steiner delegation dispatch
-- merge/conflict handling
-- temporary branch and worktree cleanup
-- verification orchestration
+- artifact loading — `read` to load plan files; `grep` and `glob` to locate files
+- `execution.md` creation and updates — `mutate`
+- branch checkout, worktree provisioning, merge/conflict handling, cleanup — `bash` for git operations
+- step scheduling and Steiner delegation dispatch
+- verification orchestration — `bash` for running checks; `read` to inspect results
 - reviewer handoff
 
-The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file changes) on implementation code. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback. The only exception is steps marked `no_delegate` in the plan.
+Everything else is delegated.
+
+### Implementation code restriction
+
+The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback.
+
+This restriction does not apply to executor-owned artifacts (`execution.md`, worktree provisioning, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
 Before any implementation action, ask: have I dispatched a sub-agent for this step? If no — stop, provision, delegate.
 
 ## Delegation Model
 
-The feature branch is owned by the executor. All implementation work MUST be performed by delegated sub-agents. The executor prefers the highest available delegation tier:
+The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). The executor prefers the highest available delegation tier:
 
 1. **Isolated delegation** (preferred): sub-agent works in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
 2. **Direct delegation** (fallback): sub-agent works directly on the feature branch. Used when worktrees are unavailable or provisioning fails.
 
-There is no inline execution tier except for steps marked `no_delegate`. If delegation itself is unavailable, stop and report a blocker.
+There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker. Exception: steps marked `no_delegate` in the plan are applied inline by the executor.
 
 Prefer isolated delegation. Fall back to direct delegation only when `git worktree add` fails, worktree provisioning checks fail, or sub-agent dispatch returns an error for the worktree path. A judgment that isolation is unnecessary or that the edits are simple does not justify skipping to direct delegation — only concrete errors do.
 
