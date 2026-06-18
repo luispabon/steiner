@@ -255,6 +255,39 @@ advisor:
 
 See [docs/ADVISOR_SUBAGENT.md](docs/ADVISOR_SUBAGENT.md) for the full behavior and implementation reference.
 
+### Oneshot mode
+
+`oneshot` is a headless autonomous orchestration mode. It runs steiner's agent loop three times — plan, implement, and review — each as a fresh agent run with a clean model context against a dedicated git worktree. No user interaction is required after the initial task description.
+
+**CLI usage**:
+```bash
+steiner oneshot "<task>"          # run end-to-end
+steiner oneshot --resume <id>     # resume an interrupted run
+steiner oneshot --list            # list resumable runs
+```
+
+**TUI usage** (from within `steiner`):
+```
+/oneshot <task>
+/oneshot --resume <id>
+/oneshot --list
+```
+
+**Configuration**:
+```yaml
+oneshot:
+  auto_pr: false                  # push branch and open PR/MR on passing review
+  models:
+    plan: ""                       # model alias override for plan phase (default: default_model)
+    implement: ""                  # model alias override for implement phase
+    review: ""                     # model alias override for review phase
+```
+
+The three phases run in sequence: the plan phase analyzes the task and produces a structured implementation plan; the implement phase executes that plan and commits changes; the review phase evaluates the implementation against the plan and produces a final report. Results are committed to a feature branch (`oneshot/<slug>-<id>`), and optionally pushed as a pull request if `auto_pr` is enabled.
+
+Each run is resumable — if interrupted, `steiner oneshot --resume <id>` recovers from the last incomplete phase without re-running previous work.
+
+See [docs/ONESHOT.md](docs/ONESHOT.md) for the full architecture, resumption logic, and run manifest structure.
 
 ### Web search
 

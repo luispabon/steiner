@@ -1,0 +1,225 @@
+# Oneshot Mode
+
+Oneshot is a headless autonomous orchestration mode that runs steiner's agent loop as three distinct phases — plan, implement, review — without user interaction. Each phase is a fresh agent run with empty model context against a dedicated git worktree forked from `origin/main`. Results are committed to a feature branch, and optionally pushed as a pull request.
+
+## Invocation
+
+**Headless CLI**:
+```bash
+steiner oneshot "<task>"          # run end-to-end
+steiner oneshot --resume <id>     # resume an interrupted run
+steiner oneshot --list            # list resumable runs
+```
+
+**Interactive TUI** (from within `steiner`):
+```
+/oneshot <task>
+/oneshot --resume <id>
+/oneshot --list
+```
+
+## Configuration
+
+The `oneshot` config block controls per-phase model aliases and PR closeout behavior:
+
+```yaml
+oneshot:
+  auto_pr: false                  # push branch and open PR/MR on passing review
+  models:
+    plan: ""                       # model alias override for plan phase (empty = default_model)
+    implement: ""                  # model alias override for implement phase
+    review: ""                     # model alias override for review phase
+```
+
+- `models.*` are optional; omit to use `default_model` at runtime.
+- `auto_pr` is optional; defaults to `false`.
+
+## Architecture
+
+### Run Identity and Provisioning
+
+Each oneshot run receives a unique **run ID** (short slug derived from the task and a timestamp/nonce). The orchestrator derives a **feature slug** and creates:
+
+- **Branch**: `oneshot/<slug>-<id>` (based on `origin/main`)
+- **Worktree**: `.steiner/worktrees/oneshot-<id>` (git worktree from the shared `.git`)
+
+The worktree and branch are immutable for the life of the run; concurrent runs never share a branch or worktree.
+
+Per-run locking is atomic and short-lived — acquired during provisioning, held through run setup, and released after the manifest is written. Stale locks are detected and reclaimed via compare-and-swap during resume.
+
+### Sandbox and Worktree
+
+Two distinct concepts work together:
+
+- **Sandbox writable-root**: remains the project root (`.`). This ensures `git status`, `git commit`, and `.steiner/config.yaml` work correctly.
+- **Agent operational directory** (`workDir`): the worktree path (`.steiner/worktrees/oneshot-<id>`). All model interactions, tool invocations, and file mutations happen here.
+
+The agent's prompt contexts reference the worktree path; tool schemas and results are scoped to the worktree. Between-phase state is carried by committed work in git and shared disk artifacts.
+
+### Phase Loop: Plan → Implement → Review
+
+Each phase is a fresh agent run with empty model context and a clean scrollback. Cross-phase state is carried by:
+
+1. **Disk artifacts**: `overview.md`, `plan.yaml`, `execution.md` (committed at phase boundaries)
+2. **Git history**: each phase leaves a commit milestone
+3. **Run manifest**: `.steiner/oneshot/<id>/run.json` (updated after each phase)
+
+**Plan phase**:
+- Task: analyze the request, explore the codebase, and produce a structured plan.
+- Output: `overview.md` (context summary), `plan.yaml` (implementation steps), and a commit to the feature branch.
+- Refinement: full advisor loops enabled if configured.
+
+**Implement phase**:
+- Task: execute the plan, make code changes, and validate with tests.
+- Input: reads `plan.yaml` and previous `overview.md`.
+- Output: `execution.md` (summary of changes), commits to the feature branch.
+- Refinement: point-consults (advisor enabled but capped at 1-2 uses).
+
+**Review phase**:
+- Task: review implementation against the plan, check code quality, and produce a final report.
+- Input: reads `plan.yaml`, `execution.md`, and all committed work.
+- Output: `review_report.md` (verdict and findings), final commit.
+- Refinement: full advisor loops enabled.
+- Gating: if review passes, may proceed to closeout (PR push if `auto_pr` is enabled).
+
+### Run Manifest
+
+The manifest is a durable JSON record at `.steiner/oneshot/<id>/run.json`:
+
+```json
+{
+  "run_id": "abc123",
+  "slug": "refactor-auth",
+  "task": "refactor the auth package to reduce complexity",
+  "branch": "oneshot/refactor-auth-abc123",
+  "worktree": ".steiner/worktrees/oneshot-abc123",
+  "config_snapshot": {
+    "plan_model": "default",
+    "implement_model": "default",
+    "review_model": "default",
+    "auto_pr": false
+  },
+  "phases": [
+    {
+      "name": "plan",
+      "status": "completed",
+      "session_id": "sess_111",
+      "commit": "abc1234...",
+      "started_at": "2026-06-18T10:00:00Z",
+      "completed_at": "2026-06-18T10:05:00Z"
+    },
+    {
+      "name": "implement",
+      "status": "completed",
+      "session_id": "sess_222",
+      "commit": "def5678...",
+      "started_at": "2026-06-18T10:05:30Z",
+      "completed_at": "2026-06-18T10:25:00Z"
+    },
+    {
+      "name": "review",
+      "status": "in_progress",
+      "session_id": "sess_333",
+      "started_at": "2026-06-18T10:25:30Z"
+    }
+  ],
+  "created_at": "2026-06-18T10:00:00Z"
+}
+```
+
+The manifest is used for resume logic, status reporting, and cross-phase bookkeeping.
+
+### Resume Behavior
+
+`steiner oneshot --resume <id>` validates and reclaims a run:
+
+1. **Validation**: ensures the worktree and branch still exist (re-provisions from the branch if the worktree was removed).
+2. **Lock reclamation**: acquires a fresh lock via CAS, releasing the stale one.
+3. **State recovery**: reads the manifest and determines the first incomplete phase.
+4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
+
+Worktrees are left in place after a run (including after interrupt) to allow inspection and resume. Cleanup is manual.
+
+### Signal Handling
+
+The orchestrator owns one interrupt context for the entire oneshot run. SIGINT (`Ctrl+C`):
+
+1. Aborts the current phase without committing uncommitted changes.
+2. Persists the run manifest (marking the current phase as incomplete).
+3. Releases the per-run lock.
+4. Leaves the worktree in place for inspection or resume.
+
+### Closeout and PR Push
+
+After the review phase completes with a passing verdict:
+
+1. **If `auto_pr` is false**: the run ends and the branch remains local. The user can inspect and push manually.
+2. **If `auto_pr` is true**: the orchestrator pushes the branch and opens a PR/MR automatically:
+   - **GitHub**: uses `gh pr create` with the PR title and body from the final report.
+   - **GitLab**: uses git push with merge request creation options.
+   - **Azure Repos**: uses `az repos pr create`.
+
+The PR/MR body includes a structured summary of the review findings and a link to the run manifest for future reference.
+
+### TUI Visibility
+
+In interactive mode, oneshot runs appear as:
+
+1. **Phase dividers** in the scrollback, marked with phase name and timestamp.
+2. **Status bar indicator** showing the current phase and run ID.
+3. **Full output retention** from all three phases in the scrollback history (no deletion or truncation between phases).
+4. **Phase-scoped tool output** — tool results are annotated with their phase context.
+
+After the run completes, all three phases remain visible in the conversation history, allowing the user to review and fork or resume from any point.
+
+### Concurrent Runs
+
+Unique run IDs ensure that concurrent `oneshot` invocations never share:
+- A branch name
+- A worktree path
+- A run manifest
+- A lock
+
+Concurrent runs can proceed in parallel without contention.
+
+## Listing and Resumable Runs
+
+`steiner oneshot --list` displays all resumable runs:
+
+```
+  ID          Slug               Status      Phase
+  abc123      refactor-auth      incomplete  implement
+  def456      add-logging        completed   review
+  ghi789      fix-bug-xyz        interrupted implement
+```
+
+A run is resumable if:
+- The manifest exists and is readable
+- The branch exists (remote or local)
+- At least one phase is incomplete
+- The lock is either absent or stalable
+
+A run is listed as `completed` if all three phases are marked complete in the manifest.
+
+## Error Handling and Retries
+
+If a phase fails:
+
+1. The failure is recorded in the manifest with a timestamp.
+2. SIGINT aborts gracefully without re-running previous phases.
+3. The user can inspect the worktree, fix issues, and resume with `--resume <id>`.
+
+If a resume attempt fails (e.g., the worktree path is corrupted), the user receives a clear error message with the run ID and branch name, allowing manual recovery via `git checkout <branch>` and cleanup of the worktree.
+
+## Testing
+
+Integration tests for oneshot behavior:
+
+- **Run provisioning**: branch and worktree creation, manifest initialization.
+- **Phase progression**: advancing through plan, implement, and review.
+- **Resume logic**: recovering from partial runs, skipping completed phases.
+- **Lock contention**: stale lock detection and reclamation.
+- **Interrupt handling**: SIGINT persistence, graceful abort.
+- **Concurrent runs**: parallel execution without contention.
+
+Tests use git worktrees (real or mocked) and a temporary manifest directory.
