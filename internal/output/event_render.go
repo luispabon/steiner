@@ -286,7 +286,10 @@ func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
 		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.UseNumber, payload.MaxUses))
 	}
 	if payload.Note != "" {
-		parts = append(parts, fmt.Sprintf("note=%s", payload.Note))
+		parts = append(parts, fmt.Sprintf("note=%s", TruncateWithEllipsis(payload.Note, 240)))
+	}
+	if payload.Truncated {
+		parts = append(parts, "truncated=true")
 	}
 	channel := ChannelStatus
 	label := "advisor"

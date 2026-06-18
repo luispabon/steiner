@@ -3,6 +3,7 @@ package advisor
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -184,5 +185,90 @@ func TestNewHandlerEmitsCompleteEventOnProviderError(t *testing.T) {
 	}
 	if completed.Error == "" {
 		t.Fatal("completed error = empty, want provider error")
+	}
+}
+
+func TestNewHandlerAppendsMarkerOnMaxTokensTruncation(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "partial advice"},
+			FinishReason: "length",
+		},
+	}
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:   sink,
+		Config:   Config{MaxUsesPerRun: 1, MaxTokens: intPtr(10)},
+	})
+
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "review this"},
+	})
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	gotStr, ok := got.(string)
+	if !ok {
+		t.Fatalf("handler() = %T, want string", got)
+	}
+	if !strings.Contains(gotStr, "partial advice") {
+		t.Fatalf("result missing original note: %q", gotStr)
+	}
+	if !strings.Contains(gotStr, "[advisor response truncated") {
+		t.Fatalf("result missing truncation marker: %q", gotStr)
+	}
+
+	completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
+	}
+	if !completed.Truncated {
+		t.Fatal("completed.Truncated = false, want true")
+	}
+}
+
+func TestNewHandlerReturnsExplicitMessageOnEmptyContent(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "  "},
+			FinishReason: "stop",
+		},
+	}
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:   sink,
+		Config:   Config{MaxUsesPerRun: 1},
+	})
+
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "review this"},
+	})
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	gotStr, ok := got.(string)
+	if !ok {
+		t.Fatalf("handler() = %T, want string", got)
+	}
+	if gotStr != "advisor returned no content" {
+		t.Fatalf("handler() = %q, want explicit empty-content message", gotStr)
+	}
+
+	completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
+	}
+	if completed.Note != "advisor returned no content" {
+		t.Fatalf("completed.Note = %q, want explicit empty-content message", completed.Note)
 	}
 }

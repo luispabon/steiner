@@ -33,7 +33,7 @@ Follow this sequence:
 5. Run approved review-fix work through Steiner delegation.
 6. Rerun relevant checks.
 7. Repeat only if new blocking findings remain.
-8. Mark final status.
+8. Mark final status. The advisor sanity check (### Advisor Sanity Check) must complete before marking.
 9. Offer closeout actions: planning-doc cleanup and PR/MR creation.
 
 Stop and report blockers instead of widening scope.
@@ -148,6 +148,20 @@ Include the appropriate checklist verbatim in every delegated task that commits.
 
 If any check fails, the sub-agent must not commit. It must report the mismatch and let the reviewer recover.
 
+### Advisor Sanity Check
+
+Run the advisor tool between the review-fix loop and final verification, before marking final status. Unconditional — skip only if the per-run advisor budget is exhausted or `AdvisorEnabled` is off.
+
+Include the advisor's note in the final review status summary. When `review.md` is created during closeout, append the note to the file.
+
+## Verification After Fixes
+
+Before running `make check` or `golangci-lint run`, run `golangci-lint cache clean` to avoid false positives from stale cache entries pointing at deleted worktree paths.
+
+Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
+
+If verification fails, either run another approved review-fix pass or report a blocker. Do not silently downgrade failures.
+
 ## Steiner Delegation
 
 Use Steiner's specialised tools directly:
@@ -160,17 +174,6 @@ Use Steiner's specialised tools directly:
 - `delegate({...})` only when no specialised profile fits
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the appropriate pre-commit checklist from the Review-Fix Loop section.
-
-If an advisor tool is available, use it before declaring review complete to sanity-check
-plan fit and residual risk.
-
-## Verification After Fixes
-
-Before running `make check` or `golangci-lint run`, run `golangci-lint cache clean` to avoid false positives from stale cache entries pointing at deleted worktree paths.
-
-Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
-
-If verification fails, either run another approved review-fix pass or report a blocker. Do not silently downgrade failures.
 
 ## Closeout
 

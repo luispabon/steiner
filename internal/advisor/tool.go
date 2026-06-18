@@ -92,12 +92,21 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 		MaxTokens:    deps.Config.MaxTokens,
 	})
 	if err != nil {
-		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", err))
+		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err))
 		return nil, err
 	}
 
 	note := strings.TrimSpace(response.Message.Content)
-	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, nil))
+	truncated := response.FinishReason == "length"
+
+	if truncated {
+		note += "\n\n[advisor response truncated — raise advisor.max_tokens in config]"
+	}
+	if note == "" {
+		note = "advisor returned no content"
+	}
+
+	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil))
 	return note, nil
 }
 

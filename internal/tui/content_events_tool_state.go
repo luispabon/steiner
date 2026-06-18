@@ -13,6 +13,9 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		if strings.EqualFold(payload.Tool, "display_file") {
 			return
 		}
+		if strings.EqualFold(payload.Tool, "advisor") {
+			return
+		}
 		if strings.EqualFold(payload.Tool, "delegate") || isSpecializedDelegateTool(payload.Tool) {
 			if strings.EqualFold(payload.Tool, "follow_up") {
 				b.handleFollowUpToolCallStarted(payload)
@@ -47,6 +50,9 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
 		if strings.EqualFold(payload.Tool, "display_file") {
+			return
+		}
+		if strings.EqualFold(payload.Tool, "advisor") {
 			return
 		}
 		for i := len(b.segments) - 1; i >= 0; i-- {

@@ -15,6 +15,23 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestAdvisorToolCallSuppression(t *testing.T) {
+	buffer := &contentBuffer{
+		segments: make([]contentSegment, 0),
+	}
+
+	// Send ToolCallStarted for advisor — should NOT produce a segmentToolCall.
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "advisor", "call-advisor-1", nil))
+	if len(buffer.segments) != 0 {
+		t.Fatalf("segments count after ToolCallStarted = %d, want 0 (suppressed)", len(buffer.segments))
+	}
+
+	// Send ToolCallFinished for advisor — should not panic and not add a segment.
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "advisor", "call-advisor-1", "done", nil))
+	if len(buffer.segments) != 0 {
+		t.Fatalf("segments count after ToolCallFinished = %d, want 0 (suppressed)", len(buffer.segments))
+	}
+}
 func TestAppendEventDelegationStarted(t *testing.T) {
 	event := output.NewDelegationStartedEvent("child-1", "fix the bug in module X")
 
@@ -289,7 +306,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
@@ -298,9 +315,9 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("output after complete = %q, want advisor note", got)
 	}
 
-	// After complete, buffer should have 4 segments: advisor box + 3 labeled-block segments.
-	if len(buffer.segments) != 4 {
-		t.Fatalf("segments count after complete = %d, want 4 (advisor box + labeled block)", len(buffer.segments))
+	// After complete, buffer should have 5 segments: advisor box + 3 labeled-block segments + blank margin.
+	if len(buffer.segments) != 5 {
+		t.Fatalf("segments count after complete = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
 	}
 
 	// Index 1: opening separator with label "Advisor output", closing=false.
@@ -335,12 +352,20 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 	if !s.separatorData.closing {
 		t.Errorf("segment[3] closing = false, want true")
 	}
+	// Index 4: blank margin segment.
+	s = buffer.segments[4]
+	if s.kind != segmentPlain {
+		t.Fatalf("segment[4] kind=%v, want segmentPlain", s.kind)
+	}
+	if s.text != " " {
+		t.Errorf("segment[4] text = %q, want single space", s.text)
+	}
 
 	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
-	if len(buffer.segments) != 5 {
-		t.Fatalf("segments count after budget event = %d, want 5", len(buffer.segments))
+	if len(buffer.segments) != 6 {
+		t.Fatalf("segments count after budget event = %d, want 6", len(buffer.segments))
 	}
-	last := buffer.segments[4]
+	last := buffer.segments[5]
 	if last.delegData == nil || last.delegData.status != "budget_exhausted" {
 		t.Fatalf("last advisor segment = %#v, want budget_exhausted", last.delegData)
 	}
@@ -358,10 +383,10 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", errors.New("something went wrong")))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong")))
 
-	if len(buffer.segments) != 4 {
-		t.Fatalf("segments count after complete with error = %d, want 4 (advisor box + labeled block)", len(buffer.segments))
+	if len(buffer.segments) != 5 {
+		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
 	}
 
 	// Index 0: advisor box with status "failed" and isAdvisor.
@@ -407,6 +432,38 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 	if !s.separatorData.closing {
 		t.Errorf("segment[3] closing = false, want true")
+	}
+}
+func TestRenderAdvisorTrailingMargin(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil))
+
+	rendered := stripANSI(buffer.String(80))
+
+	// The rendered output should end with a blank line after the closing separator.
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+
+	// Find the closing separator line.
+	var sepIdx int
+	for i, line := range lines {
+		if strings.Contains(line, "End of Advisor output") {
+			sepIdx = i
+			break
+		}
+	}
+	if sepIdx == 0 {
+		t.Fatalf("closing separator not found in rendered output:\n%s", rendered)
+	}
+
+	// The line after the closing separator should be blank (trailing margin).
+	if sepIdx+1 >= len(lines) || strings.TrimSpace(lines[sepIdx+1]) != "" {
+		t.Fatalf("expected blank line after closing separator, got %q:\n%s", lines[sepIdx+1], rendered)
 	}
 }
 

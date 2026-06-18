@@ -394,6 +394,7 @@ type AdvisorCompleteEvent struct {
 	MaxUses   int    `json:"max_uses"`
 	Note      string `json:"note,omitempty"`
 	Error     string `json:"error,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
