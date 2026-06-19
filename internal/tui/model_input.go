@@ -443,12 +443,16 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
+		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
 
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
+		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
@@ -516,6 +520,8 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
+	m.input.Reset()
+	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil
@@ -524,12 +530,16 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
+		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
 
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
+		m.input.Reset()
+		m.historyIdx = 0
 		m.syncViewport()
 		return m, nil
 	}
@@ -613,6 +623,8 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
+	m.input.Reset()
+	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil
