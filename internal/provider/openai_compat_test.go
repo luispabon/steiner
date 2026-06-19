@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -360,12 +361,12 @@ func TestOpenAICompatClassifyRetryError_ToolCallDecodeIsRetryable(t *testing.T) 
 	}{
 		{
 			name:      "decode tool call error is retryable",
-			err:       fmt.Errorf("decode tool call %q arguments: invalid character '}' after array element", "mutate"),
+			err:       fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, "mutate", errors.New("invalid character '}' after array element")),
 			wantRetry: true,
 		},
 		{
 			name:      "decode chat completion response is not retryable",
-			err:       fmt.Errorf("decode chat completion response: unexpected EOF"),
+			err:       fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, io.ErrUnexpectedEOF),
 			wantRetry: false,
 		},
 		{

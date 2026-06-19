@@ -20,34 +20,23 @@ type openAIRequest struct {
 }
 
 func (r openAIRequest) MarshalJSON() ([]byte, error) {
-	// Merge order: base → Params → ExtraParams (later values win on collision)
-	m := make(map[string]any, len(r.Params)+len(r.ExtraParams)+6)
-
-	// Merge normalized params first
-	for k, v := range r.Params {
-		m[k] = v
+	base := map[string]any{
+		"model":    r.Model,
+		"messages": r.Messages,
 	}
-
-	// Merge extra params on top (override params on collision)
-	for k, v := range r.ExtraParams {
-		m[k] = v
-	}
-
-	// Standard fields (override anything from params/extra_params)
-	m["model"] = r.Model
-	m["messages"] = r.Messages
 	if r.Stream {
-		m["stream"] = true
+		base["stream"] = true
 	}
 	if r.StreamOptions != nil {
-		m["stream_options"] = r.StreamOptions
+		base["stream_options"] = r.StreamOptions
 	}
 	if r.MaxTokens != nil {
-		m["max_tokens"] = *r.MaxTokens
+		base["max_tokens"] = *r.MaxTokens
 	}
 	if len(r.Tools) > 0 {
-		m["tools"] = r.Tools
+		base["tools"] = r.Tools
 	}
+	m := mergeRequestParams(base, r.Params, r.ExtraParams)
 	return json.Marshal(m)
 }
 
@@ -300,7 +289,7 @@ func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
 		if rawArgs != "" {
 			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
 			if err := json.Unmarshal([]byte(sanitizedRawArgs), &args); err != nil {
-				return nil, fmt.Errorf("decode tool call %q arguments: %w", toolCall.Function.Name, err)
+				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, toolCall.Function.Name, err)
 			}
 		}
 		call := ToolCall{

@@ -88,7 +88,10 @@ func decodeAnthropicStreamWithHandler(_ context.Context, body io.Reader, emit fu
 func processAnthropicStreamEvent(state *anthropicStreamState, eventType, data string, emit func(ChatChunk) error) (bool, error) {
 	var payload anthropicStreamEvent
 	if err := json.Unmarshal([]byte(data), &payload); err != nil {
-		return false, fmt.Errorf("decode stream chunk: %w", err)
+		if strings.Contains(err.Error(), "unexpected end of JSON input") {
+			return false, fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, err)
+		}
+		return false, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
 	}
 	if eventType == "" {
 		eventType = payload.Type
@@ -252,7 +255,7 @@ func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) ([
 		if raw != "" {
 			raw = sanitizeToolCallJSON(raw)
 			if err := json.Unmarshal([]byte(raw), &arguments); err != nil {
-				return nil, fmt.Errorf("decode tool call %q arguments: %w", acc.Name, err)
+				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
 			}
 		}
 		calls = append(calls, ToolCall{

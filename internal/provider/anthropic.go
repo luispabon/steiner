@@ -187,7 +187,7 @@ func (p *Anthropic) buildHTTPRequest(ctx context.Context, body []byte, stream bo
 func (p *Anthropic) decodeNonStreamResponse(resp *http.Response) (*anthropicResponse, error) {
 	var payload anthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode chat completion response: %w", err)
+		return nil, fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, err)
 	}
 	return &payload, nil
 }

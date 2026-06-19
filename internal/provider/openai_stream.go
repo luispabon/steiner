@@ -85,7 +85,10 @@ func processStreamEvent(state *openAIStreamState, event string, emit func(ChatCh
 
 	var payload openAIResponse
 	if err := json.Unmarshal([]byte(event), &payload); err != nil {
-		return false, fmt.Errorf("decode stream chunk: %w", err)
+		if strings.Contains(err.Error(), "unexpected end of JSON input") {
+			return false, fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, err)
+		}
+		return false, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
 	}
 	if payload.Usage != nil {
 		state.usage = payload.Usage
@@ -221,7 +224,7 @@ func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall
 		if rawArgs != "" {
 			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
 			if err := json.Unmarshal([]byte(sanitizedRawArgs), &arguments); err != nil {
-				return nil, fmt.Errorf("decode tool call %q arguments: %w", acc.Name, err)
+				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
 			}
 		}
 		call := ToolCall{
