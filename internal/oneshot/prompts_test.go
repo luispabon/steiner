@@ -74,6 +74,11 @@ func TestLoadPrompt(t *testing.T) {
 				"resuming this phase after a prior failure",
 				"git commit log",
 				"prior progress",
+				"Closed rationalization loopholes",
+				"low ambiguity",
+				"small testable chunks",
+				"cheap-feeling mutate calls",
+				"only exemptions are the executor-owned artifacts",
 			},
 			wantOut: []string{
 				"ask the user",
