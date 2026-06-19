@@ -56,7 +56,7 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 				return nil, fmt.Errorf("fetch_url: invalid url: %w", fmt.Errorf("missing or invalid scheme"))
 			}
 
-			NormalizeFetchURL(&in)
+			normalizeFetchURL(&in)
 
 			httpClient := toolkit.SafeHTTPClient(15 * time.Second)
 

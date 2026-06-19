@@ -7,7 +7,7 @@ import (
 func TestNormalizeRead(t *testing.T) {
 	t.Run("defaults offset to 1 and limit to defaultReadLimit", func(t *testing.T) {
 		in := &ReadInput{}
-		NormalizeRead(in)
+		normalizeRead(in)
 		if in.Offset != 1 {
 			t.Errorf("Offset = %d, want 1", in.Offset)
 		}
@@ -18,7 +18,7 @@ func TestNormalizeRead(t *testing.T) {
 
 	t.Run("caps limit at maxReadLimit", func(t *testing.T) {
 		in := &ReadInput{Offset: 1, Limit: 2000}
-		NormalizeRead(in)
+		normalizeRead(in)
 		if in.Limit != maxReadLimit {
 			t.Errorf("Limit = %d, want %d", in.Limit, maxReadLimit)
 		}
@@ -26,7 +26,7 @@ func TestNormalizeRead(t *testing.T) {
 
 	t.Run("preserves valid offset", func(t *testing.T) {
 		in := &ReadInput{Offset: 10, Limit: 50}
-		NormalizeRead(in)
+		normalizeRead(in)
 		if in.Offset != 10 {
 			t.Errorf("Offset = %d, want 10", in.Offset)
 		}
@@ -34,7 +34,7 @@ func TestNormalizeRead(t *testing.T) {
 
 	t.Run("corrects zero offset to 1", func(t *testing.T) {
 		in := &ReadInput{Offset: 0, Limit: 50}
-		NormalizeRead(in)
+		normalizeRead(in)
 		if in.Offset != 1 {
 			t.Errorf("Offset = %d, want 1", in.Offset)
 		}
@@ -42,7 +42,7 @@ func TestNormalizeRead(t *testing.T) {
 
 	t.Run("corrects negative offset to 1", func(t *testing.T) {
 		in := &ReadInput{Offset: -5, Limit: 50}
-		NormalizeRead(in)
+		normalizeRead(in)
 		if in.Offset != 1 {
 			t.Errorf("Offset = %d, want 1", in.Offset)
 		}
@@ -52,7 +52,7 @@ func TestNormalizeRead(t *testing.T) {
 func TestNormalizeGlob(t *testing.T) {
 	t.Run("defaults offset to 0 and limit to defaultGlobLimit", func(t *testing.T) {
 		in := &GlobInput{}
-		NormalizeGlob(in)
+		normalizeGlob(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -63,7 +63,7 @@ func TestNormalizeGlob(t *testing.T) {
 
 	t.Run("caps limit at maxGlobLimit", func(t *testing.T) {
 		in := &GlobInput{Offset: 0, Limit: 2000}
-		NormalizeGlob(in)
+		normalizeGlob(in)
 		if in.Limit != maxGlobLimit {
 			t.Errorf("Limit = %d, want %d", in.Limit, maxGlobLimit)
 		}
@@ -71,7 +71,7 @@ func TestNormalizeGlob(t *testing.T) {
 
 	t.Run("corrects negative offset to 0", func(t *testing.T) {
 		in := &GlobInput{Offset: -1, Limit: 50}
-		NormalizeGlob(in)
+		normalizeGlob(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -81,7 +81,7 @@ func TestNormalizeGlob(t *testing.T) {
 func TestNormalizeGrep(t *testing.T) {
 	t.Run("defaults head_limit to defaultGrepHeadLimit", func(t *testing.T) {
 		in := &GrepInput{}
-		NormalizeGrep(in)
+		normalizeGrep(in)
 		if in.HeadLimit != defaultGrepHeadLimit {
 			t.Errorf("HeadLimit = %d, want %d", in.HeadLimit, defaultGrepHeadLimit)
 		}
@@ -89,7 +89,7 @@ func TestNormalizeGrep(t *testing.T) {
 
 	t.Run("caps head_limit at maxGrepHeadLimit", func(t *testing.T) {
 		in := &GrepInput{HeadLimit: 1000}
-		NormalizeGrep(in)
+		normalizeGrep(in)
 		if in.HeadLimit != maxGrepHeadLimit {
 			t.Errorf("HeadLimit = %d, want %d", in.HeadLimit, maxGrepHeadLimit)
 		}
@@ -97,7 +97,7 @@ func TestNormalizeGrep(t *testing.T) {
 
 	t.Run("defaults offset to 0", func(t *testing.T) {
 		in := &GrepInput{}
-		NormalizeGrep(in)
+		normalizeGrep(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -105,7 +105,7 @@ func TestNormalizeGrep(t *testing.T) {
 
 	t.Run("corrects negative offset to 0", func(t *testing.T) {
 		in := &GrepInput{Offset: -5}
-		NormalizeGrep(in)
+		normalizeGrep(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -115,7 +115,7 @@ func TestNormalizeGrep(t *testing.T) {
 func TestNormalizeLS(t *testing.T) {
 	t.Run("defaults offset to 0 and limit to defaultLSLimit", func(t *testing.T) {
 		in := &LSInput{}
-		NormalizeLS(in)
+		normalizeLS(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -126,7 +126,7 @@ func TestNormalizeLS(t *testing.T) {
 
 	t.Run("caps limit at maxLSLimit", func(t *testing.T) {
 		in := &LSInput{Offset: 0, Limit: 2000}
-		NormalizeLS(in)
+		normalizeLS(in)
 		if in.Limit != maxLSLimit {
 			t.Errorf("Limit = %d, want %d", in.Limit, maxLSLimit)
 		}
@@ -134,7 +134,7 @@ func TestNormalizeLS(t *testing.T) {
 
 	t.Run("corrects negative offset to 0", func(t *testing.T) {
 		in := &LSInput{Offset: -1}
-		NormalizeLS(in)
+		normalizeLS(in)
 		if in.Offset != 0 {
 			t.Errorf("Offset = %d, want 0", in.Offset)
 		}
@@ -144,7 +144,7 @@ func TestNormalizeLS(t *testing.T) {
 func TestNormalizeBash(t *testing.T) {
 	t.Run("defaults timeout and max_output_chars", func(t *testing.T) {
 		in := &BashInput{}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
@@ -155,7 +155,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("caps timeout at maxBashTimeoutSeconds", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 500}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.TimeoutSeconds != maxBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, maxBashTimeoutSeconds)
 		}
@@ -163,7 +163,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("caps max_output_chars at maxBashMaxOutputChars", func(t *testing.T) {
 		in := &BashInput{MaxOutputChars: 500000}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.MaxOutputChars != maxBashMaxOutputChars {
 			t.Errorf("MaxOutputChars = %d, want %d", in.MaxOutputChars, maxBashMaxOutputChars)
 		}
@@ -171,7 +171,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("preserves valid values", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 10, MaxOutputChars: 5000}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.TimeoutSeconds != 10 {
 			t.Errorf("TimeoutSeconds = %d, want 10", in.TimeoutSeconds)
 		}
@@ -182,7 +182,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("corrects zero timeout to default", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 0, MaxOutputChars: 100}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
@@ -190,7 +190,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("corrects negative timeout to default", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: -1}
-		NormalizeBash(in)
+		normalizeBash(in)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}

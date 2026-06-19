@@ -148,7 +148,7 @@ func TestNewWebSearchTool(t *testing.T) {
 func TestWebSearchInput(t *testing.T) {
 	t.Run("NormalizeWebSearch defaults limit to 10", func(t *testing.T) {
 		in := &WebSearchInput{Query: "test"}
-		NormalizeWebSearch(in)
+		normalizeWebSearch(in)
 		if in.Limit != 10 {
 			t.Fatalf("expected limit 10, got %d", in.Limit)
 		}
@@ -156,7 +156,7 @@ func TestWebSearchInput(t *testing.T) {
 
 	t.Run("NormalizeWebSearch caps limit at 30", func(t *testing.T) {
 		in := &WebSearchInput{Query: "test", Limit: 100}
-		NormalizeWebSearch(in)
+		normalizeWebSearch(in)
 		if in.Limit != 30 {
 			t.Fatalf("expected limit 30, got %d", in.Limit)
 		}
@@ -164,7 +164,7 @@ func TestWebSearchInput(t *testing.T) {
 
 	t.Run("NormalizeWebSearch preserves valid limit", func(t *testing.T) {
 		in := &WebSearchInput{Query: "test", Limit: 15}
-		NormalizeWebSearch(in)
+		normalizeWebSearch(in)
 		if in.Limit != 15 {
 			t.Fatalf("expected limit 15, got %d", in.Limit)
 		}

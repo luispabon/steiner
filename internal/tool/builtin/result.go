@@ -1,5 +1,7 @@
 package builtin
 
+import "strings"
+
 // Result is a generic tool result.
 type Result struct {
 	Output     string `json:"output"`
@@ -116,6 +118,31 @@ func (r *MutateResult) clearCommittedMetadata() {
 // WasMutated reports whether mutate actually modified the filesystem.
 func (r *MutateResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
+}
+
+// pageResults builds a Result from a sorted list of entry names with pagination.
+func pageResults(allLines []string, limit, offset int) Result {
+	total := len(allLines)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	page := allLines[start:end]
+
+	result := Result{
+		Output:   strings.Join(page, "\n"),
+		Returned: len(page),
+	}
+
+	if end < total {
+		result.NextOffset = offset + limit
+	}
+
+	return result
 }
 
 // WorkflowHandoffResult is the result from a workflow_handoff tool call.

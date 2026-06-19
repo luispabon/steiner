@@ -11,23 +11,18 @@ import (
 
 func (p *mutatePlanner) commit() error {
 	snapshots := make(map[string]*mutateFileState, len(p.states))
-	committed := make([]*mutateFileState, 0, len(p.states))
+	states := make([]*mutateFileState, 0, len(p.states))
 	for path, state := range p.states {
 		if state.touched {
 			copyState := *state
 			copyState.content = append([]byte(nil), state.original...)
 			snapshots[path] = &copyState
-		}
-	}
-
-	states := make([]*mutateFileState, 0, len(p.states))
-	for _, state := range p.states {
-		if state.touched {
 			states = append(states, state)
 		}
 	}
 	sort.Slice(states, func(i, j int) bool { return states[i].path < states[j].path })
 
+	committed := make([]*mutateFileState, 0, len(states))
 	for _, state := range states {
 		var err error
 		if state.exists {

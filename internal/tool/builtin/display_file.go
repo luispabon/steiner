@@ -42,18 +42,13 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}
 
-			NormalizeDisplayFile(&in)
+			normalizeDisplayFile(&in)
 
 			if in.Path == "" {
 				return nil, fmt.Errorf("display_file: path is required")
 			}
 
-			_, err = env.PathPolicy.ResolveReadPath(in.Path)
-			if err != nil {
-				return nil, fmt.Errorf("display_file: %w", err)
-			}
-
-			absPath, err := absWorkspacePath(env.WorkDir, in.Path)
+			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}

@@ -30,18 +30,13 @@ func NewLSTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("ls: %w", err)
 			}
 
-			NormalizeLS(&in)
+			normalizeLS(&in)
 
 			if in.Path == "" {
 				in.Path = "."
 			}
 
-			_, err = env.PathPolicy.ResolveReadPath(in.Path)
-			if err != nil {
-				return nil, fmt.Errorf("ls: %w", err)
-			}
-
-			absPath, err := absWorkspacePath(env.WorkDir, in.Path)
+			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("ls: %w", err)
 			}
@@ -115,7 +110,8 @@ func lsNonRecursive(
 		allLines = append(allLines, name)
 	}
 
-	return pageResults(allLines, limit, offset), nil
+	result := pageResults(allLines, limit, offset)
+	return &result, nil
 }
 
 // lsRecursive walks a directory tree and returns relative paths.
@@ -152,32 +148,8 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int) (*Resul
 
 	sort.Strings(allEntries)
 
-	return pageResults(allEntries, limit, offset), nil
-}
-
-// pageResults builds a Result from a sorted list of entry names with pagination.
-func pageResults(allLines []string, limit, offset int) *Result {
-	total := len(allLines)
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := allLines[start:end]
-
-	result := Result{
-		Output:   strings.Join(page, "\n"),
-		Returned: len(page),
-	}
-
-	if end < total {
-		result.NextOffset = offset + limit
-	}
-
-	return &result
+	result := pageResults(allEntries, limit, offset)
+	return &result, nil
 }
 
 // parseDirectoryEntries extracts the JSON array from Dive's ListDirectoryTool text output.

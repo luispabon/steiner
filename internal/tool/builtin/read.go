@@ -33,14 +33,9 @@ func NewReadTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("read: %w", err)
 			}
 
-			NormalizeRead(&in)
+			normalizeRead(&in)
 
-			_, err = env.PathPolicy.ResolveReadPath(in.Path)
-			if err != nil {
-				return nil, fmt.Errorf("read: %w", err)
-			}
-
-			absPath, err := absWorkspacePath(env.WorkDir, in.Path)
+			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("read: %w", err)
 			}

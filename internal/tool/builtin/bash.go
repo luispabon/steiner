@@ -38,7 +38,7 @@ func NewBashTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("bash: %w", err)
 			}
 
-			NormalizeBash(&in)
+			normalizeBash(&in)
 
 			var cwd string
 			if in.CWD != "" {
