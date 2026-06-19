@@ -142,12 +142,12 @@ func TestTimestampFormat(t *testing.T) {
 		{
 			name: "today",
 			ts:   time.Date(2026, 6, 19, 9, 7, 0, 0, time.UTC),
-			want: "09:07",
+			want: "09:07:00",
 		},
 		{
 			name: "older",
 			ts:   time.Date(2026, 6, 18, 9, 7, 0, 0, time.UTC),
-			want: "Jun 18 09:07",
+			want: "Jun 18 09:07:00",
 		},
 	}
 
@@ -185,7 +185,7 @@ func TestRenderUserTimestampChrome(t *testing.T) {
 				timestamp: fixedNow,
 			},
 			render:        (*contentBuffer).renderUserSegment,
-			wantTimestamp: "15:04",
+			wantTimestamp: "15:04:00",
 			wantText:      "hello world",
 		},
 		{
@@ -196,7 +196,7 @@ func TestRenderUserTimestampChrome(t *testing.T) {
 				timestamp: time.Date(2026, 6, 18, 9, 7, 0, 0, time.UTC),
 			},
 			render:        (*contentBuffer).renderUserMarkdownSegment,
-			wantTimestamp: "Jun 18 09:07",
+			wantTimestamp: "Jun 18 09:07:00",
 			wantText:      "Title",
 		},
 	}
@@ -204,16 +204,38 @@ func TestRenderUserTimestampChrome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := newTestBuffer(t)
-			plain := stripANSI(tt.render(b, tt.segment, 60))
-			lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
-			if len(lines) < 3 {
-				t.Fatalf("rendered output has %d lines, want at least 3: %q", len(lines), plain)
+			useTrueColor(t)
+			rendered := tt.render(b, tt.segment, 60)
+			rawLines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+			if len(rawLines) < 4 {
+				t.Fatalf("rendered output has %d raw lines, want at least 4: %q", len(rawLines), rendered)
 			}
-			if !strings.Contains(lines[0], tt.wantTimestamp) {
-				t.Fatalf("top row %q missing timestamp %q", lines[0], tt.wantTimestamp)
+			if !hasANSIBackground(rawLines[0]) {
+				t.Fatalf("top row lost prompt background styling: %q", rawLines[0])
+			}
+			if !hasANSIBackground(rawLines[len(rawLines)-2]) {
+				t.Fatalf("bottom row lost prompt background styling: %q", rawLines[len(rawLines)-2])
+			}
+
+			plain := stripANSI(rendered)
+			lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+			if len(lines) < 4 {
+				t.Fatalf("rendered output has %d lines, want at least 4: %q", len(lines), plain)
+			}
+			if strings.Contains(lines[0], tt.wantTimestamp) {
+				t.Fatalf("top row %q unexpectedly contains timestamp %q", lines[0], tt.wantTimestamp)
 			}
 			if strings.Contains(lines[0], tt.wantText) {
 				t.Fatalf("top row %q unexpectedly contains message text %q", lines[0], tt.wantText)
+			}
+			if strings.Contains(lines[len(lines)-2], tt.wantTimestamp) {
+				t.Fatalf("bottom row %q unexpectedly contains timestamp %q", lines[len(lines)-2], tt.wantTimestamp)
+			}
+			if strings.Contains(lines[len(lines)-1], "┃") {
+				t.Fatalf("timestamp row %q unexpectedly contains prompt border", lines[len(lines)-1])
+			}
+			if got := strings.TrimSpace(lines[len(lines)-1]); got != tt.wantTimestamp {
+				t.Fatalf("timestamp row = %q, want right-aligned timestamp %q", lines[len(lines)-1], tt.wantTimestamp)
 			}
 			if !strings.Contains(plain, tt.wantText) {
 				t.Fatalf("rendered output missing message text %q: %q", tt.wantText, plain)

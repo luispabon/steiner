@@ -120,9 +120,13 @@ func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.StopReasonEvent); ok && isCompletionStopReason(payload.Reason) && payload.Error == "" {
 		if reason := strings.TrimSpace(payload.Reason); reason != "" {
-			b.appendLine("status: " + reason)
+			b.segments = append(b.segments, contentSegment{
+				kind:        segmentStatus,
+				text:        reason,
+				timestamp:   timeNow(),
+				renderDirty: true,
+			})
 		}
-		b.appendLine(b.styles.FgDim.Render(formatContentTimestamp(timeNow())))
 		return
 	}
 	b.appendLine(formatStopReasonEvent(event))

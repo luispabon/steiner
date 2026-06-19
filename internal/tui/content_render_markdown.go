@@ -31,7 +31,7 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 		contentWidth = 2
 	}
 	bar := b.styles.UserBar.Render("┃")
-	pad := bar + b.styles.UserBg.Width(contentWidth).Render(b.renderUserTimestampText(segment.timestamp, contentWidth))
+	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
 	textWidth := contentWidth - 3
@@ -69,6 +69,9 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 		isFirstLine = false
 	}
 	sb.WriteString(pad + "\n")
+	if timestampLine := b.renderUserTimestampLine(segment.timestamp, width); timestampLine != "" {
+		sb.WriteString(timestampLine + "\n")
+	}
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -151,7 +154,7 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	padStyle := lipgloss.NewStyle().
 		Width(contentWidth + 1).
 		Background(userBgHex)
-	pad := padStyle.Render(barStyle.Render("┃") + b.renderUserTimestampText(segment.timestamp, contentWidth))
+	pad := padStyle.Render(barStyle.Render("┃"))
 
 	rendered, err := renderMarkdownBlock(segment.text, contentWidth-2, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
 	if err != nil {
@@ -172,6 +175,9 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 		sb.WriteString(bar + padded + "\n")
 	}
 	sb.WriteString(pad + "\n")
+	if timestampLine := b.renderUserTimestampLine(segment.timestamp, width); timestampLine != "" {
+		sb.WriteString(timestampLine + "\n")
+	}
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -189,6 +195,14 @@ func (b *contentBuffer) renderUserTimestampText(timestamp time.Time, width int) 
 	return strings.Repeat(" ", width-textWidth) + styled
 }
 
+func (b *contentBuffer) renderUserTimestampLine(timestamp time.Time, width int) string {
+	label := b.renderUserTimestampText(timestamp, width)
+	if label == "" {
+		return ""
+	}
+	return theme.WithBg(label, lipgloss.Color(theme.BgElev))
+}
+
 func formatContentTimestamp(timestamp time.Time) string {
 	if timestamp.IsZero() {
 		return ""
@@ -201,9 +215,9 @@ func formatContentTimestamp(timestamp time.Time) string {
 	ts := timestamp.In(loc)
 	current := now.In(loc)
 	if ts.Year() == current.Year() && ts.Month() == current.Month() && ts.Day() == current.Day() {
-		return ts.Format("15:04")
+		return ts.Format("15:04:05")
 	}
-	return ts.Format("Jan 02 15:04")
+	return ts.Format("Jan 02 15:04:05")
 }
 
 func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width int) string {

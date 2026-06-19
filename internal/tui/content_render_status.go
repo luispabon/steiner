@@ -28,34 +28,76 @@ func (b *contentBuffer) renderStatusSegment(segment contentSegment, width int) s
 	bullet := b.styles.FgMute.Render("○")
 	tag := b.styles.StatusTag.Render("status")
 	bodyStyle := b.baseTextStyle()
+	timestamp := b.renderStatusTimestamp(segment, width)
+	topMargin := ""
+	if timestamp != "" {
+		topMargin = "\n"
+	}
 
 	if body == "" {
-		return bullet + "  " + tag + "\n"
+		return topMargin + b.appendRightAlignedTimestamp(bullet+"  "+tag, timestamp, width) + "\n"
 	}
 
 	sep := b.styles.FgMute.Render("·")
-	firstLine := bullet + "  " + tag + " " + sep + " " + bodyStyle.Render(body)
 
 	// Compute the visible widths of the prefix parts so continuation lines
 	// indent under the body, not under the "status" tag.
 	prefixVisual := lipgloss.Width(bullet) + 2 + lipgloss.Width(tag) + 1 + lipgloss.Width(sep) + 1
 	if width < prefixVisual+1 {
 		// Terminal too narrow to wrap; just emit the first line.
-		return firstLine + "\n"
+		firstLine := bullet + "  " + tag + " " + sep + " " + bodyStyle.Render(body)
+		return topMargin + b.appendRightAlignedTimestamp(firstLine, timestamp, width) + "\n"
 	}
 	bodyWidth := width - prefixVisual
+	if timestamp != "" {
+		timestampWidth := lipgloss.Width(timestamp)
+		if bodyWidth > timestampWidth+1 {
+			bodyWidth -= timestampWidth + 1
+		}
+	}
 
 	wrapped := lipgloss.NewStyle().Width(bodyWidth).Render(body)
 	wrappedLines := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
+	firstBody := ""
+	if len(wrappedLines) > 0 {
+		firstBody = strings.TrimRight(wrappedLines[0], " ")
+	}
+	firstLine := bullet + "  " + tag + " " + sep + " " + bodyStyle.Render(firstBody)
+	firstLine = b.appendRightAlignedTimestamp(firstLine, timestamp, width)
 	if len(wrappedLines) <= 1 {
-		return firstLine + "\n"
+		return topMargin + firstLine + "\n"
 	}
 
 	indent := strings.Repeat(" ", prefixVisual)
 	var sb strings.Builder
+	sb.WriteString(topMargin)
 	sb.WriteString(firstLine + "\n")
 	for _, line := range wrappedLines[1:] {
 		sb.WriteString(indent + bodyStyle.Render(strings.TrimRight(line, " ")) + "\n")
 	}
 	return sb.String()
+}
+
+func (b *contentBuffer) renderStatusTimestamp(segment contentSegment, width int) string {
+	if width < 1 {
+		return ""
+	}
+	label := formatContentTimestamp(segment.timestamp)
+	if label == "" {
+		return ""
+	}
+	return b.styles.FgDim.Render(label)
+}
+
+func (b *contentBuffer) appendRightAlignedTimestamp(line, timestamp string, width int) string {
+	if timestamp == "" {
+		return line
+	}
+	lineWidth := lipgloss.Width(line)
+	timestampWidth := lipgloss.Width(timestamp)
+	padding := width - lineWidth - timestampWidth
+	if padding < 1 {
+		padding = 1
+	}
+	return line + strings.Repeat(" ", padding) + timestamp
 }
