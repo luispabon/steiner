@@ -14,6 +14,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
 )
@@ -48,7 +49,7 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRunti
 	return rt, nil
 }
 
-func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
+func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
 	selected := selectedModelConfig(rt.cfg)
 	selectedProviderBaseURL := ""
 	selectedProviderName := ""
@@ -76,7 +77,22 @@ func buildInteractiveApp(rt cliRuntime, sess *interactive.Session) *tui.App {
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
 	}
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot)
 	return tui.NewApp(tuiCfg)
+}
+
+// newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
+// runner factory to a specific run identity. The interactive TUI mints a fresh
+// identity per launch or resume, so the factory must be constructed per run.
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string) tui.OneshotRunnerFactoryBuilder {
+	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
+		return phaseRunnerFactory{
+			cmd:      cmd,
+			flags:    flags,
+			rootDir:  projectRoot,
+			identity: identity,
+		}
+	}
 }
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
