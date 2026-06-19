@@ -31,6 +31,27 @@ func (e *BoundaryError) Error() string {
 	return fmt.Sprintf("phase %s boundary failed: %s", e.Phase, strings.Join(parts, "; "))
 }
 
+// requiredArtifactsForPhase returns the planning artifacts that must exist on
+// disk once the given phase completes. Artifacts accumulate across phases: the
+// plan phase produces overview.md and plan.yaml, implement adds execution.md,
+// and review adds review.md.
+func requiredArtifactsForPhase(phase Phase, planningPath string) []string {
+	required := []string{
+		filepath.Join(planningPath, "overview.md"),
+		filepath.Join(planningPath, "plan.yaml"),
+	}
+	switch phase {
+	case PhaseImplement:
+		required = append(required, filepath.Join(planningPath, "execution.md"))
+	case PhaseReview:
+		required = append(required,
+			filepath.Join(planningPath, "execution.md"),
+			filepath.Join(planningPath, "review.md"),
+		)
+	}
+	return required
+}
+
 // CheckBoundary enforces the mechanical worktree contract for a phase.
 func CheckBoundary(ctx context.Context, phase Phase, worktreePath string, requiredArtifacts []string) error {
 	if err := ctx.Err(); err != nil {

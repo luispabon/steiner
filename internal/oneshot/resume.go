@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -147,10 +146,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 			return manifest, runErr
 		}
 
-		requiredArtifacts := []string{
-			filepath.Join(planningPath, "overview.md"),
-			filepath.Join(planningPath, "plan.yaml"),
-		}
+		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath)
 		if err := CheckBoundary(phaseCtx, phase, worktree.Path, requiredArtifacts); err != nil {
 			cancel()
 			manifest.PhaseStatuses[phase] = PhaseStatusFailed

@@ -132,10 +132,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			return manifest, runErr
 		}
 
-		requiredArtifacts := []string{
-			filepath.Join(planningPath, "overview.md"),
-			filepath.Join(planningPath, "plan.yaml"),
-		}
+		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath)
 		if err := CheckBoundary(phaseCtx, phase, worktreePath, requiredArtifacts); err != nil {
 			cancel()
 			manifest.PhaseStatuses[phase] = PhaseStatusFailed
