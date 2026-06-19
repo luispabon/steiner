@@ -235,6 +235,103 @@ func TestRenderDelegationHeaderAdvisor(t *testing.T) {
 	}
 }
 
+func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T) {
+	b := newTestBuffer(t)
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+	dd := &delegationDisplayState{
+		promptText:      "same text",
+		promptCollapsed: false,
+		entries: []delegationTranscriptEntry{
+			{kind: delegationTranscriptEntryAssistant, body: "same text"},
+		},
+	}
+
+	rows := b.delegationRows(dd, 80)
+	promptIndex := -1
+	transcriptIndex := -1
+	separatorIndex := -1
+	for i, row := range rows {
+		switch row.kind {
+		case delegationRowPromptBody:
+			if promptIndex < 0 {
+				promptIndex = i
+			}
+		case delegationRowTranscript:
+			if transcriptIndex < 0 {
+				transcriptIndex = i
+			}
+		case delegationRowSeparator:
+			separatorIndex = i
+		}
+	}
+
+	if promptIndex < 0 {
+		t.Fatalf("rows = %#v, want prompt body row", rows)
+	}
+	if transcriptIndex < 0 {
+		t.Fatalf("rows = %#v, want transcript row", rows)
+	}
+	if separatorIndex < 0 {
+		t.Fatalf("rows = %#v, want separator row", rows)
+	}
+	if !(promptIndex < separatorIndex && separatorIndex < transcriptIndex) {
+		t.Fatalf("row order = prompt:%d separator:%d transcript:%d, want prompt < separator < transcript", promptIndex, separatorIndex, transcriptIndex)
+	}
+	if got, want := stripANSI(rows[promptIndex].text), stripANSI(rows[transcriptIndex].text); got != want {
+		t.Fatalf("prompt body text = %q, transcript text = %q, want same plain text", got, want)
+	}
+	if !strings.Contains(rows[promptIndex].text, "\x1b[3;") {
+		t.Fatalf("prompt body row = %q, want italic ANSI", rows[promptIndex].text)
+	}
+	if strings.Contains(rows[transcriptIndex].text, "\x1b[3;") {
+		t.Fatalf("transcript row = %q, want non-italic ANSI", rows[transcriptIndex].text)
+	}
+}
+
+func TestDelegationRowsOmitSeparatorWhenCollapsed(t *testing.T) {
+	b := newTestBuffer(t)
+	cases := []struct {
+		name string
+		dd   *delegationDisplayState
+	}{
+		{
+			name: "prompt collapsed",
+			dd: &delegationDisplayState{
+				promptText:      "same text",
+				promptCollapsed: true,
+				entries: []delegationTranscriptEntry{
+					{kind: delegationTranscriptEntryAssistant, body: "same text"},
+				},
+			},
+		},
+		{
+			name: "delegation collapsed",
+			dd: &delegationDisplayState{
+				promptText:      "same text",
+				promptCollapsed: false,
+				collapsed:       true,
+				entries: []delegationTranscriptEntry{
+					{kind: delegationTranscriptEntryAssistant, body: "same text"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := b.delegationRows(tc.dd, 80)
+			for _, row := range rows {
+				if row.kind == delegationRowSeparator {
+					t.Fatalf("rows = %#v, want no separator row", rows)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
 	b := newTestBuffer(t)
 	b.appendLabeledBlock("Compaction", "summary text")

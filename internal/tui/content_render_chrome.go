@@ -383,7 +383,7 @@ func (b *contentBuffer) renderDelegationPromptHeader(dd *delegationDisplayState)
 }
 
 func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, width int) []string {
-	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgMute)
+	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgMute.Italic(true))
 	if len(lines) == 0 {
 		return nil
 	}

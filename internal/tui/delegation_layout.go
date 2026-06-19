@@ -43,23 +43,29 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 			text: theme.WithBg(b.renderDelegationHeader(dd, headerWidth), lipgloss.Color(theme.BgElev)),
 		},
 	}
+	var promptBodyRows []delegationRow
 	if !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
 		rows = append(rows, delegationRow{kind: delegationRowPromptHeader, text: b.renderDelegationPromptHeader(dd)})
 		if dd.promptCollapsed {
 			if preview := previewDelegationText(dd.promptText); preview != "" {
-				rows = append(rows, delegationRow{
+				promptBodyRows = append(promptBodyRows, delegationRow{
 					kind: delegationRowPromptBody,
 					text: b.styles.FgMute.Render(truncateRunes(preview, max(1, headerWidth-2))),
 				})
 			}
 		} else {
 			for _, line := range b.renderDelegationPromptBody(dd, headerWidth) {
-				rows = append(rows, delegationRow{kind: delegationRowPromptBody, text: line})
+				promptBodyRows = append(promptBodyRows, delegationRow{kind: delegationRowPromptBody, text: line})
 			}
 		}
+		rows = append(rows, promptBodyRows...)
 	}
 	if !dd.collapsed {
-		for _, line := range b.renderDelegationTranscript(dd, headerWidth) {
+		transcriptRows := b.renderDelegationTranscript(dd, headerWidth)
+		if !dd.promptCollapsed && len(promptBodyRows) > 0 && len(transcriptRows) > 0 {
+			rows = append(rows, delegationRow{kind: delegationRowSeparator, text: b.renderDelegationFooterSeparator(headerWidth)})
+		}
+		for _, line := range transcriptRows {
 			rows = append(rows, delegationRow{kind: delegationRowTranscript, text: line})
 		}
 		for _, line := range b.renderDelegationOutput(dd, headerWidth) {
