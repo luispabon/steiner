@@ -122,6 +122,42 @@ func TestOpenAICompatNewOpenAICompat_TimeoutClonesHTTPClient(t *testing.T) {
 	}
 }
 
+// TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout
+// ensures the transport's ResponseHeaderTimeout does not shadow the
+// provider's Client.Timeout. Without clearing it, a slow upstream that takes
+// longer than the hardcoded 30s transport header timeout would still return
+// `net/http: timeout awaiting response headers`, ignoring the user's
+// configured provider timeout.
+func TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout(t *testing.T) {
+	originalTransport := &http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+	customClient := &http.Client{Transport: originalTransport}
+	p, err := NewOpenAICompat(OpenAICompatConfig{
+		BaseURL:    "http://localhost:11434/v1",
+		Model:      "gpt-4",
+		Timeout:    45 * time.Second,
+		HTTPClient: customClient,
+		Scheduler:  &Scheduler{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.httpClient.Transport == originalTransport {
+		t.Fatal("expected transport to be cloned, not shared with original client")
+	}
+	cloned, ok := p.httpClient.Transport.(*http.Transport)
+	if !ok || cloned == nil {
+		t.Fatalf("expected transport to be *http.Transport, got %T", p.httpClient.Transport)
+	}
+	if cloned.ResponseHeaderTimeout != 0 {
+		t.Fatalf("cloned ResponseHeaderTimeout = %v, want 0 (Client.Timeout covers the whole request)", cloned.ResponseHeaderTimeout)
+	}
+	if originalTransport.ResponseHeaderTimeout != 30*time.Second {
+		t.Fatalf("original transport ResponseHeaderTimeout = %v, want 30s (must not be mutated)", originalTransport.ResponseHeaderTimeout)
+	}
+}
+
 func TestOpenAICompatSupportsUsageStats_NonNil(t *testing.T) {
 	p := &OpenAICompat{}
 	if !p.SupportsUsageStats() {
