@@ -74,7 +74,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeResumeOneshotAction(action.resumeOneshotID)
 	}
 	if action.submit != "" {
-		return m.executeSubmitAction(action.submit, value)
+		return m.executeSubmitAction(value, action.submit, value)
 	}
 	return m, nil
 }
@@ -317,7 +317,11 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
+func (m Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
+	if value != "" {
+		m.inputHistory = append([]string{value}, m.inputHistory...)
+		m.historyIdx = 0
+	}
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
@@ -343,7 +347,7 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 		if args != "" {
 			displayText += " " + args
 		}
-		return m.executeSubmitAction(args, displayText)
+		return m.executeSubmitAction(displayText, args, displayText)
 	}
 
 	m.input.Reset()
@@ -458,6 +462,8 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 
 	// Create steer channel
 	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotRunning = true
+	m.oneshotPhase = ""
 
 	sessionStore := m.sessionStore
 
@@ -500,15 +506,13 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 		if manifest.ReportPath != "" {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
-			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 		}
+		sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 
 		// Do not close the steer channel — sending to a closed channel panics.
 		// The buffered channel becomes inert once the orchestrator goroutine exits;
 		// sends hit the select/default branch and the channel is GC'd when replaced.
 	}()
-	m.oneshotRunning = true
-	m.oneshotPhase = ""
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
 	m.syncViewport()
@@ -532,6 +536,8 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 	// Create steer channel
 	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotRunning = true
+	m.oneshotPhase = ""
 
 	// Spawn orchestrator goroutine
 	go func() {
@@ -588,9 +594,9 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
-		sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 			return
 		}
 
@@ -604,8 +610,6 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 	}()
 
-	m.oneshotRunning = true
-	m.oneshotPhase = ""
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
 	m.syncViewport()
 	return m, nil

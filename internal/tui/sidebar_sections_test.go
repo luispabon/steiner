@@ -122,3 +122,24 @@ func TestPerformanceSection(t *testing.T) {
 		})
 	}
 }
+
+func TestSidebarRendersOneshotSection(t *testing.T) {
+	s := sidebarState{oneshotPhase: "plan"}
+	lines := s.staticLines(32)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "ONESHOT") {
+		t.Errorf("staticLines missing 'ONESHOT' in %q", joined)
+	}
+	if !strings.Contains(joined, "PLAN") {
+		t.Errorf("staticLines missing 'PLAN' in %q", joined)
+	}
+}
+
+func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
+	s := sidebarState{oneshotPhase: ""}
+	lines := s.staticLines(32)
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "ONESHOT") {
+		t.Errorf("staticLines should not contain 'ONESHOT', got %q", joined)
+	}
+}

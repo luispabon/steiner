@@ -169,7 +169,7 @@ In interactive mode, oneshot runs are first-class and visible in real time:
 1. **Phase dividers** in the scrollback, marked with phase name and timestamp.
 2. **Status bar phase indicator** — a leading `phase · <name>` segment
    appears in the footer while a run is active (e.g. `phase · plan`).
-3. **Sidebar section** — a small `Oneshot — <phase>` section appears in the
+3. **Sidebar section** — a small `Oneshot - <phase>` section appears in the
    sidebar while a run is active and is removed on completion.
 4. **Live phase-agent output** — the phase agent's RunStarted, model
    chunks, tool calls, and RunFinished events are routed into the TUI
