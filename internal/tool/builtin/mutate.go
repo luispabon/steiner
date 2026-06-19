@@ -568,67 +568,12 @@ func (p *mutatePlanner) planInsert(index int, op MutateOperation, insertAfter bo
 		opType = "insert_after"
 	}
 
-	state, err := p.textState(index, opType, op.Path)
+	state, lines, op, err := p.prepareInsert(index, opType, op, insertAfter)
 	if err != nil {
 		return err
 	}
-	if err := p.verifyFileHash(index, opType, state, op.FileHash); err != nil {
-		return err
-	}
-	if op.Line <= 0 {
-		if insertAfter {
-			return fmt.Errorf("mutate: operation %d insert_after: line must be >= 1 (use insert_before line 1 to prepend)", index)
-		}
-		return fmt.Errorf("mutate: operation %d insert_before: line must be >= 1", index)
-	}
-	lines := splitLinesPreserveEndings(string(state.content))
-	if len(lines) == 0 {
-		return fmt.Errorf("mutate: operation %d %s: file is empty, no valid anchor line", index, opType)
-	}
-	if op.Line > len(lines) {
-		return fmt.Errorf("mutate: operation %d %s: line %d is outside file with %d lines", index, opType, op.Line, len(lines))
-	}
-
-	if op.Content == "" && op.NewString != "" {
-		op.Content = op.NewString
-	}
-	if op.Content == "" {
-		return fmt.Errorf("mutate: operation %d %s: content is required", index, opType)
-	}
-
 	before := string(state.content)
-	content := op.Content
-	ending := detectLineEnding(lines)
-	if insertAfter {
-		// Allow append-style inserts at EOF even when the file lacks a trailing newline.
-		// If the anchor is newline-free, synthesize the detected line ending so the
-		// inserted block lands on its own line.
-		anchorLine := lines[op.Line-1]
-		anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
-		if anchorText == anchorLine {
-			// Anchor line has no line ending (last line of file without trailing newline).
-			lines[op.Line-1] = anchorLine + ending
-		}
-	}
-	if content != "" && !strings.HasSuffix(content, "\n") {
-		content += ending
-	}
-	insertLines := splitLinesPreserveEndings(content)
-
-	result := make([]string, 0, len(lines)+len(insertLines))
-	if insertAfter {
-		result = append(result, lines[:op.Line]...)
-	} else {
-		result = append(result, lines[:op.Line-1]...)
-	}
-	result = append(result, insertLines...)
-	if insertAfter {
-		result = append(result, lines[op.Line:]...)
-	} else {
-		result = append(result, lines[op.Line-1:]...)
-	}
-
-	state.content = []byte(strings.Join(result, ""))
+	state.content = []byte(strings.Join(buildInsertedLines(lines, op, insertAfter), ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
 	anchorLine := op.Line
@@ -640,6 +585,86 @@ func (p *mutatePlanner) planInsert(index int, op MutateOperation, insertAfter bo
 	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
+}
+
+func (p *mutatePlanner) prepareInsert(index int, opType string, op MutateOperation, insertAfter bool) (*mutateFileState, []string, MutateOperation, error) {
+	state, err := p.textState(index, opType, op.Path)
+	if err != nil {
+		return nil, nil, op, err
+	}
+	if err := p.verifyFileHash(index, opType, state, op.FileHash); err != nil {
+		return nil, nil, op, err
+	}
+	if err := validateInsertLine(index, op.Line, insertAfter); err != nil {
+		return nil, nil, op, err
+	}
+	lines := splitLinesPreserveEndings(string(state.content))
+	if err := validateInsertBounds(index, opType, op.Line, lines); err != nil {
+		return nil, nil, op, err
+	}
+	if op.Content == "" && op.NewString != "" {
+		op.Content = op.NewString
+	}
+	if op.Content == "" {
+		return nil, nil, op, fmt.Errorf("mutate: operation %d %s: content is required", index, opType)
+	}
+	normalizeInsertAnchor(lines, op.Line, insertAfter)
+	op.Content = normalizeInsertedContent(op.Content, detectLineEnding(lines))
+	return state, lines, op, nil
+}
+
+func validateInsertLine(index, line int, insertAfter bool) error {
+	if line > 0 {
+		return nil
+	}
+	if insertAfter {
+		return fmt.Errorf("mutate: operation %d insert_after: line must be >= 1 (use insert_before line 1 to prepend)", index)
+	}
+	return fmt.Errorf("mutate: operation %d insert_before: line must be >= 1", index)
+}
+
+func validateInsertBounds(index int, opType string, line int, lines []string) error {
+	if len(lines) == 0 {
+		return fmt.Errorf("mutate: operation %d %s: file is empty, no valid anchor line", index, opType)
+	}
+	if line > len(lines) {
+		return fmt.Errorf("mutate: operation %d %s: line %d is outside file with %d lines", index, opType, line, len(lines))
+	}
+	return nil
+}
+
+func normalizeInsertAnchor(lines []string, line int, insertAfter bool) {
+	if !insertAfter {
+		return
+	}
+	ending := detectLineEnding(lines)
+	anchorLine := lines[line-1]
+	anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
+	if anchorText == anchorLine {
+		lines[line-1] = anchorLine + ending
+	}
+}
+
+func normalizeInsertedContent(content, ending string) string {
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += ending
+	}
+	return content
+}
+
+func buildInsertedLines(lines []string, op MutateOperation, insertAfter bool) []string {
+	insertLines := splitLinesPreserveEndings(op.Content)
+	result := make([]string, 0, len(lines)+len(insertLines))
+	if insertAfter {
+		result = append(result, lines[:op.Line]...)
+	} else {
+		result = append(result, lines[:op.Line-1]...)
+	}
+	result = append(result, insertLines...)
+	if insertAfter {
+		return append(result, lines[op.Line:]...)
+	}
+	return append(result, lines[op.Line-1:]...)
 }
 
 func detectLineEnding(lines []string) string {

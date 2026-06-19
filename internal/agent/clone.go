@@ -22,22 +22,6 @@ func cloneMessages(messages []Message) []Message {
 	return out
 }
 
-func cloneToolCalls(calls []ToolCall) []ToolCall {
-	if len(calls) == 0 {
-		return nil
-	}
-	out := make([]ToolCall, len(calls))
-	for i := range calls {
-		out[i] = ToolCall{
-			ID:           calls[i].ID,
-			Name:         calls[i].Name,
-			Arguments:    cloneInput(calls[i].Arguments),
-			RawArguments: calls[i].RawArguments,
-		}
-	}
-	return out
-}
-
 func cloneInput(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return map[string]any{}
@@ -86,16 +70,4 @@ func cloneMessageRetention(retention *MessageRetention) *MessageRetention {
 	}
 	cloned := *retention
 	return &cloned
-}
-
-func cloneMessageProviderMetadata(metadata *MessageProviderMetadata) *MessageProviderMetadata {
-	if metadata == nil {
-		return nil
-	}
-	cloned := &MessageProviderMetadata{}
-	if metadata.Anthropic != nil {
-		anthropic := *metadata.Anthropic
-		cloned.Anthropic = &anthropic
-	}
-	return cloned
 }

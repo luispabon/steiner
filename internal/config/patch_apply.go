@@ -2,6 +2,12 @@ package config
 
 // applyPatch applies a config patch to the config.
 func applyPatch(cfg *Config, patch configPatch) {
+	applyCoreConfigPatch(cfg, patch)
+	applyRuntimeConfigPatch(cfg, patch)
+	applyToolingConfigPatch(cfg, patch)
+}
+
+func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 	if patch.CaveHuman != nil {
 		cfg.CaveHuman = *patch.CaveHuman
 	}
@@ -34,6 +40,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 			cfg.Models[name] = current
 		}
 	}
+}
+
+func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Limits != nil {
 		applyLimitsPatch(&cfg.Limits, patch.Limits)
 	}
@@ -49,6 +58,9 @@ func applyPatch(cfg *Config, patch configPatch) {
 	if patch.WorkflowHandoff != nil {
 		applyWorkflowHandoffPatch(&cfg.WorkflowHandoff, patch.WorkflowHandoff)
 	}
+}
+
+func applyToolingConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Tools != nil {
 		if cfg.Tools == nil {
 			cfg.Tools = make(map[string]ToolConfig)

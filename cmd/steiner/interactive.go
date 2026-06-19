@@ -33,11 +33,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	if err != nil {
 		return err
 	}
-	rt, err = buildInteractiveRuntime(rt, sess)
-	if err != nil {
-		closeRuntime(&rt)
-		return err
-	}
+	rt = buildInteractiveRuntime(rt, sess)
 	tuiApp := buildInteractiveApp(cmd, flags, rt, sess)
 	wireInteractiveRunner(rt, sess)
 	sess.DisplaySink().Set(tuiApp.EventSink())

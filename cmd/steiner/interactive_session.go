@@ -39,12 +39,12 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	return interactive.NewSession(sessDeps)
 }
 
-func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRuntime, error) {
+func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
 	registry := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.events = sess.EventSink()
-	return rt, nil
+	return rt
 }
 
 func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {

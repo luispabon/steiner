@@ -86,12 +86,9 @@ func decodeAnthropicStreamWithHandler(_ context.Context, body io.Reader, emit fu
 }
 
 func processAnthropicStreamEvent(state *anthropicStreamState, eventType, data string, emit func(ChatChunk) error) (bool, error) {
-	var payload anthropicStreamEvent
-	if err := json.Unmarshal([]byte(data), &payload); err != nil {
-		if strings.Contains(err.Error(), "unexpected end of JSON input") {
-			return false, fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, err)
-		}
-		return false, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
+	payload, err := decodeAnthropicStreamEvent(data)
+	if err != nil {
+		return false, err
 	}
 	if eventType == "" {
 		eventType = payload.Type
@@ -99,9 +96,7 @@ func processAnthropicStreamEvent(state *anthropicStreamState, eventType, data st
 
 	switch eventType {
 	case "message_start":
-		if payload.Message != nil {
-			mergeAnthropicUsage(state, payload.Message.Usage)
-		}
+		handleAnthropicMessageStart(state, payload)
 		return false, nil
 	case "content_block_start":
 		return false, handleAnthropicContentBlockStart(state, payload.Index, payload.ContentBlock, emit)
@@ -110,26 +105,51 @@ func processAnthropicStreamEvent(state *anthropicStreamState, eventType, data st
 	case "content_block_stop":
 		return false, nil
 	case "message_delta":
-		if payload.Delta != nil && payload.Delta.StopReason != "" {
-			state.finishReason = normalizeAnthropicFinishReason(payload.Delta.StopReason)
-		}
-		mergeAnthropicUsage(state, payload.Usage)
+		handleAnthropicMessageDelta(state, payload)
 		return false, nil
 	case "message_stop":
 		return true, flushAnthropicStreamState(emit, state)
 	case "error":
-		message := "anthropic stream error"
-		if payload.Error != nil && strings.TrimSpace(payload.Error.Message) != "" {
-			message = payload.Error.Message
-		}
-		return true, emit(ChatChunk{
-			Done:          true,
-			Error:         message,
-			OriginalError: fmt.Errorf("%s", message),
-		})
+		return true, emitAnthropicStreamError(payload, emit)
 	default:
 		return false, nil
 	}
+}
+
+func decodeAnthropicStreamEvent(data string) (anthropicStreamEvent, error) {
+	var payload anthropicStreamEvent
+	if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		if strings.Contains(err.Error(), "unexpected end of JSON input") {
+			return anthropicStreamEvent{}, fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, err)
+		}
+		return anthropicStreamEvent{}, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
+	}
+	return payload, nil
+}
+
+func handleAnthropicMessageStart(state *anthropicStreamState, payload anthropicStreamEvent) {
+	if payload.Message != nil {
+		mergeAnthropicUsage(state, payload.Message.Usage)
+	}
+}
+
+func handleAnthropicMessageDelta(state *anthropicStreamState, payload anthropicStreamEvent) {
+	if payload.Delta != nil && payload.Delta.StopReason != "" {
+		state.finishReason = normalizeAnthropicFinishReason(payload.Delta.StopReason)
+	}
+	mergeAnthropicUsage(state, payload.Usage)
+}
+
+func emitAnthropicStreamError(payload anthropicStreamEvent, emit func(ChatChunk) error) error {
+	message := "anthropic stream error"
+	if payload.Error != nil && strings.TrimSpace(payload.Error.Message) != "" {
+		message = payload.Error.Message
+	}
+	return emit(ChatChunk{
+		Done:          true,
+		Error:         message,
+		OriginalError: fmt.Errorf("%s", message),
+	})
 }
 
 func handleAnthropicContentBlockStart(state *anthropicStreamState, index int, block *anthropicContentBlock, emit func(ChatChunk) error) error {
