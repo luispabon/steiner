@@ -191,10 +191,16 @@ func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cloned := RequestContextSnapshot{
-		Model:       snapshot.Model,
-		Messages:    provider.CloneMessages(snapshot.Messages),
-		Tools:       provider.CloneTools(snapshot.Tools),
-		MaxTokens:   cloneOptionalInt(snapshot.MaxTokens),
+		Model:    snapshot.Model,
+		Messages: provider.CloneMessages(snapshot.Messages),
+		Tools:    provider.CloneTools(snapshot.Tools),
+		MaxTokens: func() *int {
+			if snapshot.MaxTokens == nil {
+				return nil
+			}
+			cloned := *snapshot.MaxTokens
+			return &cloned
+		}(),
 		Blocks:      append([]prompt.ContextBlock(nil), snapshot.Blocks...),
 		ModelBudget: snapshot.ModelBudget,
 	}
@@ -213,10 +219,16 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 		return RequestContextSnapshot{}, false
 	}
 	cloned := RequestContextSnapshot{
-		Model:       s.snapshot.Model,
-		Messages:    provider.CloneMessages(s.snapshot.Messages),
-		Tools:       provider.CloneTools(s.snapshot.Tools),
-		MaxTokens:   cloneOptionalInt(s.snapshot.MaxTokens),
+		Model:    s.snapshot.Model,
+		Messages: provider.CloneMessages(s.snapshot.Messages),
+		Tools:    provider.CloneTools(s.snapshot.Tools),
+		MaxTokens: func() *int {
+			if s.snapshot.MaxTokens == nil {
+				return nil
+			}
+			cloned := *s.snapshot.MaxTokens
+			return &cloned
+		}(),
 		Blocks:      append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
 		ModelBudget: s.snapshot.ModelBudget,
 	}
@@ -347,12 +359,4 @@ func (c *WorkflowHandoffCoordinator) HasPending() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.pending != nil
-}
-
-func cloneOptionalInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }

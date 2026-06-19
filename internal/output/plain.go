@@ -319,7 +319,7 @@ func (r *PlainRenderer) Themed(channel Channel, text string) string {
 }
 
 func defaultTheme(w io.Writer) Theme {
-	enabled := supportsANSI(w)
+	enabled := SupportsANSI(w)
 	return Theme{
 		Enabled:   enabled,
 		Assistant: themeStyle(enabled, "1;38;5;159"),
@@ -357,7 +357,8 @@ func (t Theme) style(channel Channel) ThemeStyle {
 	}
 }
 
-func supportsANSI(w io.Writer) bool {
+// SupportsANSI reports whether w is connected to a terminal that should receive ANSI output.
+func SupportsANSI(w io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}

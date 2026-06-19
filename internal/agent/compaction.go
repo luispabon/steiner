@@ -227,7 +227,7 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 	chatRequest := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,
-		Tools:       cloneProviderTools(req.Tools),
+		Tools:       provider.CloneTools(req.Tools),
 		Params:      req.ResolvedModel.Params,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 	}
@@ -363,7 +363,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	if err != nil {
 		return provider.ChatRequest{}, "", err
 	}
-	messages := append(cloneProviderMessages(assembly.Messages), provider.Message{
+	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CaveHuman),
 	})

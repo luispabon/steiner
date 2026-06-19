@@ -33,10 +33,16 @@ type contextReportItem struct {
 // BuildContextReport summarizes prompt composition and budget usage.
 func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (string, error) {
 	request := provider.ChatRequest{
-		Model:     snapshot.Model,
-		Messages:  cloneProviderMessages(snapshot.Messages),
-		Tools:     cloneProviderTools(snapshot.Tools),
-		MaxTokens: cloneOptionalInt(snapshot.MaxTokens),
+		Model:    snapshot.Model,
+		Messages: provider.CloneMessages(snapshot.Messages),
+		Tools:    provider.CloneTools(snapshot.Tools),
+		MaxTokens: func() *int {
+			if snapshot.MaxTokens == nil {
+				return nil
+			}
+			cloned := *snapshot.MaxTokens
+			return &cloned
+		}(),
 	}
 
 	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)

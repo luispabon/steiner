@@ -11,12 +11,13 @@ func cloneMessages(messages []Message) []Message {
 	if len(messages) == 0 {
 		return nil
 	}
-	out := make([]Message, len(messages))
-	copy(out, messages)
+	providerMessages := provider.CloneMessages(ToProviderMessages(messages))
+	out := fromProviderMessages(providerMessages)
 	for i := range out {
-		out[i].ToolCalls = cloneToolCalls(out[i].ToolCalls)
-		out[i].Retention = cloneMessageRetention(out[i].Retention)
-		out[i].ProviderMetadata = cloneMessageProviderMetadata(out[i].ProviderMetadata)
+		if messages[i].Role == MessageRoleSummary {
+			out[i].Role = MessageRoleSummary
+		}
+		out[i].Retention = cloneMessageRetention(messages[i].Retention)
 	}
 	return out
 }
@@ -63,14 +64,6 @@ func cloneValue(value any) any {
 	default:
 		return value
 	}
-}
-
-func cloneProviderTools(tools []provider.ToolSpec) []provider.ToolSpec {
-	return provider.CloneTools(tools)
-}
-
-func cloneProviderMessages(messages []provider.Message) []provider.Message {
-	return provider.CloneMessages(messages)
 }
 
 func messageRetentionFromToolRetention(retention *tool.ToolRetention) *MessageRetention {

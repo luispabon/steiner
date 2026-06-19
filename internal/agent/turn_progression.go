@@ -376,7 +376,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	chatRequest := provider.ChatRequest{
 		Model:       in.Request.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,
-		Tools:       cloneProviderTools(in.Request.Tools),
+		Tools:       provider.CloneTools(in.Request.Tools),
 		Params:      in.Request.ResolvedModel.Params,
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 	}

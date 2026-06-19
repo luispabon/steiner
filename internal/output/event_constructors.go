@@ -263,10 +263,16 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 		Type:      EventTypeAPIRequest,
 		Timestamp: time.Now().UTC(),
 		Payload: APIRequestEvent{
-			Model:       model,
-			Messages:    cloneProviderMessages(messages),
-			Tools:       cloneProviderTools(tools),
-			MaxTokens:   cloneOptionalInt(maxTokens),
+			Model:    model,
+			Messages: provider.CloneMessages(messages),
+			Tools:    provider.CloneTools(tools),
+			MaxTokens: func() *int {
+				if maxTokens == nil {
+					return nil
+				}
+				cloned := *maxTokens
+				return &cloned
+			}(),
 			Blocks:      append([]prompt.ContextBlock(nil), blocks...),
 			ModelBudget: budget,
 		},
