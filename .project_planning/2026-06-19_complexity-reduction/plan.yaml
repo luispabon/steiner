@@ -1,0 +1,368 @@
+steps:
+  - id: step-1
+    title: Cross-package shared-helper dedup (export & reuse)
+    scope: >
+      Remove duplicated shared helpers across packages by reusing the canonical exported
+      versions. Run FIRST so later steps build on a deduped base and cannot re-introduce
+      drift. Findings: C-005, D-004, E-006.
+    files:
+      - internal/provider/clone.go
+      - internal/agent/clone.go
+      - internal/output/context_report_clone.go
+      - internal/interactive/context_report_clone.go
+      - internal/interactive/state.go
+      - internal/output/plain.go
+      - cmd/steiner/spinner.go
+    constraints:
+      - Behavior-preserving; no signature changes beyond deleting redundant wrappers.
+      - Delete cloneProviderMessages/cloneProviderTools copies in output, interactive, and
+        agent; call provider.CloneMessages/provider.CloneTools directly.
+      - For cloneOptionalInt, inline the two-liner at its ~4 call sites OR export once from
+        provider; do not leave three copies.
+      - Reuse provider deep-copy in agent/clone.go cloneMessages where the conversion path
+        (fromProviderMessage) already exists; do not hand-roll field-by-field cloning.
+      - Export output.SupportsANSI (rename supportsANSI) with Godoc; call it from
+        cmd/steiner/spinner.go isTTY; delete the duplicated NO_COLOR/TERM=dumb/IsTerminal
+        logic. No import cycle (cmd/steiner already imports internal/output).
+      - No new util/helper/common package.
+    acceptance:
+      - No package other than internal/provider defines cloneProviderMessages/
+        cloneProviderTools.
+      - cloneOptionalInt exists in at most one place.
+      - cmd/steiner/spinner.go has no copy of the ANSI/TTY detection logic.
+      - go build ./... passes; all affected package tests green.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/provider/... ./internal/agent/... ./internal/output/... ./internal/interactive/... ./cmd/steiner/...
+      - go build ./...
+
+  - id: step-2
+    title: Cross-package dead-code & impossible-branch sweep
+    scope: >
+      Surgical deletion/inlining of dead code, alias functions, impossible error returns,
+      and discarded parameters across packages. Findings: E-018, E-005, E-007, E-003,
+      E-004, B-014, D-005, B-006, C-020.
+    files:
+      - cmd/steiner/huh_boundary.go
+      - cmd/steiner/huh_form.go
+      - cmd/steiner/approval.go
+      - cmd/steiner/update.go
+      - cmd/steiner/tools.go
+      - cmd/steiner/runtime_build.go
+      - cmd/steiner/runner.go
+      - cmd/steiner/runner_run.go
+      - internal/update/update.go
+      - internal/delegation/result.go
+      - internal/delegation/bootstrap.go
+      - internal/delegation/bootstrap_support.go
+      - internal/tool/builtin/result.go
+      - internal/tool/builtin/decode.go
+      - internal/output/event_constructors.go
+      - internal/provider/openai_compat.go
+    constraints:
+      - E-018 delete huh_form.go (stub) and huh_boundary.go (doc-only); move the boundary
+        contract comment into approval.go.
+      - E-005 delete update.Update alias; call Channel(..., "stable") at the single caller.
+      - E-007 drop the never-nil error return from runtimeRegistry/runtimeRegistryWithSink;
+        update the two callers in runtime_build.go.
+      - E-003 remove discarded spec param from buildResultInternal and buildChildRunRequest;
+        use or remove ctx in BuildChildRun; update callers.
+      - E-004 remove the dropped []agent.Message param from buildRunRequest; update both
+        call sites (runner.go, runner_run.go).
+      - B-014 remove unused Result.Error field; inline/remove diveText only if <2 callers
+        (verify first).
+      - D-005 collapse stopReasonSummary "error" branch (both arms return identical strings).
+      - B-006 replace magic 22 with reflect.Pointer in decode.go (2 sites).
+      - C-020 simplify SupportsUsageStats nil-guards (verify consumers via grep first).
+      - Each removal must be confirmed unused by grep before deleting; comment any
+        intentional remaining ignores.
+    acceptance:
+      - No build references to deleted symbols; go vet ./... clean.
+      - go build ./... passes; affected package tests green.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./cmd/steiner/... ./internal/update/... ./internal/delegation/... ./internal/tool/... ./internal/output/... ./internal/provider/...
+      - go build ./... && go vet ./...
+
+  - id: step-3
+    title: internal/output event constructor & render boilerplate consolidation
+    scope: >
+      Collapse the ~30 constructor + ~25 render boilerplate repetitions in internal/output.
+      Biggest single LOC win (~200 LOC). Findings: D-001, D-002, D-003, D-017, D-011,
+      D-012; plus borderline D-006 (verify-or-defer per KD4).
+    files:
+      - internal/output/event_constructors.go
+      - internal/output/event_render.go
+      - internal/output/event_types.go
+      - internal/output/stream.go
+    constraints:
+      - D-001 extract newEvent(eventType string, payload any) Event; migrate constructors.
+      - D-002 add newApprovalEvent(...) and newWorkflowHandoffEvent(...); the 3+3 public
+        constructors become one-line delegations.
+      - D-003 extract appendField/appendIntField and errorChannel(hasErr bool) (Channel,
+        string); migrate the ~25 render funcs. Package-level unexported helpers only (no
+        util package).
+      - D-017 extract advisorHeader(label, model string, useNumber, maxUses int) []string.
+      - D-011 remove the Stream = EventStream alias; update the 4 *output.Stream sites in
+        cmd/steiner.
+      - D-012 drop the zero-arg default-source chunk wrappers; require explicit source at
+        call sites (handful in internal/agent).
+      - D-006 (borderline) replace Event.MarshalJSON dual-struct with a single struct using
+        omitempty on Scope ONLY IF event_constructors_test.go/stream_test.go pin the exact
+        JSON output; else leave and note for follow-up.
+      - Rendered/serialized output must be byte-identical; do not modify tests to fit.
+    acceptance:
+      - Event/render output unchanged (existing golden/table tests pass unmodified).
+      - event_constructors.go and event_render.go materially shorter; no Stream alias.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/output/... ./cmd/steiner/... ./internal/agent/...
+      - go build ./...
+
+  - id: step-4
+    title: internal/output + internal/oneshot misc cleanup
+    scope: >
+      Smaller output/oneshot consolidations distinct from the event boilerplate. Findings:
+      D-014, D-015, D-016, D-018.
+    files:
+      - internal/oneshot/closeout.go
+      - internal/oneshot/report.go
+      - internal/output/context_report.go
+      - internal/interactive/context_report.go
+    constraints:
+      - D-014 extract a closeoutRunner func type + provider-keyed dispatch map for
+        runGitHubCloseout/runGitLabCloseout/runAzureCloseout (shared push/exec/collect-URL).
+      - D-015 inline NewContextReportEvent/NewConfigReportEvent into call sites or keep only
+        NewOverlayReportEvent as canonical (verify call-site counts first).
+      - D-016 Godoc GenerateFinalReport as the primary entry; mark test-only helpers
+        (keep AssembleFinalReport exported since closeout.go uses it directly).
+      - D-018 rename internal/interactive/context_report.go to snapshot_report.go (pure
+        rename; RequestContextSnapshot is request-snapshot logic, not overlay reports).
+    acceptance:
+      - Closeout behavior unchanged across all three providers (closeout_test.go green).
+      - go build ./... passes; affected tests green.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/oneshot/... ./internal/output/... ./internal/interactive/...
+      - go build ./...
+
+  - id: step-5
+    title: internal/config patch & validate fragmentation collapse
+    scope: >
+      Flatten the two-level applyXxxConfigPatch->applyXxxPatch wrappers and merge tiny
+      single-function validate files. Findings: E-001, E-002, E-021.
+    files:
+      - internal/config/patch_apply.go
+      - internal/config/patch_context.go
+      - internal/config/patch_runtime.go
+      - internal/config/patch_model.go
+      - internal/config/patch_limits.go
+      - internal/config/patch_search.go
+      - internal/config/validate.go
+      - internal/config/validate_limits.go
+      - internal/config/validate_modes.go
+      - internal/config/load.go
+      - internal/config/load_paths.go
+    constraints:
+      - E-001 inline the outer applyXxxConfigPatch nil-guards into applyPatch; keep only the
+        field-level applyXxxPatch functions. applyPatch is the sole entry point (verified).
+      - E-002 merge validate_modes.go and validate_limits.go into validate.go; leave the
+        larger validate_model.go/validate_runtime.go as-is.
+      - E-021 inline applyConfigFilePatches (12 lines, 1 caller) into Load; move
+        loadEnvironment to load.go; keep the resolveHomeDir/WorkingDir/ConfigPaths trio.
+      - Behavior-preserving; config_test.go/patch_test.go/validate_test.go pass unmodified.
+    acceptance:
+      - Config load/merge/validate behavior unchanged.
+      - Outer per-section patch wrappers gone; validate file count reduced.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/config/...
+      - go build ./...
+
+  - id: step-6
+    title: internal/tool/builtin local dedup
+    scope: >
+      Consolidate repeated patterns and tighten hot paths in the built-in tools. Findings:
+      B-001, B-002, B-003, B-004, B-005, B-010, B-011, B-012, B-015; plus borderline B-009
+      (verify-or-defer per KD4).
+    files:
+      - internal/tool/builtin/read.go
+      - internal/tool/builtin/glob.go
+      - internal/tool/builtin/grep.go
+      - internal/tool/builtin/ls.go
+      - internal/tool/builtin/display_file.go
+      - internal/tool/builtin/mutate.go
+      - internal/tool/builtin/mutate_commit.go
+      - internal/tool/builtin/schema.go
+      - internal/tool/builtin/input.go
+      - internal/tool/builtin/result.go
+      - internal/tool/execution_pipeline.go
+      - internal/tool/builtin/workflow_handoff.go
+    constraints:
+      - B-001 collapse the double ResolveReadPath+absWorkspacePath into one resolve per
+        read-only handler (read/glob/grep/ls/display_file).
+      - B-002 extract planInsert(index, op, insertAfter) unifying planInsertBefore/After.
+      - B-003 extract handleSandboxDenial(...) shared by the two denial branches.
+      - B-004 pre-compute sorted valid-field lists per op-type once (no per-error re-sort).
+      - B-005 move pageResults into result.go; reuse from glob.go and ls.go.
+      - B-010 unexport the NormalizeX functions if no external importer (verify first).
+      - B-011 reference named limit constants in schema maps instead of literals.
+      - B-012 single-pass commit() building snapshots+states together, sort once.
+      - B-015 replace the shell-unsafe rune map with strings.ContainsAny.
+      - B-009 (borderline) avoid the second os.ReadFile in read.go ONLY IF read_test.go
+        pins line-count/hash behavior; else leave and note.
+      - Do NOT split mutate.go here (that is L3).
+    acceptance:
+      - Tool behavior unchanged; mutate_test.go / grep / ls / glob / read tests green.
+      - go build ./... passes.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/tool/...
+      - go build ./...
+
+  - id: step-7
+    title: internal/agent thin-wrapper & seam collapse
+    scope: >
+      Inline single-use wrappers and remove a test-only function-type seam; consolidate
+      duplicated turn-completion/candidate logic. Findings: C-004, C-006, C-007, C-008,
+      C-015, C-016, C-018; plus borderline C-009, C-019 (verify-or-defer per KD4). Excludes
+      C-010 (L4) and the compaction.go split (L3).
+    files:
+      - internal/agent/turn_progression.go
+      - internal/agent/compaction.go
+      - internal/prompt/types.go
+    constraints:
+      - C-006/C-007/C-008/C-018 inline the single-use wrappers (performModelCall,
+        emitModelCallStarted, buildTurnChatRequest, emitAssistantMessage,
+        appendAssistantMessage).
+      - C-004 inline twoStageSummarizeCompactionWithStages into twoStageSummarizeCompaction;
+        replace the function-type test seam with a test-visible struct or narrow interface;
+        keep compaction_test.go green (adjust only the injection mechanism, not asserted
+        behavior).
+      - C-016 extract makeCompactionCandidate(candidate, source, retained) helper.
+      - C-015 add (ContextSource) IsSystemZone() bool to internal/prompt and use it in
+        turn_progression.go instead of the local switch (restores the boundary).
+      - C-009 (borderline) have handleModelCallError delegate to handleError for the
+        cancel path ONLY IF runner_test.go pins the emit sequence; else leave and note.
+      - C-019 (borderline) consolidate the emitStop+TurnFinished pairs into completeTurn(...)
+        ONLY IF tests pin the event ordering across all three call sites; else leave + note.
+      - Do NOT split compaction.go here (that is L3).
+    acceptance:
+      - Turn loop + compaction behavior unchanged; runner_test.go / compaction_test.go green.
+      - internal/agent must not bypass provider abstractions or scheduler parallelism.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/agent/... ./internal/prompt/...
+      - go build ./...
+
+  - id: step-8
+    title: internal/provider wire dedup & sentinel errors
+    scope: >
+      Deduplicate request serialization and replace fragile error-string classification.
+      Findings: C-002, C-012, C-014; plus borderline C-013 (verify-or-defer per KD4).
+      Excludes C-001 (Anthropic strategy refactor -> L4) and C-003 (minor -> L4).
+    files:
+      - internal/provider/openai_wire.go
+      - internal/provider/anthropic_wire.go
+      - internal/provider/openai_compat.go
+      - internal/provider/request_params.go
+    constraints:
+      - C-002 extract mergeRequestParams(base, params, extraParams map[string]any)
+        map[string]any (new request_params.go); use from both MarshalJSON impls.
+      - C-012 define sentinel errors for decode failures, wrap with %w at producing sites,
+        use errors.Is in classifyRetryError (behavior-preserving classification).
+      - C-014 extract lastNUserMsgIndices(messages, n) []int; replace the hand-walked
+        cache-breakpoint index logic; add an isolated unit test for assignCacheBreakpoints.
+      - C-013 (borderline) replace anthropicContentBlock.MarshalJSON with omitempty struct
+        tags ONLY IF anthropic_test.go round-trip tests fully constrain the output
+        (empty-string vs zero-value); else leave and note.
+      - Wire output must be byte-identical; do not modify wire tests to fit.
+    acceptance:
+      - Serialization + retry classification unchanged; anthropic_test.go/openai_compat_test
+        green; new assignCacheBreakpoints test passes.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/provider/...
+      - go build ./...
+
+  - id: step-9
+    title: internal/delegation tiny-file consolidation & misc
+    scope: >
+      Remove over-split helper-named files by inlining single-caller code, and tidy small
+      delegation helpers. Findings: E-012, E-013, E-014, E-022, E-016 (advisor). These are
+      file MERGES (anti-pattern removal), not god-file splits, so they belong in L1.
+    files:
+      - internal/delegation/bootstrap.go
+      - internal/delegation/bootstrap_support.go
+      - internal/delegation/event_sink.go
+      - internal/delegation/trace.go
+      - internal/delegation/trace_log.go
+      - internal/delegation/agent_type.go
+      - internal/advisor/advisor.go
+      - internal/advisor/tool.go
+    constraints:
+      - E-013 inline buildChildToolRegistry and buildChildRunRequest into bootstrap.go;
+        delete bootstrap_support.go (the forbidden "support" helper-file name).
+      - E-014 move scopedEventSink/withAgentScope into bootstrap.go; delete event_sink.go.
+      - E-012 merge trace.go into trace_log.go (134 LOC combined; co-locates traceRecord).
+      - E-022 replace ValidAgentType linear scan with a compile-time map or switch.
+      - E-016 inline advisor.Advise into tool.go (sole caller) and drop the Request adapter,
+        OR keep separation but remove Request; reduce the exported surface. Verify no
+        external callers of Advise (grep) first.
+      - Resulting files stay under target; no new util/helper/common/support files.
+    acceptance:
+      - bootstrap_support.go and event_sink.go deleted; delegation/advisor behavior
+        unchanged (delegation + advisor tests green).
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./internal/delegation/... ./internal/advisor/...
+      - go build ./...
+
+  - id: step-10
+    title: cmd/steiner boundary hygiene & small-package misc
+    scope: >
+      Restore composition-root boundaries and inline single-caller cmd helpers; document a
+      legacy shim. Findings: E-017, E-019, E-009, E-010. (E-020 runtime_build split is L3.)
+    files:
+      - cmd/steiner/model.go
+      - cmd/steiner/interactive_session.go
+      - cmd/steiner/runtime_build.go
+      - internal/config/load_override.go
+      - internal/config/config.go
+      - internal/session/store.go
+      - docs/CONFIGURATION.md
+    constraints:
+      - E-017 inline model.go's single-caller config accessors into interactive_session.go;
+        delete model.go.
+      - E-019 add a TODO(legacy-cleanup) comment to restoreLegacyLineage naming the removal
+        condition + introduced date (per CLAUDE.md TODO rule).
+      - E-009 move ensureSteinerProjectDir out of the composition root into internal/session
+        (which already owns store-dir creation); add a unit test for it.
+      - E-010 add Unsafe bool to config.CLIOverrides and handle cfg.Sandbox.Enabled=false in
+        applyCLIOverrides; remove the post-load mutation in runtime_build.go. Update
+        docs/CONFIGURATION.md for the new override field (CLAUDE.md doc-maintenance rule).
+      - Do NOT split runtime_build.go here (that is L3); only remove the moved helper.
+    acceptance:
+      - --unsafe still disables the sandbox, now via config overrides (config tests green).
+      - ensureSteinerProjectDir has a unit test; model.go deleted; docs updated.
+    verification:
+      - gofmt -w <files> && goimports -w <files>
+      - go test ./cmd/steiner/... ./internal/config/... ./internal/session/...
+      - go build ./...
+
+  - id: step-11
+    title: Final L1 verification gate
+    scope: >
+      Run the full repo gate once after all L1 steps land, to catch cross-step
+      interactions (tidy, race, lint, vuln) the per-step targeted runs do not.
+    files: []
+    constraints:
+      - No code changes except fixes required to make the gate pass.
+      - If a borderline item (KD4) caused any test to need editing, revert that item to
+        deferred instead of editing the test.
+    acceptance:
+      - make check passes clean.
+    verification:
+      - make check
+    depends_on: [step-1, step-2, step-3, step-4, step-5, step-6, step-7, step-8, step-9, step-10]
+    no_delegate: true
