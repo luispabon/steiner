@@ -60,7 +60,7 @@ The agent's prompt contexts reference the worktree path; tool schemas and result
 
 Each phase is a fresh agent run with empty model context and a clean scrollback. Cross-phase state is carried by:
 
-1. **Disk artifacts**: `overview.md`, `plan.yaml`, `execution.md` (committed at phase boundaries)
+1. **Disk artifacts**: `overview.md`, `plan.yaml`, `execution.md`, `review.md` (committed at phase boundaries)
 2. **Git history**: each phase leaves a commit milestone
 3. **Run manifest**: `.steiner/oneshot/<id>/run.json` (updated after each phase)
 
@@ -71,17 +71,19 @@ Each phase is a fresh agent run with empty model context and a clean scrollback.
 - Refinement: full advisor loops enabled if configured. A final `advisor` sanity check on the completed plan is mandatory before the commit (skipped only if the per-run advisor budget is exhausted); its note is recorded in `overview.md`.
 
 **Implement phase**:
-- Task: execute the plan, make code changes, and validate with tests.
-- Input: reads `plan.yaml` and previous `overview.md`.
-- Output: `execution.md` (summary of changes), commits to the feature branch.
+- Task: execute the plan's steps, make code changes, and validate with the plan's verification strategy.
+- Input: reads `overview.md` (intent + verification strategy) and `plan.yaml` (flat step contract).
+- Delegation: mandatory. The phase acts only as an orchestrator — implementation-scoped edits and verification-failure fixes flow through delegated `code` sub-agents, one per step. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`.
+- Output: `execution.md` (compact step/verification/handoff state), commits to the feature branch.
 - Refinement: point-consults (advisor enabled but capped at 1-2 uses).
 
 **Review phase**:
-- Task: review implementation against the plan, check code quality, and produce a final report.
-- Input: reads `plan.yaml`, `execution.md`, and all committed work.
-- Output: `review_report.md` (verdict and findings), final commit.
-- Refinement: full advisor loops enabled.
-- Gating: if review passes, may proceed to closeout (PR push if `auto_pr` is enabled).
+- Task: validate the implementation against the plan, drive findings to a verdict, and record the result.
+- Input: reads `overview.md`, `plan.yaml`, `execution.md`, and all committed work.
+- Findings: classified `blocking` / `non_blocking` / `informational`, mapping to a `fail` / `pass_with_notes` / `pass` status.
+- Delegation: mandatory, mirroring the implement phase — review-fix edits flow through delegated `code` sub-agents; direct file mutation of implementation files is a violation, not a fallback.
+- Refinement: full advisor loops enabled. A final `advisor` sanity check on residual risk is mandatory before the verdict is marked (skipped only if the per-run advisor budget is exhausted); its note is recorded in `review.md`.
+- Output: `review.md` (scope, status, findings, reruns, residual risk, advisor note), final commit. The engine then writes the structured `final-report.json` and runs closeout (PR push if `auto_pr` is enabled).
 
 ### Run Manifest
 

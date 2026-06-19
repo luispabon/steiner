@@ -68,15 +68,26 @@ func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Mess
 		default:
 		}
 	}
-	if r.writePlan && r.phase == PhasePlan {
+	if r.writePlan {
 		if err := os.MkdirAll(r.planningPath, 0o755); err != nil {
 			return RunResult{}, err
 		}
-		if err := os.WriteFile(filepath.Join(r.planningPath, "overview.md"), []byte("overview\n"), 0o644); err != nil {
-			return RunResult{}, err
-		}
-		if err := os.WriteFile(filepath.Join(r.planningPath, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
-			return RunResult{}, err
+		switch r.phase {
+		case PhasePlan:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "overview.md"), []byte("overview\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
+			if err := os.WriteFile(filepath.Join(r.planningPath, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
+		case PhaseImplement:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "execution.md"), []byte("execution\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
+		case PhaseReview:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "review.md"), []byte("review\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
 		}
 	}
 
@@ -147,8 +158,8 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
 			PhasePlan:      {writePlan: true},
-			PhaseImplement: {},
-			PhaseReview:    {},
+			PhaseImplement: {writePlan: true},
+			PhaseReview:    {writePlan: true},
 		},
 	}
 
@@ -416,8 +427,8 @@ func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
 				planningPath: planningPath,
 				runners: map[Phase]*phaseRunnerStub{
 					PhasePlan:      {writePlan: true},
-					PhaseImplement: {},
-					PhaseReview:    {},
+					PhaseImplement: {writePlan: true},
+					PhaseReview:    {writePlan: true},
 				},
 			},
 			ManifestStore:    NewManifestStore(identity.ManifestPath(projectRoot)),

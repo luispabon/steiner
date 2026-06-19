@@ -44,15 +44,26 @@ type fixturePhaseRunner struct {
 }
 
 func (r fixturePhaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, _ []string, _ <-chan string) (RunResult, error) {
-	if r.phase == PhasePlan && !r.skipPlanArtifacts {
+	if !r.skipPlanArtifacts {
 		if err := os.MkdirAll(r.planningPath, 0o755); err != nil {
 			return RunResult{}, err
 		}
-		if err := os.WriteFile(filepath.Join(r.planningPath, "overview.md"), r.overview, 0o644); err != nil {
-			return RunResult{}, err
-		}
-		if err := os.WriteFile(filepath.Join(r.planningPath, "plan.yaml"), r.plan, 0o644); err != nil {
-			return RunResult{}, err
+		switch r.phase {
+		case PhasePlan:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "overview.md"), r.overview, 0o644); err != nil {
+				return RunResult{}, err
+			}
+			if err := os.WriteFile(filepath.Join(r.planningPath, "plan.yaml"), r.plan, 0o644); err != nil {
+				return RunResult{}, err
+			}
+		case PhaseImplement:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "execution.md"), []byte("execution\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
+		case PhaseReview:
+			if err := os.WriteFile(filepath.Join(r.planningPath, "review.md"), []byte("review\n"), 0o644); err != nil {
+				return RunResult{}, err
+			}
 		}
 	}
 	if r.blockOnCancel {

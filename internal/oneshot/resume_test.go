@@ -92,8 +92,8 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
-			PhaseImplement: {writePlan: false},
-			PhaseReview:    {writePlan: false},
+			PhaseImplement: {writePlan: true},
+			PhaseReview:    {writePlan: true},
 		},
 	}
 	orch, err := NewOrchestrator(Dependencies{
@@ -266,8 +266,8 @@ func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
 			PhasePlan:      {writePlan: true},
-			PhaseImplement: {writePlan: false},
-			PhaseReview:    {writePlan: false},
+			PhaseImplement: {writePlan: true},
+			PhaseReview:    {writePlan: true},
 		},
 	}
 	orch, err := NewOrchestrator(Dependencies{
