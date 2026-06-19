@@ -2,20 +2,12 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
 type configFilePatch struct {
 	path         string
 	allowMissing bool
-}
-
-func loadEnvironment(env map[string]string) map[string]string {
-	if env != nil {
-		return env
-	}
-	return environMap(os.Environ())
 }
 
 func resolveHomeDir(explicitHome string, env map[string]string) (string, error) {
@@ -63,18 +55,4 @@ func resolveConfigPaths(opts LoadOptions, homeDir, workingDir string) []configFi
 		{path: globalPath, allowMissing: true},
 		{path: projectPath, allowMissing: !explicitProjectPath},
 	}
-}
-
-func applyConfigFilePatches(cfg *Config, env map[string]string, patches []configFilePatch) error {
-	for _, item := range patches {
-		if item.path == "" {
-			continue
-		}
-		patch, err := readConfigPatch(item.path, env, item.allowMissing)
-		if err != nil {
-			return err
-		}
-		applyPatch(cfg, patch)
-	}
-	return nil
 }

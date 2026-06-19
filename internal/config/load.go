@@ -26,6 +26,13 @@ type LoadOptions struct {
 	CLI               CLIOverrides
 }
 
+func loadEnvironment(env map[string]string) map[string]string {
+	if env != nil {
+		return env
+	}
+	return environMap(os.Environ())
+}
+
 // Load loads configuration from files, environment variables, and CLI overrides.
 func Load(opts LoadOptions) (Config, error) {
 	cfg := defaultConfig()
@@ -42,8 +49,15 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 
 	paths := resolveConfigPaths(opts, homeDir, workingDir)
-	if err := applyConfigFilePatches(&cfg, env, paths); err != nil {
-		return Config{}, err
+	for _, item := range paths {
+		if item.path == "" {
+			continue
+		}
+		patch, err := readConfigPatch(item.path, env, item.allowMissing)
+		if err != nil {
+			return Config{}, err
+		}
+		applyPatch(&cfg, patch)
 	}
 
 	if err := applyEnvOverrides(&cfg, env); err != nil {

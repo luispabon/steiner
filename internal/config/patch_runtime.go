@@ -1,23 +1,5 @@
 package config
 
-func applySubAgentConfigPatch(cfg *Config, patch configPatch) {
-	if patch.SubAgent != nil {
-		applySubAgentPatch(&cfg.SubAgent, patch.SubAgent)
-	}
-}
-
-func applyAdvisorConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Advisor != nil {
-		applyAdvisorPatch(&cfg.Advisor, patch.Advisor)
-	}
-}
-
-func applyOneShotConfigPatch(cfg *Config, patch configPatch) {
-	if patch.OneShot != nil {
-		applyOneShotPatch(&cfg.OneShot, patch.OneShot)
-	}
-}
-
 func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.Enabled != nil {
 		dst.Enabled = *patch.Enabled
@@ -72,20 +54,6 @@ func applyOneShotPatch(dst *oneshotConfig, patch *oneshotPatch) {
 		for phase, alias := range *patch.Models {
 			dst.Models[phase] = alias
 		}
-	}
-}
-
-func applyToolConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Tools == nil {
-		return
-	}
-	if cfg.Tools == nil {
-		cfg.Tools = make(map[string]ToolConfig)
-	}
-	for name, tool := range *patch.Tools {
-		current := cfg.Tools[name]
-		applyToolPatch(&current, &tool)
-		cfg.Tools[name] = current
 	}
 }
 
