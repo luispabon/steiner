@@ -17,7 +17,7 @@ The sections below are the working sequence: load the plan and verification stra
 
 ## Sequence
 
-1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`.
+1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`. If you are resuming this phase after a prior failure and `execution.md` does not yet exist, first review the git commit log and worktree state to identify what implementation work has already been validated and committed. Record that prior progress in your initial plan for this resume, and continue from the first incomplete step.
 2. Execute the implementation steps in `plan.yaml` order, dispatching one delegated sub-agent per step (see Step Execution). Serial execution is the default; honor `depends_on` and only use `parallel_group` when the plan marks it safe.
 3. Run the planned verification and drive failures to green through delegation.
 4. Write `execution.md` to the planning folder.

@@ -35,15 +35,26 @@ func (e *BoundaryError) Error() string {
 // disk once the given phase completes. Artifacts accumulate across phases: the
 // plan phase produces overview.md and plan.yaml, implement adds execution.md,
 // and review adds review.md.
-func requiredArtifactsForPhase(phase Phase, planningPath string) []string {
+//
+// When phaseIsResuming is true (phase is being re-run after a failure), execution.md
+// is not required for the implement phase, since it may not have been written yet
+// if the failure occurred before the model reached that step. A completed implement phase
+// (phaseIsResuming=false) MUST have execution.md. Review phase always requires execution.md
+// because it is only run after implement completes.
+func requiredArtifactsForPhase(phase Phase, planningPath string, phaseIsResuming bool) []string {
 	required := []string{
 		filepath.Join(planningPath, "overview.md"),
 		filepath.Join(planningPath, "plan.yaml"),
 	}
 	switch phase {
 	case PhaseImplement:
-		required = append(required, filepath.Join(planningPath, "execution.md"))
+		// Only require execution.md if this is a fresh run, not a resume.
+		// On resume after a mid-implement failure, execution.md may not exist yet.
+		if !phaseIsResuming {
+			required = append(required, filepath.Join(planningPath, "execution.md"))
+		}
 	case PhaseReview:
+		// Review always requires execution.md because review only runs after implement completes.
 		required = append(required,
 			filepath.Join(planningPath, "execution.md"),
 			filepath.Join(planningPath, "review.md"),

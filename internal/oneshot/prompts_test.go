@@ -64,6 +64,9 @@ func TestLoadPrompt(t *testing.T) {
 				"execution.md",
 				"plan.yaml",
 				"no_delegate",
+				"resuming this phase after a prior failure",
+				"git commit log",
+				"prior progress",
 			},
 			wantOut: []string{
 				"ask the user",

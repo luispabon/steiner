@@ -141,6 +141,8 @@ The manifest is used for resume logic, status reporting, and cross-phase bookkee
 3. **State recovery**: reads the manifest and determines the first incomplete phase.
 4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
 
+**Mid-implement resume**: If the implement phase fails before writing `execution.md` (e.g., the model hits an error or timeout before reaching the final execution artifact step), resuming the run re-enters the implement phase without requiring `execution.md` to exist. The model loads git history and committed work to identify what steps have already been implemented, then continues from the first incomplete step.
+
 Worktrees are left in place after a run (including after interrupt) to allow inspection and resume. Cleanup is manual.
 
 ### Signal Handling
