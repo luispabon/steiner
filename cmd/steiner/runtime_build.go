@@ -197,9 +197,9 @@ func runtimeHTTPClient() *http.Client {
 	// indefinitely. Transport.ResponseHeaderTimeout acts as a 30s safety net
 	// for the header phase so a stuck server doesn't hang forever on the
 	// initial read. Providers that set config.timeout get Client.Timeout
-	// applied in NewOpenAICompat, which bounds the entire request including
-	// the streaming body; that path does not touch the Transport to avoid
-	// breaking the http2 wiring.
+	// applied in NewOpenAICompat, which clones the transport and clears
+	// ResponseHeaderTimeout so the user-supplied timeout bounds the whole
+	// request (headers + body + streaming response).
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{

@@ -287,7 +287,14 @@ The three phases run in sequence: the plan phase analyzes the task and produces 
 
 Each run is resumable — if interrupted, `steiner oneshot --resume <id>` recovers from the last incomplete phase without re-running previous work.
 
-See [docs/ONESHOT.md](docs/ONESHOT.md) for the full architecture, resumption logic, and run manifest structure.
+While a oneshot run is active in the TUI, the composer is steering-only: the
+footer shows a `phase · <name>` segment, the sidebar shows an `Oneshot —
+<phase>` section, the phase agent's streaming and tool calls appear live in
+the transcript, and any input other than `/exit`, `/thinking`, or `/accent`
+is sent to the run as a steering message (re-typing `/oneshot …` will not
+launch a second run). See [docs/ONESHOT.md](docs/ONESHOT.md) for the full
+architecture, interactive behaviour, resumption logic, and run manifest
+structure.
 
 ### Web search
 

@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
-	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -127,8 +126,10 @@ type Model struct {
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 	imageMarkers                 []imageMarker
+	oneshotRunning               bool
+	oneshotPhase                 string
 	oneshotSteerCh               chan string
-	oneshotRunnerFactory         oneshot.PhaseRunnerFactory
+	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
@@ -345,6 +346,8 @@ func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {
 func (m *Model) syncInputChrome() {
 	m.input.Prompt = ""
 	switch {
+	case m.oneshotRunning:
+		m.input.Placeholder = "steering — esc to interrupt (or /exit, /thinking, /accent)"
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
 	case m.steerQueued && m.activity.busy():

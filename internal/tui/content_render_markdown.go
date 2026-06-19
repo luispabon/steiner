@@ -44,7 +44,7 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 		for wi, vl := range wrappedLines {
 			vl = strings.TrimRight(vl, " ")
 			if isFirstLine && wi == 0 {
-				if cmdPrefix, ok := matchCommandPrefix(segment.text, b.skillNames); ok && strings.HasPrefix(vl, cmdPrefix) {
+				if cmdPrefix, ok := matchCommandPrefix(segment.text, b.skillNames, false); ok && strings.HasPrefix(vl, cmdPrefix) {
 					prefixStyle := lipgloss.NewStyle().
 						Bold(true).
 						Foreground(b.styles.AccentColor).
@@ -134,7 +134,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 // while keeping the left-bar framing so user messages remain visually distinct
 // from assistant output.
 func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width int) string {
-	if _, ok := matchCommandPrefix(segment.text, b.skillNames); ok {
+	if _, ok := matchCommandPrefix(segment.text, b.skillNames, false); ok {
 		return b.renderUserSegment(segment, width)
 	}
 	contentWidth := width - 1

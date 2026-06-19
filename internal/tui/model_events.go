@@ -180,6 +180,14 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return m.handlePhaseTransition(payload)
 	case output.PhaseIndicatorEvent:
 		m.handlePhaseIndicator(payload)
+	case output.OneshotFinishedEvent:
+		m.oneshotRunning = false
+		m.oneshotPhase = ""
+		m.oneshotSteerCh = nil
+		m.status.oneshotPhase = ""
+		m.sidebar.oneshotPhase = ""
+		m.syncSidebar()
+		m.syncInputChrome()
 	}
 
 	var cmds []tea.Cmd
@@ -322,6 +330,9 @@ func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
 		modeText = fmt.Sprintf("%s (%s)", phaseName, state)
 	}
 	m.status.mode = modeText
+	m.oneshotPhase = phaseName
+	m.status.oneshotPhase = phaseName
+	m.sidebar.oneshotPhase = phaseName
 
 	// Update activity
 	if message != "" {

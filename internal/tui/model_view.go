@@ -217,7 +217,7 @@ func (m Model) renderInputView(contentWidth int) string {
 
 		renderedLine := line
 		if i == 0 {
-			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames); ok {
+			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames, m.oneshotRunning); ok {
 				cursorStr := string(cursorChar)
 				lineNoCursor := strings.ReplaceAll(line, cursorStr, "")
 				if strings.HasPrefix(lineNoCursor, cmdPrefix) {

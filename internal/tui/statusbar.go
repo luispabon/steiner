@@ -18,6 +18,7 @@ type statusState struct {
 	approvalActive bool
 	promptUsed     int
 	contextBudget  int
+	oneshotPhase   string
 }
 
 func (s statusState) view(width int) string {
@@ -25,6 +26,11 @@ func (s statusState) view(width int) string {
 
 	var parts []string
 
+	// Segment 0: oneshot phase indicator (first, accent-styled)
+	if s.oneshotPhase != "" {
+		phaseStr := fmt.Sprintf("phase · %s", s.oneshotPhase)
+		parts = append(parts, lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(phaseStr))
+	}
 	// Segment 1: model (stable left)
 	if s.model != "" {
 		parts = append(parts, renderModelBadge(s.styles, s.model))

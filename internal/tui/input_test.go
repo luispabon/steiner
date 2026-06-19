@@ -13,7 +13,7 @@ func TestParseInputHandlesConfigCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
-	got := buildCompletionCandidates("/co", nil, nil)
+	got := buildCompletionCandidates("/co", nil, nil, false)
 	if len(got) != 2 {
 		t.Fatalf("candidates = %#v, want 2 candidates", got)
 	}
@@ -64,7 +64,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("buildCompletionCandidates includes ls", func(t *testing.T) {
-		got := buildCompletionCandidates("/l", nil, nil)
+		got := buildCompletionCandidates("/l", nil, nil, false)
 		found := false
 		for _, c := range got {
 			if c == "/ls" {
@@ -138,4 +138,26 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
 		}
 	})
+}
+
+func TestBuildCompletionCandidatesAllowlistExcludesOneshot(t *testing.T) {
+	got := buildCompletionCandidates("/", nil, nil, true)
+	for _, c := range got {
+		if c == "/oneshot" {
+			t.Fatalf("candidates includes /oneshot in allowlist mode, got %#v", got)
+		}
+	}
+	// Sanity: at least one allowlist item is present
+	found := 0
+	for _, c := range got {
+		if c == "/exit" || c == "/thinking" || c == "/accent" ||
+			c == "/accent amber" || c == "/accent rose" || c == "/accent magenta" ||
+			c == "/accent violet" || c == "/accent cyan" || c == "/accent mint" ||
+			c == "/accent lime" {
+			found++
+		}
+	}
+	if found == 0 {
+		t.Fatalf("allowlist items absent from candidates, got %#v", got)
+	}
 }

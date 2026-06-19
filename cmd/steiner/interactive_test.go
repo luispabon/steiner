@@ -13,9 +13,48 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+func TestNewOneshotRunnerFactoryBuilderBindsIdentity(t *testing.T) {
+	cmd := &cobra.Command{}
+	flags := &cliFlags{}
+	const projectRoot = "/tmp/steiner-project"
+	var sink output.EventSink = output.SinkFunc(func(output.Event) {})
+
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, projectRoot, sink)
+	if builder == nil {
+		t.Fatal("newOneshotRunnerFactoryBuilder() returned nil; oneshot would report runner factory not configured")
+	}
+
+	identity, err := oneshot.NewRunIdentity("fix the bug")
+	if err != nil {
+		t.Fatalf("NewRunIdentity() error = %v", err)
+	}
+
+	factory := builder(identity)
+	prf, ok := factory.(phaseRunnerFactory)
+	if !ok {
+		t.Fatalf("builder returned %T, want phaseRunnerFactory", factory)
+	}
+	if prf.cmd != cmd {
+		t.Error("phaseRunnerFactory.cmd not threaded through")
+	}
+	if prf.flags != flags {
+		t.Error("phaseRunnerFactory.flags not threaded through")
+	}
+	if prf.rootDir != projectRoot {
+		t.Errorf("phaseRunnerFactory.rootDir = %q, want %q", prf.rootDir, projectRoot)
+	}
+	if prf.identity.ID != identity.ID {
+		t.Errorf("phaseRunnerFactory.identity.ID = %q, want %q", prf.identity.ID, identity.ID)
+	}
+	if prf.events == nil {
+		t.Error("phaseRunnerFactory.events is nil, want the supplied event sink")
+	}
+}
 
 func TestClearTerminalScreenWritesANSISequence(t *testing.T) {
 	var buf bytes.Buffer

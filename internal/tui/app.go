@@ -53,8 +53,13 @@ type Config struct {
 	Version              string
 	Controller           interactive.Controller
 	SessionStore         SessionLister
-	OneshotRunnerFactory oneshot.PhaseRunnerFactory
+	OneshotRunnerFactory OneshotRunnerFactoryBuilder
 }
+
+// OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific
+// run identity. The TUI mints a fresh identity for each launch or resume, so the
+// factory must be constructed per run rather than once at startup.
+type OneshotRunnerFactoryBuilder func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory
 
 // App wires the TUI runtime and event bridge.
 type App struct {

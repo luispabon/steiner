@@ -164,22 +164,34 @@ func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
 
 // matchCommandPrefix checks whether text starts with a known built-in command or skill name.
 // It returns the matched prefix including the trailing space when applicable.
-func matchCommandPrefix(text string, skillNames []string) (string, bool) {
+func matchCommandPrefix(text string, skillNames []string, allowlistOnly bool) (string, bool) {
 	trimmed := strings.TrimSpace(text)
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", false
 	}
-	builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
-	for _, cmd := range builtins {
-		if trimmed == cmd {
-			return cmd, true
+	if !allowlistOnly {
+		builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
+		for _, cmd := range builtins {
+			if trimmed == cmd {
+				return cmd, true
+			}
+			if strings.HasPrefix(trimmed, cmd+" ") {
+				return cmd + " ", true
+			}
 		}
-		if strings.HasPrefix(trimmed, cmd+" ") {
-			return cmd + " ", true
+		for _, name := range skillNames {
+			cmd := "/" + name
+			if trimmed == cmd {
+				return cmd, true
+			}
+			if strings.HasPrefix(trimmed, cmd+" ") {
+				return cmd + " ", true
+			}
 		}
+		return "", false
 	}
-	for _, name := range skillNames {
-		cmd := "/" + name
+	allowlist := []string{"/exit", "/thinking", "/accent"}
+	for _, cmd := range allowlist {
 		if trimmed == cmd {
 			return cmd, true
 		}
@@ -192,11 +204,17 @@ func matchCommandPrefix(text string, skillNames []string) (string, bool) {
 
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
-func buildCompletionCandidates(prefix string, skillNames []string, _ []string) []string {
-	base := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
-		"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
-	for _, name := range skillNames {
-		base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
+func buildCompletionCandidates(prefix string, skillNames []string, _ []string, allowlistOnly bool) []string {
+	var base []string
+	if allowlistOnly {
+		base = []string{"/exit", "/thinking", "/accent",
+			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
+	} else {
+		base = []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
+			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
+		for _, name := range skillNames {
+			base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)
+		}
 	}
 	var matches []string
 	for _, c := range base {
