@@ -209,7 +209,7 @@ func cloneAgentMessages(messages []agent.Message) []agent.Message {
 }
 
 // tryFailureReport attempts to generate a failure report on error.
-func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest, planningPath string) {
+func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest, _ string) {
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return
 	}
