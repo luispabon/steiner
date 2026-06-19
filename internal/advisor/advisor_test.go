@@ -55,14 +55,9 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := Advise(context.Background(), Request{
-		Provider:     prov,
-		Model:        "advisor-model",
-		Conversation: snapshot,
-		MaxTokens:    intPtr(256),
-	})
+	resp, err := advise(context.Background(), prov, "advisor-model", snapshot, intPtr(256))
 	if err != nil {
-		t.Fatalf("Advise() error = %v", err)
+		t.Fatalf("advise() error = %v", err)
 	}
 	if got, want := resp.Message.Content, "Check config validation before touching agent flow."; got != want {
 		t.Fatalf("response content = %q, want %q", got, want)
@@ -144,15 +139,12 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := Advise(context.Background(), Request{
-		Provider: prov,
-		Model:    "advisor-model",
-	})
+	_, err := advise(context.Background(), prov, "advisor-model", nil, nil)
 	if err == nil {
-		t.Fatal("Advise() error = nil, want wrapped error")
+		t.Fatal("advise() error = nil, want wrapped error")
 	}
 	if got := err.Error(); !strings.Contains(got, "advisor: backend failed") {
-		t.Fatalf("Advise() error = %q, want wrapped provider error", got)
+		t.Fatalf("advise() error = %q, want wrapped provider error", got)
 	}
 }
 
