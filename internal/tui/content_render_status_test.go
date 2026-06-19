@@ -181,9 +181,9 @@ func TestPhaseSeparatorHasBlankLinesAboveAndBelow(t *testing.T) {
 	b := newTestBuffer(t)
 	// Create a phase separator
 	seg := contentSegment{
-		kind: segmentSeparator,
+		kind:          segmentSeparator,
 		separatorData: &separatorData{label: "Phase: implement"},
-		renderDirty: true,
+		renderDirty:   true,
 	}
 
 	out := b.renderSeparatorSegment(seg, 80)
@@ -212,9 +212,9 @@ func TestNonPhaseSeparatorSpacingUnchanged(t *testing.T) {
 	b := newTestBuffer(t)
 	// Create a non-phase separator (e.g., for compaction)
 	seg := contentSegment{
-		kind: segmentSeparator,
+		kind:          segmentSeparator,
 		separatorData: &separatorData{label: "Compaction", closing: false},
-		renderDirty: true,
+		renderDirty:   true,
 	}
 
 	out := b.renderSeparatorSegment(seg, 80)
@@ -241,6 +241,6 @@ func mockPhaseTransitionEvent() interface{} {
 }
 
 // mockFormatEvent simulates the FormatEvent function output
-func mockFormatEvent(event interface{}) string {
+func mockFormatEvent(_ interface{}) string {
 	return "phase: phase transition plan -> implement starting model=test-model session=test-session run=test-run"
 }

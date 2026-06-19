@@ -106,6 +106,7 @@ func (s sessionPickerOverlay) View() string {
 	return s.RenderWithBg(s.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
+//nolint:dupl // same row-layout algorithm as oneshotResumePickerOverlay.formatRunRow; types differ
 func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidth int) string {
 	datetime := fmt.Sprintf("[ %s ] ", entry.UpdatedAt.Local().Format("2006-01-02 15:04:05"))
 	modelStr := fmt.Sprintf(" (%s)", entry.Model)

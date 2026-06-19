@@ -107,6 +107,7 @@ func (o oneshotResumePickerOverlay) View() string {
 	return o.RenderWithBg(o.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
 }
 
+//nolint:dupl // same row-layout algorithm as sessionPickerOverlay.formatSessionRow; types differ
 func (o oneshotResumePickerOverlay) formatRunRow(run oneshot.ResumableRun, maxWidth int) string {
 	datetime := fmt.Sprintf("[ %s ] ", run.UpdatedAt.Local().Format("2006-01-02 15:04:05"))
 	phaseStr := fmt.Sprintf(" (%s)", run.ResumePhase)
