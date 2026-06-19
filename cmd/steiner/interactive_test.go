@@ -22,8 +22,9 @@ func TestNewOneshotRunnerFactoryBuilderBindsIdentity(t *testing.T) {
 	cmd := &cobra.Command{}
 	flags := &cliFlags{}
 	const projectRoot = "/tmp/steiner-project"
+	var sink output.EventSink = output.SinkFunc(func(output.Event) {})
 
-	builder := newOneshotRunnerFactoryBuilder(cmd, flags, projectRoot)
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, projectRoot, sink)
 	if builder == nil {
 		t.Fatal("newOneshotRunnerFactoryBuilder() returned nil; oneshot would report runner factory not configured")
 	}
@@ -49,6 +50,9 @@ func TestNewOneshotRunnerFactoryBuilderBindsIdentity(t *testing.T) {
 	}
 	if prf.identity.ID != identity.ID {
 		t.Errorf("phaseRunnerFactory.identity.ID = %q, want %q", prf.identity.ID, identity.ID)
+	}
+	if prf.events == nil {
+		t.Error("phaseRunnerFactory.events is nil, want the supplied event sink")
 	}
 }
 
