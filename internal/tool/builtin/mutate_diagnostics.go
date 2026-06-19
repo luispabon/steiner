@@ -63,6 +63,46 @@ func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, ma
 	return strings.Join(lines, "\n")
 }
 
+// buildLineReplaceMismatchDiagnostics produces a line-range-scoped diagnostic for
+// line_replace operations whose old_string guard did not match exactly once in
+// the target line(s). The prefix should already include the
+// "mutate: operation N line_replace" form so callers that parse the error shape
+// keep working. rangeText is the actual line text (with any preserved line
+// endings) covering lines startLine..endLine; pass it in so the preview shows
+// the real file bytes, including tabs vs spaces. singleLine selects the
+// "line N contains old_string M times" wording versus the range wording.
+func buildLineReplaceMismatchDiagnostics(prefix string, oldText string, count, startLine, endLine int, rangeText string, singleLine bool) string {
+	var lines []string
+	if singleLine {
+		lines = append(lines, fmt.Sprintf("%s: line %d contains old_string %d times", prefix, startLine, count))
+	} else {
+		lines = append(lines, fmt.Sprintf("%s: old_string found %d times in lines %d–%d (want exactly 1)", prefix, count, startLine, endLine))
+	}
+
+	lines = append(lines, fmt.Sprintf("%s: target line(s) in file:", prefix))
+	for _, l := range strings.Split(strings.TrimRight(rangeText, "\n"), "\n") {
+		lines = append(lines, "  | "+l)
+	}
+
+	switch {
+	case normalizedWhitespaceMatchExists([]byte(rangeText), oldText):
+		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
+		if matchedText, _, ok := extractNormalizedMatch([]byte(rangeText), oldText); ok {
+			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
+			for _, l := range strings.Split(matchedText, "\n") {
+				lines = append(lines, "  | "+l)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the exact target line text (tabs vs spaces must match the file)", prefix))
+	case singleLine:
+		lines = append(lines, fmt.Sprintf("%s: suggestion: reread line %d to confirm the current text before retrying", prefix, startLine))
+	default:
+		lines = append(lines, fmt.Sprintf("%s: suggestion: reread lines %d–%d to confirm the current text before retrying", prefix, startLine, endLine))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func normalizedWhitespaceMatchExists(content []byte, oldText string) bool {
 	oldNorm := strings.Join(strings.Fields(oldText), " ")
 	if oldNorm == "" {

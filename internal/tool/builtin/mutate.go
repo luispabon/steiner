@@ -329,7 +329,10 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 			return fmt.Errorf("mutate: operation %d line_replace: line_replace on existing file requires old_string for safety — provide the expected line content", index)
 		}
 		if count := strings.Count(lineText, op.OldString); count != 1 {
-			return fmt.Errorf("mutate: operation %d line_replace: line %d contains old_string %d times", index, op.Line, count)
+			return errors.New(buildLineReplaceMismatchDiagnostics(
+				fmt.Sprintf("mutate: operation %d line_replace", index),
+				op.OldString, count, op.Line, op.Line, line, true,
+			))
 		}
 		lines[op.Line-1] = strings.Replace(line, op.OldString, op.NewString, 1)
 	} else {
@@ -337,7 +340,10 @@ func (p *mutatePlanner) planLineReplace(index int, op MutateOperation) error {
 			// old_string acts as a validation guard: must appear exactly once in the target range.
 			rangeText := strings.Join(lines[op.Line-1:endLine], "")
 			if count := strings.Count(rangeText, op.OldString); count != 1 {
-				return fmt.Errorf("mutate: operation %d line_replace: old_string found %d times in lines %d–%d (want exactly 1)", index, count, op.Line, endLine)
+				return errors.New(buildLineReplaceMismatchDiagnostics(
+					fmt.Sprintf("mutate: operation %d line_replace", index),
+					op.OldString, count, op.Line, endLine, rangeText, false,
+				))
 			}
 		}
 		lines = spliceLineRange(lines, op.Line-1, endLine, op.NewString)
