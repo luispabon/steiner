@@ -1,0 +1,164 @@
+steps:
+  - id: step-1
+    title: "Clear composer text on /oneshot dispatch (#239)"
+    scope: >
+      When the user dispatches /oneshot (launch or resume), the typed prompt text
+      lingers in the TUI composer instead of clearing like other dispatched commands.
+      Clear the composer input on oneshot dispatch and cover it with a test.
+    files:
+      - internal/tui/model_input.go
+      - internal/tui/model_input_test.go
+    constraints:
+      - "Clear input on both launch (executeLaunchOneshotAction) and resume dispatch paths."
+      - "Match how other dispatched commands clear the composer; do not invent a new mechanism."
+      - "Do not change oneshot launch/resume semantics, only the residual composer text."
+    acceptance:
+      - "After /oneshot <task> dispatch, the composer value is empty."
+      - "After a resume dispatch, the composer value is empty."
+      - "A test asserts the composer is cleared on oneshot dispatch."
+    verification:
+      - "go test ./internal/tui -run TestModelInput"
+      - "gofmt -w internal/tui/model_input.go internal/tui/model_input_test.go"
+    no_delegate: true
+
+  - id: step-2
+    title: "Improve phase status visibility and separator spacing (#241)"
+    scope: >
+      Phase-transition status messages emitted when one phase ends and the next begins
+      are low-visibility. Render them in the same prominent style used for run status,
+      and give the inter-phase separator margins with at least one blank line above and
+      below it.
+    files:
+      - internal/output/
+      - internal/tui/content_events.go
+      - internal/tui/statusbar.go
+    constraints:
+      - "Reuse the existing status-message styling; do not introduce a parallel styling system."
+      - "Add vertical spacing (>=1 blank line) above and below the phase separator."
+      - "Keep internal/output render/event/preview concerns split per CLAUDE.md file-org rules."
+      - "Locate the exact phase-transition/separator render site before editing; confirm whether it lives in internal/output or internal/tui."
+    acceptance:
+      - "Phase transition messages render with the prominent status style, not plain text."
+      - "The phase separator has a blank line above and below it."
+      - "A render/output test asserts the new spacing and styling."
+    verification:
+      - "go test ./internal/output/... ./internal/tui/..."
+      - "gofmt -w <changed files>"
+
+  - id: step-3
+    title: "Add discoverable /oneshot-resume command with session picker (#243)"
+    scope: >
+      Resuming currently requires the non-obvious /oneshot --resume <id>. Add a
+      /oneshot-resume command that opens a session picker over resumable runs (same
+      pattern as the existing file/plan/session pickers), resolving the chosen run to
+      the existing resume dispatch. Keep /oneshot --resume <id> working for scripts.
+    files:
+      - internal/tui/input.go
+      - internal/tui/model_input.go
+      - internal/tui/session_picker.go
+      - internal/tui/input_test.go
+      - internal/tui/session_picker_test.go
+    constraints:
+      - "Parse /oneshot-resume in input.go alongside the existing /oneshot handling."
+      - "Reuse the existing picker pattern (session_picker.go / plan_picker.go) — do not build a new picker UI."
+      - "Picker selection must route to the existing executeResumeOneshotAction path."
+      - "Retain /oneshot --resume <id> behaviour unchanged."
+      - "Register /oneshot-resume in the builtins/command lists in input.go (both completion lists at lines ~173 and ~213) and the command palette entry list."
+    acceptance:
+      - "/oneshot-resume with no arg opens a picker listing resumable runs."
+      - "Selecting a run resumes it via the existing resume dispatch."
+      - "/oneshot --resume <id> still resumes directly."
+      - "/oneshot-resume appears in command completion and the palette."
+      - "Tests cover the new parse path and picker-to-resume routing."
+    verification:
+      - "go test ./internal/tui -run 'TestInput|TestSessionPicker|TestModelInput'"
+      - "gofmt -w <changed files>"
+
+  - id: step-4
+    title: "Tolerant resume when execution.md is missing mid-implement (#244)"
+    scope: >
+      Resume breaks when the implement phase fails before the model writes execution.md,
+      because the boundary/resume path expects that artifact. Make the engine require
+      execution.md only for a COMPLETED phase, so re-running an incomplete implement
+      phase tolerates its absence. Add an implement-prompt instruction that, on resume
+      with no execution.md, the model reconstructs prior progress from committed work
+      before continuing.
+    files:
+      - internal/oneshot/resume.go
+      - internal/oneshot/boundary.go
+      - internal/oneshot/resume_test.go
+      - internal/oneshot/boundary_test.go
+      - internal/oneshot/prompts/implement.md
+      - internal/oneshot/prompts_test.go
+      - docs/ONESHOT.md
+    constraints:
+      - "First trace the exact failure: confirm whether resume pre-validates a prior phase's artifacts or the boundary fires mid-run. Fix the actual mechanism."
+      - "execution.md must remain required for a completed implement/review phase; only the resume/re-run of an incomplete implement phase tolerates its absence."
+      - "Implement-prompt addition: on resume with missing execution.md, reconstruct what is already implemented from git history/committed work, do not assume nothing was done."
+      - "Do not weaken any other boundary artifact requirement (overview.md, plan.yaml, review.md)."
+      - "Update prompts_test.go assertions for the new implement.md text."
+      - "Update docs/ONESHOT.md per the CLAUDE.md oneshot maintenance rule."
+    acceptance:
+      - "Resuming a run whose implement phase failed before execution.md was written re-enters implement instead of erroring on the missing artifact."
+      - "A completed implement/review phase still fails the boundary if execution.md is absent."
+      - "implement.md instructs reconstruction of prior progress on resume; prompts_test.go asserts it."
+      - "docs/ONESHOT.md reflects the resume tolerance behaviour."
+      - "resume_test.go / boundary_test.go cover the missing-execution.md resume case."
+    verification:
+      - "go test ./internal/oneshot -run 'Resume|Boundary|Prompt'"
+      - "gofmt -w <changed go files>"
+    delegate_profile: code
+
+  - id: step-5
+    title: "Harden plan prompt for advisor-finding application (#240)"
+    scope: >
+      The plan phase ignored the advisor's findings. Strengthen the plan-phase prompt
+      so the model must explicitly apply or reject each advisor finding (with reason)
+      rather than advancing without acting on them. Prompt-only; no engine guardrails.
+    files:
+      - internal/oneshot/prompts/plan.md
+      - internal/oneshot/prompts_test.go
+      - docs/ONESHOT.md
+    constraints:
+      - "Prompt-only change. Do not add engine gates or mechanical checks."
+      - "Require explicit apply/reject-with-reason handling of advisor findings before advancing phase."
+      - "Preserve existing advisor-usage language already present in plan.md; tighten, do not contradict."
+      - "Update prompts_test.go assertions to cover the new required text."
+      - "Update docs/ONESHOT.md per the CLAUDE.md oneshot maintenance rule."
+    acceptance:
+      - "plan.md requires the model to act on (apply or explicitly reject) advisor findings."
+      - "prompts_test.go asserts the new plan.md text."
+      - "docs/ONESHOT.md reflects the hardened plan-phase advisor behaviour."
+    verification:
+      - "go test ./internal/oneshot -run 'Prompt'"
+    depends_on: [step-4]
+    delegate_profile: code
+
+  - id: step-6
+    title: "Harden implement prompt to close delegation-skip loophole (#242)"
+    scope: >
+      The implement phase drove mutate itself instead of delegating, rationalizing that
+      low ambiguity / small chunks / cheap-feeling mutate calls licensed skipping
+      delegation. Tighten implement.md to close that specific rationalization, WITHOUT
+      touching the executor-owned-artifact exemption (execution.md, branch ops, worktree
+      provisioning, no_delegate steps). Prompt-only.
+    files:
+      - internal/oneshot/prompts/implement.md
+      - internal/oneshot/prompts_test.go
+      - docs/ONESHOT.md
+    constraints:
+      - "Prompt-only change. Do not add engine gates."
+      - "Explicitly state that low ambiguity, small/testable chunks, or cheap-feeling mutate calls do NOT license skipping delegation for implementation-scoped files."
+      - "PRESERVE the executor-owned-artifact exemption (lines ~32-40) and no_delegate exemption verbatim in intent — must not force delegation of execution.md/branch/worktree work. Avoid repeating the skills/implement over-restriction regression."
+      - "Coordinate with step-4's implement.md edit (resume reconstruction text); both land in the same file — apply on top of step-4's result."
+      - "Update prompts_test.go assertions and any forbidden-text checks for the new implement.md text."
+      - "Update docs/ONESHOT.md per the CLAUDE.md oneshot maintenance rule."
+    acceptance:
+      - "implement.md closes the low-ambiguity/small-chunk/cheap-mutate rationalization for delegation."
+      - "The executor-owned and no_delegate exemptions remain intact."
+      - "prompts_test.go asserts the new text and still passes any forbidden-text checks."
+      - "docs/ONESHOT.md reflects the hardened implement-phase delegation behaviour."
+    verification:
+      - "go test ./internal/oneshot -run 'Prompt'"
+    depends_on: [step-5]
+    delegate_profile: code
