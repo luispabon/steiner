@@ -99,7 +99,7 @@ func (m *Model) renderContextOverlay() string {
 
 	// Title line
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Fg)).
+		Foreground(m.styles.AccentColor).
 		Bold(true).
 		Width(innerWidth)
 	title := strings.TrimSpace(s.title)

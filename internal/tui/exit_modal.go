@@ -48,7 +48,7 @@ func (m *Model) renderExitModal() string {
 	contentWidth := max(1, s.InnerWidth()-2)
 
 	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Fg)).
+		Foreground(m.styles.AccentColor).
 		Bold(true).
 		Width(contentWidth).
 		Render("Exit steiner?")
