@@ -26,9 +26,13 @@ func cloneToolCalls(calls []ToolCall) []ToolCall {
 		return nil
 	}
 	out := make([]ToolCall, len(calls))
-	copy(out, calls)
-	for i := range out {
-		out[i].Arguments = cloneInput(out[i].Arguments)
+	for i := range calls {
+		out[i] = ToolCall{
+			ID:           calls[i].ID,
+			Name:         calls[i].Name,
+			Arguments:    cloneInput(calls[i].Arguments),
+			RawArguments: calls[i].RawArguments,
+		}
 	}
 	return out
 }

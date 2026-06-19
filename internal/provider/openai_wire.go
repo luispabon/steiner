@@ -165,16 +165,20 @@ func toOpenAIMessages(message Message) ([]openAIMessage, error) {
 	if len(message.ToolCalls) > 0 {
 		wire.ToolCalls = make([]openAIToolCall, 0, len(message.ToolCalls))
 		for _, toolCall := range message.ToolCalls {
-			args, err := json.Marshal(toolCall.Arguments)
-			if err != nil {
-				return nil, fmt.Errorf("encode tool call %q arguments: %w", toolCall.Name, err)
+			argsStr := toolCall.RawArguments
+			if argsStr == "" {
+				args, err := json.Marshal(toolCall.Arguments)
+				if err != nil {
+					return nil, fmt.Errorf("encode tool call %q arguments: %w", toolCall.Name, err)
+				}
+				argsStr = string(args)
 			}
 			wire.ToolCalls = append(wire.ToolCalls, openAIToolCall{
 				ID:   toolCall.ID,
 				Type: "function",
 				Function: openAIToolCallFunction{
 					Name:      toolCall.Name,
-					Arguments: string(args),
+					Arguments: argsStr,
 				},
 			})
 		}
@@ -292,17 +296,22 @@ func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
 	for _, toolCall := range toolCalls {
 		args := make(map[string]any)
 		rawArgs := strings.TrimSpace(toolCall.Function.Arguments)
+		sanitizedRawArgs := ""
 		if rawArgs != "" {
-			rawArgs = sanitizeToolCallJSON(rawArgs)
-			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
+			if err := json.Unmarshal([]byte(sanitizedRawArgs), &args); err != nil {
 				return nil, fmt.Errorf("decode tool call %q arguments: %w", toolCall.Function.Name, err)
 			}
 		}
-		out = append(out, ToolCall{
+		call := ToolCall{
 			ID:        toolCall.ID,
 			Name:      toolCall.Function.Name,
 			Arguments: args,
-		})
+		}
+		if sanitizedRawArgs != "" {
+			call.RawArguments = sanitizedRawArgs
+		}
+		out = append(out, call)
 	}
 	return out, nil
 }

@@ -619,3 +619,139 @@ func TestOpenAIMessages_ToolResultNoImages(t *testing.T) {
 		t.Fatalf("Content = %q, want %q", wire.Content, "Success")
 	}
 }
+
+func TestOpenAIMessages_UsesRawArgumentsWhenPresent(t *testing.T) {
+	msg := Message{
+		Role: MessageRoleAssistant,
+		ToolCalls: []ToolCall{
+			{
+				ID:           "call_123",
+				Name:         "search",
+				RawArguments: `{"b":1,"a":2}`,
+				Arguments:    map[string]any{"a": 2, "b": 1},
+			},
+		},
+	}
+
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+
+	if len(wires[0].ToolCalls) != 1 {
+		t.Fatalf("got %d tool calls, want 1", len(wires[0].ToolCalls))
+	}
+
+	// Verify raw arguments are used verbatim (not re-marshalled with sorted keys)
+	toolCall := wires[0].ToolCalls[0]
+	if got, want := toolCall.Function.Arguments, `{"b":1,"a":2}`; got != want {
+		t.Fatalf("Arguments = %q, want %q (expecting key order preservation)", got, want)
+	}
+}
+
+func TestOpenAIMessages_FallsBackToMarshalWhenNoRawArguments(t *testing.T) {
+	msg := Message{
+		Role: MessageRoleAssistant,
+		ToolCalls: []ToolCall{
+			{
+				ID:        "call_456",
+				Name:      "calculate",
+				Arguments: map[string]any{"x": 10, "y": 20},
+			},
+		},
+	}
+
+	wires, err := toOpenAIMessages(msg)
+	if err != nil {
+		t.Fatalf("toOpenAIMessages() error = %v", err)
+	}
+
+	if len(wires) != 1 {
+		t.Fatalf("got %d messages, want 1", len(wires))
+	}
+
+	toolCall := wires[0].ToolCalls[0]
+	var args map[string]any
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		t.Fatalf("failed to unmarshal arguments: %v", err)
+	}
+
+	if len(args) != 2 {
+		t.Fatalf("got %d args, want 2", len(args))
+	}
+	if args["x"] != float64(10) {
+		t.Fatalf("x = %v, want 10", args["x"])
+	}
+	if args["y"] != float64(20) {
+		t.Fatalf("y = %v, want 20", args["y"])
+	}
+}
+
+func TestNormalizeToolCalls_SetRawArgumentsFromSanitized(t *testing.T) {
+	toolCalls := []openAIToolCall{
+		{
+			ID:   "call_789",
+			Type: "function",
+			Function: openAIToolCallFunction{
+				Name:      "list_items",
+				Arguments: `{"filter":"active"}`,
+			},
+		},
+	}
+
+	out, err := normalizeToolCalls(toolCalls)
+	if err != nil {
+		t.Fatalf("normalizeToolCalls() error = %v", err)
+	}
+
+	if len(out) != 1 {
+		t.Fatalf("got %d tool calls, want 1", len(out))
+	}
+
+	call := out[0]
+	if got, want := call.RawArguments, `{"filter":"active"}`; got != want {
+		t.Fatalf("RawArguments = %q, want %q", got, want)
+	}
+
+	if len(call.Arguments) != 1 {
+		t.Fatalf("got %d arguments, want 1", len(call.Arguments))
+	}
+	if call.Arguments["filter"] != "active" {
+		t.Fatalf("filter = %v, want active", call.Arguments["filter"])
+	}
+}
+
+func TestNormalizeToolCalls_NoRawArgumentsWhenEmpty(t *testing.T) {
+	toolCalls := []openAIToolCall{
+		{
+			ID:   "call_000",
+			Type: "function",
+			Function: openAIToolCallFunction{
+				Name:      "no_args",
+				Arguments: "",
+			},
+		},
+	}
+
+	out, err := normalizeToolCalls(toolCalls)
+	if err != nil {
+		t.Fatalf("normalizeToolCalls() error = %v", err)
+	}
+
+	if len(out) != 1 {
+		t.Fatalf("got %d tool calls, want 1", len(out))
+	}
+
+	call := out[0]
+	if got, want := call.RawArguments, ""; got != want {
+		t.Fatalf("RawArguments = %q, want empty string", got)
+	}
+
+	if len(call.Arguments) != 0 {
+		t.Fatalf("got %d arguments, want 0", len(call.Arguments))
+	}
+}

@@ -47,10 +47,15 @@ type anthropicMessage struct {
 	Content []anthropicContentBlock `json:"content"`
 }
 
+type anthropicCacheControl struct {
+	Type string `json:"type"`
+}
+
 type anthropicTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	InputSchema map[string]any `json:"input_schema,omitempty"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  map[string]any         `json:"input_schema,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicImageSource struct {
@@ -60,16 +65,17 @@ type anthropicImageSource struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string                `json:"type"`
-	Text      string                `json:"text,omitempty"`
-	Thinking  string                `json:"thinking,omitempty"`
-	Signature string                `json:"signature,omitempty"`
-	ID        string                `json:"id,omitempty"`
-	Name      string                `json:"name,omitempty"`
-	Input     map[string]any        `json:"input,omitempty"`
-	ToolUseID string                `json:"tool_use_id,omitempty"`
-	Content   string                `json:"content,omitempty"`
-	Source    *anthropicImageSource `json:"source,omitempty"`
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	Thinking     string                 `json:"thinking,omitempty"`
+	Signature    string                 `json:"signature,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	Input        map[string]any         `json:"input,omitempty"`
+	ToolUseID    string                 `json:"tool_use_id,omitempty"`
+	Content      string                 `json:"content,omitempty"`
+	Source       *anthropicImageSource  `json:"source,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
@@ -102,6 +108,9 @@ func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
 	}
 	if b.Source != nil {
 		m["source"] = b.Source
+	}
+	if b.CacheControl != nil {
+		m["cache_control"] = b.CacheControl
 	}
 	return json.Marshal(m)
 }
@@ -164,7 +173,52 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 			}
 		}
 	}
+
+	assignCacheBreakpoints(&wire)
 	return wire
+}
+
+func assignCacheBreakpoints(wire *anthropicRequest) {
+	cacheControl := &anthropicCacheControl{Type: "ephemeral"}
+	numBreakpoints := 0
+
+	// STATIC PREFIX: Mark last system block (caches tools+system), or last tool if no system.
+	if len(wire.System) > 0 {
+		wire.System[len(wire.System)-1].CacheControl = cacheControl
+		numBreakpoints++
+	} else if len(wire.Tools) > 0 {
+		wire.Tools[len(wire.Tools)-1].CacheControl = cacheControl
+		numBreakpoints++
+	}
+
+	// ROLLING CONVERSATION: Find last two user-turn boundaries and mark final message's last block.
+	if len(wire.Messages) == 0 {
+		return
+	}
+
+	// Mark the last content block of the final message.
+	if len(wire.Messages[len(wire.Messages)-1].Content) > 0 && numBreakpoints < 4 {
+		wire.Messages[len(wire.Messages)-1].Content[len(wire.Messages[len(wire.Messages)-1].Content)-1].CacheControl = cacheControl
+		numBreakpoints++
+	}
+
+	// Find second-to-last user message and mark its last content block (avoid duplicating if it's the same as final message).
+	lastUserMsgIdx := -1
+	secondLastUserMsgIdx := -1
+	for i := len(wire.Messages) - 1; i >= 0; i-- {
+		if wire.Messages[i].Role == "user" {
+			if lastUserMsgIdx == -1 {
+				lastUserMsgIdx = i
+			} else {
+				secondLastUserMsgIdx = i
+				break
+			}
+		}
+	}
+
+	if secondLastUserMsgIdx >= 0 && secondLastUserMsgIdx != lastUserMsgIdx && numBreakpoints < 4 && len(wire.Messages[secondLastUserMsgIdx].Content) > 0 {
+		wire.Messages[secondLastUserMsgIdx].Content[len(wire.Messages[secondLastUserMsgIdx].Content)-1].CacheControl = cacheControl
+	}
 }
 
 func toAnthropicMessage(message Message) *anthropicMessage {

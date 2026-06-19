@@ -650,3 +650,274 @@ func TestAnthropicRequestWire_UserMessageWithImages(t *testing.T) {
 		t.Fatalf("data = %q, want %q", got, want)
 	}
 }
+
+func TestAnthropicCacheControl_OnSystemBlock(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleSystem,
+				Content: "You are a helpful assistant",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.System) != 1 {
+		t.Fatalf("system blocks = %d, want 1", len(wire.System))
+	}
+
+	if wire.System[0].CacheControl == nil {
+		t.Fatal("system block CacheControl = nil, want cache control marker")
+	}
+	if got, want := wire.System[0].CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("cache control type = %q, want %q", got, want)
+	}
+
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	system, ok := parsed["system"].([]any)
+	if !ok || len(system) == 0 {
+		t.Fatal("system array missing or empty")
+	}
+
+	systemBlock, ok := system[0].(map[string]any)
+	if !ok {
+		t.Fatalf("system block type = %T, want map[string]any", system[0])
+	}
+
+	cacheCtrl, ok := systemBlock["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatal("cache_control missing from JSON")
+	}
+	if got, want := cacheCtrl["type"], "ephemeral"; got != want {
+		t.Fatalf("cache_control.type = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicCacheControl_OnToolWhenNoSystem(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Tools: []ToolSpec{
+			{
+				Type: "function",
+				Function: ToolFunctionSpec{
+					Name:        "get_weather",
+					Description: "Get weather",
+					Parameters:  map[string]any{},
+				},
+			},
+		},
+		Messages: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "What's the weather?",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.Tools) != 1 {
+		t.Fatalf("tools = %d, want 1", len(wire.Tools))
+	}
+
+	if wire.Tools[0].CacheControl == nil {
+		t.Fatal("tool CacheControl = nil, want cache control marker")
+	}
+	if got, want := wire.Tools[0].CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("cache control type = %q, want %q", got, want)
+	}
+
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	tools, ok := parsed["tools"].([]any)
+	if !ok || len(tools) == 0 {
+		t.Fatal("tools array missing or empty")
+	}
+
+	toolBlock, ok := tools[0].(map[string]any)
+	if !ok {
+		t.Fatalf("tool type = %T, want map[string]any", tools[0])
+	}
+
+	cacheCtrl, ok := toolBlock["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatal("cache_control missing from JSON")
+	}
+	if got, want := cacheCtrl["type"], "ephemeral"; got != want {
+		t.Fatalf("cache_control.type = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicCacheControl_OnFinalMessage(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "First message",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Second message",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(wire.Messages))
+	}
+
+	finalMsg := wire.Messages[len(wire.Messages)-1]
+	if len(finalMsg.Content) == 0 {
+		t.Fatal("final message has no content blocks")
+	}
+
+	lastBlock := finalMsg.Content[len(finalMsg.Content)-1]
+	if lastBlock.CacheControl == nil {
+		t.Fatal("final message last block CacheControl = nil, want cache control marker")
+	}
+	if got, want := lastBlock.CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("cache control type = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicCacheControl_OnSecondToLastUserMessage(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "First user message",
+			},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "Response",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Second user message",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3", len(wire.Messages))
+	}
+
+	// Check second-to-last user message (index 0)
+	if wire.Messages[0].Role != "user" {
+		t.Fatalf("message[0].Role = %q, want user", wire.Messages[0].Role)
+	}
+
+	if len(wire.Messages[0].Content) == 0 {
+		t.Fatal("second-to-last user message has no content blocks")
+	}
+
+	lastBlock := wire.Messages[0].Content[len(wire.Messages[0].Content)-1]
+	if lastBlock.CacheControl == nil {
+		t.Fatal("second-to-last user message last block CacheControl = nil, want cache control marker")
+	}
+
+	// Also verify final message has a marker
+	finalMsg := wire.Messages[2]
+	if len(finalMsg.Content) > 0 {
+		finalBlock := finalMsg.Content[len(finalMsg.Content)-1]
+		if finalBlock.CacheControl == nil {
+			t.Fatal("final message last block CacheControl = nil, want cache control marker")
+		}
+	}
+}
+
+func TestAnthropicCacheControl_EmptyRequest(t *testing.T) {
+	request := ChatRequest{
+		Model:    "claude-3-5-sonnet",
+		Messages: []Message{},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.System) != 0 {
+		t.Fatalf("system blocks = %d, want 0", len(wire.System))
+	}
+	if len(wire.Tools) != 0 {
+		t.Fatalf("tools = %d, want 0", len(wire.Tools))
+	}
+	if len(wire.Messages) != 0 {
+		t.Fatalf("messages = %d, want 0", len(wire.Messages))
+	}
+}
+
+func TestAnthropicCacheControl_MaxBreakpointsNotExceeded(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleSystem,
+				Content: "System prompt",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "User 1",
+			},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "Assistant 1",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "User 2",
+			},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "Assistant 2",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "User 3",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	countBreakpoints := 0
+	if len(wire.System) > 0 && wire.System[len(wire.System)-1].CacheControl != nil {
+		countBreakpoints++
+	}
+	for _, msg := range wire.Messages {
+		if len(msg.Content) > 0 && msg.Content[len(msg.Content)-1].CacheControl != nil {
+			countBreakpoints++
+		}
+	}
+
+	if countBreakpoints > 4 {
+		t.Fatalf("breakpoint count = %d, want <= 4", countBreakpoints)
+	}
+}

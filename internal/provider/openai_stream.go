@@ -217,17 +217,22 @@ func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall
 		}
 		arguments := make(map[string]any)
 		rawArgs := strings.TrimSpace(acc.Arguments.String())
+		sanitizedRawArgs := ""
 		if rawArgs != "" {
-			rawArgs = sanitizeToolCallJSON(rawArgs)
-			if err := json.Unmarshal([]byte(rawArgs), &arguments); err != nil {
+			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
+			if err := json.Unmarshal([]byte(sanitizedRawArgs), &arguments); err != nil {
 				return nil, fmt.Errorf("decode tool call %q arguments: %w", acc.Name, err)
 			}
 		}
-		calls = append(calls, ToolCall{
+		call := ToolCall{
 			ID:        acc.ID,
 			Name:      acc.Name,
 			Arguments: arguments,
-		})
+		}
+		if sanitizedRawArgs != "" {
+			call.RawArguments = sanitizedRawArgs
+		}
+		calls = append(calls, call)
 	}
 	return calls, nil
 }
