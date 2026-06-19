@@ -37,6 +37,13 @@ func TestLoadPrompt(t *testing.T) {
 				"you MUST call `advisor` once as a final sanity check",
 				"### Step Sizing",
 				"safe fix mode",
+				"For each finding or concern the advisor raises",
+				"explicitly either",
+				"Apply",
+				"the finding",
+				"Reject",
+				"state the specific reason",
+				"Do not advance to commit without explicitly addressing every material finding",
 			},
 			wantOut: []string{
 				"ask the user",
