@@ -162,16 +162,44 @@ After the review phase completes with a passing verdict:
 
 The PR/MR body includes a structured summary of the review findings and a link to the run manifest for future reference.
 
-### TUI Visibility
+### TUI Visibility and Interactive Behaviour
 
-In interactive mode, oneshot runs appear as:
+In interactive mode, oneshot runs are first-class and visible in real time:
 
 1. **Phase dividers** in the scrollback, marked with phase name and timestamp.
-2. **Status bar indicator** showing the current phase and run ID.
-3. **Full output retention** from all three phases in the scrollback history (no deletion or truncation between phases).
-4. **Phase-scoped tool output** — tool results are annotated with their phase context.
+2. **Status bar phase indicator** — a leading `phase · <name>` segment
+   appears in the footer while a run is active (e.g. `phase · plan`).
+3. **Sidebar section** — a small `Oneshot — <phase>` section appears in the
+   sidebar while a run is active and is removed on completion.
+4. **Live phase-agent output** — the phase agent's RunStarted, model
+   chunks, tool calls, and RunFinished events are routed into the TUI
+   transcript exactly like a normal run (the phase runtime's event sink
+   is multiplexed onto the session sink).
+5. **Full output retention** from all three phases in the scrollback
+   history (no deletion or truncation between phases).
+6. **Phase-scoped tool output** — tool results are annotated with their
+   phase context.
 
-After the run completes, all three phases remain visible in the conversation history, allowing the user to review and fork or resume from any point.
+After the run completes, all three phases remain visible in the
+conversation history, allowing the user to review and fork or resume
+from any point.
+
+#### Steering-only composer
+
+While a oneshot run is active, the composer is in **steering-only** mode.
+The full slash-command surface is hidden; only a small allowlist of safe
+view-toggle commands is honored, and every other input is sent to the
+run as a steering message:
+
+- Allowlist: `/exit`, `/thinking`, `/accent`.
+- All other input (including `/oneshot <task>`, which would otherwise
+  launch a second concurrent run) is routed to the run's steer channel.
+
+The composer returns to the normal command surface on completion. The TUI
+emits an `OneshotFinishedEvent` from the run goroutine when the run ends
+(both success and error paths) and the `applyEvent` handler clears
+`oneshotRunning`, `oneshotPhase`, the steer channel, and the chrome
+fields.
 
 ### Concurrent Runs
 
