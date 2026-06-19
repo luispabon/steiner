@@ -112,6 +112,7 @@ type compactionBannerData struct {
 type separatorData struct {
 	label   string
 	closing bool
+	phase   bool
 }
 
 type delegationTranscriptEntryKind int
@@ -301,7 +302,7 @@ func (b *contentBuffer) appendPhaseTransitionEvent(event output.Event) {
 func (b *contentBuffer) AppendPhaseDivider(phaseName string) {
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSeparator,
-		separatorData: &separatorData{label: "Phase: " + phaseName},
+		separatorData: &separatorData{label: "Phase: " + phaseName, phase: true},
 		renderDirty:   true,
 	})
 }

@@ -182,7 +182,7 @@ func TestPhaseSeparatorHasBlankLinesAboveAndBelow(t *testing.T) {
 	// Create a phase separator
 	seg := contentSegment{
 		kind:          segmentSeparator,
-		separatorData: &separatorData{label: "Phase: implement"},
+		separatorData: &separatorData{label: "Phase: implement", phase: true},
 		renderDirty:   true,
 	}
 

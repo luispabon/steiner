@@ -144,13 +144,11 @@ func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int
 	}
 	sd := segment.separatorData
 	label := sd.label
-	isPhase := strings.HasPrefix(label, "Phase: ")
 	if sd.closing {
 		label = "End of " + label
 	}
 	line := b.renderCenteredDashes(label, width)
-	if isPhase {
-		// Phase separators always get a blank line above and below.
+	if sd.phase {
 		return "\n" + line + "\n"
 	}
 	if sd.closing {
