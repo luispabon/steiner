@@ -243,6 +243,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeModelCallFinished:      (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeContextDiagnostics:     (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeUserInput:              (*contentBuffer).appendUserInputEvent,
+	output.EventTypePhaseTransition:        (*contentBuffer).appendPhaseTransitionEvent,
 	output.EventTypeRunStarted:             func(*contentBuffer, output.Event) {},
 	output.EventTypeRunFinished:            func(*contentBuffer, output.Event) {},
 	output.EventTypeTurnStarted:            func(*contentBuffer, output.Event) {},
@@ -289,6 +290,11 @@ func (b *contentBuffer) appendLabeledBlock(label string, body string) {
 		separatorData: &separatorData{label: label, closing: true},
 		renderDirty:   true,
 	})
+}
+
+func (b *contentBuffer) appendPhaseTransitionEvent(event output.Event) {
+	b.finishStreaming()
+	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 }
 
 // AppendPhaseDivider appends a phase transition divider to mark the beginning of a new oneshot phase.
