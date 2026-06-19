@@ -119,7 +119,16 @@ func unifiedTextDiff(path, before, after string) string {
 	if after == "" {
 		afterLines = nil
 	}
+	if mutateDiffTooLarge(before, after, beforeLines, afterLines) {
+		return fmt.Sprintf("--- %s\n+++ %s\n<diff omitted: change too large (%d -> %d bytes, %d -> %d lines)>",
+			path, path, len(before), len(after), len(beforeLines), len(afterLines))
+	}
 	return formatUnifiedHunks(path, beforeLines, afterLines, 3)
+}
+
+func mutateDiffTooLarge(before, after string, beforeLines, afterLines []string) bool {
+	return len(before)+len(after) > maxMutateDiffInputBytes ||
+		len(beforeLines)+len(afterLines) > maxMutateDiffInputLines
 }
 
 func appendUnique(values []string, value string) []string {

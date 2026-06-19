@@ -1149,7 +1149,7 @@ func TestMutatePlanningFailureDoesNotCreateIntermediateFiles(t *testing.T) {
 	}
 }
 
-func TestMutateOutputIsBounded(t *testing.T) {
+func TestMutateOutputIsBoundedForLargeWrite(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "big.txt")
 	if err := os.WriteFile(path, []byte(strings.Repeat("before\n", 8000)), 0o644); err != nil {
@@ -1166,8 +1166,8 @@ func TestMutateOutputIsBounded(t *testing.T) {
 	if len(got.Output) > maxMutateOutputChars+len("\n<truncated>") {
 		t.Fatalf("Output len = %d, want bounded", len(got.Output))
 	}
-	if !strings.Contains(got.Output, "<truncated>") {
-		t.Fatalf("Output missing truncation marker")
+	if !strings.Contains(got.Output, "<diff omitted: change too large") {
+		t.Fatalf("Output missing omitted diff marker: %q", got.Output)
 	}
 }
 

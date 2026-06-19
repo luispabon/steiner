@@ -13,6 +13,8 @@ import (
 )
 
 const maxMutateOutputChars = 30000
+const maxMutateDiffInputBytes = maxMutateOutputChars * 2
+const maxMutateDiffInputLines = 4000
 const mutateContextRadius = 2
 const mutateContextMaxLines = 7
 
