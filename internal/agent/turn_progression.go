@@ -28,10 +28,11 @@ import (
 func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
 	turn := in.State.TurnCount + 1
 
-	p.emitModelCallStarted(in, turn, assembly)
+	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
+	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
 	startTime := time.Now()
-	response, firstChunkTime, err := p.performModelCall(ctx, in, turn, assembly, chatRequest)
+	response, firstChunkTime, err := completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
 	if err != nil {
 		return p.handleModelCallError(ctx, in, turn, err)
 	}
@@ -52,23 +53,19 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	}
 
 	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
-	p.emitAssistantMessage(in, turn, response)
-	state = appendAssistantMessage(state, turn, response.Message)
+	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
+		emitEvent(in.Request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
+	}
+	assistant := fromProviderMessage(response.Message)
+	assistant.Turn = turn
+	state.Conversation = append(state.Conversation, assistant)
+	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
 	if len(response.Message.ToolCalls) == 0 {
 		return p.finishAssistantOnlyTurn(ctx, in, state, turn, response)
 	}
 
 	return turnOutcome{State: state, Response: &response}
-}
-
-func (p *turnProgressor) emitModelCallStarted(in turnInput, turn int, assembly prompt.Assembly) {
-	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
-	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
-}
-
-func (p *turnProgressor) performModelCall(ctx context.Context, in turnInput, turn int, assembly prompt.Assembly, chatRequest provider.ChatRequest) (provider.ChatResponse, time.Time, error) {
-	return completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
 }
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
@@ -111,20 +108,6 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInpu
 	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
 	state.TokenCount += turnTokens
 	return state, turnTokens
-}
-
-func (p *turnProgressor) emitAssistantMessage(in turnInput, turn int, response provider.ChatResponse) {
-	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
-		emitEvent(in.Request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
-	}
-}
-
-func appendAssistantMessage(state RunState, turn int, message provider.Message) RunState {
-	assistant := fromProviderMessage(message)
-	assistant.Turn = turn
-	state.Conversation = append(state.Conversation, assistant)
-	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
-	return state
 }
 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
@@ -363,11 +346,9 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	// Debug log: byte sizes per prompt zone to aid KV-cache tuning.
 	systemBytes, conversationBytes := 0, 0
 	for _, block := range assembly.Blocks {
-		switch block.Source {
-		case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD,
-			prompt.ContextSourceConversationSummary:
+		if block.Source.IsSystemZone() {
 			systemBytes += block.ByteSize
-		default:
+		} else {
 			conversationBytes += block.ByteSize
 		}
 	}
@@ -380,7 +361,7 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 		Params:      in.Request.ResolvedModel.Params,
 		ExtraParams: in.Request.ResolvedModel.ExtraParams,
 	}
-	chatRequest = buildTurnChatRequest(in.Request, chatRequest)
+	chatRequest = applyPromptSuffix(in.Request.ResolvedModel.PromptSuffix, chatRequest)
 	chatRequest.IncludeEmptyReasoning = in.Request.ResolvedModel.ReasoningEchoBack
 	if !in.Request.ResolvedModel.ReasoningEchoBack {
 		stripReasoningContent(chatRequest.Messages)
@@ -392,10 +373,6 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	}
 	emitRequestTokenDiagnostic(in.Request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
 	return assembly, chatRequest, fit, nil
-}
-
-func buildTurnChatRequest(req RunRequest, chatRequest provider.ChatRequest) provider.ChatRequest {
-	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatRequest)
 }
 
 // imageBlockPlaceholder returns a compact text token describing an image whose

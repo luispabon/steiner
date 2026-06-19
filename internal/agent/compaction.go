@@ -65,40 +65,47 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
-	return twoStageSummarizeCompactionWithStages(ctx, req, state, turn, candidate, summarizeCompactionStage, fitConversationState)
+	return summarizeCompactionStages{
+		stageRunner: summarizeCompactionStage,
+		fitRunner:   fitConversationState,
+	}.run(ctx, req, state, turn, candidate)
 }
 
 type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, []Message, []Message, prompt.CompactionMode, int) (CompactionOutcome, error)
 
 type compactionFitRunner func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error)
 
-func twoStageSummarizeCompactionWithStages(
+type summarizeCompactionStages struct {
+	stageRunner compactionStageRunner
+	fitRunner   compactionFitRunner
+}
+
+func (s summarizeCompactionStages) run(
 	ctx context.Context,
 	req RunRequest,
 	state RunState,
 	turn int,
 	candidate ConversationCandidate,
-	stageRunner compactionStageRunner,
-	fitRunner compactionFitRunner,
 ) (CompactionOutcome, error) {
 	fullMessages := cloneMessages(candidate.Messages)
 	retentionBase := compactionRetentionBaseMessages(state.Lineage, candidate)
 	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
 	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
 
-	normalOutcome, err := stageRunner(ctx, req, state, turn, candidate, normalSource, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
+	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, normalSource, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !normalOutcome.Applied {
-		emergencyOutcome, emergencyErr := stageRunner(ctx, req, state, turn, candidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
+		emergencyOutcome, emergencyErr := s.stageRunner(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 		if emergencyErr != nil {
 			return CompactionOutcome{}, emergencyErr
 		}
 		if !emergencyOutcome.Applied {
 			return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
 		}
-		emergencyFit, emergencyErr := fitRunner(ctx, req, emergencyOutcome.State)
+		emergencyFit, emergencyErr := s.fitRunner(ctx, req, emergencyOutcome.State)
 		if emergencyErr != nil {
 			return CompactionOutcome{}, emergencyErr
 		}
@@ -109,7 +116,7 @@ func twoStageSummarizeCompactionWithStages(
 		return emergencyOutcome, nil
 	}
 
-	normalFit, err := fitRunner(ctx, req, normalOutcome.State)
+	normalFit, err := s.fitRunner(ctx, req, normalOutcome.State)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -119,14 +126,13 @@ func twoStageSummarizeCompactionWithStages(
 	}
 
 	emergencySource = normalOutcome.State.Conversation
-	emergencyCandidate := normalOutcome.Candidate
-	emergencyCandidate.Messages = cloneMessages(emergencySource)
 	emergencyRetentionBase := normalOutcome.State.Lineage.SummaryPrefixStrippedMessages()
 	if len(emergencyRetentionBase) == 0 {
 		emergencyRetentionBase = cloneMessages(emergencySource)
 	}
 	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
-	emergencyOutcome, err := stageRunner(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
+	emergencyOutcome, err := s.stageRunner(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -134,7 +140,7 @@ func twoStageSummarizeCompactionWithStages(
 		return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
 	}
 
-	emergencyFit, err := fitRunner(ctx, req, emergencyOutcome.State)
+	emergencyFit, err := s.fitRunner(ctx, req, emergencyOutcome.State)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -144,6 +150,16 @@ func twoStageSummarizeCompactionWithStages(
 	}
 
 	return emergencyOutcome, nil
+}
+
+func makeCompactionCandidate(candidate ConversationCandidate, source, retained []Message) ConversationCandidate {
+	next := candidate
+	if len(source) > 0 {
+		next.Messages = cloneMessages(source)
+		return next
+	}
+	next.Messages = cloneMessages(retained)
+	return next
 }
 
 func needsEmergencyCompaction(fit prompt.RequestTokenBudget) bool {
@@ -231,7 +247,7 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 		Params:      req.ResolvedModel.Params,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 	}
-	chatRequest = buildTurnChatRequest(req, chatRequest)
+	chatRequest = applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatRequest)
 	return req.ModelBudget.FitRequest(ctx, chatRequest)
 }
 
