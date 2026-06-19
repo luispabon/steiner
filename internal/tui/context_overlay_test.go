@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -51,6 +52,13 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(m.contextOverlay.renderedLines, "\n"), "\x1b[") {
 		t.Fatalf("rendered markdown = %q, want styled ANSI output", rendered)
+	}
+	titleStyle := lipgloss.NewStyle().
+		Foreground(m.styles.AccentColor).
+		Bold(true).
+		Width(m.contextOverlay.WithDimensions(m.width, m.height).InnerWidth())
+	if !strings.Contains(m.renderContextOverlay(), titleStyle.Render("Context Report")) {
+		t.Fatalf("overlay view = %q, want accent-colored Context Report title", stripANSI(m.renderContextOverlay()))
 	}
 
 	composed := composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)

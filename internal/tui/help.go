@@ -78,7 +78,7 @@ func renderHelp(styles theme.Styles, width int) string {
 
 	var sb strings.Builder
 	headingStyle := lipgloss.NewStyle().
-		Foreground(styles.Border.GetForeground()).
+		Foreground(styles.AccentColor).
 		Bold(true)
 	keyStyle := lipgloss.NewStyle().
 		Foreground(styles.SidebarLabel.GetForeground())

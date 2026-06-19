@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAppendLineRoutesStatusPrefixToStatusSegment(t *testing.T) {
@@ -61,6 +62,39 @@ func TestRenderStatusSegmentBasic(t *testing.T) {
 	}
 	if !strings.Contains(out, "·") {
 		t.Errorf("output missing middle-dot separator: %q", out)
+	}
+}
+
+func TestRenderStatusSegmentTimestampInlineRightAligned(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 19, 54, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	b := newTestBuffer(t)
+	seg := contentSegment{
+		kind:      segmentStatus,
+		text:      "complete",
+		timestamp: fixedNow,
+	}
+
+	plain := stripANSI(b.renderStatusSegment(seg, 40))
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rendered status lines = %d, want 2: %q", len(lines), plain)
+	}
+	if lines[0] != "" {
+		t.Fatalf("top margin row = %q, want blank", lines[0])
+	}
+	if !strings.Contains(lines[1], "status · complete") {
+		t.Fatalf("status row missing body: %q", lines[1])
+	}
+	if !strings.HasSuffix(lines[1], "19:54:00") {
+		t.Fatalf("timestamp is not right-aligned at row end: %q", lines[1])
 	}
 }
 

@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestRenderPendingSteerSegment(t *testing.T) {
@@ -116,6 +120,232 @@ func TestRenderPendingSteerSegment(t *testing.T) {
 			b.segments = append(b.segments, contentSegment{kind: segmentPendingSteer, text: tt.text})
 			output := b.String(tt.width)
 			tt.check(t, output)
+		})
+	}
+}
+
+func TestTimestampFormat(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	tests := []struct {
+		name string
+		ts   time.Time
+		want string
+	}{
+		{
+			name: "today",
+			ts:   time.Date(2026, 6, 19, 9, 7, 0, 0, time.UTC),
+			want: "09:07:00",
+		},
+		{
+			name: "older",
+			ts:   time.Date(2026, 6, 18, 9, 7, 0, 0, time.UTC),
+			want: "Jun 18 09:07:00",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatContentTimestamp(tt.ts); got != tt.want {
+				t.Fatalf("formatContentTimestamp() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderUserTimestampChrome(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	tests := []struct {
+		name          string
+		segment       contentSegment
+		render        func(*contentBuffer, contentSegment, int) string
+		wantTimestamp string
+		wantText      string
+	}{
+		{
+			name: "plain user segment",
+			segment: contentSegment{
+				kind:      segmentUser,
+				text:      "hello world",
+				timestamp: fixedNow,
+			},
+			render:        (*contentBuffer).renderUserSegment,
+			wantTimestamp: "15:04:00",
+			wantText:      "hello world",
+		},
+		{
+			name: "markdown user segment",
+			segment: contentSegment{
+				kind:      segmentUserMarkdown,
+				text:      "# Title\n\ncontent",
+				timestamp: time.Date(2026, 6, 18, 9, 7, 0, 0, time.UTC),
+			},
+			render:        (*contentBuffer).renderUserMarkdownSegment,
+			wantTimestamp: "Jun 18 09:07:00",
+			wantText:      "Title",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			useTrueColor(t)
+			rendered := tt.render(b, tt.segment, 60)
+			rawLines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+			if len(rawLines) < 4 {
+				t.Fatalf("rendered output has %d raw lines, want at least 4: %q", len(rawLines), rendered)
+			}
+			if !hasANSIBackground(rawLines[0]) {
+				t.Fatalf("top row lost prompt background styling: %q", rawLines[0])
+			}
+			if !hasANSIBackground(rawLines[len(rawLines)-2]) {
+				t.Fatalf("bottom row lost prompt background styling: %q", rawLines[len(rawLines)-2])
+			}
+
+			plain := stripANSI(rendered)
+			lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+			if len(lines) < 4 {
+				t.Fatalf("rendered output has %d lines, want at least 4: %q", len(lines), plain)
+			}
+			if strings.Contains(lines[0], tt.wantTimestamp) {
+				t.Fatalf("top row %q unexpectedly contains timestamp %q", lines[0], tt.wantTimestamp)
+			}
+			if strings.Contains(lines[0], tt.wantText) {
+				t.Fatalf("top row %q unexpectedly contains message text %q", lines[0], tt.wantText)
+			}
+			if strings.Contains(lines[len(lines)-2], tt.wantTimestamp) {
+				t.Fatalf("bottom row %q unexpectedly contains timestamp %q", lines[len(lines)-2], tt.wantTimestamp)
+			}
+			if strings.Contains(lines[len(lines)-1], "┃") {
+				t.Fatalf("timestamp row %q unexpectedly contains prompt border", lines[len(lines)-1])
+			}
+			if got := strings.TrimSpace(lines[len(lines)-1]); got != tt.wantTimestamp {
+				t.Fatalf("timestamp row = %q, want right-aligned timestamp %q", lines[len(lines)-1], tt.wantTimestamp)
+			}
+			if !strings.Contains(plain, tt.wantText) {
+				t.Fatalf("rendered output missing message text %q: %q", tt.wantText, plain)
+			}
+		})
+	}
+}
+
+func TestTimestampCapture(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	tests := []struct {
+		name string
+		run  func(*contentBuffer)
+	}{
+		{
+			name: "AppendUser",
+			run: func(b *contentBuffer) {
+				b.AppendUser("hello")
+			},
+		},
+		{
+			name: "appendUserInputEvent",
+			run: func(b *contentBuffer) {
+				b.appendUserInputEvent(output.NewUserInputEvent("hello", "exec"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			tt.run(b)
+			if len(b.segments) != 1 {
+				t.Fatalf("segments = %d, want 1", len(b.segments))
+			}
+			if got := b.segments[0].timestamp; !got.Equal(fixedNow) {
+				t.Fatalf("segment timestamp = %v, want %v", got, fixedNow)
+			}
+		})
+	}
+}
+
+func TestStopReasonTimestampFiltering(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	ts := formatContentTimestamp(fixedNow)
+	tests := []struct {
+		name          string
+		event         output.Event
+		wantText      string
+		wantTimestamp bool
+	}{
+		{
+			name:          "complete",
+			event:         output.NewStopReasonEvent(1, "complete", nil),
+			wantText:      "status · complete",
+			wantTimestamp: true,
+		},
+		{
+			name:          "end_turn",
+			event:         output.NewStopReasonEvent(1, "end_turn", nil),
+			wantText:      "status · end_turn",
+			wantTimestamp: true,
+		},
+		{
+			name:          "cancelled",
+			event:         output.NewStopReasonEvent(1, "cancelled", nil),
+			wantText:      "status · cancelled",
+			wantTimestamp: false,
+		},
+		{
+			name:          "error",
+			event:         output.NewStopReasonEvent(1, "error", errors.New("boom")),
+			wantText:      "error: boom",
+			wantTimestamp: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			b.appendStopReasonEvent(tt.event)
+			plain := stripANSI(b.String(60))
+			if !strings.Contains(plain, tt.wantText) {
+				t.Fatalf("rendered output missing %q: %q", tt.wantText, plain)
+			}
+			hasTimestamp := strings.Contains(plain, ts)
+			if hasTimestamp != tt.wantTimestamp {
+				t.Fatalf("timestamp presence = %v, want %v in %q", hasTimestamp, tt.wantTimestamp, plain)
+			}
+			if tt.wantTimestamp {
+				if strings.Index(plain, tt.wantText) > strings.Index(plain, ts) {
+					t.Fatalf("timestamp %q appeared before stop reason %q in %q", ts, tt.wantText, plain)
+				}
+			}
 		})
 	}
 }
