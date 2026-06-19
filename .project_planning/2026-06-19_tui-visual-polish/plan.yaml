@@ -1,0 +1,141 @@
+steps:
+  - id: step-1
+    title: "Fix mutate tool success icon with partial failures (#233)"
+    scope: |
+      In applyFinishedToolCallResult (content_events_tool_state.go), after the
+      preview is built, add a check: if td.tool == "mutate" and
+      td.preview.HunksFailed > 0, set td.hasError = true and td.meta = "❌".
+      Add test cases in content_tool_test.go covering: mutate with all ops
+      succeeded (✅), mutate with partial failures (❌), and mutate with
+      transport-level error (❌, existing behaviour preserved).
+    files:
+      - internal/tui/content_events_tool_state.go
+      - internal/tui/content_tool_test.go
+    constraints:
+      - Only check HunksFailed after preview is built, not by re-parsing result JSON
+      - Preserve existing hasError/meta behaviour for non-mutate tools
+      - Do not change output package or tool package
+    acceptance:
+      - Mutate tool call with operations_failed > 0 shows ❌ icon
+      - Mutate tool call with all operations succeeded shows ✅ icon
+      - Non-mutate tools unaffected
+      - Existing tests pass
+    verification:
+      - go test ./internal/tui/ -run TestApplyFinished
+      - go test ./internal/tui/ -run TestMutate
+      - go build ./...
+
+  - id: step-2
+    title: "Visually separate delegation prompt from transcript (#236)"
+    scope: |
+      Two changes:
+      1. In content_render_chrome.go, renderDelegationPromptBody: wrap lines
+         with an italic style instead of plain FgMute.
+      2. In delegation_layout.go, delegationRows: after the prompt body rows
+         and before the transcript rows, insert a thin muted separator line
+         (reuse renderDelegationFooterSeparator or similar ─ pattern).
+      Add/update tests verifying prompt lines are styled differently from
+      transcript lines and that a separator row exists between them.
+    files:
+      - internal/tui/content_render_chrome.go
+      - internal/tui/delegation_layout.go
+      - internal/tui/content_render_chrome_test.go
+    constraints:
+      - Separator only appears when both prompt body and transcript exist
+      - Collapsed prompt or collapsed delegation box should not show separator
+      - Italic style must inherit FgMute foreground colour
+    acceptance:
+      - Expanded delegation box with prompt and transcript shows italic prompt, separator, then normal transcript
+      - Collapsed prompt shows no separator
+      - Fully collapsed delegation box unchanged
+    verification:
+      - go test ./internal/tui/ -run TestDelegation
+      - go test ./internal/tui/ -run TestRenderDelegation
+      - go build ./...
+
+  - id: step-3
+    title: "Apply accent colour to bold text in overlays (#212)"
+    scope: |
+      Change three locations where overlay headings use Bold(true) with plain
+      foreground to also set Foreground to AccentColor:
+      1. exit_modal.go ~line 50: title style
+      2. context_overlay.go ~line 101: title style
+      3. help.go ~line 80: heading style
+      Update or add tests verifying accent colour is applied. In help.go, the
+      heading style uses Border foreground — change to AccentColor.
+    files:
+      - internal/tui/exit_modal.go
+      - internal/tui/context_overlay.go
+      - internal/tui/help.go
+      - internal/tui/exit_modal_test.go
+      - internal/tui/context_overlay_test.go
+      - internal/tui/help_test.go
+    constraints:
+      - Only change heading/title bold, not button text or body text
+      - Must use styles.AccentColor (dynamic), not a hardcoded colour
+      - Slash overlay already uses Accent — do not double-apply
+    acceptance:
+      - Exit modal title renders with accent colour + bold
+      - Context overlay title renders with accent colour + bold
+      - Help overlay section headings render with accent colour + bold
+      - Other text in these overlays unchanged
+    verification:
+      - go test ./internal/tui/ -run TestExitModal
+      - go test ./internal/tui/ -run TestContextOverlay
+      - go test ./internal/tui/ -run TestHelp
+      - go build ./...
+
+  - id: step-4
+    title: "Add timestamps to user messages and turn completion (#231)"
+    scope: |
+      1. Add a `timestamp time.Time` field to contentSegment.
+      2. In appendUserInputEvent and AppendUser, set segment.timestamp to
+         time.Now() (via the testable timeNow variable).
+      3. In renderUserSegment, render the timestamp right-aligned in the top
+         padding row: format as "15:04" if today, "Jan 02 15:04" if older.
+         Use FgDim style.
+      4. In appendStopReasonEvent, append a muted timestamp line after the
+         stop reason text. Use the same format. Only for non-error stop
+         reasons (skip "error", "cancelled" etc).
+      5. Add tests for timestamp formatting and rendering.
+    files:
+      - internal/tui/content_events.go
+      - internal/tui/content_events_tool_state.go
+      - internal/tui/content_render_markdown.go
+      - internal/tui/content_render_markdown_test.go
+    constraints:
+      - Use the existing testable timeNow variable for wall-clock access
+      - Timestamp must not shift user message text layout
+      - Stop reason timestamps only for "complete" / "end_turn" reasons
+      - Do not add timestamps to tool calls, assistant chunks, or delegation events
+    acceptance:
+      - User message top padding row shows right-aligned timestamp
+      - Turn completion shows muted timestamp
+      - Timestamp format is "15:04" for today, "Jan 02 15:04" for older
+      - Error/cancelled stop reasons have no timestamp
+      - Existing tests pass
+    verification:
+      - go test ./internal/tui/ -run TestRenderUser
+      - go test ./internal/tui/ -run TestTimestamp
+      - go test ./internal/tui/ -run TestStopReason
+      - go build ./...
+
+  - id: step-5
+    title: "Final verification and formatting"
+    scope: |
+      Run gofmt, goimports, go vet, and make check across all changed files.
+      Fix any issues found.
+    files: []
+    constraints:
+      - All checks must pass
+      - No unrelated changes
+    acceptance:
+      - make check passes
+      - go vet ./... clean
+      - gofmt produces no diff
+    verification:
+      - gofmt -l internal/tui/
+      - goimports -l internal/tui/
+      - go vet ./...
+      - make check
+    no_delegate: true
