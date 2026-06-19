@@ -144,6 +144,9 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
 	}
+	if m.oneshotResumePicker.IsOpen() {
+		base = m.oneshotResumePicker.PlaceBottomAnchored(base, m.oneshotResumePicker.View(), offset)
+	}
 	if m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff() {
 		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
 	}

@@ -95,6 +95,10 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 			continue
 		}
 
+		// Check if this phase is being resumed (re-run after a failure).
+		// A phase is resuming if its status is Failed or Running.
+		phaseIsResuming := manifest.PhaseStatuses[phase] == PhaseStatusFailed || manifest.PhaseStatuses[phase] == PhaseStatusRunning
+
 		modelAlias := phaseModelAlias(o.deps.Config, phase)
 		advisorCfg := phaseAdvisorConfig(o.deps.Config, phase)
 		emitPhaseTransition(o.deps.Events, manifest.RunID, previousPhase, phase, phaseTransitionStarting, modelAlias, "")
@@ -146,7 +150,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 			return manifest, runErr
 		}
 
-		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath)
+		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath, phaseIsResuming)
 		if err := CheckBoundary(phaseCtx, phase, worktree.Path, requiredArtifacts); err != nil {
 			cancel()
 			manifest.PhaseStatuses[phase] = PhaseStatusFailed

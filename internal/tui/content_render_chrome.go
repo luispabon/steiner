@@ -136,8 +136,8 @@ func (b *contentBuffer) renderCenteredDashes(label string, width int) string {
 }
 
 // renderSeparatorSegment renders a centered dashed separator line.
-
-// renderSeparatorSegment renders a centered dashed separator line.
+// Phase separators get blank lines above and below; other separators follow
+// standard spacing (closing separators add a leading newline).
 func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int) string {
 	if segment.separatorData == nil {
 		return ""
@@ -148,6 +148,9 @@ func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int
 		label = "End of " + label
 	}
 	line := b.renderCenteredDashes(label, width)
+	if sd.phase {
+		return "\n" + line + "\n"
+	}
 	if sd.closing {
 		return "\n" + line + "\n"
 	}

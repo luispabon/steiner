@@ -132,7 +132,8 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			return manifest, runErr
 		}
 
-		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath)
+		// In a fresh run, phases are never resuming; they're all first-time runs.
+		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath, false)
 		if err := CheckBoundary(phaseCtx, phase, worktreePath, requiredArtifacts); err != nil {
 			cancel()
 			manifest.PhaseStatuses[phase] = PhaseStatusFailed

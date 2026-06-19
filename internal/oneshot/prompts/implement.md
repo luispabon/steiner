@@ -17,7 +17,7 @@ The sections below are the working sequence: load the plan and verification stra
 
 ## Sequence
 
-1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`.
+1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`. If you are resuming this phase after a prior failure and `execution.md` does not yet exist, first review the git commit log and worktree state to identify what implementation work has already been validated and committed. Record that prior progress in your initial plan for this resume, and continue from the first incomplete step.
 2. Execute the implementation steps in `plan.yaml` order, dispatching one delegated sub-agent per step (see Step Execution). Serial execution is the default; honor `depends_on` and only use `parallel_group` when the plan marks it safe.
 3. Run the planned verification and drive failures to green through delegation.
 4. Write `execution.md` to the planning folder.
@@ -36,6 +36,8 @@ You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on i
 There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker.
 
 This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations, worktree provisioning). Steps explicitly marked `no_delegate: true` are also exempt — apply those inline and state in `execution.md` why the step was not delegated.
+
+**Closed rationalization loopholes**: Do not rationalize skipping delegation by claiming low ambiguity, small testable chunks, or cheap-feeling mutate calls are sufficient justification. These are not exceptions. The only exemptions are the executor-owned artifacts listed above and steps explicitly marked `no_delegate: true`. When in doubt, delegate.
 
 Before any implementation action, ask: have I dispatched a sub-agent for this step? If not — stop and delegate.
 

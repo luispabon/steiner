@@ -74,6 +74,9 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	case m.sessionPicker.IsOpen():
 		next, cmd := m.handleSessionPickerKey(msg)
 		return true, next, cmd
+	case m.oneshotResumePicker.IsOpen():
+		next, cmd := m.handleOneshotResumePickerKey(msg)
+		return true, next, cmd
 	case m.planPicker.IsOpen():
 		next, cmd := m.handlePlanPickerKey(msg)
 		return true, next, cmd
@@ -449,6 +452,23 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m Model) handleOneshotResumePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.oneshotResumePicker = m.oneshotResumePicker.Close()
+	case tea.KeyEnter:
+		if runID := m.oneshotResumePicker.SelectedRunID(); runID != "" {
+			m.oneshotResumePicker = m.oneshotResumePicker.Close()
+			return m.executeResumeOneshotAction(runID)
+		}
+	default:
+		var cmd tea.Cmd
+		m.oneshotResumePicker, cmd = m.oneshotResumePicker.Update(msg)
 		return m, cmd
 	}
 	return m, nil

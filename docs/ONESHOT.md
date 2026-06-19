@@ -68,12 +68,13 @@ Each phase is a fresh agent run with empty model context and a clean scrollback.
 - Task: analyze the request, explore the codebase, and produce a structured plan.
 - Research: decided autonomously (no approval gate) using the same required-by-default criteria as the interactive plan skill — current/external/fast-moving, security-sensitive, or low-confidence areas trigger it. When required, it is delegated to the `research` tool; if no search backend is configured the tool is absent and the phase records a bounded assumption and continues. Findings persist to `research.md` when worth keeping.
 - Output: `overview.md` (with `## Request`, `## Overview`, `## Key Decisions`, `## Tradeoffs`, `## Scope Boundaries`, `## Verification Strategy`, `## Decision Log`), `plan.yaml` (flat implementation steps), optional `research.md`, and a commit to the feature branch.
+- Advisor findings: for each finding or concern raised during advisor consultation, the model must explicitly either apply the finding (modifying the plan) or reject it with a stated reason. Advancing without addressing every material finding is not permitted.
 - Refinement: full advisor loops enabled if configured. A final `advisor` sanity check on the completed plan is mandatory before the commit (skipped only if the per-run advisor budget is exhausted); its note is recorded in `overview.md`.
 
 **Implement phase**:
 - Task: execute the plan's steps, make code changes, and validate with the plan's verification strategy.
 - Input: reads `overview.md` (intent + verification strategy) and `plan.yaml` (flat step contract).
-- Delegation: mandatory. The phase acts only as an orchestrator — implementation-scoped edits and verification-failure fixes flow through delegated `code` sub-agents, one per step. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`.
+- Delegation: mandatory. The phase acts only as an orchestrator — implementation-scoped edits and verification-failure fixes flow through delegated `code` sub-agents, one per step. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`. Rationalization via low ambiguity, small testable chunks, or cheap-feeling mutate calls are explicitly prohibited — these do not license skipping delegation.
 - Output: `execution.md` (compact step/verification/handoff state), commits to the feature branch.
 - Refinement: point-consults (advisor enabled but capped at 1-2 uses).
 
@@ -140,6 +141,8 @@ The manifest is used for resume logic, status reporting, and cross-phase bookkee
 2. **Lock reclamation**: acquires a fresh lock via CAS, releasing the stale one.
 3. **State recovery**: reads the manifest and determines the first incomplete phase.
 4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
+
+**Mid-implement resume**: If the implement phase fails before writing `execution.md` (e.g., the model hits an error or timeout before reaching the final execution artifact step), resuming the run re-enters the implement phase without requiring `execution.md` to exist. The model loads git history and committed work to identify what steps have already been implemented, then continues from the first incomplete step.
 
 Worktrees are left in place after a run (including after interrupt) to allow inspection and resume. Cleanup is manual.
 

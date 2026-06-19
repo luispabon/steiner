@@ -112,6 +112,7 @@ type compactionBannerData struct {
 type separatorData struct {
 	label   string
 	closing bool
+	phase   bool
 }
 
 type delegationTranscriptEntryKind int
@@ -243,6 +244,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeModelCallFinished:      (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeContextDiagnostics:     (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeUserInput:              (*contentBuffer).appendUserInputEvent,
+	output.EventTypePhaseTransition:        (*contentBuffer).appendPhaseTransitionEvent,
 	output.EventTypeRunStarted:             func(*contentBuffer, output.Event) {},
 	output.EventTypeRunFinished:            func(*contentBuffer, output.Event) {},
 	output.EventTypeTurnStarted:            func(*contentBuffer, output.Event) {},
@@ -291,11 +293,16 @@ func (b *contentBuffer) appendLabeledBlock(label string, body string) {
 	})
 }
 
+func (b *contentBuffer) appendPhaseTransitionEvent(event output.Event) {
+	b.finishStreaming()
+	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
+}
+
 // AppendPhaseDivider appends a phase transition divider to mark the beginning of a new oneshot phase.
 func (b *contentBuffer) AppendPhaseDivider(phaseName string) {
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSeparator,
-		separatorData: &separatorData{label: "Phase: " + phaseName},
+		separatorData: &separatorData{label: "Phase: " + phaseName, phase: true},
 		renderDirty:   true,
 	})
 }

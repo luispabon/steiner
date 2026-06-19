@@ -79,6 +79,12 @@ Group steps by logical deliverable, not by mechanical operation. Serial executio
 
 After `overview.md` and `plan.yaml` are written, you MUST call `advisor` once as a final sanity check on the completed plan — its shape, risk, missing steps, and the recorded assumptions. This is mandatory and runs even if you used `advisor` as a loop driver earlier; skip it only if the run's advisor budget is exhausted. Record the advisor's note in `overview.md` under `## Decision Log` (or a `## Advisor Sanity Check` subsection if the note is substantial). If the note surfaces a material gap, fix the planning documents before committing.
 
+**Critical:** For each finding or concern the advisor raises, you MUST explicitly either:
+1. **Apply** the finding — modify `overview.md` or `plan.yaml` to address it, or
+2. **Reject** the finding — state the specific reason why the finding does not apply or should not change the plan.
+
+Do not advance to commit without explicitly addressing every material finding. Silence or lack of response to a finding is not a valid disposition.
+
 ## Commit
 
 After both documents exist (plus `research.md` if written) and the advisor sanity check is recorded, commit them on the feature branch so the phase boundary sees a clean tree. Leave no planning document uncommitted.

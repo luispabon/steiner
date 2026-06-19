@@ -63,6 +63,58 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 	}
 }
 
+func newMinimalModel(inputValue string) Model {
+	inp := newModelInput()
+	inp.SetValue(inputValue)
+	return Model{
+		input: inp,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+		},
+	}
+}
+
+func TestLaunchOneshotActionClearsComposer(t *testing.T) {
+	cases := []struct {
+		name    string
+		factory OneshotRunnerFactoryBuilder
+	}{
+		{name: "nil factory", factory: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMinimalModel("/oneshot build the thing")
+			m.oneshotRunnerFactory = tc.factory
+			updated, _ := m.executeLaunchOneshotAction("build the thing")
+			got := updated.(Model).input.Value()
+			if got != "" {
+				t.Errorf("input after oneshot dispatch = %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestResumeOneshotActionClearsComposer(t *testing.T) {
+	cases := []struct {
+		name    string
+		factory OneshotRunnerFactoryBuilder
+	}{
+		{name: "nil factory", factory: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMinimalModel("/oneshot --resume abc123")
+			m.oneshotRunnerFactory = tc.factory
+			updated, _ := m.executeResumeOneshotAction("abc123")
+			got := updated.(Model).input.Value()
+			if got != "" {
+				t.Errorf("input after resume dispatch = %q, want empty", got)
+			}
+		})
+	}
+}
+
 func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
 	m := Model{oneshotRunning: true}
 	items := m.buildSlashOverlayItems()
