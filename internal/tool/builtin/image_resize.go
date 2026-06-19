@@ -18,6 +18,10 @@ const maxImageDimension = 2048
 // If image already fits within 2048px on both sides, returns original bytes unchanged
 // (no re-encode) along with actual dimensions.
 func ResizeImageIfNeeded(data []byte) (out []byte, width, height int, err error) {
+	return resizeImageIfNeeded(data, maxImageDimension)
+}
+
+func resizeImageIfNeeded(data []byte, maxDimension int) (out []byte, width, height int, err error) {
 	// Decode the image to determine its dimensions and original format.
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -29,7 +33,7 @@ func ResizeImageIfNeeded(data []byte) (out []byte, width, height int, err error)
 	height = bounds.Max.Y
 
 	// If both dimensions are within the limit, return original bytes unchanged.
-	if width <= maxImageDimension && height <= maxImageDimension {
+	if width <= maxDimension && height <= maxDimension {
 		return data, width, height, nil
 	}
 
@@ -39,7 +43,7 @@ func ResizeImageIfNeeded(data []byte) (out []byte, width, height int, err error)
 		maxDim = height
 	}
 
-	scale := float64(maxImageDimension) / float64(maxDim)
+	scale := float64(maxDimension) / float64(maxDim)
 	newWidth := int(float64(width) * scale)
 	newHeight := int(float64(height) * scale)
 
