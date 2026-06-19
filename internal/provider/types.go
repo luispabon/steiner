@@ -29,9 +29,10 @@ type ToolSpec struct {
 
 // ToolCall records a model-requested tool invocation.
 type ToolCall struct {
-	ID        string         `json:"id,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
+	ID           string         `json:"id,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	Arguments    map[string]any `json:"arguments,omitempty"`
+	RawArguments string         `json:"raw_arguments,omitempty"`
 }
 
 // AnthropicMessageMetadata carries Anthropic-native replay fields that must be
