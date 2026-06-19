@@ -2,8 +2,8 @@
 
 - active branch: `cl/2026-06-19_tui-visual-polish`
 - verification strategy: targeted `internal/tui` tests per step, `go build ./...`, final `gofmt`, `goimports`, `go vet ./...`, and `make check`
-- current step: step-4
-- completed steps: step-1 implemented and merged; step-2 implemented and merged; step-3 implemented and merged
+- current step: step-5 final verification
+- completed steps: step-1 implemented and merged; step-2 implemented and merged; step-3 implemented and merged; step-4 implemented and merged
 - blocked steps: none
 - skipped steps: none
 
@@ -12,6 +12,7 @@
 - step-1: worker, `gpt-5.4-mini` (cheaper/faster than parent runtime), isolated worktree `/home/luis/Projects/AI/steiner-step-1`, temp branch `exec/tui-visual-polish-step-1`, commit `cac6056`, no escalation
 - step-2: worker, `gpt-5.4-mini` (cheaper/faster than parent runtime), isolated worktree `/home/luis/Projects/AI/steiner-step-2`, temp branch `exec/tui-visual-polish-step-2`, commit `22d2a02`, no escalation
 - step-3: worker, `gpt-5.4-mini` (cheaper/faster than parent runtime), isolated worktree `/home/luis/Projects/AI/steiner-step-3`, temp branch `exec/tui-visual-polish-step-3`, commit `9e44737`, no escalation
+- step-4: worker, `gpt-5.4-mini` (cheaper/faster than parent runtime), isolated worktree `/home/luis/Projects/AI/steiner-step-4`, temp branch `exec/tui-visual-polish-step-4`, commits `ae7b74d` and fix `4fd0548`, no escalation
 
 ## Verification
 
@@ -34,10 +35,18 @@
   - `go test ./internal/tui/ -run TestContextOverlay`
   - `go test ./internal/tui/ -run TestHelp`
   - `go build ./...`
+- step-4 worker reported passing:
+  - `gofmt -w internal/tui/content_events.go internal/tui/content_events_tool_state.go internal/tui/content_render_markdown.go internal/tui/content_render_markdown_test.go`
+  - `goimports -w internal/tui/content_events.go internal/tui/content_events_tool_state.go internal/tui/content_render_markdown.go internal/tui/content_render_markdown_test.go`
+  - `go test ./internal/tui/ -run TestRenderUser`
+  - `go test ./internal/tui/ -run TestTimestamp`
+  - `go test ./internal/tui/ -run TestStopReason`
+  - `go build ./...`
 
 ## Deviations And Blockers
 
 - `.project_planning/` is version-controlled in this repo; planning artifacts will be committed and included in final executor state.
+- step-4 review found the first commit replaced completion stop-reason text with only the timestamp; fix commit `4fd0548` restored stop-reason text and appended timestamp after it.
 
 ## Handoff
 
