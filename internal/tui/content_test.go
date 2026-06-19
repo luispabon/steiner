@@ -1045,7 +1045,7 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 		segments: make([]contentSegment, 0),
 	}
 
-	buffer.AppendEvent(output.NewContextReportEvent("# Last Request Context\n\nPrompt tokens: `42`"))
+	buffer.AppendEvent(output.NewOverlayReportEvent("Context Report", "# Last Request Context\n\nPrompt tokens: `42`"))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))

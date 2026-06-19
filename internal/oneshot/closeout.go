@@ -26,6 +26,14 @@ const (
 	closeoutProviderAzure  closeoutProvider = "azure"
 )
 
+type closeoutRunner func(context.Context, string, string, string, string, string, string) (string, string, error)
+
+var closeoutRunners = map[closeoutProvider]closeoutRunner{
+	closeoutProviderGitHub: runGitHubCloseout,
+	closeoutProviderGitLab: runGitLabCloseout,
+	closeoutProviderAzure:  runAzureCloseout,
+}
+
 // CloseoutInput carries the on-disk artifacts needed to build the final PR/MR body.
 type CloseoutInput struct {
 	Manifest       Manifest
@@ -108,55 +116,30 @@ func Closeout(ctx context.Context, cfg config.Config, input CloseoutInput) (Clos
 	title := closeoutTitle(input.Report)
 	body := AssembleCloseoutBody(input.Overview, commitMessages, input.Report)
 
-	switch provider {
-	case closeoutProviderGitHub:
-		url, err := runGitHubCloseout(ctx, worktreePath, remoteName, branch, targetBranch, title, body)
-		if err != nil {
-			return CloseoutResult{State: closeoutStateFailed, Provider: string(provider), Remote: remoteName, TargetBranch: targetBranch, Title: title, Body: body}, err
-		}
-		return CloseoutResult{
-			State:        closeoutStateCreated,
-			Provider:     string(provider),
-			Remote:       remoteName,
-			TargetBranch: targetBranch,
-			Title:        title,
-			Body:         body,
-			URL:          url,
-		}, nil
-	case closeoutProviderGitLab:
-		if err := runGitLabCloseout(ctx, worktreePath, remoteName, branch, targetBranch, title, body); err != nil {
-			return CloseoutResult{State: closeoutStateFailed, Provider: string(provider), Remote: remoteName, TargetBranch: targetBranch, Title: title, Body: body}, err
-		}
-		return CloseoutResult{
-			State:        closeoutStateCreated,
-			Provider:     string(provider),
-			Remote:       remoteName,
-			TargetBranch: targetBranch,
-			Title:        title,
-			Body:         body,
-			Note:         "merge request created via git push options",
-		}, nil
-	case closeoutProviderAzure:
-		url, err := runAzureCloseout(ctx, worktreePath, remoteName, branch, targetBranch, title, body)
-		if err != nil {
-			return CloseoutResult{State: closeoutStateFailed, Provider: string(provider), Remote: remoteName, TargetBranch: targetBranch, Title: title, Body: body}, err
-		}
-		return CloseoutResult{
-			State:        closeoutStateCreated,
-			Provider:     string(provider),
-			Remote:       remoteName,
-			TargetBranch: targetBranch,
-			Title:        title,
-			Body:         body,
-			URL:          url,
-		}, nil
-	default:
+	runner, ok := closeoutRunners[provider]
+	if !ok {
 		return CloseoutResult{
 			State:  closeoutStateUnsupported,
 			Remote: remoteName,
 			Note:   "unsupported provider",
 		}, nil
 	}
+
+	url, note, err := runner(ctx, worktreePath, remoteName, branch, targetBranch, title, body)
+	if err != nil {
+		return CloseoutResult{State: closeoutStateFailed, Provider: string(provider), Remote: remoteName, TargetBranch: targetBranch, Title: title, Body: body}, err
+	}
+	result := CloseoutResult{
+		State:        closeoutStateCreated,
+		Provider:     string(provider),
+		Remote:       remoteName,
+		TargetBranch: targetBranch,
+		Title:        title,
+		Body:         body,
+		URL:          url,
+		Note:         note,
+	}
+	return result, nil
 }
 
 // AssembleCloseoutBody combines the overview, commit history, and review outcome
@@ -318,21 +301,21 @@ func remoteHost(remoteURL string) string {
 	return strings.ToLower(remoteURL)
 }
 
-func runGitHubCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, error) {
+func runGitHubCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
-		return "", fmt.Errorf("closeout: gh cli is required for github closeout: %w", err)
+		return "", "", fmt.Errorf("closeout: gh cli is required for github closeout: %w", err)
 	}
 	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
-		return "", fmt.Errorf("closeout: push branch for github: %w", err)
+		return "", "", fmt.Errorf("closeout: push branch for github: %w", err)
 	}
 	if err := runGitHubAuth(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	out, err := commandOutput(ctx, worktreePath, "gh", "pr", "create", "--title", title, "--body", body, "--base", targetBranch, "--head", branch, "--json", "url", "--jq", ".url")
 	if err != nil {
-		return "", fmt.Errorf("closeout: create github pr: %w", err)
+		return "", "", fmt.Errorf("closeout: create github pr: %w", err)
 	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), "", nil
 }
 
 func runGitHubAuth(ctx context.Context) error {
@@ -343,7 +326,7 @@ func runGitHubAuth(ctx context.Context) error {
 	return nil
 }
 
-func runGitLabCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) error {
+func runGitLabCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
 	pushArgs := []string{
 		"push",
 		"-o", "merge_request.create",
@@ -354,24 +337,24 @@ func runGitLabCloseout(ctx context.Context, worktreePath, remoteName, branch, ta
 		branch,
 	}
 	if err := runGit(ctx, worktreePath, pushArgs...); err != nil {
-		return fmt.Errorf("closeout: create gitlab merge request via push options: %w", err)
+		return "", "", fmt.Errorf("closeout: create gitlab merge request via push options: %w", err)
 	}
-	return nil
+	return "", "merge request created via git push options", nil
 }
 
-func runAzureCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, error) {
+func runAzureCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
 	if _, err := exec.LookPath("az"); err != nil {
-		return "", fmt.Errorf("closeout: az cli is required for azure closeout: %w", err)
+		return "", "", fmt.Errorf("closeout: az cli is required for azure closeout: %w", err)
 	}
 	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
-		return "", fmt.Errorf("closeout: push branch for azure devops: %w", err)
+		return "", "", fmt.Errorf("closeout: push branch for azure devops: %w", err)
 	}
 	repository := repositoryNameFromRemote(ctx, worktreePath, remoteName)
 	out, err := commandOutput(ctx, worktreePath, "az", "repos", "pr", "create", "--title", title, "--description", body, "--source-branch", branch, "--target-branch", targetBranch, "--repository", repository, "--output", "tsv", "--query", "url")
 	if err != nil {
-		return "", fmt.Errorf("closeout: create azure pr: %w", err)
+		return "", "", fmt.Errorf("closeout: create azure pr: %w", err)
 	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), "", nil
 }
 
 func repositoryNameFromRemote(ctx context.Context, worktreePath, remoteName string) string {

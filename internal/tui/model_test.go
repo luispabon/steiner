@@ -272,7 +272,7 @@ func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Short single-line context report should go to the transcript, not the overlay.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent("cave_human mode: on")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", "cave_human mode: on")})
 
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed for short context report")
@@ -908,7 +908,7 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 
 	// Simulate the context report arriving as an event (as interactive.go would emit).
 	reportContent := "# Last Request Context\nModel: `test`"
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextReportEvent(reportContent)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", reportContent)})
 
 	// Overlay should open immediately with report content, not transcript.
 	if !m.contextOverlay.IsOpen() {
@@ -950,7 +950,7 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	}
 
 	reportContent := "```yaml\nmodel:\n  model: gpt-test\n```"
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConfigReportEvent(reportContent)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Config", reportContent)})
 
 	if !m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after config report event")
