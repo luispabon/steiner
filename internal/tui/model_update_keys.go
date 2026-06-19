@@ -510,7 +510,7 @@ func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	candidates := m.completionCandidates
 	if len(candidates) == 0 {
-		candidates = buildCompletionCandidates(current, m.skillNames, m.modelNames)
+		candidates = buildCompletionCandidates(current, m.skillNames, m.modelNames, m.oneshotRunning)
 		if len(candidates) == 0 {
 			return m, nil
 		}
@@ -712,7 +712,7 @@ func (m Model) executeSteerAction() tea.Model {
 	if text == "" {
 		return m
 	}
-	if m.controller != nil {
+	if !m.oneshotRunning && m.controller != nil {
 		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
 	}
 	// Send to oneshot steer channel if active (non-blocking)

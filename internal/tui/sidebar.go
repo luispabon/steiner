@@ -42,6 +42,7 @@ type sidebarState struct {
 	perfDurationMs int64
 	perfTTFTMs     int64
 	perfOutputTPS  float64
+	oneshotPhase   string
 }
 
 func newSidebarState() sidebarState {

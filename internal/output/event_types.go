@@ -42,6 +42,8 @@ const (
 	EventTypeRunStarted = "run_started"
 	// EventTypeRunFinished marks the end of a top-level run.
 	EventTypeRunFinished = "run_finished"
+	// EventTypeOneshotFinished marks the end of a oneshot run.
+	EventTypeOneshotFinished = "oneshot_finished"
 	// EventTypeTurnStarted marks the start of a model turn.
 	EventTypeTurnStarted = "turn_started"
 	// EventTypeTurnFinished marks the end of a model turn.
@@ -294,6 +296,12 @@ type RunFinishedEvent struct {
 	Summary    string `json:"summary,omitempty"`
 	NextAction string `json:"next_action,omitempty"`
 	Error      string `json:"error,omitempty"`
+}
+
+// OneshotFinishedEvent records the terminal outcome of a oneshot run.
+type OneshotFinishedEvent struct {
+	RunID string `json:"run_id,omitempty"`
+	Err   string `json:"err,omitempty"`
 }
 
 // TurnStartedEvent marks the beginning of a model turn.

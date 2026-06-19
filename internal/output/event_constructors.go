@@ -323,6 +323,21 @@ func NewRunFinishedEvent(turn int, reason, summary, nextAction string, err error
 	}
 }
 
+// NewOneshotFinishedEvent creates a new oneshot finished event.
+func NewOneshotFinishedEvent(runID string, err error) Event {
+	payload := OneshotFinishedEvent{
+		RunID: runID,
+	}
+	if err != nil {
+		payload.Err = err.Error()
+	}
+	return Event{
+		Type:      EventTypeOneshotFinished,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
 // NewTurnStartedEvent creates a new turn started event.
 func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
 	return Event{

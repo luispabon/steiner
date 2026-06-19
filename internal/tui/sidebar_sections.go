@@ -43,6 +43,9 @@ func (s sidebarState) staticLines(width int) []string {
 	}
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
+	if s.oneshotPhase != "" {
+		lines = append(lines, s.oneshotSection(width)...)
+	}
 	lines = append(lines, s.repositorySection(width)...)
 	lines = append(lines, "", cardLabel(fmt.Sprintf("modified files · %d", len(s.modifiedFiles)), s.styles))
 	return lines
@@ -132,4 +135,14 @@ func formatTPS(tps float64) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f t/s", tps)
+
+}
+
+// oneshotSection renders the oneshot phase in the sidebar.
+func (s sidebarState) oneshotSection(_ int) []string {
+	title := fmt.Sprintf("Oneshot - %s", s.oneshotPhase)
+	return []string{
+		"",
+		cardLabel(title, s.styles),
+	}
 }

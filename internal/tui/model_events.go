@@ -322,6 +322,9 @@ func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
 		modeText = fmt.Sprintf("%s (%s)", phaseName, state)
 	}
 	m.status.mode = modeText
+	m.oneshotPhase = phaseName
+	m.status.oneshotPhase = phaseName
+	m.sidebar.oneshotPhase = phaseName
 
 	// Update activity
 	if message != "" {

@@ -13,7 +13,7 @@ func TestParseInputHandlesConfigCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
-	got := buildCompletionCandidates("/co", nil, nil)
+	got := buildCompletionCandidates("/co", nil, nil, false)
 	if len(got) != 2 {
 		t.Fatalf("candidates = %#v, want 2 candidates", got)
 	}
@@ -64,7 +64,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("buildCompletionCandidates includes ls", func(t *testing.T) {
-		got := buildCompletionCandidates("/l", nil, nil)
+		got := buildCompletionCandidates("/l", nil, nil, false)
 		found := false
 		for _, c := range got {
 			if c == "/ls" {

@@ -20,6 +20,10 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	}
 
+	if m.oneshotRunning && !oneshotAllowedAction(value) {
+		return m.executeSteerAction(), nil
+	}
+
 	action := parseInputWithSkills(value, m.enabledSkills, m.skillNames)
 	if action.quit {
 		return m, tea.Quit
@@ -70,7 +74,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeResumeOneshotAction(action.resumeOneshotID)
 	}
 	if action.submit != "" {
-		return m.executeSubmitAction(value, action.submit, value)
+		return m.executeSubmitAction(action.submit, value)
 	}
 	return m, nil
 }
@@ -313,12 +317,7 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
-	// prepend to history (non-empty submits only)
-	if value != "" {
-		m.inputHistory = append([]string{value}, m.inputHistory...)
-		m.historyIdx = 0
-	}
+func (m Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
@@ -344,7 +343,7 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 		if args != "" {
 			displayText += " " + args
 		}
-		return m.executeSubmitAction(displayText, args, displayText)
+		return m.executeSubmitAction(args, displayText)
 	}
 
 	m.input.Reset()
@@ -395,6 +394,14 @@ func (m Model) sendSkillEnabledAction(skill string, enabled bool) {
 
 // buildSlashOverlayItems builds a list of all available slash commands and skills for the overlay.
 func (m Model) buildSlashOverlayItems() []slashOverlayItem {
+	if m.oneshotRunning {
+		return []slashOverlayItem{
+			{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
+			{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
+			{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
+		}
+	}
+
 	var items []slashOverlayItem
 
 	// Built-in commands
@@ -464,6 +471,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 		if !ok {
 			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, nil))
 			return
 		}
 
@@ -482,6 +490,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		orchestrator, err := oneshot.NewOrchestrator(deps)
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot failed: %v", err)))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 			return
 		}
 
@@ -491,12 +500,15 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 		if manifest.ReportPath != "" {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 		}
 
 		// Do not close the steer channel — sending to a closed channel panics.
 		// The buffered channel becomes inert once the orchestrator goroutine exits;
 		// sends hit the select/default branch and the channel is GC'd when replaced.
 	}()
+	m.oneshotRunning = true
+	m.oneshotPhase = ""
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
 	m.syncViewport()
@@ -531,6 +543,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		manifest, err := oneshot.ListRuns(projectRoot)
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("resume oneshot failed: %v", err)))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runID, err))
 			return
 		}
 
@@ -544,6 +557,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 		if targetRun == nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run %q not found", runID)))
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runID, nil))
 			return
 		}
 
@@ -556,6 +570,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		// Cast sessionStore to oneshot.SessionStore interface
 		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 		if !ok {
+			sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, nil))
 			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
 			return
 		}
@@ -573,12 +588,14 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
+		sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
 			return
 		}
 
 		runManifest, err := orchestrator.Resume(context.Background())
+		sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 		if err != nil {
 			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
 		}
@@ -587,7 +604,22 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 	}()
 
+	m.oneshotRunning = true
+	m.oneshotPhase = ""
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
 	m.syncViewport()
 	return m, nil
+}
+
+// oneshotAllowedAction checks if the input is an allowlisted command during a oneshot run.
+func oneshotAllowedAction(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	switch {
+	case trimmed == "/exit", trimmed == "/thinking":
+		return true
+	case strings.HasPrefix(trimmed, "/accent"):
+		return true
+	default:
+		return false
+	}
 }
