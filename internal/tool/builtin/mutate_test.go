@@ -440,6 +440,7 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 		setup     func(t *testing.T, root string)
 		input     map[string]any
 		wantError string
+		wantAlso  string
 	}{
 		{
 			name: "ambiguous replace",
@@ -638,6 +639,7 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			},
 			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(1), "old_string": "missing", "new_string": "x"}}},
 			wantError: "old_string found 0 times",
+			wantAlso:  "target line(s) in file:",
 		},
 		{
 			name: "line_count with old_string found multiple times",
@@ -649,6 +651,7 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			},
 			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(2), "old_string": "a", "new_string": "x"}}},
 			wantError: "old_string found 2 times",
+			wantAlso:  "target line(s) in file:",
 		},
 	}
 
@@ -664,6 +667,9 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			}
 			if !strings.Contains(got.Output, tt.wantError) {
 				t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantError)
+			}
+			if tt.wantAlso != "" && !strings.Contains(got.Output, tt.wantAlso) {
+				t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantAlso)
 			}
 		})
 	}
@@ -955,6 +961,40 @@ func TestMutateWhitespaceMismatchDiagnostic(t *testing.T) {
 	}
 	if !strings.Contains(got.Output, "line_replace") {
 		t.Fatalf("Output missing line_replace suggestion:\n%s", got.Output)
+	}
+}
+
+func TestMutateLineReplaceWhitespaceMismatchDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.go"), []byte("type Config struct {\n\tworkDir    string\n\tlogLevel   int\n}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":       "line_replace",
+				"path":       "config.go",
+				"line":       float64(2),
+				"old_string": "    workDir    string",
+				"new_string": "\tworkDir  string",
+			},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+	}
+	if !strings.Contains(got.Output, "normalized whitespace match exists") {
+		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
+	}
+	if !strings.Contains(got.Output, "target line(s) in file:") {
+		t.Fatalf("Output missing target line preview:\n%s", got.Output)
+	}
+	if !strings.Contains(got.Output, "\tworkDir    string") {
+		t.Fatalf("Output missing actual tab-indented line bytes:\n%s", got.Output)
+	}
+	if !strings.Contains(got.Output, "tabs vs spaces must match the file") {
+		t.Fatalf("Output missing whitespace-specific suggestion:\n%s", got.Output)
 	}
 }
 
