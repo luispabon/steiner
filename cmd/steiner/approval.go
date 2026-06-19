@@ -10,6 +10,8 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// Package main owns the terminal-level approval boundary.
+// Any raw-terminal confirmation flow must stay here and not leak into internal/tui.
 type stdinApprovalResponder struct {
 	reader *bufio.Reader
 }

@@ -90,10 +90,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
-	workDir, registry, err := buildRuntimeRegistry(cfg, nil, workDir)
-	if err != nil {
-		return cliRuntime{}, err
-	}
+	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
 		return cliRuntime{}, err
@@ -104,10 +101,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	// Rebuild registry with sandbox now that workDir and homeDir are known.
 	if sb != nil {
-		registry, err = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
-		if err != nil {
-			return cliRuntime{}, err
-		}
+		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -247,17 +241,15 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 	return ""
 }
 
-func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry, error) {
-	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
-	if err != nil {
-		return "", nil, err
-	}
-	return workDir, registry, nil
+func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
+	registry, _ := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb) // runtimeRegistryWithSink cannot fail.
+	return workDir, registry
 }
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
-func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) (*tool.Registry, error) {
-	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) *tool.Registry {
+	registry, _ := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb) // runtimeRegistryWithSink cannot fail.
+	return registry
 }
 
 func discoverRuntimeSkills(ctx context.Context, projectRoot string) (string, fs.FS, []string, map[string]string, map[string]string, error) {

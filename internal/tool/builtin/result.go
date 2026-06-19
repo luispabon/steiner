@@ -10,7 +10,6 @@ import (
 type Result struct {
 	Output     string `json:"output"`
 	Returned   int    `json:"returned"`
-	Error      string `json:"error,omitempty"`
 	Truncated  bool   `json:"truncated,omitempty"`
 	NextOffset int    `json:"next_offset,omitempty"`
 }

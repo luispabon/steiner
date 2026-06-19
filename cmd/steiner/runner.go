@@ -67,7 +67,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()
-	state, err := runner.Run(ctx, buildRunRequest(r, conversation, setup, activeRegistry, events, steerCh))
+	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, steerCh))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)

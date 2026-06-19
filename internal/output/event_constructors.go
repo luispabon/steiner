@@ -233,9 +233,6 @@ func stopReasonSummary(reason string, turn int, errText string) (string, string)
 		}
 		return "run cancelled", "inspect /history for retained diagnostics or retry when you are ready to continue"
 	case "error":
-		if strings.TrimSpace(errText) != "" {
-			return "run failed", "inspect the reported error and retry"
-		}
 		return "run failed", "inspect the reported error and retry"
 	default:
 		if strings.TrimSpace(reason) == "" {

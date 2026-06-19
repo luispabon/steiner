@@ -40,7 +40,9 @@ type BootstrapDeps struct {
 // overrides, builds child prompt and tool registries, and returns the assembled
 // request together with the computed DelegationLimits.
 func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return agent.RunRequest{}, DelegationLimits{}, err
+	}
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	agentLimits := agent.Limits{
 		MaxTurns:    limits.MaxTurns,

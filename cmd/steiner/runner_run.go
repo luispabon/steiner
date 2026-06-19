@@ -165,7 +165,7 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 	return events, &diagnostics
 }
 
-func buildRunRequest(r cliRunner, _ []agent.Message, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, steerCh <-chan string) agent.RunRequest {
+func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, steerCh <-chan string) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	if r.runtime.sandbox != nil {
