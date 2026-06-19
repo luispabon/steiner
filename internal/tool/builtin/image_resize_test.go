@@ -26,6 +26,8 @@ func createTestPNG(width, height int) []byte {
 }
 
 func TestResizeImageIfNeeded(t *testing.T) {
+	const testMaxDimension = 64
+
 	tests := []struct {
 		name         string
 		width        int
@@ -36,57 +38,57 @@ func TestResizeImageIfNeeded(t *testing.T) {
 		expectValid  bool // whether output is a valid PNG
 	}{
 		{
-			name:         "4000x3000 resized to 2048x1536",
-			width:        4000,
-			height:       3000,
-			expectResize: true,
-			expectWidth:  2048,
-			expectHeight: 1536,
-			expectValid:  true,
-		},
-		{
-			name:         "1920x1080 unchanged",
-			width:        1920,
-			height:       1080,
-			expectResize: false,
-			expectWidth:  1920,
-			expectHeight: 1080,
-			expectValid:  true,
-		},
-		{
-			name:         "100x100 unchanged",
-			width:        100,
-			height:       100,
-			expectResize: false,
-			expectWidth:  100,
-			expectHeight: 100,
-			expectValid:  true,
-		},
-		{
-			name:         "2048x2048 exactly at limit unchanged",
-			width:        2048,
-			height:       2048,
-			expectResize: false,
-			expectWidth:  2048,
-			expectHeight: 2048,
-			expectValid:  true,
-		},
-		{
-			name:         "2049x100 resized",
-			width:        2049,
+			name:         "125x100 resized to 64x51",
+			width:        125,
 			height:       100,
 			expectResize: true,
-			expectWidth:  2048,
-			expectHeight: 99,
+			expectWidth:  64,
+			expectHeight: 51,
 			expectValid:  true,
 		},
 		{
-			name:         "100x2049 resized",
-			width:        100,
-			height:       2049,
+			name:         "60x34 unchanged",
+			width:        60,
+			height:       34,
+			expectResize: false,
+			expectWidth:  60,
+			expectHeight: 34,
+			expectValid:  true,
+		},
+		{
+			name:         "32x32 unchanged",
+			width:        32,
+			height:       32,
+			expectResize: false,
+			expectWidth:  32,
+			expectHeight: 32,
+			expectValid:  true,
+		},
+		{
+			name:         "64x64 exactly at limit unchanged",
+			width:        64,
+			height:       64,
+			expectResize: false,
+			expectWidth:  64,
+			expectHeight: 64,
+			expectValid:  true,
+		},
+		{
+			name:         "65x10 resized",
+			width:        65,
+			height:       10,
 			expectResize: true,
-			expectWidth:  99,
-			expectHeight: 2048,
+			expectWidth:  64,
+			expectHeight: 9,
+			expectValid:  true,
+		},
+		{
+			name:         "10x65 resized",
+			width:        10,
+			height:       65,
+			expectResize: true,
+			expectWidth:  9,
+			expectHeight: 64,
 			expectValid:  true,
 		},
 	}
@@ -95,7 +97,7 @@ func TestResizeImageIfNeeded(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			originalData := createTestPNG(tt.width, tt.height)
 
-			out, w, h, err := ResizeImageIfNeeded(originalData)
+			out, w, h, err := resizeImageIfNeeded(originalData, testMaxDimension)
 			if err != nil {
 				t.Fatalf("ResizeImageIfNeeded: %v", err)
 			}
