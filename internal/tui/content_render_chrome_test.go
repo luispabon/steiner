@@ -277,7 +277,7 @@ func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T
 	if separatorIndex < 0 {
 		t.Fatalf("rows = %#v, want separator row", rows)
 	}
-	if !(promptIndex < separatorIndex && separatorIndex < transcriptIndex) {
+	if promptIndex >= separatorIndex || separatorIndex >= transcriptIndex {
 		t.Fatalf("row order = prompt:%d separator:%d transcript:%d, want prompt < separator < transcript", promptIndex, separatorIndex, transcriptIndex)
 	}
 	if got, want := stripANSI(rows[promptIndex].text), stripANSI(rows[transcriptIndex].text); got != want {
