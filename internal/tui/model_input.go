@@ -424,6 +424,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
+		{command: "/oneshot", name: "Oneshot mode", desc: "run a headless task", source: ""},
 	}
 	items = append(items, builtins...)
 
