@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/output"
+)
 
 func TestSummarizeGrepArgs(t *testing.T) {
 	tests := []struct {
@@ -368,6 +373,81 @@ func TestSummarizeArgs(t *testing.T) {
 			result := summarizeArgs(tt.tool, tt.args)
 			if result != tt.expected {
 				t.Errorf("summarizeArgs(%q) = %q, want %q", tt.tool, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		preview   output.ToolPreview
+		err       error
+		wantMeta  string
+		wantError bool
+	}{
+		{
+			name: "mutate all operations succeeded shows check",
+			preview: output.ToolPreview{
+				Kind:             output.ToolPreviewKindMutate,
+				HunksApplied:     2,
+				HunksFailed:      0,
+				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
+			},
+			wantMeta:  "✅",
+			wantError: false,
+		},
+		{
+			name: "mutate partial failures shows error",
+			preview: output.ToolPreview{
+				Kind:             output.ToolPreviewKindMutate,
+				HunksApplied:     1,
+				HunksFailed:      1,
+				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
+			},
+			wantMeta:  "❌",
+			wantError: true,
+		},
+		{
+			name: "mutate transport-level error still shows error",
+			preview: output.ToolPreview{
+				Kind:             output.ToolPreviewKindMutate,
+				HunksApplied:     1,
+				HunksFailed:      0,
+				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
+			},
+			err:       errors.New("boom"),
+			wantMeta:  "❌",
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				collapseState: make(map[int]bool),
+			}
+
+			buffer.AppendEvent(output.NewToolCallStartedEvent(1, "mutate", "call_1", map[string]any{
+				"operations": []any{
+					map[string]any{"type": "replace", "path": "file.go"},
+				},
+			}))
+			buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "mutate", "call_1", `{"operations_applied":1,"operations_failed":0}`, tt.err, tt.preview))
+
+			if got := len(buffer.segments); got != 1 {
+				t.Fatalf("segments = %d, want 1", got)
+			}
+
+			td := buffer.segments[0].toolData
+			if td == nil {
+				t.Fatal("toolData = nil, want mutate tool call")
+			}
+			if got := td.meta; got != tt.wantMeta {
+				t.Fatalf("meta = %q, want %q", got, tt.wantMeta)
+			}
+			if got := td.hasError; got != tt.wantError {
+				t.Fatalf("hasError = %v, want %v", got, tt.wantError)
 			}
 		})
 	}

@@ -206,6 +206,10 @@ func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *too
 	} else {
 		td.preview = output.BuildToolPreview(td.tool, td.rawArgs, payload.Result)
 	}
+	if td.tool == "mutate" && td.preview.HunksFailed > 0 {
+		td.hasError = true
+		td.meta = "❌"
+	}
 	if td.preview.Kind != output.ToolPreviewKindPlain {
 		td.bodyKind = previewBodyKind(td.tool, td.preview)
 	} else {
