@@ -14,6 +14,7 @@ type CLIOverrides struct {
 	ConfigPath string
 	Model      string
 	Verbose    bool
+	Unsafe     bool
 }
 
 // LoadOptions contains options for loading configuration.

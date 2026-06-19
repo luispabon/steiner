@@ -85,6 +85,8 @@ type legacySessionEnvelope struct {
 }
 
 func restoreLegacyLineage(session Session, data []byte) Session {
+	// TODO(legacy-cleanup): remove once legacy session files created before 2026-06-19
+	// are no longer supported.
 	var legacy legacySessionEnvelope
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return session

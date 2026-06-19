@@ -27,27 +27,12 @@ import (
 	"github.com/luispabon/steiner/skills"
 )
 
-// ensureSteinerProjectDir creates the .steiner/ directory and a .gitignore inside it.
-// It is idempotent and safe to call multiple times.
-func ensureSteinerProjectDir(workDir string) error {
-	steinerDir := filepath.Join(workDir, ".steiner")
-	if err := os.MkdirAll(steinerDir, 0o755); err != nil {
-		return fmt.Errorf("create .steiner directory: %w", err)
-	}
-	gitignorePath := filepath.Join(steinerDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		if err := os.WriteFile(gitignorePath, []byte("*\n"), 0o644); err != nil {
-			return fmt.Errorf("create .steiner/.gitignore: %w", err)
-		}
-	}
-	return nil
-}
-
 func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (config.Config, error) {
 	overrides := config.CLIOverrides{
 		ConfigPath: flags.configPath,
 		Model:      modelAlias,
 		Verbose:    flags.verbose,
+		Unsafe:     flags.unsafe,
 	}
 	if modelAlias == "" {
 		overrides.Model = flags.model
@@ -58,14 +43,11 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if err != nil {
 		return config.Config{}, err
 	}
-	if flags.unsafe {
-		cfg.Sandbox.Enabled = false
-	}
 	return cfg, nil
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
-	if err := ensureSteinerProjectDir(projectRoot); err != nil {
+	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
 	}
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)

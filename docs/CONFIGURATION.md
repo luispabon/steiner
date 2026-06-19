@@ -12,7 +12,10 @@ entries win):
 2. `~/.config/steiner/config.yaml` — user-level config
 3. `.steiner/config.yaml` — project-level config (checked in or gitignored)
 4. Environment variables with the `STEINER_` prefix
-5. CLI flags
+5. CLI flags (`--model`, `--verbose`, `--unsafe`)
+
+`--unsafe` is applied as a config override that forces `sandbox.enabled=false`
+after config files and environment variables have been merged.
 
 Key environment variables:
 
@@ -226,11 +229,11 @@ Controls bubblewrap sandbox behavior.
 
 | Field     | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | bool | `true`  | Enable bubblewrap sandboxing. Set to `false` with `--unsafe` flag. |
+| `enabled` | bool | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time. |
 
 ```yaml
 sandbox:
-  enabled: true  # default; use --unsafe flag to disable at runtime
+  enabled: true  # default; --unsafe overrides this to false at runtime
 ```
 
 ---
