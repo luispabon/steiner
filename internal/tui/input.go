@@ -5,26 +5,27 @@ import (
 )
 
 type inputAction struct {
-	quit                 bool
-	clear                bool
-	compaction           bool
-	inspectConfig        bool
-	listSkills           bool
-	listFiles            bool
-	listFilesPath        string
-	submit               string
-	toggleSkill          string
-	toggleEnable         bool
-	switchModel          string
-	setAccent            string
-	toggleThinking       bool
-	requestSessionPicker bool
-	forkSession          bool
-	openModelPicker      bool
-	invokeSkill          string // skill name for direct invocation
-	invokeSkillArgs      string // optional args to pass with skill invocation
-	launchOneshotTask    string // task for /oneshot <task>
-	resumeOneshotID      string // run id for /oneshot --resume <id>
+	quit                       bool
+	clear                      bool
+	compaction                 bool
+	inspectConfig              bool
+	listSkills                 bool
+	listFiles                  bool
+	listFilesPath              string
+	submit                     string
+	toggleSkill                string
+	toggleEnable               bool
+	switchModel                string
+	setAccent                  string
+	toggleThinking             bool
+	requestSessionPicker       bool
+	requestOneshotResumePicker bool
+	forkSession                bool
+	openModelPicker            bool
+	invokeSkill                string // skill name for direct invocation
+	invokeSkillArgs            string // optional args to pass with skill invocation
+	launchOneshotTask          string // task for /oneshot <task>
+	resumeOneshotID            string // run id for /oneshot --resume <id>
 }
 
 func parseInput(value string) inputAction {
@@ -71,6 +72,8 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{forkSession: true}, true
 	case "/resume":
 		return inputAction{requestSessionPicker: true}, true
+	case "/oneshot-resume":
+		return inputAction{requestOneshotResumePicker: true}, true
 	case "/skills":
 		return inputAction{listSkills: true}, true
 	case "/model":
@@ -170,7 +173,7 @@ func matchCommandPrefix(text string, skillNames []string, allowlistOnly bool) (s
 		return "", false
 	}
 	if !allowlistOnly {
-		builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
+		builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
 		for _, cmd := range builtins {
 			if trimmed == cmd {
 				return cmd, true
@@ -210,7 +213,7 @@ func buildCompletionCandidates(prefix string, skillNames []string, _ []string, a
 		base = []string{"/exit", "/thinking", "/accent",
 			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	} else {
-		base = []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
+		base = []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
 			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 		for _, name := range skillNames {
 			base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

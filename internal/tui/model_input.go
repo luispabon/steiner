@@ -61,6 +61,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
 	}
+	if action.requestOneshotResumePicker {
+		return m.executeOneshotResumePickerAction()
+	}
 	if action.forkSession {
 		return m.executeForkSessionAction()
 	}
@@ -294,6 +297,43 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
+	if m.controller == nil {
+		m.content.AppendLine("status: controller not available")
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+
+	// Type assertion is safe here; we know from wiring in cmd/steiner that
+	// the controller is always a *Session
+	sess := m.controller.(*interactive.Session)
+	projectRoot := sess.ProjectRoot()
+
+	runs, err := oneshot.ListRuns(projectRoot)
+	if err != nil {
+		m.content.AppendLine(fmt.Sprintf("status: failed to list oneshot runs: %v", err))
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+
+	if len(runs) == 0 {
+		m.content.AppendLine("status: no resumable oneshot runs found")
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncViewport()
+		return m, nil
+	}
+
+	m.oneshotResumePicker = m.oneshotResumePicker.Open(runs)
+	m.input.Reset()
+	m.syncInputChrome()
+	return m, nil
+}
+
 func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	// Check if there are any segments/messages in the conversation
 	if len(m.content.segments) == 0 {
@@ -425,6 +465,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
 		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
 		{command: "/oneshot", name: "Oneshot mode", desc: "run a headless task", source: ""},
+		{command: "/oneshot-resume", name: "Resume oneshot", desc: "resume a oneshot run", source: ""},
 	}
 	items = append(items, builtins...)
 

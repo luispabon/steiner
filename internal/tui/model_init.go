@@ -139,6 +139,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
 
+	m.oneshotResumePicker = newOneshotResumePickerOverlay(m.styles)
+	m.oneshotResumePicker.width = m.width
+	m.oneshotResumePicker.height = m.height
+
 	m.modelPicker = newModelPickerOverlay(m.styles)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
