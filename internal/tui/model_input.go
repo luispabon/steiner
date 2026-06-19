@@ -515,6 +515,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
+	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil
 }
@@ -611,6 +612,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
+	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil
 }
