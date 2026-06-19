@@ -217,8 +217,8 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "hello")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, " world")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "hello", output.ChunkSourceAssistant)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
 
 	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "hello world") {
@@ -671,7 +671,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task preview")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEvent(1, "transcript body"), "child-1")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "transcript body", output.ChunkSourceAssistant), "child-1")})
 
 	dd := m.content.segments[0].delegData
 	if dd == nil {
@@ -741,7 +741,7 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEvent(1, "body"), "child-1")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "body", output.ChunkSourceAssistant), "child-1")})
 
 	dd := m.content.segments[0].delegData
 	if dd == nil {
@@ -1006,8 +1006,8 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 		CompactionCount: 3,
 		SessionState:    "active",
 	})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEvent(1, "thinking during compaction")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "raw compaction summary text")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "thinking during compaction", output.ChunkSourceAssistant)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "raw compaction summary text", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:              "compaction",
 		Severity:          "warning",
@@ -1455,7 +1455,7 @@ func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
 		ShowThinking: false,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEvent(1, "normal reasoning")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "normal reasoning", output.ChunkSourceAssistant)})
 
 	if got := m.content.String(m.viewport.Width); strings.Contains(got, "normal reasoning") {
 		t.Fatalf("content = %q, want no thinking while toggle is off", got)
@@ -1489,7 +1489,7 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 
 	m.input.SetValue("yes")
@@ -1651,7 +1651,7 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("stale")
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -1794,7 +1794,7 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated, ok := next.(Model)
@@ -1888,7 +1888,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "prompt", `{"command":"git status"}`, "approved")})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "still streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "still streaming", output.ChunkSourceAssistant)})
 
 	if ctrl.countInterruptActiveRun() != 1 {
 		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -1945,7 +1945,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(2, "fresh run")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, "fresh run", output.ChunkSourceAssistant)})
 	if got := m.content.streamingPhase; got != "answer" {
 		t.Fatalf("streamingPhase = %q, want answer after next run resumes", got)
 	}
@@ -1959,7 +1959,7 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("steer message")
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -2004,7 +2004,7 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	// Leave input empty.
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -2028,7 +2028,7 @@ func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEvent(1, "streaming")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("my steer")
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 

@@ -17,9 +17,6 @@ type EventStream struct {
 	renderer    *PlainRenderer
 }
 
-// Stream is an alias for EventStream.
-type Stream = EventStream
-
 // NewStream creates a new event stream that writes to w.
 func NewStream(w io.Writer, options ...StreamOption) *EventStream {
 	return &EventStream{

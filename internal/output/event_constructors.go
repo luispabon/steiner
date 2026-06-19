@@ -18,28 +18,46 @@ func WithAgentScope(event Event, agentID string) Event {
 	return event
 }
 
+func newEvent(eventType string, payload any) Event {
+	return Event{
+		Type:      eventType,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+}
+
+func newApprovalEvent(eventType string, turn int, toolName, mode, preview, message string, allowed bool) Event {
+	return newEvent(eventType, ApprovalEvent{
+		Turn:    turn,
+		Tool:    toolName,
+		Mode:    mode,
+		Preview: preview,
+		Allowed: allowed,
+		Message: message,
+	})
+}
+
+func newWorkflowHandoffEvent(eventType string, next, target, message, decision string) Event {
+	return newEvent(eventType, WorkflowHandoffEvent{
+		Next:     strings.TrimSpace(next),
+		Target:   strings.TrimSpace(target),
+		Message:  strings.TrimSpace(message),
+		Decision: decision,
+	})
+}
+
 // NewHistoryLoadedEvent creates a new history loaded event.
 func NewHistoryLoadedEvent(prompts []string) Event {
-	return Event{
-		Type:      EventTypeHistoryLoaded,
-		Timestamp: time.Now().UTC(),
-		Payload: HistoryLoadedEvent{
-			Prompts: prompts,
-		},
-	}
+	return newEvent(EventTypeHistoryLoaded, HistoryLoadedEvent{Prompts: prompts})
 }
 
 // NewModelCallStartedEvent creates a new model call started event.
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
-	return Event{
-		Type:      EventTypeModelCallStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: ModelCallStartedEvent{
-			Turn:         turn,
-			Model:        model,
-			MessageCount: messageCount,
-		},
-	}
+	return newEvent(EventTypeModelCallStarted, ModelCallStartedEvent{
+		Turn:         turn,
+		Model:        model,
+		MessageCount: messageCount,
+	})
 }
 
 // NewModelCallFinishedEvent creates a new model call finished event.
@@ -57,25 +75,17 @@ func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, 
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeModelCallFinished,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeModelCallFinished, payload)
 }
 
 // NewToolCallStartedEvent creates a new tool call started event.
 func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
-	return Event{
-		Type:      EventTypeToolCallStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: ToolCallStartedEvent{
-			Turn:      turn,
-			Tool:      toolName,
-			CallID:    callID,
-			Arguments: arguments,
-		},
-	}
+	return newEvent(EventTypeToolCallStarted, ToolCallStartedEvent{
+		Turn:      turn,
+		Tool:      toolName,
+		CallID:    callID,
+		Arguments: arguments,
+	})
 }
 
 // NewToolCallFinishedEvent creates a new tool call finished event.
@@ -95,98 +105,37 @@ func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, resu
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeToolCallFinished,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeToolCallFinished, payload)
 }
 
 // NewApprovalRequestedEvent creates a new approval requested event.
 func NewApprovalRequestedEvent(turn int, toolName, mode, preview string) Event {
-	return Event{
-		Type:      EventTypeApprovalRequested,
-		Timestamp: time.Now().UTC(),
-		Payload: ApprovalEvent{
-			Turn:    turn,
-			Tool:    toolName,
-			Mode:    mode,
-			Preview: preview,
-		},
-	}
+	return newApprovalEvent(EventTypeApprovalRequested, turn, toolName, mode, preview, "", false)
 }
 
 // NewApprovalAcceptedEvent creates a new approval accepted event.
 func NewApprovalAcceptedEvent(turn int, toolName, mode, preview, message string) Event {
-	return Event{
-		Type:      EventTypeApprovalAccepted,
-		Timestamp: time.Now().UTC(),
-		Payload: ApprovalEvent{
-			Turn:    turn,
-			Tool:    toolName,
-			Mode:    mode,
-			Preview: preview,
-			Allowed: true,
-			Message: message,
-		},
-	}
+	return newApprovalEvent(EventTypeApprovalAccepted, turn, toolName, mode, preview, message, true)
 }
 
 // NewApprovalDeniedEvent creates a new approval denied event.
 func NewApprovalDeniedEvent(turn int, toolName, mode, preview, message string) Event {
-	return Event{
-		Type:      EventTypeApprovalDenied,
-		Timestamp: time.Now().UTC(),
-		Payload: ApprovalEvent{
-			Turn:    turn,
-			Tool:    toolName,
-			Mode:    mode,
-			Preview: preview,
-			Allowed: false,
-			Message: message,
-		},
-	}
+	return newApprovalEvent(EventTypeApprovalDenied, turn, toolName, mode, preview, message, false)
 }
 
 // NewWorkflowHandoffRequestedEvent creates a new workflow handoff request event.
 func NewWorkflowHandoffRequestedEvent(next, target, message string) Event {
-	return Event{
-		Type:      EventTypeWorkflowHandoffRequested,
-		Timestamp: time.Now().UTC(),
-		Payload: WorkflowHandoffEvent{
-			Next:    strings.TrimSpace(next),
-			Target:  strings.TrimSpace(target),
-			Message: strings.TrimSpace(message),
-		},
-	}
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffRequested, next, target, message, "")
 }
 
 // NewWorkflowHandoffAcceptedEvent creates a workflow handoff accepted event.
 func NewWorkflowHandoffAcceptedEvent(next, target, message string) Event {
-	return Event{
-		Type:      EventTypeWorkflowHandoffAccepted,
-		Timestamp: time.Now().UTC(),
-		Payload: WorkflowHandoffEvent{
-			Next:     strings.TrimSpace(next),
-			Target:   strings.TrimSpace(target),
-			Message:  strings.TrimSpace(message),
-			Decision: "accepted",
-		},
-	}
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffAccepted, next, target, message, "accepted")
 }
 
 // NewWorkflowHandoffDeclinedEvent creates a workflow handoff declined event.
 func NewWorkflowHandoffDeclinedEvent(next, target, message string) Event {
-	return Event{
-		Type:      EventTypeWorkflowHandoffDeclined,
-		Timestamp: time.Now().UTC(),
-		Payload: WorkflowHandoffEvent{
-			Next:     strings.TrimSpace(next),
-			Target:   strings.TrimSpace(target),
-			Message:  strings.TrimSpace(message),
-			Decision: "declined",
-		},
-	}
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffDeclined, next, target, message, "declined")
 }
 
 // NewStopReasonEvent creates a new stop reason event.
@@ -199,11 +148,7 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 		payload.Error = err.Error()
 	}
 	payload.Summary, payload.Action = stopReasonSummary(reason, turn)
-	return Event{
-		Type:      EventTypeStopReason,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeStopReason, payload)
 }
 
 func stopReasonSummary(reason string, turn int) (string, string) {
@@ -244,36 +189,28 @@ func stopReasonSummary(reason string, turn int) (string, string) {
 
 // NewUserInputEvent creates a new user input event.
 func NewUserInputEvent(content, mode string) Event {
-	return Event{
-		Type:      EventTypeUserInput,
-		Timestamp: time.Now().UTC(),
-		Payload: UserInputEvent{
-			Content: content,
-			Mode:    mode,
-		},
-	}
+	return newEvent(EventTypeUserInput, UserInputEvent{
+		Content: content,
+		Mode:    mode,
+	})
 }
 
 // NewAPIRequestEvent creates a new API request event.
 func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) Event {
-	return Event{
-		Type:      EventTypeAPIRequest,
-		Timestamp: time.Now().UTC(),
-		Payload: APIRequestEvent{
-			Model:    model,
-			Messages: provider.CloneMessages(messages),
-			Tools:    provider.CloneTools(tools),
-			MaxTokens: func() *int {
-				if maxTokens == nil {
-					return nil
-				}
-				cloned := *maxTokens
-				return &cloned
-			}(),
-			Blocks:      append([]prompt.ContextBlock(nil), blocks...),
-			ModelBudget: budget,
-		},
-	}
+	return newEvent(EventTypeAPIRequest, APIRequestEvent{
+		Model:    model,
+		Messages: provider.CloneMessages(messages),
+		Tools:    provider.CloneTools(tools),
+		MaxTokens: func() *int {
+			if maxTokens == nil {
+				return nil
+			}
+			cloned := *maxTokens
+			return &cloned
+		}(),
+		Blocks:      append([]prompt.ContextBlock(nil), blocks...),
+		ModelBudget: budget,
+	})
 }
 
 // NewAPIResponseEvent creates a new API response event.
@@ -286,26 +223,18 @@ func NewAPIResponseEvent(message, usage any, finishReason string, err error) Eve
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeAPIResponse,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeAPIResponse, payload)
 }
 
 // NewRunStartedEvent creates a new run started event.
 func NewRunStartedEvent(mode, model, prompt string, maxTurns, maxTokens int) Event {
-	return Event{
-		Type:      EventTypeRunStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: RunStartedEvent{
-			Mode:      mode,
-			Model:     model,
-			Prompt:    prompt,
-			MaxTurns:  maxTurns,
-			MaxTokens: maxTokens,
-		},
-	}
+	return newEvent(EventTypeRunStarted, RunStartedEvent{
+		Mode:      mode,
+		Model:     model,
+		Prompt:    prompt,
+		MaxTurns:  maxTurns,
+		MaxTokens: maxTokens,
+	})
 }
 
 // NewRunFinishedEvent creates a new run finished event.
@@ -319,11 +248,7 @@ func NewRunFinishedEvent(turn int, reason, summary, nextAction string, err error
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeRunFinished,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeRunFinished, payload)
 }
 
 // NewOneshotFinishedEvent creates a new oneshot finished event.
@@ -334,24 +259,16 @@ func NewOneshotFinishedEvent(runID string, err error) Event {
 	if err != nil {
 		payload.Err = err.Error()
 	}
-	return Event{
-		Type:      EventTypeOneshotFinished,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeOneshotFinished, payload)
 }
 
 // NewTurnStartedEvent creates a new turn started event.
 func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
-	return Event{
-		Type:      EventTypeTurnStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: TurnStartedEvent{
-			Turn:         turn,
-			Model:        model,
-			MessageCount: messageCount,
-		},
-	}
+	return newEvent(EventTypeTurnStarted, TurnStartedEvent{
+		Turn:         turn,
+		Model:        model,
+		MessageCount: messageCount,
+	})
 }
 
 // NewTurnFinishedEvent creates a new turn finished event.
@@ -365,149 +282,95 @@ func NewTurnFinishedEvent(turn, toolCalls int, finishReason, reply string, err e
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeTurnFinished,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeTurnFinished, payload)
 }
 
 // NewAssistantMessageEvent creates a new assistant message event.
 func NewAssistantMessageEvent(turn int, role, content string) Event {
-	return Event{
-		Type:      EventTypeAssistantMessage,
-		Timestamp: time.Now().UTC(),
-		Payload: AssistantMessageEvent{
-			Turn:    turn,
-			Role:    role,
-			Content: content,
-		},
-	}
-}
-
-// NewThinkingChunkEvent creates a new thinking chunk event.
-func NewThinkingChunkEvent(turn int, content string) Event {
-	return NewThinkingChunkEventWithSource(turn, content, ChunkSourceAssistant)
+	return newEvent(EventTypeAssistantMessage, AssistantMessageEvent{
+		Turn:    turn,
+		Role:    role,
+		Content: content,
+	})
 }
 
 // NewThinkingChunkEventWithSource creates a new thinking chunk event with an
 // explicit chunk source.
 func NewThinkingChunkEventWithSource(turn int, content string, source ChunkSource) Event {
-	return Event{
-		Type:      EventTypeThinkingChunk,
-		Timestamp: time.Now().UTC(),
-		Payload: ThinkingChunkEvent{
-			Turn:    turn,
-			Content: content,
-			Source:  source,
-		},
-	}
-}
-
-// NewAssistantChunkEvent creates a new assistant chunk event.
-func NewAssistantChunkEvent(turn int, content string) Event {
-	return NewAssistantChunkEventWithSource(turn, content, ChunkSourceAssistant)
+	return newEvent(EventTypeThinkingChunk, ThinkingChunkEvent{
+		Turn:    turn,
+		Content: content,
+		Source:  source,
+	})
 }
 
 // NewAssistantChunkEventWithSource creates a new assistant chunk event with an
 // explicit chunk source.
 func NewAssistantChunkEventWithSource(turn int, content string, source ChunkSource) Event {
-	return Event{
-		Type:      EventTypeAssistantChunk,
-		Timestamp: time.Now().UTC(),
-		Payload: AssistantChunkEvent{
-			Turn:    turn,
-			Content: content,
-			Source:  source,
-		},
-	}
+	return newEvent(EventTypeAssistantChunk, AssistantChunkEvent{
+		Turn:    turn,
+		Content: content,
+		Source:  source,
+	})
 }
 
 // NewDelegationStartedEvent creates a new delegation started event.
 func NewDelegationStartedEvent(agentID, taskPreview string) Event {
-	return Event{
-		Type:      EventTypeDelegationStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: DelegationStartedEvent{
-			AgentID:     agentID,
-			TaskPreview: TruncateWithEllipsis(taskPreview, 120),
-		},
-	}
+	return newEvent(EventTypeDelegationStarted, DelegationStartedEvent{
+		AgentID:     agentID,
+		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+	})
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.
 func NewDelegationCompleteEvent(agentID, status string, turns, tokens, toolCalls int, output string) Event {
-	return Event{
-		Type:      EventTypeDelegationComplete,
-		Timestamp: time.Now().UTC(),
-		Payload: DelegationCompleteEvent{
-			AgentID:       agentID,
-			Status:        status,
-			TurnCount:     turns,
-			TokenCount:    tokens,
-			ToolCallCount: toolCalls,
-			Output:        output,
-		},
-	}
+	return newEvent(EventTypeDelegationComplete, DelegationCompleteEvent{
+		AgentID:       agentID,
+		Status:        status,
+		TurnCount:     turns,
+		TokenCount:    tokens,
+		ToolCallCount: toolCalls,
+		Output:        output,
+	})
 }
 
 // NewDisplayFileEvent creates a DisplayFile event with an explicit preview
 // payload for the TUI to render.
 func NewDisplayFileEvent(payload DisplayFilePayload) Event {
-	return Event{
-		Type:      EventTypeDisplayFile,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeDisplayFile, payload)
 }
 
 // NewDelegationExtensionEvent creates a delegation_extension event when the
 // delegate auto-extends past its original max_turns budget.
 func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) Event {
-	return Event{
-		Type:      EventTypeDelegationExtension,
-		Timestamp: time.Now().UTC(),
-		Payload: DelegationExtensionEvent{
-			AgentID:       agentID,
-			Extension:     extension,
-			MaxExtensions: maxExtensions,
-		},
-	}
+	return newEvent(EventTypeDelegationExtension, DelegationExtensionEvent{
+		AgentID:       agentID,
+		Extension:     extension,
+		MaxExtensions: maxExtensions,
+	})
 }
 
 // NewSteerReceivedEvent creates an Event for a consumed steer message.
 func NewSteerReceivedEvent(text string) Event {
-	return Event{
-		Type:      EventTypeSteerReceived,
-		Timestamp: time.Now().UTC(),
-		Payload:   SteerReceivedEvent{Text: text},
-	}
+	return newEvent(EventTypeSteerReceived, SteerReceivedEvent{Text: text})
 }
 
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
-	return Event{
-		Type:      EventTypeDelegationFailed,
-		Timestamp: time.Now().UTC(),
-		Payload: DelegationFailedEvent{
-			AgentID:     agentID,
-			TaskPreview: TruncateWithEllipsis(taskPreview, 120),
-			Error:       errMsg,
-		},
-	}
+	return newEvent(EventTypeDelegationFailed, DelegationFailedEvent{
+		AgentID:     agentID,
+		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+		Error:       errMsg,
+	})
 }
 
 // NewAdvisorStartedEvent creates an advisor_started event.
 func NewAdvisorStartedEvent(model string, useNumber, maxUses int) Event {
-	return Event{
-		Type:      EventTypeAdvisorStarted,
-		Timestamp: time.Now().UTC(),
-		Payload: AdvisorStartedEvent{
-			Model:     strings.TrimSpace(model),
-			UseNumber: useNumber,
-			MaxUses:   maxUses,
-		},
-	}
+	return newEvent(EventTypeAdvisorStarted, AdvisorStartedEvent{
+		Model:     strings.TrimSpace(model),
+		UseNumber: useNumber,
+		MaxUses:   maxUses,
+	})
 }
 
 // NewAdvisorCompleteEvent creates an advisor_complete event.
@@ -522,53 +385,37 @@ func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, 
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	return Event{
-		Type:      EventTypeAdvisorComplete,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return newEvent(EventTypeAdvisorComplete, payload)
 }
 
 // NewAdvisorBudgetExhaustedEvent creates an advisor_budget_exhausted event.
 func NewAdvisorBudgetExhaustedEvent(model string, used, maxUses int, message string) Event {
-	return Event{
-		Type:      EventTypeAdvisorBudgetExhausted,
-		Timestamp: time.Now().UTC(),
-		Payload: AdvisorBudgetExhaustedEvent{
-			Model:   strings.TrimSpace(model),
-			Used:    used,
-			MaxUses: maxUses,
-			Message: strings.TrimSpace(message),
-		},
-	}
+	return newEvent(EventTypeAdvisorBudgetExhausted, AdvisorBudgetExhaustedEvent{
+		Model:   strings.TrimSpace(model),
+		Used:    used,
+		MaxUses: maxUses,
+		Message: strings.TrimSpace(message),
+	})
 }
 
 // NewPhaseTransitionEvent creates a phase_transition event.
 func NewPhaseTransitionEvent(runID, from, to, status, model, sessionID string) Event {
-	return Event{
-		Type:      EventTypePhaseTransition,
-		Timestamp: time.Now().UTC(),
-		Payload: PhaseTransitionEvent{
-			RunID:     strings.TrimSpace(runID),
-			From:      strings.TrimSpace(from),
-			To:        strings.TrimSpace(to),
-			Status:    strings.TrimSpace(status),
-			Model:     strings.TrimSpace(model),
-			SessionID: strings.TrimSpace(sessionID),
-		},
-	}
+	return newEvent(EventTypePhaseTransition, PhaseTransitionEvent{
+		RunID:     strings.TrimSpace(runID),
+		From:      strings.TrimSpace(from),
+		To:        strings.TrimSpace(to),
+		Status:    strings.TrimSpace(status),
+		Model:     strings.TrimSpace(model),
+		SessionID: strings.TrimSpace(sessionID),
+	})
 }
 
 // NewPhaseIndicatorEvent creates a phase_indicator event.
 func NewPhaseIndicatorEvent(runID, phase, state, message string) Event {
-	return Event{
-		Type:      EventTypePhaseIndicator,
-		Timestamp: time.Now().UTC(),
-		Payload: PhaseIndicatorEvent{
-			RunID:   strings.TrimSpace(runID),
-			Phase:   strings.TrimSpace(phase),
-			State:   strings.TrimSpace(state),
-			Message: strings.TrimSpace(message),
-		},
-	}
+	return newEvent(EventTypePhaseIndicator, PhaseIndicatorEvent{
+		RunID:   strings.TrimSpace(runID),
+		Phase:   strings.TrimSpace(phase),
+		State:   strings.TrimSpace(state),
+		Message: strings.TrimSpace(message),
+	})
 }

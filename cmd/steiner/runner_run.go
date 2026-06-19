@@ -70,7 +70,7 @@ func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel)
 	}
 }
 
-func emitFallbackWarnings(stream *output.Stream, rm provider.ResolvedModel) {
+func emitFallbackWarnings(stream *output.EventStream, rm provider.ResolvedModel) {
 	if rm.MetadataSource != "fallback" || len(rm.Warnings) == 0 {
 		return
 	}

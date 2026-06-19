@@ -197,7 +197,7 @@ func newSkillsCommand(flags *cliFlags) *cobra.Command {
 	}
 }
 
-func renderNames(stream *output.Stream, heading string, names []string) {
+func renderNames(stream *output.EventStream, heading string, names []string) {
 	if stream == nil {
 		return
 	}

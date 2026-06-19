@@ -197,7 +197,7 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase,
 	return newPhaseRunner(ctx, f.cmd, f.flags, f.rootDir, f.identity.WorktreePath(f.rootDir), modelAlias, approver, advisorCfg, 0, "oneshot", false, f.events)
 }
 
-func renderOneshotRuns(stream *output.Stream, runs []oneshot.ResumableRun) {
+func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {
 	if stream == nil {
 		return
 	}
