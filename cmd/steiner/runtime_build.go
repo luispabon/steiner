@@ -242,13 +242,13 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 }
 
 func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
-	registry, _ := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb) // runtimeRegistryWithSink cannot fail.
+	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 	return workDir, registry
 }
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
 func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) *tool.Registry {
-	registry, _ := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb) // runtimeRegistryWithSink cannot fail.
+	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 	return registry
 }
 

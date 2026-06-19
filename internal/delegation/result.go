@@ -7,14 +7,14 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 )
 
-// BuildResult constructs a DelegationResult from an agent.RunState and DelegationSpec.
+// BuildResult constructs a DelegationResult from an agent.RunState.
 // Maps StopReason to DelegationStatus and captures state metrics.
-func BuildResult(agentID string, state agent.RunState, spec DelegationSpec) DelegationResult {
+func BuildResult(agentID string, state agent.RunState) DelegationResult {
 	return buildResultInternal(agentID, state, nil)
 }
 
 // buildResultWithTrace is the trace-aware variant used by SpawnDelegate.
-func buildResultWithTrace(agentID string, state agent.RunState, spec DelegationSpec, tc *traceCollector) DelegationResult {
+func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector) DelegationResult {
 	return buildResultInternal(agentID, state, tc)
 }
 

@@ -105,8 +105,7 @@ func TestBuildResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := DelegationSpec{AgentID: tt.agentID}
-			got := BuildResult(tt.agentID, tt.state, spec)
+			got := BuildResult(tt.agentID, tt.state)
 
 			if got.AgentID != tt.agentID {
 				t.Errorf("AgentID=%q, want %q", got.AgentID, tt.agentID)

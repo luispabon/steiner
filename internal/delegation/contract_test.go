@@ -43,7 +43,6 @@ func TestDelegationResultFields(t *testing.T) {
 		TurnCount:     5,
 		TokenCount:    1000,
 		FollowUpCount: 2,
-		Error:         "",
 	}
 
 	if result.AgentID != "agent-123" {

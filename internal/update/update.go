@@ -339,17 +339,3 @@ func Channel(ctx context.Context, currentVersion, owner, repo, token, channel st
 		return downloadAndVerify(ctx, release, latestTag, token)
 	}
 }
-
-// Update checks the latest stable release of steiner on GitHub, downloads a
-// matching binary for the current platform, verifies its checksum, and
-// atomically replaces the running executable.
-//
-// currentVersion should be the current semver string (with or without "v"
-// prefix). owner and repo identify the GitHub repository. If token is
-// non-empty, it is used as a Bearer token for GitHub API requests.
-//
-// On success, the latest release tag name is returned. If the current version
-// is already up to date, ErrUpToDate is returned alongside the latest tag.
-func Update(ctx context.Context, currentVersion, owner, repo, token string) (string, error) {
-	return Channel(ctx, currentVersion, owner, repo, token, "stable")
-}

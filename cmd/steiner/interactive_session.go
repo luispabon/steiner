@@ -39,10 +39,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 }
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRuntime, error) {
-	registry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
-	if err != nil {
-		return cliRuntime{}, fmt.Errorf("build interactive registry: %w", err)
-	}
+	registry := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.events = sess.EventSink()

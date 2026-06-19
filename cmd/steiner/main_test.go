@@ -409,15 +409,12 @@ models:
 }
 
 func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
-	registry, err := runtimeRegistry(config.Config{
+	registry := runtimeRegistry(config.Config{
 		Limits: config.LimitsConfig{
 			ToolTimeoutDefault: config.MustDuration("30s"),
 		},
 		Tools: map[string]config.ToolConfig{},
 	}, t.TempDir())
-	if err != nil {
-		t.Fatalf("runtimeRegistry() error = %v", err)
-	}
 
 	got := registry.Names()
 	want := []string{"bash", "display_file", "fetch_url", "glob", "grep", "ls", "mutate", "read", "workflow_handoff"}

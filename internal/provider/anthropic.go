@@ -28,7 +28,7 @@ func NewAnthropic(cfg OpenAICompatConfig) (*Anthropic, error) {
 
 // SupportsUsageStats reports whether the provider returns usage metadata.
 func (p *Anthropic) SupportsUsageStats() bool {
-	return p != nil && p.OpenAICompat != nil
+	return true
 }
 
 // ChatCompletion executes a non-streaming chat completion request.

@@ -147,9 +147,6 @@ func TestToolHandler_ReturnsStructuredFailureResult(t *testing.T) {
 	if result.Status != StatusFailed {
 		t.Fatalf("Status = %q, want %q", result.Status, StatusFailed)
 	}
-	if result.Error != "child run exploded" {
-		t.Fatalf("Error = %q, want %q", result.Error, "child run exploded")
-	}
 	if result.Summary != "delegation failed: child run exploded" {
 		t.Fatalf("Summary = %q, want failure summary", result.Summary)
 	}

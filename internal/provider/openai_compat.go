@@ -121,7 +121,7 @@ func copyHeaders(src map[string]string) map[string]string {
 
 // SupportsUsageStats reports whether the provider returns usage metadata.
 func (p *OpenAICompat) SupportsUsageStats() bool {
-	return p != nil
+	return true
 }
 
 // ChatCompletion executes a non-streaming chat completion request.

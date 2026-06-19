@@ -62,7 +62,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
 	return req, limits, nil
 }
 

@@ -69,8 +69,21 @@ func lsNonRecursive(
 	}
 
 	if diveResult.IsError {
+		var b strings.Builder
+		if diveResult.Display != "" {
+			b.WriteString(diveResult.Display)
+		}
+		for _, c := range diveResult.Content {
+			if c.Text == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(c.Text)
+		}
 		return &Result{
-			Output: diveText(diveResult),
+			Output: b.String(),
 		}, nil
 	}
 

@@ -161,14 +161,14 @@ func TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout(t *tes
 func TestOpenAICompatSupportsUsageStats_NonNil(t *testing.T) {
 	p := &OpenAICompat{}
 	if !p.SupportsUsageStats() {
-		t.Fatal("expected true for non-nil provider")
+		t.Fatal("expected true for provider")
 	}
 }
 
 func TestOpenAICompatSupportsUsageStats_Nil(t *testing.T) {
 	var p *OpenAICompat
-	if p.SupportsUsageStats() {
-		t.Fatal("expected false for nil provider")
+	if !p.SupportsUsageStats() {
+		t.Fatal("expected true for nil provider")
 	}
 }
 

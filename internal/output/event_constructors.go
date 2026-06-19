@@ -198,7 +198,7 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 	if err != nil {
 		payload.Error = err.Error()
 	}
-	payload.Summary, payload.Action = stopReasonSummary(reason, turn, payload.Error)
+	payload.Summary, payload.Action = stopReasonSummary(reason, turn)
 	return Event{
 		Type:      EventTypeStopReason,
 		Timestamp: time.Now().UTC(),
@@ -206,7 +206,7 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 	}
 }
 
-func stopReasonSummary(reason string, turn int, errText string) (string, string) {
+func stopReasonSummary(reason string, turn int) (string, string) {
 	switch strings.TrimSpace(reason) {
 	case "complete":
 		if turn > 0 {

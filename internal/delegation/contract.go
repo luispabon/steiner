@@ -79,9 +79,6 @@ type DelegationResult struct {
 	// It distinguishes budget exhaustion cause (e.g. "max_turns", "max_tokens").
 	StopReason string `json:"stop_reason,omitempty"`
 
-	// Error is populated if the delegation failed.
-	Error string `json:"error,omitempty"`
-
 	// ToolCallCount is the number of tool calls the child executed across all turns.
 	ToolCallCount int `json:"tool_call_count"`
 
