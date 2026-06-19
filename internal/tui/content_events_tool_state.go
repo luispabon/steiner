@@ -119,6 +119,9 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.StopReasonEvent); ok && isCompletionStopReason(payload.Reason) && payload.Error == "" {
+		if reason := strings.TrimSpace(payload.Reason); reason != "" {
+			b.appendLine("status: " + reason)
+		}
 		b.appendLine(b.styles.FgDim.Render(formatContentTimestamp(timeNow())))
 		return
 	}

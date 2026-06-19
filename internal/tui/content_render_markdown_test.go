@@ -278,26 +278,31 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 	tests := []struct {
 		name          string
 		event         output.Event
+		wantText      string
 		wantTimestamp bool
 	}{
 		{
 			name:          "complete",
 			event:         output.NewStopReasonEvent(1, "complete", nil),
+			wantText:      "status · complete",
 			wantTimestamp: true,
 		},
 		{
 			name:          "end_turn",
 			event:         output.NewStopReasonEvent(1, "end_turn", nil),
+			wantText:      "status · end_turn",
 			wantTimestamp: true,
 		},
 		{
 			name:          "cancelled",
 			event:         output.NewStopReasonEvent(1, "cancelled", nil),
+			wantText:      "status · cancelled",
 			wantTimestamp: false,
 		},
 		{
 			name:          "error",
 			event:         output.NewStopReasonEvent(1, "error", errors.New("boom")),
+			wantText:      "error: boom",
 			wantTimestamp: false,
 		},
 	}
@@ -307,9 +312,17 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 			b := newTestBuffer(t)
 			b.appendStopReasonEvent(tt.event)
 			plain := stripANSI(b.String(60))
+			if !strings.Contains(plain, tt.wantText) {
+				t.Fatalf("rendered output missing %q: %q", tt.wantText, plain)
+			}
 			hasTimestamp := strings.Contains(plain, ts)
 			if hasTimestamp != tt.wantTimestamp {
 				t.Fatalf("timestamp presence = %v, want %v in %q", hasTimestamp, tt.wantTimestamp, plain)
+			}
+			if tt.wantTimestamp {
+				if strings.Index(plain, tt.wantText) > strings.Index(plain, ts) {
+					t.Fatalf("timestamp %q appeared before stop reason %q in %q", ts, tt.wantText, plain)
+				}
 			}
 		})
 	}
