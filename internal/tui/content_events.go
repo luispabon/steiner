@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/glamour"
@@ -176,6 +177,7 @@ type delegationDisplayState struct {
 type contentSegment struct {
 	kind           contentSegmentKind
 	text           string
+	timestamp      time.Time
 	thinkData      *thinkingBlockData      // non-nil only for segmentThinkingBlock
 	toolData       *toolCallSegment        // non-nil only for segmentToolCall
 	toolGroupData  *toolCallGroupSegment   // non-nil only for segmentToolCallGroup

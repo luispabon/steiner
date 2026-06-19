@@ -6,6 +6,15 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+func isCompletionStopReason(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "complete", "end_turn":
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.finishStreaming()
 	b.streamingPhase = "tool"
@@ -87,6 +96,9 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 	if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
 		preview := payload.Preview
 		idx := len(b.segments)
+		if b.collapseState == nil {
+			b.collapseState = make(map[int]bool)
+		}
 		b.segments = append(b.segments, contentSegment{
 			kind: segmentToolCall,
 			toolData: &toolCallSegment{
@@ -106,13 +118,20 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
+	if payload, ok := event.Payload.(output.StopReasonEvent); ok && isCompletionStopReason(payload.Reason) && payload.Error == "" {
+		b.appendLine(b.styles.FgDim.Render(formatContentTimestamp(timeNow())))
+		return
+	}
 	b.appendLine(formatStopReasonEvent(event))
 }
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
 		idx := len(b.segments)
-		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, renderDirty: true})
+		if b.collapseState == nil {
+			b.collapseState = make(map[int]bool)
+		}
+		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, timestamp: timeNow(), renderDirty: true})
 		b.collapseState[idx] = false
 	}
 }
@@ -125,7 +144,10 @@ func (b *contentBuffer) AppendLine(line string) {
 func (b *contentBuffer) AppendUser(text string) {
 	b.finishStreaming()
 	idx := len(b.segments)
-	b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: text, renderDirty: true})
+	if b.collapseState == nil {
+		b.collapseState = make(map[int]bool)
+	}
+	b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: text, timestamp: timeNow(), renderDirty: true})
 	b.collapseState[idx] = false
 }
 
@@ -134,6 +156,9 @@ func (b *contentBuffer) AppendUser(text string) {
 func (b *contentBuffer) AppendPendingSteer(text string) {
 	b.finishStreaming()
 	idx := len(b.segments)
+	if b.collapseState == nil {
+		b.collapseState = make(map[int]bool)
+	}
 	b.segments = append(b.segments, contentSegment{kind: segmentPendingSteer, text: text, renderDirty: true})
 	b.collapseState[idx] = false
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -30,7 +31,7 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 		contentWidth = 2
 	}
 	bar := b.styles.UserBar.Render("┃")
-	pad := bar + b.styles.UserBg.Width(contentWidth).Render("")
+	pad := bar + b.styles.UserBg.Width(contentWidth).Render(b.renderUserTimestampText(segment.timestamp, contentWidth))
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
 	textWidth := contentWidth - 3
@@ -150,7 +151,7 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	padStyle := lipgloss.NewStyle().
 		Width(contentWidth + 1).
 		Background(userBgHex)
-	pad := padStyle.Render(barStyle.Render("┃"))
+	pad := padStyle.Render(barStyle.Render("┃") + b.renderUserTimestampText(segment.timestamp, contentWidth))
 
 	rendered, err := renderMarkdownBlock(segment.text, contentWidth-2, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
 	if err != nil {
@@ -173,6 +174,36 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	sb.WriteString(pad + "\n")
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+func (b *contentBuffer) renderUserTimestampText(timestamp time.Time, width int) string {
+	label := formatContentTimestamp(timestamp)
+	if label == "" {
+		return ""
+	}
+	styled := b.styles.FgDim.Render(label)
+	textWidth := lipgloss.Width(styled)
+	if textWidth >= width {
+		return styled
+	}
+	return strings.Repeat(" ", width-textWidth) + styled
+}
+
+func formatContentTimestamp(timestamp time.Time) string {
+	if timestamp.IsZero() {
+		return ""
+	}
+	now := timeNow()
+	if now.IsZero() {
+		now = timestamp
+	}
+	loc := now.Location()
+	ts := timestamp.In(loc)
+	current := now.In(loc)
+	if ts.Year() == current.Year() && ts.Month() == current.Month() && ts.Day() == current.Day() {
+		return ts.Format("15:04")
+	}
+	return ts.Format("Jan 02 15:04")
 }
 
 func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width int) string {
