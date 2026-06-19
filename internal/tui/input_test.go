@@ -161,3 +161,27 @@ func TestBuildCompletionCandidatesAllowlistExcludesOneshot(t *testing.T) {
 		t.Fatalf("allowlist items absent from candidates, got %#v", got)
 	}
 }
+
+func TestParseInputHandlesOneshotResumeCommand(t *testing.T) {
+	action := parseInput("/oneshot-resume")
+	if !action.requestOneshotResumePicker {
+		t.Fatal("requestOneshotResumePicker = false, want true")
+	}
+	if action.submit != "" {
+		t.Fatalf("submit = %q, want empty", action.submit)
+	}
+}
+
+func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
+	got := buildCompletionCandidates("/oneshot", nil, nil, false)
+	found := false
+	for _, c := range got {
+		if c == "/oneshot-resume" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("candidates = %#v, want /oneshot-resume included", got)
+	}
+}

@@ -95,6 +95,7 @@ type Model struct {
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
+	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
 	planPicker                   planPickerOverlay
 	contextOverlay               contextOverlayState
