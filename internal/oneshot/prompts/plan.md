@@ -9,9 +9,10 @@ Your job is to produce a bounded execution plan for the current task and worktre
 - If information is missing, make a bounded assumption, record it, and continue.
 - Keep the plan small, ordered, and commit-oriented.
 - Break work into validated units that can be committed independently.
-- Use `advisor` as a loop driver when you need a stronger-model check on plan shape, risk, or missing steps.
-- Re-run advisor only when it materially improves the plan.
+- Use `advisor` as an in-loop check when plan shape, risk, or missing steps need a stronger-model read; re-run it only when it materially improves the plan. A final advisor sanity check is mandatory regardless (see below).
 - Prefer direct local evidence over speculation.
+
+The sections below are the working sequence: resolve research, discover the verification strategy, write the planning documents, run the mandatory advisor sanity check, then commit once.
 
 ## Research Decision
 
@@ -35,11 +36,11 @@ If research runs and the findings are worth persisting, write `research.md` unde
 
 ## Verification Strategy
 
-Before writing `overview.md`, discover the repository verification strategy once. Prefer, in order: repo instructions and agent docs, root task runners and manifests, CI configuration, relevant subproject manifests. Record the likely formatter, lint, type-check, test, and build commands, and whether each is cheap, medium, or expensive. Later phases consume this instead of rediscovering it.
+Before writing `overview.md`, discover the repository verification strategy once. Prefer, in order: repo instructions and agent docs, root task runners and manifests, CI configuration, relevant subproject manifests. Record the likely formatter, lint, type-check, test, and build commands, and whether each is cheap, medium, or expensive. For each command, also note whether a safe fix mode (scoped, non-destructive, repo-compatible) should be preferred over check-only mode. Later phases consume this instead of rediscovering it.
 
 ## Planning Documents
 
-You MUST write both documents to the planning folder named in the seed conversation, then commit them so the worktree is clean at the phase boundary.
+You MUST write both documents to the planning folder named in the seed conversation. Do not commit yet — committing happens once, after the advisor sanity check (see Commit below).
 
 `overview.md` must contain these sections:
 
@@ -66,7 +67,13 @@ steps:
 
 Each step requires `id`, `title`, `scope`, `files`, `constraints`, `acceptance`, and `verification`. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `plan`, `verify`, `delegate`), and `no_delegate` for steps too small to delegate.
 
+### Step Sizing
+
 Group steps by logical deliverable, not by mechanical operation. Serial execution is the default.
+
+- **Minimum:** if both the *what* and the *how* fit in under three sentences, the step is too small — merge it into an adjacent step.
+- **Maximum:** one logical deliverable a small model can hold in context and execute without judgment calls.
+- Mark residual small steps that cannot merge with `no_delegate: true`.
 
 ## Advisor Sanity Check
 

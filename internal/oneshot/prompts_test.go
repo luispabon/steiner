@@ -23,7 +23,8 @@ func TestLoadPrompt(t *testing.T) {
 				"No user-approval gates.",
 				"No clarifying questions.",
 				"bounded assumption",
-				"Use `advisor` as a loop driver",
+				"Use `advisor` as an in-loop check",
+				"A final advisor sanity check is mandatory",
 				"commit-oriented",
 				"validated units",
 				"Research Decision",
@@ -34,6 +35,8 @@ func TestLoadPrompt(t *testing.T) {
 				"## Decision Log",
 				"## Advisor Sanity Check",
 				"you MUST call `advisor` once as a final sanity check",
+				"### Step Sizing",
+				"safe fix mode",
 			},
 			wantOut: []string{
 				"ask the user",
