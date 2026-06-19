@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 
 func TestWrapCommand_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -34,7 +35,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -53,7 +54,7 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 	wrapped := s.WrapCommand(original)
@@ -93,7 +94,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "ls")
 	wrapped := s.WrapCommand(original)
@@ -142,7 +143,7 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "ssh", "example.com")
 	original.ExtraFiles = []*os.File{os.Stdout}
@@ -180,7 +181,7 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -210,7 +211,7 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -221,6 +222,95 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	if err := memfd.Close(); err == nil {
 		t.Fatal("expected overlay memfd to be closed when bwrap lookup fails")
 	}
+}
+
+func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("bwrap integration only runs on Linux")
+	}
+
+	bwrapPath, err := exec.LookPath("bwrap")
+	if err != nil {
+		t.Skip("bwrap not installed")
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+
+	repoRoot := t.TempDir()
+	runGit := func(dir string, args ...string) string { //nolint:unparam
+		t.Helper()
+		cmd := exec.Command(gitPath, args...) //nolint:noctx
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+
+	runGit(repoRoot, "init", "-b", "main")
+	runGit(repoRoot, "config", "user.name", "Steiner Test")
+	runGit(repoRoot, "config", "user.email", "steiner@example.com")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+	runGit(repoRoot, "add", "README.md")
+	runGit(repoRoot, "commit", "-m", "initial commit")
+
+	worktreeDir := filepath.Join(repoRoot, ".git-worktrees", "step-1a")
+	if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil {
+		t.Fatalf("mkdir worktree parent: %v", err)
+	}
+	runGit(repoRoot, "worktree", "add", "-b", "step-1a", worktreeDir, "main")
+
+	if err := os.WriteFile(filepath.Join(worktreeDir, "worktree.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write worktree file: %v", err)
+	}
+
+	cfg := config.SandboxConfig{Enabled: true}
+	s := New(cfg, config.PermissionsConfig{}, nil, repoRoot, worktreeDir, t.TempDir())
+	if err := s.EnsureHome(); err != nil {
+		t.Fatalf("ensure sandbox home: %v", err)
+	}
+
+	statusCmd := exec.CommandContext(context.Background(), gitPath, "status", "--short")
+	statusCmd.Dir = worktreeDir
+	statusWrapped := s.WrapCommand(statusCmd)
+	if statusWrapped.Path != bwrapPath {
+		t.Fatalf("wrapped status path = %q, want %q", statusWrapped.Path, bwrapPath)
+	}
+	statusOut, err := statusWrapped.CombinedOutput()
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()+" "+string(statusOut)), "operation not permitted") ||
+			strings.Contains(strings.ToLower(err.Error()+" "+string(statusOut)), "creating new namespace failed") {
+			t.Skipf("sandbox unavailable in this environment: %v\n%s", err, statusOut)
+		}
+		t.Fatalf("git status failed: %v\n%s", err, statusOut)
+	}
+	if got := strings.TrimSpace(string(statusOut)); got != "?? worktree.txt" {
+		t.Fatalf("git status output = %q, want untracked worktree file", got)
+	}
+
+	runWrappedGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(context.Background(), gitPath, args...)
+		cmd.Dir = worktreeDir
+		wrapped := s.WrapCommand(cmd)
+		out, err := wrapped.CombinedOutput()
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "operation not permitted") ||
+				strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "creating new namespace failed") {
+				t.Skipf("sandbox unavailable in this environment: %v\n%s", err, out)
+			}
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runWrappedGit("add", "worktree.txt")
+	runWrappedGit("commit", "-m", "sandbox commit")
+	runWrappedGit("status", "--short")
 }
 
 func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
@@ -277,7 +367,8 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, t.TempDir(), t.TempDir())
+	rootDir := t.TempDir()
+	s := New(cfg, config.PermissionsConfig{}, nil, rootDir, rootDir, t.TempDir())
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}

@@ -15,6 +15,12 @@ var validAgentTypes = map[string]bool{
 	"verify":   true,
 }
 
+var validOneShotPhases = map[string]bool{
+	"plan":      true,
+	"implement": true,
+	"review":    true,
+}
+
 func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
 	for name := range cfg.Agents {
 		if !validAgentTypes[name] {
@@ -82,4 +88,16 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 func validateContextManagementConfig(problems *[]string, cfg ContextManagementConfig) {
 	_ = problems
 	_ = cfg
+}
+
+func validateOneShotConfig(problems *[]string, cfg oneshotConfig, models map[string]ModelConfig) {
+	for phase, alias := range cfg.Models {
+		if !validOneShotPhases[phase] {
+			*problems = append(*problems, fmt.Sprintf("oneshot.models contains unknown phase %q", phase))
+			continue
+		}
+		if _, ok := models[alias]; !ok {
+			*problems = append(*problems, fmt.Sprintf("oneshot.models[%q] %q is not defined in models", phase, alias))
+		}
+	}
 }

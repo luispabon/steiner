@@ -46,6 +46,7 @@ type cliRuntime struct {
 	skillSources      map[string]string // skill name -> "project"/"user"/"global"
 	skillDescriptions map[string]string // skill name -> short summary
 	skillBundledFS    fs.FS             // embedded bundled skill documents
+	projectRoot       string
 	workDir           string
 	homeDir           string
 	sandbox           *sandbox.Sandbox
@@ -66,87 +67,11 @@ type cliRuntime struct {
 var buildRuntime = defaultBuildRuntime
 
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-	workDir, err := os.Getwd()
+	projectRoot, err := os.Getwd()
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("get working directory: %w", err)
 	}
-	if err := ensureSteinerProjectDir(workDir); err != nil {
-		return cliRuntime{}, err
-	}
-	cfg, err := loadRuntimeConfig(cmd, flags)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	httpClient := runtimeHTTPClient()
-	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	delegationLogger, err := buildDelegationLogger(cfg, flags)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
-	if err != nil {
-		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
-	}
-	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
-	workDir, registry, err := buildRuntimeRegistry(cfg, nil)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	sb, err := buildRuntimeSandbox(cfg, workDir, homeDir)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	// Rebuild registry with sandbox now that workDir and homeDir are known.
-	if sb != nil {
-		registry, err = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
-		if err != nil {
-			return cliRuntime{}, err
-		}
-	}
-	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
-	if err != nil {
-		return cliRuntime{}, err
-	}
-	sharedInput, approvalInput, approvalClose := buildRuntimeInputs(cmd.InOrStdin())
-	closeFn = joinClosers(closeFn, approvalClose)
-
-	return cliRuntime{
-		cfg:               cfg,
-		providerFactory:   providerFactory,
-		httpClient:        httpClient,
-		registry:          registry,
-		toolNames:         registry.Names(),
-		skillNames:        skillNames,
-		skillSources:      skillSources,
-		skillDescriptions: skillDescriptions,
-		skillBundledFS:    skillBundledFS,
-		workDir:           workDir,
-		homeDir:           homeDir,
-		sandbox:           sb,
-		stdin:             cmd.InOrStdin(),
-		human:             output.NewStream(cmd.OutOrStdout()),
-		status:            output.NewStream(cmd.ErrOrStderr()),
-		events:            events,
-		sharedInput:       sharedInput,
-		approvalIn:        approvalInput,
-		closeFn:           closeFn,
-		historyWriter:     historyWriter,
-		sessionStore:      sessionStore,
-		delegationLogger:  delegationLogger,
-		streamErrorLog:    streamErrorLog,
-		compactionLogFile: compactionLogFile,
-	}, nil
+	return buildRuntimeWithRoots(ctx, cmd, flags, projectRoot, projectRoot, flags.model)
 }
 
 func closeRuntime(rt *cliRuntime) {

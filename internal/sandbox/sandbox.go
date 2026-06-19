@@ -17,17 +17,19 @@ var (
 // Sandbox wraps bubblewrap invocation for tool execution.
 type Sandbox struct {
 	cfg         config.SandboxConfig
-	workspace   string // absolute path
+	root        string // absolute project root
+	workDir     string // absolute agent workDir
 	userHome    string // host user home
 	hostMounts  []config.HostMount
 	permissions config.PermissionsConfig
 }
 
-// New creates a Sandbox. workspaceDir and userHome must be absolute paths.
-func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []config.HostMount, workspaceDir, userHome string) *Sandbox {
+// New creates a Sandbox. rootDir, workDir, and userHome must be absolute paths.
+func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []config.HostMount, rootDir, workDir, userHome string) *Sandbox {
 	return &Sandbox{
 		cfg:         cfg,
-		workspace:   workspaceDir,
+		root:        rootDir,
+		workDir:     workDir,
 		userHome:    userHome,
 		hostMounts:  hostMounts,
 		permissions: perms,
@@ -63,12 +65,12 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		return cmd
 	}
 
-	sandboxHome := filepath.Join(s.workspace, ".steiner", "home")
+	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	var overlayArgs []string
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.workspace, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs)
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -96,7 +98,7 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 
 // EnsureHome creates .steiner/home/ inside workspaceDir.
 func (s *Sandbox) EnsureHome() error {
-	sandboxHome := filepath.Join(s.workspace, ".steiner", "home")
+	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	if err := os.MkdirAll(sandboxHome, 0o755); err != nil {
 		return fmt.Errorf("create sandbox home dir: %w", err)
 	}

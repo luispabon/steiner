@@ -125,6 +125,10 @@ Code changes must update corresponding documentation in a single commit:
    * Create a corresponding doc under docs/ if the feature warrants detailed documentation
    * Add a rule to this maintenance section
 
+6. **`internal/oneshot` changes** (add/change/remove engine behaviour, phases, manifest fields, lock/resume logic, closeout, reports):
+   * Update `docs/ONESHOT.md` with the changed behaviour
+   * If a config field is added/changed, also update `docs/CONFIGURATION.md` and the `oneshot` config example in README.md
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:

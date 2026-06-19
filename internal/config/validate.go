@@ -13,6 +13,7 @@ func validate(cfg Config) error {
 	validateSchedulerConfig(&problems, cfg.Scheduler)
 	validateModelsConfig(&problems, cfg.Models, cfg.Providers)
 	validateWorkflowHandoffConfig(&problems, cfg.WorkflowHandoff, cfg.Models)
+	validateOneShotConfig(&problems, cfg.OneShot, cfg.Models)
 	validateLimitsConfig(&problems, cfg.Limits)
 	validateSubAgentConfig(&problems, cfg.SubAgent)
 	validateAdvisorConfig(&problems, cfg.Advisor)

@@ -130,6 +130,12 @@ type RotateSession struct{}
 
 func (RotateSession) isInteractiveAction() {}
 
+// RotateSessionWithGroup generates a new session ID, clears the session title,
+// and stamps the session with a supplied run group.
+type RotateSessionWithGroup struct{ Group string }
+
+func (RotateSessionWithGroup) isInteractiveAction() {}
+
 // ForkSession forks the current live session, saving it first before forking.
 type ForkSession struct{}
 

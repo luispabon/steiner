@@ -54,6 +54,7 @@ func TestFork(t *testing.T) {
 				UpdatedAt: time.Now().UTC().Add(-time.Hour),
 				Title:     tt.originalTitle,
 				Model:     "gpt-4",
+				Group:     "run-123",
 				Lineage:   originalLineage,
 			}
 
@@ -75,6 +76,9 @@ func TestFork(t *testing.T) {
 			// Check model is same
 			if forked.Model != original.Model {
 				t.Errorf("forked model should match original, got %s want %s", forked.Model, original.Model)
+			}
+			if forked.Group != original.Group {
+				t.Errorf("forked group should match original, got %q want %q", forked.Group, original.Group)
 			}
 
 			// Check title follows fork pattern
@@ -251,5 +255,17 @@ func TestForkDoesNotModifyOriginal(t *testing.T) {
 	}
 	if original.UpdatedAt != originalUpdateAt {
 		t.Errorf("original UpdatedAt was modified")
+	}
+}
+
+func TestNewSessionWithGroup(t *testing.T) {
+	t.Parallel()
+
+	sess, err := NewSession("gpt-4", agent.ConversationLineage{}, "run-abc")
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	if got, want := sess.Group, "run-abc"; got != want {
+		t.Fatalf("session group = %q, want %q", got, want)
 	}
 }

@@ -201,3 +201,15 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("exhausted text = %q, want advisor budget summary", got)
 	}
 }
+
+func TestPhaseEventsRender(t *testing.T) {
+	transition := renderEvent(NewPhaseTransitionEvent("run-1", "plan", "implement", "starting", "plan-model", "session-1"))
+	if got := transition.Text; !strings.Contains(got, "phase transition") || !strings.Contains(got, "plan -> implement") || !strings.Contains(got, "session=session-1") {
+		t.Fatalf("transition text = %q, want phase transition summary", got)
+	}
+
+	indicator := renderEvent(NewPhaseIndicatorEvent("run-1", "plan", "running", "phase starting"))
+	if got := indicator.Text; !strings.Contains(got, "phase plan running") || !strings.Contains(got, "phase starting") {
+		t.Fatalf("indicator text = %q, want phase indicator summary", got)
+	}
+}

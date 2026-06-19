@@ -66,9 +66,53 @@ func newRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newSkillsCommand(flags))
 	rootCmd.AddCommand(newModelCommand(flags))
 	rootCmd.AddCommand(newModelMetadataCommand())
+	rootCmd.AddCommand(newOneshotCommand(flags))
 	rootCmd.AddCommand(newUpdateCommand())
 	rootCmd.SetVersionTemplate(versionPanelString)
 	return rootCmd
+}
+
+func newOneshotCommand(flags *cliFlags) *cobra.Command {
+	var listRuns bool
+	var resumeID string
+
+	cmd := &cobra.Command{
+		Use:   "oneshot [task]",
+		Short: "Run an autonomous oneshot task",
+		Long:  "Run the autonomous oneshot engine headlessly, resume a saved run, or list resumable runs.",
+		Args:  cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if listRuns {
+				if cmd.Flags().Changed("resume") {
+					return fmt.Errorf("--list cannot be combined with --resume")
+				}
+				if len(args) > 0 {
+					return fmt.Errorf("--list does not take a task")
+				}
+				return runOneshotList(cmd)
+			}
+
+			task := strings.TrimSpace(strings.Join(args, " "))
+			if cmd.Flags().Changed("resume") {
+				if task != "" {
+					return fmt.Errorf("--resume cannot be combined with a task")
+				}
+				if strings.TrimSpace(resumeID) == "" {
+					return fmt.Errorf("--resume requires a run id")
+				}
+				return runOneshotResume(cmd, flags, resumeID)
+			}
+
+			if task == "" {
+				return fmt.Errorf("oneshot requires a task, --resume <id>, or --list")
+			}
+			return runOneshotTask(cmd, flags, task)
+		},
+	}
+
+	cmd.Flags().BoolVar(&listRuns, "list", false, "list resumable oneshot runs")
+	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a oneshot run by ID")
+	return cmd
 }
 
 func newVersionCommand() *cobra.Command {

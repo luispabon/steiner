@@ -1,0 +1,4 @@
+steps:
+  - id: step-1
+    title: Fixture step
+    scope: integration-test fixture plan; exercised by the oneshot engine end to end.

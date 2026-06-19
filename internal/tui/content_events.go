@@ -290,3 +290,12 @@ func (b *contentBuffer) appendLabeledBlock(label string, body string) {
 		renderDirty:   true,
 	})
 }
+
+// AppendPhaseDivider appends a phase transition divider to mark the beginning of a new oneshot phase.
+func (b *contentBuffer) AppendPhaseDivider(phaseName string) {
+	b.segments = append(b.segments, contentSegment{
+		kind:          segmentSeparator,
+		separatorData: &separatorData{label: "Phase: " + phaseName},
+		renderDirty:   true,
+	})
+}

@@ -55,6 +55,16 @@ func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if len(cfg.OneShot.Models) != 0 {
+		t.Fatalf("oneshot.models = %#v, want empty", cfg.OneShot.Models)
+	}
+	if cfg.OneShot.AutoPR {
+		t.Fatal("oneshot.auto_pr = true, want false")
+	}
+}
+
 func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.Advisor.Enabled {
@@ -96,6 +106,37 @@ func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
 	}
 	if !reflect.DeepEqual(dst, want) {
 		t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, want)
+	}
+}
+
+func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
+	patch, err := parseConfigPatch("test.yaml", `oneshot:
+  models:
+    plan: planner-model
+    implement: implement-model
+    review: review-model
+  auto_pr: true
+`)
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	if patch.OneShot == nil {
+		t.Fatal("patch.OneShot = nil, want parsed oneshot patch")
+	}
+
+	dst := oneshotConfig{}
+	applyOneShotPatch(&dst, patch.OneShot)
+
+	want := oneshotConfig{
+		Models: map[string]string{
+			"plan":      "planner-model",
+			"implement": "implement-model",
+			"review":    "review-model",
+		},
+		AutoPR: true,
+	}
+	if !reflect.DeepEqual(dst, want) {
+		t.Fatalf("applyOneShotPatch() = %#v, want %#v", dst, want)
 	}
 }
 

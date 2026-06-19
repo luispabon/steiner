@@ -100,6 +100,7 @@ type Config struct {
 	HostMounts        []HostMount               `yaml:"host_mounts"`
 	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
 	Advisor           AdvisorConfig             `yaml:"advisor"`
+	OneShot           oneshotConfig             `yaml:"oneshot"`
 	WorkflowHandoff   workflowHandoffConfig     `yaml:"workflow_handoff"`
 	Tools             map[string]ToolConfig     `yaml:"tools"`
 	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
@@ -179,6 +180,11 @@ type AdvisorConfig struct {
 
 type workflowHandoffConfig struct {
 	Models map[string]string `yaml:"models"`
+}
+
+type oneshotConfig struct {
+	Models map[string]string `yaml:"models"`
+	AutoPR bool              `yaml:"auto_pr"`
 }
 
 // ToolConfig defines an externally configured tool.

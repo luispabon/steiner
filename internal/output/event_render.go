@@ -39,6 +39,8 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
 	reflect.TypeOf(AdvisorCompleteEvent{}):        typedRenderer(renderAdvisorCompleteEvent),
 	reflect.TypeOf(AdvisorBudgetExhaustedEvent{}): typedRenderer(renderAdvisorBudgetExhaustedEvent),
+	reflect.TypeOf(PhaseTransitionEvent{}):        typedRenderer(renderPhaseTransitionEvent),
+	reflect.TypeOf(PhaseIndicatorEvent{}):         typedRenderer(renderPhaseIndicatorEvent),
 	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
 		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
 	},
@@ -313,6 +315,43 @@ func renderAdvisorBudgetExhaustedEvent(payload AdvisorBudgetExhaustedEvent) Segm
 		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
 	}
 	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
+}
+
+func renderPhaseTransitionEvent(payload PhaseTransitionEvent) Segment {
+	parts := []string{"phase transition"}
+	if payload.From != "" || payload.To != "" {
+		parts = append(parts, fmt.Sprintf("%s -> %s", fallback(payload.From, "?"), fallback(payload.To, "?")))
+	}
+	if payload.Status != "" {
+		parts = append(parts, payload.Status)
+	}
+	if payload.Model != "" {
+		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
+	}
+	if payload.SessionID != "" {
+		parts = append(parts, fmt.Sprintf("session=%s", payload.SessionID))
+	}
+	if payload.RunID != "" {
+		parts = append(parts, fmt.Sprintf("run=%s", payload.RunID))
+	}
+	return Segment{Channel: ChannelStatus, Label: "phase", Text: strings.Join(parts, " ")}
+}
+
+func renderPhaseIndicatorEvent(payload PhaseIndicatorEvent) Segment {
+	parts := []string{"phase"}
+	if payload.Phase != "" {
+		parts = append(parts, payload.Phase)
+	}
+	if payload.State != "" {
+		parts = append(parts, payload.State)
+	}
+	if payload.Message != "" {
+		parts = append(parts, payload.Message)
+	}
+	if payload.RunID != "" {
+		parts = append(parts, fmt.Sprintf("run=%s", payload.RunID))
+	}
+	return Segment{Channel: ChannelStatus, Label: "phase", Text: strings.Join(parts, " ")}
 }
 
 func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {

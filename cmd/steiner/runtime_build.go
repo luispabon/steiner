@@ -43,13 +43,17 @@ func ensureSteinerProjectDir(workDir string) error {
 	return nil
 }
 
-func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags) (config.Config, error) {
+func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (config.Config, error) {
+	overrides := config.CLIOverrides{
+		ConfigPath: flags.configPath,
+		Model:      modelAlias,
+		Verbose:    flags.verbose,
+	}
+	if modelAlias == "" {
+		overrides.Model = flags.model
+	}
 	cfg, err := config.Load(config.LoadOptions{
-		CLI: config.CLIOverrides{
-			ConfigPath: flags.configPath,
-			Model:      flags.model,
-			Verbose:    flags.verbose,
-		},
+		CLI: overrides,
 	})
 	if err != nil {
 		return config.Config{}, err
@@ -58,6 +62,87 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags) (config.Config, error)
 		cfg.Sandbox.Enabled = false
 	}
 	return cfg, nil
+}
+
+func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
+	if err := ensureSteinerProjectDir(projectRoot); err != nil {
+		return cliRuntime{}, err
+	}
+	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	httpClient := runtimeHTTPClient()
+	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	delegationLogger, err := buildDelegationLogger(cfg, flags)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
+	if err != nil {
+		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
+	}
+	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
+	workDir, registry, err := buildRuntimeRegistry(cfg, nil, workDir)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	sb, err := buildRuntimeSandbox(cfg, projectRoot, workDir, homeDir)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	// Rebuild registry with sandbox now that workDir and homeDir are known.
+	if sb != nil {
+		registry, err = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
+		if err != nil {
+			return cliRuntime{}, err
+		}
+	}
+	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	sharedInput, approvalInput, approvalClose := buildRuntimeInputs(cmd.InOrStdin())
+	closeFn = joinClosers(closeFn, approvalClose)
+
+	return cliRuntime{
+		cfg:               cfg,
+		providerFactory:   providerFactory,
+		httpClient:        httpClient,
+		registry:          registry,
+		toolNames:         registry.Names(),
+		skillNames:        skillNames,
+		skillSources:      skillSources,
+		skillDescriptions: skillDescriptions,
+		skillBundledFS:    skillBundledFS,
+		projectRoot:       projectRoot,
+		workDir:           workDir,
+		homeDir:           homeDir,
+		sandbox:           sb,
+		stdin:             cmd.InOrStdin(),
+		human:             output.NewStream(cmd.OutOrStdout()),
+		status:            output.NewStream(cmd.ErrOrStderr()),
+		events:            events,
+		sharedInput:       sharedInput,
+		approvalIn:        approvalInput,
+		closeFn:           closeFn,
+		historyWriter:     historyWriter,
+		sessionStore:      sessionStore,
+		delegationLogger:  delegationLogger,
+		streamErrorLog:    streamErrorLog,
+		compactionLogFile: compactionLogFile,
+	}, nil
 }
 
 func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (func(provider.ResolvedModel) (provider.Provider, error), error) {
@@ -162,11 +247,7 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 	return ""
 }
 
-func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox) (string, *tool.Registry, error) {
-	workDir, err := os.Getwd()
-	if err != nil {
-		return "", nil, err
-	}
+func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry, error) {
 	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 	if err != nil {
 		return "", nil, err
@@ -179,16 +260,12 @@ func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sand
 	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
 }
 
-func discoverRuntimeSkills(ctx context.Context) (string, fs.FS, []string, map[string]string, map[string]string, error) {
+func discoverRuntimeSkills(ctx context.Context, projectRoot string) (string, fs.FS, []string, map[string]string, map[string]string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
 	}
-	workDir, err := os.Getwd()
-	if err != nil {
-		workDir = ""
-	}
-	roots := prompt.SkillRoots(homeDir, workDir)
+	roots := prompt.SkillRoots(homeDir, projectRoot)
 	loadedSkills, err := skill.Loader{RootDirs: roots, BundledFS: skills.FS}.Discover(ctx)
 	if err != nil {
 		return "", nil, nil, nil, nil, err
@@ -239,14 +316,14 @@ func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() e
 // buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
 // when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns an
 // error when bwrap is required but not found on PATH.
-func buildRuntimeSandbox(cfg config.Config, workDir, userHome string) (*sandbox.Sandbox, error) {
+func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, error) {
 	if !cfg.Sandbox.Enabled {
 		return nil, nil
 	}
 	if err := sandbox.PrereqCheck(); err != nil {
 		return nil, err
 	}
-	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, workDir, userHome)
+	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome)
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}
