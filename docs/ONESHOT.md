@@ -66,8 +66,9 @@ Each phase is a fresh agent run with empty model context and a clean scrollback.
 
 **Plan phase**:
 - Task: analyze the request, explore the codebase, and produce a structured plan.
-- Output: `overview.md` (context summary), `plan.yaml` (implementation steps), and a commit to the feature branch.
-- Refinement: full advisor loops enabled if configured.
+- Research: decided autonomously (no approval gate) using the same required-by-default criteria as the interactive plan skill — current/external/fast-moving, security-sensitive, or low-confidence areas trigger it. When required, it is delegated to the `research` tool; if no search backend is configured the tool is absent and the phase records a bounded assumption and continues. Findings persist to `research.md` when worth keeping.
+- Output: `overview.md` (with `## Request`, `## Overview`, `## Key Decisions`, `## Tradeoffs`, `## Scope Boundaries`, `## Verification Strategy`, `## Decision Log`), `plan.yaml` (flat implementation steps), optional `research.md`, and a commit to the feature branch.
+- Refinement: full advisor loops enabled if configured. A final `advisor` sanity check on the completed plan is mandatory before the commit (skipped only if the per-run advisor budget is exhausted); its note is recorded in `overview.md`.
 
 **Implement phase**:
 - Task: execute the plan, make code changes, and validate with tests.
