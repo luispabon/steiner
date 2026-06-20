@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -483,5 +484,118 @@ func TestAnthropicBuildHTTPRequest_HeaderOverrides(t *testing.T) {
 	}
 	if got, want := req.Header.Get("Accept"), "application/custom-stream"; got != want {
 		t.Fatalf("Accept = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicRequestWire_Characterization(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-7-sonnet",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+		},
+	}
+
+	nonStream := anthropicRequestWire(request, "default-model", false)
+	nonStreamData, err := json.Marshal(nonStream)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if got, want := string(nonStreamData), `{"max_tokens":4096,"messages":[{"role":"user","content":[{"cache_control":{"type":"ephemeral"},"text":"hello","type":"text"}]}],"model":"claude-3-7-sonnet"}`; got != want {
+		t.Fatalf("non-stream payload = %s, want %s", got, want)
+	}
+
+	stream := anthropicRequestWire(request, "default-model", true)
+	streamData, err := json.Marshal(stream)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if got, want := string(streamData), `{"max_tokens":4096,"messages":[{"role":"user","content":[{"cache_control":{"type":"ephemeral"},"text":"hello","type":"text"}]}],"model":"claude-3-7-sonnet","stream":true}`; got != want {
+		t.Fatalf("stream payload = %s, want %s", got, want)
+	}
+}
+
+func TestNormalizeAnthropicChatResponse_Characterization(t *testing.T) {
+	response, err := normalizeAnthropicChatResponse(&anthropicResponse{
+		Role: "assistant",
+		Content: []anthropicContentBlock{
+			{Type: "thinking", Thinking: "reasoning", Signature: "sig_123"},
+			{Type: "text", Text: "final answer"},
+		},
+		StopReason: "end_turn",
+		Usage: &anthropicUsage{
+			InputTokens:  11,
+			OutputTokens: 7,
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeAnthropicChatResponse() error = %v", err)
+	}
+	if got, want := response.Message.Role, MessageRoleAssistant; got != want {
+		t.Fatalf("role = %q, want %q", got, want)
+	}
+	if got, want := response.Message.ReasoningContent, "reasoning"; got != want {
+		t.Fatalf("reasoning = %q, want %q", got, want)
+	}
+	if response.Message.ProviderMetadata == nil || response.Message.ProviderMetadata.Anthropic == nil {
+		t.Fatalf("provider metadata = %#v, want anthropic metadata", response.Message.ProviderMetadata)
+	}
+	if got, want := response.Message.ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+		t.Fatalf("thinking signature = %q, want %q", got, want)
+	}
+	if got, want := response.Message.Content, "final answer"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	if got, want := response.FinishReason, "stop"; got != want {
+		t.Fatalf("finish reason = %q, want %q", got, want)
+	}
+	if response.Usage == nil {
+		t.Fatal("usage = nil, want usage stats")
+	}
+	if got, want := response.Usage.TotalTokens, 18; got != want {
+		t.Fatalf("total tokens = %d, want %d", got, want)
+	}
+}
+
+func TestDecodeAnthropicStream_Characterization(t *testing.T) {
+	body := strings.NewReader(strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":11,"output_tokens":7}}}`,
+		``,
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"hello"}}`,
+		``,
+		`event: message_delta`,
+		`data: {"type":"message_delta","delta":{"type":"message_delta","stop_reason":"end_turn"}}`,
+		``,
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		``,
+	}, "\n"))
+
+	var chunks []ChatChunk
+	err := decodeAnthropicStreamWithHandler(t.Context(), body, func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("decodeAnthropicStreamWithHandler() error = %v", err)
+	}
+	if got, want := len(chunks), 2; got != want {
+		t.Fatalf("len(chunks) = %d, want %d", got, want)
+	}
+	if got, want := chunks[0].Delta.Content, "hello"; got != want {
+		t.Fatalf("first chunk content = %q, want %q", got, want)
+	}
+	if !chunks[1].Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if got, want := chunks[1].Delta.Content, "hello"; got != want {
+		t.Fatalf("final chunk content = %q, want %q", got, want)
+	}
+	if got, want := chunks[1].FinishReason, "stop"; got != want {
+		t.Fatalf("final chunk finish reason = %q, want %q", got, want)
+	}
+	if chunks[1].Usage == nil || chunks[1].Usage.TotalTokens != 18 {
+		t.Fatalf("final chunk usage = %#v, want total tokens 18", chunks[1].Usage)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -303,6 +304,105 @@ func TestOpenAICompatMarshalRequest_MessagesAndExtraParams(t *testing.T) {
 	}
 	if len(msgs) != 2 {
 		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+}
+
+func TestOpenAICompatMarshalRequest_Characterization(t *testing.T) {
+	p := &OpenAICompat{model: "gpt-4"}
+	req := ChatRequest{
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+		},
+	}
+
+	nonStream, err := p.marshalRequest(req, false)
+	if err != nil {
+		t.Fatalf("marshalRequest() error = %v", err)
+	}
+	if got, want := string(nonStream), `{"messages":[{"role":"user","content":"hello"}],"model":"gpt-4"}`; got != want {
+		t.Fatalf("non-stream payload = %s, want %s", got, want)
+	}
+
+	stream, err := p.marshalRequest(req, true)
+	if err != nil {
+		t.Fatalf("marshalRequest() error = %v", err)
+	}
+	if got, want := string(stream), `{"messages":[{"role":"user","content":"hello"}],"model":"gpt-4","stream":true,"stream_options":{"include_usage":true}}`; got != want {
+		t.Fatalf("stream payload = %s, want %s", got, want)
+	}
+}
+
+func TestOpenAICompatNormalizeChatResponse_Characterization(t *testing.T) {
+	response, err := normalizeChatResponse(&openAIResponse{
+		Choices: []openAIChoice{
+			{
+				Message: openAIMessage{
+					Role:    "assistant",
+					Content: "final answer",
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: &UsageStats{
+			PromptTokens:     11,
+			CompletionTokens: 7,
+			TotalTokens:      18,
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeChatResponse() error = %v", err)
+	}
+	if got, want := response.Message.Role, MessageRoleAssistant; got != want {
+		t.Fatalf("role = %q, want %q", got, want)
+	}
+	if got, want := response.Message.Content, "final answer"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	if got, want := response.FinishReason, "stop"; got != want {
+		t.Fatalf("finish reason = %q, want %q", got, want)
+	}
+	if response.Usage == nil {
+		t.Fatal("usage = nil, want usage stats")
+	}
+	if got, want := response.Usage.TotalTokens, 18; got != want {
+		t.Fatalf("total tokens = %d, want %d", got, want)
+	}
+}
+
+func TestOpenAICompatDecodeChatStream_Characterization(t *testing.T) {
+	body := strings.NewReader(`data: {"choices":[{"delta":{"content":"hello"}}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}
+
+data: [DONE]
+
+`)
+
+	var chunks []ChatChunk
+	err := decodeChatStreamWithHandler(t.Context(), body, func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	if got, want := len(chunks), 2; got != want {
+		t.Fatalf("len(chunks) = %d, want %d", got, want)
+	}
+	if got, want := chunks[0].Delta.Content, "hello"; got != want {
+		t.Fatalf("first chunk content = %q, want %q", got, want)
+	}
+	if !chunks[1].Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if got, want := chunks[1].Delta.Content, "hello"; got != want {
+		t.Fatalf("final chunk content = %q, want %q", got, want)
+	}
+	if got, want := chunks[1].FinishReason, "stop"; got != want {
+		t.Fatalf("final chunk finish reason = %q, want %q", got, want)
+	}
+	if chunks[1].Usage == nil || chunks[1].Usage.TotalTokens != 18 {
+		t.Fatalf("final chunk usage = %#v, want total tokens 18", chunks[1].Usage)
 	}
 }
 
