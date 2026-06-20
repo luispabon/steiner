@@ -237,9 +237,9 @@ func TestBaseContextManagerObserveReadToolResult(t *testing.T) {
 			if len(events) < 1 {
 				t.Fatalf("events = %d, want at least 1", len(events))
 			}
-			payload, ok := events[len(events)-1].Payload.(output.ContextDiagnosticsEvent)
+			payload, ok := output.AsContextFileAnnotationEvent(events[len(events)-1].Payload)
 			if !ok {
-				t.Fatalf("payload type = %T, want ContextDiagnosticsEvent", events[len(events)-1].Payload)
+				t.Fatalf("payload type = %T, want ContextFileAnnotationEvent", events[len(events)-1].Payload)
 			}
 			if got, want := payload.Reason, tc.wantReason; got != want {
 				t.Fatalf("reason = %q, want %q", got, want)

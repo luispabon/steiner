@@ -20,6 +20,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -230,6 +231,79 @@ logging:
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
+	base := tool.NewRegistry(
+		tool.ToolDef{Name: "bash", Description: "run shell commands"},
+		tool.ToolDef{Name: "read", Description: "read files"},
+	)
+
+	cfg := config.Config{
+		CaveHuman: true,
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {
+				Type:    config.ProviderTypeOpenAICompat,
+				BaseURL: "http://localhost:11434/v1",
+			},
+		},
+		Models: map[string]config.ModelConfig{
+			"advisor-alias": {
+				Provider: "testprov",
+				ID:       "advisor-model",
+				Advanced: config.AdvancedConfig{
+					Limits: config.AdvancedLimitsConfig{
+						ContextWindow:   8192,
+						MaxOutputTokens: 1024,
+					},
+				},
+			},
+		},
+		ProjectContext: config.ProjectContextConfig{
+			MaxTokens: 2048,
+		},
+	}
+	subAgentCfg := config.SubAgentConfig{
+		Enabled:   true,
+		MaxTurns:  5,
+		MaxTokens: 256,
+	}
+	advisorCfg := config.AdvisorConfig{
+		Enabled:       true,
+		Model:         "advisor-alias",
+		MaxUsesPerRun: 2,
+	}
+	resolvedModel := provider.ResolvedModel{
+		ProviderAlias:         "testprov",
+		EffectiveProviderType: config.ProviderTypeOpenAICompat,
+	}
+
+	want, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
+		BaseRegistry:  base,
+		SubAgentCfg:   subAgentCfg,
+		AdvisorCfg:    advisorCfg,
+		Provider:      stubProvider{},
+		Events:        noopSink{},
+		WorkDir:       "/tmp/work",
+		ResolvedModel: resolvedModel,
+		MaxTokens:     256,
+		Config:        cfg,
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+
+	got, err := buildActiveRegistry(base, subAgentCfg, advisorCfg, stubProvider{}, noopSink{}, "/tmp/work", "", resolvedModel, 256, false, nil, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(got.Names(), want.Names()) {
+		t.Fatalf("registry names differ:\ncmd/steiner = %v\ninternal/delegation = %v", got.Names(), want.Names())
+	}
+	if !reflect.DeepEqual(base.Names(), []string{"bash", "read"}) {
+		t.Fatalf("base registry mutated: got %v", base.Names())
 	}
 }
 
@@ -983,11 +1057,7 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	for _, event := range result.Diagnostics {
 		switch event.Type {
 		case output.EventTypeContextDiagnostics:
-			payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-			if !ok {
-				t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-			}
-			kinds = append(kinds, payload.Kind)
+			kinds = append(kinds, output.ContextDiagnosticKind(event.Payload))
 		case output.EventTypeStopReason:
 			payload, ok := event.Payload.(output.StopReasonEvent)
 			if !ok {

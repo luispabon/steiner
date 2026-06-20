@@ -7,21 +7,23 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // specializedDelegateTools is the set of tool names rendered as a single
-// delegation box in the TUI. It contains the specialized delegate agent types
-// plus follow_up, which resumes an existing child and reuses the same box.
-// Keep this list in sync with internal/delegation — do not import that package.
-var specializedDelegateTools = map[string]bool{
-	"explore":   true,
-	"research":  true,
-	"code":      true,
-	"plan":      true,
-	"verify":    true,
-	"follow_up": true,
+// delegation box in the TUI. It is derived from internal/delegation so the
+// specialized delegate surface stays canonical across packages.
+var specializedDelegateTools = specializedDelegateToolSet()
+
+func specializedDelegateToolSet() map[string]bool {
+	names := delegation.AllSpecializedDelegateTools()
+	tools := make(map[string]bool, len(names))
+	for _, tool := range names {
+		tools[strings.ToLower(strings.TrimSpace(tool))] = true
+	}
+	return tools
 }
 
 // isSpecializedDelegateTool reports whether tool is a specialized delegate tool.
@@ -252,46 +254,19 @@ func inferBodyKind(tool, _ string) string {
 	}
 }
 
-func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
-	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "bash":
-		return b.styles.ToolTagBash
-	case "read", "read_file":
-		return b.styles.ToolTagRead
-	case "mutate":
-		return b.styles.ToolTagWrite
-	case "grep":
-		return b.styles.ToolTagGrep
-	case "search":
-		return b.styles.ToolTagSearch
-	case "glob":
-		return b.styles.ToolTagGlob
-	case "todo":
-		return b.styles.ToolTagTodo
-	default:
-		return b.styles.ToolTagDefault
+func styleByKey(styles map[string]lipgloss.Style, key string, fallback lipgloss.Style) lipgloss.Style {
+	if style, ok := styles[key]; ok {
+		return style
 	}
+	return fallback
+}
+
+func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
+	return styleByKey(b.styles.ToolTagStyles, normalizeToolName(tool), b.styles.ToolTagDefault)
 }
 
 func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
-	switch normalizeToolName(tool) {
-	case "bash":
-		return b.styles.ToolBorderBash
-	case "read", "read_file":
-		return b.styles.ToolBorderRead
-	case "mutate":
-		return b.styles.ToolBorderWrite
-	case "grep":
-		return b.styles.ToolBorderGrep
-	case "search":
-		return b.styles.ToolBorderSearch
-	case "glob":
-		return b.styles.ToolBorderGlob
-	case "todo":
-		return b.styles.ToolBorderTodo
-	default:
-		return b.styles.ToolBorderDefault
-	}
+	return styleByKey(b.styles.ToolBorderStyles, normalizeToolName(tool), b.styles.ToolBorderDefault)
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {

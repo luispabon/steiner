@@ -182,23 +182,38 @@ func TestContextDiagnosticsPayloadCarriesEscalationFields(t *testing.T) {
 	})
 	sessionHealth := NewContextSessionHealthEvent("conversation", 7, 3, "critical", "likely_lossy", "restart now in a new session; retained context is likely to be lossy")
 
-	for _, event := range []Event{compaction, sessionHealth} {
-		payload, ok := event.Payload.(ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("payload type = %T, want ContextDiagnosticsEvent", event.Payload)
-		}
-		if got, want := payload.Severity, "critical"; got != want {
-			t.Fatalf("severity = %q, want %q", got, want)
-		}
-		if got, want := payload.SessionState, "likely_lossy"; got != want {
-			t.Fatalf("session state = %q, want %q", got, want)
-		}
-		if got, want := payload.CompactionCount, 3; got != want {
-			t.Fatalf("compaction count = %d, want %d", got, want)
-		}
-		if got, want := payload.RestartGuidance, "restart now in a new session; retained context is likely to be lossy"; got != want {
-			t.Fatalf("restart guidance = %q, want %q", got, want)
-		}
+	compactionPayload, ok := eventPayloadAs[ContextCompactionEvent](compaction)
+	if !ok {
+		t.Fatalf("payload type = %T, want ContextCompactionEvent", compaction.Payload)
+	}
+	if got, want := compactionPayload.Severity, "critical"; got != want {
+		t.Fatalf("severity = %q, want %q", got, want)
+	}
+	if got, want := compactionPayload.SessionState, "likely_lossy"; got != want {
+		t.Fatalf("session state = %q, want %q", got, want)
+	}
+	if got, want := compactionPayload.CompactionCount, 3; got != want {
+		t.Fatalf("compaction count = %d, want %d", got, want)
+	}
+	if got, want := compactionPayload.RestartGuidance, "restart now in a new session; retained context is likely to be lossy"; got != want {
+		t.Fatalf("restart guidance = %q, want %q", got, want)
+	}
+
+	sessionPayload, ok := eventPayloadAs[ContextSessionHealthEvent](sessionHealth)
+	if !ok {
+		t.Fatalf("payload type = %T, want ContextSessionHealthEvent", sessionHealth.Payload)
+	}
+	if got, want := sessionPayload.Severity, "critical"; got != want {
+		t.Fatalf("severity = %q, want %q", got, want)
+	}
+	if got, want := sessionPayload.SessionState, "likely_lossy"; got != want {
+		t.Fatalf("session state = %q, want %q", got, want)
+	}
+	if got, want := sessionPayload.CompactionCount, 3; got != want {
+		t.Fatalf("compaction count = %d, want %d", got, want)
+	}
+	if got, want := sessionPayload.RestartGuidance, "restart now in a new session; retained context is likely to be lossy"; got != want {
+		t.Fatalf("restart guidance = %q, want %q", got, want)
 	}
 }
 
@@ -217,6 +232,11 @@ func TestPlainRendererWritesAssistantChunksAsSingleTranscriptLine(t *testing.T) 
 	if !strings.Contains(got, "tool: turn=1 start tool=read id=call_1") {
 		t.Fatalf("stream output %q missing tool event after assistant transcript", got)
 	}
+}
+
+func eventPayloadAs[T any](event Event) (T, bool) {
+	payload, ok := event.Payload.(T)
+	return payload, ok
 }
 
 func TestPlainRendererLeavesStreamingInactiveWhenLabelWriteFails(t *testing.T) {

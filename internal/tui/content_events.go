@@ -248,8 +248,6 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypePhaseTransition:        (*contentBuffer).appendPhaseTransitionEvent,
 	output.EventTypeRunStarted:             func(*contentBuffer, output.Event) {},
 	output.EventTypeRunFinished:            func(*contentBuffer, output.Event) {},
-	output.EventTypeTurnStarted:            func(*contentBuffer, output.Event) {},
-	output.EventTypeTurnFinished:           func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIRequest:             func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIResponse:            func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
 	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no

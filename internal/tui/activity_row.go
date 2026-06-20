@@ -105,7 +105,7 @@ func turnLabel(turn int) string {
 	return fmt.Sprintf("turn %d", turn)
 }
 
-func compactingLabel(payload output.ContextDiagnosticsEvent) string {
+func compactingLabel(payload output.ContextCompactionEvent) string {
 	parts := make([]string, 0, 2)
 	if payload.CompactionCount > 0 {
 		suffix := ""
@@ -120,7 +120,7 @@ func compactingLabel(payload output.ContextDiagnosticsEvent) string {
 	return strings.Join(parts, " · ")
 }
 
-func compactedLabel(payload output.ContextDiagnosticsEvent) string {
+func compactedLabel(payload output.ContextCompactionEvent) string {
 	parts := make([]string, 0, 2)
 	switch {
 	case strings.TrimSpace(payload.SummaryTitle) != "":

@@ -13,22 +13,25 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// compactConversationFn is the compaction operation decoupled from *Runner.
+// It matches the signature of Runner.compactConversationForBudget.
+type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error)
+
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
 // the assistant response to the conversation state. It owns:
-//   - TurnStarted / ModelCallStarted event emission
+//   - ModelCallStarted event emission
 //   - completeModelCall invocation
 //   - cancellation and error handling
 //   - token accounting and ModelCallFinished event
 //   - AssistantMessage event
 //   - assistant transcript and state mutation
-//   - TurnFinished / StopReason event emission for assistant-only turns
+//   - StopReason event emission for assistant-only turns
 //
 // When the response contains tool calls, it returns them via outcome.Response
 // so turnProgressor.advance can pass it to executeToolCalls.
 func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
 	turn := in.State.TurnCount + 1
 
-	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
 	startTime := time.Now()
@@ -71,14 +74,13 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
 		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state := in.State
 	state.StopReason = StopReasonError
 	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
+
 	return turnOutcome{State: state, Stop: true, Error: err}
 }
 
@@ -110,8 +112,8 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInpu
 	return state, turnTokens
 }
 
-func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
+func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
+
 	state.StopReason = StopReasonComplete
 	state.Conversation = stripImagesFromMessages(state.Conversation)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
@@ -128,7 +130,7 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput
 //   - tool preview construction
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
-//   - TurnFinished event emission after all tools
+//   - StopReason / finished-turn handling after all tools
 func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
 	state := in.State
 	turn := state.TurnCount
@@ -159,11 +161,11 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 		state.StopReason = StopReasonWorkflowHandoff
 		state.WorkflowHandoff = transition
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 1, "", "", nil))
+
 		emitStop(in.Request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
-	}
 
+	}
 	toolMessage := p.buildToolMessage(in, turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
@@ -215,8 +217,8 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	return toolMessage
 }
 
-func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
+func (p *turnProgressor) finalizeToolTurn(_ context.Context, _ turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
+
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
@@ -237,12 +239,10 @@ func workflowHandoffTransitionFromResult(result any) (*tool.WorkflowHandoffTrans
 }
 
 // turnProgressor owns the per-turn progression lifecycle.
-type turnProgressor struct {
-	runner *Runner
-}
+type turnProgressor struct{}
 
-func newTurnProgressor(runner *Runner) *turnProgressor {
-	return &turnProgressor{runner: runner}
+func newTurnProgressor() *turnProgressor {
+	return &turnProgressor{}
 }
 
 // advance runs one complete turn: prepare, compaction if needed, model call,
@@ -255,7 +255,7 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 	}
 
 	if fit.ShouldCompact || !fit.Fits {
-		outcome := p.handleCompaction(ctx, in, fit)
+		outcome := p.handleCompaction(ctx, in, fit, in.CompactFn)
 		if outcome.Error != nil {
 			return p.handleError(ctx, in.Request.Events, outcome.State, outcome.Error)
 		}
@@ -303,11 +303,11 @@ func (p *turnProgressor) handleError(ctx context.Context, events output.EventSin
 // the model token budget. It returns a retry outcome on success (the caller
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
-func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget) turnOutcome {
+func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget, compactFn compactConversationFn) turnOutcome {
 	turn := in.State.TurnCount + 1
 	emitCompactionStartedEvent(in.Request.Events, turn)
 	state := in.State
-	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
+	compacted, err := compactFn(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}

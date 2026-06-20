@@ -41,19 +41,22 @@ type RetryConfig struct {
 
 // OpenAICompat implements the Provider interface for OpenAI-compatible APIs.
 type OpenAICompat struct {
-	baseURL        *url.URL
-	apiKey         string
-	headers        map[string]string
-	model          string
-	retry          RetryConfig
-	httpClient     *http.Client
-	scheduler      *Scheduler
-	providerType   string
-	streamErrorLog *StreamErrorLogger
-	sleep          func(context.Context, time.Duration) error
-	jitter         func(time.Duration) time.Duration
-	randMu         sync.Mutex
-	rand           *rand.Rand
+	baseURL               *url.URL
+	apiKey                string
+	headers               map[string]string
+	model                 string
+	retry                 RetryConfig
+	httpClient            *http.Client
+	scheduler             *Scheduler
+	providerType          string
+	streamErrorLog        *StreamErrorLogger
+	requestPayloadFunc    func(ChatRequest, bool) ([]byte, error)
+	requestFunc           func(context.Context, []byte, bool) (*http.Request, error)
+	nonStreamResponseFunc func(*http.Response) (ChatResponse, error)
+	sleep                 func(context.Context, time.Duration) error
+	jitter                func(time.Duration) time.Duration
+	randMu                sync.Mutex
+	rand                  *rand.Rand
 }
 
 // NewOpenAICompat creates a new OpenAI-compatible provider client.
@@ -104,6 +107,9 @@ func NewOpenAICompat(cfg OpenAICompatConfig) (*OpenAICompat, error) {
 		sleep:          defaultRetrySleep,
 		rand:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	provider.requestPayloadFunc = provider.buildRequestPayload
+	provider.requestFunc = provider.buildHTTPRequest
+	provider.nonStreamResponseFunc = provider.normalizeOpenAIChatResponse
 	provider.jitter = provider.fullJitter
 	return provider, nil
 }
@@ -134,14 +140,14 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 	}
 	defer p.release()
 
-	body, err := p.buildRequestPayload(request, false)
+	body, err := p.requestPayload(request, false)
 	if err != nil {
 		return ChatResponse{}, err
 	}
 
 	var response ChatResponse
 	err = p.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, false)
+		resp, err := p.executeHTTPRequest(ctx, body, false)
 		if err != nil {
 			return false, err
 		}
@@ -149,11 +155,7 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 			_ = resp.Body.Close()
 		}()
 
-		payload, err := p.decodeNonStreamResponse(resp)
-		if err != nil {
-			return false, err
-		}
-		response, err = normalizeChatResponse(payload)
+		response, err = p.normalizeNonStreamResponse(resp)
 		if err == nil {
 			observePromptTokenUsage(ctx, request, response.Usage)
 		}
@@ -170,16 +172,40 @@ func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatReq
 	if p == nil {
 		return nil, fmt.Errorf("provider is not initialized")
 	}
-	if err := p.acquire(ctx); err != nil {
-		return nil, err
-	}
 
 	out := make(chan ChatChunk)
 	go func() {
 		defer close(out)
-		defer p.release()
 
-		if err := p.streamChatCompletion(ctx, request, out); err != nil {
+		if err := p.streamChatCompletionWithHandler(ctx, request, out, decodeChatStreamWithHandler, func(info retryAttemptInfo, streamStart time.Time, chunksReceived, contentBytes int, lastRespHeaders http.Header, body []byte, out chan<- ChatChunk) {
+			p.streamErrorLog.Log(streamErrorRecord{
+				Timestamp:       time.Now(),
+				Event:           "stream_retry",
+				Attempt:         info.Attempt,
+				Max:             info.MaxAttempts,
+				Error:           info.Reason,
+				StreamAlive:     time.Since(streamStart).String(),
+				ChunksReceived:  chunksReceived,
+				ContentBytes:    contentBytes,
+				PartialStream:   info.PartialStream,
+				RetryDelay:      info.Delay.String(),
+				RequestURL:      p.baseURL.String(),
+				RequestHeaders:  providerConfigHeaders(p),
+				ResponseHeaders: sanitizeHeaders(lastRespHeaders),
+				RequestBody:     json.RawMessage(body),
+			})
+			if !info.PartialStream {
+				return
+			}
+			select {
+			case out <- ChatChunk{
+				RetryReset: true,
+				Diagnostic: retryWarningMessage(info),
+				Severity:   "warning",
+			}:
+			case <-ctx.Done():
+			}
+		}); err != nil {
 			select {
 			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
 			case <-ctx.Done():
@@ -190,22 +216,59 @@ func (p *OpenAICompat) StreamChatCompletion(ctx context.Context, request ChatReq
 	return out, nil
 }
 
-func (p *OpenAICompat) acquire(ctx context.Context) error {
-	if p.scheduler == nil {
-		return nil
+func (p *OpenAICompat) requestPayload(request ChatRequest, stream bool) ([]byte, error) {
+	if p != nil && p.requestPayloadFunc != nil {
+		return p.requestPayloadFunc(request, stream)
 	}
-	return p.scheduler.Acquire(ctx)
+	return p.buildRequestPayload(request, stream)
 }
 
-func (p *OpenAICompat) release() {
-	if p.scheduler == nil {
-		return
+func (p *OpenAICompat) requestHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
+	if p != nil && p.requestFunc != nil {
+		return p.requestFunc(ctx, body, stream)
 	}
-	p.scheduler.Release()
+	return p.buildHTTPRequest(ctx, body, stream)
 }
 
-func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
-	body, err := p.buildRequestPayload(request, true)
+func (p *OpenAICompat) normalizeNonStreamResponse(resp *http.Response) (ChatResponse, error) {
+	if p != nil && p.nonStreamResponseFunc != nil {
+		return p.nonStreamResponseFunc(resp)
+	}
+	return p.normalizeOpenAIChatResponse(resp)
+}
+
+func (p *OpenAICompat) normalizeOpenAIChatResponse(resp *http.Response) (ChatResponse, error) {
+	payload, err := p.decodeNonStreamResponse(resp)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	return normalizeChatResponse(payload)
+}
+
+func (p *OpenAICompat) executeHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
+	req, err := p.requestHTTPRequest(ctx, body, stream)
+	if err != nil {
+		return nil, err
+	}
+	return p.executeHTTP(ctx, req)
+}
+
+func (p *OpenAICompat) streamChatCompletionWithHandler(
+	ctx context.Context,
+	request ChatRequest,
+	out chan<- ChatChunk,
+	processStream func(context.Context, io.Reader, func(ChatChunk) error) error,
+	onRetry func(retryAttemptInfo, time.Time, int, int, http.Header, []byte, chan<- ChatChunk),
+) error {
+	if p == nil {
+		return fmt.Errorf("provider is not initialized")
+	}
+	if err := p.acquire(ctx); err != nil {
+		return err
+	}
+	defer p.release()
+
+	body, err := p.requestPayload(request, true)
 	if err != nil {
 		return err
 	}
@@ -218,7 +281,7 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 	)
 
 	err = p.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := p.buildAndExecuteHTTPRequest(ctx, body, true)
+		resp, err := p.executeHTTPRequest(ctx, body, true)
 		if err != nil {
 			return false, err
 		}
@@ -232,7 +295,7 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		lastRespHeaders = resp.Header
 
 		partialStream := false
-		err = decodeChatStreamWithHandler(ctx, resp.Body, func(chunk ChatChunk) error {
+		err = processStream(ctx, resp.Body, func(chunk ChatChunk) error {
 			if chunk.Done {
 				observePromptTokenUsage(ctx, request, chunk.Usage)
 			}
@@ -252,58 +315,28 @@ func (p *OpenAICompat) streamChatCompletion(ctx context.Context, request ChatReq
 		})
 		return partialStream, err
 	}, p.classifyRetryError, func(info retryAttemptInfo) {
-		p.streamErrorLog.Log(streamErrorRecord{
-			Timestamp:       time.Now(),
-			Event:           "stream_retry",
-			Attempt:         info.Attempt,
-			Max:             info.MaxAttempts,
-			Error:           info.Reason,
-			StreamAlive:     time.Since(streamStart).String(),
-			ChunksReceived:  chunksReceived,
-			ContentBytes:    contentBytes,
-			PartialStream:   info.PartialStream,
-			RetryDelay:      info.Delay.String(),
-			RequestURL:      p.baseURL.String(),
-			RequestHeaders:  providerConfigHeaders(p),
-			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
-			RequestBody:     json.RawMessage(body),
-		})
-		if !info.PartialStream {
-			return
-		}
-		select {
-		case out <- ChatChunk{
-			RetryReset: true,
-			Diagnostic: retryWarningMessage(info),
-			Severity:   "warning",
-		}:
-		case <-ctx.Done():
+		if onRetry != nil {
+			onRetry(info, streamStart, chunksReceived, contentBytes, lastRespHeaders, append([]byte(nil), body...), out)
 		}
 	})
 	if err != nil {
-		p.streamErrorLog.Log(streamErrorRecord{
-			Timestamp:       time.Now(),
-			Event:           "stream_exhausted",
-			Error:           err.Error(),
-			StreamAlive:     time.Since(streamStart).String(),
-			ChunksReceived:  chunksReceived,
-			ContentBytes:    contentBytes,
-			RequestURL:      p.baseURL.String(),
-			RequestHeaders:  providerConfigHeaders(p),
-			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
-			RequestBody:     json.RawMessage(body),
-		})
 		return err
 	}
 	return nil
 }
 
-func (p *OpenAICompat) buildAndExecuteHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
-	req, err := p.buildHTTPRequest(ctx, body, stream)
-	if err != nil {
-		return nil, err
+func (p *OpenAICompat) acquire(ctx context.Context) error {
+	if p.scheduler == nil {
+		return nil
 	}
-	return p.executeHTTP(ctx, req)
+	return p.scheduler.Acquire(ctx)
+}
+
+func (p *OpenAICompat) release() {
+	if p.scheduler == nil {
+		return
+	}
+	p.scheduler.Release()
 }
 
 func (p *OpenAICompat) classifyRetryError(err error) retryDecision {

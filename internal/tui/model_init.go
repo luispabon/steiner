@@ -79,6 +79,123 @@ func newModelInput() textarea.Model {
 	return input
 }
 
+type overlayKeyHandler interface {
+	matches(Model) bool
+	handle(*Model, tea.KeyMsg) tea.Cmd
+}
+
+type overlayKeyHandlerFunc struct {
+	match func(Model) bool
+	apply func(*Model, tea.KeyMsg) tea.Cmd
+}
+
+func (h overlayKeyHandlerFunc) matches(m Model) bool {
+	return h.match(m)
+}
+
+func (h overlayKeyHandlerFunc) handle(m *Model, msg tea.KeyMsg) tea.Cmd {
+	return h.apply(m, msg)
+}
+
+var overlayKeyHandlers = []overlayKeyHandler{
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleModelPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.workflowHandoff.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleWorkflowHandoffModalKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.exitModal.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleExitModalKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.palette.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.palette, cmd = m.palette.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.slashOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleSlashOverlayKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.fileList.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.fileList, cmd = m.fileList.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.contextOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next := m.handleContextOverlayKey(msg)
+			*m = next.(Model)
+			return nil
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.filePicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleFilePickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.sessionPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleSessionPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.oneshotResumePicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleOneshotResumePickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.planPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handlePlanPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.modelPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleModelPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+}
+
 func resolveTheme(name string) theme.Theme {
 	if name == "" {
 		return theme.Default()

@@ -172,11 +172,7 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 		if event.Type != output.EventTypeContextDiagnostics {
 			continue
 		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-		}
-		kinds = append(kinds, payload.Kind)
+		kinds = append(kinds, output.ContextDiagnosticKind(event.Payload))
 	}
 	if !containsString(kinds, "budget") {
 		t.Fatalf("diagnostic kinds = %v, want budget event", kinds)
@@ -271,12 +267,12 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		if event.Type != output.EventTypeContextDiagnostics {
 			continue
 		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-		}
-		switch payload.Kind {
+		switch output.ContextDiagnosticKind(event.Payload) {
 		case "compaction":
+			payload, ok := output.AsContextCompactionEvent(event.Payload)
+			if !ok {
+				t.Fatalf("diagnostic payload type = %T, want output.ContextCompactionEvent", event.Payload)
+			}
 			if payload.Severity == "compacting" {
 				continue
 			}
@@ -292,6 +288,10 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				t.Fatalf("compaction payload = %#v, want restart guidance", payload)
 			}
 		case "session_health":
+			payload, ok := output.AsContextSessionHealthEvent(event.Payload)
+			if !ok {
+				t.Fatalf("diagnostic payload type = %T, want output.ContextSessionHealthEvent", event.Payload)
+			}
 			if payload.Severity == "compacting" {
 				continue
 			}
@@ -303,6 +303,10 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				t.Fatalf("session health payload = %#v, want severity", payload)
 			}
 		case "budget":
+			payload, ok := output.AsContextBudgetEvent(event.Payload)
+			if !ok {
+				t.Fatalf("diagnostic payload type = %T, want output.ContextBudgetEvent", event.Payload)
+			}
 			if payload.PromptTokens > 0 || payload.TotalTokens > 0 {
 				budgetCount++
 			}

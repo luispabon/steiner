@@ -44,10 +44,6 @@ const (
 	EventTypeRunFinished = "run_finished"
 	// EventTypeOneshotFinished marks the end of a oneshot run.
 	EventTypeOneshotFinished = "oneshot_finished"
-	// EventTypeTurnStarted marks the start of a model turn.
-	EventTypeTurnStarted = "turn_started"
-	// EventTypeTurnFinished marks the end of a model turn.
-	EventTypeTurnFinished = "turn_finished"
 	// EventTypeAssistantMessage records a completed assistant message.
 	EventTypeAssistantMessage = "assistant_message"
 	// EventTypeAssistantChunk records a streamed assistant chunk.
@@ -302,22 +298,6 @@ type RunFinishedEvent struct {
 type OneshotFinishedEvent struct {
 	RunID string `json:"run_id,omitempty"`
 	Err   string `json:"err,omitempty"`
-}
-
-// TurnStartedEvent marks the beginning of a model turn.
-type TurnStartedEvent struct {
-	Turn         int    `json:"turn"`
-	Model        string `json:"model,omitempty"`
-	MessageCount int    `json:"message_count,omitempty"`
-}
-
-// TurnFinishedEvent records the terminal state of a model turn.
-type TurnFinishedEvent struct {
-	Turn         int    `json:"turn"`
-	ToolCalls    int    `json:"tool_calls,omitempty"`
-	FinishReason string `json:"finish_reason,omitempty"`
-	Reply        string `json:"reply,omitempty"`
-	Error        string `json:"error,omitempty"`
 }
 
 // AssistantMessageEvent records a completed assistant message.

@@ -44,13 +44,13 @@ func summarizeInspection(events []Event, recentLimit int) inspectionSnapshot {
 			if segment := renderEvent(event); strings.TrimSpace(segment.Text) != "" {
 				summary.LastStopReason = segment.Text
 			}
-		case ContextDiagnosticsEvent:
+		case ContextDiagnosticsEvent, ContextCompactionEvent, ContextSessionHealthEvent, ContextBudgetEvent, ContextFileAnnotationEvent:
 			summary.ContextDiagnostics++
 			segment := renderEvent(event)
 			if strings.TrimSpace(segment.Text) == "" {
 				continue
 			}
-			switch payload.Kind {
+			switch ContextDiagnosticKind(payload) {
 			case "budget":
 				summary.LastBudget = segment.Text
 			case "compaction":
@@ -76,7 +76,7 @@ func appendRecentLine(lines []string, line string, limit int) []string {
 }
 
 func isContextDiagnosticEvent(event Event) bool {
-	_, ok := event.Payload.(ContextDiagnosticsEvent)
+	_, ok := event.Payload.(contextDiagnosticPayload)
 	return ok
 }
 

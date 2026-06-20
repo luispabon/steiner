@@ -81,7 +81,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	basePrompt := prepareBasePrompt(req)
 	compactionHistory := map[string]bool{}
 	compactionCount := 0
-	p := newTurnProgressor(r)
+	p := newTurnProgressor()
 	runnerRetries := 0
 
 	for {
@@ -100,6 +100,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			BasePrompt:        basePrompt,
 			CompactionHistory: compactionHistory,
 			CompactionCount:   &compactionCount,
+			CompactFn:         r.compactConversationForBudget,
 		}
 		outcome := p.advance(turnCtx, in)
 		if cancel != nil {

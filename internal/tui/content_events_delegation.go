@@ -91,9 +91,7 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 		return b.applyDelegationModelCallStarted(dd, event)
 	case output.EventTypeContextDiagnostics:
 		return b.applyDelegationContextDiagnostics(dd, event)
-	case output.EventTypeTurnStarted,
-		output.EventTypeTurnFinished,
-		output.EventTypeModelCallFinished,
+	case output.EventTypeModelCallFinished,
 		output.EventTypeAPIResponse:
 		return true
 	case output.EventTypeAPIRequest:
@@ -126,7 +124,7 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 }
 
 func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayState, event output.Event) bool {
-	payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+	payload, ok := output.AsContextBudgetEvent(event.Payload)
 	if !ok {
 		return false
 	}

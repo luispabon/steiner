@@ -191,6 +191,52 @@ func TestFileLogSinkEmitDefaultPayload(t *testing.T) {
 	})
 }
 
+func TestFileLogSinkWritesTypedContextDiagnosticsPayloads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.log")
+	sink, err := NewFileLogSink(path, true)
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+
+	sink.Emit(NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:              "compaction",
+		Turn:              4,
+		Severity:          "warning",
+		CompactionCount:   2,
+		SummaryTitle:      "compacted conversation history",
+		RetainedTurns:     2,
+		CompactedMessages: 3,
+	}))
+	sink.Emit(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon"))
+	sink.Emit(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
+	sink.Emit(NewFileAnnotationEvent(5, "note.txt", "annotated", "unchanged since turn 2", 2, "range=lines 1-3/3"))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	got := string(data)
+	for _, want := range []string{
+		`"severity": "warning"`,
+		`"compaction_count": 2`,
+		`"summary_title": "compacted conversation history"`,
+		`"session_state": "fragile"`,
+		`"used_bytes": 900`,
+		`"budget_bytes": 512`,
+		`"path": "note.txt"`,
+		`"reason": "unchanged since turn 2"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log output missing %q\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"kind":`) {
+		t.Fatalf("log output should use typed context diagnostic payloads without legacy kind field\n%s", got)
+	}
+}
+
 func TestFileLogSinkThinkingChunkSuppression(t *testing.T) {
 	t.Run("suppressed when flag is false", func(t *testing.T) {
 		dir := t.TempDir()
