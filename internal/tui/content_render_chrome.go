@@ -100,7 +100,7 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 	lines := b.compactionBoxRows(cd, width)
 
-	return renderStyledBox(strings.Join(lines, "\n"), b.styles.Warn.GetForeground().(lipgloss.Color), lipgloss.Color(theme.BgElev), width) + "\n"
+	return renderStyledBox(strings.Join(lines, "\n"), b.styles.Warn.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
 }
 
 // renderCenteredDashes returns a width-filling dashed line with the label centered.
@@ -328,7 +328,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	lines := b.renderDelegationBoxRows(dd, width)
 
 	_, borderStyle := b.delegationStyles(dd.toolLabel)
-	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground().(lipgloss.Color), lipgloss.Color(theme.BgElev), width) + "\n"
+	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
 	return box + b.renderDelegationHint(dd) + "\n"
 }
 
@@ -451,7 +451,7 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 	return agentID
 }
 
-func renderStyledBox(content string, borderColor, bgColor lipgloss.Color, width int) string {
+func renderStyledBox(content string, borderColor lipgloss.TerminalColor, bgColor lipgloss.Color, width int) string {
 	return lipgloss.NewStyle().
 		Background(bgColor).
 		Padding(0, 1).
