@@ -27,24 +27,24 @@ type compactConversationFn func(ctx context.Context, req RunRequest, state *RunS
 //   - assistant transcript and state mutation
 //   - StopReason event emission for assistant-only turns
 //
-// When the response contains tool calls, it returns them via outcome.Response
-// so turnProgressor.advance can pass it to executeToolCalls.
-func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
-	turn := in.State.TurnCount + 1
+// When the response contains tool calls, it returns the response as a local
+// value so turnProgressor.advance can pass it to executeToolCalls.
+func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, assembly prompt.Assembly, chatRequest provider.ChatRequest) (turnOutcome, *provider.ChatResponse) {
+	turn := state.TurnCount + 1
 
-	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
+	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
 	startTime := time.Now()
-	response, firstChunkTime, err := completeModelCall(ctx, in.Request, turn, chatRequest, assembly.Blocks, in.Request.ModelBudget)
+	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget)
 	if err != nil {
-		return p.handleModelCallError(ctx, in, turn, err)
+		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
 
 	endTime := time.Now()
 	durationMs := endTime.Sub(startTime).Milliseconds()
 
-	response = p.normalizeModelResponse(in, turn, response)
-	state, turnTokens := p.finalizeModelCallState(ctx, in, turn, chatRequest, response)
+	response = p.normalizeModelResponse(state, turn, response)
+	state, turnTokens := p.finalizeModelCallState(ctx, state, turn, chatRequest, response)
 
 	ttftMs := durationMs
 	if !firstChunkTime.IsZero() {
@@ -55,9 +55,9 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
-		emitEvent(in.Request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
+		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
 	}
 	assistant := fromProviderMessage(response.Message)
 	assistant.Turn = turn
@@ -65,36 +65,35 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
 
 	if len(response.Message.ToolCalls) == 0 {
-		return p.finishAssistantOnlyTurn(ctx, in, state, turn, response)
+		return p.finishAssistantOnlyTurn(ctx, state, turn, response), nil
 	}
 
-	return turnOutcome{State: state, Response: &response}
+	return turnOutcome{State: state}, &response
 }
 
-func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
-	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
-		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
-		emitStop(in.Request.Events, cancelled, nil)
+func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunState, turn int, err error) turnOutcome {
+	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
+		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
-	state := in.State
 	state.StopReason = StopReasonError
-	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
 
 	return turnOutcome{State: state, Stop: true, Error: err}
 }
 
-func (p *turnProgressor) normalizeModelResponse(in turnInput, turn int, response provider.ChatResponse) provider.ChatResponse {
+func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response provider.ChatResponse) provider.ChatResponse {
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
 	if response.Message.Content == "" {
 		return response
 	}
-	sanitized, note := processAssistantResponseForContextManager(in.Request.ContextManager, turn, response.Message.Content)
+	sanitized, note := processAssistantResponseForContextManager(p.request.ContextManager, turn, response.Message.Content)
 	response.Message.Content = sanitized
 	if note != "" {
-		emitEvent(in.Request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		emitEvent(p.request.Events, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 			Kind:     "session_health",
 			Severity: "warning",
 			Turn:     turn,
@@ -104,20 +103,18 @@ func (p *turnProgressor) normalizeModelResponse(in turnInput, turn int, response
 	return response
 }
 
-func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInput, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, int) {
-	state := in.State
+func (p *turnProgressor) finalizeModelCallState(ctx context.Context, state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, int) {
 	state.TurnCount = turn
 	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
 	state.TokenCount += turnTokens
 	return state, turnTokens
 }
 
-func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
-
+func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	state.StopReason = StopReasonComplete
 	state.Conversation = stripImagesFromMessages(state.Conversation)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
-	emitStop(in.Request.Events, state, nil)
+	emitStop(p.request.Events, state, nil)
 	return turnOutcome{State: state, Stop: true}
 }
 
@@ -131,42 +128,41 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
 //   - StopReason / finished-turn handling after all tools
-func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
-	state := in.State
+func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, response provider.ChatResponse) turnOutcome {
 	turn := state.TurnCount
 
 	for _, call := range response.Message.ToolCalls {
 		var outcome turnOutcome
-		state, outcome = p.executeSingleToolCall(ctx, in, state, turn, call)
+		state, outcome = p.executeSingleToolCall(ctx, state, turn, call)
 		if outcome.Stop {
 			return outcome
 		}
 	}
 
-	return p.finalizeToolTurn(ctx, in, state, turn, response)
+	return p.finalizeToolTurn(ctx, state, turn, response)
 }
 
-func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
-	emitEvent(in.Request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
+	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
-	result, err := in.Request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+	result, err := p.request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		cancelled = replaySafeRunState(cancelled)
-		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-		emitStop(in.Request.Events, cancelled, nil)
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+		emitStop(p.request.Events, cancelled, nil)
 		return state, turnOutcome{State: cancelled, Stop: true}
 	}
 	if transition, ok := workflowHandoffTransitionFromResult(result); ok {
 		state.StopReason = StopReasonWorkflowHandoff
 		state.WorkflowHandoff = transition
-		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
 
-		emitStop(in.Request.Events, state, nil)
+		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
 
 	}
-	toolMessage := p.buildToolMessage(in, turn, call, result, err)
+	toolMessage := p.buildToolMessage(turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	return state, turnOutcome{}
@@ -180,20 +176,20 @@ func liveConversationSnapshot(state RunState) []provider.Message {
 	return ToReplaySafeProviderMessages(conversation)
 }
 
-func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.ToolCall, result any, err error) Message {
+func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error) Message {
 	var toolContent string
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
 		toolContent = formatToolError(err)
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
 	} else {
-		recordMutationForContextManager(in.Request.ContextManager, call.Name, call.Arguments, result)
+		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
-		toolContent = shapeIngestedToolResultForContextManager(in.Request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+		toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		emitEvent(in.Request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
@@ -217,7 +213,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	return toolMessage
 }
 
-func (p *turnProgressor) finalizeToolTurn(_ context.Context, _ turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
+func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
@@ -238,61 +234,73 @@ func workflowHandoffTransitionFromResult(result any) (*tool.WorkflowHandoffTrans
 	}
 }
 
-// turnProgressor owns the per-turn progression lifecycle.
-type turnProgressor struct{}
+// turnProgressor owns the per-turn progression lifecycle and its per-run state.
+type turnProgressor struct {
+	request           RunRequest
+	basePrompt        prompt.AssemblyOptions
+	compactFn         compactConversationFn
+	compactionHistory map[string]bool
+	// compactionCount tracks the number of successful compactions in this run.
+	// It is distinct from state.Context.CompactionCount, which carries the
+	// initial value from the prompt's durable context state (reserved for
+	// future cross-run persistence; currently always 0).
+	compactionCount int
+}
 
-func newTurnProgressor() *turnProgressor {
-	return &turnProgressor{}
+func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {
+	return &turnProgressor{
+		request:           req,
+		basePrompt:        base,
+		compactFn:         compactFn,
+		compactionHistory: map[string]bool{},
+	}
 }
 
 // advance runs one complete turn: prepare, compaction if needed, model call,
 // and tool calls if the response contains them. It returns the outcome which
-// the Runner's outer loop interprets for stop/retry decisions.
-func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome {
-	assembly, chatRequest, fit, err := prepareTurn(ctx, in)
+// the Runner's outer loop interprets for stop/retry decisions. Echo-back
+// detection is internal: when the model returns reasoning_content but
+// ReasoningEchoBack was not configured, it enables it on the progressor's
+// request so subsequent turns preserve reasoning.
+func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcome {
+	assembly, chatRequest, fit, err := p.prepareTurn(ctx, state)
 	if err != nil {
-		return p.handleError(ctx, in.Request.Events, in.State, err)
+		return p.handleError(ctx, state, err)
 	}
 
 	if fit.ShouldCompact || !fit.Fits {
-		outcome := p.handleCompaction(ctx, in, fit, in.CompactFn)
+		outcome := p.handleCompaction(ctx, state, fit, p.compactFn)
 		if outcome.Error != nil {
-			return p.handleError(ctx, in.Request.Events, outcome.State, outcome.Error)
+			return p.handleError(ctx, outcome.State, outcome.Error)
 		}
 		return outcome
 	}
 
-	modelOutcome := p.executeModelCall(ctx, in, assembly, chatRequest)
+	modelOutcome, response := p.executeModelCall(ctx, state, assembly, chatRequest)
 
 	// Auto-detect interleaved reasoning: if the model returned reasoning_content
-	// but ReasoningEchoBack was not configured, signal the runner to enable it
-	// for subsequent turns. Check the last message in the updated conversation
-	// so this fires for both assistant-only turns and tool-call turns.
-	var detectedReasoningEchoBack bool
-	if !in.Request.ResolvedModel.ReasoningEchoBack && modelOutcome.Error == nil {
+	// but ReasoningEchoBack was not configured, enable it on the progressor's
+	// request so subsequent turns preserve reasoning.
+	if !p.request.ResolvedModel.ReasoningEchoBack && modelOutcome.Error == nil {
 		msgs := modelOutcome.State.Conversation
 		if len(msgs) > 0 && msgs[len(msgs)-1].ReasoningContent != "" {
-			detectedReasoningEchoBack = true
+			p.request.ResolvedModel.ReasoningEchoBack = true
 		}
 	}
 
 	if modelOutcome.Error != nil || modelOutcome.Stop {
-		modelOutcome.DetectedReasoningEchoBack = detectedReasoningEchoBack
 		return modelOutcome
 	}
 
-	in.State = modelOutcome.State
-	toolOutcome := p.executeToolCalls(ctx, in, *modelOutcome.Response)
-	toolOutcome.DetectedReasoningEchoBack = detectedReasoningEchoBack
-	return toolOutcome
+	return p.executeToolCalls(ctx, modelOutcome.State, *response)
 }
 
 // handleError converts an error into a turnOutcome, checking for cancellation
 // first. Cancellation returns Stop with a nil error; everything else sets
 // StopReasonError.
-func (p *turnProgressor) handleError(ctx context.Context, events output.EventSink, state RunState, err error) turnOutcome {
+func (p *turnProgressor) handleError(ctx context.Context, state RunState, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		emitStop(events, cancelled, nil)
+		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state.StopReason = StopReasonError
@@ -303,11 +311,10 @@ func (p *turnProgressor) handleError(ctx context.Context, events output.EventSin
 // the model token budget. It returns a retry outcome on success (the caller
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
-func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget, compactFn compactConversationFn) turnOutcome {
-	turn := in.State.TurnCount + 1
-	emitCompactionStartedEvent(in.Request.Events, turn)
-	state := in.State
-	compacted, err := compactFn(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
+func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget, compactFn compactConversationFn) turnOutcome {
+	turn := state.TurnCount + 1
+	emitCompactionStartedEvent(p.request.Events, turn)
+	compacted, err := compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
@@ -322,26 +329,26 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit
 }
 
 // prepareTurn assembles the prompt, constructs the chat request, and fits it
-// against the model token budget. Diagnostics are emitted through the request
+// against the model token budget. Diagnostics are emitted through the progressor's
 // event sink.
-func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.ChatRequest, prompt.RequestTokenBudget, error) {
-	turn := in.State.TurnCount + 1
+func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (prompt.Assembly, provider.ChatRequest, prompt.RequestTokenBudget, error) {
+	turn := state.TurnCount + 1
 
-	cm := in.Request.ContextManager
+	cm := p.request.ContextManager
 	if cm == nil {
 		cm = NewContextStateManager()
 	}
 	var err error
-	in.State, err = cm.PrepareTurnState(ctx, in.State)
+	state, err = cm.PrepareTurnState(ctx, state)
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
 	}
 
-	assembly, err := prompt.Assemble(ctx, assemblyOptions(in.BasePrompt, in.State))
+	assembly, err := prompt.Assemble(ctx, assemblyOptions(p.basePrompt, state))
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
-	emitAssemblyDiagnostics(in.Request.Events, in.Request.Prompt, turn, assembly)
+	emitAssemblyDiagnostics(p.request.Events, p.request.Prompt, turn, assembly)
 
 	// Debug log: byte sizes per prompt zone to aid KV-cache tuning.
 	systemBytes, conversationBytes := 0, 0
@@ -355,23 +362,23 @@ func prepareTurn(ctx context.Context, in turnInput) (prompt.Assembly, provider.C
 	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
-		Model:       in.Request.ResolvedModel.BackendModelID,
+		Model:       p.request.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,
-		Tools:       provider.CloneTools(in.Request.Tools),
-		Params:      in.Request.ResolvedModel.Params,
-		ExtraParams: in.Request.ResolvedModel.ExtraParams,
+		Tools:       provider.CloneTools(p.request.Tools),
+		Params:      p.request.ResolvedModel.Params,
+		ExtraParams: p.request.ResolvedModel.ExtraParams,
 	}
-	chatRequest = applyPromptSuffix(in.Request.ResolvedModel.PromptSuffix, chatRequest)
-	chatRequest.IncludeEmptyReasoning = in.Request.ResolvedModel.ReasoningEchoBack
-	if !in.Request.ResolvedModel.ReasoningEchoBack {
+	chatRequest = applyPromptSuffix(p.request.ResolvedModel.PromptSuffix, chatRequest)
+	chatRequest.IncludeEmptyReasoning = p.request.ResolvedModel.ReasoningEchoBack
+	if !p.request.ResolvedModel.ReasoningEchoBack {
 		stripReasoningContent(chatRequest.Messages)
 	}
 
-	fit, err := in.Request.ModelBudget.FitRequest(ctx, chatRequest)
+	fit, err := p.request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
-	emitRequestTokenDiagnostic(in.Request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
+	emitRequestTokenDiagnostic(p.request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
 	return assembly, chatRequest, fit, nil
 }
 
