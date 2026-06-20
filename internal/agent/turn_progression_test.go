@@ -161,7 +161,9 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
+	})
 
 	fit := prompt.RequestTokenBudget{
 		ContextSize: 10,
@@ -169,9 +171,7 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Fits:        false,
 	}
 
-	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
-		return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
-	})
+	outcome := p.handleCompaction(context.Background(), state, fit)
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want non-nil")
@@ -216,7 +216,9 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, fmt.Errorf("compaction provider unavailable")
+	})
 
 	fit := prompt.RequestTokenBudget{
 		ContextSize: 4096,
@@ -224,9 +226,7 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Fits:        false,
 	}
 
-	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
-		return false, fmt.Errorf("compaction provider unavailable")
-	})
+	outcome := p.handleCompaction(context.Background(), state, fit)
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want error")
@@ -263,7 +263,9 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		GenerationID: 1,
 		View:         ConversationViewFull,
 	})
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, nil
+	})
 	p.compactionHistory[key] = true
 
 	fit := prompt.RequestTokenBudget{
@@ -272,9 +274,7 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		Fits:        false,
 	}
 
-	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
-		return false, nil
-	})
+	outcome := p.handleCompaction(context.Background(), state, fit)
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want error")

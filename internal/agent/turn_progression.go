@@ -269,7 +269,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 	}
 
 	if fit.ShouldCompact || !fit.Fits {
-		outcome := p.handleCompaction(ctx, state, fit, p.compactFn)
+		outcome := p.handleCompaction(ctx, state, fit)
 		if outcome.Error != nil {
 			return p.handleError(ctx, outcome.State, outcome.Error)
 		}
@@ -311,10 +311,10 @@ func (p *turnProgressor) handleError(ctx context.Context, state RunState, err er
 // the model token budget. It returns a retry outcome on success (the caller
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
-func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget, compactFn compactConversationFn) turnOutcome {
+func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget) turnOutcome {
 	turn := state.TurnCount + 1
 	emitCompactionStartedEvent(p.request.Events, turn)
-	compacted, err := compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
+	compacted, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}

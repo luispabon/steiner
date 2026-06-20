@@ -64,9 +64,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	case output.RunStartedEvent:
 		m.interruptPending = false
-		m.compaction = compactionState{}
-		m.content.compaction = compactionState{}
-		m.sidebar.compaction = compactionState{}
+		m.setCompaction(compactionState{})
 		if payload.MaxTurns > 0 {
 			m.sidebar.maxTurns = payload.MaxTurns
 		}
@@ -100,9 +98,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.applyContextBudget(payload)
 	case output.ContextCompactionEvent:
 		cs := newCompactionState(payload)
-		m.compaction = cs
-		m.content.compaction = cs
-		m.sidebar.compaction = cs
+		m.setCompaction(cs)
 		if cs.Active() {
 			m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 		} else {
@@ -128,9 +124,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 		if compaction, ok := output.AsContextCompactionEvent(payload); ok {
 			cs := newCompactionState(compaction)
-			m.compaction = cs
-			m.content.compaction = cs
-			m.sidebar.compaction = cs
+			m.setCompaction(cs)
 			if cs.Active() {
 				m.activity = m.activity.waiting("compacting context", compactingLabel(compaction))
 			} else {

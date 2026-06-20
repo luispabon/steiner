@@ -50,6 +50,14 @@ func newCompactionState(payload output.ContextCompactionEvent) compactionState {
 	}
 }
 
+// setCompaction fans the compaction state out to every reader (model,
+// content buffer, sidebar) from one place so the copies cannot desync.
+func (m *Model) setCompaction(cs compactionState) {
+	m.compaction = cs
+	m.content.compaction = cs
+	m.sidebar.compaction = cs
+}
+
 type workflowHandoffLaunch struct {
 	next      string
 	target    string
