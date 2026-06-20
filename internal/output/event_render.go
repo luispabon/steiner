@@ -44,15 +44,16 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ApprovalEvent{}): func(event Event) Segment {
 		return renderApprovalEvent(event, event.Payload.(ApprovalEvent))
 	},
-	reflect.TypeOf(WorkflowHandoffEvent{}): typedRenderer(renderWorkflowHandoffEvent),
-	reflect.TypeOf(StopReasonEvent{}):      typedRenderer(renderStopReasonEvent),
-	reflect.TypeOf(UserInputEvent{}):       typedRenderer(renderUserInputEvent),
-	reflect.TypeOf(APIRequestEvent{}):      typedRenderer(renderAPIRequestEvent),
-	reflect.TypeOf(APIResponseEvent{}):     typedRenderer(renderAPIResponseEvent),
-	reflect.TypeOf(ContextDiagnosticsEvent{}): func(event Event) Segment {
-		payload := event.Payload.(ContextDiagnosticsEvent)
-		return Segment{Channel: ChannelStatus, Label: "context", Text: formatContextDiagnosticsEvent(payload)}
-	},
+	reflect.TypeOf(WorkflowHandoffEvent{}):       typedRenderer(renderWorkflowHandoffEvent),
+	reflect.TypeOf(StopReasonEvent{}):            typedRenderer(renderStopReasonEvent),
+	reflect.TypeOf(UserInputEvent{}):             typedRenderer(renderUserInputEvent),
+	reflect.TypeOf(APIRequestEvent{}):            typedRenderer(renderAPIRequestEvent),
+	reflect.TypeOf(APIResponseEvent{}):           typedRenderer(renderAPIResponseEvent),
+	reflect.TypeOf(ContextDiagnosticsEvent{}):    typedRenderer(renderLegacyContextDiagnosticsEvent),
+	reflect.TypeOf(ContextCompactionEvent{}):     typedRenderer(renderContextCompactionEvent),
+	reflect.TypeOf(ContextSessionHealthEvent{}):  typedRenderer(renderContextSessionHealthEvent),
+	reflect.TypeOf(ContextBudgetEvent{}):         typedRenderer(renderContextBudgetEvent),
+	reflect.TypeOf(ContextFileAnnotationEvent{}): typedRenderer(renderContextFileAnnotationEvent),
 }
 
 func appendField(parts []string, key, value string) []string {
@@ -159,6 +160,26 @@ func renderProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Segment {
 	}
 	parts = appendField(parts, "message", payload.Message)
 	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
+}
+
+func renderLegacyContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "context", Text: formatContextDiagnosticsEvent(payload)}
+}
+
+func renderContextCompactionEvent(payload ContextCompactionEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "context", Text: formatAnyContextDiagnosticsEvent(payload)}
+}
+
+func renderContextSessionHealthEvent(payload ContextSessionHealthEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "context", Text: formatAnyContextDiagnosticsEvent(payload)}
+}
+
+func renderContextBudgetEvent(payload ContextBudgetEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "context", Text: formatAnyContextDiagnosticsEvent(payload)}
+}
+
+func renderContextFileAnnotationEvent(payload ContextFileAnnotationEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "context", Text: formatAnyContextDiagnosticsEvent(payload)}
 }
 
 func renderDisplayFileEvent(payload DisplayFilePayload) Segment {

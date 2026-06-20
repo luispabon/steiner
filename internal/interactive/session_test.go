@@ -909,11 +909,7 @@ func TestSessionRunEmitsWarningOnHistoryLoadError(t *testing.T) {
 
 	var found bool
 	for _, event := range events {
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			continue
-		}
-		if payload.Kind == "session_health" && payload.Severity == "warning" {
+		if output.ContextDiagnosticKind(event.Payload) == "session_health" && output.ContextDiagnosticSeverity(event.Payload) == "warning" {
 			found = true
 			break
 		}

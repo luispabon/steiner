@@ -126,7 +126,7 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 }
 
 func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayState, event output.Event) bool {
-	payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+	payload, ok := output.AsContextBudgetEvent(event.Payload)
 	if !ok {
 		return false
 	}

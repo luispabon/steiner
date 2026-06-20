@@ -84,6 +84,8 @@ Compaction is tracked per-session. After multiple compactions the session become
 
 A restart resets the compaction counter and the context window — it's the ultimate escape hatch when compactions can't keep up.
 
+Context diagnostics for these states are emitted as typed sub-events: budget, compaction, session-health, and file-annotation payloads all share the same top-level event type while keeping their serialized fields specific to the diagnostic being reported.
+
 ---
 
 ## Durable context state

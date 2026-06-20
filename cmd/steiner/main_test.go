@@ -1057,11 +1057,7 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 	for _, event := range result.Diagnostics {
 		switch event.Type {
 		case output.EventTypeContextDiagnostics:
-			payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-			if !ok {
-				t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
-			}
-			kinds = append(kinds, payload.Kind)
+			kinds = append(kinds, output.ContextDiagnosticKind(event.Payload))
 		case output.EventTypeStopReason:
 			payload, ok := event.Payload.(output.StopReasonEvent)
 			if !ok {

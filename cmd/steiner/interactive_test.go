@@ -164,11 +164,7 @@ func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
 
 	var found bool
 	for _, event := range events {
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-		if !ok {
-			continue
-		}
-		if payload.Severity == "warning" && strings.Contains(strings.Join(payload.Notes, " "), "tui runtime failed: boom") {
+		if output.ContextDiagnosticSeverity(event.Payload) == "warning" && strings.Contains(strings.Join(output.ContextDiagnosticNotes(event.Payload), " "), "tui runtime failed: boom") {
 			found = true
 			break
 		}
@@ -219,7 +215,7 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 	}
 
 	for _, event := range events {
-		if payload, ok := event.Payload.(output.ContextDiagnosticsEvent); ok && payload.Severity == "warning" && strings.Contains(strings.Join(payload.Notes, " "), "tui runtime failed") {
+		if output.ContextDiagnosticSeverity(event.Payload) == "warning" && strings.Contains(strings.Join(output.ContextDiagnosticNotes(event.Payload), " "), "tui runtime failed") {
 			t.Fatalf("events = %#v, want no warning diagnostic for program killed", events)
 		}
 	}

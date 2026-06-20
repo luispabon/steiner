@@ -3,65 +3,12 @@ package output
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
-// ContextDiagnosticsEvent records context-management diagnostics for logs and UI.
-type ContextDiagnosticsEvent struct {
-	Kind                string   `json:"kind"`
-	Scope               string   `json:"scope,omitempty"`
-	Turn                int      `json:"turn,omitempty"`
-	Severity            string   `json:"severity,omitempty"`
-	SessionState        string   `json:"session_state,omitempty"`
-	Action              string   `json:"action,omitempty"`
-	Reason              string   `json:"reason,omitempty"`
-	Tool                string   `json:"tool,omitempty"`
-	Path                string   `json:"path,omitempty"`
-	Window              int      `json:"window,omitempty"`
-	Parsed              bool     `json:"parsed,omitempty"`
-	Failures            int      `json:"failures,omitempty"`
-	CompactionCount     int      `json:"compaction_count,omitempty"`
-	RestartGuidance     string   `json:"restart_guidance,omitempty"`
-	RetainedTurns       int      `json:"retained_turns,omitempty"`
-	RetainedMessages    int      `json:"retained_messages,omitempty"`
-	CompactedTurns      int      `json:"compacted_turns,omitempty"`
-	CompactedMessages   int      `json:"compacted_messages,omitempty"`
-	SummaryTitle        string   `json:"summary_title,omitempty"`
-	SummaryPreview      string   `json:"summary_preview,omitempty"`
-	SummaryText         string   `json:"summary_text,omitempty"`
-	SummaryBytes        int      `json:"summary_bytes,omitempty"`
-	BudgetBytes         int      `json:"budget_bytes,omitempty"`
-	UsedBytes           int      `json:"used_bytes,omitempty"`
-	PromptTokens        int      `json:"prompt_tokens,omitempty"`
-	ContextTokens       int      `json:"context_tokens,omitempty"`
-	TotalTokens         int      `json:"total_tokens,omitempty"`
-	Truncated           bool     `json:"truncated,omitempty"`
-	ContextWindow       int      `json:"context_window,omitempty"`
-	ContextUsagePercent float64  `json:"context_usage_percent,omitempty"`
-	CompactionThreshold float64  `json:"compaction_threshold,omitempty"`
-	EstimatorPadTokens  int      `json:"estimator_pad_tokens,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	Mode                string   `json:"mode,omitempty"`
-	BeforePromptTokens  int      `json:"before_prompt_tokens,omitempty"`
-	BeforeUsagePercent  float64  `json:"before_usage_percent,omitempty"`
-	AfterPromptTokens   int      `json:"after_prompt_tokens,omitempty"`
-	AfterUsagePercent   float64  `json:"after_usage_percent,omitempty"`
-	RetainedRawTurns    int      `json:"retained_raw_turns,omitempty"`
-	SummaryTokenBudget  int      `json:"summary_token_budget,omitempty"`
-	ThresholdAchieved   bool     `json:"threshold_achieved,omitempty"`
-	Notes               []string `json:"notes,omitempty"`
-}
-
-// NewContextDiagnosticsEvent creates a new context diagnostics event.
+// NewContextDiagnosticsEvent creates a new context diagnostics event from the
+// legacy compatibility payload, emitting the appropriate typed sub-event.
 func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
-	if payload.Kind == "" {
-		payload.Kind = "diagnostic"
-	}
-	return Event{
-		Type:      EventTypeContextDiagnostics,
-		Timestamp: time.Now().UTC(),
-		Payload:   payload,
-	}
+	return contextDiagnosticEvent(contextDiagnosticFromLegacy(payload))
 }
 
 // NewContextCompactionEvent creates a new context compaction event.
@@ -70,8 +17,7 @@ func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedT
 	if len(summaryPreview) > 0 {
 		preview = summaryPreview[0]
 	}
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:              "compaction",
+	return contextDiagnosticEvent(ContextCompactionEvent{
 		Turn:              turn,
 		RetainedTurns:     retainedTurns,
 		RetainedMessages:  retainedMessages,
@@ -86,8 +32,7 @@ func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedT
 
 // NewContextSessionHealthEvent creates a new context session health event.
 func NewContextSessionHealthEvent(scope string, turn, compactionCount int, severity, sessionState, restartGuidance string, notes ...string) Event {
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:            "session_health",
+	return contextDiagnosticEvent(ContextSessionHealthEvent{
 		Scope:           scope,
 		Turn:            turn,
 		Severity:        severity,
@@ -100,8 +45,7 @@ func NewContextSessionHealthEvent(scope string, turn, compactionCount int, sever
 
 // NewContextBudgetEvent creates a new context budget event.
 func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, truncated bool, notes ...string) Event {
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:        "budget",
+	return contextDiagnosticEvent(ContextBudgetEvent{
 		Scope:       scope,
 		Turn:        turn,
 		UsedBytes:   usedBytes,
@@ -113,8 +57,7 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 
 // NewContextTokenBudgetEvent creates a new context token budget event.
 func NewContextTokenBudgetEvent(scope string, turn, promptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:                "budget",
+	return contextDiagnosticEvent(ContextBudgetEvent{
 		Scope:               scope,
 		Turn:                turn,
 		PromptTokens:        promptTokens,
@@ -136,8 +79,7 @@ func NewFileAnnotationEvent(turn int, path, action, reason string, previousTurn 
 	if previousTurn > 0 {
 		eventNotes = append(eventNotes, fmt.Sprintf("previous_turn=%d", previousTurn))
 	}
-	return NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
-		Kind:     "file_annotation",
+	return contextDiagnosticEvent(ContextFileAnnotationEvent{
 		Scope:    "read",
 		Turn:     turn,
 		Severity: "info",
@@ -161,6 +103,14 @@ func formatContextDiagnosticsEvent(payload ContextDiagnosticsEvent) string {
 	default:
 		return formatGenericContextDiagnostics(payload)
 	}
+}
+
+func formatAnyContextDiagnosticsEvent(payload any) string {
+	diag, ok := payload.(contextDiagnosticPayload)
+	if !ok {
+		return ""
+	}
+	return formatContextDiagnosticsEvent(diag.toLegacyContextDiagnostics())
 }
 
 func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {

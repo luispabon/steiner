@@ -190,7 +190,7 @@ func appendStatusContext(base, fragment string) string {
 	return base + " | " + fragment
 }
 
-func compactionSidebarSummary(payload output.ContextDiagnosticsEvent) string {
+func compactionSidebarSummary(payload output.ContextCompactionEvent) string {
 	parts := make([]string, 0, 4)
 	if severity := strings.TrimSpace(payload.Severity); severity != "" {
 		if severity == "compacting" {
@@ -220,7 +220,7 @@ func compactionSidebarSummary(payload output.ContextDiagnosticsEvent) string {
 	return strings.Join(parts, " ")
 }
 
-func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
+func compactionStatusFragment(payload output.ContextCompactionEvent) string {
 	parts := make([]string, 0, 3)
 	if severity := strings.TrimSpace(payload.Severity); severity != "" {
 		parts = append(parts, severity)
@@ -241,6 +241,42 @@ func compactionStatusFragment(payload output.ContextDiagnosticsEvent) string {
 	}
 	if len(parts) == 0 {
 		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func sessionHealthSidebarSummary(payload output.ContextSessionHealthEvent) string {
+	parts := make([]string, 0, 4)
+	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		if severity == "compacting" {
+			return "compacting…"
+		}
+		parts = append(parts, severity)
+	}
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("#%d", payload.CompactionCount))
+	}
+	if state := strings.TrimSpace(payload.SessionState); state != "" {
+		parts = append(parts, state)
+	}
+	if guidance := strings.TrimSpace(payload.RestartGuidance); guidance != "" {
+		parts = append(parts, guidance)
+	}
+	return strings.Join(parts, " ")
+}
+
+func sessionHealthStatusFragment(payload output.ContextSessionHealthEvent) string {
+	parts := make([]string, 0, 3)
+	if severity := strings.TrimSpace(payload.Severity); severity != "" {
+		parts = append(parts, severity)
+	}
+	if payload.CompactionCount > 0 {
+		parts = append(parts, fmt.Sprintf("compaction #%d", payload.CompactionCount))
+	}
+	if payload.Severity == "critical" && strings.TrimSpace(payload.RestartGuidance) != "" {
+		parts = append(parts, "restart now")
+	} else if payload.Severity == "warning" && strings.TrimSpace(payload.RestartGuidance) != "" {
+		parts = append(parts, "restart soon")
 	}
 	return strings.Join(parts, " ")
 }
@@ -296,13 +332,13 @@ func (m *Model) contextBudgetForModel(name string) int {
 	return m.modelContexts[strings.TrimSpace(name)]
 }
 
-func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool {
+func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
 	contextWindow := payload.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = payload.ContextTokens
 	}
 	if m == nil || contextWindow <= 0 {
-		return false
+		return
 	}
 	promptUsed := payload.PromptTokens
 	if promptUsed < 0 {
@@ -328,7 +364,6 @@ func (m *Model) applyContextBudget(payload output.ContextDiagnosticsEvent) bool 
 		m.sidebar.currentTurn = payload.Turn
 	}
 	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, contextWindow)
-	return true
 }
 
 func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {

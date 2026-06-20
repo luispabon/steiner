@@ -125,16 +125,13 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 
 func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	b.finishStreaming()
-	payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
-	if !ok {
-		return
-	}
-	if payload.Kind == "compaction" {
+	payload, ok := output.AsContextCompactionEvent(event.Payload)
+	if ok {
 		b.handleCompactionDiagnostics(payload)
 	}
 }
 
-func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagnosticsEvent) {
+func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompactionEvent) {
 	if payload.Severity == "compacting" {
 		b.upsertCompactionBanner(compactionBannerData{
 			label:           "Compacting",

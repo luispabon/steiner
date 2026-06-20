@@ -93,11 +93,11 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 		t.Fatalf("run started model = %q, want %q", got, want)
 	}
 
-	compacting, ok := events[1].Payload.(output.ContextDiagnosticsEvent)
+	compacting, ok := output.AsContextCompactionEvent(events[1].Payload)
 	if !ok {
-		t.Fatalf("events[1].Payload type = %T, want output.ContextDiagnosticsEvent", events[1].Payload)
+		t.Fatalf("events[1].Payload type = %T, want output.ContextCompactionEvent", events[1].Payload)
 	}
-	if got, want := compacting.Kind, "compaction"; got != want {
+	if got, want := output.ContextDiagnosticKind(compacting), "compaction"; got != want {
 		t.Fatalf("compaction kind = %q, want %q", got, want)
 	}
 	if got, want := compacting.Severity, "compacting"; got != want {

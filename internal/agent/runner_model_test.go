@@ -407,11 +407,11 @@ func TestRunnerEmitsTokenBudgetDiagnosticsForNormalTurns(t *testing.T) {
 		if event.Type != output.EventTypeContextDiagnostics {
 			continue
 		}
-		payload, ok := event.Payload.(output.ContextDiagnosticsEvent)
+		payload, ok := output.AsContextBudgetEvent(event.Payload)
 		if !ok {
-			t.Fatalf("diagnostic payload type = %T, want output.ContextDiagnosticsEvent", event.Payload)
+			t.Fatalf("diagnostic payload type = %T, want output.ContextBudgetEvent", event.Payload)
 		}
-		if payload.Kind == "budget" && payload.ContextTokens == 4096 {
+		if payload.ContextWindow == 4096 {
 			foundTokenBudget = true
 			if payload.TotalTokens <= 0 {
 				t.Fatalf("payload.TotalTokens = %d, want > 0", payload.TotalTokens)

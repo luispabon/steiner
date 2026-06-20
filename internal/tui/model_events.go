@@ -100,38 +100,70 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.APIResponseEvent:
 		detail := strings.TrimSpace(payload.FinishReason)
 		m.activity = m.activity.waiting("receiving response", detail)
-	case output.ContextDiagnosticsEvent:
+	case output.ContextBudgetEvent:
 		m.applyContextBudget(payload)
-		if payload.Kind == "compaction" {
-			m.compacting = payload.Severity == "compacting"
+	case output.ContextCompactionEvent:
+		m.compacting = payload.Severity == "compacting"
+		m.content.inCompaction = m.compacting
+		if m.compacting {
+			m.sidebar.compaction = compactionSidebarSummary(payload)
+			m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
+		} else {
+			m.sidebar.compaction = ""
+			m.activity = m.activity.static("context compacted", compactedLabel(payload))
+		}
+		m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+		// Append separator + summary text when compaction finishes with a summary.
+		if payload.Severity != "compacting" && payload.SummaryText != "" {
+			m.content.AppendCompactionResult("Compaction", payload.SummaryText)
+		}
+	case output.ContextSessionHealthEvent:
+		if m.compacting {
+			m.sidebar.compaction = sessionHealthSidebarSummary(payload)
+		} else {
+			m.sidebar.compaction = ""
+		}
+		if !m.compacting {
+			m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
+		}
+		m.sessionHealthCompactionCount = payload.CompactionCount
+		m.sessionHealthTurn = payload.Turn
+		m.sessionHealthState = payload.SessionState
+		m.sessionHealthGuidance = payload.RestartGuidance
+		m.sessionHealthNotes = append([]string(nil), payload.Notes...)
+	case output.ContextDiagnosticsEvent:
+		if budget, ok := output.AsContextBudgetEvent(payload); ok {
+			m.applyContextBudget(budget)
+		}
+		if compaction, ok := output.AsContextCompactionEvent(payload); ok {
+			m.compacting = compaction.Severity == "compacting"
 			m.content.inCompaction = m.compacting
 			if m.compacting {
-				m.sidebar.compaction = compactionSidebarSummary(payload)
-				m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
+				m.sidebar.compaction = compactionSidebarSummary(compaction)
+				m.activity = m.activity.waiting("compacting context", compactingLabel(compaction))
 			} else {
 				m.sidebar.compaction = ""
-				m.activity = m.activity.static("context compacted", compactedLabel(payload))
+				m.activity = m.activity.static("context compacted", compactedLabel(compaction))
 			}
-			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
-			// Append separator + summary text when compaction finishes with a summary.
-			if payload.Severity != "compacting" && payload.SummaryText != "" {
-				m.content.AppendCompactionResult("Compaction", payload.SummaryText)
+			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(compaction))
+			if compaction.Severity != "compacting" && compaction.SummaryText != "" {
+				m.content.AppendCompactionResult("Compaction", compaction.SummaryText)
 			}
 		}
-		if payload.Kind == "session_health" {
+		if health, ok := output.AsContextSessionHealthEvent(payload); ok {
 			if m.compacting {
-				m.sidebar.compaction = compactionSidebarSummary(payload)
+				m.sidebar.compaction = sessionHealthSidebarSummary(health)
 			} else {
 				m.sidebar.compaction = ""
 			}
 			if !m.compacting {
-				m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+				m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(health))
 			}
-			m.sessionHealthCompactionCount = payload.CompactionCount
-			m.sessionHealthTurn = payload.Turn
-			m.sessionHealthState = payload.SessionState
-			m.sessionHealthGuidance = payload.RestartGuidance
-			m.sessionHealthNotes = append([]string(nil), payload.Notes...)
+			m.sessionHealthCompactionCount = health.CompactionCount
+			m.sessionHealthTurn = health.Turn
+			m.sessionHealthState = health.SessionState
+			m.sessionHealthGuidance = health.RestartGuidance
+			m.sessionHealthNotes = append([]string(nil), health.Notes...)
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
