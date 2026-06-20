@@ -352,7 +352,7 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 	dd := seg.delegData
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
-	dd.promptText = delegatePromptText(payload.Arguments)
+	dd.promptText = delegateArgText(payload.Arguments)
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
@@ -400,7 +400,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	}
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
-	promptText := delegatePromptText(payload.Arguments)
+	promptText := delegateArgText(payload.Arguments)
 	toolLabel := ""
 	if isSpecializedDelegateTool(payload.Tool) {
 		toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))

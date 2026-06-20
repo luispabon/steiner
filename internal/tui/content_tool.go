@@ -31,28 +31,29 @@ func isSpecializedDelegateTool(tool string) bool {
 
 // summarizeArgs extracts a human-readable summary from tool arguments
 func summarizeArgs(tool string, args map[string]any) string {
+	tool = normalizeToolName(tool)
 	if args == nil {
 		return tool
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "follow_up") {
+	if tool == "follow_up" {
 		return summarizeFollowUpArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "delegate") || isSpecializedDelegateTool(tool) {
-		return summarizeDelegateArgs(args)
+	if tool == "delegate" || isSpecializedDelegateTool(tool) {
+		return delegateArgText(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "mutate") {
+	if tool == "mutate" {
 		return summarizeMutateArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "grep") {
+	if tool == "grep" {
 		return summarizeGrepArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "glob") {
+	if tool == "glob" {
 		return summarizeGlobArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "read") || strings.EqualFold(strings.TrimSpace(tool), "read_file") {
+	if tool == "read" || tool == "read_file" {
 		return summarizeReadArgs(args)
 	}
-	if strings.EqualFold(strings.TrimSpace(tool), "ls") {
+	if tool == "ls" {
 		return summarizeLSArgs(args)
 	}
 	// Try common arg keys in order
@@ -68,24 +69,8 @@ func summarizeArgs(tool string, args map[string]any) string {
 	return tool
 }
 
-func summarizeDelegateArgs(args map[string]any) string {
-	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
-		if v, ok := args[key]; ok {
-			return fmt.Sprintf("%v", v)
-		}
-	}
-	return summarizeFirstArgValue(args)
-}
-
-func summarizeFirstArgValue(args map[string]any) string {
-	for _, v := range args {
-		return fmt.Sprintf("%v", v)
-	}
-	return ""
-}
-
-func delegatePromptText(args map[string]any) string {
-	if args == nil {
+func delegateArgText(args map[string]any) string {
+	if args == nil || len(args) == 0 {
 		return ""
 	}
 	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
