@@ -16,7 +16,6 @@ type contentSegmentKind int
 
 const (
 	segmentPlain contentSegmentKind = iota
-	segmentAssistantProse
 	segmentAssistantMarkdown
 	segmentApproval
 	segmentTool

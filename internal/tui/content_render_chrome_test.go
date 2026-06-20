@@ -337,9 +337,10 @@ func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
 	b.appendLabeledBlock("Compaction", "summary text")
 
 	out := b.String(80)
+	plain := stripANSI(out)
 
 	// The closing delimiter should be preceded by a blank line.
-	lines := strings.Split(out, "\n")
+	lines := strings.Split(plain, "\n")
 	var bodyIndex int
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "summary text" {
@@ -348,12 +349,12 @@ func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
 		}
 	}
 	if bodyIndex == 0 {
-		t.Fatalf("body line not found in output:\n%s", out)
+		t.Fatalf("body line not found in output:\n%s", plain)
 	}
 	if bodyIndex+1 >= len(lines) || strings.TrimSpace(lines[bodyIndex+1]) != "" {
-		t.Errorf("expected blank line immediately after body, got %q:\n%s", lines[bodyIndex+1], out)
+		t.Errorf("expected blank line immediately after body, got %q:\n%s", lines[bodyIndex+1], plain)
 	}
 	if bodyIndex+2 >= len(lines) || !strings.Contains(lines[bodyIndex+2], "End of Compaction") {
-		t.Errorf("expected closing delimiter after blank line:\n%s", out)
+		t.Errorf("expected closing delimiter after blank line:\n%s", plain)
 	}
 }

@@ -100,18 +100,7 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 	lines := b.compactionBoxRows(cd, width)
 
-	warnColor := b.styles.Warn.GetForeground()
-	boxStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(warnColor)
-
-	boxWidth := width - 2
-	if boxWidth < 1 {
-		boxWidth = 1
-	}
-	return boxStyle.Width(boxWidth).Render(strings.Join(lines, "\n")) + "\n"
+	return renderStyledBox(strings.Join(lines, "\n"), b.styles.Warn.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
 }
 
 // renderCenteredDashes returns a width-filling dashed line with the label centered.
@@ -338,17 +327,8 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 
 	lines := b.renderDelegationBoxRows(dd, width)
 
-	boxStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(b.delegationBorderStyle(dd.toolLabel).GetForeground())
-
-	boxWidth := width - 2
-	if boxWidth < 1 {
-		boxWidth = 1
-	}
-	box := boxStyle.Width(boxWidth).Render(strings.Join(lines, "\n")) + "\n"
+	_, borderStyle := b.delegationStyles(dd.toolLabel)
+	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
 	return box + b.renderDelegationHint(dd) + "\n"
 }
 
@@ -450,9 +430,11 @@ func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayStat
 func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (string, lipgloss.Style) {
 	switch {
 	case dd.isAdvisor:
-		return "advisor", b.delegationToolLabelStyle("advisor")
+		tagStyle, _ := b.delegationStyles("advisor")
+		return "advisor", tagStyle
 	case dd.toolLabel != "":
-		return dd.toolLabel, b.delegationToolLabelStyle(dd.toolLabel)
+		tagStyle, _ := b.delegationStyles(dd.toolLabel)
+		return dd.toolLabel, tagStyle
 	default:
 		return "delegate", b.styles.DelegateTagDefault
 	}
@@ -467,6 +449,16 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 		return "pending"
 	}
 	return agentID
+}
+
+func renderStyledBox(content string, borderColor lipgloss.TerminalColor, bgColor lipgloss.Color, width int) string {
+	return lipgloss.NewStyle().
+		Background(bgColor).
+		Padding(0, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(borderColor).
+		Width(max(1, width-2)).
+		Render(content)
 }
 
 // delegationStyles returns both the tag and border lipgloss styles for the given
@@ -486,20 +478,6 @@ func (b *contentBuffer) delegationStyles(toolLabel string) (tag lipgloss.Style, 
 	default:
 		return b.styles.DelegateTagDefault, b.styles.DelegateBorderDefault
 	}
-}
-
-// delegationToolLabelStyle returns the lipgloss style used to render specialized
-// delegate tool labels (e.g. "explore", "research") in the delegation box header.
-func (b *contentBuffer) delegationToolLabelStyle(toolLabel string) lipgloss.Style {
-	tag, _ := b.delegationStyles(toolLabel)
-	return tag
-}
-
-// delegationBorderStyle returns the lipgloss style for the delegation box border,
-// colored by agent type.
-func (b *contentBuffer) delegationBorderStyle(toolLabel string) lipgloss.Style {
-	_, border := b.delegationStyles(toolLabel)
-	return border
 }
 
 func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState) (string, int) {

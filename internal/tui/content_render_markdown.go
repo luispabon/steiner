@@ -20,10 +20,6 @@ func (b *contentBuffer) renderAssistantMarkdownSegment(segment contentSegment, w
 	return b.styles.AssistantProse.Render(segment.text) + "\n\n"
 }
 
-func (b *contentBuffer) renderAssistantProseSegment(segment contentSegment) string {
-	return b.styles.AssistantProse.Render(segment.text) + "\n\n"
-}
-
 func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) string {
 	lines := strings.Split(strings.TrimRight(segment.text, "\n"), "\n")
 	contentWidth := width - 1

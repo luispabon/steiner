@@ -12,30 +12,30 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func (m *Model) layout() {
+const delegationBodyOverhead = 9
+
+func (m Model) contentWidth() int {
 	contentWidth := m.width
 	if m.sidebar.Visible(m.width) {
-		contentWidth = m.width - sidebarWidth - 1 // 1-cell vertical divider
+		contentWidth = m.width - sidebarWidth - 1
 	}
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	return max(1, contentWidth)
+}
+
+func (m *Model) layout() {
+	contentWidth := m.contentWidth()
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
 	// Total rows: top_pad(1) + viewport + hDivider(1) + input + activity + status(1).
 	// The composer renders as a padded message-style card, so derive its height.
-	m.input.MaxWidth = 0
-	m.input.SetWidth(99999)
-	inputRows := m.inputChromeHeight(contentWidth)
-	activityRows := m.activityRowHeight(contentWidth)
+	inputRows, activityRows := m.computeInputRows(contentWidth)
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
 	m.viewport.Width = max(1, contentWidth-6)
 	m.viewport.Height = max(1, m.height-3-inputRows-activityRows)
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
-	// Using 9 leaves one spare row so the box never grazes the viewport edge.
-	delegationOverhead := 9
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationOverhead)
+	// Using delegationBodyOverhead leaves one spare row so the box never grazes the viewport edge.
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
 	m.syncViewport()
 }
 
@@ -43,17 +43,8 @@ func (m *Model) layout() {
 // (e.g. on each keystroke). Cheaper than layout(): skips syncViewport when
 // height is unchanged, avoiding a full content re-render on every key press.
 func (m *Model) relayoutInput() {
-	contentWidth := m.width
-	if m.sidebar.Visible(m.width) {
-		contentWidth = m.width - sidebarWidth - 1
-	}
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	m.input.MaxWidth = 0
-	m.input.SetWidth(99999)
-	inputRows := m.inputChromeHeight(contentWidth)
-	activityRows := m.activityRowHeight(contentWidth)
+	contentWidth := m.contentWidth()
+	inputRows, activityRows := m.computeInputRows(contentWidth)
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
 	newHeight := max(1, m.height-3-inputRows-activityRows)
@@ -61,8 +52,16 @@ func (m *Model) relayoutInput() {
 		return
 	}
 	m.viewport.Height = newHeight
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-9)
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
 	m.syncViewport()
+}
+
+func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int) {
+	m.input.MaxWidth = 0
+	m.input.SetWidth(99999)
+	inputRows = m.inputChromeHeight(contentWidth)
+	activityRows = m.activityRowHeight(contentWidth)
+	return inputRows, activityRows
 }
 
 func (m *Model) syncViewport() {

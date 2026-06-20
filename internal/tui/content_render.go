@@ -121,14 +121,12 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderToolCallGroup(segment.toolGroupData, width)
 	case segmentAssistantMarkdown:
 		return b.renderAssistantMarkdownSegment(segment, width)
-	case segmentAssistantProse:
-		return b.renderAssistantProseSegment(segment)
 	case segmentApproval:
-		return b.renderApprovalSegment(segment)
+		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
 	case segmentTool:
-		return b.renderToolSegment(segment)
+		return b.styles.ToolBlock.Render(segment.text) + "\n"
 	case segmentThinking:
-		return b.renderThinkingSegment(segment)
+		return b.styles.ThinkingBlock.Render(segment.text) + "\n"
 	case segmentUser:
 		return b.renderUserSegment(segment, width)
 	case segmentUserMarkdown:
@@ -151,38 +149,18 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 	case segmentSeparator:
 		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
-		return theme.WithBg(b.renderInterruptedSegment(), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", lipgloss.Color(theme.BgElev))
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:
 		return theme.WithBg(b.renderStatusSegment(segment, width), lipgloss.Color(theme.BgElev))
 	default:
-		return b.renderDefaultSegment(segment)
+		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
 }
 
 func (b *contentBuffer) renderToolCallSegment(segment contentSegment, width int) string {
 	return b.renderToolCall(segment.toolData, width)
-}
-
-func (b *contentBuffer) renderApprovalSegment(segment contentSegment) string {
-	return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
-}
-
-func (b *contentBuffer) renderToolSegment(segment contentSegment) string {
-	return b.styles.ToolBlock.Render(segment.text) + "\n"
-}
-
-func (b *contentBuffer) renderThinkingSegment(segment contentSegment) string {
-	return b.styles.ThinkingBlock.Render(segment.text) + "\n"
-}
-
-func (b *contentBuffer) renderInterruptedSegment() string {
-	return b.styles.FgMute.Render("interrupted") + "\n\n"
-}
-
-func (b *contentBuffer) renderDefaultSegment(segment contentSegment) string {
-	return b.styles.AssistantProse.Render(segment.text) + "\n"
 }
 
 func (b *contentBuffer) inProgressPreview(width int) string {

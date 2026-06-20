@@ -13,11 +13,8 @@ import (
 
 // View renders the full TUI frame for the current model state.
 func (m Model) View() string {
-	contentWidth := max(1, m.width)
+	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
-	if sidebarVisible {
-		contentWidth = max(1, m.width-sidebarWidth-1)
-	}
 
 	base := m.renderBaseView(contentWidth, sidebarVisible)
 	result := m.renderOverlayView(base, contentWidth)
@@ -192,15 +189,39 @@ func (m Model) renderInputView(contentWidth int) string {
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)
 	lines, isPlaceholder, cursorRow := m.renderInputLines(innerWidth)
-	if !isPlaceholder {
-		maxVisible := max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
-		if len(lines) > maxVisible {
-			start := max(0, cursorRow-maxVisible/2)
-			if start+maxVisible > len(lines) {
-				start = len(lines) - maxVisible
-			}
-			lines = lines[start : start+maxVisible]
+	if isPlaceholder {
+		return m.renderPlaceholderInputView(bar, bodyWidth, lines)
+	}
+	return m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow)
+}
+
+func (m Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []string) string {
+	var sb strings.Builder
+	paddingLine := bar + m.styles.UserBg.Width(bodyWidth).Render("")
+	for range inputPadY {
+		sb.WriteString(paddingLine + "\n")
+	}
+	for _, line := range lines {
+		content := m.styles.UserBg.
+			Foreground(lipgloss.Color(theme.FgDim)).
+			Width(bodyWidth).
+			Render(strings.Repeat(" ", inputPadX) + line + strings.Repeat(" ", inputPadX))
+		sb.WriteString(bar + content + "\n")
+	}
+	for range inputPadY {
+		sb.WriteString(paddingLine + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
+	maxVisible := max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
+	if len(lines) > maxVisible {
+		start := max(0, cursorRow-maxVisible/2)
+		if start+maxVisible > len(lines) {
+			start = len(lines) - maxVisible
 		}
+		lines = lines[start : start+maxVisible]
 	}
 
 	var sb strings.Builder
@@ -209,15 +230,6 @@ func (m Model) renderInputView(contentWidth int) string {
 		sb.WriteString(paddingLine + "\n")
 	}
 	for i, line := range lines {
-		if isPlaceholder {
-			content := m.styles.UserBg.
-				Foreground(lipgloss.Color(theme.FgDim)).
-				Width(bodyWidth).
-				Render(strings.Repeat(" ", inputPadX) + line + strings.Repeat(" ", inputPadX))
-			sb.WriteString(bar + content + "\n")
-			continue
-		}
-
 		renderedLine := line
 		if i == 0 {
 			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames, m.oneshotRunning); ok {
