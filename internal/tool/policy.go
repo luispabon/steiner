@@ -93,6 +93,9 @@ func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 			}
 		}
 	}
+	if err := rejectSpecialFile(normalized); err != nil {
+		return "", err
+	}
 	return normalized, nil
 }
 
@@ -107,6 +110,9 @@ func (p PathPolicy) ResolvePath(raw string, writable bool) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 	if err := p.ensureAllowed(normalized, writable); err != nil {
+		return "", err
+	}
+	if err := rejectSpecialFile(normalized); err != nil {
 		return "", err
 	}
 	return normalized, nil
@@ -281,4 +287,21 @@ func stringInput(value any) string {
 	default:
 		return ""
 	}
+}
+
+// rejectSpecialFile denies device, pipe, and socket paths so tools can never
+// open the controlling terminal (e.g. /dev/stdin) or other non-regular files.
+func rejectSpecialFile(path string) error {
+	fi, err := os.Stat(path) // follow symlinks so /dev/stdin -> tty is caught
+	if err != nil {
+		return nil // missing/unstatable: let the tool surface its own error
+	}
+	const special = os.ModeDevice | os.ModeCharDevice | os.ModeNamedPipe | os.ModeSocket
+	if fi.Mode()&special != 0 {
+		return &PathPolicyError{
+			Path:   path,
+			Reason: fmt.Sprintf("path %q is not a regular file", path),
+		}
+	}
+	return nil
 }
