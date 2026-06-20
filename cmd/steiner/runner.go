@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/deepnoodle-ai/wonton/web"
 
-	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -62,7 +60,23 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
 	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
-	activeRegistry, err := buildActiveRegistry(r.runtime.registry, r.runtime.cfg.SubAgent, r.runtime.cfg.Advisor, setup.provider, events, r.runtime.workDir, r.runtime.homeDir, setup.resolvedModel, setup.resolvedModel.EffectiveLimits.MaxOutputTokens, r.streamingPreferred, r.runtime.delegationLogger, r.runtime.cfg, r.runtime.providerFactory, r.runtime.httpClient, searcher)
+	activeRegistry, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
+		BaseRegistry:       r.runtime.registry,
+		SubAgentCfg:        r.runtime.cfg.SubAgent,
+		AdvisorCfg:         r.runtime.cfg.Advisor,
+		Provider:           setup.provider,
+		Events:             events,
+		WorkDir:            r.runtime.workDir,
+		HomeDir:            r.runtime.homeDir,
+		ResolvedModel:      setup.resolvedModel,
+		MaxTokens:          setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
+		StreamingPreferred: r.streamingPreferred,
+		TraceLogger:        r.runtime.delegationLogger,
+		Config:             r.runtime.cfg,
+		ProviderFactory:    r.runtime.providerFactory,
+		HTTPClient:         r.runtime.httpClient,
+		Searcher:           searcher,
+	})
 	if err != nil {
 		return runResult{}, err
 	}
@@ -158,118 +172,24 @@ func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
 }
 
-// buildActiveRegistry returns the registry to use for a run. When sub-agent
-// delegation is enabled the base registry is cloned and the delegate tool is
-// registered into the clone so that the base registry stays clean.
-//
-// An extended base registry is also built that includes real tools (web_search
-// when a searcher is available, fetch_url always via Builtins) so child
-// registries can filter them in via their per-type allowlists.
+// buildActiveRegistry is retained for tests and delegates to
+// internal/delegation.BuildDelegateRegistry.
 func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, advisorCfg config.AdvisorConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) (*tool.Registry, error) {
-	if !subAgentCfg.Enabled && !advisorCfg.Enabled {
-		return base, nil
-	}
-	cloned := base.Clone()
-
-	if advisorCfg.Enabled {
-		advisorResolved, err := provider.ResolveWithDiscovery(cfg, advisorCfg.Model, httpClient)
-		if err != nil {
-			return nil, fmt.Errorf("resolve advisor model %q: %w", advisorCfg.Model, err)
-		}
-		advisorProvider, err := resolveToolProvider(prov, rm, advisorResolved, providerFactory)
-		if err != nil {
-			return nil, fmt.Errorf("build advisor provider for %q: %w", advisorCfg.Model, err)
-		}
-		cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
-			Provider: advisorProvider,
-			Model:    advisorResolved,
-			Events:   events,
-			Config: advisor.Config{
-				MaxUsesPerRun: advisorCfg.MaxUsesPerRun,
-				MaxTokens:     advisorCfg.MaxTokens,
-			},
-		})))
-	}
-
-	if !subAgentCfg.Enabled {
-		return cloned, nil
-	}
-	mt := maxTokens
-	store := delegation.NewSessionStore()
-
-	// extendedBase is used as ParentReg for child agents.
-	// fetch_url is always present (via Builtins). Conditionally add web_search.
-	extendedBase := base.Clone()
-	if searcher != nil {
-		extendedBase.Register(builtin.NewWebSearchTool(searcher))
-	}
-
-	delegateDeps := delegation.DelegateHandlerDeps{
-		Provider:             prov,
-		ParentReg:            extendedBase,
-		SubAgentCfg:          subAgentCfg,
-		Events:               events,
-		Runner:               agent.NewRunner(),
-		WorkDir:              workDir,
-		HomeDir:              homeDir,
-		ProjectContextConfig: cfg.ProjectContext,
-		ResolvedModel:        rm,
-		MaxTokens:            &mt,
-		StreamingPreferred:   streamingPreferred,
-		CaveHuman:            cfg.CaveHuman,
-		TraceLogger:          traceLogger,
-		SessionStore:         store,
-	}
-
-	// Register the generic delegate tool.
-	handler := delegation.NewDelegateHandler(delegateDeps)
-	cloned.Register(delegation.DelegateToolDef(handler))
-	cloned.Register(delegation.FollowUpToolDef(delegation.NewFollowUpHandler(delegateDeps)))
-
-	// Conditionally expose web_search to the parent model.
-	if searcher != nil {
-		cloned.Register(builtin.NewWebSearchTool(searcher))
-	}
-
-	// Build a model resolver for specialized tools to use per-type model aliases.
-	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved, err := provider.ResolveWithDiscovery(cfg, alias, httpClient)
-		if err != nil {
-			return nil, provider.ResolvedModel{}, err
-		}
-		if providerFactory == nil {
-			return prov, resolved, nil
-		}
-		p, err := providerFactory(resolved)
-		if err != nil {
-			return nil, provider.ResolvedModel{}, err
-		}
-		return p, resolved, nil
-	}
-
-	// Register a specialized tool for each agent type.
-	// Skip research agent when no search backend is configured.
-	specializedDeps := delegation.SpecializedToolDeps{
-		DelegateHandlerDeps: delegateDeps,
-		ModelResolver:       modelResolver,
-	}
-	var excludeTypes []delegation.AgentType
-	if searcher == nil {
-		excludeTypes = []delegation.AgentType{delegation.AgentTypeResearch}
-	}
-	for _, def := range delegation.AllSpecializedToolDefs(specializedDeps, excludeTypes) {
-		cloned.Register(def)
-	}
-
-	return cloned, nil
-}
-
-func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) (provider.Provider, error) {
-	if providerFactory != nil {
-		return providerFactory(target)
-	}
-	if current != nil && currentModel.ProviderAlias == target.ProviderAlias && currentModel.EffectiveProviderType == target.EffectiveProviderType {
-		return current, nil
-	}
-	return nil, fmt.Errorf("provider factory is required for advisor model %q", target.Alias)
+	return delegation.BuildDelegateRegistry(delegation.DelegateDeps{
+		BaseRegistry:       base,
+		SubAgentCfg:        subAgentCfg,
+		AdvisorCfg:         advisorCfg,
+		Provider:           prov,
+		Events:             events,
+		WorkDir:            workDir,
+		HomeDir:            homeDir,
+		ResolvedModel:      rm,
+		MaxTokens:          maxTokens,
+		StreamingPreferred: streamingPreferred,
+		TraceLogger:        traceLogger,
+		Config:             cfg,
+		ProviderFactory:    providerFactory,
+		HTTPClient:         httpClient,
+		Searcher:           searcher,
+	})
 }
