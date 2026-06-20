@@ -174,6 +174,8 @@ func (p loggingProvider) SupportsUsageStats() bool {
 
 // buildActiveRegistry is retained for tests and delegates to
 // internal/delegation.BuildDelegateRegistry.
+//
+//nolint:unparam // prov is always stubProvider{} in test call sites.
 func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, advisorCfg config.AdvisorConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) (*tool.Registry, error) {
 	return delegation.BuildDelegateRegistry(delegation.DelegateDeps{
 		BaseRegistry:       base,

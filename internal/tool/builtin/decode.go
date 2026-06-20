@@ -21,9 +21,6 @@ func decodeInput[T any](raw map[string]any) (T, error) {
 	var zero T
 
 	t := reflect.TypeFor[T]()
-	if t == nil {
-		return zero, fmt.Errorf("decode input: nil type")
-	}
 
 	baseType, err := inputBaseType(t)
 	if err != nil {
@@ -163,9 +160,9 @@ func coerceScalarValue(t reflect.Type, rv reflect.Value, raw any) (any, error) {
 	case reflect.String:
 		return coerceStringValue(rv, raw)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return coerceIntValue(t, rv, raw)
+		return coerceIntLike(t, rv, raw)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return coerceUintValue(t, rv, raw)
+		return coerceIntLike(t, rv, raw)
 	case reflect.Float32, reflect.Float64:
 		return coerceFloatValue(t, rv, raw)
 	case reflect.Bool:
@@ -192,39 +189,30 @@ func coerceStringValue(rv reflect.Value, raw any) (any, error) {
 	}
 }
 
-func coerceIntValue(t reflect.Type, rv reflect.Value, raw any) (any, error) {
-	switch rv.Kind() {
-	case reflect.String:
-		n, err := strconv.ParseInt(rv.String(), 10, t.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse int: %w", err)
-		}
-		return n, nil
-	case reflect.Float32, reflect.Float64:
-		n, err := strconv.ParseInt(strconv.FormatFloat(rv.Float(), 'f', -1, 64), 10, t.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse int: %w", err)
-		}
-		return n, nil
-	default:
-		return nil, fmt.Errorf("cannot convert %T to %v", raw, t)
-	}
-}
+func coerceIntLike(t reflect.Type, rv reflect.Value, raw any) (any, error) {
+	bits := t.Bits()
+	isUnsigned := t.Kind() == reflect.Uint || t.Kind() == reflect.Uint8 || t.Kind() == reflect.Uint16 || t.Kind() == reflect.Uint32 || t.Kind() == reflect.Uint64
 
-func coerceUintValue(t reflect.Type, rv reflect.Value, raw any) (any, error) {
+	parse := func(s string) (any, error) {
+		if isUnsigned {
+			n, err := strconv.ParseUint(s, 10, bits)
+			if err != nil {
+				return nil, fmt.Errorf("parse uint: %w", err)
+			}
+			return n, nil
+		}
+		n, err := strconv.ParseInt(s, 10, bits)
+		if err != nil {
+			return nil, fmt.Errorf("parse int: %w", err)
+		}
+		return n, nil
+	}
+
 	switch rv.Kind() {
 	case reflect.String:
-		n, err := strconv.ParseUint(rv.String(), 10, t.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse uint: %w", err)
-		}
-		return n, nil
+		return parse(rv.String())
 	case reflect.Float32, reflect.Float64:
-		n, err := strconv.ParseUint(strconv.FormatFloat(rv.Float(), 'f', -1, 64), 10, t.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse uint: %w", err)
-		}
-		return n, nil
+		return parse(strconv.FormatFloat(rv.Float(), 'f', -1, 64))
 	default:
 		return nil, fmt.Errorf("cannot convert %T to %v", raw, t)
 	}
