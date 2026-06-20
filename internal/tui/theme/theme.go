@@ -72,26 +72,10 @@ type Styles struct {
 	// DelegateTagDefault is the fallback pill style for unknown delegates.
 	DelegateTagDefault lipgloss.Style
 
-	// Delegate tag styles remain available as compatibility aliases for
-	// existing delegation renderers while the keyed collection is adopted.
-	DelegateTagExplore  lipgloss.Style
-	DelegateTagResearch lipgloss.Style
-	DelegateTagCode     lipgloss.Style
-	DelegateTagPlan     lipgloss.Style
-	DelegateTagVerify   lipgloss.Style
-
 	// DelegateBorderStyles maps normalized delegate labels to border styles.
 	DelegateBorderStyles map[string]lipgloss.Style
 	// DelegateBorderDefault is the fallback border style for unknown delegates.
 	DelegateBorderDefault lipgloss.Style
-
-	// Delegate border styles remain available as compatibility aliases for
-	// existing delegation renderers while the keyed collection is adopted.
-	DelegateBorderExplore  lipgloss.Style
-	DelegateBorderResearch lipgloss.Style
-	DelegateBorderCode     lipgloss.Style
-	DelegateBorderPlan     lipgloss.Style
-	DelegateBorderVerify   lipgloss.Style
 
 	// Diff colors
 	Added   lipgloss.Style // added lines (green)
@@ -206,12 +190,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
 			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
 		},
-		DelegateTagDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
-		DelegateTagExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
-		DelegateTagResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
-		DelegateTagCode:     lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
-		DelegateTagPlan:     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
-		DelegateTagVerify:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
+		DelegateTagDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
 
 		DelegateBorderStyles: map[string]lipgloss.Style{
 			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
@@ -220,12 +199,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
 			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
 		},
-		DelegateBorderDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
-		DelegateBorderExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
-		DelegateBorderResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
-		DelegateBorderCode:     lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
-		DelegateBorderPlan:     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
-		DelegateBorderVerify:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
+		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),

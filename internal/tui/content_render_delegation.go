@@ -161,20 +161,8 @@ func renderStyledBox(content string, borderColor lipgloss.TerminalColor, bgColor
 // delegationStyles returns both the tag and border lipgloss styles for the given
 // agent type label, performing the case-normalisation once for both callers.
 func (b *contentBuffer) delegationStyles(toolLabel string) (tag lipgloss.Style, border lipgloss.Style) {
-	switch strings.ToLower(strings.TrimSpace(toolLabel)) {
-	case "explore":
-		return b.styles.DelegateTagExplore, b.styles.DelegateBorderExplore
-	case "research":
-		return b.styles.DelegateTagResearch, b.styles.DelegateBorderResearch
-	case "code":
-		return b.styles.DelegateTagCode, b.styles.DelegateBorderCode
-	case "plan":
-		return b.styles.DelegateTagPlan, b.styles.DelegateBorderPlan
-	case "verify":
-		return b.styles.DelegateTagVerify, b.styles.DelegateBorderVerify
-	default:
-		return b.styles.DelegateTagDefault, b.styles.DelegateBorderDefault
-	}
+	key := strings.ToLower(strings.TrimSpace(toolLabel))
+	return styleByKey(b.styles.DelegateTagStyles, key, b.styles.DelegateTagDefault), styleByKey(b.styles.DelegateBorderStyles, key, b.styles.DelegateBorderDefault)
 }
 
 func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState) (string, int) {
