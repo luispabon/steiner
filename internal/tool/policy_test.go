@@ -3,7 +3,9 @@ package tool
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -584,5 +586,86 @@ func TestPathPolicy_WithoutRoot(t *testing.T) {
 	_, err := relaxed.ResolvePath("/etc/passwd", false)
 	if err != nil {
 		t.Fatalf("relaxed.ResolvePath(/etc/passwd) error = %v, want nil", err)
+	}
+}
+
+func TestPolicy_ResolveReadPath_RejectsSpecialFiles(t *testing.T) {
+	policy := NewPathPolicy(t.TempDir(), config.PathsConfig{})
+
+	tests := []struct {
+		name    string
+		setup   func(tmpdir string) string // returns the path to test
+		wantErr bool
+		skipMsg string // set to skip the test with this message
+	}{
+		{
+			name: "rejects FIFO",
+			setup: func(tmpdir string) string {
+				fifoPath := filepath.Join(tmpdir, "fifo")
+				if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+					t.Skip("Mkfifo unsupported on this platform")
+				}
+				return fifoPath
+			},
+			wantErr: true,
+		},
+		{
+			name: "allows regular file",
+			setup: func(tmpdir string) string {
+				regPath := filepath.Join(tmpdir, "regular.txt")
+				if err := os.WriteFile(regPath, []byte("data"), 0o644); err != nil {
+					t.Fatalf("create regular file: %v", err)
+				}
+				return regPath
+			},
+			wantErr: false,
+		},
+		{
+			name: "allows directory",
+			setup: func(tmpdir string) string {
+				return tmpdir
+			},
+			wantErr: false,
+		},
+		{
+			name: "allows non-existent path",
+			setup: func(tmpdir string) string {
+				return filepath.Join(tmpdir, "nonexistent", "path.txt")
+			},
+			wantErr: false,
+		},
+		{
+			name: "rejects symlink to FIFO",
+			setup: func(tmpdir string) string {
+				fifoPath := filepath.Join(tmpdir, "real_fifo")
+				if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+					t.Skip("Mkfifo unsupported on this platform")
+				}
+				linkPath := filepath.Join(tmpdir, "link_to_fifo")
+				if err := os.Symlink(fifoPath, linkPath); err != nil {
+					t.Fatalf("create symlink: %v", err)
+				}
+				return linkPath
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.setup(policy.Root())
+			_, err := policy.ResolveReadPath(path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ResolveReadPath(%q) = nil, want error", path)
+				}
+				var policyErr *PathPolicyError
+				if !errors.As(err, &policyErr) {
+					t.Fatalf("error type = %T, want *PathPolicyError", err)
+				}
+			} else if err != nil {
+				t.Fatalf("ResolveReadPath(%q) error = %v, want nil", path, err)
+			}
+		})
 	}
 }

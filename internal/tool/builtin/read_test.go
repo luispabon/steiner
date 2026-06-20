@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -182,4 +184,35 @@ func TestReadTool(t *testing.T) {
 			t.Errorf("Output = %q, want empty", result.Output)
 		}
 	})
+}
+
+// TestReadTool_RejectsSpecialFile guards against the terminal-hijack class of
+// bug: reading a non-regular file (here a FIFO, standing in for /dev/stdin)
+// must fail fast via path policy rather than block on a read of the device.
+func TestReadTool_RejectsSpecialFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	fifoPath := filepath.Join(tmpDir, "fifo")
+	if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+		t.Skip("Mkfifo unsupported on this platform")
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	toolDef := NewReadTool(env)
+
+	type outcome struct{ err error }
+	done := make(chan outcome, 1)
+	go func() {
+		_, err := toolDef.Handler(context.Background(), map[string]any{"path": "fifo"})
+		done <- outcome{err: err}
+	}()
+
+	select {
+	case res := <-done:
+		if res.err == nil {
+			t.Fatal("read of FIFO returned nil error, want rejection")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("read of FIFO blocked instead of being rejected by policy")
+	}
 }
