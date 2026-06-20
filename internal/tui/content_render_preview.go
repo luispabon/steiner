@@ -89,7 +89,7 @@ func (b *contentBuffer) buildListLines(path, label string, returned, nextOffset 
 		name := entry.Path
 		if showDirs && entry.IsDir {
 			name += "/"
-			lines = append(lines, b.styles.ToolTagRead.Render(name))
+			lines = append(lines, b.toolTagStyle("read").Render(name))
 		} else {
 			lines = append(lines, b.styles.FgDim.Render(name))
 		}
@@ -128,7 +128,7 @@ func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.styles.ToolTagGrep.Render(file.Path))
+		lines = append(lines, b.toolTagStyle("grep").Render(file.Path))
 	}
 	if tc.preview.NextOffset > 0 {
 		lines = append(lines, b.styles.FgMute.Render("more available"))
@@ -153,7 +153,7 @@ func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.styles.ToolTagGrep.Render(fmt.Sprintf("%s:%d", file.Path, file.Count)))
+		lines = append(lines, b.toolTagStyle("grep").Render(fmt.Sprintf("%s:%d", file.Path, file.Count)))
 	}
 	if tc.preview.NextOffset > 0 {
 		lines = append(lines, b.styles.FgMute.Render("more available"))
@@ -182,7 +182,7 @@ func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.styles.ToolTagGrep.Render("## "+file.Path))
+		lines = append(lines, b.toolTagStyle("grep").Render("## "+file.Path))
 		for _, match := range file.Matches {
 			if match.LineNumber > 0 {
 				lines = append(lines, b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", match.LineNumber))+b.styles.FgDim.Render(match.Text))

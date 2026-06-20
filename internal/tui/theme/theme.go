@@ -57,37 +57,36 @@ type Styles struct {
 	// Thinking block bar
 	ThinkingBar lipgloss.Style // left-bar color for thinking blocks
 
-	// Tool tag pills (per kind)
-	ToolTagBash  lipgloss.Style
-	ToolTagRead  lipgloss.Style
-	ToolTagWrite lipgloss.Style
-
-	ToolTagTodo    lipgloss.Style
+	// ToolTagStyles maps normalized tool names to pill styles.
+	ToolTagStyles map[string]lipgloss.Style
+	// ToolTagDefault is the fallback pill style for unknown tools.
 	ToolTagDefault lipgloss.Style
-	ToolTagSearch  lipgloss.Style // search (blue)
-	ToolTagGlob    lipgloss.Style // glob (blue)
-	ToolTagGrep    lipgloss.Style // grep (magenta)
 
-	// Tool call borders (muted line colors)
-	ToolBorderBash    lipgloss.Style
-	ToolBorderRead    lipgloss.Style
-	ToolBorderWrite   lipgloss.Style
-	ToolBorderTodo    lipgloss.Style
+	// ToolBorderStyles maps normalized tool names to border styles.
+	ToolBorderStyles map[string]lipgloss.Style
+	// ToolBorderDefault is the fallback border style for unknown tools.
 	ToolBorderDefault lipgloss.Style
-	ToolBorderSearch  lipgloss.Style // search (blue)
-	ToolBorderGlob    lipgloss.Style // glob (blue)
-	ToolBorderGrep    lipgloss.Style // grep (magenta)
 
-	// Delegate tool tag styles (per agent type)
-	DelegateTagDefault  lipgloss.Style
+	// DelegateTagStyles maps normalized delegate labels to pill styles.
+	DelegateTagStyles map[string]lipgloss.Style
+	// DelegateTagDefault is the fallback pill style for unknown delegates.
+	DelegateTagDefault lipgloss.Style
+
+	// Delegate tag styles remain available as compatibility aliases for
+	// existing delegation renderers while the keyed collection is adopted.
 	DelegateTagExplore  lipgloss.Style
 	DelegateTagResearch lipgloss.Style
 	DelegateTagCode     lipgloss.Style
 	DelegateTagPlan     lipgloss.Style
 	DelegateTagVerify   lipgloss.Style
 
-	// Delegate tool border styles (per agent type)
-	DelegateBorderDefault  lipgloss.Style
+	// DelegateBorderStyles maps normalized delegate labels to border styles.
+	DelegateBorderStyles map[string]lipgloss.Style
+	// DelegateBorderDefault is the fallback border style for unknown delegates.
+	DelegateBorderDefault lipgloss.Style
+
+	// Delegate border styles remain available as compatibility aliases for
+	// existing delegation renderers while the keyed collection is adopted.
 	DelegateBorderExplore  lipgloss.Style
 	DelegateBorderResearch lipgloss.Style
 	DelegateBorderCode     lipgloss.Style
@@ -176,25 +175,37 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 
 		ThinkingBar: lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)),
 
-		ToolTagBash:  lipgloss.NewStyle().Background(lipgloss.Color(AccentAmber)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagRead:  lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagWrite: lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-
-		ToolTagTodo:    lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolTagStyles: map[string]lipgloss.Style{
+			"bash":      lipgloss.NewStyle().Background(lipgloss.Color(AccentAmber)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"read":      lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"read_file": lipgloss.NewStyle().Background(lipgloss.Color(ToolCyan)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"mutate":    lipgloss.NewStyle().Background(lipgloss.Color(ToolGrn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"todo":      lipgloss.NewStyle().Background(lipgloss.Color(Warn)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"search":    lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"glob":      lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+			"grep":      lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		},
 		ToolTagDefault: lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagSearch:  lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagGlob:    lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
-		ToolTagGrep:    lipgloss.NewStyle().Background(lipgloss.Color(ToolMag)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 
-		ToolBorderBash:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
-		ToolBorderRead:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
-		ToolBorderWrite:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
-		ToolBorderTodo:    lipgloss.NewStyle().Foreground(lipgloss.Color(WarnLine)),
+		ToolBorderStyles: map[string]lipgloss.Style{
+			"bash":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
+			"read":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
+			"read_file": lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
+			"mutate":    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
+			"todo":      lipgloss.NewStyle().Foreground(lipgloss.Color(WarnLine)),
+			"search":    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+			"glob":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+			"grep":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
+		},
 		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-		ToolBorderSearch:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-		ToolBorderGlob:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-		ToolBorderGrep:    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
 
+		DelegateTagStyles: map[string]lipgloss.Style{
+			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
+			"research": lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
+			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
+			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
+			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
+		},
 		DelegateTagDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
 		DelegateTagExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
 		DelegateTagResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
@@ -202,6 +213,13 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		DelegateTagPlan:     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
 		DelegateTagVerify:   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
 
+		DelegateBorderStyles: map[string]lipgloss.Style{
+			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
+			"research": lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
+			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
+			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
+			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
+		},
 		DelegateBorderDefault:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
 		DelegateBorderExplore:  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
 		DelegateBorderResearch: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),

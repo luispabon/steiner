@@ -252,46 +252,19 @@ func inferBodyKind(tool, _ string) string {
 	}
 }
 
-func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
-	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "bash":
-		return b.styles.ToolTagBash
-	case "read", "read_file":
-		return b.styles.ToolTagRead
-	case "mutate":
-		return b.styles.ToolTagWrite
-	case "grep":
-		return b.styles.ToolTagGrep
-	case "search":
-		return b.styles.ToolTagSearch
-	case "glob":
-		return b.styles.ToolTagGlob
-	case "todo":
-		return b.styles.ToolTagTodo
-	default:
-		return b.styles.ToolTagDefault
+func styleByKey(styles map[string]lipgloss.Style, key string, fallback lipgloss.Style) lipgloss.Style {
+	if style, ok := styles[key]; ok {
+		return style
 	}
+	return fallback
+}
+
+func (b *contentBuffer) toolTagStyle(tool string) lipgloss.Style {
+	return styleByKey(b.styles.ToolTagStyles, normalizeToolName(tool), b.styles.ToolTagDefault)
 }
 
 func (b *contentBuffer) toolBorderStyle(tool string) lipgloss.Style {
-	switch normalizeToolName(tool) {
-	case "bash":
-		return b.styles.ToolBorderBash
-	case "read", "read_file":
-		return b.styles.ToolBorderRead
-	case "mutate":
-		return b.styles.ToolBorderWrite
-	case "grep":
-		return b.styles.ToolBorderGrep
-	case "search":
-		return b.styles.ToolBorderSearch
-	case "glob":
-		return b.styles.ToolBorderGlob
-	case "todo":
-		return b.styles.ToolBorderTodo
-	default:
-		return b.styles.ToolBorderDefault
-	}
+	return styleByKey(b.styles.ToolBorderStyles, normalizeToolName(tool), b.styles.ToolBorderDefault)
 }
 
 func (b *contentBuffer) renderToolCall(tc *toolCallSegment, width int) string {
