@@ -81,39 +81,12 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		return failedDelegateExecution(spec, state, err, tc, logger), state, nil
 	}
 
-	extensionsGranted := 0
-	for ext := 0; ext < maxDelegateExtensions; ext++ {
-		needs := delegateNeedsExtension(state)
-		if !needs {
-			tc.add("extension_check", "extension not needed", map[string]any{
-				"iteration":          ext,
-				"stop_reason":        string(state.StopReason),
-				"last_msg_has_tools": lastMessageHasTools(state),
-			})
-			break
-		}
-		extensionsGranted++
-		tc.add("extension", "granting extension", map[string]any{
-			"iteration":      ext + 1,
-			"max_extensions": maxDelegateExtensions,
-			"new_max_turns":  state.TurnCount + originalMaxTurns,
-		})
+	state, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, originalMaxTurns, events, tc, state, spec.AgentID)
+	if extErr != nil {
 		if events != nil {
-			events.Emit(output.NewDelegationExtensionEvent(spec.AgentID, ext+1, maxDelegateExtensions))
+			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))
 		}
-		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
-		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
-		nextState, extensionErr := runner.Run(childCtx, req)
-
-		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(childCtx, nextState, extensionErr))
-
-		if extensionErr != nil {
-			if events != nil {
-				events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extensionErr.Error()))
-			}
-			return failedDelegateExecution(spec, state, extensionErr, tc, logger), state, nil
-		}
-		state = nextState
+		return failedDelegateExecution(spec, state, extErr, tc, logger), state, nil
 	}
 
 	result := buildResultWithTrace(spec.AgentID, state, tc)
@@ -158,6 +131,54 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return executionResult, state, nil
+}
+
+// runChildToCompletion executes the Delegate Extension loop.
+// It re-runs the child agent when it stops with StopReasonMaxTurns and
+// pending tool calls, up to maxDelegateExtensions times.
+// Returns the final state, number of extensions granted, and any error
+// from the last extension run.
+func runChildToCompletion(
+	ctx context.Context,
+	req agent.RunRequest,
+	runner AgentRunner,
+	originalMaxTurns int,
+	events output.EventSink,
+	tc *traceCollector,
+	state agent.RunState,
+	agentID string,
+) (agent.RunState, int, error) {
+	extensionsGranted := 0
+	for ext := 0; ext < maxDelegateExtensions; ext++ {
+		if !delegateNeedsExtension(state) {
+			tc.add("extension_check", "extension not needed", map[string]any{
+				"iteration":          ext,
+				"stop_reason":        string(state.StopReason),
+				"last_msg_has_tools": lastMessageHasTools(state),
+			})
+			break
+		}
+		extensionsGranted++
+		tc.add("extension", "granting extension", map[string]any{
+			"iteration":      ext + 1,
+			"max_extensions": maxDelegateExtensions,
+			"new_max_turns":  state.TurnCount + originalMaxTurns,
+		})
+		if events != nil {
+			events.Emit(output.NewDelegationExtensionEvent(agentID, ext+1, maxDelegateExtensions))
+		}
+		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
+		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
+		nextState, extensionErr := runner.Run(ctx, req)
+
+		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(ctx, nextState, extensionErr))
+
+		if extensionErr != nil {
+			return state, extensionsGranted, extensionErr
+		}
+		state = nextState
+	}
+	return state, extensionsGranted, nil
 }
 
 func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
