@@ -143,7 +143,7 @@ func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayS
 }
 
 func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState, event output.Event) bool {
-	if b.inCompaction || !b.showThinking {
+	if b.compaction.SuppressThinking() || !b.showThinking {
 		return true
 	}
 	payload, ok := event.Payload.(output.ThinkingChunkEvent)
@@ -159,7 +159,7 @@ func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState,
 }
 
 func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState, event output.Event) bool {
-	if b.inCompaction {
+	if b.compaction.SuppressThinking() {
 		return true
 	}
 	payload, ok := event.Payload.(output.AssistantChunkEvent)
@@ -175,7 +175,7 @@ func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState
 }
 
 func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplayState, event output.Event) bool {
-	if b.inCompaction {
+	if b.compaction.SuppressThinking() {
 		return true
 	}
 	payload, ok := event.Payload.(output.AssistantMessageEvent)

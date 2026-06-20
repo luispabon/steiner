@@ -58,8 +58,7 @@ func (s sidebarState) tokenUsageLine(width int) string {
 }
 
 func (s sidebarState) compactDotLine() string {
-	active := strings.TrimSpace(s.compaction) != "" && s.compaction != "idle"
-	if active {
+	if s.compaction.Active() {
 		dot := "●"
 		if s.tickCount%2 == 0 {
 			dot = "○"

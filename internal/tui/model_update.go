@@ -178,7 +178,7 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.HasActiveCompactions() {
 		m.content.AdvanceCompactionSpinners()
 	}
-	if m.contentDirty || m.content.streaming || m.compacting || m.content.HasActiveDelegations() || m.content.HasActiveCompactions() {
+	if m.contentDirty || m.content.streaming || m.compaction.Active() || m.content.HasActiveDelegations() || m.content.HasActiveCompactions() {
 		m.syncViewport()
 		m.contentDirty = false
 	}
