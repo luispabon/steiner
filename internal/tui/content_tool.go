@@ -7,21 +7,23 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // specializedDelegateTools is the set of tool names rendered as a single
-// delegation box in the TUI. It contains the specialized delegate agent types
-// plus follow_up, which resumes an existing child and reuses the same box.
-// Keep this list in sync with internal/delegation — do not import that package.
-var specializedDelegateTools = map[string]bool{
-	"explore":   true,
-	"research":  true,
-	"code":      true,
-	"plan":      true,
-	"verify":    true,
-	"follow_up": true,
+// delegation box in the TUI. It is derived from internal/delegation so the
+// specialized delegate surface stays canonical across packages.
+var specializedDelegateTools = specializedDelegateToolSet()
+
+func specializedDelegateToolSet() map[string]bool {
+	names := delegation.AllSpecializedDelegateTools()
+	tools := make(map[string]bool, len(names))
+	for _, tool := range names {
+		tools[strings.ToLower(strings.TrimSpace(tool))] = true
+	}
+	return tools
 }
 
 // isSpecializedDelegateTool reports whether tool is a specialized delegate tool.

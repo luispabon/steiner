@@ -43,6 +43,20 @@ func TestAllAgentTypes(t *testing.T) {
 	}
 }
 
+func TestAllSpecializedDelegateTools(t *testing.T) {
+	tools := AllSpecializedDelegateTools()
+	want := []string{"explore", "research", "code", "plan", "verify", "follow_up"}
+
+	if !slices.Equal(tools, want) {
+		t.Fatalf("AllSpecializedDelegateTools() = %v, want %v", tools, want)
+	}
+
+	tools[0] = "mutated"
+	if got := AllSpecializedDelegateTools(); !slices.Equal(got, want) {
+		t.Fatalf("AllSpecializedDelegateTools() returned shared backing storage: %v", got)
+	}
+}
+
 func TestAgentSystemPrompt(t *testing.T) {
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {

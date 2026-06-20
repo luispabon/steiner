@@ -21,6 +21,19 @@ func AllAgentTypes() []AgentType {
 	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypePlan, AgentTypeVerify}
 }
 
+// AllSpecializedDelegateTools returns the canonical specialized delegate tool
+// names used by delegation-aware UIs and other cross-package callers. It
+// includes all agent types plus follow_up because follow_up is not an AgentType
+// but behaves like the same specialized delegation surface in the TUI.
+func AllSpecializedDelegateTools() []string {
+	tools := make([]string, 0, len(AllAgentTypes())+1)
+	for _, t := range AllAgentTypes() {
+		tools = append(tools, string(t))
+	}
+	tools = append(tools, FollowUpToolName)
+	return tools
+}
+
 // ValidAgentType reports whether s is a recognized agent type name.
 func ValidAgentType(s string) bool {
 	_, ok := validAgentTypeSet[s]

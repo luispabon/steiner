@@ -2,10 +2,46 @@ package tui
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 )
+
+func TestSpecializedDelegateToolAccessor(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		want bool
+	}{
+		{name: "explore", tool: "explore", want: true},
+		{name: "research", tool: "research", want: true},
+		{name: "code", tool: "code", want: true},
+		{name: "plan", tool: "plan", want: true},
+		{name: "verify", tool: "verify", want: true},
+		{name: "follow_up", tool: "follow_up", want: true},
+		{name: "uppercase tool", tool: "Explore", want: true},
+		{name: "trimmed tool", tool: "  verify  ", want: true},
+		{name: "delegate", tool: "delegate", want: false},
+		{name: "read", tool: "read", want: false},
+		{name: "empty", tool: "", want: false},
+		{name: "unknown", tool: "debug", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSpecializedDelegateTool(tt.tool); got != tt.want {
+				t.Fatalf("isSpecializedDelegateTool(%q) = %v, want %v", tt.tool, got, tt.want)
+			}
+		})
+	}
+
+	wantTools := []string{"explore", "research", "code", "plan", "verify", "follow_up"}
+	if got := delegation.AllSpecializedDelegateTools(); !slices.Equal(got, wantTools) {
+		t.Fatalf("delegation.AllSpecializedDelegateTools() = %v, want %v", got, wantTools)
+	}
+}
 
 func TestSummarizeGrepArgs(t *testing.T) {
 	tests := []struct {
