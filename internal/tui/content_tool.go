@@ -70,7 +70,7 @@ func summarizeArgs(tool string, args map[string]any) string {
 }
 
 func delegateArgText(args map[string]any) string {
-	if args == nil || len(args) == 0 {
+	if len(args) == 0 {
 		return ""
 	}
 	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
