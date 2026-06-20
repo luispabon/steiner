@@ -112,7 +112,7 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInpu
 	return state, turnTokens
 }
 
-func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
+func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 
 	state.StopReason = StopReasonComplete
 	state.Conversation = stripImagesFromMessages(state.Conversation)
@@ -217,7 +217,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 	return toolMessage
 }
 
-func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
+func (p *turnProgressor) finalizeToolTurn(_ context.Context, _ turnInput, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
