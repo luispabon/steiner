@@ -203,11 +203,11 @@ type contentBuffer struct {
 	styles            theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
 	previewStyleCache map[chroma.TokenType]lipgloss.Style
-	collapseState     map[int]bool // segment index → collapsed (for tool calls and thinking)
-	segmentHeights    []int        // rendered line count per segment (recomputed in String())
-	showThinking      bool         // from prefs; when false skip thinking segments
-	inCompaction      bool         // when true skip thinking chunks from compaction
-	streamingPhase    string       // "thinking" | "tool" | "answer" | ""
+	collapseState     map[int]bool    // segment index → collapsed (for tool calls and thinking)
+	segmentHeights    []int           // rendered line count per segment (recomputed in String())
+	showThinking      bool            // from prefs; when false skip thinking segments
+	compaction        compactionState // when true skip thinking chunks from compaction
+	streamingPhase    string          // "thinking" | "tool" | "answer" | ""
 	streamingSource   output.ChunkSource
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr     error // captures the last render error for logging

@@ -7,7 +7,7 @@ import (
 )
 
 func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
-	if b.inCompaction {
+	if b.compaction.SuppressThinking() {
 		return
 	}
 	if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
@@ -16,7 +16,7 @@ func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
 }
 
 func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
-	if b.inCompaction {
+	if b.compaction.SuppressThinking() {
 		return
 	}
 	if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
@@ -26,7 +26,7 @@ func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
 }
 
 func (b *contentBuffer) appendAssistantMessageEvent(event output.Event) {
-	if b.inCompaction {
+	if b.compaction.SuppressThinking() {
 		return
 	}
 	if payload, ok := event.Payload.(output.AssistantMessageEvent); ok && payload.Content != "" && !b.hadChunks {
