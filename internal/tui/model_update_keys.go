@@ -408,5 +408,6 @@ func (m Model) executeSteerAction() tea.Model {
 	m.content.AppendPendingSteer(text)
 	m.steerQueued = true
 	m.syncInputChrome()
+	m.syncViewport()
 	return m
 }
