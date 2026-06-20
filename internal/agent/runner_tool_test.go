@@ -116,7 +116,6 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -124,15 +123,12 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished,
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
 		output.EventTypeAssistantMessage,
-		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {
@@ -294,7 +290,6 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -693,7 +688,6 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 
 	wantEventTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -703,15 +697,12 @@ func TestRunnerExecutesMultipleToolCallsSequentially(t *testing.T) {
 		output.EventTypeToolCallFinished,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished,
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
 		output.EventTypeAssistantMessage,
-		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if got := eventTypes(events); !equalStrings(got, wantEventTypes) {

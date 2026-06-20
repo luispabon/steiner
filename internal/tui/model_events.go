@@ -43,7 +43,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	// or activity state.
 	if event.Scope.AgentID != "" {
 		var cmds []tea.Cmd
-		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
+		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
 			cmds = append(cmds, gitRefreshCmd(m.git))
 		}
 		if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
@@ -81,9 +81,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 		m.resetTopLevelTerminalState(true)
-	case output.TurnStartedEvent:
-		m.sidebar.currentTurn = payload.Turn
-		m.activity = m.activity.waiting("waiting on model", turnLabel(payload.Turn))
 	case output.ModelCallStartedEvent:
 		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
 	case output.ModelCallFinishedEvent:
@@ -223,7 +220,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeTurnFinished {
+	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
 		cmds = append(cmds, gitRefreshCmd(m.git))
 	}
 	m.syncInputChrome()
@@ -255,7 +252,7 @@ func (m *Model) shouldSuppressWorkflowHandoffEvent(event output.Event) bool {
 	switch event.Type {
 	case output.EventTypeWorkflowHandoffAccepted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished:
+		output.EventTypeModelCallFinished:
 		return true
 	default:
 		return false
@@ -269,7 +266,7 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 	switch event.Type {
 	case output.EventTypeWorkflowHandoffAccepted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished:
+		output.EventTypeModelCallFinished:
 		return nil
 	case output.EventTypeStopReason:
 		payload, ok := event.Payload.(output.StopReasonEvent)

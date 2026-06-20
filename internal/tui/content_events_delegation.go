@@ -91,9 +91,7 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 		return b.applyDelegationModelCallStarted(dd, event)
 	case output.EventTypeContextDiagnostics:
 		return b.applyDelegationContextDiagnostics(dd, event)
-	case output.EventTypeTurnStarted,
-		output.EventTypeTurnFinished,
-		output.EventTypeModelCallFinished,
+	case output.EventTypeModelCallFinished,
 		output.EventTypeAPIResponse:
 		return true
 	case output.EventTypeAPIRequest:

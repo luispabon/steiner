@@ -137,7 +137,6 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 	}
 	wantTypes := []string{
 		output.EventTypeContextDiagnostics,
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAssistantChunk,
@@ -145,7 +144,6 @@ func TestRunnerStreamsAssistantChunksBeforeFinalMessage(t *testing.T) {
 		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
 		output.EventTypeAssistantMessage,
-		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if got := eventTypes(events); !equalStrings(got, wantTypes) {

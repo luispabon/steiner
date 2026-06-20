@@ -262,29 +262,6 @@ func NewOneshotFinishedEvent(runID string, err error) Event {
 	return newEvent(EventTypeOneshotFinished, payload)
 }
 
-// NewTurnStartedEvent creates a new turn started event.
-func NewTurnStartedEvent(turn int, model string, messageCount int) Event {
-	return newEvent(EventTypeTurnStarted, TurnStartedEvent{
-		Turn:         turn,
-		Model:        model,
-		MessageCount: messageCount,
-	})
-}
-
-// NewTurnFinishedEvent creates a new turn finished event.
-func NewTurnFinishedEvent(turn, toolCalls int, finishReason, reply string, err error) Event {
-	payload := TurnFinishedEvent{
-		Turn:         turn,
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		Reply:        reply,
-	}
-	if err != nil {
-		payload.Error = err.Error()
-	}
-	return newEvent(EventTypeTurnFinished, payload)
-}
-
 // NewAssistantMessageEvent creates a new assistant message event.
 func NewAssistantMessageEvent(turn int, role, content string) Event {
 	return newEvent(EventTypeAssistantMessage, AssistantMessageEvent{

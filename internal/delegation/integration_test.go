@@ -78,7 +78,7 @@ func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.
 			return agent.RunState{}, fmt.Errorf("events sink missing")
 		}
 
-		req.Events.Emit(output.NewTurnStartedEvent(r.calls, "child-model", 1))
+		req.Events.Emit(output.NewModelCallStartedEvent(r.calls, "child-model", 1))
 		req.Events.Emit(output.NewAssistantMessageEvent(r.calls, string(agent.MessageRoleAssistant), fmt.Sprintf("child turn %d", r.calls)))
 	}
 
@@ -249,7 +249,7 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 			if ev.Scope.AgentID != "" {
 				t.Fatalf("%s scope = %q, want empty", ev.Type, ev.Scope.AgentID)
 			}
-		case output.EventTypeTurnStarted, output.EventTypeAssistantMessage:
+		case output.EventTypeAssistantMessage:
 			if ev.Scope.AgentID != spec.AgentID {
 				t.Fatalf("%s scope = %q, want %q", ev.Type, ev.Scope.AgentID, spec.AgentID)
 			}

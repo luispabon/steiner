@@ -28,7 +28,6 @@ import (
 func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, assembly prompt.Assembly, chatRequest provider.ChatRequest) turnOutcome {
 	turn := in.State.TurnCount + 1
 
-	emitEvent(in.Request.Events, output.NewTurnStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 	emitEvent(in.Request.Events, output.NewModelCallStartedEvent(turn, in.Request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
 	startTime := time.Now()
@@ -71,14 +70,13 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, in turnInput, ass
 func (p *turnProgressor) handleModelCallError(ctx context.Context, in turnInput, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, in.State); ok {
 		emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", nil))
 		emitStop(in.Request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state := in.State
 	state.StopReason = StopReasonError
 	emitEvent(in.Request.Events, output.NewModelCallFinishedEvent(turn, in.Request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, "", "", err))
+
 	return turnOutcome{State: state, Stop: true, Error: err}
 }
 
@@ -111,7 +109,7 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, in turnInpu
 }
 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 0, response.FinishReason, response.Message.Content, nil))
+
 	state.StopReason = StopReasonComplete
 	state.Conversation = stripImagesFromMessages(state.Conversation)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
@@ -159,11 +157,11 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, in turnInput
 		state.StopReason = StopReasonWorkflowHandoff
 		state.WorkflowHandoff = transition
 		emitEvent(in.Request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-		emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, 1, "", "", nil))
+
 		emitStop(in.Request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
-	}
 
+	}
 	toolMessage := p.buildToolMessage(in, turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
@@ -216,7 +214,7 @@ func (p *turnProgressor) buildToolMessage(in turnInput, turn int, call provider.
 }
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, in turnInput, state RunState, turn int, response provider.ChatResponse) turnOutcome {
-	emitEvent(in.Request.Events, output.NewTurnFinishedEvent(turn, len(response.Message.ToolCalls), response.FinishReason, response.Message.Content, nil))
+
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}

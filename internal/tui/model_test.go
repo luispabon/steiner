@@ -1696,7 +1696,7 @@ func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
 	}
 }
 
-func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
+func TestModelRefreshesGitSnapshotAfterToolAndModelCallFinishedEvents(t *testing.T) {
 	repo := initTUITestRepo(t)
 	writeRepoFile(t, repo, "tracked.txt", "one\n")
 	runGit(t, repo, "add", "tracked.txt")
@@ -1723,7 +1723,7 @@ func TestModelRefreshesGitSnapshotAfterToolAndTurnFinishedEvents(t *testing.T) {
 	}
 
 	writeRepoFile(t, repo, "turn.txt", "draft\n")
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "stop", "reply", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "stop", 1, 0, nil, 0, 0, 0)})
 	m.git.Refresh(context.Background())
 	m = updateModel(t, m, gitRefreshDoneMsg{})
 
@@ -3510,7 +3510,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "", 1, 0, nil, 0, 0, 0)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	prompts := ctrl.submitPrompts()
@@ -3619,7 +3619,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewTurnFinishedEvent(1, 1, "", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "", 1, 0, nil, 0, 0, 0)})
 	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	if got := ctrl.switchModelActions(); len(got) != 0 {

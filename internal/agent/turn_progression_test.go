@@ -418,14 +418,11 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 
 	got := eventTypes(events)
 	wantSequence := []string{
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
 		output.EventTypeModelCallFinished,
 		output.EventTypeAssistantMessage,
-		output.EventTypeTurnFinished,
-		output.EventTypeStopReason,
 	}
 	if !containsSequence(got, wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", got, wantSequence)
@@ -515,7 +512,6 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 	}
 
 	wantSequence := []string{
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -523,7 +519,6 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished,
 	}
 	if !containsSequence(eventTypes(events), wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", eventTypes(events), wantSequence)
@@ -674,7 +669,6 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 
 	got := eventTypes(events)
 	wantSequence := []string{
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -774,7 +768,6 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 	}
 
 	wantSequence := []string{
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -782,7 +775,6 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished,
 	}
 	if !containsSequence(eventTypes(events), wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", eventTypes(events), wantSequence)
@@ -869,7 +861,6 @@ func TestAdvance_WorkflowHandoffAcceptedStopsWithoutToolResult(t *testing.T) {
 		t.Fatalf("last role = %q, want assistant", got)
 	}
 	wantSequence := []string{
-		output.EventTypeTurnStarted,
 		output.EventTypeModelCallStarted,
 		output.EventTypeAPIRequest,
 		output.EventTypeAPIResponse,
@@ -877,7 +868,6 @@ func TestAdvance_WorkflowHandoffAcceptedStopsWithoutToolResult(t *testing.T) {
 		output.EventTypeAssistantMessage,
 		output.EventTypeToolCallStarted,
 		output.EventTypeToolCallFinished,
-		output.EventTypeTurnFinished,
 		output.EventTypeStopReason,
 	}
 	if !containsSequence(eventTypes(events), wantSequence) {
