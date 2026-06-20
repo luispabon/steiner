@@ -1171,6 +1171,106 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testi
 	}
 }
 
+// TestAdvance_DetectedReasoningEchoBack_PersistsAcrossAdvanceCalls verifies
+// that when the model returns reasoning_content on the first advance call
+// (which also returns tool calls), the progressor enables ReasoningEchoBack
+// and preserves it on the second advance call. The second call's chat request
+// must have IncludeEmptyReasoning=true, proving the flag propagates.
+func TestAdvance_DetectedReasoningEchoBack_PersistsAcrossAdvanceCalls(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:             provider.MessageRoleAssistant,
+					ReasoningContent: "step by step thinking",
+					ToolCalls: []provider.ToolCall{
+						{ID: "call_1", Name: "bash", Arguments: map[string]any{"command": "echo hi"}},
+					},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+			},
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "done",
+				},
+				FinishReason: "stop",
+				Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
+			},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{"output": "hi"}, nil
+		},
+	}
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "run something"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "run something"}}),
+	}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "run something"},
+			},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model", ReasoningEchoBack: false},
+		Limits:        Limits{MaxTurns: 4},
+		Tools: []provider.ToolSpec{
+			{Type: "function", Function: provider.ToolFunctionSpec{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}}},
+		},
+		Events: output.NoopSink{},
+	}
+
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	// First advance: model returns reasoning_content + tool call.
+	// Echo-back should be auto-detected and enabled.
+	outcome1 := p.advance(context.Background(), state)
+
+	if !p.request.ResolvedModel.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack = false after first advance, want true")
+	}
+	if outcome1.Stop {
+		t.Fatal("outcome1.Stop = true, want false because turn has tool calls")
+	}
+	if outcome1.Error != nil {
+		t.Fatalf("outcome1.Error = %v, want nil", outcome1.Error)
+	}
+
+	state2 := outcome1.State
+
+	// Second advance: assistant-only, stops.
+	outcome2 := p.advance(context.Background(), state2)
+
+	if !p.request.ResolvedModel.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack = false after second advance, want true (preserved)")
+	}
+	if !outcome2.Stop {
+		t.Fatal("outcome2.Stop = false, want true for assistant-only turn")
+	}
+	if outcome2.Error != nil {
+		t.Fatalf("outcome2.Error = %v, want nil", outcome2.Error)
+	}
+
+	// Verify the second chat request had IncludeEmptyReasoning=true,
+	// proving echo-back was enabled for the subsequent turn.
+	if len(providerStub.requests) < 2 {
+		t.Fatalf("provider got %d requests, want at least 2", len(providerStub.requests))
+	}
+	if !providerStub.requests[1].IncludeEmptyReasoning {
+		t.Fatal("second request IncludeEmptyReasoning = false, want true")
+	}
+}
 func TestStripImagesFromMessages_basic(t *testing.T) {
 	msgs := []Message{
 		{
