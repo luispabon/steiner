@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
-
-	"github.com/deepnoodle-ai/wonton/web"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -170,28 +167,4 @@ func (p loggingProvider) StreamChatCompletion(ctx context.Context, req provider.
 
 func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
-}
-
-// buildActiveRegistry is retained for tests and delegates to
-// internal/delegation.BuildDelegateRegistry.
-//
-//nolint:unparam // prov is always stubProvider{} in test call sites.
-func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, advisorCfg config.AdvisorConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) (*tool.Registry, error) {
-	return delegation.BuildDelegateRegistry(delegation.DelegateDeps{
-		BaseRegistry:       base,
-		SubAgentCfg:        subAgentCfg,
-		AdvisorCfg:         advisorCfg,
-		Provider:           prov,
-		Events:             events,
-		WorkDir:            workDir,
-		HomeDir:            homeDir,
-		ResolvedModel:      rm,
-		MaxTokens:          maxTokens,
-		StreamingPreferred: streamingPreferred,
-		TraceLogger:        traceLogger,
-		Config:             cfg,
-		ProviderFactory:    providerFactory,
-		HTTPClient:         httpClient,
-		Searcher:           searcher,
-	})
 }

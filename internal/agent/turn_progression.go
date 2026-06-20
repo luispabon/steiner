@@ -19,13 +19,13 @@ type compactConversationFn func(ctx context.Context, req RunRequest, state *RunS
 
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
 // the assistant response to the conversation state. It owns:
-//   - TurnStarted / ModelCallStarted event emission
+//   - ModelCallStarted event emission
 //   - completeModelCall invocation
 //   - cancellation and error handling
 //   - token accounting and ModelCallFinished event
 //   - AssistantMessage event
 //   - assistant transcript and state mutation
-//   - TurnFinished / StopReason event emission for assistant-only turns
+//   - StopReason event emission for assistant-only turns
 //
 // When the response contains tool calls, it returns them via outcome.Response
 // so turnProgressor.advance can pass it to executeToolCalls.
@@ -130,7 +130,7 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, in turnInput
 //   - tool preview construction
 //   - ToolCallFinished event emission
 //   - tool message append to conversation/lineage
-//   - TurnFinished event emission after all tools
+//   - StopReason / finished-turn handling after all tools
 func (p *turnProgressor) executeToolCalls(ctx context.Context, in turnInput, response provider.ChatResponse) turnOutcome {
 	state := in.State
 	turn := state.TurnCount
