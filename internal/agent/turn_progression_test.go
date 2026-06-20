@@ -29,15 +29,9 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 		Events: output.NoopSink{},
 	}
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	assembly, chatRequest, fit, err := prepareTurn(context.Background(), in)
+	assembly, chatRequest, fit, err := p.prepareTurn(context.Background(), state)
 	if err != nil {
 		t.Fatalf("prepareTurn() error = %v", err)
 	}
@@ -75,18 +69,13 @@ func TestPrepareTurn_FitFailure(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 		Events: output.NoopSink{},
 	}
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	_, _, fit, err := prepareTurn(context.Background(), in)
+	_, _, fit, err := p.prepareTurn(context.Background(), state)
 	if err != nil {
 		t.Fatalf("prepareTurn() error = %v", err)
 	}
+
 	if fit.Fits {
 		t.Fatalf("fit.Fits = true, want false")
 	}
@@ -111,24 +100,18 @@ func TestPrepareTurn_RequestsCompactionAtSeventyPercentUsage(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 		Events: output.NoopSink{},
 	}
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	_, _, fit, err := prepareTurn(context.Background(), in)
+	_, _, fit, err := p.prepareTurn(context.Background(), state)
 	if err != nil {
 		t.Fatalf("prepareTurn() baseline error = %v", err)
 	}
 
 	threshReq := req
 	threshReq.ModelBudget.ContextSize = int(float64(fit.EstimatedPromptTokens) / 0.70)
-	in.Request = threshReq
+	p2 := newTurnProgressor(threshReq, prompt.AssemblyOptions{}, nil)
 
-	_, _, thresholdFit, err := prepareTurn(context.Background(), in)
+	_, _, thresholdFit, err := p2.prepareTurn(context.Background(), state)
 	if err != nil {
 		t.Fatalf("prepareTurn() threshold error = %v", err)
 	}
@@ -178,13 +161,7 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
 	fit := prompt.RequestTokenBudget{
 		ContextSize: 10,
@@ -192,8 +169,7 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Fits:        false,
 	}
 
-	p := newTurnProgressor()
-	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
 		return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
 	})
 
@@ -240,13 +216,7 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
 	fit := prompt.RequestTokenBudget{
 		ContextSize: 4096,
@@ -254,8 +224,7 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Fits:        false,
 	}
 
-	p := newTurnProgressor()
-	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
 		return false, fmt.Errorf("compaction provider unavailable")
 	})
 
@@ -294,13 +263,8 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		GenerationID: 1,
 		View:         ConversationViewFull,
 	})
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{key: true},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	p.compactionHistory[key] = true
 
 	fit := prompt.RequestTokenBudget{
 		ContextSize: 4096,
@@ -308,8 +272,7 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		Fits:        false,
 	}
 
-	p := newTurnProgressor()
-	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+	outcome := p.handleCompaction(context.Background(), state, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
 		return false, nil
 	})
 
@@ -342,19 +305,13 @@ func TestPrepareTurn_AssemblyErrorPropagates(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 		Events: output.NoopSink{},
 	}
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
 	// A canceled context should cause prompt.Assemble to fail.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, _, err := prepareTurn(ctx, in)
+	_, _, _, err := p.prepareTurn(ctx, state)
 	if err == nil {
 		t.Fatal("prepareTurn() error = nil, want error from canceled context")
 	}
@@ -397,16 +354,9 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	outcome := p.advance(context.Background(), state)
 
 	if !outcome.Stop {
 		t.Fatalf("outcome.Stop = false, want true")
@@ -475,16 +425,9 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	outcome := p.advance(context.Background(), state)
 
 	if outcome.Stop {
 		t.Fatalf("outcome.Stop = true, want false")
@@ -557,19 +500,12 @@ func TestAdvance_ModelCallCancellation(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	p := newTurnProgressor()
-	outcome := p.advance(ctx, in)
+	outcome := p.advance(ctx, state)
 
 	if !outcome.Stop {
 		t.Fatalf("outcome.Stop = false, want true")
@@ -633,19 +569,12 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 
-	p := newTurnProgressor()
-	outcome := p.advance(ctx, in)
+	outcome := p.advance(ctx, state)
 
 	if !outcome.Stop {
 		t.Fatalf("outcome.Stop = false, want true")
@@ -726,16 +655,9 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	outcome := p.advance(context.Background(), state)
 
 	if outcome.Stop {
 		t.Fatalf("outcome.Stop = true, want false")
@@ -828,16 +750,9 @@ func TestAdvance_WorkflowHandoffAcceptedStopsWithoutToolResult(t *testing.T) {
 	var events []output.Event
 	req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	outcome := p.advance(context.Background(), state)
 
 	if !outcome.Stop {
 		t.Fatal("outcome.Stop = false, want true")
@@ -916,19 +831,11 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-		CompactFn: func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
-			return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
-		},
+	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
 	}
-
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
+	outcome := p.advance(context.Background(), state)
 
 	// Compaction should signal retry: the outer loop should retry the turn
 	// with the (skipped candidate) state.
@@ -978,19 +885,12 @@ func TestAdvance_FitFailureNoCompactionCandidate(t *testing.T) {
 		GenerationID: 1,
 		View:         ConversationViewFull,
 	})
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{key: true},
-		CompactionCount:   new(int),
-		CompactFn: func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
-			return false, nil
-		},
+	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, nil
 	}
-
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
+	p.compactionHistory[key] = true
+	outcome := p.advance(context.Background(), state)
 
 	if !outcome.Stop {
 		t.Fatalf("outcome.Stop = false, want true")
@@ -1041,19 +941,12 @@ func TestAdvance_DetectedReasoningEchoBack_AssistantOnlyTurn(t *testing.T) {
 		Events:        output.NoopSink{},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	outcome := p.advance(context.Background(), state)
 
-	if !outcome.DetectedReasoningEchoBack {
-		t.Fatal("DetectedReasoningEchoBack = false, want true when model returns reasoning_content")
+	if !p.request.ResolvedModel.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack = false, want true when model returns reasoning_content")
 	}
 	if !outcome.Stop {
 		t.Fatal("outcome.Stop = false, want true for assistant-only turn")
@@ -1096,19 +989,12 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenAlreadyEnabled(t *testing.T
 		Events:        output.NoopSink{},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	_ = p.advance(context.Background(), state)
 
-	if outcome.DetectedReasoningEchoBack {
-		t.Fatal("DetectedReasoningEchoBack = true, want false when ReasoningEchoBack already set")
+	if !p.request.ResolvedModel.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack was toggled off, want it to remain true")
 	}
 }
 
@@ -1151,15 +1037,9 @@ func TestPrepareTurn_SetsIncludeEmptyReasoningFromResolvedModel(t *testing.T) {
 				Limits: Limits{MaxTurns: 2},
 				Events: output.NoopSink{},
 			}
-			in := turnInput{
-				Request:           req,
-				State:             state,
-				BasePrompt:        prompt.AssemblyOptions{},
-				CompactionHistory: map[string]bool{},
-				CompactionCount:   new(int),
-			}
+			p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-			_, chatRequest, _, err := prepareTurn(context.Background(), in)
+			_, chatRequest, _, err := p.prepareTurn(context.Background(), state)
 			if err != nil {
 				t.Fatalf("prepareTurn() error = %v", err)
 			}
@@ -1224,18 +1104,14 @@ func TestExecuteSingleToolCallSetsConversationSnapshot(t *testing.T) {
 	}
 	state.Lineage = newConversationLineage(state.Conversation)
 
-	in := turnInput{
-		Request: RunRequest{
-			Executor:       executor,
-			ContextManager: NewContextStateManager(),
-			Events:         output.NoopSink{},
-		},
-		State: state,
+	req := RunRequest{
+		Executor:       executor,
+		ContextManager: NewContextStateManager(),
+		Events:         output.NoopSink{},
 	}
-
-	progressor := newTurnProgressor()
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "pwd"}}
-	_, outcome := progressor.executeSingleToolCall(context.Background(), in, state, 1, call)
+	_, outcome := p.executeSingleToolCall(context.Background(), state, 1, call)
 	if outcome.Stop {
 		t.Fatalf("executeSingleToolCall() stop = true, want false")
 	}
@@ -1286,19 +1162,12 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testi
 		Events:        output.NoopSink{},
 	}
 
-	in := turnInput{
-		Request:           req,
-		State:             state,
-		BasePrompt:        prompt.AssemblyOptions{},
-		CompactionHistory: map[string]bool{},
-		CompactionCount:   new(int),
-	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
-	p := newTurnProgressor()
-	outcome := p.advance(context.Background(), in)
+	_ = p.advance(context.Background(), state)
 
-	if outcome.DetectedReasoningEchoBack {
-		t.Fatal("DetectedReasoningEchoBack = true, want false when no reasoning_content in response")
+	if p.request.ResolvedModel.ReasoningEchoBack {
+		t.Fatal("ReasoningEchoBack = true, want false when no reasoning_content in response")
 	}
 }
 
