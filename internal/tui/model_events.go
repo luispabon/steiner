@@ -22,15 +22,13 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	}
 
-	// Context report events: short single-line content goes to the transcript;
-	// long or multi-line content opens the overlay.
+	// Context report events: display mode is set by the producer; the TUI
+	// honours the hint without re-deciding.
 	if event.Type == output.EventTypeContextReport {
-		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
-			if strings.Contains(payload.Content, "\n") || len(payload.Content) > 100 {
-				m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
-				m.syncViewport()
-				return nil
-			}
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok && payload.Display == output.ContextReportDisplayOverlay {
+			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+			m.syncViewport()
+			return nil
 		}
 	}
 
@@ -66,8 +64,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	case output.RunStartedEvent:
 		m.interruptPending = false
-		m.compacting = false
-		m.content.inCompaction = false
+		m.setCompaction(compactionState{})
 		if payload.MaxTurns > 0 {
 			m.sidebar.maxTurns = payload.MaxTurns
 		}
@@ -100,13 +97,11 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.ContextBudgetEvent:
 		m.applyContextBudget(payload)
 	case output.ContextCompactionEvent:
-		m.compacting = payload.Severity == "compacting"
-		m.content.inCompaction = m.compacting
-		if m.compacting {
-			m.sidebar.compaction = compactionSidebarSummary(payload)
+		cs := newCompactionState(payload)
+		m.setCompaction(cs)
+		if cs.Active() {
 			m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 		} else {
-			m.sidebar.compaction = ""
 			m.activity = m.activity.static("context compacted", compactedLabel(payload))
 		}
 		m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
@@ -115,12 +110,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.content.AppendCompactionResult("Compaction", payload.SummaryText)
 		}
 	case output.ContextSessionHealthEvent:
-		if m.compacting {
-			m.sidebar.compaction = sessionHealthSidebarSummary(payload)
-		} else {
-			m.sidebar.compaction = ""
-		}
-		if !m.compacting {
+		if !m.compaction.Active() {
 			m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
 		}
 		m.sessionHealthCompactionCount = payload.CompactionCount
@@ -133,27 +123,20 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.applyContextBudget(budget)
 		}
 		if compaction, ok := output.AsContextCompactionEvent(payload); ok {
-			m.compacting = compaction.Severity == "compacting"
-			m.content.inCompaction = m.compacting
-			if m.compacting {
-				m.sidebar.compaction = compactionSidebarSummary(compaction)
+			cs := newCompactionState(compaction)
+			m.setCompaction(cs)
+			if cs.Active() {
 				m.activity = m.activity.waiting("compacting context", compactingLabel(compaction))
 			} else {
-				m.sidebar.compaction = ""
 				m.activity = m.activity.static("context compacted", compactedLabel(compaction))
 			}
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(compaction))
-			if compaction.Severity != "compacting" && compaction.SummaryText != "" {
+			if !cs.Active() && compaction.SummaryText != "" {
 				m.content.AppendCompactionResult("Compaction", compaction.SummaryText)
 			}
 		}
 		if health, ok := output.AsContextSessionHealthEvent(payload); ok {
-			if m.compacting {
-				m.sidebar.compaction = sessionHealthSidebarSummary(health)
-			} else {
-				m.sidebar.compaction = ""
-			}
-			if !m.compacting {
+			if !m.compaction.Active() {
 				m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(health))
 			}
 			m.sessionHealthCompactionCount = health.CompactionCount

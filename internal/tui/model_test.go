@@ -1021,7 +1021,7 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 		CompactedTurns:    1,
 	})})
 
-	if got := m.sidebar.compaction; got != "" {
+	if got := m.sidebar.compaction.SidebarLabel(); got != "" {
 		t.Fatalf("sidebar.compaction = %q, want cleared after compaction finishes", got)
 	}
 	if got, want := m.status.mode, "running"; got != want {
@@ -1206,7 +1206,7 @@ func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T)
 	if got := m.status.mode; got != "" {
 		t.Fatalf("status.mode = %q, want empty for finished compaction diagnostics", got)
 	}
-	if got := m.sidebar.compaction; got != "" {
+	if got := m.sidebar.compaction.SidebarLabel(); got != "" {
 		t.Fatalf("sidebar.compaction = %q, want cleared for finished compaction diagnostics", got)
 	}
 	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "compaction") {
@@ -1237,7 +1237,7 @@ func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.
 		"source generation=1 view=full",
 	)})
 
-	if got := m.sidebar.compaction; got != "" {
+	if got := m.sidebar.compaction.SidebarLabel(); got != "" {
 		t.Fatalf("sidebar.compaction = %q, want cleared after finished session health", got)
 	}
 	lines := strings.Join(m.sidebar.lines(38, 50), "\n")

@@ -29,6 +29,35 @@ type approvalState struct {
 	selectedAction int
 }
 
+type compactionState struct {
+	active  bool
+	summary string
+}
+
+func (c compactionState) Active() bool           { return c.active }
+func (c compactionState) SuppressThinking() bool { return c.active }
+func (c compactionState) SidebarLabel() string {
+	if c.active {
+		return "compacting…"
+	}
+	return c.summary
+}
+
+func newCompactionState(payload output.ContextCompactionEvent) compactionState {
+	return compactionState{
+		active:  payload.Severity == "compacting",
+		summary: "",
+	}
+}
+
+// setCompaction fans the compaction state out to every reader (model,
+// content buffer, sidebar) from one place so the copies cannot desync.
+func (m *Model) setCompaction(cs compactionState) {
+	m.compaction = cs
+	m.content.compaction = cs
+	m.sidebar.compaction = cs
+}
+
 type workflowHandoffLaunch struct {
 	next      string
 	target    string
@@ -87,7 +116,7 @@ type Model struct {
 	completionIdx                int
 	helpVisible                  bool
 	showThinking                 bool
-	compacting                   bool
+	compaction                   compactionState
 	accentPreset                 string
 	sidebarPosition              string
 	palette                      paletteModel
@@ -190,36 +219,6 @@ func appendStatusContext(base, fragment string) string {
 	return base + " | " + fragment
 }
 
-func compactionSidebarSummary(payload output.ContextCompactionEvent) string {
-	parts := make([]string, 0, 4)
-	if severity := strings.TrimSpace(payload.Severity); severity != "" {
-		if severity == "compacting" {
-			return "compacting…"
-		}
-		parts = append(parts, severity)
-	}
-	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("#%d", payload.CompactionCount))
-	}
-	if state := strings.TrimSpace(payload.SessionState); state != "" {
-		parts = append(parts, state)
-	}
-	if guidance := strings.TrimSpace(payload.RestartGuidance); guidance != "" {
-		parts = append(parts, guidance)
-	}
-	if len(parts) == 0 {
-		switch {
-		case strings.TrimSpace(payload.SummaryTitle) != "":
-			return payload.SummaryTitle
-		case payload.CompactedTurns > 0 || payload.CompactedMessages > 0:
-			return fmt.Sprintf("compacted %d/%d", payload.CompactedTurns, payload.CompactedMessages)
-		default:
-			return "compacting"
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
 func compactionStatusFragment(payload output.ContextCompactionEvent) string {
 	parts := make([]string, 0, 3)
 	if severity := strings.TrimSpace(payload.Severity); severity != "" {
@@ -241,26 +240,6 @@ func compactionStatusFragment(payload output.ContextCompactionEvent) string {
 	}
 	if len(parts) == 0 {
 		return ""
-	}
-	return strings.Join(parts, " ")
-}
-
-func sessionHealthSidebarSummary(payload output.ContextSessionHealthEvent) string {
-	parts := make([]string, 0, 4)
-	if severity := strings.TrimSpace(payload.Severity); severity != "" {
-		if severity == "compacting" {
-			return "compacting…"
-		}
-		parts = append(parts, severity)
-	}
-	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("#%d", payload.CompactionCount))
-	}
-	if state := strings.TrimSpace(payload.SessionState); state != "" {
-		parts = append(parts, state)
-	}
-	if guidance := strings.TrimSpace(payload.RestartGuidance); guidance != "" {
-		parts = append(parts, guidance)
 	}
 	return strings.Join(parts, " ")
 }

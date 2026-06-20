@@ -79,9 +79,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	}
 
 	basePrompt := prepareBasePrompt(req)
-	compactionHistory := map[string]bool{}
-	compactionCount := 0
-	p := newTurnProgressor()
+	p := newTurnProgressor(req, basePrompt, r.compactConversationForBudget)
 	runnerRetries := 0
 
 	for {
@@ -94,22 +92,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if req.Limits.TurnTimeout > 0 {
 			turnCtx, cancel = context.WithTimeout(ctx, req.Limits.TurnTimeout)
 		}
-		in := turnInput{
-			Request:           req,
-			State:             state,
-			BasePrompt:        basePrompt,
-			CompactionHistory: compactionHistory,
-			CompactionCount:   &compactionCount,
-			CompactFn:         r.compactConversationForBudget,
-		}
-		outcome := p.advance(turnCtx, in)
+		outcome := p.advance(turnCtx, state)
 		if cancel != nil {
 			cancel()
 		}
 		state = outcome.State
-		if outcome.DetectedReasoningEchoBack {
-			req.ResolvedModel.ReasoningEchoBack = true
-		}
 		// Check for a steering message between turns (non-blocking).
 		if req.SteerCh != nil {
 			select {

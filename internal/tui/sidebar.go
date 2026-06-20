@@ -30,7 +30,7 @@ type sidebarState struct {
 	contextBudget  int
 	currentTurn    int
 	maxTurns       int
-	compaction     string
+	compaction     compactionState
 	branch         string
 	dirty          bool
 	ahead          int
