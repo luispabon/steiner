@@ -22,15 +22,13 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	}
 
-	// Context report events: short single-line content goes to the transcript;
-	// long or multi-line content opens the overlay.
+	// Context report events: display mode is set by the producer; the TUI
+	// honours the hint without re-deciding.
 	if event.Type == output.EventTypeContextReport {
-		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
-			if strings.Contains(payload.Content, "\n") || len(payload.Content) > 100 {
-				m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
-				m.syncViewport()
-				return nil
-			}
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok && payload.Display == output.ContextReportDisplayOverlay {
+			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+			m.syncViewport()
+			return nil
 		}
 	}
 
