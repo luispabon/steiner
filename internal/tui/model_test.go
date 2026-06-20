@@ -1996,6 +1996,26 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	}
 }
 
+func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
+	m.input.SetValue("queued steer text")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// The viewport content must immediately show the queued steer box.
+	viewportContent := m.viewport.View()
+	if !strings.Contains(viewportContent, "queued steer text") {
+		t.Fatalf("viewport content does not contain queued steer text immediately after Enter.\nViewport:\n%s", viewportContent)
+	}
+}
+
 func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	ctrl := &testController{}
 
