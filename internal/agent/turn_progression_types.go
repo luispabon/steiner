@@ -12,6 +12,7 @@ type turnInput struct {
 	BasePrompt        prompt.AssemblyOptions
 	CompactionHistory map[string]bool
 	CompactionCount   *int
+	CompactFn         compactConversationFn
 }
 
 // turnOutcome captures the result of advancing one turn.

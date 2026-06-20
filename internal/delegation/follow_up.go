@@ -50,8 +50,6 @@ func NewFollowUpHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		if !ok {
 			return nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
 		}
-		followUpCount := session.FollowUpCount + 1
-
 		req := session.Request
 		req.Prompt.Conversation = agent.ToReplaySafeProviderMessages(session.Conversation)
 		req.Prompt.Conversation = append(req.Prompt.Conversation, provider.Message{
@@ -70,8 +68,12 @@ func NewFollowUpHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		result, state, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err == nil {
 			deps.SessionStore.Update(agentID, state.Conversation, state.TurnCount, state.TokenCount, countToolCalls(state.Conversation))
+			updated, ok := deps.SessionStore.Get(agentID)
+			if !ok {
+				return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
+			}
 			if delegationResult, ok := result.Value.(DelegationResult); ok {
-				delegationResult.FollowUpCount = followUpCount
+				delegationResult.FollowUpCount = updated.FollowUpCount
 				result.Value = delegationResult
 			}
 		}

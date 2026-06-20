@@ -13,6 +13,10 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// compactConversationFn is the compaction operation decoupled from *Runner.
+// It matches the signature of Runner.compactConversationForBudget.
+type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error)
+
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
 // the assistant response to the conversation state. It owns:
 //   - TurnStarted / ModelCallStarted event emission
@@ -235,12 +239,10 @@ func workflowHandoffTransitionFromResult(result any) (*tool.WorkflowHandoffTrans
 }
 
 // turnProgressor owns the per-turn progression lifecycle.
-type turnProgressor struct {
-	runner *Runner
-}
+type turnProgressor struct{}
 
-func newTurnProgressor(runner *Runner) *turnProgressor {
-	return &turnProgressor{runner: runner}
+func newTurnProgressor() *turnProgressor {
+	return &turnProgressor{}
 }
 
 // advance runs one complete turn: prepare, compaction if needed, model call,
@@ -253,7 +255,7 @@ func (p *turnProgressor) advance(ctx context.Context, in turnInput) turnOutcome 
 	}
 
 	if fit.ShouldCompact || !fit.Fits {
-		outcome := p.handleCompaction(ctx, in, fit)
+		outcome := p.handleCompaction(ctx, in, fit, in.CompactFn)
 		if outcome.Error != nil {
 			return p.handleError(ctx, in.Request.Events, outcome.State, outcome.Error)
 		}
@@ -301,11 +303,11 @@ func (p *turnProgressor) handleError(ctx context.Context, events output.EventSin
 // the model token budget. It returns a retry outcome on success (the caller
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
-func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget) turnOutcome {
+func (p *turnProgressor) handleCompaction(ctx context.Context, in turnInput, fit prompt.RequestTokenBudget, compactFn compactConversationFn) turnOutcome {
 	turn := in.State.TurnCount + 1
 	emitCompactionStartedEvent(in.Request.Events, turn)
 	state := in.State
-	compacted, err := p.runner.compactConversationForBudget(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
+	compacted, err := compactFn(ctx, in.Request, &state, turn, &fit, in.CompactionHistory, in.CompactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}

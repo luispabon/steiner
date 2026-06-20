@@ -192,9 +192,10 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Fits:        false,
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
-	outcome := p.handleCompaction(context.Background(), in, fit)
+	p := newTurnProgressor()
+	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
+	})
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want non-nil")
@@ -253,9 +254,10 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Fits:        false,
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
-	outcome := p.handleCompaction(context.Background(), in, fit)
+	p := newTurnProgressor()
+	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, fmt.Errorf("compaction provider unavailable")
+	})
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want error")
@@ -306,9 +308,10 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		Fits:        false,
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
-	outcome := p.handleCompaction(context.Background(), in, fit)
+	p := newTurnProgressor()
+	outcome := p.handleCompaction(context.Background(), in, fit, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		return false, nil
+	})
 
 	if outcome.Error == nil {
 		t.Fatal("handleCompaction() error = nil, want error")
@@ -402,8 +405,7 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if !outcome.Stop {
@@ -481,8 +483,7 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if outcome.Stop {
@@ -567,8 +568,7 @@ func TestAdvance_ModelCallCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(ctx, in)
 
 	if !outcome.Stop {
@@ -644,8 +644,7 @@ func TestAdvance_ToolCallCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(ctx, in)
 
 	if !outcome.Stop {
@@ -735,8 +734,7 @@ func TestAdvance_ToolCallFailure(t *testing.T) {
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if outcome.Stop {
@@ -838,8 +836,7 @@ func TestAdvance_WorkflowHandoffAcceptedStopsWithoutToolResult(t *testing.T) {
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if !outcome.Stop {
@@ -925,10 +922,12 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 		BasePrompt:        prompt.AssemblyOptions{},
 		CompactionHistory: map[string]bool{},
 		CompactionCount:   new(int),
+		CompactFn: func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+			return false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
+		},
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	// Compaction should signal retry: the outer loop should retry the turn
@@ -985,10 +984,12 @@ func TestAdvance_FitFailureNoCompactionCandidate(t *testing.T) {
 		BasePrompt:        prompt.AssemblyOptions{},
 		CompactionHistory: map[string]bool{key: true},
 		CompactionCount:   new(int),
+		CompactFn: func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+			return false, nil
+		},
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if !outcome.Stop {
@@ -1048,8 +1049,7 @@ func TestAdvance_DetectedReasoningEchoBack_AssistantOnlyTurn(t *testing.T) {
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if !outcome.DetectedReasoningEchoBack {
@@ -1104,8 +1104,7 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenAlreadyEnabled(t *testing.T
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if outcome.DetectedReasoningEchoBack {
@@ -1234,7 +1233,7 @@ func TestExecuteSingleToolCallSetsConversationSnapshot(t *testing.T) {
 		State: state,
 	}
 
-	progressor := newTurnProgressor(&Runner{})
+	progressor := newTurnProgressor()
 	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "pwd"}}
 	_, outcome := progressor.executeSingleToolCall(context.Background(), in, state, 1, call)
 	if outcome.Stop {
@@ -1295,8 +1294,7 @@ func TestAdvance_DetectedReasoningEchoBack_NotSetWhenNoReasoningContent(t *testi
 		CompactionCount:   new(int),
 	}
 
-	runner := NewRunner()
-	p := newTurnProgressor(runner)
+	p := newTurnProgressor()
 	outcome := p.advance(context.Background(), in)
 
 	if outcome.DetectedReasoningEchoBack {
