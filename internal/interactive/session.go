@@ -324,7 +324,7 @@ func (s *Session) handleSwitchModel(name string) error {
 	if _, ok := s.deps.Config.Models[name]; !ok {
 		s.mu.Unlock()
 		err := fmt.Errorf("model %q not found in config", name)
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Model switch failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Model switch failed: %v", err)))
 		return err
 	}
 	s.deps.Config.DefaultModel = name
@@ -335,12 +335,12 @@ func (s *Session) handleSwitchModel(name string) error {
 // handleForkSession forks the current live session after saving it, then switches to the fork.
 func (s *Session) handleForkSession(ctx context.Context) error {
 	if s.deps.SessionStore == nil {
-		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil
 	}
 
 	if err := s.saveSession(); err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: save failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork session: save failed: %v", err)))
 		return err
 	}
 
@@ -357,44 +357,44 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 
 	forked, err := session.Fork(currentSession)
 	if err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork session: %v", err)))
 		return err
 	}
 
 	if err := s.deps.SessionStore.Save(forked); err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork session: save fork failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork session: save fork failed: %v", err)))
 		return err
 	}
 
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", originalTitle)))
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Forked from: %s", originalTitle)))
 	return s.loadSession(ctx, forked.ID)
 }
 
 // handleForkSavedSession forks a saved session by ID, saves the fork, then switches to it.
 func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
 	if s.deps.SessionStore == nil {
-		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil
 	}
 
 	loadedSession, err := s.deps.SessionStore.Load(sessionID)
 	if err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session failed: %v", err)))
 		return err
 	}
 
 	forked, err := session.Fork(loadedSession)
 	if err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session: %v", err)))
 		return err
 	}
 
 	if err := s.deps.SessionStore.Save(forked); err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("fork saved session: save failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session: save failed: %v", err)))
 		return err
 	}
 
-	s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("Forked from: %s", loadedSession.Title)))
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Forked from: %s", loadedSession.Title)))
 	return s.loadSession(ctx, forked.ID)
 }
 
@@ -477,13 +477,13 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 // saved session, following the ClearConversation pattern but seeding from stored lineage.
 func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if s.deps.SessionStore == nil {
-		s.events.Emit(output.NewContextReportEvent("session store not configured"))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil
 	}
 
 	sess, err := s.deps.SessionStore.Load(sessionID)
 	if err != nil {
-		s.events.Emit(output.NewContextReportEvent(fmt.Sprintf("load session failed: %v", err)))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
 		return err
 	}
 

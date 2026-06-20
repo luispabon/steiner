@@ -21,7 +21,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("grep: %w", err)
 			}
 
-			NormalizeGrep(&in)
+			normalizeGrep(&in)
 
 			if in.OutputMode == "" {
 				in.OutputMode = "content"
@@ -52,12 +52,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 			if searchPath == "" {
 				searchPath = "."
 			}
-			_, err = env.PathPolicy.ResolveReadPath(searchPath)
-			if err != nil {
-				return nil, fmt.Errorf("grep: %w", err)
-			}
-
-			absPath, err := absWorkspacePath(env.WorkDir, searchPath)
+			absPath, err := env.PathPolicy.ResolveReadPath(searchPath)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}

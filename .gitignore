@@ -6,6 +6,7 @@ bin
 test_config.yaml
 tmp/
 project_planning/
+.project_planning/
 /steiner
 .steiner/plans/
 

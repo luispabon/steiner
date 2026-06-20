@@ -1,11 +1,5 @@
 package config
 
-func applyProjectContextConfigPatch(cfg *Config, patch configPatch) {
-	if patch.ProjectContext != nil {
-		applyProjectContextPatch(&cfg.ProjectContext, patch.ProjectContext)
-	}
-}
-
 func applyProjectContextPatch(dst *ProjectContextConfig, patch *projectContextPatch) {
 	if patch.MaxTokens != nil {
 		dst.MaxTokens = *patch.MaxTokens
@@ -15,12 +9,6 @@ func applyProjectContextPatch(dst *ProjectContextConfig, patch *projectContextPa
 	}
 	if patch.IgnoreFiles != nil {
 		dst.IgnoreFiles = append([]string(nil), (*patch.IgnoreFiles)...)
-	}
-}
-
-func applyPathsConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Paths != nil {
-		applyPathsPatch(&cfg.Paths, patch.Paths)
 	}
 }
 
@@ -42,12 +30,6 @@ func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
 	}
 }
 
-func applyLoggingConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Logging != nil {
-		applyLoggingPatch(&cfg.Logging, patch.Logging)
-	}
-}
-
 func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	if patch.Enabled != nil {
 		dst.Enabled = *patch.Enabled
@@ -60,12 +42,6 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	}
 	if patch.ThinkingChunk != nil {
 		dst.ThinkingChunk = *patch.ThinkingChunk
-	}
-}
-
-func applyContextManagementConfigPatch(cfg *Config, patch configPatch) {
-	if patch.ContextManagement != nil {
-		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
 	}
 }
 

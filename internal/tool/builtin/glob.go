@@ -26,18 +26,13 @@ func NewGlobTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			NormalizeGlob(&in)
+			normalizeGlob(&in)
 
 			if in.Path == "" {
 				in.Path = "."
 			}
 
-			_, err = env.PathPolicy.ResolveReadPath(in.Path)
-			if err != nil {
-				return nil, fmt.Errorf("glob: %w", err)
-			}
-
-			absPath, err := absWorkspacePath(env.WorkDir, in.Path)
+			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -52,27 +47,7 @@ func NewGlobTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			total := len(allFiles)
-			start := in.Offset
-			if start > total {
-				start = total
-			}
-			end := start + in.Limit
-			if end > total {
-				end = total
-			}
-			page := allFiles[start:end]
-
-			result := Result{
-				Output:   strings.Join(page, "\n"),
-				Returned: len(page),
-			}
-
-			if end < total {
-				result.NextOffset = in.Offset + in.Limit
-			}
-
-			return result, nil
+			return pageResults(allFiles, in.Limit, in.Offset), nil
 		},
 	}
 }

@@ -21,7 +21,7 @@ func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 				return nil, fmt.Errorf("web_search: %w", err)
 			}
 
-			NormalizeWebSearch(&in)
+			normalizeWebSearch(&in)
 
 			if in.Query == "" {
 				return nil, fmt.Errorf("web_search: query is required")

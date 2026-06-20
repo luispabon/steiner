@@ -28,7 +28,7 @@ func decodeReflect(t reflect.Type, raw map[string]any) (reflect.Value, error) {
 	if t == nil {
 		return reflect.Value{}, fmt.Errorf("decode input: nil type")
 	}
-	if t.Kind() == 22 {
+	if t.Kind() == reflect.Pointer {
 		decoded, err := decodeReflect(t.Elem(), raw)
 		if err != nil {
 			return reflect.Value{}, err
@@ -94,7 +94,7 @@ func setField(fv reflect.Value, raw any) error {
 
 	rv := reflect.ValueOf(raw)
 
-	if fv.Kind() == 22 {
+	if fv.Kind() == reflect.Pointer {
 		return setPointerField(fv, raw)
 	}
 

@@ -52,7 +52,7 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	ctrl := s.ActiveRunController()
 
 	result, err := s.runManualCompaction(context.Background(), "test-model", func(_ context.Context) ([]agent.Message, error) {
-		s.events.Emit(output.NewAssistantChunkEvent(1, "streamed chunk"))
+		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "streamed chunk", output.ChunkSourceAssistant))
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	})
 	if err != nil {

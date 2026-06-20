@@ -1,16 +1,11 @@
 package builtin
 
-import (
-	"strings"
-
-	"github.com/deepnoodle-ai/dive"
-)
+import "strings"
 
 // Result is a generic tool result.
 type Result struct {
 	Output     string `json:"output"`
 	Returned   int    `json:"returned"`
-	Error      string `json:"error,omitempty"`
 	Truncated  bool   `json:"truncated,omitempty"`
 	NextOffset int    `json:"next_offset,omitempty"`
 }
@@ -125,6 +120,31 @@ func (r *MutateResult) WasMutated() bool {
 	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
 }
 
+// pageResults builds a Result from a sorted list of entry names with pagination.
+func pageResults(allLines []string, limit, offset int) Result {
+	total := len(allLines)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	page := allLines[start:end]
+
+	result := Result{
+		Output:   strings.Join(page, "\n"),
+		Returned: len(page),
+	}
+
+	if end < total {
+		result.NextOffset = offset + limit
+	}
+
+	return result
+}
+
 // WorkflowHandoffResult is the result from a workflow_handoff tool call.
 type WorkflowHandoffResult struct {
 	Next             string `json:"next"`
@@ -133,22 +153,4 @@ type WorkflowHandoffResult struct {
 	MessageTruncated bool   `json:"message_truncated,omitempty"`
 	Status           string `json:"status"`
 	Reason           string `json:"reason,omitempty"`
-}
-
-// diveText flattens a Dive ToolResult into a single text string by combining
-// the Display field and all Content[].Text fields.
-func diveText(res *dive.ToolResult) string {
-	var b strings.Builder
-	if res.Display != "" {
-		b.WriteString(res.Display)
-	}
-	for _, c := range res.Content {
-		if c.Text != "" {
-			if b.Len() > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(c.Text)
-		}
-	}
-	return b.String()
 }

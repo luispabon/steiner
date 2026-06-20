@@ -855,6 +855,58 @@ func TestAnthropicCacheControl_OnSecondToLastUserMessage(t *testing.T) {
 	}
 }
 
+func TestAssignCacheBreakpoints_MarksStaticPrefixAndLastTwoUserMessages(t *testing.T) {
+	wire := anthropicRequest{
+		Tools: []anthropicTool{
+			{Name: "lookup"},
+		},
+		Messages: []anthropicMessage{
+			{
+				Role: "user",
+				Content: []anthropicContentBlock{
+					{Type: "text", Text: "first"},
+				},
+			},
+			{
+				Role: "assistant",
+				Content: []anthropicContentBlock{
+					{Type: "text", Text: "reply"},
+				},
+			},
+			{
+				Role: "user",
+				Content: []anthropicContentBlock{
+					{Type: "text", Text: "second"},
+				},
+			},
+		},
+	}
+
+	assignCacheBreakpoints(&wire)
+
+	if wire.Tools[0].CacheControl == nil {
+		t.Fatal("tool CacheControl = nil, want cache control marker")
+	}
+	if got, want := wire.Tools[0].CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("tool cache control type = %q, want %q", got, want)
+	}
+	if wire.Messages[0].Content[0].CacheControl == nil {
+		t.Fatal("first user message CacheControl = nil, want cache control marker")
+	}
+	if got, want := wire.Messages[0].Content[0].CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("first user cache control type = %q, want %q", got, want)
+	}
+	if wire.Messages[1].Content[0].CacheControl != nil {
+		t.Fatal("assistant message CacheControl = non-nil, want nil")
+	}
+	if wire.Messages[2].Content[0].CacheControl == nil {
+		t.Fatal("final user message CacheControl = nil, want cache control marker")
+	}
+	if got, want := wire.Messages[2].Content[0].CacheControl.Type, "ephemeral"; got != want {
+		t.Fatalf("final user cache control type = %q, want %q", got, want)
+	}
+}
+
 func TestAnthropicCacheControl_EmptyRequest(t *testing.T) {
 	request := ChatRequest{
 		Model:    "claude-3-5-sonnet",

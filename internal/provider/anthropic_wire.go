@@ -18,27 +18,23 @@ type anthropicRequest struct {
 }
 
 func (r anthropicRequest) MarshalJSON() ([]byte, error) {
-	m := make(map[string]any, len(r.Params)+len(r.ExtraParams)+6)
-	for key, value := range r.Params {
-		m[key] = value
+	base := map[string]any{
+		"model":    r.Model,
+		"messages": r.Messages,
 	}
-	for key, value := range r.ExtraParams {
-		m[key] = value
-	}
-	m["model"] = r.Model
-	m["messages"] = r.Messages
 	if len(r.System) > 0 {
-		m["system"] = r.System
+		base["system"] = r.System
 	}
 	if r.MaxTokens != nil {
-		m["max_tokens"] = *r.MaxTokens
+		base["max_tokens"] = *r.MaxTokens
 	}
 	if r.Stream {
-		m["stream"] = true
+		base["stream"] = true
 	}
 	if len(r.Tools) > 0 {
-		m["tools"] = r.Tools
+		base["tools"] = r.Tools
 	}
+	m := mergeRequestParams(base, r.Params, r.ExtraParams)
 	return json.Marshal(m)
 }
 
@@ -203,22 +199,31 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	}
 
 	// Find second-to-last user message and mark its last content block (avoid duplicating if it's the same as final message).
-	lastUserMsgIdx := -1
-	secondLastUserMsgIdx := -1
-	for i := len(wire.Messages) - 1; i >= 0; i-- {
-		if wire.Messages[i].Role == "user" {
-			if lastUserMsgIdx == -1 {
-				lastUserMsgIdx = i
-			} else {
-				secondLastUserMsgIdx = i
-				break
-			}
-		}
+	userMsgIndices := lastNUserMsgIndices(wire.Messages, 2)
+	if len(userMsgIndices) < 2 || numBreakpoints >= 4 {
+		return
 	}
-
-	if secondLastUserMsgIdx >= 0 && secondLastUserMsgIdx != lastUserMsgIdx && numBreakpoints < 4 && len(wire.Messages[secondLastUserMsgIdx].Content) > 0 {
+	secondLastUserMsgIdx := userMsgIndices[0]
+	if len(wire.Messages[secondLastUserMsgIdx].Content) > 0 {
 		wire.Messages[secondLastUserMsgIdx].Content[len(wire.Messages[secondLastUserMsgIdx].Content)-1].CacheControl = cacheControl
 	}
+}
+
+func lastNUserMsgIndices(messages []anthropicMessage, n int) []int {
+	if n <= 0 || len(messages) == 0 {
+		return nil
+	}
+	indices := make([]int, 0, n)
+	for i := len(messages) - 1; i >= 0 && len(indices) < n; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		indices = append(indices, i)
+	}
+	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
+		indices[left], indices[right] = indices[right], indices[left]
+	}
+	return indices
 }
 
 func toAnthropicMessage(message Message) *anthropicMessage {
@@ -391,7 +396,7 @@ func normalizeAnthropicToolInput(name string, input map[string]any) (map[string]
 	}
 	var out map[string]any
 	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("decode tool call %q arguments: %w", name, err)
+		return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, name, err)
 	}
 	return out, nil
 }

@@ -97,7 +97,8 @@ type FinalReport struct {
 	GeneratedAt         time.Time            `json:"generated_at"`
 }
 
-// GenerateFinalReport assembles, writes, and returns the final oneshot report.
+// GenerateFinalReport is the primary entry point for assembling, writing, and
+// returning the final oneshot report.
 func GenerateFinalReport(ctx context.Context, manifest Manifest, review ReviewOutcome) (FinalReport, error) {
 	if strings.TrimSpace(manifest.RunID) == "" {
 		return FinalReport{}, fmt.Errorf("generate final report: manifest run id is required")
@@ -151,7 +152,8 @@ func CollectGitSnapshot(ctx context.Context, worktreePath string) (GitSnapshot, 
 	}, nil
 }
 
-// AssembleFinalReport combines manifest, git, and review data into a structured report.
+// AssembleFinalReport combines manifest, git, and review data into a structured
+// report without writing it to disk.
 func AssembleFinalReport(manifest Manifest, git GitSnapshot, review ReviewOutcome) FinalReport {
 	phaseSessions := phaseSessionReports(manifest.PhaseSessionIDs)
 	filesChanged := mergeBoundedStrings(git.FilesChanged, review.FilesChanged)

@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // Spinner wraps a bubbles spinner with a Start/Stop API and TTY auto-detection.
@@ -108,19 +108,5 @@ func (s *Spinner) run() {
 // isTTY checks whether w is connected to a terminal that supports ANSI.
 // Mirrors the logic from internal/output/plain.go (supportsANSI).
 func isTTY(w io.Writer) bool {
-	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("TERM")), "dumb") {
-		return false
-	}
-	file, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	return (info.Mode() & os.ModeCharDevice) != 0
+	return output.SupportsANSI(w)
 }

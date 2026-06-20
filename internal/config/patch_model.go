@@ -6,46 +6,8 @@ func setIfPresent[T any](dst *T, src *T) {
 	}
 }
 
-func applySchedulerConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Scheduler != nil {
-		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
-	}
-}
-
 func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
 	setIfPresent(&dst.Parallelism, patch.Parallelism)
-}
-
-func applyModelConfigPatch(cfg *Config, patch configPatch) {
-	if patch.DefaultModel != nil {
-		cfg.DefaultModel = *patch.DefaultModel
-	}
-	if patch.Providers != nil {
-		if cfg.Providers == nil {
-			cfg.Providers = make(map[string]ProviderConfig)
-		}
-		for name, p := range *patch.Providers {
-			current := cfg.Providers[name]
-			applyProviderPatch(&current, &p)
-			cfg.Providers[name] = current
-		}
-	}
-	if patch.Models != nil {
-		if cfg.Models == nil {
-			cfg.Models = make(map[string]ModelConfig)
-		}
-		for name, model := range *patch.Models {
-			current, ok := cfg.Models[name]
-			if !ok {
-				current = newModelConfigBase(*cfg)
-			}
-			applyModelPatch(&current, &model)
-			cfg.Models[name] = current
-		}
-	}
-	if patch.WorkflowHandoff != nil {
-		applyWorkflowHandoffPatch(&cfg.WorkflowHandoff, patch.WorkflowHandoff)
-	}
 }
 
 func newModelConfigBase(cfg Config) ModelConfig {

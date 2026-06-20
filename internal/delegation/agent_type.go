@@ -23,12 +23,8 @@ func AllAgentTypes() []AgentType {
 
 // ValidAgentType reports whether s is a recognized agent type name.
 func ValidAgentType(s string) bool {
-	for _, t := range AllAgentTypes() {
-		if string(t) == s {
-			return true
-		}
-	}
-	return false
+	_, ok := validAgentTypeSet[s]
+	return ok
 }
 
 var agentPrompts = map[AgentType]string{
@@ -105,6 +101,14 @@ var agentAllowlists = map[AgentType][]string{
 	AgentTypeCode:     {"read", "glob", "grep", "ls", "mutate", "bash"},
 	AgentTypePlan:     {"read", "glob", "grep", "ls"},
 	AgentTypeVerify:   {"read", "glob", "grep", "ls", "bash"},
+}
+
+var validAgentTypeSet = map[string]struct{}{
+	string(AgentTypeExplore):  {},
+	string(AgentTypeResearch): {},
+	string(AgentTypeCode):     {},
+	string(AgentTypePlan):     {},
+	string(AgentTypeVerify):   {},
 }
 
 // AgentSystemPrompt returns the system prompt for the given agent type.

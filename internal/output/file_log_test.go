@@ -201,7 +201,7 @@ func TestFileLogSinkThinkingChunkSuppression(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = sink.Close() })
 
-		sink.Emit(NewThinkingChunkEvent(1, "some reasoning"))
+		sink.Emit(NewThinkingChunkEventWithSource(1, "some reasoning", ChunkSourceAssistant))
 		data, _ := os.ReadFile(path)
 		if len(data) != 0 {
 			t.Fatalf("expected empty file when thinking_chunk=false, got:\n%s", data)
@@ -217,7 +217,7 @@ func TestFileLogSinkThinkingChunkSuppression(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = sink.Close() })
 
-		sink.Emit(NewThinkingChunkEvent(1, "some reasoning"))
+		sink.Emit(NewThinkingChunkEventWithSource(1, "some reasoning", ChunkSourceAssistant))
 		data, _ := os.ReadFile(path)
 		got := string(data)
 		if !strings.Contains(got, "thinking_chunk") {

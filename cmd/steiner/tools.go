@@ -33,16 +33,16 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 	return builtin.Builtins(env)
 }
 
-func runtimeRegistry(cfg config.Config, workDir string) (*tool.Registry, error) {
+func runtimeRegistry(cfg config.Config, workDir string) *tool.Registry {
 	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil, nil)
 }
 
 // runtimeRegistryWithSink builds a tool registry with an optional event sink and
 // interactive flag, used in interactive mode to wire the display_file tool.
-func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) (*tool.Registry, error) {
+func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) *tool.Registry {
 	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb)...)
 	for _, def := range tool.NewRegistryFromConfig(cfg).Definitions() {
 		registry.Register(def)
 	}
-	return registry, nil
+	return registry
 }

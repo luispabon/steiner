@@ -138,52 +138,37 @@ func (e *Executor) handleBashDenial(ctx context.Context, ec *executionContext, r
 
 	output := br.BashOutput()
 	if isBashDenial(output) {
-		const grantInstructions = "Add a host_mount in .steiner/config.yaml or re-run with --unsafe"
-		req := ApprovalRequest{
-			Tool:              ec.Def,
-			Input:             ec.NormalizedInput,
-			WorkDir:           e.pathPolicy.Root(),
-			Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, e.pathPolicy),
-			DeniedPath:        extractDeniedPath(output),
-			Reason:            "command blocked by sandbox",
-			GrantInstructions: grantInstructions,
-			Response:          make(chan ApprovalResponse, 1),
-		}
-		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
-			resp := <-req.Response
-			if resp.Allow {
-				unsandboxedCtx := context.WithValue(ctx, BashUnsandboxedKey{}, true)
-				return ec.Def.Handler(unsandboxedCtx, ec.NormalizedInput)
-			}
-		}
-		// Denied or approval error — append grant instructions and return original.
-		br.AppendOutput("\n" + grantInstructions)
-		return result, nil
+		return e.handleSandboxDenial(ctx, ec, br, output, "command blocked by sandbox", "Add a host_mount in .steiner/config.yaml or re-run with --unsafe", "\nAdd a host_mount in .steiner/config.yaml or re-run with --unsafe")
 	}
 
 	if isSSHConfigOwnershipDenial(output) {
-		const grantInstructions = "Re-run outside the sandbox with --unsafe"
-		req := ApprovalRequest{
-			Tool:              ec.Def,
-			Input:             ec.NormalizedInput,
-			WorkDir:           e.pathPolicy.Root(),
-			Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, e.pathPolicy),
-			Reason:            "SSH config rejected inside sandbox",
-			GrantInstructions: grantInstructions,
-			Response:          make(chan ApprovalResponse, 1),
-		}
-		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
-			resp := <-req.Response
-			if resp.Allow {
-				unsandboxedCtx := context.WithValue(ctx, BashUnsandboxedKey{}, true)
-				return ec.Def.Handler(unsandboxedCtx, ec.NormalizedInput)
-			}
-		}
-		br.AppendOutput("\nSSH failed because OpenSSH rejected config ownership inside the sandbox.\nThe command was not rerun outside the sandbox.")
-		return result, nil
+		return e.handleSandboxDenial(ctx, ec, br, output, "SSH config rejected inside sandbox", "Re-run outside the sandbox with --unsafe", "\nSSH failed because OpenSSH rejected config ownership inside the sandbox.\nThe command was not rerun outside the sandbox.")
 	}
 
 	return result, nil
+}
+
+func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext, br BashDenialResult, output, reason, grantInstructions, denialMessage string) (any, error) {
+	req := ApprovalRequest{
+		Tool:              ec.Def,
+		Input:             ec.NormalizedInput,
+		WorkDir:           e.pathPolicy.Root(),
+		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, e.pathPolicy),
+		DeniedPath:        extractDeniedPath(output),
+		Reason:            reason,
+		GrantInstructions: grantInstructions,
+		Response:          make(chan ApprovalResponse, 1),
+	}
+	if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
+		resp := <-req.Response
+		if resp.Allow {
+			unsandboxedCtx := context.WithValue(ctx, BashUnsandboxedKey{}, true)
+			return ec.Def.Handler(unsandboxedCtx, ec.NormalizedInput)
+		}
+	}
+	// Denied or approval error — append the localized denial guidance and return original.
+	br.AppendOutput(denialMessage)
+	return br, nil
 }
 
 // executeTool dispatches tool execution to the appropriate phase:

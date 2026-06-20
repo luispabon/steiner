@@ -16,27 +16,7 @@ const (
 	workflowHandoffMessageMaxRunes = 512
 )
 
-var workflowHandoffTargetUnsafeRunes = map[rune]struct{}{
-	'!':  {},
-	'"':  {},
-	'\'': {},
-	'$':  {},
-	'&':  {},
-	'(':  {},
-	')':  {},
-	'*':  {},
-	';':  {},
-	'<':  {},
-	'>':  {},
-	'?':  {},
-	'[':  {},
-	'\\': {},
-	']':  {},
-	'`':  {},
-	'{':  {},
-	'|':  {},
-	'}':  {},
-}
+const workflowHandoffTargetUnsafeChars = "!\"'$&()*;<>?[\\]`{|}"
 
 // workflowTarget describes a registered workflow target with validation constraints.
 type workflowTarget struct {
@@ -248,9 +228,9 @@ func validateWorkflowHandoffTargetSafety(raw string) error {
 		if unicode.IsControl(r) {
 			return fmt.Errorf("workflow_handoff: target contains control characters")
 		}
-		if _, ok := workflowHandoffTargetUnsafeRunes[r]; ok {
-			return fmt.Errorf("workflow_handoff: target contains shell metacharacters")
-		}
+	}
+	if strings.ContainsAny(raw, workflowHandoffTargetUnsafeChars) {
+		return fmt.Errorf("workflow_handoff: target contains shell metacharacters")
 	}
 
 	return nil

@@ -99,17 +99,93 @@ func (p *mutatePlanner) fail(message string, total int) *MutateResult {
 	return &p.result
 }
 
-var allowedFields = map[string]map[string]bool{
-	"create":        {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true, "allow_empty": true},
-	"write":         {"path": true, "content": true, "assert_present": true, "assert_absent": true, "file_hash": true, "allow_empty": true},
-	"replace":       {"path": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "replace_all": true, "file_hash": true},
-	"line_replace":  {"path": true, "line": true, "line_count": true, "old_string": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
-	"delete_line":   {"path": true, "line": true, "line_count": true, "assert_present": true, "assert_absent": true, "file_hash": true},
-	"delete":        {"path": true, "file_hash": true},
-	"move":          {"from": true, "to": true, "assert_present": true, "assert_absent": true, "file_hash": true},
-	"insert_before": {"path": true, "line": true, "content": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
-	"insert_after":  {"path": true, "line": true, "content": true, "new_string": true, "assert_present": true, "assert_absent": true, "file_hash": true},
+var allowedFields = map[string]map[string]struct{}{
+	"create": {
+		"path":           {},
+		"content":        {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+		"allow_empty":    {},
+	},
+	"write": {
+		"path":           {},
+		"content":        {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+		"allow_empty":    {},
+	},
+	"replace": {
+		"path":           {},
+		"old_string":     {},
+		"new_string":     {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"replace_all":    {},
+		"file_hash":      {},
+	},
+	"line_replace": {
+		"path":           {},
+		"line":           {},
+		"line_count":     {},
+		"old_string":     {},
+		"new_string":     {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+	},
+	"delete_line": {
+		"path":           {},
+		"line":           {},
+		"line_count":     {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+	},
+	"delete": {
+		"path":      {},
+		"file_hash": {},
+	},
+	"move": {
+		"from":           {},
+		"to":             {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+	},
+	"insert_before": {
+		"path":           {},
+		"line":           {},
+		"content":        {},
+		"new_string":     {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+	},
+	"insert_after": {
+		"path":           {},
+		"line":           {},
+		"content":        {},
+		"new_string":     {},
+		"assert_present": {},
+		"assert_absent":  {},
+		"file_hash":      {},
+	},
 }
+
+var validFieldsByOpType = func() map[string][]string {
+	types := make(map[string][]string, len(allowedFields))
+	for opType, fields := range allowedFields {
+		valid := make([]string, 0, len(fields))
+		for field := range fields {
+			valid = append(valid, field)
+		}
+		sort.Strings(valid)
+		types[opType] = valid
+	}
+	return types
+}()
 
 func validateFields(index int, op MutateOperation) error {
 	opType := strings.TrimSpace(op.Type)
@@ -137,13 +213,10 @@ func validateFields(index int, op MutateOperation) error {
 		{"to", op.To != ""},
 	}
 	for _, c := range checks {
-		if c.isSet && !allowed[c.name] {
-			valid := make([]string, 0, len(allowed))
-			for k := range allowed {
-				valid = append(valid, k)
+		if c.isSet {
+			if _, ok := allowed[c.name]; !ok {
+				return fmt.Errorf("mutate: operation %d %s: field %q is not valid for this operation type; valid fields: %s", index, opType, c.name, strings.Join(validFieldsByOpType[opType], ", "))
 			}
-			sort.Strings(valid)
-			return fmt.Errorf("mutate: operation %d %s: field %q is not valid for this operation type; valid fields: %s", index, opType, c.name, strings.Join(valid, ", "))
 		}
 	}
 	return nil
@@ -169,9 +242,9 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 	case "move":
 		return p.planMove(index, op)
 	case "insert_before":
-		return p.planInsertBefore(index, op)
+		return p.planInsert(index, op, false)
 	case "insert_after":
-		return p.planInsertAfter(index, op)
+		return p.planInsert(index, op, true)
 	default:
 		return fmt.Errorf("mutate: operation %d: unsupported type %q", index, op.Type)
 	}
@@ -386,11 +459,7 @@ func (p *mutatePlanner) planDeleteLine(index int, op MutateOperation) error {
 	state.content = []byte(strings.Join(lines, ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
-	anchorLine := op.Line
-	if anchorLine > 1 {
-		anchorLine--
-	}
-	if err := p.recordTextOperation(index, op, state, 0, anchorLine); err != nil {
+	if err := p.recordTextOperation(index, op, state, 0, op.Line); err != nil {
 		return err
 	}
 	p.addDiff(state.displayPath, before, string(state.content))
@@ -493,113 +562,109 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	return nil
 }
 
-func (p *mutatePlanner) planInsertBefore(index int, op MutateOperation) error {
-	state, err := p.textState(index, "insert_before", op.Path)
+func (p *mutatePlanner) planInsert(index int, op MutateOperation, insertAfter bool) error {
+	opType := "insert_before"
+	if insertAfter {
+		opType = "insert_after"
+	}
+
+	state, lines, op, err := p.prepareInsert(index, opType, op, insertAfter)
 	if err != nil {
 		return err
 	}
-	if err := p.verifyFileHash(index, "insert_before", state, op.FileHash); err != nil {
-		return err
-	}
-	if op.Line <= 0 {
-		return fmt.Errorf("mutate: operation %d insert_before: line must be >= 1", index)
-	}
-	lines := splitLinesPreserveEndings(string(state.content))
-	if len(lines) == 0 {
-		return fmt.Errorf("mutate: operation %d insert_before: file is empty, no valid anchor line", index)
-	}
-	if op.Line > len(lines) {
-		return fmt.Errorf("mutate: operation %d insert_before: line %d is outside file with %d lines", index, op.Line, len(lines))
-	}
-
-	if op.Content == "" && op.NewString != "" {
-		op.Content = op.NewString
-	}
-	if op.Content == "" {
-		return fmt.Errorf("mutate: operation %d insert_before: content is required", index)
-	}
-
 	before := string(state.content)
-	content := op.Content
-	if content != "" && !strings.HasSuffix(content, "\n") {
-		ending := detectLineEnding(lines)
-		content += ending
-	}
-	insertLines := splitLinesPreserveEndings(content)
-
-	result := make([]string, 0, len(lines)+len(insertLines))
-	result = append(result, lines[:op.Line-1]...)
-	result = append(result, insertLines...)
-	result = append(result, lines[op.Line-1:]...)
-
-	state.content = []byte(strings.Join(result, ""))
+	state.content = []byte(strings.Join(buildInsertedLines(lines, op, insertAfter), ""))
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
-	if err := p.recordTextOperation(index, op, state, 0, op.Line); err != nil {
+	anchorLine := op.Line
+	if insertAfter {
+		anchorLine++
+	}
+	if err := p.recordTextOperation(index, op, state, 0, anchorLine); err != nil {
 		return err
 	}
 	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
 }
 
-func (p *mutatePlanner) planInsertAfter(index int, op MutateOperation) error {
-	state, err := p.textState(index, "insert_after", op.Path)
+func (p *mutatePlanner) prepareInsert(index int, opType string, op MutateOperation, insertAfter bool) (*mutateFileState, []string, MutateOperation, error) {
+	state, err := p.textState(index, opType, op.Path)
 	if err != nil {
-		return err
+		return nil, nil, op, err
 	}
-	if err := p.verifyFileHash(index, "insert_after", state, op.FileHash); err != nil {
-		return err
+	if err := p.verifyFileHash(index, opType, state, op.FileHash); err != nil {
+		return nil, nil, op, err
 	}
-	if op.Line <= 0 {
-		return fmt.Errorf("mutate: operation %d insert_after: line must be >= 1 (use insert_before line 1 to prepend)", index)
+	if err := validateInsertLine(index, op.Line, insertAfter); err != nil {
+		return nil, nil, op, err
 	}
 	lines := splitLinesPreserveEndings(string(state.content))
-	if len(lines) == 0 {
-		return fmt.Errorf("mutate: operation %d insert_after: file is empty, no valid anchor line", index)
+	if err := validateInsertBounds(index, opType, op.Line, lines); err != nil {
+		return nil, nil, op, err
 	}
-	if op.Line > len(lines) {
-		return fmt.Errorf("mutate: operation %d insert_after: line %d is outside file with %d lines", index, op.Line, len(lines))
-	}
-
 	if op.Content == "" && op.NewString != "" {
 		op.Content = op.NewString
 	}
 	if op.Content == "" {
-		return fmt.Errorf("mutate: operation %d insert_after: content is required", index)
+		return nil, nil, op, fmt.Errorf("mutate: operation %d %s: content is required", index, opType)
 	}
+	normalizeInsertAnchor(lines, op.Line, insertAfter)
+	op.Content = normalizeInsertedContent(op.Content, detectLineEnding(lines))
+	return state, lines, op, nil
+}
 
-	before := string(state.content)
-	content := op.Content
+func validateInsertLine(index, line int, insertAfter bool) error {
+	if line > 0 {
+		return nil
+	}
+	if insertAfter {
+		return fmt.Errorf("mutate: operation %d insert_after: line must be >= 1 (use insert_before line 1 to prepend)", index)
+	}
+	return fmt.Errorf("mutate: operation %d insert_before: line must be >= 1", index)
+}
+
+func validateInsertBounds(index int, opType string, line int, lines []string) error {
+	if len(lines) == 0 {
+		return fmt.Errorf("mutate: operation %d %s: file is empty, no valid anchor line", index, opType)
+	}
+	if line > len(lines) {
+		return fmt.Errorf("mutate: operation %d %s: line %d is outside file with %d lines", index, opType, line, len(lines))
+	}
+	return nil
+}
+
+func normalizeInsertAnchor(lines []string, line int, insertAfter bool) {
+	if !insertAfter {
+		return
+	}
 	ending := detectLineEnding(lines)
-
-	// Allow append-style inserts at EOF even when the file lacks a trailing newline.
-	// If the anchor is newline-free, synthesize the detected line ending so the
-	// inserted block lands on its own line.
-	anchorLine := lines[op.Line-1]
+	anchorLine := lines[line-1]
 	anchorText := strings.TrimSuffix(strings.TrimSuffix(anchorLine, "\n"), "\r")
 	if anchorText == anchorLine {
-		// Anchor line has no line ending (last line of file without trailing newline).
-		lines[op.Line-1] = anchorLine + ending
+		lines[line-1] = anchorLine + ending
 	}
+}
 
+func normalizeInsertedContent(content, ending string) string {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += ending
 	}
-	insertLines := splitLinesPreserveEndings(content)
+	return content
+}
 
+func buildInsertedLines(lines []string, op MutateOperation, insertAfter bool) []string {
+	insertLines := splitLinesPreserveEndings(op.Content)
 	result := make([]string, 0, len(lines)+len(insertLines))
-	result = append(result, lines[:op.Line]...)
-	result = append(result, insertLines...)
-	result = append(result, lines[op.Line:]...)
-
-	state.content = []byte(strings.Join(result, ""))
-	state.touched = true
-	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
-	if err := p.recordTextOperation(index, op, state, 0, op.Line+1); err != nil {
-		return err
+	if insertAfter {
+		result = append(result, lines[:op.Line]...)
+	} else {
+		result = append(result, lines[:op.Line-1]...)
 	}
-	p.addDiff(state.displayPath, before, string(state.content))
-	return nil
+	result = append(result, insertLines...)
+	if insertAfter {
+		return append(result, lines[op.Line:]...)
+	}
+	return append(result, lines[op.Line-1:]...)
 }
 
 func detectLineEnding(lines []string) string {

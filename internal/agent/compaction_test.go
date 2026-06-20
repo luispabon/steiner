@@ -580,13 +580,8 @@ func TestTwoStageSummarizeCompactionErrorsWhenEmergencyStageDoesNotApply(t *test
 		},
 	}
 
-	outcome, err := twoStageSummarizeCompactionWithStages(
-		context.Background(),
-		req,
-		state,
-		5,
-		candidate,
-		func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, _ []Message, _ []Message, mode prompt.CompactionMode, _ int) (CompactionOutcome, error) {
+	outcome, err := summarizeCompactionStages{
+		stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, _ []Message, _ []Message, mode prompt.CompactionMode, _ int) (CompactionOutcome, error) {
 			switch mode {
 			case prompt.CompactionModeNormal:
 				return CompactionOutcome{
@@ -614,16 +609,22 @@ func TestTwoStageSummarizeCompactionErrorsWhenEmergencyStageDoesNotApply(t *test
 				return CompactionOutcome{}, nil
 			}
 		},
-		func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+		fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
 			return prompt.RequestTokenBudget{
 				EstimatedPromptTokens: 680,
 				ContextSize:           1000,
 				PromptUsage:           0.80,
 			}, nil
 		},
+	}.run(
+		context.Background(),
+		req,
+		state,
+		5,
+		candidate,
 	)
 	if err == nil {
-		t.Fatal("twoStageSummarizeCompactionWithStages() error = nil, want non-nil")
+		t.Fatal("summarizeCompactionStages.run() error = nil, want non-nil")
 	}
 	for _, needle := range []string{
 		"emergency compaction could not reduce context enough",

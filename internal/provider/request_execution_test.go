@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -250,8 +251,8 @@ func TestDecodeNonStreamResponse_Malformed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "decode chat completion response") {
-		t.Fatalf("error = %q, want substring %q", err.Error(), "decode chat completion response")
+	if !errors.Is(err, errDecodeChatCompletionResponse) {
+		t.Fatalf("error = %q, want sentinel match", err.Error())
 	}
 }
 

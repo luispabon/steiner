@@ -116,7 +116,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		state = nextState
 	}
 
-	result := buildResultWithTrace(spec.AgentID, state, spec, tc)
+	result := buildResultWithTrace(spec.AgentID, state, tc)
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":             string(result.Status),
@@ -184,7 +184,6 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 		TurnCount:     state.TurnCount,
 		TokenCount:    state.TokenCount,
 		ToolCallCount: countToolCalls(state.Conversation),
-		Error:         err.Error(),
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content

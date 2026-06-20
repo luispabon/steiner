@@ -40,7 +40,9 @@ type BootstrapDeps struct {
 // overrides, builds child prompt and tool registries, and returns the assembled
 // request together with the computed DelegationLimits.
 func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return agent.RunRequest{}, DelegationLimits{}, err
+	}
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	agentLimits := agent.Limits{
 		MaxTurns:    limits.MaxTurns,
@@ -60,7 +62,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
 	return req, limits, nil
 }
 
@@ -101,6 +103,25 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 	return opts
 }
 
+// buildChildToolRegistry creates a new tool registry from the parent registry,
+// excluding the tool named delegateToolName.
+func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *tool.Registry {
+	if parent == nil {
+		return tool.NewRegistry()
+	}
+
+	parentDefs := parent.Definitions()
+	childDefs := make([]tool.ToolDef, 0, len(parentDefs))
+
+	for _, def := range parentDefs {
+		if def.Name != delegateToolName {
+			childDefs = append(childDefs, def)
+		}
+	}
+
+	return tool.NewRegistry(childDefs...)
+}
+
 // buildChildRegistries produces both the visible tool registry (tools the model
 // can request) and the execution registry (tools the child agent can actually
 // execute) from the parent registry. Delegation control tools are always
@@ -116,4 +137,55 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 	visible := parent.Subset(allowedTools, excluded)
 	exec := parent.Subset(allowedTools, excluded)
 	return visible, exec
+}
+
+// buildChildRunRequest assembles the agent.RunRequest for a child delegation.
+// Registries and prompt must be provided pre-built; the caller (typically
+// BuildChildRun) is responsible for registry and prompt assembly.
+// sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
+// executor unchanged, enforcing child sandbox ≤ parent sandbox.
+func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper) agent.RunRequest {
+	childCfg := config.Config{}
+	scopedEvents := withAgentScope(agentID, events)
+
+	exec := tool.NewExecutor(execReg, childCfg, nil, workDir)
+	if sandbox != nil {
+		exec = exec.WithSandbox(sandbox)
+	}
+
+	req := agent.RunRequest{
+		Provider:           prov,
+		Executor:           exec,
+		Tools:              visibleReg.ToProviderSpecs(),
+		Limits:             baseLimits,
+		Events:             scopedEvents,
+		Prompt:             promptOpts,
+		ResolvedModel:      rm,
+		ModelBudget:        modelBudget,
+		MaxTokens:          maxTokens,
+		StreamingPreferred: streamingPreferred,
+		CaveHuman:          caveHuman,
+	}
+
+	return req
+}
+
+// scopedEventSink tags emitted child-run events with the child agent scope.
+type scopedEventSink struct {
+	sink    output.EventSink
+	agentID string
+}
+
+func (s scopedEventSink) Emit(event output.Event) {
+	if s.sink == nil {
+		return
+	}
+	s.sink.Emit(output.WithAgentScope(event, s.agentID))
+}
+
+func withAgentScope(agentID string, sink output.EventSink) output.EventSink {
+	if sink == nil || agentID == "" {
+		return sink
+	}
+	return scopedEventSink{sink: sink, agentID: agentID}
 }

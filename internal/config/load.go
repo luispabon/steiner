@@ -14,6 +14,7 @@ type CLIOverrides struct {
 	ConfigPath string
 	Model      string
 	Verbose    bool
+	Unsafe     bool
 }
 
 // LoadOptions contains options for loading configuration.
@@ -24,6 +25,13 @@ type LoadOptions struct {
 	HomeDir           string
 	Env               map[string]string
 	CLI               CLIOverrides
+}
+
+func loadEnvironment(env map[string]string) map[string]string {
+	if env != nil {
+		return env
+	}
+	return environMap(os.Environ())
 }
 
 // Load loads configuration from files, environment variables, and CLI overrides.
@@ -42,8 +50,15 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 
 	paths := resolveConfigPaths(opts, homeDir, workingDir)
-	if err := applyConfigFilePatches(&cfg, env, paths); err != nil {
-		return Config{}, err
+	for _, item := range paths {
+		if item.path == "" {
+			continue
+		}
+		patch, err := readConfigPatch(item.path, env, item.allowMissing)
+		if err != nil {
+			return Config{}, err
+		}
+		applyPatch(&cfg, patch)
 	}
 
 	if err := applyEnvOverrides(&cfg, env); err != nil {

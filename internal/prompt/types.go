@@ -35,6 +35,16 @@ const (
 	ContextSourceDelegationResult ContextSource = "delegation_result"
 )
 
+// IsSystemZone reports whether the source belongs to the system prompt zone.
+func (s ContextSource) IsSystemZone() bool {
+	switch s {
+	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceConversationSummary:
+		return true
+	default:
+		return false
+	}
+}
+
 // ContextBlock is a rendered context fragment included in a request.
 type ContextBlock struct {
 	Source    ContextSource `json:"source"`

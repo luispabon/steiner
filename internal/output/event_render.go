@@ -55,23 +55,43 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	},
 }
 
+func appendField(parts []string, key, value string) []string {
+	if value == "" {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%s", key, value))
+}
+
+func appendIntField(parts []string, key string, value int) []string {
+	if value <= 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%d", key, value))
+}
+
+func errorChannel(hasErr bool) (Channel, string) {
+	if hasErr {
+		return ChannelError, "error"
+	}
+	return ChannelStatus, "status"
+}
+
+func advisorHeader(label, model string, useNumber, maxUses int) []string {
+	parts := []string{label}
+	parts = appendField(parts, "model", model)
+	if maxUses > 0 {
+		parts = append(parts, fmt.Sprintf("use=%d/%d", useNumber, maxUses))
+	}
+	return parts
+}
+
 func renderRunStartedEvent(payload RunStartedEvent) Segment {
 	parts := []string{"run started"}
-	if payload.Mode != "" {
-		parts = append(parts, fmt.Sprintf("mode=%s", payload.Mode))
-	}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
-	if payload.Prompt != "" {
-		parts = append(parts, fmt.Sprintf("prompt=%s", payload.Prompt))
-	}
-	if payload.MaxTurns > 0 {
-		parts = append(parts, fmt.Sprintf("turn_limit=%d", payload.MaxTurns))
-	}
-	if payload.MaxTokens > 0 {
-		parts = append(parts, fmt.Sprintf("token_limit=%d", payload.MaxTokens))
-	}
+	parts = appendField(parts, "mode", payload.Mode)
+	parts = appendField(parts, "model", payload.Model)
+	parts = appendField(parts, "prompt", payload.Prompt)
+	parts = appendIntField(parts, "turn_limit", payload.MaxTurns)
+	parts = appendIntField(parts, "token_limit", payload.MaxTokens)
 	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
@@ -79,12 +99,8 @@ func renderTurnStartedEvent(payload TurnStartedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d started", payload.Turn),
 	}
-	if payload.MessageCount > 0 {
-		parts = append(parts, fmt.Sprintf("messages=%d", payload.MessageCount))
-	}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
+	parts = appendIntField(parts, "messages", payload.MessageCount)
+	parts = appendField(parts, "model", payload.Model)
 	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
@@ -92,62 +108,37 @@ func renderTurnFinishedEvent(payload TurnFinishedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d finished", payload.Turn),
 	}
-	if payload.ToolCalls > 0 {
-		parts = append(parts, fmt.Sprintf("tool_calls=%d", payload.ToolCalls))
-	}
-	if payload.FinishReason != "" {
-		parts = append(parts, fmt.Sprintf("finish=%s", payload.FinishReason))
-	}
-	if payload.Reply != "" {
-		parts = append(parts, fmt.Sprintf("reply=%s", payload.Reply))
-	}
-	channel := ChannelStatus
+	parts = appendIntField(parts, "tool_calls", payload.ToolCalls)
+	parts = appendField(parts, "finish", payload.FinishReason)
+	parts = appendField(parts, "reply", payload.Reply)
+	channel, label := errorChannel(payload.Error != "")
 	if payload.Error != "" {
-		channel = ChannelError
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
-	return Segment{Channel: channel, Label: string(channel), Text: strings.Join(parts, " ")}
+	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 }
 
 func renderAssistantMessageEvent(payload AssistantMessageEvent) Segment {
 	parts := []string{}
-	if payload.Turn > 0 {
-		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
-	}
-	if payload.Role != "" {
-		parts = append(parts, fmt.Sprintf("role=%s", payload.Role))
-	}
-	if payload.Content != "" {
-		parts = append(parts, fmt.Sprintf("content=%s", payload.Content))
-	}
+	parts = appendIntField(parts, "turn", payload.Turn)
+	parts = appendField(parts, "role", payload.Role)
+	parts = appendField(parts, "content", payload.Content)
 	return Segment{Channel: ChannelAssistant, Label: "assistant", Text: strings.Join(parts, " ")}
 }
 
 func renderAssistantChunkEvent(payload AssistantChunkEvent) Segment {
 	parts := []string{}
-	if payload.Turn > 0 {
-		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
-	}
-	if payload.Source != "" {
-		parts = append(parts, fmt.Sprintf("source=%s", payload.Source))
-	}
-	if payload.Content != "" {
-		parts = append(parts, fmt.Sprintf("chunk=%s", payload.Content))
-	}
+	parts = appendIntField(parts, "turn", payload.Turn)
+	parts = appendField(parts, "source", string(payload.Source))
+	parts = appendField(parts, "chunk", payload.Content)
 	return Segment{Channel: ChannelAssistant, Label: "assistant", Text: strings.Join(parts, " ")}
 }
 
 func renderThinkingChunkEvent(payload ThinkingChunkEvent) Segment {
 	parts := []string{}
-	if payload.Turn > 0 {
-		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
-	}
-	if payload.Source != "" {
-		parts = append(parts, fmt.Sprintf("source=%s", payload.Source))
-	}
-	if payload.Content != "" {
-		parts = append(parts, fmt.Sprintf("thinking=%s", payload.Content))
-	}
+	parts = appendIntField(parts, "turn", payload.Turn)
+	parts = appendField(parts, "source", string(payload.Source))
+	parts = appendField(parts, "thinking", payload.Content)
 	return Segment{Channel: ChannelStatus, Label: "thinking", Text: strings.Join(parts, " ")}
 }
 
@@ -156,44 +147,26 @@ func renderProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Segment {
 		return Segment{}
 	}
 	parts := []string{"provider"}
-	if payload.Turn > 0 {
-		parts = append(parts, fmt.Sprintf("turn=%d", payload.Turn))
-	}
+	parts = appendIntField(parts, "turn", payload.Turn)
 	if payload.Severity != "" {
 		parts = append(parts, payload.Severity)
 	}
-	if payload.Attempt > 0 {
-		parts = append(parts, fmt.Sprintf("attempt=%d", payload.Attempt))
-	}
-	if payload.MaxAttempts > 0 {
-		parts = append(parts, fmt.Sprintf("max=%d", payload.MaxAttempts))
-	}
-	if payload.Delay != "" {
-		parts = append(parts, fmt.Sprintf("delay=%s", payload.Delay))
-	}
+	parts = appendIntField(parts, "attempt", payload.Attempt)
+	parts = appendIntField(parts, "max", payload.MaxAttempts)
+	parts = appendField(parts, "delay", payload.Delay)
 	if payload.Partial {
 		parts = append(parts, "partial=true")
 	}
-	if payload.Message != "" {
-		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
-	}
+	parts = appendField(parts, "message", payload.Message)
 	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
 func renderDisplayFileEvent(payload DisplayFilePayload) Segment {
 	parts := []string{"display"}
-	if payload.Path != "" {
-		parts = append(parts, fmt.Sprintf("path=%s", payload.Path))
-	}
-	if payload.Preview.Language != "" {
-		parts = append(parts, fmt.Sprintf("syntax=%s", payload.Preview.Language))
-	}
-	if payload.Offset > 0 {
-		parts = append(parts, fmt.Sprintf("offset=%d", payload.Offset))
-	}
-	if payload.Limit > 0 {
-		parts = append(parts, fmt.Sprintf("limit=%d", payload.Limit))
-	}
+	parts = appendField(parts, "path", payload.Path)
+	parts = appendField(parts, "syntax", payload.Preview.Language)
+	parts = appendIntField(parts, "offset", payload.Offset)
+	parts = appendIntField(parts, "limit", payload.Limit)
 	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
@@ -209,36 +182,23 @@ func renderModelCallFinishedEvent(payload ModelCallFinishedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("model turn=%d finished", payload.Turn),
 	}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
-	if payload.FinishReason != "" {
-		parts = append(parts, fmt.Sprintf("finish=%s", payload.FinishReason))
-	}
-	if payload.ToolCalls > 0 {
-		parts = append(parts, fmt.Sprintf("tool_calls=%d", payload.ToolCalls))
-	}
-	if payload.CompletionTokens > 0 {
-		parts = append(parts, fmt.Sprintf("tokens=%d", payload.CompletionTokens))
-	}
-	channel := ChannelStatus
+	parts = appendField(parts, "model", payload.Model)
+	parts = appendField(parts, "finish", payload.FinishReason)
+	parts = appendIntField(parts, "tool_calls", payload.ToolCalls)
+	parts = appendIntField(parts, "tokens", payload.CompletionTokens)
+	channel, label := errorChannel(payload.Error != "")
 	if payload.Error != "" {
-		channel = ChannelError
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
-	return Segment{Channel: channel, Label: string(channel), Text: strings.Join(parts, " ")}
+	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 }
 
 func renderToolCallStartedEvent(payload ToolCallStartedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d start", payload.Turn),
 	}
-	if payload.Tool != "" {
-		parts = append(parts, fmt.Sprintf("tool=%s", payload.Tool))
-	}
-	if payload.CallID != "" {
-		parts = append(parts, fmt.Sprintf("id=%s", payload.CallID))
-	}
+	parts = appendField(parts, "tool", payload.Tool)
+	parts = appendField(parts, "id", payload.CallID)
 	if len(payload.Arguments) > 0 {
 		parts = append(parts, fmt.Sprintf("args=%s", CompactJSON(payload.Arguments)))
 	}
@@ -249,55 +209,33 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d end", payload.Turn),
 	}
-	if payload.Tool != "" {
-		parts = append(parts, fmt.Sprintf("tool=%s", payload.Tool))
-	}
-	if payload.CallID != "" {
-		parts = append(parts, fmt.Sprintf("id=%s", payload.CallID))
-	}
-	if payload.Result != "" {
-		parts = append(parts, fmt.Sprintf("result=%s", payload.Result))
-	}
+	parts = appendField(parts, "tool", payload.Tool)
+	parts = appendField(parts, "id", payload.CallID)
+	parts = appendField(parts, "result", payload.Result)
 	channel := ChannelTool
 	label := "tool"
 	if payload.Error != "" {
-		channel = ChannelError
-		label = "error"
+		channel, label = errorChannel(true)
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 }
 
 func renderAdvisorStartedEvent(payload AdvisorStartedEvent) Segment {
-	parts := []string{"advisor started"}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
-	if payload.MaxUses > 0 {
-		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.UseNumber, payload.MaxUses))
-	}
+	parts := advisorHeader("advisor started", payload.Model, payload.UseNumber, payload.MaxUses)
 	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
 }
 
 func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
-	parts := []string{"advisor complete"}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
-	if payload.MaxUses > 0 {
-		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.UseNumber, payload.MaxUses))
-	}
-	if payload.Note != "" {
-		parts = append(parts, fmt.Sprintf("note=%s", TruncateWithEllipsis(payload.Note, 240)))
-	}
+	parts := advisorHeader("advisor complete", payload.Model, payload.UseNumber, payload.MaxUses)
+	parts = appendField(parts, "note", TruncateWithEllipsis(payload.Note, 240))
 	if payload.Truncated {
 		parts = append(parts, "truncated=true")
 	}
 	channel := ChannelStatus
 	label := "advisor"
 	if payload.Error != "" {
-		channel = ChannelError
-		label = "error"
+		channel, label = errorChannel(true)
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
@@ -305,15 +243,11 @@ func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
 
 func renderAdvisorBudgetExhaustedEvent(payload AdvisorBudgetExhaustedEvent) Segment {
 	parts := []string{"advisor budget exhausted"}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
+	parts = appendField(parts, "model", payload.Model)
 	if payload.MaxUses > 0 {
 		parts = append(parts, fmt.Sprintf("use=%d/%d", payload.Used, payload.MaxUses))
 	}
-	if payload.Message != "" {
-		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
-	}
+	parts = appendField(parts, "message", payload.Message)
 	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
 }
 
@@ -365,18 +299,10 @@ func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d %s", payload.Turn, status),
 	}
-	if payload.Tool != "" {
-		parts = append(parts, fmt.Sprintf("tool=%s", payload.Tool))
-	}
-	if payload.Mode != "" {
-		parts = append(parts, fmt.Sprintf("mode=%s", payload.Mode))
-	}
-	if payload.Preview != "" {
-		parts = append(parts, fmt.Sprintf("args=%s", payload.Preview))
-	}
-	if payload.Message != "" {
-		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
-	}
+	parts = appendField(parts, "tool", payload.Tool)
+	parts = appendField(parts, "mode", payload.Mode)
+	parts = appendField(parts, "args", payload.Preview)
+	parts = appendField(parts, "message", payload.Message)
 	return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
 }
 
@@ -385,15 +311,9 @@ func renderWorkflowHandoffEvent(payload WorkflowHandoffEvent) Segment {
 	if payload.Decision != "" {
 		parts = append(parts, payload.Decision)
 	}
-	if payload.Next != "" {
-		parts = append(parts, fmt.Sprintf("next=%s", payload.Next))
-	}
-	if payload.Target != "" {
-		parts = append(parts, fmt.Sprintf("target=%s", payload.Target))
-	}
-	if payload.Message != "" {
-		parts = append(parts, fmt.Sprintf("message=%s", payload.Message))
-	}
+	parts = appendField(parts, "next", payload.Next)
+	parts = appendField(parts, "target", payload.Target)
+	parts = appendField(parts, "message", payload.Message)
 	return Segment{Channel: ChannelStatus, Label: "handoff", Text: strings.Join(parts, " ")}
 }
 
@@ -420,33 +340,24 @@ func renderStopReasonEvent(payload StopReasonEvent) Segment {
 
 func renderUserInputEvent(payload UserInputEvent) Segment {
 	parts := []string{}
-	if payload.Mode != "" {
-		parts = append(parts, fmt.Sprintf("mode=%s", payload.Mode))
-	}
-	if payload.Content != "" {
-		parts = append(parts, fmt.Sprintf("content=%s", payload.Content))
-	}
+	parts = appendField(parts, "mode", payload.Mode)
+	parts = appendField(parts, "content", payload.Content)
 	return Segment{Channel: ChannelStatus, Label: "input", Text: strings.Join(parts, " ")}
 }
 
 func renderAPIRequestEvent(payload APIRequestEvent) Segment {
 	parts := []string{}
-	if payload.Model != "" {
-		parts = append(parts, fmt.Sprintf("model=%s", payload.Model))
-	}
+	parts = appendField(parts, "model", payload.Model)
 	return Segment{Channel: ChannelStatus, Label: "api", Text: joinOrFallback(parts, "request")}
 }
 
 func renderAPIResponseEvent(payload APIResponseEvent) Segment {
 	parts := []string{}
-	if payload.FinishReason != "" {
-		parts = append(parts, fmt.Sprintf("finish=%s", payload.FinishReason))
-	}
+	parts = appendField(parts, "finish", payload.FinishReason)
 	channel := ChannelStatus
 	label := "api"
 	if payload.Error != "" {
-		channel = ChannelError
-		label = "error"
+		channel, label = errorChannel(true)
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	text := joinOrFallback(parts, "response")

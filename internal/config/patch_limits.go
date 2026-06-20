@@ -1,11 +1,5 @@
 package config
 
-func applyLimitsConfigPatch(cfg *Config, patch configPatch) {
-	if patch.Limits != nil {
-		applyLimitsPatch(&cfg.Limits, patch.Limits)
-	}
-}
-
 func applyLimitsPatch(dst *LimitsConfig, patch *limitsPatch) {
 	if patch.MaxTurns != nil {
 		dst.MaxTurns = *patch.MaxTurns

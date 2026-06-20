@@ -146,6 +146,7 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 					ConfigPath: flags.configPath,
 					Model:      flags.model,
 					Verbose:    flags.verbose,
+					Unsafe:     flags.unsafe,
 				},
 			})
 			if err != nil {
@@ -197,7 +198,7 @@ func newSkillsCommand(flags *cliFlags) *cobra.Command {
 	}
 }
 
-func renderNames(stream *output.Stream, heading string, names []string) {
+func renderNames(stream *output.EventStream, heading string, names []string) {
 	if stream == nil {
 		return
 	}

@@ -163,7 +163,7 @@ func TestFetchURLTool(t *testing.T) {
 
 	t.Run("default max_size is 500000", func(t *testing.T) {
 		in := &FetchURLInput{URL: "http://example.com"}
-		NormalizeFetchURL(in)
+		normalizeFetchURL(in)
 		if in.MaxSize != 500000 {
 			t.Errorf("MaxSize = %d, want 500000", in.MaxSize)
 		}
@@ -171,7 +171,7 @@ func TestFetchURLTool(t *testing.T) {
 
 	t.Run("max_size capped at 1000000", func(t *testing.T) {
 		in := &FetchURLInput{URL: "http://example.com", MaxSize: 2000000}
-		NormalizeFetchURL(in)
+		normalizeFetchURL(in)
 		if in.MaxSize != 1000000 {
 			t.Errorf("MaxSize = %d, want 1000000", in.MaxSize)
 		}

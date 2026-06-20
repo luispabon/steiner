@@ -27,27 +27,12 @@ import (
 	"github.com/luispabon/steiner/skills"
 )
 
-// ensureSteinerProjectDir creates the .steiner/ directory and a .gitignore inside it.
-// It is idempotent and safe to call multiple times.
-func ensureSteinerProjectDir(workDir string) error {
-	steinerDir := filepath.Join(workDir, ".steiner")
-	if err := os.MkdirAll(steinerDir, 0o755); err != nil {
-		return fmt.Errorf("create .steiner directory: %w", err)
-	}
-	gitignorePath := filepath.Join(steinerDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		if err := os.WriteFile(gitignorePath, []byte("*\n"), 0o644); err != nil {
-			return fmt.Errorf("create .steiner/.gitignore: %w", err)
-		}
-	}
-	return nil
-}
-
 func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (config.Config, error) {
 	overrides := config.CLIOverrides{
 		ConfigPath: flags.configPath,
 		Model:      modelAlias,
 		Verbose:    flags.verbose,
+		Unsafe:     flags.unsafe,
 	}
 	if modelAlias == "" {
 		overrides.Model = flags.model
@@ -58,14 +43,11 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if err != nil {
 		return config.Config{}, err
 	}
-	if flags.unsafe {
-		cfg.Sandbox.Enabled = false
-	}
 	return cfg, nil
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
-	if err := ensureSteinerProjectDir(projectRoot); err != nil {
+	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
 	}
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
@@ -90,10 +72,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
-	workDir, registry, err := buildRuntimeRegistry(cfg, nil, workDir)
-	if err != nil {
-		return cliRuntime{}, err
-	}
+	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
 		return cliRuntime{}, err
@@ -104,10 +83,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	// Rebuild registry with sandbox now that workDir and homeDir are known.
 	if sb != nil {
-		registry, err = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
-		if err != nil {
-			return cliRuntime{}, err
-		}
+		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -247,17 +223,15 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 	return ""
 }
 
-func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry, error) {
-	registry, err := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
-	if err != nil {
-		return "", nil, err
-	}
-	return workDir, registry, nil
+func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
+	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+	return workDir, registry
 }
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
-func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) (*tool.Registry, error) {
-	return runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) *tool.Registry {
+	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+	return registry
 }
 
 func discoverRuntimeSkills(ctx context.Context, projectRoot string) (string, fs.FS, []string, map[string]string, map[string]string, error) {

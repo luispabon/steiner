@@ -17,11 +17,11 @@ func (s *Session) manualCompaction(ctx context.Context) {
 	s.mu.RUnlock()
 
 	if len(conversation) == 0 {
-		s.events.Emit(output.NewContextReportEvent("No conversation to compact."))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
 		return
 	}
 	if !manualCompactionHasSource(conversation) {
-		s.events.Emit(output.NewContextReportEvent("Nothing to compact yet; need at least two conversation turns."))
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "Nothing to compact yet; need at least two conversation turns."))
 		return
 	}
 

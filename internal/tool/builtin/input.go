@@ -106,10 +106,14 @@ const (
 	maxBashTimeoutSeconds     = 120
 	defaultBashMaxOutputChars = 30000
 	maxBashMaxOutputChars     = 100000
+	defaultFetchURLMaxSize    = 500000
+	maxFetchURLMaxSize        = 1000000
+	defaultWebSearchLimit     = 10
+	maxWebSearchLimit         = 30
 )
 
-// NormalizeRead applies defaults and caps to read input.
-func NormalizeRead(in *ReadInput) {
+// normalizeRead applies defaults and caps to read input.
+func normalizeRead(in *ReadInput) {
 	if in.Offset <= 0 {
 		in.Offset = 1
 	}
@@ -119,8 +123,8 @@ func NormalizeRead(in *ReadInput) {
 	in.Limit = min(in.Limit, maxReadLimit)
 }
 
-// NormalizeGlob applies defaults and caps to glob input.
-func NormalizeGlob(in *GlobInput) {
+// normalizeGlob applies defaults and caps to glob input.
+func normalizeGlob(in *GlobInput) {
 	if in.Offset <= 0 {
 		in.Offset = 0
 	}
@@ -130,8 +134,8 @@ func NormalizeGlob(in *GlobInput) {
 	in.Limit = min(in.Limit, maxGlobLimit)
 }
 
-// NormalizeGrep applies defaults and caps to grep input.
-func NormalizeGrep(in *GrepInput) {
+// normalizeGrep applies defaults and caps to grep input.
+func normalizeGrep(in *GrepInput) {
 	if in.HeadLimit <= 0 {
 		in.HeadLimit = defaultGrepHeadLimit
 	}
@@ -141,8 +145,8 @@ func NormalizeGrep(in *GrepInput) {
 	}
 }
 
-// NormalizeLS applies defaults and caps to ls input.
-func NormalizeLS(in *LSInput) {
+// normalizeLS applies defaults and caps to ls input.
+func normalizeLS(in *LSInput) {
 	if in.Offset <= 0 {
 		in.Offset = 0
 	}
@@ -152,8 +156,8 @@ func NormalizeLS(in *LSInput) {
 	in.Limit = min(in.Limit, maxLSLimit)
 }
 
-// NormalizeBash applies defaults and caps to bash input.
-func NormalizeBash(in *BashInput) {
+// normalizeBash applies defaults and caps to bash input.
+func normalizeBash(in *BashInput) {
 	if in.TimeoutSeconds <= 0 {
 		in.TimeoutSeconds = defaultBashTimeoutSeconds
 	}
@@ -164,8 +168,8 @@ func NormalizeBash(in *BashInput) {
 	in.MaxOutputChars = min(in.MaxOutputChars, maxBashMaxOutputChars)
 }
 
-// NormalizeDisplayFile applies defaults and caps to display_file input.
-func NormalizeDisplayFile(in *DisplayFileInput) {
+// normalizeDisplayFile applies defaults and caps to display_file input.
+func normalizeDisplayFile(in *DisplayFileInput) {
 	if in.Offset <= 0 {
 		in.Offset = 1
 	}
@@ -175,22 +179,22 @@ func NormalizeDisplayFile(in *DisplayFileInput) {
 	in.Limit = min(in.Limit, maxDisplayFileLimit)
 }
 
-// NormalizeFetchURL applies defaults and caps to fetch_url input.
-func NormalizeFetchURL(in *FetchURLInput) {
+// normalizeFetchURL applies defaults and caps to fetch_url input.
+func normalizeFetchURL(in *FetchURLInput) {
 	if in.MaxSize <= 0 {
-		in.MaxSize = 500000
+		in.MaxSize = defaultFetchURLMaxSize
 	}
-	if in.MaxSize > 1000000 {
-		in.MaxSize = 1000000
+	if in.MaxSize > maxFetchURLMaxSize {
+		in.MaxSize = maxFetchURLMaxSize
 	}
 }
 
-// NormalizeWebSearch applies defaults and caps to web_search input.
-func NormalizeWebSearch(in *WebSearchInput) {
+// normalizeWebSearch applies defaults and caps to web_search input.
+func normalizeWebSearch(in *WebSearchInput) {
 	if in.Limit <= 0 {
-		in.Limit = 10
+		in.Limit = defaultWebSearchLimit
 	}
-	if in.Limit > 30 {
-		in.Limit = 30
+	if in.Limit > maxWebSearchLimit {
+		in.Limit = maxWebSearchLimit
 	}
 }

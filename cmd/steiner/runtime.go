@@ -51,8 +51,8 @@ type cliRuntime struct {
 	homeDir           string
 	sandbox           *sandbox.Sandbox
 	stdin             io.Reader
-	human             *output.Stream
-	status            *output.Stream
+	human             *output.EventStream
+	status            *output.EventStream
 	events            output.EventSink
 	sharedInput       *bufio.Reader
 	approvalIn        *bufio.Reader

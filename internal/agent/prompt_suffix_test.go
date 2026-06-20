@@ -88,7 +88,7 @@ func TestApplyPromptSuffix(t *testing.T) {
 	}
 }
 
-func TestBuildTurnChatRequestAppliesPromptSuffix(t *testing.T) {
+func TestApplyPromptSuffixUsedForTurnChatRequest(t *testing.T) {
 	req := RunRequest{
 		ResolvedModel: provider.ResolvedModel{PromptSuffix: "<|think_off|>"},
 	}
@@ -97,7 +97,7 @@ func TestBuildTurnChatRequestAppliesPromptSuffix(t *testing.T) {
 		ExtraParams: map[string]any{"reasoning": map[string]any{"effort": "medium"}},
 	}
 
-	got := buildTurnChatRequest(req, chatReq)
+	got := applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatReq)
 	if got.Messages[0].Content != "hello <|think_off|>" {
 		t.Fatalf("message content = %q, want suffix appended", got.Messages[0].Content)
 	}

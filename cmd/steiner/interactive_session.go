@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
@@ -38,15 +39,12 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	return interactive.NewSession(sessDeps)
 }
 
-func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) (cliRuntime, error) {
-	registry, err := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
-	if err != nil {
-		return cliRuntime{}, fmt.Errorf("build interactive registry: %w", err)
-	}
+func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
+	registry := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.events = sess.EventSink()
-	return rt, nil
+	return rt
 }
 
 func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
@@ -79,6 +77,60 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	}
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
 	return tui.NewApp(tuiCfg)
+}
+
+func selectedModelConfig(cfg config.Config) config.ModelConfig {
+	return cfg.Models[cfg.DefaultModel]
+}
+
+func modelAliasNames(cfg config.Config) []string {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(cfg.Models))
+	for k := range cfg.Models {
+		names = append(names, k)
+	}
+	return names
+}
+
+func modelContextSizes(cfg config.Config) map[string]int {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	sizes := make(map[string]int, len(cfg.Models))
+	for name, model := range cfg.Models {
+		if model.Advanced.Limits.ContextWindow > 0 {
+			sizes[name] = model.Advanced.Limits.ContextWindow
+		}
+	}
+	return sizes
+}
+
+func modelBaseURLs(cfg config.Config) map[string]string {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	urls := make(map[string]string, len(cfg.Models))
+	for name, model := range cfg.Models {
+		if p, ok := cfg.Providers[model.Provider]; ok {
+			urls[name] = p.BaseURL
+		}
+	}
+	return urls
+}
+
+func modelProviderNames(cfg config.Config) map[string]string {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	names := make(map[string]string, len(cfg.Models))
+	for name, model := range cfg.Models {
+		if _, ok := cfg.Providers[model.Provider]; ok {
+			names[name] = model.Provider
+		}
+	}
+	return names
 }
 
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase

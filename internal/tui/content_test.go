@@ -1045,7 +1045,7 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 		segments: make([]contentSegment, 0),
 	}
 
-	buffer.AppendEvent(output.NewContextReportEvent("# Last Request Context\n\nPrompt tokens: `42`"))
+	buffer.AppendEvent(output.NewOverlayReportEvent("Context Report", "# Last Request Context\n\nPrompt tokens: `42`"))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -1061,9 +1061,9 @@ func TestAppendEventStreamsThinkingAndAssistantChunks(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "internal reasoning"))
-	buffer.AppendEvent(output.NewAssistantChunkEvent(1, `{"intent":"inspect","next":"read file"}`))
-	buffer.AppendEvent(output.NewAssistantChunkEvent(1, "visible answer"))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "visible answer", output.ChunkSourceAssistant))
 	buffer.finishStreaming()
 
 	if len(buffer.segments) != 2 {
@@ -1085,8 +1085,8 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "first line"))
-	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "\nsecond line"))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "first line", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "\nsecond line", output.ChunkSourceAssistant))
 
 	if got := len(buffer.segments); got != 1 {
 		t.Fatalf("segments count while streaming = %d, want 1", got)
@@ -1135,7 +1135,7 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "inspect renderer"))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "inspect renderer", output.ChunkSourceAssistant))
 	buffer.finalizeThinkingBlock()
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "internal/tui/content_tool.go"}))
 
@@ -1172,8 +1172,8 @@ func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewThinkingChunkEvent(1, "internal reasoning"))
-	buffer.AppendEvent(output.NewAssistantChunkEvent(1, `{"intent":"inspect","next":"read file"}`))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "internal reasoning", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, `{"intent":"inspect","next":"read file"}`, output.ChunkSourceAssistant))
 	buffer.AppendEvent(output.NewAPIResponseEvent(nil, nil, "stop", nil))
 
 	if got := strings.TrimSpace(buffer.streamBuffer); got != "" {
@@ -1866,8 +1866,8 @@ func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello "), "child-1"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "world"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "hello ", output.ChunkSourceAssistant), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "world", output.ChunkSourceAssistant), "child-1"))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
@@ -1907,8 +1907,8 @@ func TestAppendEventScopedChildThinkingEventsStayInsideDelegationTranscript(t *t
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "plan "), "child-1"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "search"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "plan ", output.ChunkSourceAssistant), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "search", output.ChunkSourceAssistant), "child-1"))
 
 	if got := len(buffer.segments); got != 1 {
 		t.Fatalf("segments count = %d, want 1", got)
@@ -1943,7 +1943,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEvent(1, "inspect files"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "inspect files", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, 0, "final child output"))
 	buffer.ToggleLastDelegationOutput()
@@ -1966,8 +1966,8 @@ func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testi
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "hello"), "child-1"))
-	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, " world"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "hello", output.ChunkSourceAssistant), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "hello world"), "child-1"))
 
 	dd := buffer.segments[0].delegData
@@ -1994,7 +1994,7 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
 		"child-1",
 	))
-	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEvent(1, "second child answer"), "child-2"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "second child answer", output.ChunkSourceAssistant), "child-2"))
 
 	first := buffer.segments[0].delegData
 	second := buffer.segments[1].delegData

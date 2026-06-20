@@ -32,6 +32,7 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 					ConfigPath: flags.configPath,
 					Model:      flags.model,
 					Verbose:    flags.verbose,
+					Unsafe:     flags.unsafe,
 				},
 			})
 			if err != nil {

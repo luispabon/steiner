@@ -522,7 +522,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		// Cast sessionStore to oneshot.SessionStore interface
 		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 		if !ok {
-			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, nil))
 			return
 		}
@@ -541,17 +541,17 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
 		if err != nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot failed: %v", err)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot failed: %v", err)))
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 			return
 		}
 
 		manifest, err := orchestrator.Run(context.Background())
 		if err != nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run failed: %v", err)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot run failed: %v", err)))
 		}
 		if manifest.ReportPath != "" {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
 		}
 		sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
 
@@ -601,7 +601,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 		manifest, err := oneshot.ListRuns(projectRoot)
 		if err != nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("resume oneshot failed: %v", err)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("resume oneshot failed: %v", err)))
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runID, err))
 			return
 		}
@@ -615,7 +615,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		if targetRun == nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot run %q not found", runID)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot run %q not found", runID)))
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runID, nil))
 			return
 		}
@@ -630,7 +630,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 		if !ok {
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, nil))
-			sess.EventSink().Emit(output.NewContextReportEvent("session store does not implement required oneshot interface"))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
 			return
 		}
 
@@ -648,7 +648,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 		orchestrator, err := oneshot.NewOrchestrator(deps)
 		if err != nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot resume failed: %v", err)))
 			sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 			return
 		}
@@ -656,10 +656,10 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		runManifest, err := orchestrator.Resume(context.Background())
 		sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
 		if err != nil {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot resume failed: %v", err)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot resume failed: %v", err)))
 		}
 		if runManifest.ReportPath != "" {
-			sess.EventSink().Emit(output.NewContextReportEvent(fmt.Sprintf("oneshot report: %s", runManifest.ReportPath)))
+			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot report: %s", runManifest.ReportPath)))
 		}
 	}()
 
