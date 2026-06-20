@@ -15,8 +15,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -1328,6 +1330,346 @@ func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
 	}
 	if got, want := m.sidebar.provider, "http://large.example/v1"; got != want {
 		t.Fatalf("sidebar.provider = %q, want %q", got, want)
+	}
+}
+
+func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
+	type checkFunc func(*testing.T, Model, bool, tea.Cmd)
+
+	tests := []struct {
+		name  string
+		setup func(*testing.T) Model
+		key   tea.KeyMsg
+		check checkFunc
+	}{
+		{
+			name: "no overlay",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.input.SetValue("keep me")
+				m.input.CursorEnd()
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if handled {
+					t.Fatal("handled = true, want false with no open overlays")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil with no open overlays")
+				}
+				if got := got.input.Value(); got != "keep me" {
+					t.Fatalf("input value = %q, want unchanged when no overlay is open", got)
+				}
+			},
+		},
+		{
+			name: "workflow handoff model picker priority",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.input.SetValue("/model")
+				m.input.CursorEnd()
+				m.workflowHandoff = openWorkflowHandoffModal(100, 30, output.WorkflowHandoffEvent{Next: "review", Target: ".steiner/plans/step-3"}, interactive.WorkflowHandoffModelSelection{ModelAlias: "small", SourceLabel: "current session"})
+				m.modelPicker = m.modelPicker.OpenForWorkflowHandoff("Select model", []string{"small", "large"}, "small")
+				m.modelPicker.width = 100
+				m.modelPicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for workflow handoff model picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing workflow handoff model picker")
+				}
+				if got.modelPicker.IsOpen() {
+					t.Fatal("modelPicker.IsOpen() = true, want false after Esc")
+				}
+				if !got.workflowHandoff.IsOpen() {
+					t.Fatal("workflowHandoff.IsOpen() = false, want true when model picker gets Esc first")
+				}
+				if got := got.input.Value(); got != "/model" {
+					t.Fatalf("input value = %q, want /model unchanged", got)
+				}
+			},
+		},
+		{
+			name: "workflow handoff modal",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{Model: "small"}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.workflowHandoff = openWorkflowHandoffModal(100, 30, output.WorkflowHandoffEvent{Next: "review", Target: ".steiner/plans/step-3"}, interactive.WorkflowHandoffModelSelection{ModelAlias: "small", SourceLabel: "current session"})
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for workflow handoff modal")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when dismissing workflow handoff modal")
+				}
+				if got.workflowHandoff.IsOpen() {
+					t.Fatal("workflowHandoff.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "exit modal",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.exitModal = openExitModal(100, 30)
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEnter},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for exit modal")
+				}
+				if cmd == nil {
+					t.Fatal("cmd = nil, want confirm command for exit modal enter")
+				}
+				if !got.exitModal.IsOpen() {
+					t.Fatal("exitModal.IsOpen() = false, want modal to remain open until runtime quits")
+				}
+			},
+		},
+		{
+			name: "palette",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.palette = m.palette.Open()
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEnter},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for palette")
+				}
+				if cmd == nil {
+					t.Fatal("cmd = nil, want palette action command")
+				}
+				if got.palette.IsOpen() {
+					t.Fatal("palette.IsOpen() = true, want false after Enter")
+				}
+			},
+		},
+		{
+			name: "slash overlay",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.input.SetValue("/co")
+				m.input.CursorEnd()
+				m.slashOverlay = m.slashOverlay.Open(m.buildSlashOverlayItems())
+				m.slashOverlay.width = 100
+				m.slashOverlay.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for slash overlay")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing slash overlay")
+				}
+				if got.slashOverlay.IsOpen() {
+					t.Fatal("slashOverlay.IsOpen() = true, want false after Esc")
+				}
+				if got := got.input.Value(); got != "" {
+					t.Fatalf("input value = %q, want empty after removing slash token", got)
+				}
+			},
+		},
+		{
+			name: "file list",
+			setup: func(t *testing.T) Model {
+				root := t.TempDir()
+				writeRepoFile(t, root, "file.txt", "content\n")
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.fileList = newFileListOverlay(m.styles).Open(root)
+				m.fileList.width = 100
+				m.fileList.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for file list")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing file list")
+				}
+				if got.fileList.IsOpen() {
+					t.Fatal("fileList.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "context overlay",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.contextOverlay = openContextOverlay("Context Report", strings.Repeat("line\n", 40), 100, 30, m.styles, m.content.glamourStyleSheet)
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for context overlay")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing context overlay")
+				}
+				if got.contextOverlay.IsOpen() {
+					t.Fatal("contextOverlay.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "file picker",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{WorkingDir: "."}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.input.SetValue("@go")
+				m.input.CursorEnd()
+				m.filePicker = m.filePicker.Open(".")
+				m.filePicker.width = 100
+				m.filePicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for file picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing file picker")
+				}
+				if got.filePicker.IsOpen() {
+					t.Fatal("filePicker.IsOpen() = true, want false after Esc")
+				}
+				if got := got.input.Value(); got != "" {
+					t.Fatalf("input value = %q, want empty after removing @ token", got)
+				}
+			},
+		},
+		{
+			name: "session picker",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.sessionPicker = m.sessionPicker.Open([]session.IndexEntry{{ID: "session-12345678", Title: "session", Model: "small"}})
+				m.sessionPicker.width = 100
+				m.sessionPicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for session picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing session picker")
+				}
+				if got.sessionPicker.IsOpen() {
+					t.Fatal("sessionPicker.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "oneshot resume picker",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.oneshotResumePicker = m.oneshotResumePicker.Open([]oneshot.ResumableRun{{RunID: "run-12345678", Task: "task", ResumePhase: "draft"}})
+				m.oneshotResumePicker.width = 100
+				m.oneshotResumePicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for oneshot resume picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing oneshot resume picker")
+				}
+				if got.oneshotResumePicker.IsOpen() {
+					t.Fatal("oneshotResumePicker.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "plan picker",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.planPicker = m.planPicker.Open("/implement")
+				m.planPicker.width = 100
+				m.planPicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for plan picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing plan picker")
+				}
+				if got.planPicker.IsOpen() {
+					t.Fatal("planPicker.IsOpen() = true, want false after Esc")
+				}
+			},
+		},
+		{
+			name: "model picker",
+			setup: func(t *testing.T) Model {
+				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
+				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+				m.input.SetValue("/model")
+				m.input.CursorEnd()
+				m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+				m.modelPicker.width = 100
+				m.modelPicker.height = 30
+				return m
+			},
+			key: tea.KeyMsg{Type: tea.KeyEsc},
+			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+				if !handled {
+					t.Fatal("handled = false, want true for model picker")
+				}
+				if cmd != nil {
+					t.Fatal("cmd = non-nil, want nil when closing model picker")
+				}
+				if got.modelPicker.IsOpen() {
+					t.Fatal("modelPicker.IsOpen() = true, want false after Esc")
+				}
+				if got := got.input.Value(); got != "" {
+					t.Fatalf("input value = %q, want reset after closing model picker", got)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.setup(t)
+			handled, next, cmd := m.handleOverlayKeyMsg(tc.key)
+			got, ok := next.(Model)
+			if !ok {
+				t.Fatalf("next model type = %T, want tui.Model", next)
+			}
+			tc.check(t, got, handled, cmd)
+		})
 	}
 }
 

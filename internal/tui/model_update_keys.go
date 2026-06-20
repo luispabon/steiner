@@ -43,47 +43,18 @@ func (m Model) recentWheelMouseInput() bool {
 }
 
 func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
-	switch {
-	case m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff():
-		next, cmd := m.handleModelPickerKey(msg)
-		return true, next, cmd
-	case m.workflowHandoff.IsOpen():
-		next, cmd := m.handleWorkflowHandoffModalKey(msg)
-		return true, next, cmd
-	case m.exitModal.IsOpen():
-		next, cmd := m.handleExitModalKey(msg)
-		return true, next, cmd
-	case m.palette.IsOpen():
-		var cmd tea.Cmd
-		m.palette, cmd = m.palette.Update(msg)
-		return true, m, cmd
-	case m.slashOverlay.IsOpen():
-		next, cmd := m.handleSlashOverlayKey(msg)
-		return true, next, cmd
-	case m.fileList.IsOpen():
-		var cmd tea.Cmd
-		m.fileList, cmd = m.fileList.Update(msg)
-		return true, m, cmd
-	case m.contextOverlay.IsOpen():
-		return true, m.handleContextOverlayKey(msg), nil
-	case m.filePicker.IsOpen():
-		next, cmd := m.handleFilePickerKey(msg)
-		return true, next, cmd
-	case m.sessionPicker.IsOpen():
-		next, cmd := m.handleSessionPickerKey(msg)
-		return true, next, cmd
-	case m.oneshotResumePicker.IsOpen():
-		next, cmd := m.handleOneshotResumePickerKey(msg)
-		return true, next, cmd
-	case m.planPicker.IsOpen():
-		next, cmd := m.handlePlanPickerKey(msg)
-		return true, next, cmd
-	case m.modelPicker.IsOpen():
-		next, cmd := m.handleModelPickerKey(msg)
-		return true, next, cmd
-	default:
+	if !m.hasOpenOverlay() {
 		return false, m, nil
 	}
+	for _, handler := range overlayKeyHandlers {
+		if !handler.matches(m) {
+			continue
+		}
+		next := m
+		cmd := handler.handle(&next, msg)
+		return true, next, cmd
+	}
+	return false, m, nil
 }
 
 func (m Model) resetCompletionState(msg tea.KeyMsg) Model {
@@ -171,6 +142,20 @@ func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 	}
 	return false, m, nil
+}
+
+func (m Model) hasOpenOverlay() bool {
+	return m.modelPicker.IsOpen() ||
+		m.workflowHandoff.IsOpen() ||
+		m.exitModal.IsOpen() ||
+		m.palette.IsOpen() ||
+		m.slashOverlay.IsOpen() ||
+		m.fileList.IsOpen() ||
+		m.contextOverlay.IsOpen() ||
+		m.filePicker.IsOpen() ||
+		m.sessionPicker.IsOpen() ||
+		m.oneshotResumePicker.IsOpen() ||
+		m.planPicker.IsOpen()
 }
 
 func (m Model) openContextOverlayImmediate() {
