@@ -36,12 +36,17 @@ _Avoid_: executor internals, tool glue, subprocess path
 The provider flow that shapes a model request, performs HTTP execution, decodes provider wire responses, and returns stream or non-stream results with consistent error handling.
 _Avoid_: provider internals, transport glue, stream path
 
+**Delegate Extension**:
+The bounded re-run policy that grants a delegated child additional turn budget when it stops at its turn cap (`StopReasonMaxTurns`) mid-tool-sequence, repeating up to a fixed maximum so a child isn't cut off in the middle of a tool chain.
+_Avoid_: retry, continuation, more turns
+
 ## Relationships
 
 - An **Interactive Session** can emit a **Context Report**
 - An **Interactive Session** can trigger **Manual Compaction**
 - **Manual Compaction** updates the conversation owned by an **Interactive Session**
 - A **Delegation Bootstrap** produces the child run request used to execute a delegated task
+- **Delegate Extension** keeps that child run alive across turn-cap stops until the task settles or the extension cap is hit
 - **Turn Progression** advances the conversation owned by the agent runner by one turn
 - **Prompt Source Planning** decides the ordered context inputs consumed during **Turn Progression**
 - The **Tool Execution Pipeline** executes tool calls consumed during **Turn Progression**
@@ -75,3 +80,4 @@ _Avoid_: provider internals, transport glue, stream path
 - "assembler", "source ordering", and "prompt planning" were used interchangeably; resolved: use **Prompt Source Planning** for the module that decides ordered prompt inputs before rendering.
 - "executor", "approval flow", and "tool execution path" were used loosely; resolved: use **Tool Execution Pipeline** for the module that owns end-to-end tool invocation.
 - "provider transport", "stream path", and "request execution" were used loosely; resolved: use **Provider Request Execution** for the module that owns end-to-end provider request handling.
+- "extension", "retry", "continuation", and "more turns" were used loosely for the child turn-budget top-up; resolved: use **Delegate Extension** for the bounded re-run policy that keeps a turn-capped child alive mid-tool-sequence.
