@@ -15,17 +15,28 @@ func isCompletionStopReason(reason string) bool {
 	}
 }
 
+func shouldSkipToolEvent(tool string) bool {
+	if strings.EqualFold(tool, "display_file") {
+		return true
+	}
+	if strings.EqualFold(tool, "advisor") {
+		return true
+	}
+	return false
+}
+
+func isDelegateOrSpecialized(tool string) bool {
+	return strings.EqualFold(tool, "delegate") || isSpecializedDelegateTool(tool)
+}
+
 func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.finishStreaming()
 	b.streamingPhase = "tool"
 	if payload, ok := event.Payload.(output.ToolCallStartedEvent); ok {
-		if strings.EqualFold(payload.Tool, "display_file") {
+		if shouldSkipToolEvent(payload.Tool) {
 			return
 		}
-		if strings.EqualFold(payload.Tool, "advisor") {
-			return
-		}
-		if strings.EqualFold(payload.Tool, "delegate") || isSpecializedDelegateTool(payload.Tool) {
+		if isDelegateOrSpecialized(payload.Tool) {
 			if strings.EqualFold(payload.Tool, "follow_up") {
 				b.handleFollowUpToolCallStarted(payload)
 				return
@@ -58,10 +69,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
-		if strings.EqualFold(payload.Tool, "display_file") {
-			return
-		}
-		if strings.EqualFold(payload.Tool, "advisor") {
+		if shouldSkipToolEvent(payload.Tool) {
 			return
 		}
 		for i := len(b.segments) - 1; i >= 0; i-- {

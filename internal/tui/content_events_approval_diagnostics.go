@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -141,7 +140,7 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagno
 			label:           "Compacting",
 			subtitle:        "summarizing context",
 			finished:        false,
-			startTime:       time.Now().UnixNano(),
+			startTime:       nanoNow(),
 			compactionCount: payload.CompactionCount,
 			collapsed:       true,
 		})
@@ -159,7 +158,6 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagno
 		summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
 	}
 
-	now := time.Now().UnixNano()
 	b.upsertCompactionBanner(compactionBannerData{
 		label:             "Context compacted",
 		subtitle:          summary,
@@ -177,7 +175,7 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextDiagno
 		afterTokens:       payload.AfterPromptTokens,
 		afterPct:          payload.AfterUsagePercent,
 		summaryTitle:      payload.SummaryTitle,
-		elapsed:           finishElapsed(b, now),
+		elapsed:           finishElapsed(b, nanoNow()),
 		collapsed:         true,
 	})
 }
