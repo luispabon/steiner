@@ -121,8 +121,6 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 		return b.renderToolCallGroup(segment.toolGroupData, width)
 	case segmentAssistantMarkdown:
 		return b.renderAssistantMarkdownSegment(segment, width)
-	case segmentAssistantProse:
-		return b.renderAssistantProseSegment(segment)
 	case segmentApproval:
 		return b.styles.ApprovalHighlight.Render(segment.text) + "\n"
 	case segmentTool:

@@ -349,3 +349,38 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 		})
 	}
 }
+
+func TestAssistantMarkdownWrapsLongProseLines(t *testing.T) {
+	b := newTestBuffer(t)
+	useTrueColor(t)
+
+	// Long single-line, marker-free prose that must wrap at a modest width.
+	longText := "Question 1 of 8: For the AI queries, do you want the LLM processing to be fully local with no document contents sent to external providers, or are you comfortable sending content to a cloud API for inference"
+	b.appendMarkdownBlock(longText)
+
+	if len(b.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(b.segments))
+	}
+	if seg := b.segments[0]; seg.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment kind = %v, want segmentAssistantMarkdown", seg.kind)
+	}
+
+	rendered := b.String(40)
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(lines) <= 1 {
+		t.Fatalf("rendered output has %d lines, want > 1: %q", len(lines), rendered)
+	}
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Errorf("line %d width = %d, want <= 40: %q", i, w, line)
+		}
+	}
+
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "Question 1 of 8") {
+		t.Errorf("rendered output missing start of text: %q", plain)
+	}
+	if !strings.Contains(plain, "external providers") {
+		t.Errorf("rendered output missing part of text: %q", plain)
+	}
+}

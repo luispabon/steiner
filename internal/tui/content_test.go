@@ -332,10 +332,10 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Errorf("segment[1] closing = true, want false")
 	}
 
-	// Index 2: body segment (prose or markdown).
+	// Index 2: body segment (markdown).
 	s = buffer.segments[2]
-	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
-		t.Fatalf("segment[2] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	if s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[2] kind=%v, want segmentAssistantMarkdown", s.kind)
 	}
 	if s.text != "check tests first" {
 		t.Errorf("segment[2] text = %q, want %q", s.text, "check tests first")
@@ -415,8 +415,8 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 
 	// Index 2: body segment containing the error text.
 	s = buffer.segments[2]
-	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
-		t.Fatalf("segment[2] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	if s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[2] kind=%v, want segmentAssistantMarkdown", s.kind)
 	}
 	if s.text != "something went wrong" {
 		t.Errorf("segment[2] text = %q, want %q", s.text, "something went wrong")
@@ -492,8 +492,8 @@ func TestAppendCompactionResultLabeledBlock(t *testing.T) {
 
 	// Index 1: body segment.
 	s = buffer.segments[1]
-	if s.kind != segmentAssistantProse && s.kind != segmentAssistantMarkdown {
-		t.Fatalf("segment[1] kind=%v, want segmentAssistantProse or segmentAssistantMarkdown", s.kind)
+	if s.kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[1] kind=%v, want segmentAssistantMarkdown", s.kind)
 	}
 	if s.text != "summary text" {
 		t.Errorf("segment[1] text = %q, want %q", s.text, "summary text")
@@ -1396,9 +1396,9 @@ func TestUserSegmentMargin(t *testing.T) {
 		{
 			name: "between two assistants",
 			segments: []contentSegment{
-				{kind: segmentAssistantProse, text: "hello from assistant one"},
+				{kind: segmentAssistantMarkdown, text: "hello from assistant one"},
 				{kind: segmentUser, text: "user message"},
-				{kind: segmentAssistantProse, text: "hello from assistant two"},
+				{kind: segmentAssistantMarkdown, text: "hello from assistant two"},
 			},
 			wantMarginAbove: true,
 			wantMarginBelow: true,
@@ -1407,7 +1407,7 @@ func TestUserSegmentMargin(t *testing.T) {
 			name: "user followed by assistant",
 			segments: []contentSegment{
 				{kind: segmentUserMarkdown, text: "# User Title\ncontent"},
-				{kind: segmentAssistantProse, text: "assistant response"},
+				{kind: segmentAssistantMarkdown, text: "assistant response"},
 			},
 			wantMarginAbove: false,
 			wantMarginBelow: true,
@@ -1433,7 +1433,7 @@ func TestUserSegmentMargin(t *testing.T) {
 		{
 			name: "assistant followed by user",
 			segments: []contentSegment{
-				{kind: segmentAssistantProse, text: "assistant says something"},
+				{kind: segmentAssistantMarkdown, text: "assistant says something"},
 				{kind: segmentUser, text: "user reply"},
 			},
 			wantMarginAbove: true,

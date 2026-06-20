@@ -221,7 +221,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
 
-	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "hello world") {
+	if got := stripANSI(m.content.String(m.viewport.Width)); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
 	}
 	if got := m.status.model; got != "gpt-test" {
