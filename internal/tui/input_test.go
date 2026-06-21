@@ -172,6 +172,16 @@ func TestParseInputHandlesOneshotResumeCommand(t *testing.T) {
 	}
 }
 
+func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
+	action := parseInput("/cache-stats")
+	if !action.openCacheStats {
+		t.Fatal("openCacheStats = false, want true")
+	}
+	if action.submit != "" {
+		t.Fatalf("submit = %q, want empty", action.submit)
+	}
+}
+
 func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
 	got := buildCompletionCandidates("/oneshot", nil, nil, false)
 	found := false
