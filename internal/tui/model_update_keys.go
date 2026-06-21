@@ -96,9 +96,6 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 			return true, m, tea.Quit
 		}
 		return true, m.openExitModal(), nil
-	case tea.KeyCtrlP:
-		m.palette = m.palette.Open()
-		return true, m, nil
 	case tea.KeyCtrlB:
 		m.sidebar.Toggle()
 		m.layout()
@@ -148,7 +145,6 @@ func (m Model) hasOpenOverlay() bool {
 	return m.modelPicker.IsOpen() ||
 		m.workflowHandoff.IsOpen() ||
 		m.exitModal.IsOpen() ||
-		m.palette.IsOpen() ||
 		m.slashOverlay.IsOpen() ||
 		m.fileList.IsOpen() ||
 		m.contextOverlay.IsOpen() ||
