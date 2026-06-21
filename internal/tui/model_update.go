@@ -24,14 +24,10 @@ func syncDebounceCmd(seq int) tea.Cmd {
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case paletteClearMsg:
-		return m.handlePaletteClearMsg(msg)
-	case paletteToggleThinkingMsg:
-		return m.handlePaletteToggleThinkingMsg(msg)
-	case paletteSwitchModelMsg:
-		return m.handlePaletteSwitchModelMsg(msg)
-	case paletteSetAccentMsg:
-		return m.handlePaletteSetAccentMsg(msg)
+	case toggleThinkingMsg:
+		return m.handleToggleThinkingMsg(msg)
+	case setAccentMsg:
+		return m.handleSetAccentMsg(msg)
 	case tickMsg:
 		return m.handleTickMsg(msg)
 	case tea.WindowSizeMsg:
@@ -66,10 +62,6 @@ func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, 
 	return m, nil
 }
 
-func (m Model) handlePaletteClearMsg(_ paletteClearMsg) (tea.Model, tea.Cmd) {
-	return m.clearConversationState()
-}
-
 func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.content.Clear()
 	m.imageMarkers = nil
@@ -95,7 +87,7 @@ func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handlePaletteToggleThinkingMsg(_ paletteToggleThinkingMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
@@ -110,25 +102,7 @@ func (m Model) handlePaletteToggleThinkingMsg(_ paletteToggleThinkingMsg) (tea.M
 	return m, nil
 }
 
-func (m Model) handlePaletteSwitchModelMsg(msg paletteSwitchModelMsg) (tea.Model, tea.Cmd) {
-	providerBaseURL := m.sidebar.provider
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: msg.name}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", msg.name))
-			m.syncViewport()
-			return m, nil
-		}
-	}
-	if baseURL, ok := m.modelBaseURLs[msg.name]; ok {
-		providerBaseURL = baseURL
-	}
-	m.applyModelSelection(msg.name, providerBaseURL)
-	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", msg.name))
-	m.syncViewport()
-	return m, nil
-}
-
-func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	accentHex := theme.AccentPresets[msg.preset]
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
@@ -141,7 +115,6 @@ func (m Model) handlePaletteSetAccentMsg(msg paletteSetAccentMsg) (tea.Model, te
 	m.status.styles = m.styles
 	m.activity = m.activity.withStyles(m.styles)
 	m.applyInputStyles()
-	m.palette.styles = m.styles
 	m.slashOverlay.styles = m.styles
 	m.fileList.styles = m.styles
 	m.filePicker.styles = m.styles
@@ -188,7 +161,6 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	m.palette.OverlayShell = m.palette.WithDimensions(msg.Width, msg.Height)
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)

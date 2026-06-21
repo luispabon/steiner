@@ -183,15 +183,15 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.replaceComposerToken('/', selected.command+" ")
 			m.slashOverlay = m.slashOverlay.Close()
 			switch selected.command {
+			case "/implement", "/review":
+				m.planPicker = m.planPicker.Open(selected.command)
+				m.planPicker.width = m.width
+				m.planPicker.height = m.height
 			case "/model":
 				m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
 				m.modelPicker.width = m.width
 				m.modelPicker.height = m.height
 				m.historyIdx = 0
-			case "/implement", "/review":
-				m.planPicker = m.planPicker.Open(selected.command)
-				m.planPicker.width = m.width
-				m.planPicker.height = m.height
 			}
 		}
 	case tea.KeyUp, tea.KeyDown:

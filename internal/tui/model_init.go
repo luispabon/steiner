@@ -124,14 +124,6 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.palette.IsOpen() },
-		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
-			var cmd tea.Cmd
-			m.palette, cmd = m.palette.Update(msg)
-			return cmd
-		},
-	},
-	overlayKeyHandlerFunc{
 		match: func(m Model) bool { return m.slashOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
 			next, cmd := m.handleSlashOverlayKey(msg)
@@ -242,12 +234,8 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 }
 
 func (m *Model) initializeOverlays(cfg Config) {
-	m.palette = newPalette(m.styles, buildDefaultPaletteItems())
-	m.palette.OverlayShell = m.palette.WithDimensions(m.width, m.height)
 
 	m.fileList = newFileListOverlay(m.styles)
-	m.fileList.OverlayShell = m.fileList.WithDimensions(m.width, m.height)
-
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height
@@ -274,50 +262,6 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.slashOverlay.height = m.height
 
 	m.workflowHandoff = workflowHandoffModalState{}
-}
-
-func buildDefaultPaletteItems() []paletteItem {
-	items := []paletteItem{
-		{
-			command: "/clear",
-			name:    "Clear conversation",
-			desc:    "reset the current session",
-			action: func() tea.Cmd {
-				return func() tea.Msg { return paletteClearMsg{} }
-			},
-		},
-		{
-			command: "/thinking",
-			name:    "Toggle thinking",
-			desc:    "show or hide thinking blocks",
-			action: func() tea.Cmd {
-				return func() tea.Msg { return paletteToggleThinkingMsg{} }
-			},
-		},
-	}
-	for _, model := range []string{"claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"} {
-		m := model
-		items = append(items, paletteItem{
-			command: "/model " + m,
-			name:    "Switch model",
-			desc:    m,
-			action: func() tea.Cmd {
-				return func() tea.Msg { return paletteSwitchModelMsg{name: m} }
-			},
-		})
-	}
-	for _, preset := range []string{"amber", "rose", "magenta", "violet", "cyan", "mint", "lime"} {
-		p := preset
-		items = append(items, paletteItem{
-			command: "/accent " + p,
-			name:    "Set accent",
-			desc:    p,
-			action: func() tea.Cmd {
-				return func() tea.Msg { return paletteSetAccentMsg{preset: p} }
-			},
-		})
-	}
-	return items
 }
 
 func tickCmd() tea.Cmd {

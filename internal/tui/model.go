@@ -67,13 +67,9 @@ type workflowHandoffLaunch struct {
 
 type tickMsg struct{}
 
-type paletteSetAccentMsg struct{ preset string }
+type setAccentMsg struct{ preset string }
 
-type paletteToggleThinkingMsg struct{}
-
-type paletteSwitchModelMsg struct{ name string }
-
-type paletteClearMsg struct{}
+type toggleThinkingMsg struct{}
 
 const (
 	inputRailWidth = 1
@@ -121,7 +117,6 @@ type Model struct {
 	compaction                   compactionState
 	accentPreset                 string
 	sidebarPosition              string
-	palette                      paletteModel
 	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
 	filePicker                   filePickerOverlay

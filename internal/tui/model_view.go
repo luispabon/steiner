@@ -102,10 +102,7 @@ func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) stri
 }
 
 func (m Model) renderOverlayView(base string, contentWidth int) string {
-	switch {
-	case m.palette.IsOpen():
-		return composeCenteredOverlay(base, m.palette.View(), m.width, m.height)
-	case m.fileList.IsOpen():
+	if m.fileList.IsOpen() {
 		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
 	}
 
