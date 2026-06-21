@@ -347,8 +347,10 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
 	childAgentID := extractFollowUpAgentID(payload.Arguments)
 	childToolLabel := ""
+	var baselineTurns, baselineToolCalls, baselineTokens int
 	if childAgentID != "" {
 		_, childToolLabel = b.findChildDelegationInfo(childAgentID)
+		baselineTurns, baselineToolCalls, baselineTokens = b.captureChildBaselineStats(childAgentID)
 	}
 
 	summary := summarizeFollowUpArgs(payload.Arguments)
@@ -358,16 +360,19 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			toolLabel:       childToolLabel,
-			taskPreview:     summary,
-			promptText:      promptText,
-			promptCollapsed: true,
-			parentCallID:    payload.CallID,
-			parentArgs:      summary,
-			status:          "active",
-			collapsed:       true,
-			isFollowUp:      true,
-			followUpAgentID: childAgentID,
+			toolLabel:             childToolLabel,
+			taskPreview:           summary,
+			promptText:            promptText,
+			promptCollapsed:       true,
+			parentCallID:          payload.CallID,
+			parentArgs:            summary,
+			status:                "active",
+			collapsed:             true,
+			isFollowUp:            true,
+			followUpAgentID:       childAgentID,
+			baselineTurnCount:     baselineTurns,
+			baselineToolCallCount: baselineToolCalls,
+			baselineTokenCount:    baselineTokens,
 		},
 		renderDirty: true,
 	})
@@ -456,9 +461,15 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		if dd != nil {
 			dd.status = "complete"
 			dd.resultStatus = payload.Status
-			dd.turnCount = payload.TurnCount
-			dd.tokenCount = payload.TokenCount
-			dd.toolCallCount = payload.ToolCallCount
+			if dd.isFollowUp {
+				dd.turnCount = max(0, payload.TurnCount-dd.baselineTurnCount)
+				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
+				dd.tokenCount = max(0, payload.TokenCount-dd.baselineTokenCount)
+			} else {
+				dd.turnCount = payload.TurnCount
+				dd.tokenCount = payload.TokenCount
+				dd.toolCallCount = payload.ToolCallCount
+			}
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
 		}
@@ -646,4 +657,26 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 		}
 	}
 	return agentID, ""
+}
+
+// captureChildBaselineStats searches for the most recent delegation segment
+// with the given agentID and returns its cumulative turn, tool-call, and token
+// counts. These form the baseline that must be subtracted from follow-up
+// DelegationCompleteEvent payload values to obtain per-follow-up deltas.
+// Returns zeroes when the segment is not found or has no data.
+func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCalls, tokens int) {
+	if agentID == "" {
+		return 0, 0, 0
+	}
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := b.segments[i]
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.agentID == agentID {
+			dd := seg.delegData
+			return dd.turnCount, dd.toolCallCount, dd.tokenCount
+		}
+	}
+	return 0, 0, 0
 }

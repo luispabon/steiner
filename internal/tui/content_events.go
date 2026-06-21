@@ -169,8 +169,14 @@ type delegationDisplayState struct {
 	// follow_up state: set when this is a follow-up call to an existing child
 	isFollowUp      bool
 	followUpAgentID string // the child agent being followed up on
-	advisorUse      int
-	advisorMaxUses  int
+	// follow-up baseline: cumulative stats from the original child at the time
+	// the follow_up tool was called. Used to compute per-follow-up deltas from
+	// cumulative DelegationCompleteEvent payload values.
+	baselineTurnCount     int
+	baselineToolCallCount int
+	baselineTokenCount    int
+	advisorUse            int
+	advisorMaxUses        int
 }
 
 type contentSegment struct {
