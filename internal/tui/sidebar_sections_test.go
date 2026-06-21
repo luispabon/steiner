@@ -143,3 +143,74 @@ func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
 		t.Errorf("staticLines should not contain 'ONESHOT', got %q", joined)
 	}
 }
+
+func TestFormatCacheHitRate(t *testing.T) {
+	cases := []struct {
+		rate float64
+		ok   bool
+		want string
+	}{
+		{0.0, false, "—"},
+		{0.0, true, "0.0%"},
+		{0.782, true, "78.2%"},
+		{1.0, true, "100.0%"},
+		{0.123, true, "12.3%"},
+	}
+	for _, tc := range cases {
+		got := formatCacheHitRate(tc.rate, tc.ok)
+		if got != tc.want {
+			t.Errorf("formatCacheHitRate(%f, %v) = %q, want %q", tc.rate, tc.ok, got, tc.want)
+		}
+	}
+}
+
+func TestCacheSection(t *testing.T) {
+	cases := []struct {
+		name                  string
+		sessionCacheHitRate   float64
+		sessionCacheHitRateOK bool
+		wantLabel             string
+		wantValue             string
+	}{
+		{
+			name:                  "shows undefined as dash",
+			sessionCacheHitRate:   0.0,
+			sessionCacheHitRateOK: false,
+			wantLabel:             "CACHE",
+			wantValue:             "—",
+		},
+		{
+			name:                  "shows hit rate as percentage",
+			sessionCacheHitRate:   0.782,
+			sessionCacheHitRateOK: true,
+			wantLabel:             "CACHE",
+			wantValue:             "78.2%",
+		},
+		{
+			name:                  "shows zero percent",
+			sessionCacheHitRate:   0.0,
+			sessionCacheHitRateOK: true,
+			wantLabel:             "CACHE",
+			wantValue:             "0.0%",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := sidebarState{
+				sessionCacheHitRate:   tc.sessionCacheHitRate,
+				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
+			}
+			got := s.cacheSection(32)
+			if len(got) == 0 {
+				t.Errorf("cacheSection() = empty, always want non-empty")
+			}
+			joined := strings.Join(got, "\n")
+			if !strings.Contains(joined, tc.wantLabel) {
+				t.Errorf("cacheSection() missing label %q in %q", tc.wantLabel, joined)
+			}
+			if !strings.Contains(joined, tc.wantValue) {
+				t.Errorf("cacheSection() missing value %q in %q", tc.wantValue, joined)
+			}
+		})
+	}
+}
