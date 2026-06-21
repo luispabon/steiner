@@ -3539,3 +3539,285 @@ func useTrueColor(t *testing.T) {
 		lipgloss.SetColorProfile(old)
 	})
 }
+func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentAmber)
+	b := &contentBuffer{
+		styles:            styles,
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		showThinking:      true,
+		activeDelegations: make(map[string]int),
+	}
+
+	// 1. Parent calls the specialized "code" delegation tool.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID:    "parent-code",
+			Tool:      "code",
+			Arguments: map[string]any{"task": "implement feature"},
+		},
+	})
+
+	// 2. The original child starts.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-7",
+			TaskPreview: "implement feature",
+		},
+	})
+
+	// 3. The original child completes with high stats (58 turns, 59 tool calls).
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:       "child-7",
+			Status:        "partial",
+			TurnCount:     58,
+			TokenCount:    9000,
+			ToolCallCount: 59,
+			Output:        "original child output",
+		},
+	})
+
+	// Find the original child segment and snapshot its state for later comparison.
+	var originalIdx = -1
+	for i, seg := range b.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-7" {
+			originalIdx = i
+			break
+		}
+	}
+	if originalIdx < 0 {
+		t.Fatalf("original child segment not found")
+	}
+	originalDD := b.segments[originalIdx].delegData
+	if originalDD.turnCount != 58 || originalDD.toolCallCount != 59 {
+		t.Fatalf("original child stats not recorded: turns=%d toolcalls=%d", originalDD.turnCount, originalDD.toolCallCount)
+	}
+
+	// 4. Parent issues a follow_up for the same child.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID: "parent-followup",
+			Tool:   "follow_up",
+			Arguments: map[string]any{
+				"agent_id": "child-7",
+				"message":  "now also add tests",
+			},
+		},
+	})
+
+	// 5. The follow-up's own DelegationStarted event arrives carrying the
+	//    same AgentID (the resumed child session reuses child-7).
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-7",
+			TaskPreview: "now also add tests",
+		},
+	})
+
+	// 6. The follow-up completes. In production, the runtime reports
+	//    cumulative state.TurnCount from the resumed session, which
+	//    includes the original child's turns. A follow-up that uses
+	//    zero new turns therefore reports the same TurnCount as the
+	//    original child — that is the bug from issue #264.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:       "child-7",
+			Status:        "max_turns",
+			TurnCount:     58,
+			TokenCount:    9100,
+			ToolCallCount: 59,
+			Output:        "follow-up output",
+		},
+	})
+
+	// Locate the follow-up segment: it is the most recent delegation
+	// segment marked as a follow-up.
+	var followUpIdx = -1
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := b.segments[i]
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.isFollowUp {
+			followUpIdx = i
+			break
+		}
+	}
+	if followUpIdx < 0 {
+		t.Fatalf("follow-up segment not found")
+	}
+	followUpDD := b.segments[followUpIdx].delegData
+	if followUpDD == nil {
+		t.Fatalf("follow-up segment has nil delegData")
+	}
+
+	// The follow-up must remain marked as a follow-up.
+	if !followUpDD.isFollowUp {
+		t.Errorf("isFollowUp = false, want true")
+	}
+	if followUpDD.followUpAgentID != "child-7" {
+		t.Errorf("followUpAgentID = %q, want %q", followUpDD.followUpAgentID, "child-7")
+	}
+	if followUpDD.toolLabel != "code" {
+		t.Errorf("toolLabel = %q, want %q (from original child)", followUpDD.toolLabel, "code")
+	}
+
+	// The follow-up's prompt must be the follow-up message, not the
+	// original child task preview.
+	if followUpDD.promptText == "" || followUpDD.promptText == "implement feature" {
+		t.Errorf("promptText = %q, want follow-up message", followUpDD.promptText)
+	}
+
+	// The follow-up segment must show the follow-up's own stats, not
+	// the original child's cumulative stats. A follow-up that used zero
+	// new turns should report zero, not the original's 58.
+	if followUpDD.turnCount == originalDD.turnCount {
+		t.Errorf("follow-up turnCount = %d, matches original child's %d; want follow-up's own delta (0 for a no-op follow-up)",
+			followUpDD.turnCount, originalDD.turnCount)
+	}
+	if followUpDD.toolCallCount == originalDD.toolCallCount {
+		t.Errorf("follow-up toolCallCount = %d, matches original child's %d; want follow-up's own delta (0 for a no-op follow-up)",
+			followUpDD.toolCallCount, originalDD.toolCallCount)
+	}
+	if followUpDD.output != "follow-up output" {
+		t.Errorf("follow-up output = %q, want %q", followUpDD.output, "follow-up output")
+	}
+
+	// The follow-up's status must reflect the follow-up's own completion,
+	// not the original child's "partial" status.
+	if followUpDD.resultStatus == "partial" {
+		t.Errorf("follow-up resultStatus = %q, want %q (follow-up's own status, not original's)",
+			followUpDD.resultStatus, "max_turns")
+	}
+
+	// The original child segment must not have been mutated by the
+	// follow-up's completion event.
+	if b.segments[originalIdx].delegData.output != "original child output" {
+		t.Errorf("original child output = %q, want %q (must not be overwritten by follow-up)",
+			b.segments[originalIdx].delegData.output, "original child output")
+	}
+
+	// Render the follow-up header and confirm it does not display the
+	// original child's turn count.
+	followUpDD.collapsed = true
+	header := b.renderDelegationHeader(followUpDD, 120)
+	if strings.Contains(header, "58 turns") {
+		t.Errorf("follow-up header shows original child's turn count: %q", header)
+	}
+	if strings.Contains(header, "59 tool calls") {
+		t.Errorf("follow-up header shows original child's tool call count: %q", header)
+	}
+}
+
+func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentAmber)
+	b := &contentBuffer{
+		styles:            styles,
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		showThinking:      true,
+		activeDelegations: make(map[string]int),
+	}
+
+	// Original child delegation lifecycle.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID:    "parent-code",
+			Tool:      "code",
+			Arguments: map[string]any{"task": "implement feature"},
+		},
+	})
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-8",
+			TaskPreview: "implement feature",
+		},
+	})
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:       "child-8",
+			Status:        "complete",
+			TurnCount:     5,
+			TokenCount:    1000,
+			ToolCallCount: 6,
+			Output:        "original child output",
+		},
+	})
+
+	// Follow-up tool call + its DelegationStarted (reusing child-8).
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID: "parent-followup",
+			Tool:   "follow_up",
+			Arguments: map[string]any{
+				"agent_id": "child-8",
+				"message":  "now also add tests",
+			},
+		},
+	})
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-8",
+			TaskPreview: "now also add tests",
+		},
+	})
+
+	// A scoped assistant message from the follow-up's child run must
+	// be appended to the follow-up segment, not the original child.
+	b.AppendEvent(output.WithAgentScope(
+		output.NewAssistantMessageEvent(1, "assistant", "follow-up transcript body"),
+		"child-8",
+	))
+
+	// Locate the follow-up segment.
+	var followUpIdx = -1
+	var originalIdx = -1
+	for i, seg := range b.segments {
+		if seg.kind != segmentDelegation || seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.isFollowUp {
+			followUpIdx = i
+		} else if seg.delegData.agentID == "child-8" {
+			originalIdx = i
+		}
+	}
+	if followUpIdx < 0 {
+		t.Fatalf("follow-up segment not found")
+	}
+	if originalIdx < 0 {
+		t.Fatalf("original child segment not found")
+	}
+
+	// The follow-up segment's transcript must contain the scoped message.
+	followUpDD := b.segments[followUpIdx].delegData
+	foundInFollowUp := false
+	for _, entry := range followUpDD.entries {
+		if entry.kind == delegationTranscriptEntryAssistant &&
+			strings.Contains(entry.body, "follow-up transcript body") {
+			foundInFollowUp = true
+			break
+		}
+	}
+	if !foundInFollowUp {
+		t.Errorf("follow-up segment transcript missing scoped assistant message; entries=%v", followUpDD.entries)
+	}
+
+	// The original child segment's transcript must not contain it.
+	originalDD := b.segments[originalIdx].delegData
+	for _, entry := range originalDD.entries {
+		if entry.kind == delegationTranscriptEntryAssistant &&
+			strings.Contains(entry.body, "follow-up transcript body") {
+			t.Errorf("original child segment was polluted with follow-up transcript: %q", entry.body)
+		}
+	}
+}
