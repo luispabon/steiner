@@ -353,67 +353,24 @@ func TestProjectOverlayItemsWithSkills(t *testing.T) {
 
 func TestProjectHelpLines(t *testing.T) {
 	got := projectHelpLines()
-	// Should include all non-overlay entries
-	nonOverlay := 0
-	overlayOnly := map[string]bool{"/implement": true, "/review": true}
-	for _, sc := range slashCommands {
-		if !overlayOnly[sc.ID] {
-			nonOverlay++
-		}
+	want := []helpBinding{
+		{key: "/clear", desc: "reset the current session"},
+		{key: "/compact", desc: "trigger compaction"},
+		{key: "/fork", desc: "fork current conversation into a new session"},
+		{key: "/resume", desc: "load a previous session"},
+		{key: "/accent <preset>", desc: "change accent color"},
+		{key: "/thinking", desc: "show or hide thinking blocks"},
+		{key: "/exit", desc: "quit steiner"},
 	}
-	if len(got) != nonOverlay {
-		t.Fatalf("projectHelpLines() length = %d, want %d (non-overlay entries)", len(got), nonOverlay)
+	if len(got) != len(want) {
+		t.Fatalf("projectHelpLines() length = %d, want %d", len(got), len(want))
 	}
-	// Check specific entries with expected keys
-	expectedKeys := map[string]string{
-		"/clear":    "/clear",
-		"/compact":  "/compact",
-		"/fork":     "/fork",
-		"/resume":   "/resume",
-		"/accent":   "/accent <preset>",
-		"/thinking": "/thinking",
-		"/exit":     "/exit",
-	}
-	entryMap := make(map[string]int) // ID -> index
-	for i, sc := range slashCommands {
-		if overlayOnly[sc.ID] {
-			continue
+	for i := range want {
+		if got[i].key != want[i].key {
+			t.Errorf("projectHelpLines[%d] key = %q, want %q", i, got[i].key, want[i].key)
 		}
-		entryMap[sc.ID] = i
-	}
-	// All help lines should have matching key/desc from their registry entry
-	helpIdx := 0
-	for _, sc := range slashCommands {
-		if overlayOnly[sc.ID] {
-			continue
-		}
-		help := got[helpIdx]
-		wantKey := sc.HelpKey
-		if wantKey == "" {
-			wantKey = sc.ID
-		}
-		if help.Key != wantKey {
-			t.Errorf("projectHelpLines[%d] key = %q, want %q (for %s)", helpIdx, help.Key, wantKey, sc.ID)
-		}
-		if help.Desc != sc.Desc {
-			t.Errorf("projectHelpLines[%d] desc = %q, want %q (for %s)", helpIdx, help.Desc, sc.Desc, sc.ID)
-		}
-		helpIdx++
-	}
-	// Verify specific keys in order
-	for _, sc := range slashCommands {
-		if overlayOnly[sc.ID] {
-			continue
-		}
-		wantKey := sc.HelpKey
-		if wantKey == "" {
-			wantKey = sc.ID
-		}
-		// For these specific entries, verify the key
-		if expected, ok := expectedKeys[sc.ID]; ok {
-			if wantKey != expected {
-				t.Errorf("help key for %s = %q, want %q", sc.ID, wantKey, expected)
-			}
+		if got[i].desc != want[i].desc {
+			t.Errorf("projectHelpLines[%d] desc = %q, want %q", i, got[i].desc, want[i].desc)
 		}
 	}
 }

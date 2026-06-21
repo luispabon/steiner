@@ -17,8 +17,8 @@ type slashCommand struct {
 
 // helpBinding is a (key, desc) pair for the SESSION help group.
 type helpBinding struct {
-	Key  string
-	Desc string
+	key  string
+	desc string
 }
 
 // slashCommands is the canonical registry of all built-in slash commands.
@@ -293,19 +293,40 @@ func projectOverlayItems(oneshotMode bool, skillNames []string, skillDescription
 	return out
 }
 
-// projectHelpLines returns help key/desc pairs for non-OverlayOnly entries.
+// helpOrder defines the display order of slash commands in the help SESSION group.
+var helpOrder = []string{
+	"/clear",
+	"/compact",
+	"/fork",
+	"/resume",
+	"/accent",
+	"/thinking",
+	"/exit",
+}
+
+// projectHelpLines returns help key/desc pairs for the SESSION help group.
 // Uses HelpKey when non-empty, otherwise the entry ID.
+// Returns entries in the order specified by helpOrder, excluding OverlayOnly entries.
 func projectHelpLines() []helpBinding {
+	byID := make(map[string]*slashCommand, len(helpOrder))
+	for i := range slashCommands {
+		if slashCommands[i].OverlayOnly {
+			continue
+		}
+		byID[slashCommands[i].ID] = &slashCommands[i]
+	}
+
 	var out []helpBinding
-	for _, sc := range slashCommands {
-		if sc.OverlayOnly {
+	for _, id := range helpOrder {
+		sc, ok := byID[id]
+		if !ok {
 			continue
 		}
 		key := sc.HelpKey
 		if key == "" {
 			key = sc.ID
 		}
-		out = append(out, helpBinding{Key: key, Desc: sc.Desc})
+		out = append(out, helpBinding{key: key, desc: sc.Desc})
 	}
 	return out
 }
