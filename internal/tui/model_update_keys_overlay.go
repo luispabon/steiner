@@ -182,19 +182,16 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if selected := m.slashOverlay.SelectedItem(); selected != nil {
 			m.replaceComposerToken('/', selected.command+" ")
 			m.slashOverlay = m.slashOverlay.Close()
-			entry := lookupCommand(selected.command)
-			if entry != nil && entry.OverlayOnly {
+			switch selected.command {
+			case "/implement", "/review":
 				m.planPicker = m.planPicker.Open(selected.command)
 				m.planPicker.width = m.width
 				m.planPicker.height = m.height
-			} else if selected.command == "/model" {
+			case "/model":
 				m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
 				m.modelPicker.width = m.width
 				m.modelPicker.height = m.height
 				m.historyIdx = 0
-			} else {
-				// For non-special commands, just close the overlay and
-				// leave the command in the composer for the user to complete.
 			}
 		}
 	case tea.KeyUp, tea.KeyDown:
