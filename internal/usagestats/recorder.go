@@ -113,7 +113,7 @@ func (r *Recorder) Record(obs Observation) {
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
 	}
-	_ = r.store.write(r.buckets, delta, key)
+	_ = r.store.write(delta, key)
 }
 
 // Window sums all buckets whose hour falls within [now-d, now] and returns

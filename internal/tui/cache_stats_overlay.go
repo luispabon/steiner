@@ -36,7 +36,7 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 			allEmpty = false
 		}
 
-		sb.WriteString(fmt.Sprintf("### %s\n\n", w.label))
+		fmt.Fprintf(&sb, "### %s\n\n", w.label)
 
 		if len(report.Rows) == 0 {
 			sb.WriteString("_No cache-capable calls in this window._\n")
@@ -59,13 +59,13 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				}
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
-				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d / %d |\n",
+				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d |\n",
 					row.ProviderAlias,
 					row.BackendModelID,
 					hitRateStr,
 					row.CacheReadTokens,
 					cachedTotal,
-				))
+				)
 			}
 		}
 
