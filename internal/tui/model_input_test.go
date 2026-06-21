@@ -132,3 +132,25 @@ func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
+	m := Model{}
+	items := m.buildSlashOverlayItems()
+
+	found := false
+	for _, item := range items {
+		if item.command == "/cache-stats" {
+			found = true
+			if item.name != "Cache stats" {
+				t.Errorf("name = %q, want %q", item.name, "Cache stats")
+			}
+			if item.desc != "show cache hit rate stats" {
+				t.Errorf("desc = %q, want %q", item.desc, "show cache hit rate stats")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("/cache-stats not found in overlay items")
+	}
+}

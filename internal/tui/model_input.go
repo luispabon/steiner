@@ -135,6 +135,7 @@ func (m Model) buildSlashOverlayItems() []slashOverlayItem {
 
 	// Built-in commands
 	builtins := []slashOverlayItem{
+		{command: "/cache-stats", name: "Cache stats", desc: "show cache hit rate stats", source: ""},
 		{command: "/clear", name: "Clear conversation", desc: "reset the current session", source: ""},
 		{command: "/compact", name: "Compact context", desc: "trigger compaction", source: ""},
 		{command: "/config", name: "Inspect config", desc: "show configuration", source: ""},
