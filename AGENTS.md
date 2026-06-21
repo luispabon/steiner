@@ -43,6 +43,7 @@ docs/                    Product/design docs and implementation notes
 * Use snake_case Go filenames.
 * Put tests next to source.
 * Aim for production `.go` files under ~300 lines; split around ~500 by domain responsibility.
+* The ~500-line target is a trigger to review, not an absolute cap. A file that is a single cohesive concern (e.g. one render pipeline of small functions) may exceed it; when it does, note in the PR that the breach is accepted for cohesion rather than splitting mechanically.
 * In `internal/tui`, keep render, update, sidebar, and event-state concerns split before files drift past the line target.
 * In `internal/output`, keep render, event, and preview/report concerns split before files drift past the line target.
 * Do not create `util`, `helper`, or `common` packages. Put shared code in the package that owns the domain.
@@ -91,6 +92,7 @@ Go version: `1.25`.
 * Keep symbols unexported unless cross-package use requires export.
 * Exported symbols in `internal/` must be justified by cross-package use and documented immediately with Godoc starting with the symbol name.
 * TODO comments must name the follow-up action or owner, not leave open-ended debt markers.
+* Do not commit no-op or stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`). Either implement the behaviour, remove the function, or leave a comment naming the concrete follow-up — the same standard already applied to TODO comments.
 
 ## Security
 
