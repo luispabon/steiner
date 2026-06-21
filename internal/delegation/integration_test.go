@@ -1203,7 +1203,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	if typedResult.Output != "" {
 		t.Fatalf("Output = %q, want preserved pre-error output", typedResult.Output)
 	}
-	if typedResult.Summary != "delegation failed: extension run failed" {
+	if !strings.Contains(typedResult.Summary, "delegation failed: extension run failed") {
 		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
 	}
 	if result.Retention == nil {

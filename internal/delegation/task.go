@@ -107,8 +107,19 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	defer summaryCancel()
 	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {
-		tc.add("summary", "summary empty, using output preview", nil)
-		summaryText = cappedRetentionPreview(result.Output)
+		if strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0 {
+			synthetic := cancelledActivitySummary(state)
+			if synthetic != "" {
+				summaryText = synthetic
+				tc.add("summary", "summary from cancelled activity", map[string]any{"length": len(summaryText)})
+			} else {
+				summaryText = cappedRetentionPreview(result.Output)
+				tc.add("summary", "summary empty, using output preview", nil)
+			}
+		} else {
+			summaryText = cappedRetentionPreview(result.Output)
+			tc.add("summary", "summary empty, using output preview", nil)
+		}
 	} else {
 		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
 	}
@@ -209,7 +220,7 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 		result.Output = msg.Content
 	}
 
-	summaryText := failedDelegateSummaryText(err, result.Output)
+	summaryText := failedDelegateSummaryText(err, state)
 	result.Summary = summaryText
 	result.Trace = tc.result()
 
@@ -228,11 +239,15 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	}
 }
 
-func failedDelegateSummaryText(err error, previousOutput string) string {
+func failedDelegateSummaryText(err error, state agent.RunState) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
-	prev := strings.TrimSpace(previousOutput)
-	if prev != "" {
-		parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
+		if prev := strings.TrimSpace(msg.Content); prev != "" {
+			parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
+		}
+	}
+	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
+		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
 	}
 	return truncateUTF8(strings.Join(parts, "\n"), delegateRetentionSummaryMaxRunes)
 }
@@ -267,6 +282,29 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 		return ""
 	}
 	return truncateUTF8(summaryOutput, delegateRetentionSummaryMaxRunes)
+}
+
+func cancelledActivitySummary(state agent.RunState) string {
+	toolCount := countToolCalls(state.Conversation)
+	if toolCount == 0 {
+		return ""
+	}
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok || len(msg.ToolCalls) == 0 {
+		return truncateUTF8(fmt.Sprintf("cancelled after %d turns, %d tool call(s)", state.TurnCount, toolCount), delegateRetentionSummaryMaxRunes)
+	}
+	last := msg.ToolCalls[len(msg.ToolCalls)-1]
+	argsPreview := ""
+	if len(last.Arguments) > 0 {
+		pairs := make([]string, 0, len(last.Arguments))
+		for k, v := range last.Arguments {
+			pairs = append(pairs, fmt.Sprintf("%s=%v", k, v))
+		}
+		argsPreview = strings.Join(pairs, ", ")
+	}
+	summary := fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s(%s)",
+		state.TurnCount, toolCount, last.Name, argsPreview)
+	return truncateUTF8(summary, delegateRetentionSummaryMaxRunes)
 }
 
 func cappedRetentionPreview(text string) string {

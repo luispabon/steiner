@@ -6,6 +6,17 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 )
 
+func makeRunStateWithToolCall(turnCount, tokenCount int, stopReason agent.StopReason, toolName string, toolArgs map[string]any) agent.RunState {
+	return agent.RunState{
+		TurnCount:  turnCount,
+		TokenCount: tokenCount,
+		StopReason: stopReason,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: toolName, Arguments: toolArgs}}},
+		},
+	}
+}
+
 func makeRunState(turnCount, tokenCount int, stopReason agent.StopReason, lastAssistantMsg string) agent.RunState {
 	state := agent.RunState{
 		TurnCount:  turnCount,
@@ -69,6 +80,16 @@ func TestBuildResult(t *testing.T) {
 			wantTurnCount:  5,
 			wantTokenCount: 2000,
 			wantOutput:     "useful work",
+			wantStopReason: "cancelled",
+		},
+		{
+			name:           "cancelled with tool calls but no text maps to partial",
+			agentID:        "agent-3d",
+			state:          makeRunStateWithToolCall(3, 1500, agent.StopReasonCancelled, "glob", map[string]any{"pattern": "**/*_test.go"}),
+			wantStatus:     StatusPartial,
+			wantTurnCount:  3,
+			wantTokenCount: 1500,
+			wantOutput:     "",
 			wantStopReason: "cancelled",
 		},
 		{

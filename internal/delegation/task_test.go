@@ -12,7 +12,8 @@ import (
 
 func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
 	err := errors.New("deadline exceeded")
-	summary := failedDelegateSummaryText(err, "")
+	state := agent.RunState{}
+	summary := failedDelegateSummaryText(err, state)
 	if !strings.Contains(summary, "delegation failed: deadline exceeded") {
 		t.Fatalf("expected failure summary, got: %s", summary)
 	}
@@ -20,7 +21,12 @@ func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
 
 func TestFailedDelegateSummaryText_OutputWins(t *testing.T) {
 	err := errors.New("deadline exceeded")
-	summary := failedDelegateSummaryText(err, "found 3 issues in pkg A")
+	state := agent.RunState{
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "found 3 issues in pkg A"},
+		},
+	}
+	summary := failedDelegateSummaryText(err, state)
 	if !strings.Contains(summary, "previous output:") {
 		t.Errorf("expected previous output in summary, got: %s", summary)
 	}
