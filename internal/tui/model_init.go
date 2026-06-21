@@ -45,6 +45,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		modelBaseURLs:        cloneModelBaseURLs(cfg.ModelBaseURLs),
 		modelProviderNames:   cloneModelProviderNames(cfg.ModelProviderNames),
 		controller:           cfg.Controller,
+		recorder:             cfg.Recorder,
 		activeTheme:          resolveTheme(cfg.Theme),
 		styles:               theme.BuildStyles(accentHex),
 		inputHistory:         []string{},

@@ -9,6 +9,7 @@ type inputAction struct {
 	clear                      bool
 	compaction                 bool
 	inspectConfig              bool
+	openCacheStats             bool
 	listSkills                 bool
 	listFiles                  bool
 	listFilesPath              string
@@ -68,6 +69,8 @@ func parseBuiltinCommand(trimmed string) (inputAction, bool) {
 		return inputAction{compaction: true}, true
 	case "/config":
 		return inputAction{inspectConfig: true}, true
+	case "/cache-stats":
+		return inputAction{openCacheStats: true}, true
 	case "/fork":
 		return inputAction{forkSession: true}, true
 	case "/resume":
@@ -173,7 +176,7 @@ func matchCommandPrefix(text string, skillNames []string, allowlistOnly bool) (s
 		return "", false
 	}
 	if !allowlistOnly {
-		builtins := []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
+		builtins := []string{"/exit", "/clear", "/compact", "/config", "/cache-stats", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/accent", "/oneshot"}
 		for _, cmd := range builtins {
 			if trimmed == cmd {
 				return cmd, true
@@ -213,7 +216,7 @@ func buildCompletionCandidates(prefix string, skillNames []string, _ []string, a
 		base = []string{"/exit", "/thinking", "/accent",
 			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 	} else {
-		base = []string{"/exit", "/clear", "/compact", "/config", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
+		base = []string{"/exit", "/clear", "/compact", "/config", "/cache-stats", "/fork", "/resume", "/oneshot-resume", "/skills", "/skill", "/ls", "/model", "/thinking", "/oneshot",
 			"/accent amber", "/accent rose", "/accent magenta", "/accent violet", "/accent cyan", "/accent mint", "/accent lime"}
 		for _, name := range skillNames {
 			base = append(base, "/skill +"+name, "/skill -"+name, "/skill "+name)

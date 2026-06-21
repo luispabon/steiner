@@ -34,6 +34,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.inspectConfig {
 		return m.executeInspectConfigAction()
 	}
+	if action.openCacheStats {
+		return m.executeOpenCacheStatsAction()
+	}
 	if action.listSkills {
 		return m.executeListSkillsAction()
 	}
