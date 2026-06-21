@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -1008,5 +1011,121 @@ func TestStripImages_MarkerOnlyWhenNoContent(t *testing.T) {
 	}
 	if result[0].Images != nil {
 		t.Fatalf("Images = %v, want nil", result[0].Images)
+	}
+}
+
+func TestCompleteCompactionCallRecordsUsageOnSuccess(t *testing.T) {
+	tests := []struct {
+		name         string
+		usage        *provider.UsageStats
+		wantRecorded bool
+	}{
+		{
+			name: "usage-bearing response records exactly one observation",
+			usage: &provider.UsageStats{
+				PromptTokens:             120,
+				CompletionTokens:         60,
+				CacheReadInputTokens:     8,
+				CacheCreationInputTokens: 4,
+			},
+			wantRecorded: true,
+		},
+		{
+			name:         "nil usage records nothing",
+			usage:        nil,
+			wantRecorded: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := &fakeProvider{
+				responses: []provider.ChatResponse{
+					{
+						Message: provider.Message{
+							Role:    provider.MessageRoleAssistant,
+							Content: "compaction summary",
+						},
+						Usage:        tc.usage,
+						FinishReason: "stop",
+					},
+				},
+			}
+
+			recorder := &testRecorder{}
+			_, err := completeCompactionCall(context.Background(), RunRequest{
+				Provider: prov,
+				ResolvedModel: provider.ResolvedModel{
+					ProviderAlias:         "claude-test",
+					EffectiveProviderType: "anthropic",
+					BackendModelID:        "claude-3-5-sonnet",
+				},
+				UsageRecorder: recorder,
+				Events:        output.SinkFunc(func(output.Event) {}),
+			}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{})
+
+			if err != nil {
+				t.Fatalf("completeCompactionCall() error = %v", err)
+			}
+
+			recordedCount := len(recorder.obs)
+			if tc.wantRecorded && recordedCount != 1 {
+				t.Errorf("recorded observations = %d, want 1", recordedCount)
+			}
+			if !tc.wantRecorded && recordedCount != 0 {
+				t.Errorf("recorded observations = %d, want 0", recordedCount)
+			}
+
+			if tc.wantRecorded && recordedCount == 1 {
+				obs := recorder.obs[0]
+				if obs.PromptTokens != 120 {
+					t.Errorf("PromptTokens = %d, want 120", obs.PromptTokens)
+				}
+				if obs.CompletionTokens != 60 {
+					t.Errorf("CompletionTokens = %d, want 60", obs.CompletionTokens)
+				}
+				if obs.CacheReadTokens != 8 {
+					t.Errorf("CacheReadTokens = %d, want 8", obs.CacheReadTokens)
+				}
+				if obs.CacheCreateTokens != 4 {
+					t.Errorf("CacheCreateTokens = %d, want 4", obs.CacheCreateTokens)
+				}
+				if obs.ProviderAlias != "claude-test" {
+					t.Errorf("ProviderAlias = %q, want %q", obs.ProviderAlias, "claude-test")
+				}
+				if obs.BackendModelID != "claude-3-5-sonnet" {
+					t.Errorf("BackendModelID = %q, want %q", obs.BackendModelID, "claude-3-5-sonnet")
+				}
+			}
+		})
+	}
+}
+
+func TestCompleteCompactionCallDoesNotRecordOnError(t *testing.T) {
+	boom := fmt.Errorf("api error")
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, boom
+		},
+	}
+
+	recorder := &testRecorder{}
+	_, err := completeCompactionCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "claude-test",
+			EffectiveProviderType: "anthropic",
+			BackendModelID:        "claude-3-5-sonnet",
+		},
+		UsageRecorder: recorder,
+		Events:        output.SinkFunc(func(output.Event) {}),
+	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{})
+
+	if !errors.Is(err, boom) {
+		t.Fatalf("completeCompactionCall() error = %v, want %v", err, boom)
+	}
+
+	if got := len(recorder.obs); got != 0 {
+		t.Errorf("recorded observations = %d, want 0 on error", got)
 	}
 }

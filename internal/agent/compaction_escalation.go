@@ -233,6 +233,9 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 	if logger != nil {
 		_ = logger.LogResponse(response) // best effort
 	}
+	if err == nil {
+		recordModelUsage(req, response.Usage)
+	}
 	return response, err
 }
 
