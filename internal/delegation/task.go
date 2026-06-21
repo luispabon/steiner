@@ -69,7 +69,6 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
 	}
 
-	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
 
 	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
@@ -81,7 +80,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		return failedDelegateExecution(spec, state, err, tc, logger), state, nil
 	}
 
-	state, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, originalMaxTurns, events, tc, state, spec.AgentID)
+	state, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
 	if extErr != nil {
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))

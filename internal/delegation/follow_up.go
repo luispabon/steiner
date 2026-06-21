@@ -58,7 +58,8 @@ func NewFollowUpHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		})
 
 		freshLimits := DefaultLimits(deps.SubAgentCfg)
-		req.Limits.MaxTurns = freshLimits.MaxTurns
+		// Include prior turn count so runner does not immediately stop with StopReasonMaxTurns.
+		req.Limits.MaxTurns = session.TurnCount + freshLimits.MaxTurns
 		req.Limits.MaxTokens = freshLimits.OutputLimitTokens
 		req.Limits.TurnTimeout = freshLimits.Timeout
 
