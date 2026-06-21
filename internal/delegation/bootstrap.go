@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // defaultChildSystemPrompt stays empty so child agents use the shared system
@@ -33,6 +34,8 @@ type BootstrapDeps struct {
 	// exceed parent permissions: the parent sandbox is passed as-is to the child
 	// executor. A nil Sandbox means unsafe mode (no sandboxing).
 	Sandbox tool.SandboxWrapper
+	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
+	UsageRecorder *usagestats.Recorder
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -62,7 +65,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox)
+	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder)
 	return req, limits, nil
 }
 
@@ -144,7 +147,7 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 // BuildChildRun) is responsible for registry and prompt assembly.
 // sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
 // executor unchanged, enforcing child sandbox ≤ parent sandbox.
-func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper) agent.RunRequest {
+func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper, rec *usagestats.Recorder) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(agentID, events)
 
@@ -165,6 +168,9 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 		MaxTokens:          maxTokens,
 		StreamingPreferred: streamingPreferred,
 		CaveHuman:          caveHuman,
+	}
+	if rec != nil {
+		req.UsageRecorder = rec
 	}
 
 	return req

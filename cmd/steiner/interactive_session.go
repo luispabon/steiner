@@ -75,6 +75,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
 	}
+	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
 	return tui.NewApp(tuiCfg)
 }

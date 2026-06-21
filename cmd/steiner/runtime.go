@@ -19,6 +19,7 @@ import (
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type cliFlags struct {
@@ -62,6 +63,7 @@ type cliRuntime struct {
 	delegationLogger  *delegation.TraceLogger
 	streamErrorLog    *provider.StreamErrorLogger
 	compactionLogFile string
+	usageRecorder     *usagestats.Recorder
 }
 
 var buildRuntime = defaultBuildRuntime

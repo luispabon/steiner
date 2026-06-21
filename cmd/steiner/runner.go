@@ -73,6 +73,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		ProviderFactory:    r.runtime.providerFactory,
 		HTTPClient:         r.runtime.httpClient,
 		Searcher:           searcher,
+		UsageRecorder:      r.runtime.usageRecorder,
 	})
 	if err != nil {
 		return runResult{}, err
