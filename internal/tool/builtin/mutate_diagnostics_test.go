@@ -171,11 +171,18 @@ func TestExtractNormalizedMatch(t *testing.T) {
 }
 
 func TestBuildNoMatchDiagnostics(t *testing.T) {
+	const absPath = "/tmp/work/note.txt"
 	t.Run("no anchor found", func(t *testing.T) {
 		content := []byte("hello world\n")
-		out := buildNoMatchDiagnostics("edit", content, "nonexistent text")
+		out := buildNoMatchDiagnostics("edit", content, "nonexistent text", absPath)
 		if !strings.Contains(out, "edit: no match for old_string") {
 			t.Fatalf("output = %q, want no-match prefix", out)
+		}
+		if !strings.Contains(out, absPath) {
+			t.Fatalf("output = %q, want absolute path %q in header", out, absPath)
+		}
+		if !strings.HasPrefix(strings.SplitN(out, "\n", 2)[0], "edit: no match for old_string in "+absPath) {
+			t.Fatalf("first line of output must be the abs-path header, got %q", out)
 		}
 		if !strings.Contains(out, "no nearby exact anchor found") {
 			t.Fatalf("output = %q, want anchor diagnostic", out)
@@ -187,7 +194,10 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 
 	t.Run("whitespace mismatch", func(t *testing.T) {
 		content := []byte("alpha beta\n")
-		out := buildNoMatchDiagnostics("edit", content, "alpha   beta")
+		out := buildNoMatchDiagnostics("edit", content, "alpha   beta", absPath)
+		if !strings.Contains(out, absPath) {
+			t.Fatalf("output = %q, want absolute path %q", out, absPath)
+		}
 		if !strings.Contains(out, "normalized whitespace match exists") {
 			t.Fatalf("output = %q, want whitespace diagnostic", out)
 		}
@@ -204,7 +214,10 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 
 	t.Run("tab vs space with line_replace suggestion", func(t *testing.T) {
 		content := []byte("check:\n\tgo test ./...\n\tgo vet ./...\n")
-		out := buildNoMatchDiagnostics("edit", content, "check:\n    go test ./...\n    go vet ./...\n")
+		out := buildNoMatchDiagnostics("edit", content, "check:\n    go test ./...\n    go vet ./...\n", absPath)
+		if !strings.Contains(out, absPath) {
+			t.Fatalf("output = %q, want absolute path %q", out, absPath)
+		}
 		if !strings.Contains(out, "normalized whitespace match exists") {
 			t.Fatalf("output = %q, want whitespace diagnostic", out)
 		}
@@ -218,11 +231,18 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 }
 
 func TestBuildAmbiguousDiagnostics(t *testing.T) {
+	const absPath = "/tmp/work/note.txt"
 	t.Run("shows occurrence count and context", func(t *testing.T) {
 		content := []byte("hello\nworld\nhello\nworld\nhello\n")
-		out := buildAmbiguousDiagnostics("edit", content, "hello", 3)
+		out := buildAmbiguousDiagnostics("edit", content, "hello", 3, absPath)
 		if !strings.Contains(out, "ambiguous match") {
 			t.Fatalf("output = %q, want ambiguous match", out)
+		}
+		if !strings.Contains(out, absPath) {
+			t.Fatalf("output = %q, want absolute path %q in header", out, absPath)
+		}
+		if !strings.HasPrefix(strings.SplitN(out, "\n", 2)[0], "edit: ambiguous match for old_string in "+absPath+" (found 3 occurrences)") {
+			t.Fatalf("first line of output must be the abs-path header, got %q", out)
 		}
 		if !strings.Contains(out, "3 occurrences") {
 			t.Fatalf("output = %q, want 3 occurrences", out)
@@ -237,9 +257,12 @@ func TestBuildAmbiguousDiagnostics(t *testing.T) {
 
 	t.Run("two occurrences", func(t *testing.T) {
 		content := []byte("hello\nhello\nworld\n")
-		out := buildAmbiguousDiagnostics("edit", content, "hello", 2)
+		out := buildAmbiguousDiagnostics("edit", content, "hello", 2, absPath)
 		if !strings.Contains(out, "ambiguous match for old_string") {
 			t.Fatalf("output = %q, want ambiguous match message", out)
+		}
+		if !strings.Contains(out, absPath) {
+			t.Fatalf("output = %q, want absolute path %q", out, absPath)
 		}
 		if !strings.Contains(out, "2 occurrences") {
 			t.Fatalf("output = %q, want occurrence count", out)

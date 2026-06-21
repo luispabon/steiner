@@ -202,13 +202,14 @@ func (p *mutatePlanner) recordTextOperation(index int, op MutateOperation, state
 		return err
 	}
 	p.result.OperationResults = append(p.result.OperationResults, MutateOperationResult{
-		Index:      index,
-		Type:       op.Type,
-		Path:       state.displayPath,
-		MatchCount: matchCount,
-		FileHash:   fileContentHash(state.content),
-		Assertions: assertions,
-		Context:    buildMutateContext(state.content, anchorLine),
+		Index:        index,
+		Type:         op.Type,
+		Path:         state.displayPath,
+		ResolvedPath: state.path,
+		MatchCount:   matchCount,
+		FileHash:     fileContentHash(state.content),
+		Assertions:   assertions,
+		Context:      buildMutateContext(state.content, anchorLine),
 	})
 	return nil
 }
@@ -219,14 +220,15 @@ func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, stat
 		return err
 	}
 	p.result.OperationResults = append(p.result.OperationResults, MutateOperationResult{
-		Index:      index,
-		Type:       op.Type,
-		From:       op.From,
-		To:         op.To,
-		Path:       state.displayPath,
-		FileHash:   fileContentHash(state.content),
-		Assertions: assertions,
-		Context:    buildMutateContext(state.content, 1),
+		Index:        index,
+		Type:         op.Type,
+		From:         op.From,
+		To:           op.To,
+		Path:         state.displayPath,
+		ResolvedPath: state.path,
+		FileHash:     fileContentHash(state.content),
+		Assertions:   assertions,
+		Context:      buildMutateContext(state.content, 1),
 	})
 	return nil
 }

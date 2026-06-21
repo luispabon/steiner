@@ -21,14 +21,15 @@ type ImageBlock struct {
 
 // ReadResult is the result from a read tool call.
 type ReadResult struct {
-	Path       string      `json:"path"`
-	StartLine  int         `json:"start_line"`
-	EndLine    int         `json:"end_line"`
-	TotalLines int         `json:"total_lines"`
-	FileHash   string      `json:"file_hash"`
-	NextOffset int         `json:"next_offset,omitempty"`
-	Output     string      `json:"output"`
-	Image      *ImageBlock `json:"image,omitempty"`
+	Path         string      `json:"path"`
+	ResolvedPath string      `json:"resolved_path"`
+	StartLine    int         `json:"start_line"`
+	EndLine      int         `json:"end_line"`
+	TotalLines   int         `json:"total_lines"`
+	FileHash     string      `json:"file_hash"`
+	NextOffset   int         `json:"next_offset,omitempty"`
+	Output       string      `json:"output"`
+	Image        *ImageBlock `json:"image,omitempty"`
 }
 
 // GrepResult is the result from a grep tool call.
@@ -78,15 +79,16 @@ type MutateContextResult struct {
 
 // MutateOperationResult captures structured verification metadata for one operation.
 type MutateOperationResult struct {
-	Index      int                     `json:"index"`
-	Type       string                  `json:"type"`
-	Path       string                  `json:"path,omitempty"`
-	From       string                  `json:"from,omitempty"`
-	To         string                  `json:"to,omitempty"`
-	MatchCount int                     `json:"match_count,omitempty"`
-	FileHash   string                  `json:"file_hash,omitempty"`
-	Assertions []MutateAssertionResult `json:"assertions,omitempty"`
-	Context    *MutateContextResult    `json:"context,omitempty"`
+	Index        int                     `json:"index"`
+	Type         string                  `json:"type"`
+	Path         string                  `json:"path,omitempty"`
+	ResolvedPath string                  `json:"resolved_path,omitempty"`
+	From         string                  `json:"from,omitempty"`
+	To           string                  `json:"to,omitempty"`
+	MatchCount   int                     `json:"match_count,omitempty"`
+	FileHash     string                  `json:"file_hash,omitempty"`
+	Assertions   []MutateAssertionResult `json:"assertions,omitempty"`
+	Context      *MutateContextResult    `json:"context,omitempty"`
 }
 
 // MutateResult is the result from a mutate tool call.
