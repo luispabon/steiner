@@ -375,6 +375,12 @@ func TestMutateReturnsStructuredVerificationData(t *testing.T) {
 	if op.Index != 1 || op.Type != "replace" || op.Path != "note.txt" {
 		t.Fatalf("operation result = %#v", op)
 	}
+	if op.ResolvedPath != path {
+		t.Errorf("ResolvedPath = %q, want absolute path %q", op.ResolvedPath, path)
+	}
+	if !filepath.IsAbs(op.ResolvedPath) {
+		t.Errorf("ResolvedPath = %q, want absolute", op.ResolvedPath)
+	}
 	if op.MatchCount != 1 {
 		t.Fatalf("MatchCount = %d, want 1", op.MatchCount)
 	}
@@ -966,7 +972,8 @@ func TestMutateWhitespaceMismatchDiagnostic(t *testing.T) {
 
 func TestMutateLineReplaceWhitespaceMismatchDiagnostic(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.go"), []byte("type Config struct {\n\tworkDir    string\n\tlogLevel   int\n}\n"), 0o644); err != nil {
+	absPath := filepath.Join(root, "config.go")
+	if err := os.WriteFile(absPath, []byte("type Config struct {\n\tworkDir    string\n\tlogLevel   int\n}\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
@@ -984,6 +991,9 @@ func TestMutateLineReplaceWhitespaceMismatchDiagnostic(t *testing.T) {
 	if got.OperationsFailed != 1 {
 		t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
 	}
+	if !strings.Contains(got.Output, absPath) {
+		t.Fatalf("Output missing absolute path %q:\n%s", absPath, got.Output)
+	}
 	if !strings.Contains(got.Output, "normalized whitespace match exists") {
 		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
 	}
@@ -996,6 +1006,98 @@ func TestMutateLineReplaceWhitespaceMismatchDiagnostic(t *testing.T) {
 	if !strings.Contains(got.Output, "tabs vs spaces must match the file") {
 		t.Fatalf("Output missing whitespace-specific suggestion:\n%s", got.Output)
 	}
+}
+
+// TestMutateDiagnosticsIncludeAbsolutePath guards against a class of "wrong
+// file" confusion: when a relative path resolves to a different physical file
+// (e.g. across a git worktree boundary), the no-match/ambiguous/line_replace
+// error must name the absolute path the planner actually touched so the
+// divergence is immediately diagnosable from the error text.
+func TestMutateDiagnosticsIncludeAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	absPath := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(absPath, []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	t.Run("replace no-match", func(t *testing.T) {
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "NOTFOUND", "new_string": "x"},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "no match for old_string in "+absPath) {
+			t.Fatalf("Output must name the abs path %q in the no-match header:\n%s", absPath, got.Output)
+		}
+	})
+
+	t.Run("replace ambiguous", func(t *testing.T) {
+		// Duplicate 'aaa' so a non-replace_all match is ambiguous.
+		if err := os.WriteFile(absPath, []byte("aaa\naaa\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "aaa", "new_string": "x"},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "ambiguous match for old_string in "+absPath) {
+			t.Fatalf("Output must name the abs path %q in the ambiguous header:\n%s", absPath, got.Output)
+		}
+	})
+
+	t.Run("line_replace single-line mismatch", func(t *testing.T) {
+		if err := os.WriteFile(absPath, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{
+					"type":       "line_replace",
+					"path":       "note.txt",
+					"line":       float64(2),
+					"old_string": "WRONG",
+					"new_string": "BETA",
+				},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "line 2 in "+absPath+" contains old_string") {
+			t.Fatalf("Output must name the abs path %q in the single-line header:\n%s", absPath, got.Output)
+		}
+	})
+
+	t.Run("line_replace range mismatch", func(t *testing.T) {
+		if err := os.WriteFile(absPath, []byte("aaa\naaa\naaa\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{
+					"type":       "line_replace",
+					"path":       "note.txt",
+					"line":       float64(1),
+					"line_count": float64(2),
+					"old_string": "WRONG",
+					"new_string": "x",
+				},
+			},
+		})
+		if got.OperationsFailed != 1 {
+			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
+		}
+		if !strings.Contains(got.Output, "old_string found 0 times in lines 1") || !strings.Contains(got.Output, "of "+absPath) {
+			t.Fatalf("Output must name the abs path %q in the range header:\n%s", absPath, got.Output)
+		}
+	})
 }
 
 func TestMutateDryRunIncludesDiff(t *testing.T) {

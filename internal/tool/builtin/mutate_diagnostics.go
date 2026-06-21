@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-func buildNoMatchDiagnostics(prefix string, content []byte, oldText string) string {
+func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath string) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: no match for old_string", prefix))
+	lines = append(lines, fmt.Sprintf("%s: no match for old_string in %s", prefix, absPath))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	var matchLineNum int
@@ -49,9 +49,9 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText string) stri
 	return strings.Join(lines, "\n")
 }
 
-func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, matchCount int) string {
+func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, matchCount int, absPath string) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s: ambiguous match for old_string (found %d occurrences)", prefix, matchCount))
+	lines = append(lines, fmt.Sprintf("%s: ambiguous match for old_string in %s (found %d occurrences)", prefix, absPath, matchCount))
 
 	if matchStart, matchEnd, lineNum, preview, ok := findExactMatchPreview(content, oldText); ok {
 		lines = append(lines, fmt.Sprintf("%s: closest occurrence at line %d, bytes %d-%d", prefix, lineNum, matchStart+1, matchEnd))
@@ -70,13 +70,15 @@ func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, ma
 // keep working. rangeText is the actual line text (with any preserved line
 // endings) covering lines startLine..endLine; pass it in so the preview shows
 // the real file bytes, including tabs vs spaces. singleLine selects the
-// "line N contains old_string M times" wording versus the range wording.
-func buildLineReplaceMismatchDiagnostics(prefix string, oldText string, count, startLine, endLine int, rangeText string, singleLine bool) string {
+// "line N contains old_string M times" wording versus the range wording. absPath
+// is the absolute file path the planner resolved; it is included on the first
+// header line so a "wrong file" diagnosis is immediate.
+func buildLineReplaceMismatchDiagnostics(prefix string, oldText string, count, startLine, endLine int, rangeText string, singleLine bool, absPath string) string {
 	var lines []string
 	if singleLine {
-		lines = append(lines, fmt.Sprintf("%s: line %d contains old_string %d times", prefix, startLine, count))
+		lines = append(lines, fmt.Sprintf("%s: line %d in %s contains old_string %d times", prefix, startLine, absPath, count))
 	} else {
-		lines = append(lines, fmt.Sprintf("%s: old_string found %d times in lines %d–%d (want exactly 1)", prefix, count, startLine, endLine))
+		lines = append(lines, fmt.Sprintf("%s: old_string found %d times in lines %d–%d of %s (want exactly 1)", prefix, count, startLine, endLine, absPath))
 	}
 
 	lines = append(lines, fmt.Sprintf("%s: target line(s) in file:", prefix))

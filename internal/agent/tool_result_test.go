@@ -118,7 +118,7 @@ func TestNormalizeToolResultStripsImageDataFromContent(t *testing.T) {
 	if strings.Contains(envelope.Content, "base64encodeddata") {
 		t.Fatalf("Content leaks base64 payload: %q", envelope.Content)
 	}
-	if got, want := envelope.Content, `{"path":"image.png","start_line":0,"end_line":0,"total_lines":0,"file_hash":"","output":"[image: 2x2 png 84B]"}`; got != want {
+	if got, want := envelope.Content, `{"path":"image.png","resolved_path":"","start_line":0,"end_line":0,"total_lines":0,"file_hash":"","output":"[image: 2x2 png 84B]"}`; got != want {
 		t.Fatalf("Content = %q, want %q", got, want)
 	}
 }

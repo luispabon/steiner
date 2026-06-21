@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -160,6 +161,46 @@ func TestReadTool(t *testing.T) {
 		}
 		if result.FileHash != "" {
 			t.Errorf("FileHash = %q, want empty for error result", result.FileHash)
+		}
+	})
+
+	t.Run("resolved_path is absolute and points at the actual file", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path": "test.txt",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		wantAbs := filepath.Join(tmpDir, "test.txt")
+		if result.ResolvedPath != wantAbs {
+			t.Errorf("ResolvedPath = %q, want %q", result.ResolvedPath, wantAbs)
+		}
+		if !filepath.IsAbs(result.ResolvedPath) {
+			t.Errorf("ResolvedPath = %q, want absolute", result.ResolvedPath)
+		}
+		if result.Path == result.ResolvedPath && !strings.HasPrefix(result.Path, tmpDir) {
+			t.Errorf("Path = %q should stay as the relative display form when WorkDir matches", result.Path)
+		}
+	})
+
+	t.Run("resolved_path is set even when dive returns an error", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path": "nonexistent.txt",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want *ReadResult", resultI)
+		}
+		wantAbs := filepath.Join(tmpDir, "nonexistent.txt")
+		if result.ResolvedPath != wantAbs {
+			t.Errorf("ResolvedPath = %q, want %q", result.ResolvedPath, wantAbs)
 		}
 	})
 

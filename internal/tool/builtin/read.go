@@ -61,8 +61,9 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			if diveResult.IsError {
 				return &ReadResult{
-					Path:   relDisplayPath(env.WorkDir, absPath),
-					Output: contentText,
+					Path:         relDisplayPath(env.WorkDir, absPath),
+					ResolvedPath: absPath,
+					Output:       contentText,
 				}, nil
 			}
 
@@ -92,12 +93,13 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			result := ReadResult{
-				Path:       relDisplayPath(env.WorkDir, absPath),
-				FileHash:   fileContentHash(data),
-				StartLine:  startLine,
-				EndLine:    endLine,
-				TotalLines: totalLines,
-				Output:     contentText,
+				Path:         relDisplayPath(env.WorkDir, absPath),
+				ResolvedPath: absPath,
+				FileHash:     fileContentHash(data),
+				StartLine:    startLine,
+				EndLine:      endLine,
+				TotalLines:   totalLines,
+				Output:       contentText,
 			}
 
 			if endLine > 0 && endLine < totalLines {
@@ -161,8 +163,9 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 	}
 
 	return &ReadResult{
-		Path:   displayPath,
-		Output: summary,
+		Path:         displayPath,
+		ResolvedPath: absPath,
+		Output:       summary,
 		Image: &ImageBlock{
 			MediaType: mediaType,
 			Data:      encoded,
