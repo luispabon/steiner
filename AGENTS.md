@@ -131,6 +131,10 @@ Code changes must update corresponding documentation in a single commit:
    * Update `docs/ONESHOT.md` with the changed behaviour
    * If a config field is added/changed, also update `docs/CONFIGURATION.md` and the `oneshot` config example in README.md
 
+7. **`internal/usagestats` changes** (add/change/remove recorder, bucketing, persistence/schema, retention, windows, surfacing behaviour):
+   * Update `docs/CACHE_STATS.md` with the changed behaviour
+   * Update the "Cache hit rate tracking" section in README.md if the high-level behaviour changes
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:

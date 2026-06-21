@@ -1,0 +1,122 @@
+# Cache Hit Rate Tracking
+
+Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on with no configuration required and stores no prompt or completion content — only token counts and model identity.
+
+## The cache hit rate metric
+
+**Cache hit rate** is calculated as:
+
+```
+hit_rate = CacheReadInputTokens / total_input_tokens
+```
+
+Where:
+
+- `CacheReadInputTokens` is the count of input tokens served from cache (read from `cache_read_input_tokens` in the model response).
+- `total_input_tokens` is the sum of non-cached input tokens, cache-read tokens, and cache-creation tokens: `non_cached_input + cache_read + cache_creation`. For Anthropic models, `prompt_tokens` already equals this total.
+
+**Undefined case**: When a time window contains no cache-capable model calls or zero total input tokens, the metric renders as `—` (em-dash), never NaN or an error.
+
+**Zero cache reads**: A call with input tokens but zero cache reads is recorded normally and shows 0.0% in that window's aggregate.
+
+## Fixed time windows
+
+Cache hit rates are aggregated into three fixed, non-configurable windows:
+
+| Window | Retention |
+|--------|-----------|
+| Last hour (1h) | 1 hour |
+| Last 24 hours (24h) | 24 hours |
+| Last 7 days (7d) | 7 days |
+
+All windows are based on wall-clock time, bucketed hourly. Older data is pruned on load and write to enforce 8-day retention.
+
+## Storage and schema
+
+Observations are stored in a single global JSON file shared across all concurrent steiner processes:
+
+**Location**: `$XDG_STATE_HOME/steiner/cache-stats.json`, falling back to `~/.local/state/steiner/cache-stats.json` if `XDG_STATE_HOME` is not set.
+
+**Placement**: Under XDG *state* (durable analytics), not cache. This ensures the data persists across sessions and is not swept by cache cleanup.
+
+**On-disk schema**:
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "hour": "2026-06-21T14:00:00Z",
+      "provider_alias": "local",
+      "provider_type": "openai_compat",
+      "model_id": "qwen2.5-coder:14b",
+      "non_cached_input_tokens": 500,
+      "cache_read_input_tokens": 150,
+      "cache_creation_input_tokens": 50
+    },
+    {
+      "hour": "2026-06-21T14:00:00Z",
+      "provider_alias": "anthropic",
+      "provider_type": "anthropic",
+      "model_id": "claude-3.5-sonnet",
+      "non_cached_input_tokens": 1000,
+      "cache_read_input_tokens": 800,
+      "cache_creation_input_tokens": 100
+    }
+  ]
+}
+```
+
+Each entry represents one hourly bucket for a given provider-alias, provider-type, and model-id combination. Entries accumulate (sum) all observations in that hour. The `schema_version` field allows for future migrations.
+
+**Retention**: Fixed 8 days (pruned on load and after each write). Observations older than 8 days are dropped.
+
+## Resilience and error handling
+
+- **Missing file**: Starts empty silently on first run (no error).
+- **Corrupt file**: Treated as empty; logs a warning but does not block startup.
+- **Unknown schema version**: Treated as empty; logs a warning and continues.
+- **Never blocks agent execution**: A lock-acquisition failure or write error drops only that single observation from persistence (it still counts in the in-session percentage); it never blocks a model turn or interrupts the agent loop.
+
+## Concurrency and write safety
+
+The global file is shared across concurrent steiner processes. Write safety is enforced through:
+
+1. **OS advisory lock (flock)**: On Unix, an exclusive lock (`LOCK_EX`) is acquired before reading and releasing after writing. Ensures atomic read-modify-write.
+2. **Additive delta merging**: Each observation is calculated as a delta (one call's token counts). The on-disk state is re-read before write, and the new observation is added to the existing entries. Concurrent writers do not lose each other's updates.
+3. **Non-unix fallback**: On Windows and other platforms without flock, in-process concurrency only is guaranteed (same-process threads are serialized). Cross-process safety is not available.
+4. **Graceful degradation**: If a lock cannot be acquired within a short timeout, the observation is dropped from persistence only; the in-session counts are unaffected.
+
+## Surfaces
+
+Cache statistics are surfaced in two ways.
+
+### In-session sidebar section
+
+A live "cache" section in the sidebar displays the **current session** token-weighted cache hit rate:
+
+- **Format**: e.g., `78.2%` (session-lifetime percentage) or `—` (before the first cache-capable call).
+- **Scope**: Process-lifetime counters, independent of the global windowed store.
+- **Updates**: Refreshed after each model response.
+
+### /cache-stats overlay
+
+The `/cache-stats` slash command (in interactive mode) opens a read-only overlay displaying aggregated cache statistics across the three fixed windows (last hour, 24h, 7d):
+
+- **Layout**: One table per window, with columns: Provider, Model, Hit rate, Cached / Total.
+  - Provider: provider alias and type (e.g., "local (openai_compat)").
+  - Model: backend model id (e.g., "qwen2.5-coder:14b").
+  - Hit rate: percentage or `—` if no data.
+  - Cached / Total: formatted as "X / Y" where X is cache-read tokens and Y is total input tokens, or omitted if no data.
+- **No-data state**: When no observations exist for a window, the table shows a message like "No cache data in the last hour".
+- **Controls**: Scroll with ↑↓, close with esc (reuses standard report-overlay controls).
+
+## Privacy and data security
+
+Only the following data is stored:
+
+- **Token counts**: non-cached input, cache-read input, cache-creation input (integers only).
+- **Model identity**: provider alias, provider type, and backend model id.
+- **Timestamp**: hourly bucket (UTC ISO 8601 format).
+
+**Never stored**: prompt text, completion text, user input, file contents, or any other session data. Cache statistics are purely quantitative aggregates keyed by model and provider identity.

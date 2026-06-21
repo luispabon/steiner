@@ -255,6 +255,20 @@ advisor:
 
 See [docs/ADVISOR_SUBAGENT.md](docs/ADVISOR_SUBAGENT.md) for the full behavior and implementation reference.
 
+### Cache hit rate tracking
+
+Steiner records prompt-cache token usage on every model response and surfaces a token-weighted cache hit rate. The metric is token counts only — no prompt or completion content is stored. Always-on with no configuration required.
+
+**The metric**: token-weighted hit rate = `CacheReadInputTokens / total_input`, where `total_input = non_cached_input + cache_read + cache_creation`. For Anthropic, `PromptTokens` already equals that total. Undefined (no cache-capable calls / zero input tokens) renders as `—`, never NaN.
+
+**Fixed windows**: last hour (1h), last 24 hours (24h), last 7 days (7d). Data is stored globally at `$XDG_STATE_HOME/steiner/cache-stats.json` (or `~/.local/state/steiner/cache-stats.json`) with 8-day retention.
+
+**Surfaces**:
+- A live sidebar **cache** section showing the current session hit rate (e.g., `78.2%` or `—` before the first cache-capable call).
+- A `/cache-stats` slash command overlay showing one table per window (Provider, Model, Hit rate, Cached / Total), scrollable and read-only.
+
+See [docs/CACHE_STATS.md](docs/CACHE_STATS.md) for the full metric definition, storage format, concurrency model, and privacy notes.
+
 ### Oneshot mode
 
 `oneshot` is a headless autonomous orchestration mode. It runs steiner's agent loop three times — plan, implement, and review — each as a fresh agent run with a clean model context against a dedicated git worktree. No user interaction is required after the initial task description.
