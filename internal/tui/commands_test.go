@@ -1,0 +1,419 @@
+package tui
+
+import (
+	"testing"
+)
+
+func TestRegistrySize(t *testing.T) {
+	if len(slashCommands) != 17 {
+		t.Fatalf("registry length = %d, want 17", len(slashCommands))
+	}
+}
+
+func TestRegistryAllowlist(t *testing.T) {
+	for _, sc := range slashCommands {
+		switch sc.ID {
+		case "/exit", "/thinking", "/accent":
+			if !sc.Allowlist {
+				t.Errorf("%s: Allowlist = false, want true", sc.ID)
+			}
+		case "/implement", "/review":
+			// OverlayOnly, not allowlist
+			if sc.Allowlist {
+				t.Errorf("%s: Allowlist = true, want false", sc.ID)
+			}
+		default:
+			if sc.Allowlist {
+				t.Errorf("%s: Allowlist = true, want false", sc.ID)
+			}
+		}
+	}
+}
+
+func TestRegistryOverlayOnly(t *testing.T) {
+	for _, sc := range slashCommands {
+		switch sc.ID {
+		case "/implement", "/review":
+			if !sc.OverlayOnly {
+				t.Errorf("%s: OverlayOnly = false, want true", sc.ID)
+			}
+		default:
+			if sc.OverlayOnly {
+				t.Errorf("%s: OverlayOnly = true, want false", sc.ID)
+			}
+		}
+	}
+}
+
+func TestRegistryOrder(t *testing.T) {
+	want := []string{
+		"/cache-stats",
+		"/clear",
+		"/compact",
+		"/config",
+		"/exit",
+		"/fork",
+		"/implement",
+		"/ls",
+		"/model",
+		"/oneshot",
+		"/oneshot-resume",
+		"/resume",
+		"/review",
+		"/skill",
+		"/skills",
+		"/thinking",
+		"/accent",
+	}
+	if len(slashCommands) != len(want) {
+		t.Fatalf("registry length = %d, want %d", len(slashCommands), len(want))
+	}
+	for i, sc := range slashCommands {
+		if sc.ID != want[i] {
+			t.Errorf("registry[%d] = %q, want %q", i, sc.ID, want[i])
+		}
+	}
+}
+
+func TestProjectPrefixesFalse(t *testing.T) {
+	got := projectPrefixes(false)
+	// No overlay-only entries
+	for _, p := range got {
+		if p == "/implement" || p == "/review" {
+			t.Errorf("projectPrefixes includes overlay-only entry %q", p)
+		}
+	}
+	// Every non-overlay entry appears at least as bare
+	nonOverlay := 0
+	for _, sc := range slashCommands {
+		if sc.OverlayOnly {
+			continue
+		}
+		nonOverlay++
+	}
+	// Each entry produces bare + (if takes arg) trailing-space
+	// So total should be nonOverlay + argTakingCount
+	argTaking := 0
+	for _, sc := range slashCommands {
+		if sc.OverlayOnly {
+			continue
+		}
+		if takesArg(sc) {
+			argTaking++
+		}
+	}
+	if len(got) != nonOverlay+argTaking {
+		t.Errorf("projectPrefixes(false) length = %d, want %d (non-overlay=%d, arg-taking=%d)",
+			len(got), nonOverlay+argTaking, nonOverlay, argTaking)
+	}
+	// Check /accent appears with trailing space
+	foundBare := false
+	foundSpace := false
+	for _, p := range got {
+		if p == "/accent" {
+			foundBare = true
+		}
+		if p == "/accent " {
+			foundSpace = true
+		}
+	}
+	if !foundBare {
+		t.Error("/accent bare not found in projectPrefixes(false)")
+	}
+	if !foundSpace {
+		t.Error("/accent  (trailing space) not found in projectPrefixes(false)")
+	}
+	// Check /ls appears with trailing space
+	foundLSBare := false
+	foundLSSpace := false
+	for _, p := range got {
+		if p == "/ls" {
+			foundLSBare = true
+		}
+		if p == "/ls " {
+			foundLSSpace = true
+		}
+	}
+	if !foundLSBare {
+		t.Error("/ls bare not found in projectPrefixes(false)")
+	}
+	if !foundLSSpace {
+		t.Error("/ls  (trailing space) not found in projectPrefixes(false)")
+	}
+	// Check non-arg commands don't have trailing space
+	for _, p := range got {
+		if p == "/clear " || p == "/exit " {
+			t.Errorf("non-arg command %q should not have trailing space variant", p)
+		}
+	}
+}
+
+func TestProjectPrefixesTrue(t *testing.T) {
+	got := projectPrefixes(true)
+	// Only allowlist entries
+	wantAllowlist := map[string]bool{"/exit": true, "/thinking": true, "/accent": true}
+	for _, p := range got {
+		base := p
+		if base[len(base)-1] == ' ' {
+			base = base[:len(base)-1]
+		}
+		if !wantAllowlist[base] {
+			t.Errorf("projectPrefixes(true) includes non-allowlist entry %q", p)
+		}
+	}
+	// Must include /exit, /thinking, /accent
+	for _, cmd := range []string{"/exit", "/thinking", "/accent"} {
+		found := false
+		for _, p := range got {
+			if p == cmd {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("projectPrefixes(true) missing %q", cmd)
+		}
+	}
+	// /accent should also have trailing space
+	foundSpace := false
+	for _, p := range got {
+		if p == "/accent " {
+			foundSpace = true
+			break
+		}
+	}
+	if !foundSpace {
+		t.Error("/accent  (trailing space) not found in projectPrefixes(true)")
+	}
+}
+
+func TestProjectCompletionCandidatesFalseNoSkills(t *testing.T) {
+	got := projectCompletionCandidates(false, nil)
+	// Should contain all non-overlay entries
+	for _, sc := range slashCommands {
+		if sc.OverlayOnly {
+			continue
+		}
+		found := false
+		for _, c := range got {
+			if c == sc.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("projectCompletionCandidates(false, nil) missing %q", sc.ID)
+		}
+	}
+	// /accent variants should be present
+	for _, v := range []string{"amber", "rose", "magenta", "violet", "cyan", "mint", "lime"} {
+		candidate := "/accent " + v
+		found := false
+		for _, c := range got {
+			if c == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("projectCompletionCandidates(false, nil) missing %q", candidate)
+		}
+	}
+	// No skill variants (skillNames is nil)
+	for _, c := range got {
+		if c == "/skill +foo" || c == "/skill -foo" || c == "/skill foo" {
+			t.Errorf("projectCompletionCandidates(false, nil) contains skill variant %q with nil skillNames", c)
+		}
+	}
+	// OverlayOnly entries should not appear
+	for _, c := range got {
+		if c == "/implement" || c == "/review" {
+			t.Errorf("projectCompletionCandidates includes overlay-only entry %q", c)
+		}
+	}
+}
+
+func TestProjectCompletionCandidatesFalseWithSkills(t *testing.T) {
+	got := projectCompletionCandidates(false, []string{"foo"})
+	// Should include skill variants
+	hasPlus := false
+	hasMinus := false
+	hasBare := false
+	for _, c := range got {
+		if c == "/skill +foo" {
+			hasPlus = true
+		}
+		if c == "/skill -foo" {
+			hasMinus = true
+		}
+		if c == "/skill foo" {
+			hasBare = true
+		}
+	}
+	if !hasPlus {
+		t.Error("missing /skill +foo")
+	}
+	if !hasMinus {
+		t.Error("missing /skill -foo")
+	}
+	if !hasBare {
+		t.Error("missing /skill foo")
+	}
+}
+
+func TestProjectCompletionCandidatesTrue(t *testing.T) {
+	got := projectCompletionCandidates(true, nil)
+	// Only allowlist entries
+	for _, c := range got {
+		if c == "/oneshot" || c == "/clear" || c == "/cache-stats" {
+			t.Errorf("projectCompletionCandidates(true) includes non-allowlist %q", c)
+		}
+	}
+	// Must include allowlist entries
+	for _, cmd := range []string{"/exit", "/thinking", "/accent"} {
+		found := false
+		for _, c := range got {
+			if c == cmd {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("projectCompletionCandidates(true) missing %q", cmd)
+		}
+	}
+	// Accent variants should be present
+	for _, v := range []string{"amber", "rose"} {
+		candidate := "/accent " + v
+		found := false
+		for _, c := range got {
+			if c == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("projectCompletionCandidates(true) missing %q", candidate)
+		}
+	}
+}
+
+func TestProjectOverlayItemsFalse(t *testing.T) {
+	got := projectOverlayItems(false, nil, nil)
+	if len(got) != 17 {
+		t.Fatalf("projectOverlayItems(false) length = %d, want 17", len(got))
+	}
+	for i, sc := range slashCommands {
+		item := got[i]
+		if item.command != sc.ID {
+			t.Errorf("projectOverlayItems[%d].command = %q, want %q", i, item.command, sc.ID)
+		}
+		if item.name != sc.Name {
+			t.Errorf("projectOverlayItems[%d].name = %q, want %q (for %s)", i, item.name, sc.Name, sc.ID)
+		}
+		if item.desc != sc.Desc {
+			t.Errorf("projectOverlayItems[%d].desc = %q, want %q (for %s)", i, item.desc, sc.Desc, sc.ID)
+		}
+	}
+}
+
+func TestProjectOverlayItemsTrue(t *testing.T) {
+	got := projectOverlayItems(true, nil, nil)
+	if len(got) != 3 {
+		t.Fatalf("projectOverlayItems(true) length = %d, want 3", len(got))
+	}
+	want := []string{"/exit", "/thinking", "/accent"}
+	for i, cmd := range want {
+		if got[i].command != cmd {
+			t.Errorf("projectOverlayItems(true)[%d] = %q, want %q", i, got[i].command, cmd)
+		}
+	}
+}
+
+func TestProjectOverlayItemsWithSkills(t *testing.T) {
+	skillNames := []string{"foo"}
+	skillDescs := map[string]string{"foo": "a useful skill"}
+	got := projectOverlayItems(false, skillNames, skillDescs)
+	// 17 commands + 1 skill = 18 items
+	if len(got) != 18 {
+		t.Fatalf("projectOverlayItems with skill length = %d, want 18", len(got))
+	}
+	// Last item should be the skill
+	last := got[len(got)-1]
+	if last.command != "/foo" {
+		t.Errorf("last item command = %q, want /foo", last.command)
+	}
+	if last.desc != "a useful skill" {
+		t.Errorf("skill desc = %q, want 'a useful skill'", last.desc)
+	}
+	if !last.isSkill {
+		t.Error("skill item isSkill = false, want true")
+	}
+}
+
+func TestProjectHelpLines(t *testing.T) {
+	got := projectHelpLines()
+	// Should include all non-overlay entries
+	nonOverlay := 0
+	overlayOnly := map[string]bool{"/implement": true, "/review": true}
+	for _, sc := range slashCommands {
+		if !overlayOnly[sc.ID] {
+			nonOverlay++
+		}
+	}
+	if len(got) != nonOverlay {
+		t.Fatalf("projectHelpLines() length = %d, want %d (non-overlay entries)", len(got), nonOverlay)
+	}
+	// Check specific entries with expected keys
+	expectedKeys := map[string]string{
+		"/clear":    "/clear",
+		"/compact":  "/compact",
+		"/fork":     "/fork",
+		"/resume":   "/resume",
+		"/accent":   "/accent <preset>",
+		"/thinking": "/thinking",
+		"/exit":     "/exit",
+	}
+	entryMap := make(map[string]int) // ID -> index
+	for i, sc := range slashCommands {
+		if overlayOnly[sc.ID] {
+			continue
+		}
+		entryMap[sc.ID] = i
+	}
+	// All help lines should have matching key/desc from their registry entry
+	helpIdx := 0
+	for _, sc := range slashCommands {
+		if overlayOnly[sc.ID] {
+			continue
+		}
+		help := got[helpIdx]
+		wantKey := sc.HelpKey
+		if wantKey == "" {
+			wantKey = sc.ID
+		}
+		if help.Key != wantKey {
+			t.Errorf("projectHelpLines[%d] key = %q, want %q (for %s)", helpIdx, help.Key, wantKey, sc.ID)
+		}
+		if help.Desc != sc.Desc {
+			t.Errorf("projectHelpLines[%d] desc = %q, want %q (for %s)", helpIdx, help.Desc, sc.Desc, sc.ID)
+		}
+		helpIdx++
+	}
+	// Verify specific keys in order
+	for _, sc := range slashCommands {
+		if overlayOnly[sc.ID] {
+			continue
+		}
+		wantKey := sc.HelpKey
+		if wantKey == "" {
+			wantKey = sc.ID
+		}
+		// For these specific entries, verify the key
+		if expected, ok := expectedKeys[sc.ID]; ok {
+			if wantKey != expected {
+				t.Errorf("help key for %s = %q, want %q", sc.ID, wantKey, expected)
+			}
+		}
+	}
+}

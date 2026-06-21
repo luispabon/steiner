@@ -123,46 +123,5 @@ func (m Model) sendSkillEnabledAction(skill string, enabled bool) {
 
 // buildSlashOverlayItems builds a list of all available slash commands and skills for the overlay.
 func (m Model) buildSlashOverlayItems() []slashOverlayItem {
-	if m.oneshotRunning {
-		return []slashOverlayItem{
-			{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
-			{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
-			{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
-		}
-	}
-
-	var items []slashOverlayItem
-
-	// Built-in commands
-	builtins := []slashOverlayItem{
-		{command: "/cache-stats", name: "Cache stats", desc: "show cache hit rate stats", source: ""},
-		{command: "/clear", name: "Clear conversation", desc: "reset the current session", source: ""},
-		{command: "/compact", name: "Compact context", desc: "trigger compaction", source: ""},
-		{command: "/config", name: "Inspect config", desc: "show configuration", source: ""},
-		{command: "/exit", name: "Exit", desc: "quit steiner", source: ""},
-		{command: "/fork", name: "Fork conversation", desc: "fork current conversation into a new session", source: ""},
-		{command: "/ls", name: "List files", desc: "show directory contents", source: ""},
-		{command: "/model", name: "Switch model", desc: "pick a language model", source: ""},
-		{command: "/implement", name: "Implement plan", desc: "start implementation from a plan", source: ""},
-		{command: "/review", name: "Review plan", desc: "review a completed plan", source: ""},
-		{command: "/resume", name: "Resume session", desc: "load a previous session", source: ""},
-		{command: "/skill", name: "Toggle skill", desc: "enable or disable a skill", source: ""},
-		{command: "/skills", name: "List skills", desc: "show available skills", source: ""},
-		{command: "/thinking", name: "Toggle thinking", desc: "show or hide thinking blocks", source: ""},
-		{command: "/accent", name: "Set accent", desc: "change accent color", source: ""},
-		{command: "/oneshot", name: "Oneshot mode", desc: "run a headless task", source: ""},
-		{command: "/oneshot-resume", name: "Resume oneshot", desc: "resume a oneshot run", source: ""},
-	}
-	items = append(items, builtins...)
-
-	// Add available skills as direct invocation items
-	for _, skillName := range m.skillNames {
-		items = append(items, slashOverlayItem{
-			command: "/" + skillName,
-			desc:    strings.TrimSpace(m.skillDescriptions[skillName]),
-			isSkill: true,
-		})
-	}
-
-	return items
+	return projectOverlayItems(m.oneshotRunning, m.skillNames, m.skillDescriptions)
 }
