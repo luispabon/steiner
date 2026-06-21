@@ -51,7 +51,8 @@ type Recorder struct {
 	sessionCacheRead  int64
 	sessionTotalInput int64
 
-	now func() time.Time
+	now   func() time.Time
+	store *store
 }
 
 // New returns a new Recorder. If now is nil, time.Now is used as the clock.
@@ -59,9 +60,11 @@ func New(now func() time.Time) *Recorder {
 	if now == nil {
 		now = time.Now
 	}
+	st := newStore(now)
 	return &Recorder{
-		buckets: make(map[bucketKey]*bucket),
+		buckets: st.load(),
 		now:     now,
+		store:   st,
 	}
 }
 
@@ -101,6 +104,16 @@ func (r *Recorder) Record(obs Observation) {
 
 	r.sessionCacheRead += int64(obs.CacheReadTokens)
 	r.sessionTotalInput += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
+
+	// Persist this observation's delta. Wrap in a bucket for write path.
+	delta := &bucket{
+		Requests:          1,
+		InputTokens:       nonCached,
+		CacheReadTokens:   obs.CacheReadTokens,
+		CacheCreateTokens: obs.CacheCreateTokens,
+		CompletionTokens:  obs.CompletionTokens,
+	}
+	_ = r.store.write(r.buckets, delta, key)
 }
 
 // Window sums all buckets whose hour falls within [now-d, now] and returns
