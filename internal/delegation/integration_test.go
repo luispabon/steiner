@@ -1203,7 +1203,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	if typedResult.Output != "" {
 		t.Fatalf("Output = %q, want preserved pre-error output", typedResult.Output)
 	}
-	if typedResult.Summary != "delegation failed: extension run failed" {
+	if !strings.Contains(typedResult.Summary, "delegation failed: extension run failed") {
 		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
 	}
 	if result.Retention == nil {
@@ -1274,6 +1274,59 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 	}
 	if !strings.Contains(result.Retention.Summary, "delegation failed:") {
 		t.Fatalf("Retention.Summary = %q, want cancellation summary", result.Retention.Summary)
+	}
+	if !strings.Contains(result.Retention.Summary, "session is preserved") {
+		t.Fatalf("Retention.Summary = %q, want session-preserved note so parent does not conclude session is gone", result.Retention.Summary)
+	}
+	if !typedResult.SessionResumable {
+		t.Fatalf("SessionResumable = false, want true so parent knows it can follow_up again")
+	}
+}
+
+// TestZeroTurnCancellationTellsParentSessionPreserved reproduces the screenshot
+// bug: a follow-up is cancelled before any turn runs, leaving an empty
+// DelegationResult. The parent's tool result must clearly say the child session
+// is still resumable, not just hand back an empty result.
+func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
+	spec := makeSpec("zero-turn-cancel-agent", 1000)
+	sink := &collectingSink{}
+
+	// First (and only) call to the runner: a clean cancellation with no
+	// conversation and zero turns. Mirrors the 2026-06-10T20:11 child-4 pattern.
+	runner := &presetRunner{
+		states: []agent.RunState{
+			{StopReason: agent.StopReasonCancelled},
+		},
+		errors: []error{nil},
+	}
+
+	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
+	req := buildChildRunRequest("/tmp/work", spec.AgentID, &fakeProvider{}, visibleReg, execReg, agentLimits, sink, testBuildPrompt(spec), provider.ResolvedModel{}, prompt.ModelTokenBudget{}, nil, false, false, nil, nil)
+
+	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate returned error: %v", err)
+	}
+
+	typedResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if typedResult.Status != StatusCancelled {
+		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusCancelled)
+	}
+	if !typedResult.SessionResumable {
+		t.Fatalf("SessionResumable = false, want true so parent can follow_up again instead of spawning a new delegation")
+	}
+	if result.Retention == nil {
+		t.Fatal("result.Retention = nil, want retention with session-preserved hint")
+	}
+	if !strings.Contains(result.Retention.Summary, "session is preserved") {
+		t.Fatalf("Retention.Summary = %q, want session-preserved note", result.Retention.Summary)
+	}
+	if !strings.Contains(result.Retention.Summary, "follow_up") {
+		t.Fatalf("Retention.Summary = %q, want follow_up hint", result.Retention.Summary)
 	}
 }
 
@@ -1775,5 +1828,75 @@ func TestSummaryUsesChildContext(t *testing.T) {
 	}
 	if delResult.Status != StatusCancelled {
 		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
+	}
+}
+
+// TestCrossTurnSessionStorePreservesSessions verifies that a SessionStore
+// shared across BuildDelegateRegistry calls preserves child sessions, enabling
+// follow_up across turn boundaries.
+func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
+	sharedStore := NewSessionStore()
+
+	// Turn 1: Save a session simulating what delegate/explore does on success.
+	sharedStore.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "child-1",
+			Task:    "find test files",
+		},
+		Request: agent.RunRequest{
+			Provider: &fakeProvider{},
+			Prompt:   prompt.AssemblyOptions{},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "find test files"},
+			{Role: agent.MessageRoleAssistant, Content: "found 4 test files"},
+		},
+		TurnCount:  1,
+		TokenCount: 100,
+	})
+
+	// Turn 2: Call follow_up with the same agent_id via the same shared store.
+	// The follow_up handler must find the session.
+	followUpRunner := &presetRunner{
+		states: []agent.RunState{completeState("found 2 more test files")},
+	}
+
+	handler := NewFollowUpHandler(DelegateHandlerDeps{
+		Provider:     &fakeProvider{},
+		Runner:       followUpRunner,
+		SessionStore: sharedStore,
+		SubAgentCfg: config.SubAgentConfig{
+			MaxTurns: 3,
+		},
+		Events: output.NoopSink{},
+	})
+
+	result, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-1",
+		"message":  "find 2 more",
+	})
+	if err != nil {
+		t.Fatalf("follow_up handler error: %v", err)
+	}
+
+	execResult, ok := result.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	delegationResult, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", execResult.Value)
+	}
+	if delegationResult.Status != StatusComplete {
+		t.Errorf("Status = %q, want %q", delegationResult.Status, StatusComplete)
+	}
+
+	// Verify the session was updated.
+	session, ok := sharedStore.Get("child-1")
+	if !ok {
+		t.Fatal("session missing after follow_up")
+	}
+	if session.FollowUpCount != 1 {
+		t.Fatalf("FollowUpCount = %d, want 1", session.FollowUpCount)
 	}
 }

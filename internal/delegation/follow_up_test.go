@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -125,8 +126,8 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	if capturedReq.Limits.MaxTurns != 7 {
-		t.Fatalf("MaxTurns=%d, want 7", capturedReq.Limits.MaxTurns)
+	if capturedReq.Limits.MaxTurns != 9 {
+		t.Fatalf("MaxTurns=%d, want 9 (session.TurnCount 2 + fresh MaxTurns 7)", capturedReq.Limits.MaxTurns)
 	}
 	if capturedReq.Limits.MaxTokens != 77 {
 		t.Fatalf("MaxTokens=%d, want 77", capturedReq.Limits.MaxTokens)
@@ -333,4 +334,111 @@ func providerToAgentMessages(messages []provider.Message) []agent.Message {
 		})
 	}
 	return out
+}
+func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
+	store := NewSessionStore()
+
+	// Build a conversation with 58 prior turns (simulating a long prior session).
+	conv := make([]agent.Message, 58)
+	for i := 0; i < 58; i++ {
+		role := agent.MessageRoleUser
+		if i%2 == 1 {
+			role = agent.MessageRoleAssistant
+		}
+		conv[i] = agent.Message{
+			Role:    role,
+			Content: fmt.Sprintf("message-%d", i+1),
+			Turn:    i + 1,
+		}
+	}
+
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "child-budget",
+			Task:    "big task",
+			Limits:  DelegationLimits{MaxTurns: 58, OutputLimitTokens: 100000},
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 58, MaxTokens: 100000},
+		},
+		Conversation:  conv,
+		TurnCount:     58,
+		TokenCount:    5000,
+		ToolCallCount: 10,
+	})
+
+	var capturedReq agent.RunRequest
+	runs := 0
+	handler := NewFollowUpHandler(DelegateHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return agent.RunState{
+					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
+					TurnCount:    1,
+					TokenCount:   1,
+					StopReason:   agent.StopReasonComplete,
+				}, nil
+			}
+			capturedReq = req
+			runs++
+
+			// Simulate the real runner's stopRunBeforeTurn check:
+			// state.TurnCount = max Turn value from conversation.
+			maxTurn := 0
+			for _, msg := range req.Prompt.Conversation {
+				if msg.Turn > maxTurn {
+					maxTurn = msg.Turn
+				}
+			}
+			if req.Limits.MaxTurns > 0 && maxTurn >= req.Limits.MaxTurns {
+				return agent.RunState{
+					StopReason: agent.StopReasonMaxTurns,
+					TurnCount:  maxTurn,
+				}, nil
+			}
+
+			// Return a successful completion after consuming 1 new turn.
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    maxTurn + 1,
+				TokenCount:   5001,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	got, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-budget",
+		"message":  "continue the work",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	// Verify the handler set MaxTurns to include prior turn count,
+	// so the runner does not immediately stop at StopReasonMaxTurns.
+	if capturedReq.Limits.MaxTurns != 58+30 {
+		t.Fatalf("MaxTurns=%d, want %d (session.TurnCount 58 + fresh MaxTurns 30)", capturedReq.Limits.MaxTurns, 58+30)
+	}
+
+	// Verify the runner was actually invoked (not immediately stopped by turn limit).
+	if runs == 0 {
+		t.Fatal("follow-up did not run any turns — cumulative TurnCount blocked fresh budget")
+	}
+
+	// Verify the follow-up produced a successful result.
+	result, ok := got.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", got)
+	}
+	delegationResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+	if delegationResult.FollowUpCount != 1 {
+		t.Fatalf("FollowUpCount=%d, want 1", delegationResult.FollowUpCount)
+	}
 }

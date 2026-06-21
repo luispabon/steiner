@@ -37,33 +37,34 @@ type cliFlags struct {
 }
 
 type cliRuntime struct {
-	cfg               config.Config
-	provider          provider.Provider
-	providerFactory   func(provider.ResolvedModel) (provider.Provider, error)
-	httpClient        *http.Client
-	registry          *tool.Registry
-	toolNames         []string
-	skillNames        []string
-	skillSources      map[string]string // skill name -> "project"/"user"/"global"
-	skillDescriptions map[string]string // skill name -> short summary
-	skillBundledFS    fs.FS             // embedded bundled skill documents
-	projectRoot       string
-	workDir           string
-	homeDir           string
-	sandbox           *sandbox.Sandbox
-	stdin             io.Reader
-	human             *output.EventStream
-	status            *output.EventStream
-	events            output.EventSink
-	sharedInput       *bufio.Reader
-	approvalIn        *bufio.Reader
-	closeFn           func() error
-	historyWriter     *history.Writer
-	sessionStore      *session.Store
-	delegationLogger  *delegation.TraceLogger
-	streamErrorLog    *provider.StreamErrorLogger
-	compactionLogFile string
-	usageRecorder     *usagestats.Recorder
+	cfg                    config.Config
+	provider               provider.Provider
+	providerFactory        func(provider.ResolvedModel) (provider.Provider, error)
+	httpClient             *http.Client
+	registry               *tool.Registry
+	toolNames              []string
+	skillNames             []string
+	skillSources           map[string]string // skill name -> "project"/"user"/"global"
+	skillDescriptions      map[string]string // skill name -> short summary
+	skillBundledFS         fs.FS             // embedded bundled skill documents
+	projectRoot            string
+	workDir                string
+	homeDir                string
+	sandbox                *sandbox.Sandbox
+	stdin                  io.Reader
+	human                  *output.EventStream
+	status                 *output.EventStream
+	events                 output.EventSink
+	sharedInput            *bufio.Reader
+	approvalIn             *bufio.Reader
+	closeFn                func() error
+	historyWriter          *history.Writer
+	sessionStore           *session.Store
+	delegationSessionStore *delegation.SessionStore
+	delegationLogger       *delegation.TraceLogger
+	streamErrorLog         *provider.StreamErrorLogger
+	compactionLogFile      string
+	usageRecorder          *usagestats.Recorder
 }
 
 var buildRuntime = defaultBuildRuntime

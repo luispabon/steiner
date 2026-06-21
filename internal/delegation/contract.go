@@ -85,6 +85,20 @@ type DelegationResult struct {
 	// FollowUpCount is the number of successful follow-up turns resumed for this child.
 	FollowUpCount int `json:"follow_up_count,omitempty"`
 
+	// SessionResumable indicates the child session is still in the session store
+	// and can be resumed with follow_up using the same AgentID. True for follow-up
+	// results after the session was successfully saved, and for delegate results
+	// when the parent should expect the session to remain warm. False when the
+	// session was not preserved (e.g. the initial delegate failed before the
+	// session could be saved, or the follow-up call returned no such session).
+	//
+	// Set by BuildResult for any StopReasonCancelled mapping, and by
+	// failedDelegateExecution for StatusCancelled outcomes. Both paths assume
+	// SpawnDelegate's session-save contract: the caller persists the session on
+	// the err==nil return path. Direct callers of BuildResult that bypass
+	// SpawnDelegate must not rely on SessionResumable being accurate.
+	SessionResumable bool `json:"session_resumable,omitempty"`
+
 	// Trace captures lifecycle events for delegation diagnostics.
 	Trace []TraceEntry `json:"trace,omitempty"`
 }

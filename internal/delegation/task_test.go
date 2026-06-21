@@ -12,7 +12,8 @@ import (
 
 func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
 	err := errors.New("deadline exceeded")
-	summary := failedDelegateSummaryText(err, "")
+	state := agent.RunState{}
+	summary := failedDelegateSummaryText(err, state)
 	if !strings.Contains(summary, "delegation failed: deadline exceeded") {
 		t.Fatalf("expected failure summary, got: %s", summary)
 	}
@@ -20,9 +21,55 @@ func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
 
 func TestFailedDelegateSummaryText_OutputWins(t *testing.T) {
 	err := errors.New("deadline exceeded")
-	summary := failedDelegateSummaryText(err, "found 3 issues in pkg A")
+	state := agent.RunState{
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "found 3 issues in pkg A"},
+		},
+	}
+	summary := failedDelegateSummaryText(err, state)
 	if !strings.Contains(summary, "previous output:") {
 		t.Errorf("expected previous output in summary, got: %s", summary)
+	}
+}
+
+func TestFailedDelegateSummaryText_CancellationSaysSessionPreserved(t *testing.T) {
+	err := context.Canceled
+	summary := failedDelegateSummaryText(err, agent.RunState{})
+	if !strings.Contains(summary, "session is preserved") {
+		t.Fatalf("expected session-preserved note on cancellation, got: %s", summary)
+	}
+	if !strings.Contains(summary, "follow_up") {
+		t.Fatalf("expected follow_up hint on cancellation, got: %s", summary)
+	}
+}
+
+func TestCancelledActivitySummary_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
+	summary := cancelledActivitySummary(agent.RunState{
+		StopReason: agent.StopReasonCancelled,
+	})
+	if !strings.Contains(summary, "session is preserved") {
+		t.Fatalf("expected session-preserved note for zero-turn cancellation, got: %s", summary)
+	}
+	if !strings.Contains(summary, "follow_up") {
+		t.Fatalf("expected follow_up hint for zero-turn cancellation, got: %s", summary)
+	}
+}
+
+func TestCancelledActivitySummary_WithToolCallsIncludesLastActivity(t *testing.T) {
+	state := agent.RunState{
+		TurnCount:  3,
+		TokenCount: 1500,
+		StopReason: agent.StopReasonCancelled,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "glob", Arguments: map[string]any{"pattern": "**/*_test.go"}}}},
+		},
+	}
+	summary := cancelledActivitySummary(state)
+	if !strings.Contains(summary, "last activity: glob(pattern=**/*_test.go)") {
+		t.Errorf("expected last activity in summary, got: %s", summary)
+	}
+	if !strings.Contains(summary, "session is preserved") {
+		t.Errorf("expected session-preserved note, got: %s", summary)
 	}
 }
 

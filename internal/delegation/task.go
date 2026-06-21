@@ -69,7 +69,6 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
 	}
 
-	originalMaxTurns := req.Limits.MaxTurns
 	state, err := runner.Run(childCtx, req)
 
 	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
@@ -81,7 +80,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		return failedDelegateExecution(spec, state, err, tc, logger), state, nil
 	}
 
-	state, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, originalMaxTurns, events, tc, state, spec.AgentID)
+	state, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
 	if extErr != nil {
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))
@@ -108,8 +107,28 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	defer summaryCancel()
 	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {
-		tc.add("summary", "summary empty, using output preview", nil)
-		summaryText = cappedRetentionPreview(result.Output)
+		needsSynthetic := result.Status == StatusCancelled ||
+			(strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0)
+
+		if needsSynthetic {
+			// Cancellation or empty output with tool activity: the child
+			// session is preserved, so synthesize a summary that tells the
+			// parent the session can be resumed.
+			synthetic := cancelledActivitySummary(state)
+			if synthetic != "" {
+				summaryText = synthetic
+				tc.add("summary", "summary from cancelled activity", map[string]any{"length": len(summaryText)})
+			} else {
+				summaryText = cappedRetentionPreview(result.Output)
+				tc.add("summary", "summary empty, using output preview", nil)
+			}
+			if result.Status == StatusCancelled {
+				result.SessionResumable = true
+			}
+		} else {
+			summaryText = cappedRetentionPreview(result.Output)
+			tc.add("summary", "summary empty, using output preview", nil)
+		}
 	} else {
 		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
 	}
@@ -200,17 +219,18 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	})
 
 	result := DelegationResult{
-		AgentID:       spec.AgentID,
-		Status:        status,
-		TurnCount:     state.TurnCount,
-		TokenCount:    state.TokenCount,
-		ToolCallCount: countToolCalls(state.Conversation),
+		AgentID:          spec.AgentID,
+		Status:           status,
+		TurnCount:        state.TurnCount,
+		TokenCount:       state.TokenCount,
+		ToolCallCount:    countToolCalls(state.Conversation),
+		SessionResumable: status == StatusCancelled,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content
 	}
 
-	summaryText := failedDelegateSummaryText(err, result.Output)
+	summaryText := failedDelegateSummaryText(err, state)
 	result.Summary = summaryText
 	result.Trace = tc.result()
 
@@ -229,13 +249,22 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	}
 }
 
-func failedDelegateSummaryText(err error, previousOutput string) string {
+func failedDelegateSummaryText(err error, state agent.RunState) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
-	prev := strings.TrimSpace(previousOutput)
-	if prev != "" {
-		parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
+		if prev := strings.TrimSpace(msg.Content); prev != "" {
+			parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
+		}
 	}
-	return truncateUTF8(strings.Join(parts, "\n"), delegateRetentionSummaryMaxRunes)
+	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
+		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
+	}
+	// Cancellation preserves the child session; surface that to the parent so it
+	// does not conclude the session is gone and start a new delegation.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		parts = append(parts, "the child session is preserved and can be resumed with follow_up using the same agent_id")
+	}
+	return truncateUTF8(strings.Join(parts, "\n"))
 }
 
 func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) string {
@@ -267,7 +296,33 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	if summaryOutput == "" {
 		return ""
 	}
-	return truncateUTF8(summaryOutput, delegateRetentionSummaryMaxRunes)
+	return truncateUTF8(summaryOutput)
+}
+
+func cancelledActivitySummary(state agent.RunState) string {
+	toolCount := countToolCalls(state.Conversation)
+	if toolCount == 0 {
+		// No tool activity before the cancellation. The child session is still
+		// preserved by SpawnDelegate, so the parent can resume it with follow_up.
+		// Spell that out so the parent does not conclude the session is gone.
+		return truncateUTF8("cancelled before any work; the child session is preserved and can be resumed with follow_up using the same agent_id")
+	}
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok || len(msg.ToolCalls) == 0 {
+		return truncateUTF8(fmt.Sprintf("cancelled after %d turns, %d tool call(s); the child session is preserved and can be resumed with follow_up", state.TurnCount, toolCount))
+	}
+	last := msg.ToolCalls[len(msg.ToolCalls)-1]
+	argsPreview := ""
+	if len(last.Arguments) > 0 {
+		pairs := make([]string, 0, len(last.Arguments))
+		for k, v := range last.Arguments {
+			pairs = append(pairs, fmt.Sprintf("%s=%v", k, v))
+		}
+		argsPreview = strings.Join(pairs, ", ")
+	}
+	summary := fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s(%s); the child session is preserved and can be resumed with follow_up",
+		state.TurnCount, toolCount, last.Name, argsPreview)
+	return truncateUTF8(summary)
 }
 
 func cappedRetentionPreview(text string) string {
@@ -275,10 +330,11 @@ func cappedRetentionPreview(text string) string {
 	if text == "" {
 		return "(empty output)"
 	}
-	return truncateUTF8(text, delegateRetentionSummaryMaxRunes)
+	return truncateUTF8(text)
 }
 
-func truncateUTF8(text string, maxRunes int) string {
+func truncateUTF8(text string) string {
+	const maxRunes = delegateRetentionSummaryMaxRunes
 	if maxRunes <= 0 {
 		return text
 	}

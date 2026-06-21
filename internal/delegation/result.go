@@ -49,12 +49,13 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 	case "error":
 		result.Status = StatusFailed
 	case "cancelled":
-		if state.TurnCount > 0 && strings.TrimSpace(output) != "" {
+		if state.TurnCount > 0 && (strings.TrimSpace(output) != "" || countToolCalls(state.Conversation) > 0) {
 			result.Status = StatusPartial
 			result.StopReason = "cancelled"
 		} else {
 			result.Status = StatusCancelled
 		}
+		result.SessionResumable = true
 	case "max_turns", "max_tokens":
 		result.Status = StatusPartial
 		result.StopReason = rawReason

@@ -63,3 +63,20 @@ func (s *SessionStore) Update(id string, conv []agent.Message, turns, tokens, to
 	session.ToolCallCount += toolCalls
 	session.FollowUpCount++
 }
+
+// Reset clears all stored sessions. Call this on conversation boundaries
+// (e.g. /new) to prevent cross-conversation session bleed.
+func (s *SessionStore) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.sessions = make(map[string]*ChildSession)
+}
+
+// Count returns the number of stored sessions.
+func (s *SessionStore) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.sessions)
+}
