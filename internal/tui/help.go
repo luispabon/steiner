@@ -52,20 +52,19 @@ func renderHelp(styles theme.Styles, width int) string {
 		},
 		{
 			title: "SESSION",
-			bindings: []binding{
-				{"ctrl+b", "toggle sidebar"},
-				{"ctrl+p", "command palette"},
-				{"ctrl+t", "inspect context"},
-				{"ctrl+x", "toggle delegation output"},
-				{"/clear", "clear screen"},
-				{"/compact", "trigger compaction"},
-				{"/fork", "fork current conversation"},
-				{"/resume", "resume a previous session"},
-				{"/accent <preset>", "switch accent color"},
-				{"/thinking", "toggle thinking blocks"},
-				{"/exit", "quit"},
-				{"?", "toggle help"},
-			},
+			bindings: func() []binding {
+				var bb []binding
+				bb = append(bb,
+					binding{"ctrl+b", "toggle sidebar"},
+					binding{"ctrl+t", "inspect context"},
+					binding{"ctrl+x", "toggle delegation output"},
+				)
+				for _, hb := range projectHelpLines() {
+					bb = append(bb, binding(hb))
+				}
+				bb = append(bb, binding{"?", "toggle help"})
+				return bb
+			}(),
 		},
 		{
 			title: "APPROVAL",
