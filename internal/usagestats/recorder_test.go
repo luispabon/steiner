@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -12,11 +13,19 @@ var (
 	prevHour  = time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 )
 
+func isolateTest(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := storePath
+	t.Cleanup(func() { storePath = oldPath })
+	storePath = func() string { return filepath.Join(dir, "cache-stats.json") }
+}
+
 func fixedClock(t time.Time) func() time.Time {
 	return func() time.Time { return t }
 }
 
 func TestNew_nilClockDefaultsToTimeNow(t *testing.T) {
+	isolateTest(t)
 	r := New(nil)
 	if r == nil {
 		t.Fatal("expected non-nil recorder")
@@ -69,6 +78,7 @@ func TestRecord_bucketing(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateTest(t)
 			r := New(fixedClock(baseTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
@@ -125,6 +135,7 @@ func TestRecord_tokenMath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateTest(t)
 			r := New(fixedClock(baseTime))
 			r.Record(tc.obs)
 
@@ -155,6 +166,7 @@ func TestRecord_tokenMath(t *testing.T) {
 }
 
 func TestRecord_zeroAtUsesClockHour(t *testing.T) {
+	isolateTest(t)
 	r := New(fixedClock(baseTime))
 	r.Record(Observation{PromptTokens: 10})
 
@@ -165,6 +177,7 @@ func TestRecord_zeroAtUsesClockHour(t *testing.T) {
 }
 
 func TestRecord_mergeAccumulates(t *testing.T) {
+	isolateTest(t)
 	r := New(fixedClock(baseTime))
 	r.Record(Observation{
 		ProviderAlias: "x", ProviderType: "openai", BackendModelID: "m",
@@ -250,6 +263,7 @@ func TestWindow(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateTest(t)
 			r := New(fixedClock(tc.clockTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
@@ -380,6 +394,7 @@ func TestSessionReport(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			isolateTest(t)
 			r := New(fixedClock(baseTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
@@ -403,6 +418,7 @@ func TestSessionReport(t *testing.T) {
 }
 
 func TestSessionReport_independentOfBuckets(t *testing.T) {
+	isolateTest(t)
 	// Record observations that span two hours (two buckets) and one observation in the future.
 	// SessionReport must reflect ALL observations, while Window(1h) will exclude old ones.
 	r := New(fixedClock(baseTime))
