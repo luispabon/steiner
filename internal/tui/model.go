@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // SessionLister is the interface for querying and loading sessions.
@@ -105,6 +106,7 @@ type Model struct {
 	modelBaseURLs                map[string]string
 	modelProviderNames           map[string]string
 	controller                   interactive.Controller
+	recorder                     *usagestats.Recorder
 	activeTheme                  theme.Theme
 	styles                       theme.Styles
 	inputHistory                 []string
@@ -193,6 +195,12 @@ func (m *Model) syncSidebar() {
 		m.sidebar.modifiedFiles = append([]gitModifiedFile(nil), snap.modifiedFiles...)
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
+	if m.recorder != nil {
+		sr := m.recorder.SessionReport()
+		rate, ok := sr.HitRate()
+		m.sidebar.sessionCacheHitRate = rate
+		m.sidebar.sessionCacheHitRateOK = ok
+	}
 }
 
 func (m *Model) activeSkillName() string {

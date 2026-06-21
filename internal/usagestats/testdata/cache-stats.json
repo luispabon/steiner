@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "provider": "anthropic",
+      "provider_type": "anthropic",
+      "model": "claude-3-5-sonnet-20241022",
+      "hour_unix": 1718937600,
+      "requests": 5,
+      "input_tokens": 1200,
+      "cache_read_tokens": 450,
+      "cache_create_tokens": 100,
+      "completion_tokens": 500
+    },
+    {
+      "provider": "openai",
+      "provider_type": "openai",
+      "model": "gpt-4-turbo",
+      "hour_unix": 1719024000,
+      "requests": 3,
+      "input_tokens": 800,
+      "cache_read_tokens": 200,
+      "cache_create_tokens": 50,
+      "completion_tokens": 300
+    }
+  ]
+}

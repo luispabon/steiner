@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 	"github.com/luispabon/steiner/skills"
 )
 
@@ -118,6 +119,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationLogger:  delegationLogger,
 		streamErrorLog:    streamErrorLog,
 		compactionLogFile: compactionLogFile,
+		usageRecorder:     usagestats.New(nil),
 	}, nil
 }
 
