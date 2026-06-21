@@ -20,7 +20,6 @@ func validate(cfg Config) error {
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
-	validateContextManagementConfig(&problems, cfg.ContextManagement)
 	validateSearchConfig(&problems, cfg.Search)
 
 	if len(problems) > 0 {

@@ -85,11 +85,6 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 	}
 }
 
-func validateContextManagementConfig(problems *[]string, cfg ContextManagementConfig) {
-	_ = problems
-	_ = cfg
-}
-
 func validateOneShotConfig(problems *[]string, cfg oneshotConfig, models map[string]ModelConfig) {
 	for phase, alias := range cfg.Models {
 		if !validOneShotPhases[phase] {

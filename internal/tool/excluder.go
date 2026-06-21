@@ -11,6 +11,7 @@ var builtinExcludeEntries = []string{
 	".git",
 	"node_modules",
 	".steiner",
+	".claude",
 	"vendor",
 	".cache",
 	"dist",
