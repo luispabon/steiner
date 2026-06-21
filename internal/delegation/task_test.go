@@ -32,6 +32,47 @@ func TestFailedDelegateSummaryText_OutputWins(t *testing.T) {
 	}
 }
 
+func TestFailedDelegateSummaryText_CancellationSaysSessionPreserved(t *testing.T) {
+	err := context.Canceled
+	summary := failedDelegateSummaryText(err, agent.RunState{})
+	if !strings.Contains(summary, "session is preserved") {
+		t.Fatalf("expected session-preserved note on cancellation, got: %s", summary)
+	}
+	if !strings.Contains(summary, "follow_up") {
+		t.Fatalf("expected follow_up hint on cancellation, got: %s", summary)
+	}
+}
+
+func TestCancelledActivitySummary_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
+	summary := cancelledActivitySummary(agent.RunState{
+		StopReason: agent.StopReasonCancelled,
+	})
+	if !strings.Contains(summary, "session is preserved") {
+		t.Fatalf("expected session-preserved note for zero-turn cancellation, got: %s", summary)
+	}
+	if !strings.Contains(summary, "follow_up") {
+		t.Fatalf("expected follow_up hint for zero-turn cancellation, got: %s", summary)
+	}
+}
+
+func TestCancelledActivitySummary_WithToolCallsIncludesLastActivity(t *testing.T) {
+	state := agent.RunState{
+		TurnCount:  3,
+		TokenCount: 1500,
+		StopReason: agent.StopReasonCancelled,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "glob", Arguments: map[string]any{"pattern": "**/*_test.go"}}}},
+		},
+	}
+	summary := cancelledActivitySummary(state)
+	if !strings.Contains(summary, "last activity: glob(pattern=**/*_test.go)") {
+		t.Errorf("expected last activity in summary, got: %s", summary)
+	}
+	if !strings.Contains(summary, "session is preserved") {
+		t.Errorf("expected session-preserved note, got: %s", summary)
+	}
+}
+
 // extensionStubRunner provides pre-configured responses for Delegate Extension tests.
 type extensionStubRunner struct {
 	calls     int

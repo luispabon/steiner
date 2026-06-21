@@ -33,14 +33,15 @@ func makeRunState(turnCount, tokenCount int, stopReason agent.StopReason, lastAs
 
 func TestBuildResult(t *testing.T) {
 	tests := []struct {
-		name           string
-		agentID        string
-		state          agent.RunState
-		wantStatus     DelegationStatus
-		wantTurnCount  int
-		wantTokenCount int
-		wantOutput     string
-		wantStopReason string
+		name                 string
+		agentID              string
+		state                agent.RunState
+		wantStatus           DelegationStatus
+		wantTurnCount        int
+		wantTokenCount       int
+		wantOutput           string
+		wantStopReason       string
+		wantSessionResumable bool
 	}{
 		{
 			name:           "maps complete stop reason",
@@ -63,44 +64,48 @@ func TestBuildResult(t *testing.T) {
 			wantStopReason: "",
 		},
 		{
-			name:           "maps cancelled stop reason",
-			agentID:        "agent-3",
-			state:          makeRunState(1, 100, agent.StopReasonCancelled, ""),
-			wantStatus:     StatusCancelled,
-			wantTurnCount:  1,
-			wantTokenCount: 100,
-			wantOutput:     "",
-			wantStopReason: "",
+			name:                 "maps cancelled stop reason",
+			agentID:              "agent-3",
+			state:                makeRunState(1, 100, agent.StopReasonCancelled, ""),
+			wantStatus:           StatusCancelled,
+			wantTurnCount:        1,
+			wantTokenCount:       100,
+			wantOutput:           "",
+			wantStopReason:       "",
+			wantSessionResumable: true,
 		},
 		{
-			name:           "cancelled with output maps to partial",
-			agentID:        "agent-3b",
-			state:          makeRunState(5, 2000, agent.StopReasonCancelled, "useful work"),
-			wantStatus:     StatusPartial,
-			wantTurnCount:  5,
-			wantTokenCount: 2000,
-			wantOutput:     "useful work",
-			wantStopReason: "cancelled",
+			name:                 "cancelled with output maps to partial",
+			agentID:              "agent-3b",
+			state:                makeRunState(5, 2000, agent.StopReasonCancelled, "useful work"),
+			wantStatus:           StatusPartial,
+			wantTurnCount:        5,
+			wantTokenCount:       2000,
+			wantOutput:           "useful work",
+			wantStopReason:       "cancelled",
+			wantSessionResumable: true,
 		},
 		{
-			name:           "cancelled with tool calls but no text maps to partial",
-			agentID:        "agent-3d",
-			state:          makeRunStateWithToolCall(3, 1500, agent.StopReasonCancelled, "glob", map[string]any{"pattern": "**/*_test.go"}),
-			wantStatus:     StatusPartial,
-			wantTurnCount:  3,
-			wantTokenCount: 1500,
-			wantOutput:     "",
-			wantStopReason: "cancelled",
+			name:                 "cancelled with tool calls but no text maps to partial",
+			agentID:              "agent-3d",
+			state:                makeRunStateWithToolCall(3, 1500, agent.StopReasonCancelled, "glob", map[string]any{"pattern": "**/*_test.go"}),
+			wantStatus:           StatusPartial,
+			wantTurnCount:        3,
+			wantTokenCount:       1500,
+			wantOutput:           "",
+			wantStopReason:       "cancelled",
+			wantSessionResumable: true,
 		},
 		{
-			name:           "cancelled zero turns maps to cancelled",
-			agentID:        "agent-3c",
-			state:          makeRunState(0, 0, agent.StopReasonCancelled, ""),
-			wantStatus:     StatusCancelled,
-			wantTurnCount:  0,
-			wantTokenCount: 0,
-			wantOutput:     "",
-			wantStopReason: "",
+			name:                 "cancelled zero turns maps to cancelled",
+			agentID:              "agent-3c",
+			state:                makeRunState(0, 0, agent.StopReasonCancelled, ""),
+			wantStatus:           StatusCancelled,
+			wantTurnCount:        0,
+			wantTokenCount:       0,
+			wantOutput:           "",
+			wantStopReason:       "",
+			wantSessionResumable: true,
 		},
 		{
 			name:           "max_turns stop reason maps to partial",
@@ -145,6 +150,9 @@ func TestBuildResult(t *testing.T) {
 			}
 			if got.StopReason != tt.wantStopReason {
 				t.Errorf("StopReason=%q, want %q", got.StopReason, tt.wantStopReason)
+			}
+			if got.SessionResumable != tt.wantSessionResumable {
+				t.Errorf("SessionResumable=%v, want %v", got.SessionResumable, tt.wantSessionResumable)
 			}
 		})
 	}

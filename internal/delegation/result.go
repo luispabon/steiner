@@ -55,6 +55,7 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		} else {
 			result.Status = StatusCancelled
 		}
+		result.SessionResumable = true
 	case "max_turns", "max_tokens":
 		result.Status = StatusPartial
 		result.StopReason = rawReason

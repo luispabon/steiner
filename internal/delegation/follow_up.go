@@ -16,7 +16,7 @@ const FollowUpToolName = "follow_up"
 func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
 		Name:        FollowUpToolName,
-		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to guide incomplete work, ask for refinements, or request additional investigation from a previous delegation.",
+		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to guide incomplete work, ask for refinements, or request additional investigation from a previous delegation. The child session persists across follow-ups: even if a follow-up is cancelled, returns no work, or hits a budget limit, the session is preserved in the store and can be resumed with follow_up using the same agent_id. When a follow-up result has status=\"cancelled\" and session_resumable=true, the session is still warm; do not conclude the session is gone.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

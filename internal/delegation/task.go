@@ -107,7 +107,21 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	defer summaryCancel()
 	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
 	if summaryText == "" {
-		if strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0 {
+		if result.Status == StatusCancelled {
+			// Cancellation: the child session is preserved, so synthesize a
+			// summary that tells the parent the session can be resumed. This
+			// covers all cancellation sub-cases (zero turns, mid-tool, after
+			// tool completion) so the parent never concludes the session is gone.
+			synthetic := cancelledActivitySummary(state)
+			if synthetic != "" {
+				summaryText = synthetic
+				tc.add("summary", "summary from cancelled activity", map[string]any{"length": len(summaryText)})
+			} else {
+				summaryText = cappedRetentionPreview(result.Output)
+				tc.add("summary", "summary empty, using output preview", nil)
+			}
+			result.SessionResumable = true
+		} else if strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0 {
 			synthetic := cancelledActivitySummary(state)
 			if synthetic != "" {
 				summaryText = synthetic
@@ -210,11 +224,12 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 	})
 
 	result := DelegationResult{
-		AgentID:       spec.AgentID,
-		Status:        status,
-		TurnCount:     state.TurnCount,
-		TokenCount:    state.TokenCount,
-		ToolCallCount: countToolCalls(state.Conversation),
+		AgentID:          spec.AgentID,
+		Status:           status,
+		TurnCount:        state.TurnCount,
+		TokenCount:       state.TokenCount,
+		ToolCallCount:    countToolCalls(state.Conversation),
+		SessionResumable: status == StatusCancelled,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content
@@ -248,6 +263,11 @@ func failedDelegateSummaryText(err error, state agent.RunState) string {
 	}
 	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
 		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
+	}
+	// Cancellation preserves the child session; surface that to the parent so it
+	// does not conclude the session is gone and start a new delegation.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		parts = append(parts, "the child session is preserved and can be resumed with follow_up using the same agent_id")
 	}
 	return truncateUTF8(strings.Join(parts, "\n"), delegateRetentionSummaryMaxRunes)
 }
@@ -287,11 +307,14 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 func cancelledActivitySummary(state agent.RunState) string {
 	toolCount := countToolCalls(state.Conversation)
 	if toolCount == 0 {
-		return ""
+		// No tool activity before the cancellation. The child session is still
+		// preserved by SpawnDelegate, so the parent can resume it with follow_up.
+		// Spell that out so the parent does not conclude the session is gone.
+		return truncateUTF8("cancelled before any work; the child session is preserved and can be resumed with follow_up using the same agent_id", delegateRetentionSummaryMaxRunes)
 	}
 	msg, ok := agent.LastAssistantMessage(state.Conversation)
 	if !ok || len(msg.ToolCalls) == 0 {
-		return truncateUTF8(fmt.Sprintf("cancelled after %d turns, %d tool call(s)", state.TurnCount, toolCount), delegateRetentionSummaryMaxRunes)
+		return truncateUTF8(fmt.Sprintf("cancelled after %d turns, %d tool call(s); the child session is preserved and can be resumed with follow_up", state.TurnCount, toolCount), delegateRetentionSummaryMaxRunes)
 	}
 	last := msg.ToolCalls[len(msg.ToolCalls)-1]
 	argsPreview := ""
@@ -302,7 +325,7 @@ func cancelledActivitySummary(state agent.RunState) string {
 		}
 		argsPreview = strings.Join(pairs, ", ")
 	}
-	summary := fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s(%s)",
+	summary := fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s(%s); the child session is preserved and can be resumed with follow_up",
 		state.TurnCount, toolCount, last.Name, argsPreview)
 	return truncateUTF8(summary, delegateRetentionSummaryMaxRunes)
 }
