@@ -725,6 +725,110 @@ func TestNormalizeToolCalls_SetRawArgumentsFromSanitized(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponseUsageUnmarshal(t *testing.T) {
+	tests := []struct {
+		name              string
+		json              string
+		wantPrompt        int
+		wantCompletion    int
+		wantTotal         int
+		wantCacheRead     int
+		wantCacheCreation int
+		wantUsageNil      bool
+	}{
+		{
+			name: "cached_tokens decoded into CacheReadInputTokens",
+			json: `{
+				"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],
+				"usage":{
+					"prompt_tokens":100,
+					"completion_tokens":20,
+					"total_tokens":120,
+					"prompt_tokens_details":{"cached_tokens":50}
+				}
+			}`,
+			wantPrompt:        100,
+			wantCompletion:    20,
+			wantTotal:         120,
+			wantCacheRead:     50,
+			wantCacheCreation: 0,
+		},
+		{
+			name: "absent prompt_tokens_details leaves CacheReadInputTokens at 0",
+			json: `{
+				"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],
+				"usage":{
+					"prompt_tokens":80,
+					"completion_tokens":10,
+					"total_tokens":90
+				}
+			}`,
+			wantPrompt:        80,
+			wantCompletion:    10,
+			wantTotal:         90,
+			wantCacheRead:     0,
+			wantCacheCreation: 0,
+		},
+		{
+			name: "zero cached_tokens leaves CacheReadInputTokens at 0",
+			json: `{
+				"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],
+				"usage":{
+					"prompt_tokens":60,
+					"completion_tokens":5,
+					"total_tokens":65,
+					"prompt_tokens_details":{"cached_tokens":0}
+				}
+			}`,
+			wantPrompt:        60,
+			wantCompletion:    5,
+			wantTotal:         65,
+			wantCacheRead:     0,
+			wantCacheCreation: 0,
+		},
+		{
+			name: "absent usage field produces nil Usage",
+			json: `{
+				"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]
+			}`,
+			wantUsageNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp openAIResponse
+			if err := json.Unmarshal([]byte(tt.json), &resp); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if tt.wantUsageNil {
+				if resp.Usage != nil {
+					t.Fatalf("Usage = %+v, want nil", resp.Usage)
+				}
+				return
+			}
+			if resp.Usage == nil {
+				t.Fatal("Usage = nil, want non-nil")
+			}
+			if got := resp.Usage.PromptTokens; got != tt.wantPrompt {
+				t.Errorf("PromptTokens = %d, want %d", got, tt.wantPrompt)
+			}
+			if got := resp.Usage.CompletionTokens; got != tt.wantCompletion {
+				t.Errorf("CompletionTokens = %d, want %d", got, tt.wantCompletion)
+			}
+			if got := resp.Usage.TotalTokens; got != tt.wantTotal {
+				t.Errorf("TotalTokens = %d, want %d", got, tt.wantTotal)
+			}
+			if got := resp.Usage.CacheReadInputTokens; got != tt.wantCacheRead {
+				t.Errorf("CacheReadInputTokens = %d, want %d", got, tt.wantCacheRead)
+			}
+			if got := resp.Usage.CacheCreationInputTokens; got != tt.wantCacheCreation {
+				t.Errorf("CacheCreationInputTokens = %d, want %d", got, tt.wantCacheCreation)
+			}
+		})
+	}
+}
+
 func TestNormalizeToolCalls_NoRawArgumentsWhenEmpty(t *testing.T) {
 	toolCalls := []openAIToolCall{
 		{

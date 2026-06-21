@@ -93,6 +93,49 @@ type openAIResponse struct {
 	Usage   *UsageStats    `json:"usage,omitempty"`
 }
 
+type openAIPromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+// openAIUsage is the intermediate wire decode for the OpenAI usage object. It
+// captures prompt_tokens_details.cached_tokens (auto-cache hits) and maps it to
+// UsageStats.CacheReadInputTokens. CacheCreationInputTokens stays 0 — OpenAI
+// auto-caching does not separately bill creation.
+type openAIUsage struct {
+	PromptTokens        int                       `json:"prompt_tokens"`
+	CompletionTokens    int                       `json:"completion_tokens"`
+	TotalTokens         int                       `json:"total_tokens"`
+	PromptTokensDetails openAIPromptTokensDetails `json:"prompt_tokens_details"`
+}
+
+func (u *openAIUsage) toUsageStats() *UsageStats {
+	return &UsageStats{
+		PromptTokens:         u.PromptTokens,
+		CompletionTokens:     u.CompletionTokens,
+		TotalTokens:          u.TotalTokens,
+		CacheReadInputTokens: u.PromptTokensDetails.CachedTokens,
+	}
+}
+
+// UnmarshalJSON decodes the OpenAI API response, using openAIUsage as the
+// intermediate for the usage field so that prompt_tokens_details.cached_tokens
+// is captured into UsageStats.CacheReadInputTokens.
+func (r *openAIResponse) UnmarshalJSON(data []byte) error {
+	type raw struct {
+		Choices []openAIChoice `json:"choices"`
+		Usage   *openAIUsage   `json:"usage,omitempty"`
+	}
+	var v raw
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	r.Choices = v.Choices
+	if v.Usage != nil {
+		r.Usage = v.Usage.toUsageStats()
+	}
+	return nil
+}
+
 type openAIChoice struct {
 	Message      openAIMessage `json:"message"`
 	Delta        openAIMessage `json:"delta"`
