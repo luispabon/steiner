@@ -5,9 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
@@ -196,5 +198,102 @@ func TestCompleteModelCallDoesNotRetryNon400(t *testing.T) {
 	}
 	if got := len(prov.requests); got != 2 {
 		t.Fatalf("provider requests = %d, want 2", got)
+	}
+}
+
+type testRecorder struct {
+	obs []usagestats.Observation
+}
+
+func (t *testRecorder) Record(o usagestats.Observation) {
+	t.obs = append(t.obs, o)
+}
+
+func TestRecordModelUsage(t *testing.T) {
+	tests := []struct {
+		name      string
+		usage     *provider.UsageStats
+		recorder  usageRecorder
+		wantCount int
+	}{
+		{
+			name: "usage-bearing response records one observation",
+			usage: &provider.UsageStats{
+				PromptTokens:             100,
+				CompletionTokens:         50,
+				CacheReadInputTokens:     10,
+				CacheCreationInputTokens: 5,
+			},
+			recorder:  &testRecorder{},
+			wantCount: 1,
+		},
+		{
+			name:      "nil usage records nothing",
+			usage:     nil,
+			recorder:  &testRecorder{},
+			wantCount: 0,
+		},
+		{
+			name: "nil recorder records nothing",
+			usage: &provider.UsageStats{
+				PromptTokens:     100,
+				CompletionTokens: 50,
+			},
+			recorder:  nil,
+			wantCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					ProviderAlias:         "gpt-4-test",
+					EffectiveProviderType: config.ProviderTypeOpenAI,
+					BackendModelID:        "gpt-4",
+				},
+				UsageRecorder: tc.recorder,
+			}
+
+			recordModelUsage(req, tc.usage)
+
+			if tc.recorder == nil {
+				return
+			}
+
+			tr, ok := tc.recorder.(*testRecorder)
+			if !ok {
+				return
+			}
+
+			if got := len(tr.obs); got != tc.wantCount {
+				t.Errorf("observations count = %d, want %d", got, tc.wantCount)
+			}
+
+			if tc.wantCount > 0 {
+				obs := tr.obs[0]
+				if obs.PromptTokens != 100 {
+					t.Errorf("PromptTokens = %d, want 100", obs.PromptTokens)
+				}
+				if obs.CompletionTokens != 50 {
+					t.Errorf("CompletionTokens = %d, want 50", obs.CompletionTokens)
+				}
+				if obs.CacheReadTokens != 10 {
+					t.Errorf("CacheReadTokens = %d, want 10", obs.CacheReadTokens)
+				}
+				if obs.CacheCreateTokens != 5 {
+					t.Errorf("CacheCreateTokens = %d, want 5", obs.CacheCreateTokens)
+				}
+				if obs.ProviderAlias != "gpt-4-test" {
+					t.Errorf("ProviderAlias = %q, want %q", obs.ProviderAlias, "gpt-4-test")
+				}
+				if obs.BackendModelID != "gpt-4" {
+					t.Errorf("BackendModelID = %q, want %q", obs.BackendModelID, "gpt-4")
+				}
+				if obs.ProviderType != "openai" {
+					t.Errorf("ProviderType = %q, want %q", obs.ProviderType, "openai")
+				}
+			}
+		})
 	}
 }

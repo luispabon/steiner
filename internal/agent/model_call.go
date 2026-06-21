@@ -10,7 +10,27 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+// recordModelUsage records one observation for a usage-bearing response.
+// No-op when the recorder is unset or the response carried no usage, so each
+// usage-bearing response is recorded exactly once and failed/nil-usage calls
+// record nothing.
+func recordModelUsage(req RunRequest, usage *provider.UsageStats) {
+	if req.UsageRecorder == nil || usage == nil {
+		return
+	}
+	req.UsageRecorder.Record(usagestats.Observation{
+		ProviderAlias:     req.ResolvedModel.ProviderAlias,
+		ProviderType:      string(req.ResolvedModel.EffectiveProviderType),
+		BackendModelID:    req.ResolvedModel.BackendModelID,
+		PromptTokens:      usage.PromptTokens,
+		CompletionTokens:  usage.CompletionTokens,
+		CacheReadTokens:   usage.CacheReadInputTokens,
+		CacheCreateTokens: usage.CacheCreationInputTokens,
+	})
+}
 
 func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, modelAlias string, turn int, events output.EventSink) []provider.Message {
 	if vision != nil && !*vision {
@@ -106,6 +126,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events)
 	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
 	if err == nil {
+		recordModelUsage(req, response.Usage)
 		return response, firstChunkTime, nil
 	}
 	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
@@ -123,7 +144,11 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		Message:  fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias),
 	}))
 	chatRequest.Messages = stripped
-	return executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+	if retryErr == nil {
+		recordModelUsage(req, retryResp.Usage)
+	}
+	return retryResp, retryFirst, retryErr
 }
 
 func shouldRetryWithoutImages(err error, messages []provider.Message) bool {
