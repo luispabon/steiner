@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 const (
@@ -21,6 +22,12 @@ const (
 // ToolExecutor runs a named tool invocation for the agent loop.
 type ToolExecutor interface {
 	Execute(ctx context.Context, toolName string, input map[string]any) (any, error)
+}
+
+// usageRecorder records per-call token usage for cache-hit-rate analytics.
+// It is satisfied by *usagestats.Recorder; nil means recording is disabled.
+type usageRecorder interface {
+	Record(usagestats.Observation)
 }
 
 // RunRequest carries all parameters needed for a single agent run.
@@ -51,6 +58,10 @@ type RunRequest struct {
 	// SteerCh delivers between-turn steering messages from the user.
 	// Non-nil only in interactive mode; sub-agents receive nil.
 	SteerCh <-chan string
+
+	// UsageRecorder records cache-hit-rate observations per usage-bearing model
+	// response. Nil disables recording (tests, unwired paths).
+	UsageRecorder usageRecorder
 }
 
 // Runner executes the main turn loop for an agent run.
