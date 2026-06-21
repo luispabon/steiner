@@ -103,106 +103,98 @@ func parseSkillInvocation(trimmed string, skillNames []string) (inputAction, boo
 	return inputAction{}, false
 }
 
+type argHandler func(string, map[string]bool) (inputAction, bool)
+
 func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputAction, bool) {
+	handlers := []struct {
+		prefix  string
+		handler argHandler
+	}{
+		{"/accent ", handleAccent},
+		{"/ls ", handleListFiles},
+		{"/model ", handleModel},
+		{"/skill ", handleSkill},
+		{"/oneshot ", handleOneshot},
+	}
+	for _, h := range handlers {
+		if !strings.HasPrefix(trimmed, h.prefix) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, h.prefix))
+		if rest == "" {
+			return inputAction{}, true
+		}
+		return h.handler(rest, enabledSkills)
+	}
+	return inputAction{}, false
+}
+
+func handleAccent(rest string, _ map[string]bool) (inputAction, bool) {
+	entry := lookupCommand("/accent")
+	if entry != nil {
+		return entry.Build(rest), true
+	}
+	return inputAction{setAccent: rest}, true
+}
+
+func handleListFiles(rest string, _ map[string]bool) (inputAction, bool) {
+	entry := lookupCommand("/ls")
+	if entry != nil {
+		return entry.Build(rest), true
+	}
+	return inputAction{listFiles: true, listFilesPath: rest}, true
+}
+
+func handleModel(rest string, _ map[string]bool) (inputAction, bool) {
+	entry := lookupCommand("/model")
+	if entry != nil {
+		return entry.Build(rest), true
+	}
+	return inputAction{switchModel: rest}, true
+}
+
+func handleSkill(rest string, enabledSkills map[string]bool) (inputAction, bool) {
+	enable := true
 	switch {
-	case strings.HasPrefix(trimmed, "/accent "):
-		preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "/accent "))
-		if preset == "" {
+	case strings.HasPrefix(rest, "+"):
+		rest = strings.TrimSpace(strings.TrimPrefix(rest, "+"))
+	case strings.HasPrefix(rest, "-"):
+		rest = strings.TrimSpace(strings.TrimPrefix(rest, "-"))
+		enable = false
+	default:
+		enable = !enabledSkills[rest]
+	}
+	if rest == "" {
+		return inputAction{}, true
+	}
+	entry := lookupCommand("/skill")
+	if entry != nil {
+		prefix := "+"
+		if !enable {
+			prefix = "-"
+		}
+		return entry.Build(prefix + rest), true
+	}
+	return inputAction{toggleSkill: rest, toggleEnable: enable}, true
+}
+
+func handleOneshot(rest string, _ map[string]bool) (inputAction, bool) {
+	if strings.HasPrefix(rest, "--resume ") {
+		resumeID := strings.TrimSpace(strings.TrimPrefix(rest, "--resume "))
+		if resumeID == "" {
 			return inputAction{}, true
-		}
-		entry := lookupCommand("/accent")
-		if entry != nil {
-			return entry.Build(preset), true
-		}
-		return inputAction{setAccent: preset}, true
-	case strings.HasPrefix(trimmed, "/ls "):
-		path := strings.TrimSpace(strings.TrimPrefix(trimmed, "/ls "))
-		if path == "" {
-			return inputAction{}, true
-		}
-		entry := lookupCommand("/ls")
-		if entry != nil {
-			return entry.Build(path), true
-		}
-		return inputAction{listFiles: true, listFilesPath: path}, true
-	case strings.HasPrefix(trimmed, "/model "):
-		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/model "))
-		if name == "" {
-			return inputAction{}, true
-		}
-		entry := lookupCommand("/model")
-		if entry != nil {
-			return entry.Build(name), true
-		}
-		return inputAction{switchModel: name}, true
-	case strings.HasPrefix(trimmed, "/skill "):
-		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill "))
-		enable := true
-		switch {
-		case strings.HasPrefix(rest, "+"):
-			rest = strings.TrimSpace(strings.TrimPrefix(rest, "+"))
-		case strings.HasPrefix(rest, "-"):
-			rest = strings.TrimSpace(strings.TrimPrefix(rest, "-"))
-			enable = false
-		default:
-			enable = !enabledSkills[rest]
-		}
-		if rest == "" {
-			return inputAction{}, true
-		}
-		entry := lookupCommand("/skill")
-		if entry != nil {
-			prefix := "+"
-			if !enable {
-				prefix = "-"
-			}
-			return entry.Build(prefix + rest), true
-		}
-		return inputAction{toggleSkill: rest, toggleEnable: enable}, true
-	case strings.HasPrefix(trimmed, "/oneshot "):
-		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "/oneshot "))
-		if rest == "" {
-			return inputAction{}, true
-		}
-		if strings.HasPrefix(rest, "--resume ") {
-			resumeID := strings.TrimSpace(strings.TrimPrefix(rest, "--resume "))
-			if resumeID == "" {
-				return inputAction{}, true
-			}
-			entry := lookupCommand("/oneshot")
-			if entry != nil {
-				return entry.Build("--resume " + resumeID), true
-			}
-			return inputAction{resumeOneshotID: resumeID}, true
 		}
 		entry := lookupCommand("/oneshot")
 		if entry != nil {
-			return entry.Build(rest), true
+			return entry.Build("--resume " + resumeID), true
 		}
-		return inputAction{launchOneshotTask: rest}, true
-	default:
-		return inputAction{}, false
+		return inputAction{resumeOneshotID: resumeID}, true
 	}
-}
-
-func parseSkillCommand(name string, enabledSkills map[string]bool) inputAction {
-	enable := true
-	switch {
-	case strings.HasPrefix(name, "+"):
-		name = strings.TrimSpace(strings.TrimPrefix(name, "+"))
-	case strings.HasPrefix(name, "-"):
-		name = strings.TrimSpace(strings.TrimPrefix(name, "-"))
-		enable = false
-	default:
-		enable = !enabledSkills[name]
+	entry := lookupCommand("/oneshot")
+	if entry != nil {
+		return entry.Build(rest), true
 	}
-	if name == "" {
-		return inputAction{}
-	}
-	return inputAction{
-		toggleSkill:  name,
-		toggleEnable: enable,
-	}
+	return inputAction{launchOneshotTask: rest}, true
 }
 
 // matchCommandPrefix checks whether text starts with a known built-in command or skill name.
