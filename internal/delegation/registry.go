@@ -50,6 +50,10 @@ type DelegateDeps struct {
 	Searcher web.Searcher
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
+	// SessionStore holds child sessions across turns for follow_up resumption.
+	// When nil, BuildDelegateRegistry creates a fresh per-call store (backward-compatible).
+	// Callers that need cross-turn follow_up support should provide a long-lived store.
+	SessionStore *SessionStore
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -86,7 +90,10 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	mt := deps.MaxTokens
-	store := NewSessionStore()
+	store := deps.SessionStore
+	if store == nil {
+		store = NewSessionStore()
+	}
 
 	// extendedBase is used as ParentReg for child agents.
 	// fetch_url is always present (via Builtins). Conditionally add web_search.

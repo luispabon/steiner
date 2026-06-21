@@ -74,6 +74,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		HTTPClient:         r.runtime.httpClient,
 		Searcher:           searcher,
 		UsageRecorder:      r.runtime.usageRecorder,
+		SessionStore:       r.runtime.delegationSessionStore,
 	})
 	if err != nil {
 		return runResult{}, err

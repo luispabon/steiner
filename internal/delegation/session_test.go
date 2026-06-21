@@ -130,3 +130,51 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionStore_Reset(t *testing.T) {
+	t.Parallel()
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{AgentID: "child-1"},
+	})
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{AgentID: "child-2"},
+	})
+
+	if got, want := store.Count(), 2; got != want {
+		t.Fatalf("Count() before Reset = %d, want %d", got, want)
+	}
+
+	store.Reset()
+
+	if got, want := store.Count(), 0; got != want {
+		t.Fatalf("Count() after Reset = %d, want %d", got, want)
+	}
+
+	if _, ok := store.Get("child-1"); ok {
+		t.Fatal("Get(child-1) after Reset returned true, want false")
+	}
+	if _, ok := store.Get("child-2"); ok {
+		t.Fatal("Get(child-2) after Reset returned true, want false")
+	}
+}
+
+func TestSessionStore_Count(t *testing.T) {
+	t.Parallel()
+
+	store := NewSessionStore()
+	if got, want := store.Count(), 0; got != want {
+		t.Fatalf("Count() on empty store = %d, want %d", got, want)
+	}
+
+	store.Save(&ChildSession{Spec: DelegationSpec{AgentID: "a"}})
+	if got, want := store.Count(), 1; got != want {
+		t.Fatalf("Count() after one save = %d, want %d", got, want)
+	}
+
+	store.Save(&ChildSession{Spec: DelegationSpec{AgentID: "b"}})
+	if got, want := store.Count(), 2; got != want {
+		t.Fatalf("Count() after two saves = %d, want %d", got, want)
+	}
+}

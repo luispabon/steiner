@@ -1830,3 +1830,73 @@ func TestSummaryUsesChildContext(t *testing.T) {
 		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
 	}
 }
+
+// TestCrossTurnSessionStorePreservesSessions verifies that a SessionStore
+// shared across BuildDelegateRegistry calls preserves child sessions, enabling
+// follow_up across turn boundaries.
+func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
+	sharedStore := NewSessionStore()
+
+	// Turn 1: Save a session simulating what delegate/explore does on success.
+	sharedStore.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "child-1",
+			Task:    "find test files",
+		},
+		Request: agent.RunRequest{
+			Provider: &fakeProvider{},
+			Prompt:   prompt.AssemblyOptions{},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "find test files"},
+			{Role: agent.MessageRoleAssistant, Content: "found 4 test files"},
+		},
+		TurnCount:  1,
+		TokenCount: 100,
+	})
+
+	// Turn 2: Call follow_up with the same agent_id via the same shared store.
+	// The follow_up handler must find the session.
+	followUpRunner := &presetRunner{
+		states: []agent.RunState{completeState("found 2 more test files")},
+	}
+
+	handler := NewFollowUpHandler(DelegateHandlerDeps{
+		Provider:     &fakeProvider{},
+		Runner:       followUpRunner,
+		SessionStore: sharedStore,
+		SubAgentCfg: config.SubAgentConfig{
+			MaxTurns: 3,
+		},
+		Events: output.NoopSink{},
+	})
+
+	result, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-1",
+		"message":  "find 2 more",
+	})
+	if err != nil {
+		t.Fatalf("follow_up handler error: %v", err)
+	}
+
+	execResult, ok := result.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	delegationResult, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", execResult.Value)
+	}
+	if delegationResult.Status != StatusComplete {
+		t.Errorf("Status = %q, want %q", delegationResult.Status, StatusComplete)
+	}
+
+	// Verify the session was updated.
+	session, ok := sharedStore.Get("child-1")
+	if !ok {
+		t.Fatal("session missing after follow_up")
+	}
+	if session.FollowUpCount != 1 {
+		t.Fatalf("FollowUpCount = %d, want 1", session.FollowUpCount)
+	}
+}
