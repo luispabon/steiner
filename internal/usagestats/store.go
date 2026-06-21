@@ -70,32 +70,33 @@ func newStore(clock func() time.Time) *store {
 // load reads the on-disk store and populates the buckets map.
 // Missing file, corrupt JSON, or unknown schema → empty map, no error.
 func (s *store) load() map[bucketKey]*bucket {
-	buckets := make(map[bucketKey]*bucket)
-
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return buckets
+			return make(map[bucketKey]*bucket)
 		}
 		// Read error: start empty, no error surfaced.
+		return make(map[bucketKey]*bucket)
+	}
+
+	return s.decodeBuckets(data)
+}
+
+// decodeBuckets decodes entries from JSON data, applies pruning, and returns a bucket map.
+func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
+	buckets := make(map[bucketKey]*bucket)
+	if len(data) == 0 {
 		return buckets
 	}
 
 	var sf storeFile
-	if err := json.Unmarshal(data, &sf); err != nil {
-		// JSON parse error: start empty, no error surfaced.
-		return buckets
-	}
-
-	if sf.SchemaVersion != schemaVersion {
-		// Unknown schema: start empty, no error surfaced.
+	if err := json.Unmarshal(data, &sf); err != nil || sf.SchemaVersion != schemaVersion {
 		return buckets
 	}
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for _, ent := range sf.Entries {
 		if ent.HourUnix <= cutoff {
-			// Prune entries older than or equal to retention boundary.
 			continue
 		}
 		key := bucketKey{
@@ -116,84 +117,10 @@ func (s *store) load() map[bucketKey]*bucket {
 	return buckets
 }
 
-// write persists the buckets to disk with additive-delta merge under lock.
-func (s *store) write(buckets map[bucketKey]*bucket, delta *bucket, deltaKey bucketKey) error {
-	// Create parent dir.
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create store dir: %w", err)
-	}
-
-	// Open file for locking. Create if missing.
-	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o644)
-	if err != nil {
-		return fmt.Errorf("open store file: %w", err)
-	}
-	defer f.Close() //nolint:errcheck
-
-	// Acquire exclusive lock.
-	if err := s.locker.lock(f.Fd()); err != nil {
-		// Lock failure: drop this observation (still in memory/session counters).
-		// Comment: intentional drop on lock failure to avoid blocking model turns.
-		return nil
-	}
-	defer func() {
-		_ = s.locker.unlock(f.Fd())
-	}()
-
-	// Re-read current on-disk state (source of truth).
-	currentData, err := os.ReadFile(s.path)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read current store: %w", err)
-	}
-
-	diskBuckets := make(map[bucketKey]*bucket)
-	if len(currentData) > 0 {
-		var sf storeFile
-		if err := json.Unmarshal(currentData, &sf); err == nil && sf.SchemaVersion == schemaVersion {
-			cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
-			for _, ent := range sf.Entries {
-				if ent.HourUnix <= cutoff {
-					continue
-				}
-				key := bucketKey{
-					providerAlias:  ent.Provider,
-					providerType:   ent.ProviderType,
-					backendModelID: ent.Model,
-					hourUnix:       ent.HourUnix,
-				}
-				diskBuckets[key] = &bucket{
-					Requests:          ent.Requests,
-					InputTokens:       ent.InputTokens,
-					CacheReadTokens:   ent.CacheReadTokens,
-					CacheCreateTokens: ent.CacheCreateTokens,
-					CompletionTokens:  ent.CompletionTokens,
-				}
-			}
-		}
-	}
-
-	// Merge: add the delta to the matching entry.
-	if _, ok := diskBuckets[deltaKey]; !ok {
-		diskBuckets[deltaKey] = &bucket{}
-	}
-	diskBuckets[deltaKey].Requests += delta.Requests
-	diskBuckets[deltaKey].InputTokens += delta.InputTokens
-	diskBuckets[deltaKey].CacheReadTokens += delta.CacheReadTokens
-	diskBuckets[deltaKey].CacheCreateTokens += delta.CacheCreateTokens
-	diskBuckets[deltaKey].CompletionTokens += delta.CompletionTokens
-
-	// Prune old entries.
-	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
-	for key := range diskBuckets {
-		if key.hourUnix <= cutoff {
-			delete(diskBuckets, key)
-		}
-	}
-
-	// Marshal to JSON.
-	entries := make([]storeEntry, 0, len(diskBuckets))
-	for key, b := range diskBuckets {
+// atomicWrite marshals buckets to JSON and writes to disk with temp+rename.
+func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
+	entries := make([]storeEntry, 0, len(buckets))
+	for key, b := range buckets {
 		entries = append(entries, storeEntry{
 			Provider:          key.providerAlias,
 			ProviderType:      key.providerType,
@@ -215,7 +142,6 @@ func (s *store) write(buckets map[bucketKey]*bucket, delta *bucket, deltaKey buc
 		return fmt.Errorf("marshal store: %w", err)
 	}
 
-	// Write to temp file then atomic rename.
 	tmp, err := os.CreateTemp(dir, ".tmp-cache-stats-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -230,7 +156,6 @@ func (s *store) write(buckets map[bucketKey]*bucket, delta *bucket, deltaKey buc
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	// Set file perms before rename.
 	if err := os.Chmod(tmpName, 0o644); err != nil {
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("chmod temp file: %w", err)
@@ -241,4 +166,50 @@ func (s *store) write(buckets map[bucketKey]*bucket, delta *bucket, deltaKey buc
 	}
 
 	return nil
+}
+
+// write persists the delta to disk with additive-delta merge under lock.
+func (s *store) write(delta *bucket, deltaKey bucketKey) error {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create store dir: %w", err)
+	}
+
+	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("open store file: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	if err := s.locker.lock(f.Fd()); err != nil {
+		return nil
+	}
+	defer func() {
+		_ = s.locker.unlock(f.Fd())
+	}()
+
+	currentData, err := os.ReadFile(s.path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read current store: %w", err)
+	}
+
+	diskBuckets := s.decodeBuckets(currentData)
+
+	if _, ok := diskBuckets[deltaKey]; !ok {
+		diskBuckets[deltaKey] = &bucket{}
+	}
+	diskBuckets[deltaKey].Requests += delta.Requests
+	diskBuckets[deltaKey].InputTokens += delta.InputTokens
+	diskBuckets[deltaKey].CacheReadTokens += delta.CacheReadTokens
+	diskBuckets[deltaKey].CacheCreateTokens += delta.CacheCreateTokens
+	diskBuckets[deltaKey].CompletionTokens += delta.CompletionTokens
+
+	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+	for key := range diskBuckets {
+		if key.hourUnix <= cutoff {
+			delete(diskBuckets, key)
+		}
+	}
+
+	return s.atomicWrite(dir, diskBuckets)
 }

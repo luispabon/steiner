@@ -169,9 +169,8 @@ func TestStoreWriteRoundTrip(t *testing.T) {
 		CacheCreateTokens: 25,
 		CompletionTokens:  75,
 	}
-	buckets := map[bucketKey]*bucket{key: delta}
 
-	if err := s1.write(buckets, delta, key); err != nil {
+	if err := s1.write(delta, key); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -217,14 +216,13 @@ func TestStoreAdditiveMerge(t *testing.T) {
 		hourUnix:       hour.Unix(),
 	}
 	delta1 := &bucket{Requests: 1, InputTokens: 100}
-	buckets := map[bucketKey]*bucket{key: delta1}
-	if err := s.write(buckets, delta1, key); err != nil {
+	if err := s.write(delta1, key); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 
 	// Second write: add more to the same hour.
 	delta2 := &bucket{Requests: 2, InputTokens: 200}
-	if err := s.write(buckets, delta2, key); err != nil {
+	if err := s.write(delta2, key); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
 
@@ -272,8 +270,7 @@ func TestStoreConcurrentRecords(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			delta := &bucket{Requests: 1, InputTokens: 10}
-			buckets := map[bucketKey]*bucket{key: delta}
-			_ = s.write(buckets, delta, key)
+			_ = s.write(delta, key)
 		}()
 	}
 
@@ -309,9 +306,8 @@ func TestStoreWriteCreatesDirs(t *testing.T) {
 	s := newStore(clock.Now)
 	key := bucketKey{providerAlias: "p", providerType: "t", backendModelID: "m", hourUnix: now.Unix()}
 	delta := &bucket{Requests: 1}
-	buckets := map[bucketKey]*bucket{key: delta}
 
-	if err := s.write(buckets, delta, key); err != nil {
+	if err := s.write(delta, key); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -334,9 +330,8 @@ func TestStoreWritePermissions(t *testing.T) {
 	s := newStore(clock.Now)
 	key := bucketKey{providerAlias: "p", providerType: "t", backendModelID: "m", hourUnix: now.Unix()}
 	delta := &bucket{Requests: 1}
-	buckets := map[bucketKey]*bucket{key: delta}
 
-	if err := s.write(buckets, delta, key); err != nil {
+	if err := s.write(delta, key); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -372,8 +367,7 @@ func TestStorePruningOnWrite(t *testing.T) {
 		hourUnix:       oldHour.Unix(),
 	}
 	oldDelta := &bucket{Requests: 1}
-	oldBuckets := map[bucketKey]*bucket{oldKey: oldDelta}
-	if err := s.write(oldBuckets, oldDelta, oldKey); err != nil {
+	if err := s.write(oldDelta, oldKey); err != nil {
 		t.Fatalf("write old: %v", err)
 	}
 
@@ -386,8 +380,7 @@ func TestStorePruningOnWrite(t *testing.T) {
 		hourUnix:       newHour.Unix(),
 	}
 	newDelta := &bucket{Requests: 1}
-	newBuckets := map[bucketKey]*bucket{newKey: newDelta}
-	if err := s.write(newBuckets, newDelta, newKey); err != nil {
+	if err := s.write(newDelta, newKey); err != nil {
 		t.Fatalf("write new: %v", err)
 	}
 
@@ -439,9 +432,8 @@ func TestStorePruningBoundary(t *testing.T) {
 				hourUnix:       hour.Unix(),
 			}
 			delta := &bucket{Requests: 1}
-			buckets := map[bucketKey]*bucket{key: delta}
 
-			if err := s.write(buckets, delta, key); err != nil {
+			if err := s.write(delta, key); err != nil {
 				t.Fatalf("write: %v", err)
 			}
 
@@ -460,7 +452,6 @@ func TestStorePruningBoundary(t *testing.T) {
 
 // mockClock provides a controllable time source for tests.
 type mockClock struct {
-	mu    sync.Mutex
 	value atomic.Value
 }
 
