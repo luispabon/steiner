@@ -171,7 +171,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.runtime.sandbox != nil {
 		executor = executor.WithSandbox(r.runtime.sandbox)
 	}
-	return agent.RunRequest{
+	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,
 		Tools:         activeRegistry.ToProviderSpecs(),
@@ -190,4 +190,8 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		SteerCh:            steerCh,
 	}
+	if r.runtime.usageRecorder != nil {
+		req.UsageRecorder = r.runtime.usageRecorder
+	}
+	return req
 }

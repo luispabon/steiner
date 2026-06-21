@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func assertSharedChildSystemPrompt(t *testing.T, content string) {
@@ -838,6 +839,50 @@ func TestBuildChildRun(t *testing.T) {
 			tt.want(t, req)
 		})
 	}
+}
+
+func TestBuildChildRunRecorderPropagation(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+	spec := DelegationSpec{Task: "task", AgentID: "rec-test", Limits: DelegationLimits{MaxTurns: 1}}
+
+	t.Run("recorder set when non-nil", func(t *testing.T) {
+		rec := usagestats.New(nil)
+		deps := BootstrapDeps{
+			ParentReg:     parent,
+			SubAgentCfg:   config.SubAgentConfig{AllowedTools: []string{"read"}},
+			Events:        output.NoopSink{},
+			WorkDir:       "/tmp/work",
+			Provider:      stubProvider{},
+			UsageRecorder: rec,
+		}
+		req, _, err := BuildChildRun(context.Background(), deps, spec)
+		if err != nil {
+			t.Fatalf("BuildChildRun() error = %v", err)
+		}
+		if req.UsageRecorder == nil {
+			t.Error("UsageRecorder is nil, want non-nil (typed-nil guard must not wrap a non-nil pointer in a nil interface)")
+		}
+	})
+
+	t.Run("recorder stays nil when not provided", func(t *testing.T) {
+		deps := BootstrapDeps{
+			ParentReg:     parent,
+			SubAgentCfg:   config.SubAgentConfig{AllowedTools: []string{"read"}},
+			Events:        output.NoopSink{},
+			WorkDir:       "/tmp/work",
+			Provider:      stubProvider{},
+			UsageRecorder: nil,
+		}
+		req, _, err := BuildChildRun(context.Background(), deps, spec)
+		if err != nil {
+			t.Fatalf("BuildChildRun() error = %v", err)
+		}
+		if req.UsageRecorder != nil {
+			t.Error("UsageRecorder is non-nil, want nil (typed-nil guard must leave field unset)")
+		}
+	})
 }
 
 // mockSandbox is a test double for tool.SandboxWrapper.

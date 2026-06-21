@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // DelegateDeps holds the dependencies needed to assemble the active delegate registry.
@@ -47,6 +48,8 @@ type DelegateDeps struct {
 	HTTPClient *http.Client
 	// Searcher provides the web search backend when available.
 	Searcher web.Searcher
+	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
+	UsageRecorder *usagestats.Recorder
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -107,6 +110,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		CaveHuman:            deps.Config.CaveHuman,
 		TraceLogger:          deps.TraceLogger,
 		SessionStore:         store,
+		UsageRecorder:        deps.UsageRecorder,
 	}
 
 	// Register the generic delegate tool.

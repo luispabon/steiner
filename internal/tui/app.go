@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/prefs"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // ApprovalDecision is the selected outcome from an approval prompt.
@@ -54,6 +55,8 @@ type Config struct {
 	Controller           interactive.Controller
 	SessionStore         SessionLister
 	OneshotRunnerFactory OneshotRunnerFactoryBuilder
+	// Recorder is the process-wide usage stats recorder; nil when not wired.
+	Recorder *usagestats.Recorder
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

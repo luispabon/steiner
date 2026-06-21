@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // DelegateToolName is the registered name of the delegate tool.
@@ -69,6 +70,8 @@ type DelegateHandlerDeps struct {
 	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
 	// child sandbox permissions cannot exceed parent permissions.
 	Sandbox tool.SandboxWrapper
+	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
+	UsageRecorder *usagestats.Recorder
 }
 
 // NewDelegateHandler returns the in-process handler for the delegate tool.
@@ -116,6 +119,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			StreamingPreferred:   deps.StreamingPreferred,
 			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
+			UsageRecorder:        deps.UsageRecorder,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("delegate: build child run: %w", err)
