@@ -1439,27 +1439,6 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 			},
 		},
 		{
-			name: "palette",
-			setup: func(t *testing.T) Model {
-				m := newModel(Config{}, nil)
-				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-				m.palette = m.palette.Open()
-				return m
-			},
-			key: tea.KeyMsg{Type: tea.KeyEnter},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
-				if !handled {
-					t.Fatal("handled = false, want true for palette")
-				}
-				if cmd == nil {
-					t.Fatal("cmd = nil, want palette action command")
-				}
-				if got.palette.IsOpen() {
-					t.Fatal("palette.IsOpen() = true, want false after Enter")
-				}
-			},
-		},
-		{
 			name: "slash overlay",
 			setup: func(t *testing.T) Model {
 				m := newModel(Config{}, nil)
@@ -1803,7 +1782,7 @@ func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
 		t.Fatalf("content = %q, want no thinking while toggle is off", got)
 	}
 
-	m = updateModel(t, m, paletteToggleThinkingMsg{})
+	m = updateModel(t, m, toggleThinkingMsg{})
 
 	content := m.content.String(m.viewport.Width)
 	if !strings.Contains(content, "normal reasoning") {

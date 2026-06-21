@@ -110,13 +110,13 @@ func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
-	return m, func() tea.Msg { return paletteToggleThinkingMsg{} }
+	return m, func() tea.Msg { return toggleThinkingMsg{} }
 }
 
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
-	return m, func() tea.Msg { return paletteSetAccentMsg{preset: preset} }
+	return m, func() tea.Msg { return setAccentMsg{preset: preset} }
 }
 
 func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
