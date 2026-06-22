@@ -144,6 +144,27 @@ func (m Model) handlePlanPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleAccentPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.accentPicker = m.accentPicker.Close()
+		m.input.Reset()
+		m.historyIdx = 0
+	case tea.KeyEnter:
+		if name := m.accentPicker.SelectedName(); name != "" {
+			m.accentPicker = m.accentPicker.Close()
+			m.input.Reset()
+			m.historyIdx = 0
+			return m.executeSetAccentAction(name)
+		}
+	default:
+		var cmd tea.Cmd
+		m.accentPicker, cmd = m.accentPicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
 func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:

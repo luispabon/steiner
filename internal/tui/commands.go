@@ -185,9 +185,12 @@ var slashCommands = []slashCommand{
 		Name:        "Set accent",
 		Desc:        "change accent color",
 		Allowlist:   true,
-		ArgVariants: []string{"amber", "rose", "magenta", "violet", "cyan", "mint", "lime"},
-		HelpKey:     "/accent <preset>",
+		ArgVariants: []string{"amber", "coral", "rose", "magenta", "gold", "violet", "indigo", "blue", "cyan", "teal", "green", "mint", "lime", "random"},
+		HelpKey:     "/accent [preset]",
 		Build: func(arg string) inputAction {
+			if arg == "" {
+				return inputAction{openAccentPicker: true}
+			}
 			return inputAction{setAccent: arg}
 		},
 	},

@@ -205,6 +205,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.accentPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleAccentPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m Model) bool { return m.modelPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
 			next, cmd := m.handleModelPickerKey(msg)
@@ -281,6 +289,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.planPicker = newPlanPickerOverlay(m.styles)
 	m.planPicker.width = m.width
 	m.planPicker.height = m.height
+
+	m.accentPicker = newAccentPickerOverlay(m.styles)
+	m.accentPicker.width = m.width
+	m.accentPicker.height = m.height
 
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width

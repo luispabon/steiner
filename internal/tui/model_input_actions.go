@@ -113,6 +113,16 @@ func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return toggleThinkingMsg{} }
 }
 
+func (m Model) executeOpenAccentPickerAction() (tea.Model, tea.Cmd) {
+	m.accentPicker = m.accentPicker.Open(m.accentPreset)
+	m.accentPicker.width = m.width
+	m.accentPicker.height = m.height
+	m.input.SetValue("/accent ")
+	m.input.CursorEnd()
+	m.historyIdx = 0
+	return m, nil
+}
+
 func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0

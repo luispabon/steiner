@@ -46,6 +46,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.openModelPicker {
 		return m.executeOpenModelPickerAction()
 	}
+	if action.openAccentPicker {
+		return m.executeOpenAccentPickerAction()
+	}
 	if action.toggleThinking {
 		return m.executeToggleThinkingAction()
 	}
