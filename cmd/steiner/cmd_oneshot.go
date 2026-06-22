@@ -68,9 +68,9 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pr
 	return phaseRunner{runner: runner}, nil
 }
 
-func (r phaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (oneshot.RunResult, error) {
+func (r phaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (oneshot.RunResult, error) {
 	defer closeRuntime(&r.runner.runtime)
-	return r.runner.RunPhase(ctx, conversation, skillNames, steerCh)
+	return r.runner.RunPhase(ctx, conversation, skillNames, drainSteers)
 }
 
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {

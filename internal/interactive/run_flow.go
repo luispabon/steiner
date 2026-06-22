@@ -20,7 +20,10 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	s.mu.Unlock()
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
-		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), s.runController.SteerCh())
+		drainSteers := func() []agent.SteerMessage {
+			return s.runController.DrainSteers()
+		}
+		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), drainSteers)
 
 		s.mu.Lock()
 		if len(result.Conversation) > 0 {

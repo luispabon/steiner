@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
@@ -293,7 +294,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	}
 
 	// Create steer channel
-	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
 	m.oneshotRunning = true
 	m.oneshotPhase = ""
 
@@ -314,14 +315,24 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:      sess.ProjectRoot(),
-			Identity:         runIdentity,
-			Task:             strings.TrimSpace(task),
-			Config:           sess.Config(),
-			SessionStore:     oneshotSessionStore,
-			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
-			Events:           sess.EventSink(),
-			SteerCh:          m.oneshotSteerCh,
+			ProjectRoot:   sess.ProjectRoot(),
+			Identity:      runIdentity,
+			Task:          strings.TrimSpace(task),
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory(runIdentity),
+			Events:        sess.EventSink(),
+			DrainSteers: func() []agent.SteerMessage {
+				var msgs []agent.SteerMessage
+				for {
+					select {
+					case m := <-m.oneshotSteerCh:
+						msgs = append(msgs, m)
+					default:
+						return msgs
+					}
+				}
+			},
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -374,7 +385,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	sessionStore := m.sessionStore
 
 	// Create steer channel
-	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
 	m.oneshotRunning = true
 	m.oneshotPhase = ""
 
@@ -421,14 +432,24 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:      projectRoot,
-			Identity:         identity,
-			Task:             targetRun.Task,
-			Config:           sess.Config(),
-			SessionStore:     oneshotSessionStore,
-			RunnerFactory:    m.oneshotRunnerFactory(identity),
-			Events:           sess.EventSink(),
-			SteerCh:          m.oneshotSteerCh,
+			ProjectRoot:   projectRoot,
+			Identity:      identity,
+			Task:          targetRun.Task,
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory(identity),
+			Events:        sess.EventSink(),
+			DrainSteers: func() []agent.SteerMessage {
+				var msgs []agent.SteerMessage
+				for {
+					select {
+					case m := <-m.oneshotSteerCh:
+						msgs = append(msgs, m)
+					default:
+						return msgs
+					}
+				}
+			},
 			InterruptFactory: context.WithCancel,
 		}
 

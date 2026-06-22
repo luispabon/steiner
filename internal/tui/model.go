@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/luispabon/steiner/internal/agent"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -156,7 +158,7 @@ type Model struct {
 	imageMarkers                 []imageMarker
 	oneshotRunning               bool
 	oneshotPhase                 string
-	oneshotSteerCh               chan string
+	oneshotSteerCh               chan agent.SteerMessage
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
 }

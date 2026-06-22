@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
@@ -50,7 +51,7 @@ type Dependencies struct {
 	SessionStore     SessionStore
 	RunnerFactory    PhaseRunnerFactory
 	Events           output.EventSink
-	SteerCh          <-chan string
+	DrainSteers      func() []agent.SteerMessage
 	InterruptFactory InterruptFactory
 }
 

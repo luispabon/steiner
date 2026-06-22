@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+
+	"github.com/luispabon/steiner/internal/agent"
 	"slices"
 	"strings"
 	"time"
@@ -381,7 +383,7 @@ func (m Model) executeSteerAction() tea.Model {
 	// Send to oneshot steer channel if active (non-blocking)
 	if m.oneshotSteerCh != nil {
 		select {
-		case m.oneshotSteerCh <- text:
+		case m.oneshotSteerCh <- agent.SteerMessage{Text: text}:
 		default:
 			// Channel full or closed, skip
 		}

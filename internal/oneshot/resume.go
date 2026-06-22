@@ -125,7 +125,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		}
 
 		conversation := phaseConversation(o.deps.Identity, o.deps.Task, phase, worktree.Path, planningPath)
-		result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.SteerCh)
+		result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
 
 		sessionID, saveErr := o.persistPhaseSession(phase, modelAlias, result)
 		if saveErr != nil {

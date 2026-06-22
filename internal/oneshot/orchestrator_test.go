@@ -19,7 +19,7 @@ import (
 type recordedPhaseInput struct {
 	conversation []agent.Message
 	skillNames   []string
-	steerCh      <-chan string
+	drainSteers  func() []agent.SteerMessage
 	modelAlias   string
 	advisorCfg   config.AdvisorConfig
 	approver     tool.ApprovalResponder
@@ -46,7 +46,7 @@ type phaseRunnerStub struct {
 	started       chan struct{}
 }
 
-func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (RunResult, error) {
+func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error) {
 	if r.factory != nil {
 		r.factory.mu.Lock()
 		if r.factory.calls == nil {
@@ -55,7 +55,7 @@ func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Mess
 		r.factory.calls[r.phase] = recordedPhaseInput{
 			conversation: cloneAgentMessages(conversation),
 			skillNames:   append([]string(nil), skillNames...),
-			steerCh:      steerCh,
+			drainSteers:  drainSteers,
 			modelAlias:   r.factory.calls[r.phase].modelAlias,
 			advisorCfg:   r.factory.calls[r.phase].advisorCfg,
 			approver:     r.factory.calls[r.phase].approver,
@@ -107,7 +107,7 @@ func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Mess
 	}
 
 	_ = skillNames
-	_ = steerCh
+	_ = drainSteers
 	return RunResult{
 		Conversation: conversation,
 		Reply:        string(r.phase),
@@ -179,7 +179,7 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		string(PhaseImplement): "implement-model",
 	}
 
-	steerCh := make(chan string, 1)
+	drainCh := make(chan agent.SteerMessage, 1)
 	orch, err := NewOrchestrator(Dependencies{
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
@@ -189,12 +189,22 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
 		Events:        output.SinkFunc(func(event output.Event) { events = append(events, event) }),
-		SteerCh:       steerCh,
+		DrainSteers: func() []agent.SteerMessage {
+			var msgs []agent.SteerMessage
+			for {
+				select {
+				case m := <-drainCh:
+					msgs = append(msgs, m)
+				default:
+					return msgs
+				}
+			}
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator failed: %v", err)
 	}
-	steerCh <- "stay focused"
+	drainCh <- agent.SteerMessage{Text: "stay focused"}
 
 	manifest, err := orch.Run(context.Background())
 	if err != nil {
@@ -276,11 +286,12 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	if got := planCall.conversation[0].Content; !strings.Contains(got, "Planning artifacts:") || !strings.Contains(got, "Build the parser") {
 		t.Fatalf("plan seed conversation = %q, want task and artifact pointers", got)
 	}
-	if planCall.steerCh == nil {
-		t.Fatal("plan steer channel is nil")
+	if planCall.drainSteers == nil {
+		t.Fatal("plan drainSteers is nil")
 	}
-	if got, want := planCall.steerCh, steerCh; got != want {
-		t.Fatalf("plan steer channel mismatch")
+	steered := planCall.drainSteers()
+	if len(steered) != 1 || steered[0].Text != "stay focused" {
+		t.Fatalf("drainSteers() = %+v, want [stay focused]", steered)
 	}
 }
 

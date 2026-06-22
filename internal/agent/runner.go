@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -55,9 +57,9 @@ type RunRequest struct {
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
 
-	// SteerCh delivers between-turn steering messages from the user.
+	// DrainSteers drains all queued between-turn steering messages.
 	// Non-nil only in interactive mode; sub-agents receive nil.
-	SteerCh <-chan string
+	DrainSteers func() []SteerMessage
 
 	// UsageRecorder records cache-hit-rate observations per usage-bearing model
 	// response. Nil disables recording (tests, unwired paths).
@@ -108,15 +110,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			cancel()
 		}
 		state = outcome.State
-		// Check for a steering message between turns (non-blocking).
-		if req.SteerCh != nil {
-			select {
-			case text := <-req.SteerCh:
-				steerMsg := Message{Role: MessageRoleUser, Content: text}
-				state.Conversation = append(state.Conversation, steerMsg)
-				state.Lineage = state.Lineage.WithAppendedMessages([]Message{steerMsg})
-				emitEvent(req.Events, output.NewSteerReceivedEvent(text))
-			default:
+		// Drain all queued steering messages at turn boundary.
+		if req.DrainSteers != nil {
+			steers := req.DrainSteers()
+			if len(steers) > 0 {
+				merged := mergeSteers(steers)
+				state.Conversation = append(state.Conversation, merged)
+				state.Lineage = state.Lineage.WithAppendedMessages([]Message{merged})
+				emitEvent(req.Events, output.NewSteerReceivedEvent(merged.Content))
 			}
 		}
 		if outcome.Error != nil {
@@ -309,4 +310,35 @@ func runnerRetrySleepDefault(ctx context.Context, delay time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// mergeSteers combines multiple steer messages into a single user Message.
+// Image markers in later steers are renumbered to follow prior steer images.
+func mergeSteers(steers []SteerMessage) Message {
+	if len(steers) == 1 {
+		return Message{Role: MessageRoleUser, Content: steers[0].Text, Images: steers[0].Images}
+	}
+	var texts []string
+	var images []ImageBlock
+	offset := 0
+	for i, s := range steers {
+		if i > 0 {
+			s.Text = renumberMarkers(s.Text, offset)
+		}
+		texts = append(texts, s.Text)
+		images = append(images, s.Images...)
+		offset += len(s.Images)
+	}
+	return Message{Role: MessageRoleUser, Content: strings.Join(texts, "\n\n"), Images: images}
+}
+
+// renumberMarkers finds [Image N] markers in text and adds offset to N.
+// The marker format is [Image N] where N is 1-indexed (matching internal/tui/image_markers.go).
+func renumberMarkers(text string, offset int) string {
+	re := regexp.MustCompile(`\[Image (\d+)\]`)
+	return re.ReplaceAllStringFunc(text, func(match string) string {
+		var n int
+		fmt.Sscanf(match, "[Image %d]", &n)
+		return fmt.Sprintf("[Image %d]", n+offset)
+	})
 }

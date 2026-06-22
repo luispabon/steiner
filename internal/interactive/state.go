@@ -11,18 +11,12 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// SteerMessage carries a queued steer with its attached images.
-type SteerMessage struct {
-	Text   string
-	Images []agent.ImageBlock
-}
-
 // ActiveRunController manages the cancellation of the currently active model
 // run and steer messaging during an interactive session.
 type ActiveRunController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	steers []SteerMessage
+	steers []agent.SteerMessage
 }
 
 // NewActiveRunController creates a new ActiveRunController.
@@ -66,12 +60,12 @@ func (c *ActiveRunController) HasCancel() bool {
 // Steer queues a steering message with its attached images.
 func (c *ActiveRunController) Steer(text string, images []agent.ImageBlock) {
 	c.mu.Lock()
-	c.steers = append(c.steers, SteerMessage{Text: text, Images: images})
+	c.steers = append(c.steers, agent.SteerMessage{Text: text, Images: images})
 	c.mu.Unlock()
 }
 
 // DrainSteers returns all pending steer messages and clears the queue.
-func (c *ActiveRunController) DrainSteers() []SteerMessage {
+func (c *ActiveRunController) DrainSteers() []agent.SteerMessage {
 	c.mu.Lock()
 	steers := c.steers
 	c.steers = nil
