@@ -10,7 +10,7 @@ import (
 
 // PhaseRunner executes one autonomous phase run with caller-provided context.
 type PhaseRunner interface {
-	RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (RunResult, error)
+	RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error)
 }
 
 // RunResult captures the outcome of a single phase run.

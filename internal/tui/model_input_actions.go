@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
@@ -30,6 +31,7 @@ func (m Model) executeInterruptAction() Model {
 	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncSidebar()
+	m.relayoutInput()
 	m.syncViewport()
 	return m
 }
@@ -46,6 +48,7 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -58,6 +61,7 @@ func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -72,6 +76,7 @@ func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -81,6 +86,7 @@ func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, t
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncSidebar()
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -136,6 +142,7 @@ func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
 			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
 			m.input.Reset()
 			m.historyIdx = 0
+			m.relayoutInput()
 			m.syncViewport()
 			return m, nil
 		}
@@ -147,6 +154,7 @@ func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -155,6 +163,7 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	if m.sessionStore == nil {
 		m.content.AppendLine("status: no session store configured")
 		m.input.Reset()
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -163,6 +172,7 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: failed to list sessions: %v", err))
 		m.input.Reset()
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -178,6 +188,7 @@ func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: controller not available")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -192,6 +203,7 @@ func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 		m.content.AppendLine(fmt.Sprintf("status: failed to list oneshot runs: %v", err))
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -200,6 +212,7 @@ func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: no resumable oneshot runs found")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -216,12 +229,14 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: no conversation to fork")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
 
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	if m.controller != nil {
 		ctrl := m.controller
@@ -249,6 +264,7 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 	m.content.AppendUser(displayText)
 	m.input.Reset()
 	m.historyIdx = 0
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -272,6 +288,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -280,6 +297,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: controller not available")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -293,7 +311,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	}
 
 	// Create steer channel
-	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
 	m.oneshotRunning = true
 	m.oneshotPhase = ""
 
@@ -314,14 +332,24 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:      sess.ProjectRoot(),
-			Identity:         runIdentity,
-			Task:             strings.TrimSpace(task),
-			Config:           sess.Config(),
-			SessionStore:     oneshotSessionStore,
-			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
-			Events:           sess.EventSink(),
-			SteerCh:          m.oneshotSteerCh,
+			ProjectRoot:   sess.ProjectRoot(),
+			Identity:      runIdentity,
+			Task:          strings.TrimSpace(task),
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory(runIdentity),
+			Events:        sess.EventSink(),
+			DrainSteers: func() []agent.SteerMessage {
+				var msgs []agent.SteerMessage
+				for {
+					select {
+					case m := <-m.oneshotSteerCh:
+						msgs = append(msgs, m)
+					default:
+						return msgs
+					}
+				}
+			},
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -350,6 +378,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	m.syncInputChrome()
+	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
 }
@@ -359,6 +388,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -367,6 +397,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: controller not available")
 		m.input.Reset()
 		m.historyIdx = 0
+		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
@@ -374,7 +405,7 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	sessionStore := m.sessionStore
 
 	// Create steer channel
-	m.oneshotSteerCh = make(chan string, 4)
+	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
 	m.oneshotRunning = true
 	m.oneshotPhase = ""
 
@@ -421,14 +452,24 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:      projectRoot,
-			Identity:         identity,
-			Task:             targetRun.Task,
-			Config:           sess.Config(),
-			SessionStore:     oneshotSessionStore,
-			RunnerFactory:    m.oneshotRunnerFactory(identity),
-			Events:           sess.EventSink(),
-			SteerCh:          m.oneshotSteerCh,
+			ProjectRoot:   projectRoot,
+			Identity:      identity,
+			Task:          targetRun.Task,
+			Config:        sess.Config(),
+			SessionStore:  oneshotSessionStore,
+			RunnerFactory: m.oneshotRunnerFactory(identity),
+			Events:        sess.EventSink(),
+			DrainSteers: func() []agent.SteerMessage {
+				var msgs []agent.SteerMessage
+				for {
+					select {
+					case m := <-m.oneshotSteerCh:
+						msgs = append(msgs, m)
+					default:
+						return msgs
+					}
+				}
+			},
 			InterruptFactory: context.WithCancel,
 		}
 

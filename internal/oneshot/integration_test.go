@@ -43,7 +43,7 @@ type fixturePhaseRunner struct {
 	started           chan struct{}
 }
 
-func (r fixturePhaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, _ []string, _ <-chan string) (RunResult, error) {
+func (r fixturePhaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, _ []string, _ func() []agent.SteerMessage) (RunResult, error) {
 	if !r.skipPlanArtifacts {
 		if err := os.MkdirAll(r.planningPath, 0o755); err != nil {
 			return RunResult{}, err

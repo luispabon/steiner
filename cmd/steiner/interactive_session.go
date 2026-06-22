@@ -225,8 +225,8 @@ type sessionRunner struct {
 	runner cliRunner
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (interactive.RunResult, error) {
-	result, err := r.runner.Run(ctx, conversation, skillNames, steerCh)
+func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
+	result, err := r.runner.Run(ctx, conversation, skillNames, drainSteers)
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,

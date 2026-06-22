@@ -3,9 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
+
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/luispabon/steiner/internal/agent"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -375,21 +378,24 @@ func (m Model) executeSteerAction() tea.Model {
 	if text == "" {
 		return m
 	}
+	images := m.pendingImageBlocks()
 	if !m.oneshotRunning && m.controller != nil {
-		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text})
+		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text, Images: images})
 	}
 	// Send to oneshot steer channel if active (non-blocking)
 	if m.oneshotSteerCh != nil {
 		select {
-		case m.oneshotSteerCh <- text:
+		case m.oneshotSteerCh <- agent.SteerMessage{Text: text, Images: images}:
 		default:
 			// Channel full or closed, skip
 		}
 	}
 	m.input.Reset()
+	m.imageMarkers = nil
 	m.content.AppendPendingSteer(text)
 	m.steerQueued = true
 	m.syncInputChrome()
 	m.syncViewport()
+	m.relayoutInput()
 	return m
 }

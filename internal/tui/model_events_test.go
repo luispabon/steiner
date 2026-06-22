@@ -5,13 +5,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
-	ch := make(chan string, 4)
-	ch <- "test"
+	ch := make(chan agent.SteerMessage, 4)
+	ch <- agent.SteerMessage{Text: "test"}
 
 	m := Model{
 		oneshotRunning: true,

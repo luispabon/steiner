@@ -28,21 +28,21 @@ type cliRunner struct {
 
 type runResult = oneshot.RunResult
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
+func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	return r.run(runCtx, conversation, skillNames, steerCh)
+	return r.run(runCtx, conversation, skillNames, drainSteers)
 }
 
 // RunPhase executes a single phase run without installing a signal handler.
 // The caller owns cancellation and interrupt handling for phase orchestration.
-func (r cliRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
+func (r cliRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
 	resetFallbackModelWarnings()
-	return r.run(ctx, conversation, skillNames, steerCh)
+	return r.run(ctx, conversation, skillNames, drainSteers)
 }
 
-func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, steerCh <-chan string) (runResult, error) {
+func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
 	setup, err := r.prepareRun(conversation, skillNames)
 	if err != nil {
 		return runResult{}, err
@@ -80,7 +80,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()
-	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, steerCh))
+	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, drainSteers))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)

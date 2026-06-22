@@ -1,6 +1,10 @@
 package interactive
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/luispabon/steiner/internal/agent"
+)
 
 func TestActiveRunControllerSteer(t *testing.T) {
 	tests := []struct {
@@ -8,78 +12,81 @@ func TestActiveRunControllerSteer(t *testing.T) {
 		test func(t *testing.T)
 	}{
 		{
-			name: "send and receive via Drain",
+			name: "send and receive via DrainSteers",
 			test: func(t *testing.T) {
 				c := NewActiveRunController()
-				c.Steer("hello")
-				got := c.Drain()
-				if got != "hello" {
-					t.Errorf("Drain() = %q, want %q", got, "hello")
+				c.Steer("hello", nil)
+				got := c.DrainSteers()
+				if len(got) != 1 || got[0].Text != "hello" {
+					t.Errorf("DrainSteers() = %+v, want [{hello nil}]", got)
 				}
 			},
 		},
 		{
-			name: "Drain returns empty string when no message pending",
+			name: "DrainSteers returns nil when no message pending",
 			test: func(t *testing.T) {
 				c := NewActiveRunController()
-				got := c.Drain()
-				if got != "" {
-					t.Errorf("Drain() = %q, want empty string", got)
+				got := c.DrainSteers()
+				if len(got) != 0 {
+					t.Errorf("DrainSteers() = %+v, want empty", got)
 				}
 			},
 		},
 		{
-			name: "latest-wins: send twice when full",
+			name: "FIFO ordering: DrainSteers returns all steers in order",
 			test: func(t *testing.T) {
 				c := NewActiveRunController()
-				c.Steer("first")
-				c.Steer("second")
-				got := c.Drain()
-				if got != "second" {
-					t.Errorf("Drain() = %q, want %q", got, "second")
+				c.Steer("first", nil)
+				c.Steer("second", nil)
+				c.Steer("third", nil)
+				got := c.DrainSteers()
+				if len(got) != 3 {
+					t.Fatalf("DrainSteers() = %+v, want 3 items", got)
+				}
+				if got[0].Text != "first" || got[1].Text != "second" || got[2].Text != "third" {
+					t.Errorf("DrainSteers() = %+v, want [first second third]", got)
 				}
 			},
 		},
 		{
-			name: "Clear drains pending steer",
+			name: "Steer with images preserves them in DrainSteers",
 			test: func(t *testing.T) {
 				c := NewActiveRunController()
-				c.Steer("pending")
+				imgs := []agent.ImageBlock{{MediaType: "image/png", Data: "abc"}}
+				c.Steer("see image", imgs)
+				got := c.DrainSteers()
+				if len(got) != 1 {
+					t.Fatalf("DrainSteers() = %+v, want 1 item", got)
+				}
+				if got[0].Text != "see image" {
+					t.Errorf("Text = %q, want %q", got[0].Text, "see image")
+				}
+				if len(got[0].Images) != 1 || got[0].Images[0].MediaType != "image/png" {
+					t.Errorf("Images = %+v, want 1 png image", got[0].Images)
+				}
+			},
+		},
+		{
+			name: "DrainSteers empties queue on second call",
+			test: func(t *testing.T) {
+				c := NewActiveRunController()
+				c.Steer("msg", nil)
+				c.DrainSteers()
+				got := c.DrainSteers()
+				if len(got) != 0 {
+					t.Errorf("second DrainSteers() = %+v, want empty", got)
+				}
+			},
+		},
+		{
+			name: "Clear empties drain queue",
+			test: func(t *testing.T) {
+				c := NewActiveRunController()
+				c.Steer("pending", nil)
 				c.Clear()
-				got := c.Drain()
-				if got != "" {
-					t.Errorf("after Clear(), Drain() = %q, want empty string", got)
-				}
-			},
-		},
-		{
-			name: "SteerCh returns non-nil channel",
-			test: func(t *testing.T) {
-				c := NewActiveRunController()
-				ch := c.SteerCh()
-				if ch == nil {
-					t.Error("SteerCh() = nil, want non-nil channel")
-				}
-			},
-		},
-		{
-			name: "SteerCh returns same channel",
-			test: func(t *testing.T) {
-				c := NewActiveRunController()
-				ch1 := c.SteerCh()
-				ch2 := c.SteerCh()
-				if ch1 != ch2 {
-					t.Error("SteerCh() returns different channels on successive calls")
-				}
-			},
-		},
-		{
-			name: "SteerCh has capacity 1",
-			test: func(t *testing.T) {
-				c := NewActiveRunController()
-				ch := c.SteerCh()
-				if cap(ch) != 1 {
-					t.Errorf("SteerCh() cap = %d, want 1", cap(ch))
+				got := c.DrainSteers()
+				if len(got) != 0 {
+					t.Errorf("after Clear(), DrainSteers() = %+v, want empty", got)
 				}
 			},
 		},

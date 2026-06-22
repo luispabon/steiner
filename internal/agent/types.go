@@ -46,6 +46,12 @@ type MessageProviderMetadata struct {
 	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
 }
 
+// SteerMessage carries a between-turn steering message with attached images.
+type SteerMessage struct {
+	Text   string
+	Images []ImageBlock
+}
+
 // ImageBlock represents an image embedded in a message.
 type ImageBlock struct {
 	MediaType string `json:"media_type,omitempty"`

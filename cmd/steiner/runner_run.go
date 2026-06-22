@@ -165,7 +165,7 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 	return events, &diagnostics
 }
 
-func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, steerCh <-chan string) agent.RunRequest {
+func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, drainSteers func() []agent.SteerMessage) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir)
 	if r.runtime.sandbox != nil {
@@ -188,7 +188,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
-		SteerCh:            steerCh,
+		DrainSteers:        drainSteers,
 	}
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
