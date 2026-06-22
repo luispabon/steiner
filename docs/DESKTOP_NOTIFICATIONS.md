@@ -60,7 +60,7 @@ When a user clicks a desktop notification, Steiner attempts to focus its termina
 When `desktop_notifications.enabled` is `true` but the notification system is unavailable:
 
 1. **Startup check**: Steiner tests the notification daemon on startup.
-2. **Single warning**: If unavailable (headless environment, SSH session, no daemon running), a non-fatal warning is emitted to stderr.
+2. **Single warning**: If unavailable (headless environment, SSH session, no daemon running), a non-fatal warning is shown in the TUI content area.
 3. **Silent no-op**: For the remainder of the session, notification calls silently fail and execution continues.
 
 This ensures that enabled-but-undeliverable notifications never stall the agent or disrupt the user experience.
@@ -112,10 +112,9 @@ Drivers receive a `Notification` struct:
 
 ```go
 type Notification struct {
-    Title   string // e.g. "Approval needed"
-    Body    string // e.g. "Tool: read_file"
-    Tag     string // unique key for deduplication/replacement
-    OnClick func() // invoked if user clicks the notification (optional)
+    Project string // working directory basename, e.g. "myapp"
+    Branch  string // current git branch, e.g. "main"
+    Reason  string // human-readable trigger, e.g. "Tool approval required: bash"
 }
 ```
 

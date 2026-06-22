@@ -79,11 +79,13 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	}
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
-	tuiCfg.Notifier = notify.New(notify.Options{
-		Enabled:  rt.cfg.DesktopNotifications.Enabled,
-		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
-		AppName:  "steiner",
-	})
+	if rt.cfg.DesktopNotifications.Enabled {
+		tuiCfg.Notifier = notify.New(notify.Options{
+			Enabled:  true,
+			Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
+			AppName:  "steiner",
+		})
+	}
 	return tui.NewApp(tuiCfg)
 }
 

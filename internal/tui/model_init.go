@@ -265,7 +265,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.input.Focus()
 	m.initializeOverlays(cfg)
 	if m.notifier != nil {
-		if ok, reason := m.notifier.Availability(); !ok && reason != "desktop notifications are disabled" {
+		if ok, reason := m.notifier.Availability(); !ok {
 			m.content.AppendUser(fmt.Sprintf("desktop notifications: %s", reason))
 			m.notifyAvailabilityWarned = true
 		}
