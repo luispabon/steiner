@@ -59,7 +59,20 @@ func buildGrepResultFromPage(total, returned, compatMatches, offset int, output 
 	if total == 0 {
 		output = "No matches found"
 	}
-	return GrepResult{
+
+	// Apply line bounding to rendered output.
+	var reasons []string
+	if output != "" && total > 0 {
+		lines := strings.Split(output, "\n")
+		bounded, boundedReasons := boundLines(lines, lineBoundingConfig{})
+		output = strings.Join(bounded, "\n")
+		reasons = boundedReasons
+	}
+	if truncated {
+		reasons = append(reasons, "paged")
+	}
+
+	result := GrepResult{
 		Matches:    compatMatches,
 		Returned:   returned,
 		Truncated:  truncated,
@@ -67,6 +80,10 @@ func buildGrepResultFromPage(total, returned, compatMatches, offset int, output 
 		NextOffset: nextOffset,
 		Output:     output,
 	}
+	if len(reasons) > 0 {
+		result.TruncationReasons = reasons
+	}
+	return result
 }
 
 func grepFilesWithMatches(files []grepFileResult) []string {

@@ -158,7 +158,7 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 	return results, nil
 }
 
-func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder) bool {
+func grepRootExcluded(_, displayPath string, excluder *tool.PathExcluder) bool {
 	if excluder == nil {
 		return false
 	}
@@ -166,7 +166,7 @@ func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder) boo
 	if cleanDisplayPath != "." && cleanDisplayPath != "" && excluder.ShouldExclude(cleanDisplayPath) {
 		return true
 	}
-	return excluder.ShouldExclude(root)
+	return false
 }
 
 func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Regexp, error) {

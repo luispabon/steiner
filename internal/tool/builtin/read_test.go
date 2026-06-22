@@ -225,6 +225,121 @@ func TestReadTool(t *testing.T) {
 			t.Errorf("Output = %q, want empty", result.Output)
 		}
 	})
+
+	t.Run("huge single line is truncated with marker", func(t *testing.T) {
+		hugeLine := strings.Repeat("x", 500) + "\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "huge.txt"), []byte(hugeLine), 0o644); err != nil {
+			t.Fatalf("write huge file: %v", err)
+		}
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":  "huge.txt",
+			"limit": 1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		if !strings.Contains(result.Output, "…<truncated>") {
+			t.Errorf("Output = %q, want to contain …<truncated> marker", result.Output)
+		}
+		if result.StartLine != 1 {
+			t.Errorf("StartLine = %d, want 1", result.StartLine)
+		}
+		if result.EndLine != 1 {
+			t.Errorf("EndLine = %d, want 1", result.EndLine)
+		}
+		if result.TotalLines != 1 {
+			t.Errorf("TotalLines = %d, want 1", result.TotalLines)
+		}
+		found := false
+		for _, r := range result.TruncationReasons {
+			if r == "line_length_capped" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TruncationReasons = %v, want to include line_length_capped", result.TruncationReasons)
+		}
+	})
+
+	t.Run("small line is not truncated", func(t *testing.T) {
+		smallLine := strings.Repeat("z", 100) + "\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "small.txt"), []byte(smallLine), 0o644); err != nil {
+			t.Fatalf("write small file: %v", err)
+		}
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":  "small.txt",
+			"limit": 1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		if strings.Contains(result.Output, "…<truncated>") {
+			t.Errorf("Output should not be truncated for short line, got: %s", result.Output)
+		}
+		if len(result.TruncationReasons) > 0 {
+			t.Errorf("TruncationReasons = %v, want empty for short line", result.TruncationReasons)
+		}
+	})
+	t.Run("exact-boundary line length is not truncated", func(t *testing.T) {
+		// Dive adds a "%6d\t" prefix (8 chars for line 1) when offset/limit
+		// are set.  Use 392 runes so the total rendered line (392 + 8) is
+		// exactly 400, right at the default line cap.
+		exactLine := strings.Repeat("y", 392) + "\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "exact.txt"), []byte(exactLine), 0o644); err != nil {
+			t.Fatalf("write exact file: %v", err)
+		}
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":  "exact.txt",
+			"limit": 1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		if strings.Contains(result.Output, "…<truncated>") {
+			t.Errorf("Output should not be truncated for exact-boundary line, got: %s", result.Output)
+		}
+		if len(result.TruncationReasons) > 0 {
+			t.Errorf("TruncationReasons = %v, want empty for exact-boundary line", result.TruncationReasons)
+		}
+	})
+
+	t.Run("paged read has paged reason", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":   "test.txt",
+			"offset": 2,
+			"limit":  3,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(ReadResult)
+		if !ok {
+			t.Fatalf("result type = %T, want ReadResult", resultI)
+		}
+		found := false
+		for _, r := range result.TruncationReasons {
+			if r == "paged" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TruncationReasons = %v, want to include paged when NextOffset is set", result.TruncationReasons)
+		}
+	})
 }
 
 // TestReadTool_RejectsSpecialFile guards against the terminal-hijack class of
