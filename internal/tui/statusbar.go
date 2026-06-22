@@ -65,13 +65,11 @@ func (s statusState) view(width int) string {
 		parts = append(parts, label+val)
 	}
 
-	// Segment 7: ext (delegation extension counter)
-	if s.extMax > 0 {
-		extStr := fmt.Sprintf("%d/%d", s.extCurrent, s.extMax)
-		label := s.styles.FgMute.Render("ext ")
-		val := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(extStr)
-		parts = append(parts, label+val)
-	}
+	// Segment 7: ext (delegation extension counter — always visible)
+	extStr := fmt.Sprintf("%d/%d", s.extCurrent, s.extMax)
+	extLabel := s.styles.FgMute.Render("ext ")
+	extVal := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(extStr)
+	parts = append(parts, extLabel+extVal)
 
 	// Segment 8: transient action hints (very end)
 	if s.approvalActive {

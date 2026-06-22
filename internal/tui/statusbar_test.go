@@ -23,40 +23,36 @@ func TestStatusBarOmitsPhaseWhenEmpty(t *testing.T) {
 
 func TestStatusBarRendersExtSegment(t *testing.T) {
 	tests := []struct {
-		name             string
-		extCurrent       int
-		extMax           int
-		shouldContain    string
-		shouldNotContain string
+		name          string
+		extCurrent    int
+		extMax        int
+		shouldContain string
 	}{
 		{
-			name:          "ext segment present when extMax > 0",
+			name:          "ext always visible at default 0/5",
 			extCurrent:    0,
 			extMax:        5,
-			shouldContain: "ext ",
+			shouldContain: "0/5",
 		},
 		{
-			name:          "ext segment shows correct count",
+			name:          "ext shows correct in-progress count",
 			extCurrent:    2,
 			extMax:        5,
 			shouldContain: "2/5",
 		},
 		{
-			name:             "ext segment omitted when extMax is 0",
-			extCurrent:       0,
-			extMax:           0,
-			shouldNotContain: "ext ",
+			name:          "ext label always present",
+			extCurrent:    0,
+			extMax:        5,
+			shouldContain: "ext ",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := statusState{extCurrent: tt.extCurrent, extMax: tt.extMax}
 			result := s.view(80)
-			if tt.shouldContain != "" && !strings.Contains(result, tt.shouldContain) {
+			if !strings.Contains(result, tt.shouldContain) {
 				t.Errorf("status bar should contain %q, got: %s", tt.shouldContain, result)
-			}
-			if tt.shouldNotContain != "" && strings.Contains(result, tt.shouldNotContain) {
-				t.Errorf("status bar should not contain %q, got: %s", tt.shouldNotContain, result)
 			}
 		})
 	}
