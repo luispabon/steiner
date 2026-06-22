@@ -86,6 +86,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
 	}
 
+	m.notifier = cfg.Notifier
 	m.configureModelState(cfg, accentHex)
 	return m
 }
@@ -263,6 +264,12 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.applyInputStyles()
 	m.input.Focus()
 	m.initializeOverlays(cfg)
+	if m.notifier != nil {
+		if ok, reason := m.notifier.Availability(); !ok && reason != "desktop notifications are disabled" {
+			m.content.AppendUser(fmt.Sprintf("desktop notifications: %s", reason))
+			m.notifyAvailabilityWarned = true
+		}
+	}
 }
 
 func (m *Model) initializeOverlays(cfg Config) {

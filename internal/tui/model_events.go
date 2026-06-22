@@ -3,11 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -162,6 +164,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 				m.activity = m.activity.static("approval required", approvalDetail(payload))
 				m.input.Reset()
 				m.input.Blur()
+				m.notifyBlocking(fmt.Sprintf("Tool approval required: %s", payload.Tool))
 			}
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
@@ -174,6 +177,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		case output.EventTypeWorkflowHandoffRequested:
 			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, m.workflowHandoffModelSelection(payload.Next))
 			m.input.Blur()
+			m.notifyBlocking("workflow handoff requested")
 			m.syncViewport()
 			return nil
 		case output.EventTypeWorkflowHandoffAccepted, output.EventTypeWorkflowHandoffDeclined:
@@ -352,4 +356,18 @@ func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
 	} else {
 		m.activity = m.activity.waiting(state, phaseName)
 	}
+}
+
+func (m *Model) notifyBlocking(reason string) {
+	if m.notifier == nil {
+		return
+	}
+	n := notify.Notification{
+		Project: filepath.Base(m.sidebar.workingDir),
+		Branch:  m.sidebar.branch,
+		Reason:  reason,
+	}
+	go func() {
+		_ = m.notifier.Notify(context.Background(), n) //nolint:errcheck // notification failures must not block the TUI
+	}()
 }

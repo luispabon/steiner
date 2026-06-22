@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui"
@@ -77,6 +79,11 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	}
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
+	tuiCfg.Notifier = notify.New(notify.Options{
+		Enabled:  rt.cfg.DesktopNotifications.Enabled,
+		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
+		AppName:  "steiner",
+	})
 	return tui.NewApp(tuiCfg)
 }
 

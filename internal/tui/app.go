@@ -1,17 +1,25 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+// notifier delivers desktop notifications on blocking TUI states.
+type notifier interface {
+	Notify(ctx context.Context, n notify.Notification) error
+	Availability() (bool, string)
+}
 
 // ApprovalDecision is the selected outcome from an approval prompt.
 type ApprovalDecision string
@@ -57,6 +65,8 @@ type Config struct {
 	OneshotRunnerFactory OneshotRunnerFactoryBuilder
 	// Recorder is the process-wide usage stats recorder; nil when not wired.
 	Recorder *usagestats.Recorder
+	// Notifier delivers desktop notifications on blocking states; nil disables notifications.
+	Notifier notifier
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific
