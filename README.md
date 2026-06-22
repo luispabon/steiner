@@ -329,6 +329,24 @@ Use `random` to pick a different preset on each startup:
 
 The selected preset is saved to `~/.config/steiner/prefs.yaml` and restored on next launch. With `random`, the preference is kept as `random` so a new colour is chosen each time.
 
+### Desktop notifications
+
+Steiner can send native desktop notifications when the agent is waiting on user input — including tool-call approvals and workflow handoffs. This lets you step away while the agent runs, then get notified when it needs your attention.
+
+Linux is fully supported via the D-Bus freedesktop notification service. macOS and Windows emit a single startup warning and silently no-op for the session.
+
+On X11, clicking a notification focuses the steiner window (best-effort via xdotool/wmctrl). Wayland has no standard mechanism and silently ignores clicks.
+
+Disabled by default. Enable via config:
+
+```yaml
+desktop_notifications:
+  enabled: true
+  duration: 0  # 0 = permanent (sticky); positive integer = auto-dismiss after N seconds
+```
+
+See [docs/DESKTOP_NOTIFICATIONS.md](docs/DESKTOP_NOTIFICATIONS.md) for platform support, graceful degradation, and driver extension points.
+
 ### Web search
 
 The `web_search` tool lets the model search the web and return URL, title, and description results. It is **disabled by default** — it only appears in the tool registry when `search.backend` is set in config.

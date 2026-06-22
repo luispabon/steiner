@@ -135,6 +135,10 @@ Code changes must update corresponding documentation in a single commit:
    * Update `docs/CACHE_STATS.md` with the changed behaviour
    * Update the "Cache hit rate tracking" section in README.md if the high-level behaviour changes
 
+8. **`internal/notify` changes** (add/change platform driver, change Service behaviour):
+   * Update `docs/DESKTOP_NOTIFICATIONS.md` with the changed behaviour
+   * Update the "Desktop notifications" section in README.md if the high-level description changes
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:
