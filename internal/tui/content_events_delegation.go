@@ -24,8 +24,7 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	case output.EventTypeDelegationFailed:
 		b.handleDelegationFailed(event)
 	case output.EventTypeDelegationExtension:
-		// Suppress inline rendering; extension events are tracked
-		// in the status bar instead.
+		b.handleDelegationExtension(event)
 	default:
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 	}
@@ -410,6 +409,29 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		renderDirty: true,
 	})
 	b.pendingDelegateParents = append(b.pendingDelegateParents, idx)
+}
+
+func (b *contentBuffer) handleDelegationExtension(event output.Event) {
+	payload, ok := event.Payload.(output.DelegationExtensionEvent)
+	if !ok {
+		return
+	}
+	if idx, active := b.activeDelegations[payload.AgentID]; active {
+		if dd := b.segments[idx].delegData; dd != nil {
+			dd.extCurrent = payload.Extension
+			dd.extMax = payload.MaxExtensions
+			b.markDelegationDirty(idx)
+		}
+		return
+	}
+	// Also check completed/failed segments that may no longer be active.
+	if idx, found := b.findDelegationSegment(payload.AgentID); found {
+		if dd := b.segments[idx].delegData; dd != nil {
+			dd.extCurrent = payload.Extension
+			dd.extMax = payload.MaxExtensions
+			b.markDelegationDirty(idx)
+		}
+	}
 }
 
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {

@@ -19,8 +19,6 @@ type statusState struct {
 	promptUsed     int
 	contextBudget  int
 	oneshotPhase   string
-	extCurrent     int
-	extMax         int
 }
 
 func (s statusState) view(width int) string {
@@ -65,13 +63,7 @@ func (s statusState) view(width int) string {
 		parts = append(parts, label+val)
 	}
 
-	// Segment 7: ext (delegation extension counter — always visible)
-	extStr := fmt.Sprintf("%d/%d", s.extCurrent, s.extMax)
-	extLabel := s.styles.FgMute.Render("ext ")
-	extVal := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(extStr)
-	parts = append(parts, extLabel+extVal)
-
-	// Segment 8: transient action hints (very end)
+	// Segment 7: transient action hints (very end)
 	if s.approvalActive {
 		parts = append(parts, s.styles.KeyChip.Render("y/a/n")+" approve")
 		parts = append(parts, s.styles.KeyChip.Render("tab")+" move")

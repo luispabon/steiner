@@ -36,16 +36,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.content.AppendEvent(event)
 	}
 
-	// Delegation extension events update the status bar counter regardless of scope.
-	// They arrive on the unscoped parent sink and must not be filtered by AgentID.
-	if event.Type == output.EventTypeDelegationExtension {
-		if payload, ok := event.Payload.(output.DelegationExtensionEvent); ok {
-			m.status.extCurrent = payload.Extension
-			m.status.extMax = payload.MaxExtensions
-		}
-		return nil
-	}
-
 	// Sub-agent events update delegation transcript segments only.
 	// They must not overwrite the main agent's sidebar, status bar,
 	// or activity state.
