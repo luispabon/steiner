@@ -448,7 +448,7 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 		parts = append(parts, b.styles.FgDim.Render(ctx))
 	}
 	if dd.extMax > 0 {
-		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extensions: %d/%d", dd.extCurrent, dd.extMax)))
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extension: %d of %d", dd.extCurrent, dd.extMax)))
 	}
 	return parts
 }

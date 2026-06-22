@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	delegationTranscriptLimit = 100
+	delegationTranscriptLimit     = 100
+	defaultDelegationExtensionMax = 5
 )
 
 func (b *contentBuffer) appendDelegationEvent(event output.Event) {
@@ -389,6 +390,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 			baselineTurnCount:     baselineTurns,
 			baselineToolCallCount: baselineToolCalls,
 			baselineTokenCount:    baselineTokens,
+			extMax:                defaultDelegationExtensionMax,
 		},
 		renderDirty: true,
 	})
@@ -419,6 +421,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 			parentArgs:      summary,
 			status:          "active",
 			collapsed:       true,
+			extMax:          defaultDelegationExtensionMax,
 		},
 		renderDirty: true,
 	})
@@ -467,6 +470,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		dd.startTime = nanoNow()
 		dd.status = "active"
 		dd.collapsed = true
+		dd.extMax = defaultDelegationExtensionMax
 		b.activeDelegations[payload.AgentID] = idx
 		b.markDelegationDirty(idx)
 		return
@@ -482,6 +486,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 			startTime:       nanoNow(),
 			status:          "active",
 			collapsed:       true,
+			extMax:          defaultDelegationExtensionMax,
 		},
 		renderDirty: true,
 	})

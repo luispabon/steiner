@@ -2894,12 +2894,103 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	))
 	buffer.ToggleLastDelegationOutput()
 
-	rendered := stripANSI(buffer.String(100))
+	rendered := stripANSI(buffer.String(120))
 	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded active delegation render missing %q:\n%s", want, rendered)
 		}
 	}
+}
+
+func TestDelegationExtensionCounter(t *testing.T) {
+	t.Run("newly started delegation shows initial capacity", func(t *testing.T) {
+		buffer := &contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        theme.BuildStyles(theme.AccentAmber),
+		}
+
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+		buffer.ToggleLastDelegationOutput()
+
+		rendered := stripANSI(buffer.String(100))
+		if !strings.Contains(rendered, "Extension: 0 of 5") {
+			t.Fatalf("expanded delegation render missing initial extension capacity:\n%s", rendered)
+		}
+	})
+
+	t.Run("extension events update same segment without raw status line", func(t *testing.T) {
+		buffer := &contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        theme.BuildStyles(theme.AccentAmber),
+		}
+
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 1, 5))
+		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 2, 5))
+		buffer.ToggleLastDelegationOutput()
+
+		if len(buffer.segments) != 1 {
+			t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+		}
+		dd := buffer.segments[0].delegData
+		if dd == nil {
+			t.Fatal("delegData = nil, want delegation state")
+		}
+		if dd.extCurrent != 2 || dd.extMax != 5 {
+			t.Fatalf("extension state = %d of %d, want 2 of 5", dd.extCurrent, dd.extMax)
+		}
+
+		rendered := stripANSI(buffer.String(100))
+		if !strings.Contains(rendered, "Extension: 2 of 5") {
+			t.Fatalf("expanded delegation render missing updated extension count:\n%s", rendered)
+		}
+		for _, unexpected := range []string{"Extension: 1 of 5", "status · delegation_extension", "delegation_extension"} {
+			if strings.Contains(rendered, unexpected) {
+				t.Fatalf("expanded delegation render contains unexpected %q:\n%s", unexpected, rendered)
+			}
+		}
+	})
+
+	t.Run("extension appears after context", func(t *testing.T) {
+		buffer := &contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        theme.BuildStyles(theme.AccentAmber),
+		}
+
+		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
+		buffer.AppendEvent(output.WithAgentScope(
+			output.NewContextTokenBudgetEvent("", 1, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
+			"agent-1",
+		))
+		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 1, 5))
+		buffer.ToggleLastDelegationOutput()
+
+		rendered := stripANSI(buffer.String(100))
+		ctxIndex := strings.Index(rendered, "Ctx: 1%")
+		extIndex := strings.Index(rendered, "Extension: 1 of 5")
+		if ctxIndex < 0 || extIndex < 0 || extIndex < ctxIndex {
+			t.Fatalf("extension footer should appear after context:\n%s", rendered)
+		}
+	})
+
+	t.Run("unknown agent extension is ignored", func(t *testing.T) {
+		buffer := &contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        theme.BuildStyles(theme.AccentAmber),
+		}
+
+		buffer.AppendEvent(output.NewDelegationExtensionEvent("missing-agent", 1, 5))
+
+		if len(buffer.segments) != 0 {
+			t.Fatalf("segments count = %d, want 0", len(buffer.segments))
+		}
+	})
 }
 
 func TestBuildMutateLinesRendersOperations(t *testing.T) {
