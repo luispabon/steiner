@@ -85,6 +85,27 @@ func TestAccentPresets(t *testing.T) {
 	}
 }
 
+func TestNewAccentPresetsAreOklchDerived(t *testing.T) {
+	// The six presets added for #246 must be OklchToHex-derived at L=0.74, C=0.16
+	// (per the plan's "derive, don't hand-pick" constraint). The original seven
+	// are intentionally hand-tuned brand accents and are not checked here.
+	derived := map[string]float64{
+		"coral":  20,
+		"gold":   75,
+		"green":  150,
+		"teal":   195,
+		"blue":   245,
+		"indigo": 285,
+	}
+	for name, hue := range derived {
+		want := OklchToHex(0.74, 0.16, hue)
+		if got := AccentPresets[name]; got != want {
+			t.Errorf("AccentPresets[%q] = %q, want %q (OklchToHex(0.74, 0.16, %g))",
+				name, got, want, hue)
+		}
+	}
+}
+
 func TestHexToRGB(t *testing.T) {
 	tests := []struct {
 		name  string
