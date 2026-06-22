@@ -195,25 +195,16 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeySpace {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	}
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.replaceComposerToken('/', "")
 		m.slashOverlay = m.slashOverlay.Close()
 	case tea.KeyEnter, tea.KeyTab:
 		if selected := m.slashOverlay.SelectedItem(); selected != nil {
-			m.replaceComposerToken('/', selected.command+" ")
-			m.slashOverlay = m.slashOverlay.Close()
-			switch selected.command {
-			case "/implement", "/review":
-				m.planPicker = m.planPicker.Open(selected.command)
-				m.planPicker.width = m.width
-				m.planPicker.height = m.height
-			case "/model":
-				m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
-				m.modelPicker.width = m.width
-				m.modelPicker.height = m.height
-				m.historyIdx = 0
-			}
+			m = m.completeSlashOverlayCommand(selected.command)
 		}
 	case tea.KeyUp, tea.KeyDown:
 		var cmd tea.Cmd
@@ -222,32 +213,67 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		val := m.input.Value()
-		switch {
-		case strings.TrimRight(val, " ") == "/model" && strings.HasSuffix(val, " "):
-			m.slashOverlay = m.slashOverlay.Close()
-			m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
-			m.modelPicker.width = m.width
-			m.modelPicker.height = m.height
-			m.historyIdx = 0
-			return m, cmd
-		case strings.TrimRight(val, " ") == "/implement" && strings.HasSuffix(val, " "):
-			m.slashOverlay = m.slashOverlay.Close()
-			m.planPicker = m.planPicker.Open("/implement")
-			m.planPicker.width = m.width
-			m.planPicker.height = m.height
-			return m, cmd
-		case strings.TrimRight(val, " ") == "/review" && strings.HasSuffix(val, " "):
-			m.slashOverlay = m.slashOverlay.Close()
-			m.planPicker = m.planPicker.Open("/review")
-			m.planPicker.width = m.width
-			m.planPicker.height = m.height
-			return m, cmd
+		if next, ok := m.openPickerForCompletedSlashCommand(m.input.Value()); ok {
+			return next, cmd
 		}
 		m.syncSlashOverlayWithComposer()
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m Model) completeSlashOverlayCommand(command string) Model {
+	m.replaceComposerToken('/', command+" ")
+	m.slashOverlay = m.slashOverlay.Close()
+	switch command {
+	case "/implement", "/review":
+		m.planPicker = m.planPicker.Open(command)
+		m.planPicker.width = m.width
+		m.planPicker.height = m.height
+	case "/model":
+		m = m.openModelPickerFromSlashCommand()
+	case "/accent":
+		m = m.openAccentPickerFromSlashCommand()
+	}
+	return m
+}
+
+func (m Model) openPickerForCompletedSlashCommand(value string) (Model, bool) {
+	if !strings.HasSuffix(value, " ") {
+		return m, false
+	}
+	command := strings.TrimRight(value, " ")
+	switch command {
+	case "/model":
+		m.slashOverlay = m.slashOverlay.Close()
+		return m.openModelPickerFromSlashCommand(), true
+	case "/accent":
+		m.slashOverlay = m.slashOverlay.Close()
+		return m.openAccentPickerFromSlashCommand(), true
+	case "/implement", "/review":
+		m.slashOverlay = m.slashOverlay.Close()
+		m.planPicker = m.planPicker.Open(command)
+		m.planPicker.width = m.width
+		m.planPicker.height = m.height
+		return m, true
+	}
+	return m, false
+}
+
+func (m Model) openModelPickerFromSlashCommand() Model {
+	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+	m.historyIdx = 0
+	return m
+}
+
+func (m Model) openAccentPickerFromSlashCommand() Model {
+	m.accentPicker = m.accentPicker.Open(m.accentPreset)
+	m.accentPicker.width = m.width
+	m.accentPicker.height = m.height
+	m.historyIdx = 0
+	return m
 }
 
 func (m *Model) syncSlashOverlayWithComposer() {

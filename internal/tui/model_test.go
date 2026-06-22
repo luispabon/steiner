@@ -2803,6 +2803,75 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 	}
 }
 
+func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{name: "rune space", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}},
+		{name: "key space", key: tea.KeyMsg{Type: tea.KeySpace}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			for _, r := range "accent" {
+				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			}
+			if !m.slashOverlay.IsOpen() {
+				t.Fatal("expected slash overlay to stay open after /accent")
+			}
+
+			m = updateModel(t, m, tt.key)
+			if !m.accentPicker.IsOpen() {
+				t.Fatal("expected accent picker to open after '/accent '")
+			}
+			if m.slashOverlay.IsOpen() {
+				t.Fatal("expected slash overlay to close after triggering accent picker")
+			}
+			if got := m.input.Value(); got != "/accent " {
+				t.Fatalf("input value = %q, want /accent ", got)
+			}
+		})
+	}
+}
+
+func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{name: "Tab", key: tea.KeyMsg{Type: tea.KeyTab}},
+		{name: "Enter", key: tea.KeyMsg{Type: tea.KeyEnter}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			for _, r := range "accent" {
+				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			}
+			selected := m.slashOverlay.SelectedItem()
+			if selected == nil || selected.command != "/accent" {
+				t.Fatalf("selected slash item = %#v, want /accent", selected)
+			}
+
+			m = updateModel(t, m, tt.key)
+			if !m.accentPicker.IsOpen() {
+				t.Fatal("expected accent picker to open after selecting /accent")
+			}
+			if m.slashOverlay.IsOpen() {
+				t.Fatal("expected slash overlay to close after selecting /accent")
+			}
+			if got := m.input.Value(); got != "/accent " {
+				t.Fatalf("input value = %q, want /accent ", got)
+			}
+		})
+	}
+}
+
 func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
