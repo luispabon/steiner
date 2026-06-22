@@ -19,6 +19,8 @@ type statusState struct {
 	promptUsed     int
 	contextBudget  int
 	oneshotPhase   string
+	extCurrent     int
+	extMax         int
 }
 
 func (s statusState) view(width int) string {
@@ -60,6 +62,14 @@ func (s statusState) view(width int) string {
 		ctxStr := fmt.Sprintf("%d/%d · %d%%", s.promptUsed, s.contextBudget, pct)
 		label := s.styles.FgMute.Render("ctx ")
 		val := lipgloss.NewStyle().Foreground(ctxColor).Render(ctxStr)
+		parts = append(parts, label+val)
+	}
+
+	// Segment 7: ext (delegation extension counter)
+	if s.extMax > 0 {
+		extStr := fmt.Sprintf("%d/%d", s.extCurrent, s.extMax)
+		label := s.styles.FgMute.Render("ext ")
+		val := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(extStr)
 		parts = append(parts, label+val)
 	}
 

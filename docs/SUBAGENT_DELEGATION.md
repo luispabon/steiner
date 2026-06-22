@@ -248,7 +248,7 @@ Events emitted during delegation (via `output.EventSink`):
 | `delegation_complete`  | After summarisation, on success | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
 | `delegation_failed`    | On initial child run error      | `agent_id`, `task_preview`, `error`                         |
 
-The TUI renders these with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations.
+The TUI renders delegation lifecycle events with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations. Extension events update an always-visible counter in the status bar.
 
 ### System prompt integration
 
