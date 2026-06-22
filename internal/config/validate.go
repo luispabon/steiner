@@ -21,6 +21,7 @@ func validate(cfg Config) error {
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
 	validateSearchConfig(&problems, cfg.Search)
+	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)
 
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid config: %s", strings.Join(problems, "; "))
@@ -85,5 +86,11 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 		if timeout.IsZero() {
 			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be greater than zero", name))
 		}
+	}
+}
+
+func validateDesktopNotificationsConfig(problems *[]string, cfg desktopNotificationsConfig) {
+	if cfg.Duration < 0 {
+		*problems = append(*problems, "desktop_notifications.duration must be >= 0")
 	}
 }
