@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -2750,6 +2751,97 @@ func writeRepoFile(t *testing.T, repo, name, content string) {
 	path := filepath.Join(repo, name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+// fakeNotifier records Notify calls for test assertions.
+type fakeNotifier struct {
+	mu     sync.Mutex
+	calls  []notify.Notification
+	avail  bool
+	reason string
+}
+
+func (f *fakeNotifier) Notify(_ context.Context, n notify.Notification) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, n)
+	return nil
+}
+
+func (f *fakeNotifier) Availability() (bool, string) {
+	return f.avail, f.reason
+}
+
+func (f *fakeNotifier) snapshot() []notify.Notification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]notify.Notification, len(f.calls))
+	copy(out, f.calls)
+	return out
+}
+
+func TestNotifyApprovalEventFiresNotification(t *testing.T) {
+	fn := &fakeNotifier{avail: true}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
+	m.sidebar.branch = "main"
+
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "approve", "some preview"))
+
+	time.Sleep(20 * time.Millisecond)
+
+	calls := fn.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("got %d Notify calls, want 1", len(calls))
+	}
+	if calls[0].Project != "myproject" {
+		t.Errorf("Project = %q, want %q", calls[0].Project, "myproject")
+	}
+	if calls[0].Branch != "main" {
+		t.Errorf("Branch = %q, want %q", calls[0].Branch, "main")
+	}
+	if !strings.Contains(calls[0].Reason, "bash") {
+		t.Errorf("Reason = %q, want it to contain %q", calls[0].Reason, "bash")
+	}
+}
+
+func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
+	fn := &fakeNotifier{avail: true}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
+	m.sidebar.branch = "main"
+
+	_ = m.applyEvent(output.NewWorkflowHandoffRequestedEvent("next", "target", "message"))
+
+	time.Sleep(20 * time.Millisecond)
+
+	calls := fn.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("got %d Notify calls, want 1", len(calls))
+	}
+	if calls[0].Reason != "workflow handoff requested" {
+		t.Errorf("Reason = %q, want %q", calls[0].Reason, "workflow handoff requested")
+	}
+}
+
+func TestNotifyNilNotifierIsSafe(_ *testing.T) {
+	m := newModel(Config{WorkingDir: "/home/user/myproject"}, nil)
+	// must not panic
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "approve", "preview"))
+}
+
+func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
+	fn := &fakeNotifier{avail: false, reason: "no daemon found"}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
+
+	found := false
+	for _, seg := range m.content.segments {
+		if strings.Contains(seg.text, "desktop notifications: no daemon found") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected startup warning in content buffer, none found")
 	}
 }
 

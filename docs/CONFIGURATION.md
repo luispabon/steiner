@@ -40,6 +40,7 @@ Key environment variables:
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
 | `oneshot`           | block    | empty       | Per-phase model aliases and closeout settings for autonomous oneshot runs. Unset phase aliases fall back to `default_model` at runtime, not during load. |
 | `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
+| `desktop_notifications` | block | see below | Desktop notification settings for run completion and events. |
 
 ## `advisor` block
 
@@ -84,6 +85,31 @@ oneshot:
     implement: coder-model
     review: reviewer-model
   auto_pr: false
+```
+
+---
+
+## `desktop_notifications` block
+
+Controls desktop notification behavior for run completion and events. All fields are optional and default to disabled (no notifications).
+
+| Field      | Type | Default | Description |
+|------------|------|---------|-------------|
+| `enabled`  | bool | `false` | Master switch. Set to `true` to enable desktop notifications. |
+| `duration` | int  | `0`     | Notification display duration in seconds. Set to `0` for persistent/sticky notifications that do not auto-dismiss. Set to a positive integer to auto-dismiss after that many seconds. Must be >= 0. |
+
+```yaml
+desktop_notifications:
+  enabled: true
+  duration: 5
+```
+
+Setting `duration: 0` creates permanent notifications that the user must manually dismiss:
+
+```yaml
+desktop_notifications:
+  enabled: true
+  duration: 0
 ```
 
 ---

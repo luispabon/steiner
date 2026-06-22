@@ -57,6 +57,15 @@ func applyOneShotPatch(dst *oneshotConfig, patch *oneshotPatch) {
 	}
 }
 
+func applyDesktopNotificationsPatch(dst *desktopNotificationsConfig, patch *desktopNotificationsPatch) {
+	if patch.Enabled != nil {
+		dst.Enabled = *patch.Enabled
+	}
+	if patch.Duration != nil {
+		dst.Duration = *patch.Duration
+	}
+}
+
 func applyToolPatch(dst *ToolConfig, patch *toolPatch) {
 	if patch.Exec != nil {
 		dst.Exec = *patch.Exec

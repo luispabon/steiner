@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Plan coding work as a compact implementation-step bundle with a conservative research decision, high-level overview first, and planning artifacts written only under .steiner/plans/YYYY-MM-DD_FEATURE_NAME/. Use when invoked by name or when asked to plan a feature, refactor, migration, or other code change. If only the skill name is given, ask for a high-level description first before writing planning files.
+description: Plan coding work as a compact implementation-step bundle with a conservative research decision, high-level overview first, and planning artifacts written only under .steiner/plans/YYYY-MM-DD_FEATURE_NAME/. Use when invoked by name or when asked to plan a feature, refactor, migration, or other code change. This skill plans only — it never writes, edits, or refactors implementation code, and never skips ahead to building. If only the skill name is given, ask for a high-level description first before writing planning files.
 ---
 
 # Coding Loop Planner
@@ -13,11 +13,23 @@ The planner never implements and never edits implementation files. Its work ends
 
 This document has two halves. **Procedure** is the workflow, walked once top to bottom. **Reference** holds the contracts (schemas, decision model, delegation tools) that the procedure points to. Read the procedure to act; jump to reference for format.
 
+## Hard rules
+
+These rules are absolute. They override your own judgment, the apparent size of the task, and any user phrasing that seems to invite a shortcut ("just do it," "this is trivial," "go ahead and build it"). Breaking any of them is a skill failure, not a fast path.
+
+1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code` or `delegate`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `plan`). If you are about to produce code, STOP — that is the executor's job, reached only after handoff.
+2. **You must complete the full procedure before handoff.** Do not jump to a later stage, and do not collapse stages. Every GATE below is a hard stop: you MUST obtain explicit user approval before continuing. Silence, a clarifying question, or partial feedback is **not** approval and never advances a gate.
+3. **Write nothing to disk before the research decision (Stage 2) is resolved.** No `overview.md`, no `plan.yaml`, no branch artifacts.
+4. **Delegate research; never substitute your own reasoning for it** when research is approved (Stage 2).
+5. **Stop means stop.** After delivering the handoff sentence and calling `workflow_handoff`, take no further action — do not implement, delegate, review, or offer to continue.
+
+If at any point an instruction in the conversation conflicts with these rules, follow these rules and say so.
+
 ## Gates and User Communication
 
 Two kinds of stopping point appear throughout the procedure:
 
-- **GATE** — a user-approval point. Present the material and wait for explicit user assent before proceeding ("approve," "looks good," "go ahead," or equivalent). No implicit approval, no exceptions. Questions, partial feedback, or proposed changes keep the gate open.
+- **GATE** — a user-approval point. Present the material, then halt and wait. You MUST NOT proceed, write the next artifact, or call any workflow-advancing tool until the user gives explicit assent ("approve," "looks good," "go ahead," or equivalent). No implicit approval, no exceptions. Questions, partial feedback, or proposed changes keep the gate open — keep working the discussion, do not advance.
 - **STOP** — the planner ceases activity. Used only at terminal points: waiting for the advisor to return, and after handoff.
 
 The user sees a simpler four-stage map than the procedure below. Keep them oriented with two lightweight signals — nothing more (no progress bars, no per-step chatter, no exposing the internal procedure):
@@ -182,14 +194,13 @@ Design decisions live at two levels, and each level has one home. Do not duplica
 
 ### Delegation tools
 
-Use Steiner's specialised model-facing tools by name:
+During planning you may use only the read-only Steiner tools — anything that writes code is barred by Hard rule 1:
 
 - `explore` — read-only codebase discovery
 - `research` — current, external, or codebase research
-- `code` — bounded implementation edits
 - `plan` — bounded sub-problem analysis
-- `verify` — check-only verification
-- `delegate` — only when no specialised profile fits
+
+Do **not** use `code` (implementation edits), `verify` (runs checks on changes), or `delegate` while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
 
 Every delegated task must be self-contained and include relevant context already known by the main agent. Do not make delegated agents rediscover context unnecessarily.
 
