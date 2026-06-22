@@ -46,7 +46,7 @@ You MUST write both documents to the planning folder named in the seed conversat
 
 - `## Request` — the task as understood
 - `## Overview` — the approach in prose
-- `## Key Decisions` — decisions made or assumed, with brief rationale
+- `## Key Decisions` — decisions made or assumed, each with a stable ID (`D1`, `D2`, …) and brief rationale; steps reference these IDs
 - `## Tradeoffs` — alternatives considered and why rejected or deferred
 - `## Scope Boundaries` — what is in scope and what is out
 - `## Verification Strategy` — the commands discovered above
@@ -59,19 +59,21 @@ steps:
   - id: step-1
     title: ...
     scope: ...
+    decisions: []
+    approach: ...
     files: []
     constraints: []
     acceptance: []
     verification: []
 ```
 
-Each step requires `id`, `title`, `scope`, `files`, `constraints`, `acceptance`, and `verification`. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `plan`, `verify`, `delegate`), and `no_delegate` for steps too small to delegate.
+Each step requires `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`. `decisions` lists the Key Decision IDs that bind the step (empty only when none apply); `approach` is the concrete *how* — names, signatures, file locations, data shapes, and edge/error handling — written so the executor makes no design judgment calls, and it states any interface a later step consumes. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `plan`, `verify`, `delegate`), and `no_delegate` for steps too small to delegate.
 
 ### Step Sizing
 
 Group steps by logical deliverable, not by mechanical operation. Serial execution is the default.
 
-- **Minimum:** if both the *what* and the *how* fit in under three sentences, the step is too small — merge it into an adjacent step.
+- **Minimum:** if both the *what* (`scope`) and the *how* (`approach`) fit in under three sentences, the step is too small — merge it into an adjacent step.
 - **Maximum:** one logical deliverable a small model can hold in context and execute without judgment calls.
 - Mark residual small steps that cannot merge with `no_delegate: true`.
 
