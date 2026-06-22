@@ -128,5 +128,5 @@ func focusTerminal() {
 	if argv == nil {
 		return
 	}
-	_ = exec.Command(argv[0], argv[1:]...).Run()
+	_ = exec.CommandContext(context.Background(), argv[0], argv[1:]...).Run()
 }

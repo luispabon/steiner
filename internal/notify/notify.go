@@ -69,21 +69,10 @@ func notificationBody(n Notification) string {
 // noopDriver is a stub driver used when notifications are disabled.
 type noopDriver struct{}
 
-func (d *noopDriver) notify(ctx context.Context, n Notification, dur time.Duration) error {
+func (d *noopDriver) notify(_ context.Context, _ Notification, _ time.Duration) error {
 	return nil
 }
 
 func (d *noopDriver) available() (bool, string) {
 	return false, "desktop notifications are disabled"
-}
-
-// unsupportedDriver is a stub driver for platforms that do not support desktop notifications.
-type unsupportedDriver struct{}
-
-func (d *unsupportedDriver) notify(ctx context.Context, n Notification, dur time.Duration) error {
-	return nil
-}
-
-func (d *unsupportedDriver) available() (bool, string) {
-	return false, "desktop notifications are not supported on this platform"
 }

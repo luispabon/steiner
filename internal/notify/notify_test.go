@@ -17,7 +17,7 @@ type fakeDriver struct {
 	availMsg string
 }
 
-func (d *fakeDriver) notify(ctx context.Context, n Notification, dur time.Duration) error {
+func (d *fakeDriver) notify(_ context.Context, n Notification, dur time.Duration) error {
 	d.notifyCalls = append(d.notifyCalls, struct {
 		n Notification
 		d time.Duration

@@ -2823,7 +2823,7 @@ func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
 	}
 }
 
-func TestNotifyNilNotifierIsSafe(t *testing.T) {
+func TestNotifyNilNotifierIsSafe(_ *testing.T) {
 	m := newModel(Config{WorkingDir: "/home/user/myproject"}, nil)
 	// must not panic
 	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "approve", "preview"))
