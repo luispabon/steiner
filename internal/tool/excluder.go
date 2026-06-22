@@ -12,6 +12,7 @@ var builtinExcludeEntries = []string{
 	"node_modules",
 	".steiner",
 	".claude",
+	".git-worktrees",
 	"vendor",
 	".cache",
 	"dist",

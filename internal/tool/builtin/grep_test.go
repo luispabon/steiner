@@ -325,6 +325,40 @@ func TestGrepTool_Exclusions(t *testing.T) {
 			t.Errorf("output contains builtin-excluded node_modules path, got: %s", result.Output)
 		}
 	})
+
+	t.Run("explicit excluded root is not searched", func(t *testing.T) {
+		steinerLog := filepath.Join(tmpDir, ".steiner", "steiner.log")
+		if err := os.MkdirAll(filepath.Dir(steinerLog), 0o755); err != nil {
+			t.Fatalf("mkdir .steiner: %v", err)
+		}
+		if err := os.WriteFile(steinerLog, []byte("EventTypeDelegationExtension\n"), 0o644); err != nil {
+			t.Fatalf("write .steiner log: %v", err)
+		}
+
+		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+		excluder := tool.NewPathExcluder(nil, nil)
+		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
+		toolDef := NewGrepTool(env)
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        ".steiner",
+			"pattern":     "EventTypeDelegationExtension",
+			"output_mode": "content",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.Matches != 0 {
+			t.Fatalf("Matches = %d, want 0 for excluded root", result.Matches)
+		}
+		if strings.Contains(result.Output, "EventTypeDelegationExtension") {
+			t.Fatalf("output searched excluded root: %s", result.Output)
+		}
+	})
 }
 
 func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {

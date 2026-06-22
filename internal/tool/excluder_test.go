@@ -13,6 +13,7 @@ func TestPathExcluder_Builtins(t *testing.T) {
 		{path: "/project/node_modules/foo/index.js", want: true},
 		{path: "/project/.steiner/config.yaml", want: true},
 		{path: "/project/.claude/config.yaml", want: true},
+		{path: "/project/.git-worktrees/step-1/main.go", want: true},
 		{path: "/project/vendor/foo/bar.go", want: true},
 		{path: "/project/.cache/huggingface", want: true},
 		{path: "/project/dist/bundle.js", want: true},
