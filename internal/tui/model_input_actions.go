@@ -257,20 +257,14 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 	m = m.updateSkillState(skillName, true)
 	m.syncSidebar()
 
-	// If args are provided, submit them as a prompt; otherwise just enable the skill
+	// If args are provided, submit them as a prompt; otherwise submit the
+	// bare skill invocation so the agent acts on it immediately.
+	displayText := "/" + skillName
 	if args != "" {
-		displayText := "/" + skillName
-		if args != "" {
-			displayText += " " + args
-		}
+		displayText += " " + args
 		return m.executeSubmitAction(displayText, args, displayText)
 	}
-
-	m.input.Reset()
-	m.historyIdx = 0
-	m.syncSidebar()
-	m.syncViewport()
-	return m, nil
+	return m.executeSubmitAction(displayText, displayText, displayText)
 }
 
 func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {

@@ -2,6 +2,8 @@ package tui
 
 import (
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
@@ -130,6 +132,52 @@ func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("item[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestNoArgSkillInvocationEnablesAndSubmits(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		SkillNames: []string{"myskill"},
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/myskill")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.enabledSkills["myskill"] {
+		t.Fatal("enabledSkills[myskill] = false, want true after no-arg invocation")
+	}
+	if ctrl.countSubmitPrompt() != 1 {
+		t.Fatalf("SubmitPrompt count = %d, want 1 (skill must submit immediately)", ctrl.countSubmitPrompt())
+	}
+	prompts := ctrl.submitPrompts()
+	if prompts[0].Text != "/myskill" {
+		t.Fatalf("submitted text = %q, want %q", prompts[0].Text, "/myskill")
+	}
+}
+
+func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		SkillNames: []string{"myskill"},
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/myskill do the thing")
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.enabledSkills["myskill"] {
+		t.Fatal("enabledSkills[myskill] = false, want true after args invocation")
+	}
+	if ctrl.countSubmitPrompt() != 1 {
+		t.Fatalf("SubmitPrompt count = %d, want 1", ctrl.countSubmitPrompt())
+	}
+	prompts := ctrl.submitPrompts()
+	if prompts[0].Text != "do the thing" {
+		t.Fatalf("submitted text = %q, want %q", prompts[0].Text, "do the thing")
 	}
 }
 
