@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/luispabon/steiner/internal/agent"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"

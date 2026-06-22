@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/luispabon/steiner/internal/agent"
 
 	"github.com/luispabon/steiner/internal/interactive"

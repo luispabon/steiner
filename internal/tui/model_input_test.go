@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/luispabon/steiner/internal/agent"
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
@@ -39,7 +41,7 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 
 	m := Model{
 		oneshotRunning: true,
-		oneshotSteerCh: make(chan string, 4),
+		oneshotSteerCh: make(chan agent.SteerMessage, 4),
 		input:          input,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
@@ -57,8 +59,8 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 	}
 	select {
 	case msg := <-m.oneshotSteerCh:
-		if msg != "hello" {
-			t.Fatalf("steer channel got %q, want %q", msg, "hello")
+		if msg.Text != "hello" {
+			t.Fatalf("steer channel got %+v, want {hello}", msg)
 		}
 	default:
 		t.Fatal("steer channel empty, expected hello")

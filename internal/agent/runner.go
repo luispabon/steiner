@@ -294,6 +294,8 @@ func handleTransientProviderRetry(ctx context.Context, events output.EventSink, 
 
 var runnerRetrySleepFn = runnerRetrySleepDefault
 
+var imageMarkerRe = regexp.MustCompile(`\[Image (\d+)\]`)
+
 func runnerRetrySleep(ctx context.Context, delay time.Duration) error {
 	return runnerRetrySleepFn(ctx, delay)
 }
@@ -335,10 +337,9 @@ func mergeSteers(steers []SteerMessage) Message {
 // renumberMarkers finds [Image N] markers in text and adds offset to N.
 // The marker format is [Image N] where N is 1-indexed (matching internal/tui/image_markers.go).
 func renumberMarkers(text string, offset int) string {
-	re := regexp.MustCompile(`\[Image (\d+)\]`)
-	return re.ReplaceAllStringFunc(text, func(match string) string {
+	return imageMarkerRe.ReplaceAllStringFunc(text, func(match string) string {
 		var n int
-		fmt.Sscanf(match, "[Image %d]", &n)
+		_, _ = fmt.Sscanf(match, "[Image %d]", &n)
 		return fmt.Sprintf("[Image %d]", n+offset)
 	})
 }
