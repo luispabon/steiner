@@ -179,6 +179,16 @@ func runtimeHTTPClient() *http.Client {
 	// applied in NewOpenAICompat, which clones the transport and clears
 	// ResponseHeaderTimeout so the user-supplied timeout bounds the whole
 	// request (headers + body + streaming response).
+	//
+	// ForceAttemptHTTP2 must be true to prevent the cloned transport from
+	// losing HTTP/2 support. When Clone() calls onceSetNextProtoDefaults on
+	// the original, a TLSClientConfig is created (with "h2" in NextProtos).
+	// Clone() copies TLSClientConfig but not TLSNextProto (because it was
+	// nil before the defaults ran). The clone then sees a non-nil
+	// TLSClientConfig with ForceAttemptHTTP2=false and conservatively
+	// disables HTTP/2, while TLS still advertises "h2". The result is
+	// "net/http: HTTP/1.x transport connection broken: malformed HTTP
+	// response" when the upstream negotiates h2.
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{
@@ -186,6 +196,7 @@ func runtimeHTTPClient() *http.Client {
 			IdleConnTimeout:       90 * time.Second,
 			MaxConnsPerHost:       1,
 			ResponseHeaderTimeout: 30 * time.Second,
+			ForceAttemptHTTP2:     true,
 		},
 	}
 }
