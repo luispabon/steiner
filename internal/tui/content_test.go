@@ -2915,7 +2915,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		buffer.ToggleLastDelegationOutput()
 
 		rendered := stripANSI(buffer.String(100))
-		if !strings.Contains(rendered, "Extension: 0 of 5") {
+		if !strings.Contains(rendered, "Extension: 0/5") {
 			t.Fatalf("expanded delegation render missing initial extension capacity:\n%s", rendered)
 		}
 	})
@@ -2945,10 +2945,10 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		}
 
 		rendered := stripANSI(buffer.String(100))
-		if !strings.Contains(rendered, "Extension: 2 of 5") {
+		if !strings.Contains(rendered, "Extension: 2/5") {
 			t.Fatalf("expanded delegation render missing updated extension count:\n%s", rendered)
 		}
-		for _, unexpected := range []string{"Extension: 1 of 5", "status · delegation_extension", "delegation_extension"} {
+		for _, unexpected := range []string{"Extension: 1/5", "status · delegation_extension", "delegation_extension"} {
 			if strings.Contains(rendered, unexpected) {
 				t.Fatalf("expanded delegation render contains unexpected %q:\n%s", unexpected, rendered)
 			}
@@ -2972,7 +2972,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 
 		rendered := stripANSI(buffer.String(100))
 		ctxIndex := strings.Index(rendered, "Ctx: 1%")
-		extIndex := strings.Index(rendered, "Extension: 1 of 5")
+		extIndex := strings.Index(rendered, "Extension: 1/5")
 		if ctxIndex < 0 || extIndex < 0 || extIndex < ctxIndex {
 			t.Fatalf("extension footer should appear after context:\n%s", rendered)
 		}
