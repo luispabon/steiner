@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
@@ -103,7 +104,7 @@ func (m Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd)
 }
 
 func (m Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
-	accentHex := theme.AccentPresets[msg.preset]
+	accentHex := resolveAccentPreset(msg.preset, rand.Intn)
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}

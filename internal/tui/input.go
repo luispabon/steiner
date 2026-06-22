@@ -23,6 +23,7 @@ type inputAction struct {
 	requestOneshotResumePicker bool
 	forkSession                bool
 	openModelPicker            bool
+	openAccentPicker           bool
 	invokeSkill                string // skill name for direct invocation
 	invokeSkillArgs            string // optional args to pass with skill invocation
 	launchOneshotTask          string // task for /oneshot <task>

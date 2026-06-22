@@ -154,13 +154,26 @@ var (
 	DelegateThinkingLine = blendHex(Thinking, Bg, 0.30)       // plan
 )
 
-// AccentPresets maps accent preset names to their hex values
+// AccentPresets maps accent preset names to their hex values.
+//
+// The six presets added for #246 (coral, gold, green, teal, blue, indigo) are
+// derived via OklchToHex at L=0.74, C=0.16 and are verified against it in
+// TestNewAccentPresetsAreOklchDerived. The original seven (amber, rose,
+// magenta, violet, cyan, mint, lime) are hand-tuned brand accents kept for
+// visual continuity; their values are not OklchToHex outputs, so they carry no
+// derivation comment.
 var AccentPresets = map[string]string{
-	"amber":   "#E8814B",
-	"rose":    "#E36F8E",
-	"magenta": "#C977D3",
-	"violet":  "#9D8DF1",
-	"cyan":    "#5EC9D6",
-	"mint":    "#6FCFA3",
-	"lime":    "#B6D45F",
+	"amber":   "#E8814B", // hand-tuned brand accent
+	"coral":   "#FF7C80", // OklchToHex(0.74, 0.16, 20)
+	"rose":    "#E36F8E", // hand-tuned brand accent
+	"magenta": "#C977D3", // hand-tuned brand accent
+	"violet":  "#9D8DF1", // hand-tuned brand accent
+	"indigo":  "#A29AFF", // OklchToHex(0.74, 0.16, 285)
+	"blue":    "#3FB3FF", // OklchToHex(0.74, 0.16, 245)
+	"cyan":    "#5EC9D6", // hand-tuned brand accent
+	"teal":    "#00C8CA", // OklchToHex(0.74, 0.16, 195)
+	"mint":    "#6FCFA3", // hand-tuned brand accent
+	"green":   "#51C672", // OklchToHex(0.74, 0.16, 150)
+	"gold":    "#E49900", // OklchToHex(0.74, 0.16, 75)
+	"lime":    "#B6D45F", // hand-tuned brand accent
 }

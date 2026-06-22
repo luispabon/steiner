@@ -124,6 +124,7 @@ type Model struct {
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
 	planPicker                   planPickerOverlay
+	accentPicker                 accentPickerOverlay
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
 	workflowHandoff              workflowHandoffModalState

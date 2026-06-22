@@ -151,7 +151,8 @@ func (m Model) hasOpenOverlay() bool {
 		m.filePicker.IsOpen() ||
 		m.sessionPicker.IsOpen() ||
 		m.oneshotResumePicker.IsOpen() ||
-		m.planPicker.IsOpen()
+		m.planPicker.IsOpen() ||
+		m.accentPicker.IsOpen()
 }
 
 func (m Model) openContextOverlayImmediate() {

@@ -147,6 +147,9 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	if m.planPicker.IsOpen() {
 		base = m.planPicker.PlaceBottomAnchoredAt(base, m.planPicker.View(), offset, xOffset)
 	}
+	if m.accentPicker.IsOpen() {
+		base = m.accentPicker.PlaceBottomAnchoredAt(base, m.accentPicker.View(), offset, xOffset)
+	}
 	return base
 }
 

@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +17,28 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// resolveAccentPreset resolves an accent preset name to its hex color value.
+// If preset is "random", it returns a random preset from AccentPresets.
+// Otherwise, it returns the hex value for the named preset, or "" if not found.
+// randIntn is used for random selection and allows deterministic testing.
+func resolveAccentPreset(preset string, randIntn func(int) int) string {
+	if preset == "random" {
+		// Collect all preset keys in sorted order for deterministic randomness
+		keys := make([]string, 0, len(theme.AccentPresets))
+		for k := range theme.AccentPresets {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		if len(keys) == 0 {
+			return ""
+		}
+		idx := randIntn(len(keys))
+		return theme.AccentPresets[keys[idx]]
+	}
+	return theme.AccentPresets[preset]
+}
+
 func newModel(cfg Config, external <-chan tea.Msg) Model {
 	input := newModelInput()
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
@@ -22,7 +46,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		enabledSkills[name] = false
 	}
 
-	accentHex := theme.AccentPresets[cfg.AccentPreset]
+	accentHex := resolveAccentPreset(cfg.AccentPreset, rand.Intn)
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}
@@ -62,6 +86,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
 	}
 
+	m.status.extMax = 5
 	m.configureModelState(cfg, accentHex)
 	return m
 }
@@ -180,6 +205,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.accentPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
+			next, cmd := m.handleAccentPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m Model) bool { return m.modelPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyMsg) tea.Cmd {
 			next, cmd := m.handleModelPickerKey(msg)
@@ -256,6 +289,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.planPicker = newPlanPickerOverlay(m.styles)
 	m.planPicker.width = m.width
 	m.planPicker.height = m.height
+
+	m.accentPicker = newAccentPickerOverlay(m.styles)
+	m.accentPicker.width = m.width
+	m.accentPicker.height = m.height
 
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width

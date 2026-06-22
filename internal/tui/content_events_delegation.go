@@ -23,6 +23,9 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 		b.handleDelegationComplete(event)
 	case output.EventTypeDelegationFailed:
 		b.handleDelegationFailed(event)
+	case output.EventTypeDelegationExtension:
+		// Suppress inline rendering; extension events are tracked
+		// in the status bar instead.
 	default:
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 	}
