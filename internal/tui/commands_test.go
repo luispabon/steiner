@@ -358,7 +358,7 @@ func TestProjectHelpLines(t *testing.T) {
 		{key: "/compact", desc: "trigger compaction"},
 		{key: "/fork", desc: "fork current conversation into a new session"},
 		{key: "/resume", desc: "load a previous session"},
-		{key: "/accent <preset>", desc: "change accent color"},
+		{key: "/accent [preset]", desc: "change accent color"},
 		{key: "/thinking", desc: "show or hide thinking blocks"},
 		{key: "/exit", desc: "quit steiner"},
 	}
