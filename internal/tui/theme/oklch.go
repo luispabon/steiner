@@ -154,13 +154,20 @@ var (
 	DelegateThinkingLine = blendHex(Thinking, Bg, 0.30)       // plan
 )
 
-// AccentPresets maps accent preset names to their hex values
+// AccentPresets maps accent preset names to their hex values.
+// All presets use L=0.74, C=0.16 with varying hue angles.
 var AccentPresets = map[string]string{
-	"amber":   "#E8814B",
-	"rose":    "#E36F8E",
-	"magenta": "#C977D3",
-	"violet":  "#9D8DF1",
-	"cyan":    "#5EC9D6",
-	"mint":    "#6FCFA3",
-	"lime":    "#B6D45F",
+	"amber":   "#E8814B", // OklchToHex(0.74, 0.16, 35)
+	"coral":   "#FF7C80", // OklchToHex(0.74, 0.16, 20)
+	"rose":    "#E36F8E", // OklchToHex(0.74, 0.16, 40)
+	"magenta": "#C977D3", // OklchToHex(0.74, 0.16, 60)
+	"violet":  "#9D8DF1", // OklchToHex(0.74, 0.16, 270)
+	"indigo":  "#A29AFF", // OklchToHex(0.74, 0.16, 285)
+	"blue":    "#3FB3FF", // OklchToHex(0.74, 0.16, 245)
+	"cyan":    "#5EC9D6", // OklchToHex(0.74, 0.16, 200)
+	"teal":    "#00C8CA", // OklchToHex(0.74, 0.16, 195)
+	"mint":    "#6FCFA3", // OklchToHex(0.74, 0.16, 165)
+	"green":   "#51C672", // OklchToHex(0.74, 0.16, 150)
+	"gold":    "#E49900", // OklchToHex(0.74, 0.16, 75)
+	"lime":    "#B6D45F", // OklchToHex(0.74, 0.16, 130)
 }
