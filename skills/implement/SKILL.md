@@ -67,10 +67,14 @@ Expected step fields:
 - `id`
 - `title`
 - `scope`
+- `decisions`
+- `approach`
 - `files`
 - `constraints`
 - `acceptance`
 - `verification`
+
+`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context.
 
 Optional fields:
 

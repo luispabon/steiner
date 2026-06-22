@@ -67,7 +67,7 @@ Compare these inputs:
 
 Focus on:
 
-- plan and scope adherence
+- plan and scope adherence — including whether each step's implementation honors its `approach` and the Key Decisions cited in its `decisions` list
 - obvious bugs or regressions
 - missing or weak verification
 - correctness against accepted intent
