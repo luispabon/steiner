@@ -40,6 +40,15 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	// They must not overwrite the main agent's sidebar, status bar,
 	// or activity state.
 	if event.Scope.AgentID != "" {
+		// Extension events update the status bar counter but do not
+		// affect content or sidebar state.
+		if event.Type == output.EventTypeDelegationExtension {
+			if payload, ok := event.Payload.(output.DelegationExtensionEvent); ok {
+				m.status.extCurrent = payload.Extension
+				m.status.extMax = payload.MaxExtensions
+			}
+			return nil
+		}
 		var cmds []tea.Cmd
 		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
 			cmds = append(cmds, gitRefreshCmd(m.git))
