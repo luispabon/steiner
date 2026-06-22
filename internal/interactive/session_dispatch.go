@@ -27,7 +27,7 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool
 		go s.submitPrompt(ctx, a.Text, a.Images)
 		return true
 	case SteerPrompt:
-		s.runController.Steer(a.Text)
+		s.runController.Steer(a.Text, a.Images)
 		return true
 	case InterruptActiveRun:
 		s.runController.Interrupt()

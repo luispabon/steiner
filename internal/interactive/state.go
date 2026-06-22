@@ -5,25 +5,29 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// SteerMessage carries a queued steer with its attached images.
+type SteerMessage struct {
+	Text   string
+	Images []agent.ImageBlock
+}
+
 // ActiveRunController manages the cancellation of the currently active model
 // run and steer messaging during an interactive session.
 type ActiveRunController struct {
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	steerCh chan string
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	steers []SteerMessage
 }
 
-// NewActiveRunController creates a new ActiveRunController with an initialized
-// steering channel.
+// NewActiveRunController creates a new ActiveRunController.
 func NewActiveRunController() *ActiveRunController {
-	return &ActiveRunController{
-		steerCh: make(chan string, 1),
-	}
+	return &ActiveRunController{}
 }
 
 // Set records a new cancel function, replacing any existing one.
@@ -33,17 +37,13 @@ func (c *ActiveRunController) Set(cancel context.CancelFunc) {
 	c.cancel = cancel
 }
 
-// Clear releases the current cancel function without calling it, and drains
-// any pending steer message.
+// Clear releases the current cancel function without calling it, and drops
+// any pending steer messages.
 func (c *ActiveRunController) Clear() {
 	c.mu.Lock()
 	c.cancel = nil
+	c.steers = nil
 	c.mu.Unlock()
-	// Drain any pending steer so it doesn't leak to the next run.
-	select {
-	case <-c.steerCh:
-	default:
-	}
 }
 
 // Interrupt calls the current cancel function, if any.
@@ -63,38 +63,20 @@ func (c *ActiveRunController) HasCancel() bool {
 	return c.cancel != nil
 }
 
-// Steer queues a steering message with latest-wins semantics: if the channel
-// is full, drain the old message and send the new one.
-func (c *ActiveRunController) Steer(text string) {
-	select {
-	case c.steerCh <- text:
-	default:
-		// Channel full: drain old, send new (latest-wins)
-		select {
-		case <-c.steerCh:
-		default:
-		}
-		select {
-		case c.steerCh <- text:
-		default:
-		}
-	}
+// Steer queues a steering message with its attached images.
+func (c *ActiveRunController) Steer(text string, images []agent.ImageBlock) {
+	c.mu.Lock()
+	c.steers = append(c.steers, SteerMessage{Text: text, Images: images})
+	c.mu.Unlock()
 }
 
-// Drain returns a pending steer message if one is available, or an empty
-// string.
-func (c *ActiveRunController) Drain() string {
-	select {
-	case text := <-c.steerCh:
-		return text
-	default:
-		return ""
-	}
-}
-
-// SteerCh returns the receive-only steering channel for the runner to consume.
-func (c *ActiveRunController) SteerCh() <-chan string {
-	return c.steerCh
+// DrainSteers returns all pending steer messages and clears the queue.
+func (c *ActiveRunController) DrainSteers() []SteerMessage {
+	c.mu.Lock()
+	steers := c.steers
+	c.steers = nil
+	c.mu.Unlock()
+	return steers
 }
 
 // Skills tracks which skills are enabled during an interactive session and
