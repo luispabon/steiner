@@ -177,6 +177,8 @@ type delegationDisplayState struct {
 	baselineTokenCount    int
 	advisorUse            int
 	advisorMaxUses        int
+	extCurrent            int
+	extMax                int
 }
 
 type contentSegment struct {

@@ -41,21 +41,6 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	}
 }
 
-func TestDelegationExtensionUpdateCounterUnscoped(t *testing.T) {
-	m := newModel(Config{}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-
-	event := output.NewDelegationExtensionEvent("agent-1", 3, 5)
-	m = updateModel(t, m, runtimeEventMsg{Event: event})
-
-	if got, want := m.status.extCurrent, 3; got != want {
-		t.Errorf("status.extCurrent = %d, want %d", got, want)
-	}
-	if got, want := m.status.extMax, 5; got != want {
-		t.Errorf("status.extMax = %d, want %d", got, want)
-	}
-}
-
 func TestRandomAccentResolves(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})

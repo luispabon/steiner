@@ -86,7 +86,6 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
 	}
 
-	m.status.extMax = 5
 	m.configureModelState(cfg, accentHex)
 	return m
 }
