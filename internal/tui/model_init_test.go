@@ -17,7 +17,7 @@ func TestResolveAccentPreset(t *testing.T) {
 		{
 			name:          "random resolves to a member of AccentPresets",
 			preset:        "random",
-			randFn:        func(n int) int { return 0 }, // always pick first
+			randFn:        func(_ int) int { return 0 }, // always pick first
 			wantInPresets: true,
 		},
 		{
@@ -29,25 +29,25 @@ func TestResolveAccentPreset(t *testing.T) {
 		{
 			name:           "known preset returns its hex value",
 			preset:         "amber",
-			randFn:         func(n int) int { return 0 },
+			randFn:         func(_ int) int { return 0 },
 			wantExactValue: "#E8814B",
 		},
 		{
 			name:           "known preset violet",
 			preset:         "violet",
-			randFn:         func(n int) int { return 0 },
+			randFn:         func(_ int) int { return 0 },
 			wantExactValue: "#9D8DF1",
 		},
 		{
 			name:           "unknown preset returns empty string",
 			preset:         "notapreset",
-			randFn:         func(n int) int { return 0 },
+			randFn:         func(_ int) int { return 0 },
 			wantExactValue: "",
 		},
 		{
 			name:           "empty preset returns empty string",
 			preset:         "",
-			randFn:         func(n int) int { return 0 },
+			randFn:         func(_ int) int { return 0 },
 			wantExactValue: "",
 		},
 	}
@@ -80,7 +80,7 @@ func TestResolveAccentPreset(t *testing.T) {
 func TestResolveAccentPresetRandomDeterministic(t *testing.T) {
 	// Test that random selection is deterministic given the same randFn
 	callCount := 0
-	randFn := func(n int) int {
+	randFn := func(_ int) int {
 		callCount++
 		return 0
 	}

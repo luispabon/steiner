@@ -78,7 +78,7 @@ func TestAccentPresets(t *testing.T) {
 		}
 		for i := 1; i < 7; i++ {
 			c := hex[i]
-			if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) {
+			if (c < '0' || c > '9') && (c < 'A' || c > 'F') && (c < 'a' || c > 'f') {
 				t.Errorf("AccentPresets[%q] = %q contains invalid hex character %c", name, hex, c)
 			}
 		}
