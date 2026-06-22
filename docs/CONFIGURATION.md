@@ -507,6 +507,20 @@ context_management:
 
 ---
 
+## TUI preferences
+
+TUI preferences are stored separately from the main config in `~/.config/steiner/prefs.yaml`. They are updated by slash commands in the interactive TUI, not by editing the config YAML.
+
+| Field              | Type   | Default  | Description |
+|--------------------|--------|----------|-------------|
+| `accent`           | string | `amber`  | Accent colour preset for the TUI. Valid values: `amber`, `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`, or `random`. `random` selects a different concrete preset on each startup. |
+| `show_thinking`    | bool   | `true`   | When `true`, model reasoning/thinking tokens are rendered in the TUI transcript. |
+| `sidebar_position` | string | `left`   | Position of the sidebar panel: `left` or `right`. |
+
+Use `/accent` in the TUI to open a colour picker (all 13 presets with colour swatches), or `/accent <preset>` to set directly. Use `/thinking` to toggle thinking display. Use `/sidebar` to move the sidebar.
+
+---
+
 ## `search` block
 
 Configures web search integration.

@@ -310,6 +310,25 @@ launch a second run). See [docs/ONESHOT.md](docs/ONESHOT.md) for the full
 architecture, interactive behaviour, resumption logic, and run manifest
 structure.
 
+### Accent colour
+
+The TUI accent colour can be changed with `/accent`. With no argument it opens a colour picker showing all 13 presets with colour swatches. With a preset name it sets the colour directly:
+
+```
+/accent          # open picker
+/accent violet   # set directly
+```
+
+**Available presets:** `amber` (default), `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`.
+
+Use `random` to pick a different preset on each startup:
+
+```
+/accent random
+```
+
+The selected preset is saved to `~/.config/steiner/prefs.yaml` and restored on next launch. With `random`, the preference is kept as `random` so a new colour is chosen each time.
+
 ### Web search
 
 The `web_search` tool lets the model search the web and return URL, title, and description results. It is **disabled by default** — it only appears in the tool registry when `search.backend` is set in config.
