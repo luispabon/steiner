@@ -124,6 +124,10 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 }
 
 func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayState, event output.Event) bool {
+	if compaction, ok := output.AsContextCompactionEvent(event.Payload); ok {
+		dd.currentOperation = previewDelegationText(delegationCompactionOperation(compaction))
+		return true
+	}
 	payload, ok := output.AsContextBudgetEvent(event.Payload)
 	if !ok {
 		return false
@@ -140,6 +144,16 @@ func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayS
 		dd.contextWindow = payload.ContextTokens
 	}
 	return true
+}
+
+func delegationCompactionOperation(payload output.ContextCompactionEvent) string {
+	if payload.Severity == "compacting" {
+		return "compacting context"
+	}
+	if payload.SummaryTitle != "" {
+		return payload.SummaryTitle
+	}
+	return "context compacted"
 }
 
 func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState, event output.Event) bool {
