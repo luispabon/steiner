@@ -58,6 +58,9 @@ func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	if patch.WorkflowHandoff != nil {
 		applyWorkflowHandoffPatch(&cfg.WorkflowHandoff, patch.WorkflowHandoff)
 	}
+	if patch.DesktopNotifications != nil {
+		applyDesktopNotificationsPatch(&cfg.DesktopNotifications, patch.DesktopNotifications)
+	}
 }
 
 func applyToolingConfigPatch(cfg *Config, patch configPatch) {

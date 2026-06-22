@@ -90,25 +90,26 @@ type HostMount struct {
 
 // Config is the complete application configuration.
 type Config struct {
-	Scheduler         SchedulerConfig           `yaml:"scheduler"`
-	DefaultModel      string                    `yaml:"default_model"`
-	Providers         map[string]ProviderConfig `yaml:"providers"`
-	Models            map[string]ModelConfig    `yaml:"models"`
-	Limits            LimitsConfig              `yaml:"limits"`
-	Sandbox           SandboxConfig             `yaml:"sandbox"`
-	Permissions       PermissionsConfig         `yaml:"permissions"`
-	HostMounts        []HostMount               `yaml:"host_mounts"`
-	SubAgent          SubAgentConfig            `yaml:"sub_agent"`
-	Advisor           AdvisorConfig             `yaml:"advisor"`
-	OneShot           oneshotConfig             `yaml:"oneshot"`
-	WorkflowHandoff   workflowHandoffConfig     `yaml:"workflow_handoff"`
-	Tools             map[string]ToolConfig     `yaml:"tools"`
-	ProjectContext    ProjectContextConfig      `yaml:"project_context"`
-	Paths             PathsConfig               `yaml:"paths"`
-	Logging           LoggingConfig             `yaml:"logging"`
-	ContextManagement ContextManagementConfig   `yaml:"context_management"`
-	CaveHuman         bool                      `yaml:"cave_human"`
-	Search            SearchConfig              `yaml:"search"`
+	Scheduler            SchedulerConfig            `yaml:"scheduler"`
+	DefaultModel         string                     `yaml:"default_model"`
+	Providers            map[string]ProviderConfig  `yaml:"providers"`
+	Models               map[string]ModelConfig     `yaml:"models"`
+	Limits               LimitsConfig               `yaml:"limits"`
+	Sandbox              SandboxConfig              `yaml:"sandbox"`
+	Permissions          PermissionsConfig          `yaml:"permissions"`
+	HostMounts           []HostMount                `yaml:"host_mounts"`
+	SubAgent             SubAgentConfig             `yaml:"sub_agent"`
+	Advisor              AdvisorConfig              `yaml:"advisor"`
+	OneShot              oneshotConfig              `yaml:"oneshot"`
+	WorkflowHandoff      workflowHandoffConfig      `yaml:"workflow_handoff"`
+	DesktopNotifications desktopNotificationsConfig `yaml:"desktop_notifications"`
+	Tools                map[string]ToolConfig      `yaml:"tools"`
+	ProjectContext       ProjectContextConfig       `yaml:"project_context"`
+	Paths                PathsConfig                `yaml:"paths"`
+	Logging              LoggingConfig              `yaml:"logging"`
+	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
+	CaveHuman            bool                       `yaml:"cave_human"`
+	Search               SearchConfig               `yaml:"search"`
 }
 
 // SchedulerConfig controls provider concurrency.
@@ -185,6 +186,11 @@ type workflowHandoffConfig struct {
 type oneshotConfig struct {
 	Models map[string]string `yaml:"models"`
 	AutoPR bool              `yaml:"auto_pr"`
+}
+
+type desktopNotificationsConfig struct {
+	Enabled  bool `yaml:"enabled"`
+	Duration int  `yaml:"duration"`
 }
 
 // ToolConfig defines an externally configured tool.

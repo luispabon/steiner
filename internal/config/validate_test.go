@@ -807,3 +807,64 @@ func TestSearchConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestDesktopNotificationsValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     desktopNotificationsConfig
+		wantErr string
+	}{
+		{
+			name: "valid config with enabled and duration",
+			cfg: desktopNotificationsConfig{
+				Enabled:  true,
+				Duration: 10,
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid config with zero duration (permanent)",
+			cfg: desktopNotificationsConfig{
+				Enabled:  true,
+				Duration: 0,
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid config disabled",
+			cfg: desktopNotificationsConfig{
+				Enabled:  false,
+				Duration: 0,
+			},
+			wantErr: "",
+		},
+		{
+			name: "negative duration rejected",
+			cfg: desktopNotificationsConfig{
+				Enabled:  true,
+				Duration: -1,
+			},
+			wantErr: "desktop_notifications.duration must be >= 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBase()
+			cfg.DesktopNotifications = tt.cfg
+			err := validate(cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validate() error = nil, want substring %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}

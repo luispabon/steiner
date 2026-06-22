@@ -55,6 +55,16 @@ func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.DesktopNotifications.Enabled {
+		t.Fatal("desktop_notifications.enabled = true, want false")
+	}
+	if cfg.DesktopNotifications.Duration != 0 {
+		t.Fatalf("desktop_notifications.duration = %d, want 0", cfg.DesktopNotifications.Duration)
+	}
+}
+
 func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
 	if len(cfg.OneShot.Models) != 0 {
@@ -1240,5 +1250,94 @@ models:
 	}
 	if *cfg.Models["default"].Vision != true {
 		t.Fatalf("models[default].vision = %v, want true", *cfg.Models["default"].Vision)
+	}
+}
+
+func TestLoadDesktopNotificationsConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+desktop_notifications:
+  enabled: true
+  duration: 10
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.DesktopNotifications.Enabled {
+		t.Fatal("desktop_notifications.enabled = false, want true")
+	}
+	if cfg.DesktopNotifications.Duration != 10 {
+		t.Fatalf("desktop_notifications.duration = %d, want 10", cfg.DesktopNotifications.Duration)
+	}
+}
+
+func TestLoadDesktopNotificationsOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default:
+    provider: local
+    id: test-model
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.DesktopNotifications.Enabled {
+		t.Fatal("desktop_notifications.enabled = true, want false")
+	}
+	if cfg.DesktopNotifications.Duration != 0 {
+		t.Fatalf("desktop_notifications.duration = %d, want 0", cfg.DesktopNotifications.Duration)
 	}
 }

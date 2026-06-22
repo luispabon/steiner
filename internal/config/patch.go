@@ -2,22 +2,23 @@ package config
 
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
-	CaveHuman         *bool                     `yaml:"cave_human"`
-	Scheduler         *schedulerPatch           `yaml:"scheduler"`
-	DefaultModel      *string                   `yaml:"default_model"`
-	Providers         *map[string]providerPatch `yaml:"providers"`
-	Models            *map[string]modelPatch    `yaml:"models"`
-	Limits            *limitsPatch              `yaml:"limits"`
-	SubAgent          *subAgentPatch            `yaml:"sub_agent"`
-	Advisor           *advisorPatch             `yaml:"advisor"`
-	OneShot           *oneshotPatch             `yaml:"oneshot"`
-	WorkflowHandoff   *workflowHandoffPatch     `yaml:"workflow_handoff"`
-	Tools             *map[string]toolPatch     `yaml:"tools"`
-	ProjectContext    *projectContextPatch      `yaml:"project_context"`
-	Paths             *pathsPatch               `yaml:"paths"`
-	Logging           *loggingPatch             `yaml:"logging"`
-	ContextManagement *contextManagementPatch   `yaml:"context_management"`
-	Search            *searchPatch              `yaml:"search"`
+	CaveHuman            *bool                      `yaml:"cave_human"`
+	Scheduler            *schedulerPatch            `yaml:"scheduler"`
+	DefaultModel         *string                    `yaml:"default_model"`
+	Providers            *map[string]providerPatch  `yaml:"providers"`
+	Models               *map[string]modelPatch     `yaml:"models"`
+	Limits               *limitsPatch               `yaml:"limits"`
+	SubAgent             *subAgentPatch             `yaml:"sub_agent"`
+	Advisor              *advisorPatch              `yaml:"advisor"`
+	OneShot              *oneshotPatch              `yaml:"oneshot"`
+	WorkflowHandoff      *workflowHandoffPatch      `yaml:"workflow_handoff"`
+	DesktopNotifications *desktopNotificationsPatch `yaml:"desktop_notifications"`
+	Tools                *map[string]toolPatch      `yaml:"tools"`
+	ProjectContext       *projectContextPatch       `yaml:"project_context"`
+	Paths                *pathsPatch                `yaml:"paths"`
+	Logging              *loggingPatch              `yaml:"logging"`
+	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
+	Search               *searchPatch               `yaml:"search"`
 }
 
 type providerPatch struct {
@@ -107,6 +108,11 @@ type oneshotPatch struct {
 
 type workflowHandoffPatch struct {
 	Models *map[string]string `yaml:"models"`
+}
+
+type desktopNotificationsPatch struct {
+	Enabled  *bool `yaml:"enabled"`
+	Duration *int  `yaml:"duration"`
 }
 
 type toolPatch struct {
