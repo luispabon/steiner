@@ -12,7 +12,9 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/deepnoodle-ai/dive v1.8.1
 	github.com/deepnoodle-ai/wonton v0.0.34
+	github.com/esiqveland/notify v0.13.3
 	github.com/gobwas/glob v0.2.3
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.3
