@@ -65,6 +65,26 @@ func TestToolBorderLineColors(t *testing.T) {
 	}
 }
 
+func TestAccentPresets(t *testing.T) {
+	if len(AccentPresets) != 13 {
+		t.Errorf("AccentPresets has %d entries, want 13", len(AccentPresets))
+	}
+
+	// Valid hex regex pattern: #[0-9A-Fa-f]{6}
+	for name, hex := range AccentPresets {
+		if len(hex) != 7 || hex[0] != '#' {
+			t.Errorf("AccentPresets[%q] = %q is not a valid hex color", name, hex)
+			continue
+		}
+		for i := 1; i < 7; i++ {
+			c := hex[i]
+			if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) {
+				t.Errorf("AccentPresets[%q] = %q contains invalid hex character %c", name, hex, c)
+			}
+		}
+	}
+}
+
 func TestHexToRGB(t *testing.T) {
 	tests := []struct {
 		name  string
