@@ -37,7 +37,7 @@ func New(opts Options) *Service {
 	if !opts.Enabled {
 		return &Service{
 			opts: opts,
-			drv:  &noopDriver{},
+			drv:  &stubDriver{reason: "desktop notifications are disabled"},
 		}
 	}
 	return &Service{
@@ -66,13 +66,16 @@ func notificationBody(n Notification) string {
 	return fmt.Sprintf("%s\n%s", n.Reason, n.Branch)
 }
 
-// noopDriver is a stub driver used when notifications are disabled.
-type noopDriver struct{}
+// stubDriver is a no-op driver used when notifications are disabled or the
+// platform/environment cannot deliver them.
+type stubDriver struct {
+	reason string
+}
 
-func (d *noopDriver) notify(_ context.Context, _ Notification, _ time.Duration) error {
+func (d *stubDriver) notify(_ context.Context, _ Notification, _ time.Duration) error {
 	return nil
 }
 
-func (d *noopDriver) available() (bool, string) {
-	return false, "desktop notifications are disabled"
+func (d *stubDriver) available() (bool, string) {
+	return false, d.reason
 }

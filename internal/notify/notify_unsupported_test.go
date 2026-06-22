@@ -9,7 +9,7 @@ import (
 )
 
 func TestUnsupportedDriverAvailability(t *testing.T) {
-	drv := &unsupportedDriver{}
+	drv := newDriver(Options{Enabled: true, AppName: "steiner"})
 
 	avail, msg := drv.available()
 	if avail {
@@ -21,7 +21,7 @@ func TestUnsupportedDriverAvailability(t *testing.T) {
 }
 
 func TestUnsupportedDriverNotify(t *testing.T) {
-	drv := &unsupportedDriver{}
+	drv := newDriver(Options{Enabled: true, AppName: "steiner"})
 	ctx := context.Background()
 	n := Notification{
 		Project: "test",

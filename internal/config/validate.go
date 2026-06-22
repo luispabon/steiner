@@ -91,6 +91,6 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 
 func validateDesktopNotificationsConfig(problems *[]string, cfg desktopNotificationsConfig) {
 	if cfg.Duration < 0 {
-		*problems = append(*problems, "desktop_notifications.duration must be >= 0")
+		*problems = append(*problems, "desktop_notifications.duration must be non-negative")
 	}
 }

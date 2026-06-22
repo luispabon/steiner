@@ -159,7 +159,6 @@ type Model struct {
 	oneshotSteerCh               chan string
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
-	notifyAvailabilityWarned     bool
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {

@@ -2843,9 +2843,6 @@ func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
 	if !found {
 		t.Error("expected startup warning in content buffer, none found")
 	}
-	if !m.notifyAvailabilityWarned {
-		t.Error("notifyAvailabilityWarned = false, want true")
-	}
 }
 
 func TestModelFilePicker_TabInsertsPath(t *testing.T) {

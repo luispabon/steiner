@@ -844,7 +844,7 @@ func TestDesktopNotificationsValidation(t *testing.T) {
 				Enabled:  true,
 				Duration: -1,
 			},
-			wantErr: "desktop_notifications.duration must be >= 0",
+			wantErr: "desktop_notifications.duration must be non-negative",
 		},
 	}
 

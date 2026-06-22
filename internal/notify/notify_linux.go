@@ -13,62 +13,56 @@ import (
 )
 
 type linuxDriver struct {
-	opts Options
+	appName  string
+	notifier esnotify.Notifier
 }
 
-// newDriver returns a driver implementation for the current platform.
+// newDriver returns a driver for the current platform. If D-Bus is unavailable
+// it returns a stubDriver so all future calls no-op gracefully.
 func newDriver(opts Options) driver {
-	return &linuxDriver{opts: opts}
-}
-
-func (d *linuxDriver) available() (bool, string) {
 	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
-		return false, "DBUS_SESSION_BUS_ADDRESS is not set"
+		return &stubDriver{reason: "DBUS_SESSION_BUS_ADDRESS is not set"}
 	}
 
 	conn, err := dbus.SessionBus()
 	if err != nil {
-		return false, "cannot connect to D-Bus session bus: " + err.Error()
+		return &stubDriver{reason: "cannot connect to D-Bus session bus: " + err.Error()}
 	}
-	defer conn.Close() //nolint:errcheck
 
 	var owner string
 	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
 	call := obj.Call("org.freedesktop.DBus.GetNameOwner", 0, "org.freedesktop.Notifications")
 	if call.Err != nil {
-		return false, "org.freedesktop.Notifications is not available: " + call.Err.Error()
+		return &stubDriver{reason: "org.freedesktop.Notifications is not available: " + call.Err.Error()}
 	}
 	if err := call.Store(&owner); err != nil || owner == "" {
-		return false, "org.freedesktop.Notifications has no name owner"
+		return &stubDriver{reason: "org.freedesktop.Notifications has no name owner"}
 	}
 
-	return true, ""
-}
-
-func (d *linuxDriver) notify(ctx context.Context, payload Notification, dur time.Duration) error {
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		// non-fatal: best-effort delivery
-		return nil
-	}
-	defer conn.Close() //nolint:errcheck
-
-	var sentID uint32
 	n, err := esnotify.New(conn,
 		esnotify.WithOnAction(func(sig *esnotify.ActionInvokedSignal) {
-			if sig.ID == sentID && sig.ActionKey == "default" {
+			if sig.ActionKey == "default" {
 				focusTerminal()
 			}
 		}),
 	)
 	if err != nil {
-		// non-fatal
-		return nil
+		return &stubDriver{reason: "cannot create notifier: " + err.Error()}
 	}
-	defer n.Close() //nolint:errcheck
 
+	return &linuxDriver{
+		appName:  opts.AppName,
+		notifier: n,
+	}
+}
+
+func (d *linuxDriver) available() (bool, string) {
+	return true, ""
+}
+
+func (d *linuxDriver) notify(_ context.Context, payload Notification, dur time.Duration) error {
 	esn := esnotify.Notification{
-		AppName:       d.opts.AppName,
+		AppName:       d.appName,
 		Summary:       notificationTitle(payload),
 		Body:          notificationBody(payload),
 		ExpireTimeout: expireTimeout(dur),
@@ -76,17 +70,7 @@ func (d *linuxDriver) notify(ctx context.Context, payload Notification, dur time
 			esnotify.NewDefaultAction("Focus"),
 		},
 	}
-
-	id, err := n.SendNotification(esn)
-	if err != nil {
-		// non-fatal
-		return nil
-	}
-	sentID = id
-
-	// Wait for context cancellation so the action handler can fire, then close.
-	<-ctx.Done()
-
+	_, _ = d.notifier.SendNotification(esn)
 	return nil
 }
 

@@ -267,7 +267,6 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	if m.notifier != nil {
 		if ok, reason := m.notifier.Availability(); !ok {
 			m.content.AppendUser(fmt.Sprintf("desktop notifications: %s", reason))
-			m.notifyAvailabilityWarned = true
 		}
 	}
 }
