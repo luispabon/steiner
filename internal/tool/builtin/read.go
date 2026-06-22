@@ -84,6 +84,10 @@ func NewReadTool(env Env) tool.ToolDef {
 			if len(outputLines) > 0 && outputLines[len(outputLines)-1] == "" {
 				outputLines = outputLines[:len(outputLines)-1]
 			}
+
+			// Bound lines to cap per-line rune count.
+			boundedLines, reasons := boundLines(outputLines, lineBoundingConfig{})
+			boundedOutput := strings.Join(boundedLines, "\n")
 			numLines := len(outputLines)
 
 			startLine := in.Offset
@@ -99,11 +103,15 @@ func NewReadTool(env Env) tool.ToolDef {
 				StartLine:    startLine,
 				EndLine:      endLine,
 				TotalLines:   totalLines,
-				Output:       contentText,
+				Output:       boundedOutput,
 			}
 
 			if endLine > 0 && endLine < totalLines {
 				result.NextOffset = endLine + 1
+				reasons = append(reasons, "paged")
+			}
+			if len(reasons) > 0 {
+				result.TruncationReasons = reasons
 			}
 
 			return result, nil

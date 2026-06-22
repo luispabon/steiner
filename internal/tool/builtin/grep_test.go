@@ -359,6 +359,114 @@ func TestGrepTool_Exclusions(t *testing.T) {
 			t.Fatalf("output searched excluded root: %s", result.Output)
 		}
 	})
+
+	t.Run("worktree root under .steiner is searchable", func(t *testing.T) {
+		worktreeRoot := filepath.Join(tmpDir, ".steiner", "worktrees", "abc123")
+		srcDir := filepath.Join(worktreeRoot, "src")
+		if err := os.MkdirAll(srcDir, 0o755); err != nil {
+			t.Fatalf("mkdir worktree src: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+			t.Fatalf("write worktree file: %v", err)
+		}
+
+		policy := tool.NewPathPolicy(worktreeRoot, config.PathsConfig{})
+		excluder := tool.NewPathExcluder(nil, nil)
+		env := Env{WorkDir: worktreeRoot, PathPolicy: &policy, Excluder: &excluder}
+		toolDef := NewGrepTool(env)
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        ".",
+			"pattern":     "func main",
+			"output_mode": "content",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.Matches == 0 {
+			t.Fatal("Matches = 0, want > 0 — worktree source files should be searchable")
+		}
+	})
+
+	t.Run("nested .steiner dir inside worktree is excluded", func(t *testing.T) {
+		worktreeRoot := filepath.Join(tmpDir, ".steiner", "worktrees", "def456")
+		nestedSteiner := filepath.Join(worktreeRoot, ".steiner")
+		if err := os.MkdirAll(nestedSteiner, 0o755); err != nil {
+			t.Fatalf("mkdir nested .steiner: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(nestedSteiner, "log.txt"), []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write nested .steiner file: %v", err)
+		}
+		srcDir := filepath.Join(worktreeRoot, "src")
+		if err := os.MkdirAll(srcDir, 0o755); err != nil {
+			t.Fatalf("mkdir worktree src: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write worktree file: %v", err)
+		}
+
+		policy := tool.NewPathPolicy(worktreeRoot, config.PathsConfig{})
+		excluder := tool.NewPathExcluder(nil, nil)
+		env := Env{WorkDir: worktreeRoot, PathPolicy: &policy, Excluder: &excluder}
+		toolDef := NewGrepTool(env)
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        ".",
+			"pattern":     "needle",
+			"output_mode": "files_with_matches",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if strings.Contains(result.Output, ".steiner") {
+			t.Errorf("output contains nested .steiner content, got: %s", result.Output)
+		}
+		if !strings.Contains(result.Output, "src/main.go") {
+			t.Errorf("output missing expected src/main.go, got: %s", result.Output)
+		}
+	})
+
+	t.Run("path .steiner is still excluded", func(t *testing.T) {
+		steinerLog := filepath.Join(tmpDir, ".steiner", "steiner.log")
+		if err := os.MkdirAll(filepath.Dir(steinerLog), 0o755); err != nil {
+			t.Fatalf("mkdir .steiner: %v", err)
+		}
+		if err := os.WriteFile(steinerLog, []byte("EventTypeDelegationExtension\n"), 0o644); err != nil {
+			t.Fatalf("write .steiner log: %v", err)
+		}
+
+		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+		excluder := tool.NewPathExcluder(nil, nil)
+		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
+		toolDef := NewGrepTool(env)
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":        ".steiner",
+			"pattern":     "EventTypeDelegationExtension",
+			"output_mode": "content",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.Matches != 0 {
+			t.Fatalf("Matches = %d, want 0 for excluded root", result.Matches)
+		}
+		if strings.Contains(result.Output, "EventTypeDelegationExtension") {
+			t.Fatalf("output searched excluded root: %s", result.Output)
+		}
+	})
 }
 
 func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
@@ -614,6 +722,100 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 		result := resultI.(GrepResult)
 		if strings.TrimSpace(result.Output) != "bravo.txt" {
 			t.Fatalf("Output = %q, want bravo.txt", result.Output)
+		}
+	})
+}
+
+func TestGrepTool_Truncation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	toolDef := NewGrepTool(env)
+	ctx := context.Background()
+
+	t.Run("huge matching line is truncated with marker in content mode", func(t *testing.T) {
+		hugeMatch := "MATCH_" + strings.Repeat("x", 500) + "\n" +
+			"normal line 1\n" +
+			"normal line 2\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "huge_match.txt"), []byte(hugeMatch), 0o644); err != nil {
+			t.Fatalf("write huge match file: %v", err)
+		}
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "MATCH_",
+			"output_mode": "content",
+			"context":     2,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if !strings.Contains(result.Output, "…<truncated>") {
+			t.Errorf("Output = %q, want to contain …<truncated> marker", result.Output)
+		}
+		if !strings.Contains(result.Output, "normal line 1") {
+			t.Errorf("Output = %q, want to contain normal line 1", result.Output)
+		}
+		if !strings.Contains(result.Output, "normal line 2") {
+			t.Errorf("Output = %q, want to contain normal line 2", result.Output)
+		}
+		found := false
+		for _, r := range result.TruncationReasons {
+			if r == "line_length_capped" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TruncationReasons = %v, want to include line_length_capped", result.TruncationReasons)
+		}
+	})
+
+	t.Run("pagination truncation fields still independent", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(tmpDir, "match1.txt"), []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write match1: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "match2.txt"), []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write match2: %v", err)
+		}
+
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern":     "needle",
+			"output_mode": "files_with_matches",
+			"head_limit":  1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(GrepResult)
+		if !ok {
+			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if !result.Truncated {
+			t.Error("Truncated = false, want true (pagination)")
+		}
+		if !result.HasMore {
+			t.Error("HasMore = false, want true")
+		}
+		foundPaged := false
+		foundLine := false
+		for _, r := range result.TruncationReasons {
+			if r == "paged" {
+				foundPaged = true
+			}
+			if r == "line_length_capped" {
+				foundLine = true
+			}
+		}
+		if !foundPaged {
+			t.Errorf("TruncationReasons = %v, want to include paged", result.TruncationReasons)
+		}
+		if foundLine {
+			t.Errorf("TruncationReasons = %v, should NOT include line_length_capped for pagination-only result", result.TruncationReasons)
 		}
 	})
 }

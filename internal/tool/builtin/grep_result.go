@@ -45,7 +45,16 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 		rows := grepContentSelections(files)
 		page := paginateGrepRows(rows, offset, headLimit)
 		output := renderGrepContent(files, page, showLines, beforeContext, afterContext)
-		return buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
+		result := buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
+		// Apply line bounding for content mode only; never truncate
+		// file paths in files_with_matches or path:count rows.
+		if result.Output != "" && result.Matches > 0 {
+			lines := strings.Split(result.Output, "\n")
+			bounded, boundedReasons := boundLines(lines, lineBoundingConfig{})
+			result.Output = strings.Join(bounded, "\n")
+			result.TruncationReasons = append(boundedReasons, result.TruncationReasons...)
+		}
+		return result
 	}
 }
 
@@ -59,7 +68,8 @@ func buildGrepResultFromPage(total, returned, compatMatches, offset int, output 
 	if total == 0 {
 		output = "No matches found"
 	}
-	return GrepResult{
+
+	result := GrepResult{
 		Matches:    compatMatches,
 		Returned:   returned,
 		Truncated:  truncated,
@@ -67,6 +77,10 @@ func buildGrepResultFromPage(total, returned, compatMatches, offset int, output 
 		NextOffset: nextOffset,
 		Output:     output,
 	}
+	if truncated {
+		result.TruncationReasons = []string{"paged"}
+	}
+	return result
 }
 
 func grepFilesWithMatches(files []grepFileResult) []string {
