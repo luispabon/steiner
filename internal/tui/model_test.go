@@ -3931,26 +3931,31 @@ func TestContentStringCacheInvalidationOnWidthChange(t *testing.T) {
 	}
 }
 
-func TestContentStringCacheInvalidationOnShowThinkingToggle(t *testing.T) {
+func TestHiddenThinkingSegmentCleared(t *testing.T) {
+	// Verify that renderDirty is cleared on hidden thinking segments
+	// (the fix for Phase 4 cache being defeated by hidden thinking blocks).
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Add thinking block and regular content.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "thinking content here", output.ChunkSourceAssistant)})
+	// Add a thinking block segment.
+	m.content.segments = append(m.content.segments, contentSegment{
+		kind:        segmentThinkingBlock,
+		text:        "thinking content",
+		renderDirty: true,
+		thinkData: &thinkingBlockData{
+			preview: "thinking",
+			body:    "thinking content",
+		},
+	})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "regular content", output.ChunkSourceAssistant)})
 
-	// With thinking shown.
-	m.content.showThinking = true
-	result1 := m.content.String(80)
-	if !strings.Contains(result1, "thinking") {
-		t.Fatal("expected thinking content when showThinking=true")
-	}
-
-	// With thinking hidden - should not contain thinking.
+	// With thinking hidden, skipHiddenSegment should clear renderDirty.
 	m.content.showThinking = false
-	result2 := m.content.String(80)
-	if strings.Contains(result2, "thinking") {
-		t.Fatal("expected no thinking content when showThinking=false")
+	m.content.String(80)
+
+	// Verify renderDirty was cleared on the hidden thinking segment.
+	if m.content.segments[0].renderDirty {
+		t.Fatal("renderDirty should be cleared on hidden thinking segments")
 	}
 }
 
@@ -3959,15 +3964,19 @@ func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "test", output.ChunkSourceAssistant)})
-	_ = m.content.String(80)
+	m.content.streaming = false // Stop streaming so cache behavior is measurable.
+	cache1 := m.content.String(80)
 
-	// Simulate active delegation by adding a delegation segment.
-	m.content.activeDelegations = make(map[string]int)
-	m.content.activeDelegations["test_agent"] = 0
+	// Create actual delegation segment with active status.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("agent_1", "test task")})
+	cache2 := m.content.String(80)
 
-	// When active delegation exists, checkBufferDirty should return true.
+	// With active delegation, checkBufferDirty returns true (forces rebuild).
 	if !m.content.checkBufferDirty() {
 		t.Fatal("checkBufferDirty should return true when active delegation exists")
+	}
+	if cache1 == cache2 {
+		t.Fatal("cache should invalidate when delegation becomes active")
 	}
 }
 

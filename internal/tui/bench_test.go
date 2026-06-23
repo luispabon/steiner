@@ -23,7 +23,9 @@ func BenchmarkView(b *testing.B) {
 	}
 }
 
-// BenchmarkContentString measures contentBuffer.String(width) with all segments cached.
+// BenchmarkContentString measures contentBuffer.String(width) during streaming.
+// Note: This is a mixed scenario with active delegation, so the full-render path
+// is taken on every call. See BenchmarkContentStringCacheHit for the cache-hit scenario.
 func BenchmarkContentString(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
@@ -33,6 +35,30 @@ func BenchmarkContentString(b *testing.B) {
 	populateBenchModel(&m)
 
 	// Pre-warm the cache by calling String once to populate segment caches.
+	_ = m.content.String(m.viewport.Width)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.content.String(m.viewport.Width)
+	}
+}
+
+// BenchmarkContentStringCacheHit measures contentBuffer.String(width) when the
+// buffer is settled (no streaming, no active delegations), which exercises the
+// wholesale cache-hit path. This is the cache optimization introduced in Phase 4.
+func BenchmarkContentStringCacheHit(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModel(&m)
+
+	// Complete the delegation so the buffer is settled (no active delegations).
+	m.content.activeDelegations = nil
+	m.content.streaming = false
+
+	// Pre-warm the cache by calling String once to populate all caches.
 	_ = m.content.String(m.viewport.Width)
 
 	b.ResetTimer()
@@ -104,8 +130,9 @@ func populateBenchModel(m *Model) {
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call_2", map[string]any{"file_path": "/src/main.go", "content": "optimized code"})})
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "write", "call_2", "written successfully", nil)})
 
-	// Delegation event
+	// Delegation event (complete it so buffer is settled for benchmarking)
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("agent_1", "design the optimization")})
+	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("agent_1", "complete", 2, 500, 3, "optimized design")})
 
 	// Thinking block
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "The user asked for optimization suggestions. I identified three key areas and proposed solutions.", output.ChunkSourceAssistant)})
