@@ -119,11 +119,11 @@ func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {
 	if !f.IsOpen() {
 		return f, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return f, nil
 	}
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc, tea.KeyEnter:
 		return f.Close(), nil
 	}

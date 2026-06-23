@@ -190,12 +190,12 @@ func (f filePickerOverlay) filePickerInnerWidth() int {
 }
 
 func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int, candidates *[]T, allEntries []T, msg tea.Msg, filter func(string, []T) []T) searchPickerUpdateResult {
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return searchPickerIgnored
 	}
 
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc:
 		return searchPickerClosed
 	case tea.KeyEnter:
@@ -220,15 +220,16 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 			*scrollOffset = 0
 		}
 		return searchPickerHandled
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if keyMsg.Text != "" {
 		*query += keyMsg.String()
 		*candidates = filter(*query, allEntries)
 		*selection = 0
 		*scrollOffset = 0
 		return searchPickerHandled
-	default:
-		return searchPickerIgnored
 	}
+	return searchPickerIgnored
 }
 
 func scrollSearchPickerIntoView(selection *int, scrollOffset *int) {

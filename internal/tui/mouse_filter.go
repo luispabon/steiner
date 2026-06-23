@@ -6,11 +6,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func shouldIgnoreLeakedMouseRunes(msg tea.KeyMsg, recentWheel bool) bool {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+func shouldIgnoreLeakedMouseRunes(msg tea.KeyPressMsg, recentWheel bool) bool {
+	if msg.Text == "" {
 		return false
 	}
-	fragment := string(msg.Runes)
+	fragment := msg.Text
 	return isLeakedMouseFragment(fragment) || (recentWheel && isLeakedMousePrefixFragment(fragment))
 }
 

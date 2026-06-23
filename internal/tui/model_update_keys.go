@@ -16,7 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
-func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if shouldIgnoreLeakedMouseRunes(msg, m.recentWheelMouseInput()) {
 		return m, nil
 	}
@@ -45,7 +45,7 @@ func (m Model) recentWheelMouseInput() bool {
 	return time.Since(m.lastWheelMouseAt) <= 200*time.Millisecond
 }
 
-func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
+func (m Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	if !m.hasOpenOverlay() {
 		return false, m, nil
 	}
@@ -60,8 +60,8 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	return false, m, nil
 }
 
-func (m Model) resetCompletionState(msg tea.KeyMsg) Model {
-	if msg.Type == tea.KeyTab {
+func (m Model) resetCompletionState(msg tea.KeyPressMsg) Model {
+	if msg.Code == tea.KeyTab {
 		return m
 	}
 	m.completionCandidates = nil
@@ -73,27 +73,27 @@ func (m Model) hasActiveConversation() bool {
 	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 }
 
-func (m Model) handleConversationKeyMsg(msg tea.KeyMsg, activeConversation bool) (bool, tea.Model) {
-	if activeConversation && (msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlD) {
+func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
+	if activeConversation && (msg.Code == tea.KeyEsc || msg.Code == tea.KeyCtrlC || msg.Code == tea.KeyCtrlD) {
 		return true, m.executeInterruptAction()
 	}
 	// During an active run, Enter queues a steer message instead of submitting normally.
-	if activeConversation && msg.Type == tea.KeyEnter && !m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
+	if activeConversation && msg.Code == tea.KeyEnter && !m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
 		return true, m.executeSteerAction()
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 		m.helpVisible = !m.helpVisible
 		return true, m
 	}
-	if msg.Type == tea.KeyEsc && m.helpVisible {
+	if msg.Code == tea.KeyEsc && m.helpVisible {
 		m.helpVisible = false
 		return true, m
 	}
 	return false, m
 }
 
-func (m Model) handleNavigationKeyMsg(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyCtrlC, tea.KeyCtrlD:
 		if m.controller == nil {
 			return true, m, tea.Quit
@@ -167,8 +167,8 @@ func (m Model) openContextOverlayImmediate() {
 	}
 }
 
-func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEnter && (!m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline)) {
+func (m Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == tea.KeyEnter && (!m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline)) {
 		return m.handleEnter()
 	}
 
@@ -178,8 +178,8 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if msg.Type == tea.KeyRunes {
-		for _, r := range msg.Runes {
+	if msg.Text != "" {
+		for _, r := range msg.Text {
 			if r == '/' && strings.TrimSpace(m.input.Value()) == "" {
 				items := m.buildSlashOverlayItems()
 				m.slashOverlay = m.slashOverlay.Open(items)
@@ -219,11 +219,11 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) tryDeleteMarker(msg tea.KeyMsg) (Model, bool) {
+func (m Model) tryDeleteMarker(msg tea.KeyPressMsg) (Model, bool) {
 	value := m.input.Value()
 	runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
 
-	if msg.Type == tea.KeyBackspace {
+	if msg.Code == tea.KeyBackspace {
 		if idx, _, atEnd, _ := markerAtCursor(value, runeOff, m.imageMarkers); atEnd && idx >= 0 {
 			removedLen := len([]rune(m.imageMarkers[idx].label))
 			value = removeMarkerFromValue(value, m.imageMarkers[idx])
@@ -235,7 +235,7 @@ func (m Model) tryDeleteMarker(msg tea.KeyMsg) (Model, bool) {
 		}
 	}
 
-	if msg.Type == tea.KeyDelete {
+	if msg.Code == tea.KeyDelete {
 		if idx, atStart, _, _ := markerAtCursor(value, runeOff, m.imageMarkers); atStart && idx >= 0 {
 			value = removeMarkerFromValue(value, m.imageMarkers[idx])
 			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
@@ -249,10 +249,10 @@ func (m Model) tryDeleteMarker(msg tea.KeyMsg) (Model, bool) {
 	return m, false
 }
 
-func (m Model) applyMarkerPostEdit(msg tea.KeyMsg) Model {
-	if msg.Type == tea.KeyLeft || msg.Type == tea.KeyRight {
+func (m Model) applyMarkerPostEdit(msg tea.KeyPressMsg) Model {
+	if msg.Code == tea.KeyLeft || msg.Code == tea.KeyRight {
 		direction := 1
-		if msg.Type == tea.KeyLeft {
+		if msg.Code == tea.KeyLeft {
 			direction = -1
 		}
 		value := m.input.Value()
@@ -283,10 +283,14 @@ func (m Model) applyMarkerPostEdit(msg tea.KeyMsg) Model {
 	return m
 }
 
-func isEditKey(msg tea.KeyMsg) bool {
-	switch msg.Type {
-	case tea.KeyBackspace, tea.KeyDelete, tea.KeyRunes,
+func isEditKey(msg tea.KeyPressMsg) bool {
+	switch msg.Code {
+	case tea.KeyBackspace, tea.KeyDelete,
 		tea.KeyCtrlK, tea.KeyCtrlU, tea.KeyCtrlW:
+		return true
+	}
+	// Also check for printable characters (tea.KeyRunes equivalent)
+	if msg.Text != "" {
 		return true
 	}
 	return false
@@ -313,7 +317,7 @@ func (m Model) maybeReopenPickers() Model {
 	return m
 }
 
-func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	current := m.input.Value()
 	if !strings.HasPrefix(current, "/") {
 		var cmd tea.Cmd
@@ -336,7 +340,7 @@ func (m Model) handleTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKeyUp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
 		m.fileHistoryIdx++
 		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
@@ -355,7 +359,7 @@ func (m Model) handleKeyUp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleKeyDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.fileHistoryIdx > 0 {
 		m.fileHistoryIdx--
 		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])

@@ -173,8 +173,8 @@ func (s workflowHandoffModalState) planningFolderLine() string {
 	return label + " " + s.target
 }
 
-func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m.workflowHandoff = m.workflowHandoff.moveSelection(-1)
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:

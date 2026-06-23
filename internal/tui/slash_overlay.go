@@ -67,12 +67,12 @@ func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 	if !s.IsOpen() {
 		return s, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return s, nil
 	}
 
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc:
 		return s.Close(), nil
 	case tea.KeyEnter:
@@ -96,13 +96,14 @@ func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 			s.filterCandidates()
 		}
 		return s, nil
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if keyMsg.Text != "" {
 		s.query += keyMsg.String()
 		s.filterCandidates()
 		return s, nil
-	default:
-		return s, nil
 	}
+	return s, nil
 }
 
 // filterCandidates updates the list of candidates based on the current query.
