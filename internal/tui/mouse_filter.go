@@ -6,6 +6,55 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// Internal mouse message types for v2 dispatch via View.OnMouse.
+type mouseClickMsg struct {
+	x, y int
+}
+
+type mouseMotionMsg struct {
+	x, y int
+}
+
+type mouseReleaseMsg struct {
+	x, y int
+}
+
+type mouseWheelMsg struct {
+	direction string // "up" or "down"
+}
+
+// onMouse implements View.OnMouse handler for v2 mouse events.
+// It classifies MouseClickMsg, MouseMotionMsg, MouseReleaseMsg, and MouseWheelMsg,
+// extracting coordinates and emitting internal messages for Update to apply state mutations.
+// Note: value receiver, returns only Cmd; state mutations happen in Update handlers.
+func (m Model) onMouse(msg tea.MouseMsg) tea.Cmd {
+	// Type-switch on v2 mouse message types.
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		switch mouse.Button {
+		case tea.MouseButtonWheelUp:
+			return func() tea.Msg { return mouseWheelMsg{direction: "up"} }
+		case tea.MouseButtonWheelDown:
+			return func() tea.Msg { return mouseWheelMsg{direction: "down"} }
+		case tea.MouseButtonLeft:
+			return func() tea.Msg { return mouseClickMsg{x: mouse.X, y: mouse.Y} }
+		}
+
+	case tea.MouseMotionMsg:
+		mouse := msg.Mouse()
+		return func() tea.Msg { return mouseMotionMsg{x: mouse.X, y: mouse.Y} }
+
+	case tea.MouseReleaseMsg:
+		mouse := msg.Mouse()
+		if mouse.Button == tea.MouseButtonLeft {
+			return func() tea.Msg { return mouseReleaseMsg{x: mouse.X, y: mouse.Y} }
+		}
+	}
+
+	return nil
+}
+
 func shouldIgnoreLeakedMouseRunes(msg tea.KeyPressMsg, recentWheel bool) bool {
 	if msg.Text == "" {
 		return false

@@ -28,11 +28,15 @@ func (m Model) View() tea.View {
 		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle)
 	}
 
-	return tea.View{
+	v := tea.View{
 		Content:   result,
 		AltScreen: true,
 		MouseMode: tea.MouseModeCellMotion,
 	}
+	// Attach v2 mouse handler via View.OnMouse callback.
+	v.OnMouse = m.onMouse
+
+	return v
 }
 
 func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
