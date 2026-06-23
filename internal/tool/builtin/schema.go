@@ -20,7 +20,16 @@ func MutateSchema() map[string]any {
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"type":       map[string]any{"type": "string", "enum": []string{"create", "write", "replace", "line_replace", "delete_line", "delete", "move", "insert_before", "insert_after"}, "description": "Operation type"},
+			"type": map[string]any{"type": "string", "enum": []string{"create", "write", "replace", "line_replace", "delete_line", "delete", "move", "insert_before", "insert_after"}, "description": "Operation type. Required fields per type ([optional] in brackets): " +
+				"create: path, content. " +
+				"write: path, content [allow_empty]. " +
+				"replace: path, old_string, new_string [replace_all]. " +
+				"line_replace: path, line, new_string [line_count, old_string] (old_string is required for single-line edits, optional guard with line_count). " +
+				"delete_line: path, line [line_count]. " +
+				"delete: path. " +
+				"move: from, to. " +
+				"insert_before / insert_after: path, line, content. " +
+				"Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete accepts file_hash but not asserts."},
 			"path":       map[string]any{"type": "string", "description": "Target path for create, write, replace, line_replace, delete_line, and delete"},
 			"content":    map[string]any{"type": "string", "description": "File content for create, write, insert_before, and insert_after"},
 			"old_string": map[string]any{"type": "string", "description": "Exact text to replace. Whitespace (including tabs vs spaces) must match the file exactly. Required for line_replace on existing files (prevents silent corruption from shifted line numbers). With line_count, acts as a validation guard: must appear exactly once in the target line range."},

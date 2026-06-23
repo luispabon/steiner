@@ -13,7 +13,7 @@ import (
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Create, overwrite, replace, line-replace, delete_line, insert-before, insert-after, delete, or move files. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. Move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, line_replace, delete_line, insert_before, insert_after, delete, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
@@ -37,8 +37,6 @@ var allowedFields = map[string]map[string]struct{}{
 		"content":        {},
 		"assert_present": {},
 		"assert_absent":  {},
-		"file_hash":      {},
-		"allow_empty":    {},
 	},
 	"write": {
 		"path":           {},
@@ -149,6 +147,45 @@ func validateFields(index int, op MutateOperation) error {
 			if _, ok := allowed[c.name]; !ok {
 				return fmt.Errorf("mutate: operation %d %s: field %q is not valid for this operation type; valid fields: %s", index, opType, c.name, strings.Join(validFieldsByOpType[opType], ", "))
 			}
+		}
+	}
+	return nil
+}
+
+// requiredFields lists fields that must be non-empty for each operation type.
+// It covers only path-like fields whose absence would otherwise produce a
+// confusing downstream error (empty path resolving to a directory or the
+// workdir). Content/line/old_string requirements stay in the planners.
+var requiredFields = map[string][]string{
+	"create":        {"path"},
+	"write":         {"path"},
+	"replace":       {"path"},
+	"line_replace":  {"path"},
+	"delete_line":   {"path"},
+	"delete":        {"path"},
+	"insert_before": {"path"},
+	"insert_after":  {"path"},
+	"move":          {"from", "to"},
+}
+
+func validateRequired(index int, op MutateOperation) error {
+	opType := strings.TrimSpace(op.Type)
+	required, ok := requiredFields[opType]
+	if !ok {
+		return nil
+	}
+	for _, name := range required {
+		var set bool
+		switch name {
+		case "path":
+			set = op.Path != ""
+		case "from":
+			set = op.From != ""
+		case "to":
+			set = op.To != ""
+		}
+		if !set {
+			return fmt.Errorf("mutate: operation %d %s: %s is required", index, opType, name)
 		}
 	}
 	return nil

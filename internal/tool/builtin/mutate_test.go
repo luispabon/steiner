@@ -130,15 +130,6 @@ func TestMutateFileHashRequiresExistingTarget(t *testing.T) {
 		op   map[string]any
 	}{
 		{
-			name: "create on missing target",
-			op: map[string]any{
-				"type":      "create",
-				"path":      "new.txt",
-				"content":   "new\n",
-				"file_hash": "BEEF",
-			},
-		},
-		{
 			name: "write on missing target",
 			op: map[string]any{
 				"type":      "write",
@@ -1782,8 +1773,8 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if got.OperationsFailed != 1 {
 			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
 		}
-		if !strings.Contains(got.Output, "file_hash requires an existing file") {
-			t.Fatalf("Output = %q, want missing-target hash diagnostic", got.Output)
+		if !strings.Contains(got.Output, "field \"file_hash\" is not valid") {
+			t.Fatalf("Output = %q, want field not valid diagnostic", got.Output)
 		}
 		if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
 			t.Fatalf("new.txt exists after rejected hash-guarded create, err=%v", err)
@@ -2643,6 +2634,96 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMutateDescriptionMatchesEnumSpelling(t *testing.T) {
+	def := newMutateTestTool(t, t.TempDir())
+	for _, want := range []string{"line_replace", "insert_before", "insert_after", "create or overwrite"} {
+		if !strings.Contains(def.Description, want) {
+			t.Errorf("description missing %q", want)
+		}
+	}
+	for _, bad := range []string{"line-replace", "insert-before", "insert-after"} {
+		if strings.Contains(def.Description, bad) {
+			t.Errorf("description contains hyphenated %q", bad)
+		}
+	}
+}
+
+func TestMutateSchemaTypeDescriptionHasCheatSheet(t *testing.T) {
+	schema := MutateSchema()
+	props := schema["properties"].(map[string]any)
+	operations := props["operations"].(map[string]any)
+	items := operations["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	desc := itemProps["type"].(map[string]any)["description"].(string)
+	for _, want := range []string{
+		"move: from, to",
+		"delete_line: path, line",
+		"replace: path, old_string, new_string",
+		"insert_before / insert_after: path, line, content",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("type description missing %q; got: %s", want, desc)
+		}
+	}
+}
+
+func TestMutateRejectsDeadCreateFields(t *testing.T) {
+	tests := []struct {
+		name string
+		op   MutateOperation
+	}{
+		{"file_hash", MutateOperation{Type: "create", Path: "x.txt", FileHash: "abcd"}},
+		{"allow_empty", MutateOperation{Type: "create", Path: "x.txt", AllowEmpty: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateFields(1, tt.op); err == nil {
+				t.Fatalf("create with %s: want error, got nil", tt.name)
+			}
+		})
+	}
+}
+
+func TestMutateValidateRequired(t *testing.T) {
+	tests := []struct {
+		name string
+		op   MutateOperation
+		want string
+	}{
+		{"move missing from", MutateOperation{Type: "move", To: "b"}, "from is required"},
+		{"move missing to", MutateOperation{Type: "move", From: "a"}, "to is required"},
+		{"replace missing path", MutateOperation{Type: "replace", OldString: "a", NewString: "b"}, "path is required"},
+		{"delete missing path", MutateOperation{Type: "delete"}, "path is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRequired(1, tt.op)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validateRequired = %v, want contains %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestMutateValidCreateAndWriteStillSucceed(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("data\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "fresh.txt", "content": "fresh\n"},
+			map[string]any{"type": "write", "path": "existing.txt", "content": "", "allow_empty": true},
+		},
+	})
+	if got.OperationsFailed != 0 || got.OperationsApplied != 2 {
+		t.Fatalf("result = %#v", got)
+	}
+	assertFile(t, filepath.Join(root, "fresh.txt"), "fresh\n")
+	assertFile(t, filepath.Join(root, "existing.txt"), "")
 }
 
 func assertFile(t *testing.T, path, want string) {
