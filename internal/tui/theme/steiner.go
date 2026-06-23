@@ -1,6 +1,8 @@
 package theme
 
 import (
+	"image/color"
+
 	"charm.land/glamour/v2"
 	glamourstyles "charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
@@ -12,59 +14,59 @@ func init() {
 
 type steinerTheme struct{}
 
-func (t steinerTheme) Background() lipgloss.Color {
+func (t steinerTheme) Background() color.Color {
 	return lipgloss.Color(Bg)
 }
 
-func (t steinerTheme) Foreground() lipgloss.Color {
+func (t steinerTheme) Foreground() color.Color {
 	return lipgloss.Color(Fg)
 }
 
-func (t steinerTheme) Accent() lipgloss.Color {
+func (t steinerTheme) Accent() color.Color {
 	return lipgloss.Color(AccentAmber)
 }
 
-func (t steinerTheme) Muted() lipgloss.Color {
+func (t steinerTheme) Muted() color.Color {
 	return lipgloss.Color(FgMute)
 }
 
-func (t steinerTheme) Border() lipgloss.Color {
+func (t steinerTheme) Border() color.Color {
 	return lipgloss.Color(Border)
 }
 
-func (t steinerTheme) Error() lipgloss.Color {
+func (t steinerTheme) Error() color.Color {
 	return lipgloss.Color(Removed)
 }
 
-func (t steinerTheme) Warning() lipgloss.Color {
+func (t steinerTheme) Warning() color.Color {
 	return lipgloss.Color(Warn)
 }
 
-func (t steinerTheme) Success() lipgloss.Color {
+func (t steinerTheme) Success() color.Color {
 	return lipgloss.Color(Added)
 }
 
-func (t steinerTheme) SyntaxKeyword() lipgloss.Color {
+func (t steinerTheme) SyntaxKeyword() color.Color {
 	return lipgloss.Color(AccentAmber)
 }
 
-func (t steinerTheme) SyntaxString() lipgloss.Color {
+func (t steinerTheme) SyntaxString() color.Color {
 	return lipgloss.Color(Added)
 }
 
-func (t steinerTheme) SyntaxComment() lipgloss.Color {
+func (t steinerTheme) SyntaxComment() color.Color {
 	return lipgloss.Color(FgMute)
 }
 
-func (t steinerTheme) SyntaxFunction() lipgloss.Color {
+func (t steinerTheme) SyntaxFunction() color.Color {
 	return lipgloss.Color(User)
 }
 
-func (t steinerTheme) SyntaxNumber() lipgloss.Color {
+func (t steinerTheme) SyntaxNumber() color.Color {
 	return lipgloss.Color(Warn)
 }
 
-func (t steinerTheme) SyntaxOperator() lipgloss.Color {
+func (t steinerTheme) SyntaxOperator() color.Color {
 	return lipgloss.Color(Tool)
 }
 

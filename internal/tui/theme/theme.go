@@ -1,26 +1,28 @@
 package theme
 
 import (
+	"image/color"
+
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 )
 
 // Theme describes the colors and styles needed to render the TUI.
 type Theme interface {
-	Background() lipgloss.Color
-	Foreground() lipgloss.Color
-	Accent() lipgloss.Color
-	Muted() lipgloss.Color
-	Border() lipgloss.Color
-	Error() lipgloss.Color
-	Warning() lipgloss.Color
-	Success() lipgloss.Color
-	SyntaxKeyword() lipgloss.Color
-	SyntaxString() lipgloss.Color
-	SyntaxComment() lipgloss.Color
-	SyntaxFunction() lipgloss.Color
-	SyntaxNumber() lipgloss.Color
-	SyntaxOperator() lipgloss.Color
+	Background() color.Color
+	Foreground() color.Color
+	Accent() color.Color
+	Muted() color.Color
+	Border() color.Color
+	Error() color.Color
+	Warning() color.Color
+	Success() color.Color
+	SyntaxKeyword() color.Color
+	SyntaxString() color.Color
+	SyntaxComment() color.Color
+	SyntaxFunction() color.Color
+	SyntaxNumber() color.Color
+	SyntaxOperator() color.Color
 
 	LipGlossStyles() Styles
 	GlamourStyleSheet() glamour.TermRendererOption
@@ -90,7 +92,7 @@ type Styles struct {
 	// Computed from accent
 	AccentSoft  lipgloss.Style // soft accent fill
 	AccentLine  lipgloss.Style // accent border color
-	AccentColor lipgloss.Color // accent color as raw color value
+	AccentColor color.Color    // accent color as raw color value
 
 	// Status bar key chip
 	KeyChip lipgloss.Style

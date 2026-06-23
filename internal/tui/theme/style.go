@@ -11,8 +11,8 @@ import (
 // bgEscape returns an ANSI escape sequence that sets the background to the
 // given color. Unlike lipgloss.Style.Render, this does not depend on the
 // terminal's color profile — it always produces a 24-bit truecolor sequence.
-func bgEscape(bg lipgloss.Color) string {
-	hex := strings.TrimPrefix(string(bg), "#")
+func bgEscape(bg string) string {
+	hex := strings.TrimPrefix(bg, "#")
 	if len(hex) != 6 {
 		return ""
 	}
@@ -22,8 +22,8 @@ func bgEscape(bg lipgloss.Color) string {
 	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
 }
 
-func fgEscape(fg lipgloss.Color) string {
-	hex := strings.TrimPrefix(string(fg), "#")
+func fgEscape(fg string) string {
+	hex := strings.TrimPrefix(fg, "#")
 	if len(hex) != 6 {
 		return ""
 	}
@@ -35,7 +35,7 @@ func fgEscape(fg lipgloss.Color) string {
 
 // HighlightMatch wraps text in explicit ANSI emphasis so matched glyphs stay
 // visible even when rendering without an attached TTY profile.
-func HighlightMatch(text string, fg lipgloss.Color) string {
+func HighlightMatch(text string, fg string) string {
 	if text == "" {
 		return ""
 	}
@@ -49,7 +49,7 @@ func HighlightMatch(text string, fg lipgloss.Color) string {
 // WithBg ensures every line in s has its background set to bg.
 // It re-applies the background after every ANSI reset sequence (\x1b[0m)
 // and at the start of each logical line. Idempotent for the same bg.
-func WithBg(s string, bg lipgloss.Color) string {
+func WithBg(s string, bg string) string {
 	bgSeq := bgEscape(bg)
 	reset := "\x1b[0m"
 	resetBg := reset + bgSeq
@@ -80,11 +80,11 @@ func WithBg(s string, bg lipgloss.Color) string {
 // PadLines pads every line in s to the given width by appending spaces
 // rendered with the specified background color. Lines already at or
 // beyond the target width are left unchanged.
-func PadLines(s string, width int, bg lipgloss.Color) string {
+func PadLines(s string, width int, bg string) string {
 	if width < 1 {
 		return s
 	}
-	bgStyle := lipgloss.NewStyle().Background(bg)
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(bg))
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		w := lipgloss.Width(line)
