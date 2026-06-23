@@ -15,6 +15,12 @@ func isUserSegment(kind contentSegmentKind) bool {
 }
 
 func (b *contentBuffer) String(width int) string {
+	// Check if we can return cached result.
+	isBufferDirty := b.checkBufferDirty()
+	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
+		return b.stringCacheRendered
+	}
+
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
 	kinds := make([]contentSegmentKind, 0, len(b.segments)+2)
@@ -22,39 +28,79 @@ func (b *contentBuffer) String(width int) string {
 		if b.skipHiddenSegment(i) {
 			continue
 		}
-		seg := &b.segments[i]
-		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
-			seg.renderDirty = true
-		}
-		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
-			seg.renderDirty = true
-		}
-		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
-			stripped := strings.TrimRight(seg.cachedRender, "\n")
-			b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
-			if stripped != "" {
-				parts = append(parts, stripped)
-				kinds = append(kinds, seg.kind)
-			}
-			continue
-		}
-		rendered := b.renderSegment(*seg, width)
-		rendered = strings.TrimRight(rendered, "\n")
-		seg.cachedRender = rendered
-		seg.cachedRenderWidth = width
-		seg.renderDirty = false
-		b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
-		if rendered != "" {
-			parts = append(parts, rendered)
-			kinds = append(kinds, seg.kind)
-		}
+		b.processSegment(i, width, &parts, &kinds)
 	}
 	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, strings.TrimRight(preview, "\n"))
 		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	return b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	result := b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	b.stringCacheWidth = width
+	b.stringCacheRendered = result
+	return result
+}
+
+// processSegment renders a single non-hidden segment, updating the per-segment
+// render cache and appending to parts/kinds. Extracted from String to keep the
+// outer loop readable; stays inlinable to preserve the per-frame hot path.
+func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) {
+	seg := &b.segments[i]
+	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+		seg.renderDirty = true
+	}
+	if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+		seg.renderDirty = true
+	}
+	if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
+		stripped := strings.TrimRight(seg.cachedRender, "\n")
+		b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
+		if stripped != "" {
+			*parts = append(*parts, stripped)
+			*kinds = append(*kinds, seg.kind)
+		}
+		return
+	}
+	rendered := b.renderSegment(*seg, width)
+	rendered = strings.TrimRight(rendered, "\n")
+	seg.cachedRender = rendered
+	seg.cachedRenderWidth = width
+	seg.renderDirty = false
+	b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
+	if rendered != "" {
+		*parts = append(*parts, rendered)
+		*kinds = append(*kinds, seg.kind)
+	}
+}
+
+// checkBufferDirty checks if any condition requires a full re-render of the buffer.
+func (b *contentBuffer) checkBufferDirty() bool {
+	// If streaming with new content, invalidate cache.
+	if b.streaming && b.streamBuffer != "" {
+		return true
+	}
+
+	// Any segment is explicitly dirty.
+	for i := range b.segments {
+		if b.segments[i].renderDirty {
+			return true
+		}
+	}
+	// Active delegation or compaction forces per-frame rebuild.
+	if b.compaction.Active() {
+		return true
+	}
+	for _, seg := range b.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+			return true
+		}
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			return true
+		}
+	}
+	// showThinking toggle changes visibility.
+	// (This would need tracking of previous showThinking value if we want to be more precise.)
+	return false
 }
 
 // joinWithUserMargin joins parts with "\n", inserting a blank line ("\n\n")
@@ -95,6 +141,9 @@ func (b *contentBuffer) skipHiddenSegment(index int) bool {
 		return false
 	}
 	b.segmentHeights[index] = 0
+	// Clear renderDirty on skipped segments so hidden-thinking toggles
+	// don't perpetually dirty the buffer cache.
+	seg.renderDirty = false
 	return true
 }
 
@@ -102,10 +151,17 @@ func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	if width < 1 {
 		width = 1
 	}
-	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+	var bgLine string
+	if b.fillEmptyLinesCacheWidth == width && b.fillEmptyLinesCacheBgLine != "" {
+		bgLine = b.fillEmptyLinesCacheBgLine
+	} else {
+		bgLine = lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+		b.fillEmptyLinesCacheWidth = width
+		b.fillEmptyLinesCacheBgLine = bgLine
+	}
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if lipgloss.Width(line) == 0 {
+		if line == "" {
 			lines[i] = bgLine
 		}
 	}

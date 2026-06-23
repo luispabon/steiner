@@ -79,6 +79,13 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		CaveHuman:         s.deps.Config.CaveHuman,
 		CompactionLogPath: s.deps.CompactionLogPath,
 	}
+	// Replay the same tools the last real request sent so the compaction call
+	// reuses the identical cached prefix (system + tools + conversation) and
+	// hits the prompt cache. Without this the request both misses the cache and
+	// lets any tools carried in ExtraParams leak through unfiltered.
+	if snapshot, ok := s.snapshots.Snapshot(); ok {
+		compactReq.Tools = provider.CloneTools(snapshot.Tools)
+	}
 
 	newConv, err := s.runManualCompaction(ctx, rm.BackendModelID, func(runCtx context.Context) ([]agent.Message, error) {
 		agentRunner := agent.NewRunner()

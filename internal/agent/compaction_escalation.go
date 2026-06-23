@@ -210,9 +210,16 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 		Role:    provider.MessageRoleUser,
 		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CaveHuman),
 	})
+	// Mirror the normal-turn request shape (same Tools and Params) so the
+	// compaction call replays the identical cached prefix (system + tools +
+	// conversation) and hits the prompt cache. Omitting Tools also let any
+	// `tools` carried in ExtraParams leak through unfiltered, since the wire
+	// layer only sets (and thus overrides) the tools key when Tools is non-empty.
 	request := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    messages,
+		Tools:       provider.CloneTools(req.Tools),
+		Params:      req.ResolvedModel.Params,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   compactionMaxTokensForMode(maxTokens),
 	}

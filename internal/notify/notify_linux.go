@@ -17,6 +17,10 @@ type linuxDriver struct {
 	notifier esnotify.Notifier
 }
 
+type noopLogger struct{}
+
+func (noopLogger) Printf(string, ...interface{}) {}
+
 // newDriver returns a driver for the current platform. If D-Bus is unavailable
 // it returns a stubDriver so all future calls no-op gracefully.
 func newDriver(opts Options) driver {
@@ -45,6 +49,7 @@ func newDriver(opts Options) driver {
 				focusTerminal()
 			}
 		}),
+		esnotify.WithLogger(noopLogger{}),
 	)
 	if err != nil {
 		return &stubDriver{reason: "cannot create notifier: " + err.Error()}
