@@ -134,6 +134,9 @@ func (b *contentBuffer) skipHiddenSegment(index int) bool {
 		return false
 	}
 	b.segmentHeights[index] = 0
+	// Clear renderDirty on skipped segments so hidden-thinking toggles
+	// don't perpetually dirty the buffer cache.
+	seg.renderDirty = false
 	return true
 }
 

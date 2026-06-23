@@ -281,9 +281,14 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 func (m *Model) inputChromeHeight(contentWidth int) int {
 	activityRows := m.activityRowHeight(contentWidth)
 	cacheKey := inputHeightCacheKey{
-		inputValue:   m.input.Value(),
-		contentWidth: contentWidth,
-		activityRows: activityRows,
+		inputValue:       m.input.Value(),
+		contentWidth:     contentWidth,
+		activityRows:     activityRows,
+		hasPendingSteer:  m.steerQueued,
+		slashOverlayOpen: m.slashOverlay.IsOpen(),
+		fileOverlayOpen:  m.fileList.IsOpen(),
+		helpVisible:      m.helpVisible,
+		imageMarkerCount: len(m.imageMarkers),
 	}
 	if m.inputHeightCacheKey == cacheKey && m.inputHeightCacheValue > 0 {
 		return m.inputHeightCacheValue

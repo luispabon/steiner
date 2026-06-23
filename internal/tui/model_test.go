@@ -3889,3 +3889,156 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestContentStringCacheInvalidationOnDirtySegment(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Add content and populate cache.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "test content", output.ChunkSourceAssistant)})
+	firstCall := m.content.String(80)
+
+	// Mark a segment dirty and verify cache is invalidated.
+	if len(m.content.segments) > 0 {
+		m.content.segments[0].renderDirty = true
+		secondCall := m.content.String(80)
+		if firstCall == secondCall {
+			t.Fatal("content.String cache should invalidate when segment is dirty")
+		}
+	}
+}
+
+func TestContentStringCacheInvalidationOnWidthChange(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Add long content that wraps differently at different widths.
+	longContent := strings.Repeat("word ", 100)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, longContent, output.ChunkSourceAssistant)})
+	result1 := m.content.String(40)
+	width1 := m.content.stringCacheWidth
+
+	// Call at different width.
+	result2 := m.content.String(80)
+	width2 := m.content.stringCacheWidth
+
+	// Verify cache key changed and results differ.
+	if width1 == width2 {
+		t.Fatal("stringCacheWidth should track width changes")
+	}
+	if result1 == result2 {
+		t.Fatal("content.String output should differ at different widths")
+	}
+}
+
+func TestContentStringCacheInvalidationOnShowThinkingToggle(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Add thinking block and regular content.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "thinking content here", output.ChunkSourceAssistant)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "regular content", output.ChunkSourceAssistant)})
+
+	// With thinking shown.
+	m.content.showThinking = true
+	result1 := m.content.String(80)
+	if !strings.Contains(result1, "thinking") {
+		t.Fatal("expected thinking content when showThinking=true")
+	}
+
+	// With thinking hidden - should not contain thinking.
+	m.content.showThinking = false
+	result2 := m.content.String(80)
+	if strings.Contains(result2, "thinking") {
+		t.Fatal("expected no thinking content when showThinking=false")
+	}
+}
+
+func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "test", output.ChunkSourceAssistant)})
+	_ = m.content.String(80)
+
+	// Simulate active delegation by adding a delegation segment.
+	m.content.activeDelegations = make(map[string]int)
+	m.content.activeDelegations["test_agent"] = 0
+
+	// When active delegation exists, checkBufferDirty should return true.
+	if !m.content.checkBufferDirty() {
+		t.Fatal("checkBufferDirty should return true when active delegation exists")
+	}
+}
+
+func TestScrollbarCacheInvalidationOnScroll(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Add enough content to require scrollbar.
+	longContent := strings.Repeat("line of content\n", 100)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, longContent, output.ChunkSourceAssistant)})
+
+	// Prepare viewport content.
+	m.syncViewport()
+
+	// Get scrollbar at offset 0.
+	m.viewport.SetYOffset(0)
+	key1 := m.scrollbarCacheKey
+	scroll1 := m.renderScrollbar()
+
+	// Scroll to different position and verify cache key is different.
+	m.viewport.SetYOffset(10)
+	key2 := m.scrollbarCacheKey
+	scroll2 := m.renderScrollbar()
+
+	if key1 == key2 {
+		t.Fatal("scrollbar cache key should differ when YOffset changes")
+	}
+	if scroll1 == scroll2 {
+		t.Fatal("scrollbar rendering should differ after scroll")
+	}
+}
+
+func TestInputHeightCacheInvalidationOnInputChange(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	initialValue := m.input.Value()
+	_ = m.inputChromeHeight(80)
+
+	// Verify cache key was set with initial input value.
+	if m.inputHeightCacheKey.inputValue != initialValue {
+		t.Fatal("cache key should store initial input value")
+	}
+
+	// Change input to multi-line content.
+	newValue := "new input\ntext\nwith\nmultiple\nlines\n"
+	m.input.SetValue(newValue)
+	_ = m.inputChromeHeight(80)
+
+	// Cache key should now reflect new input value.
+	if m.inputHeightCacheKey.inputValue != newValue {
+		t.Fatal("cache key should update when input value changes")
+	}
+}
+
+func TestInputHeightCacheInvalidationOnPendingSteer(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Call with no pending steer.
+	_ = m.inputChromeHeight(80)
+	if m.inputHeightCacheKey.hasPendingSteer {
+		t.Fatal("cache key should have hasPendingSteer=false initially")
+	}
+
+	// Set pending steer and call again.
+	m.steerQueued = true
+	_ = m.inputChromeHeight(80)
+
+	// Cache key should now reflect pending steer.
+	if !m.inputHeightCacheKey.hasPendingSteer {
+		t.Fatal("cache key should update when steerQueued changes")
+	}
+}

@@ -177,9 +177,14 @@ type scrollbarCacheKey struct {
 }
 
 type inputHeightCacheKey struct {
-	inputValue   string
-	contentWidth int
-	activityRows int
+	inputValue       string
+	contentWidth     int
+	activityRows     int
+	hasPendingSteer  bool
+	slashOverlayOpen bool
+	fileOverlayOpen  bool
+	helpVisible      bool
+	imageMarkerCount int
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
