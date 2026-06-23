@@ -28,32 +28,7 @@ func (b *contentBuffer) String(width int) string {
 		if b.skipHiddenSegment(i) {
 			continue
 		}
-		seg := &b.segments[i]
-		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
-			seg.renderDirty = true
-		}
-		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
-			seg.renderDirty = true
-		}
-		if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
-			stripped := strings.TrimRight(seg.cachedRender, "\n")
-			b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
-			if stripped != "" {
-				parts = append(parts, stripped)
-				kinds = append(kinds, seg.kind)
-			}
-			continue
-		}
-		rendered := b.renderSegment(*seg, width)
-		rendered = strings.TrimRight(rendered, "\n")
-		seg.cachedRender = rendered
-		seg.cachedRenderWidth = width
-		seg.renderDirty = false
-		b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
-		if rendered != "" {
-			parts = append(parts, rendered)
-			kinds = append(kinds, seg.kind)
-		}
+		b.processSegment(i, width, &parts, &kinds)
 	}
 	if preview := b.inProgressPreview(width); preview != "" {
 		parts = append(parts, strings.TrimRight(preview, "\n"))
@@ -64,6 +39,38 @@ func (b *contentBuffer) String(width int) string {
 	b.stringCacheWidth = width
 	b.stringCacheRendered = result
 	return result
+}
+
+// processSegment renders a single non-hidden segment, updating the per-segment
+// render cache and appending to parts/kinds. Extracted from String to keep the
+// outer loop readable; stays inlinable to preserve the per-frame hot path.
+func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) {
+	seg := &b.segments[i]
+	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+		seg.renderDirty = true
+	}
+	if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+		seg.renderDirty = true
+	}
+	if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
+		stripped := strings.TrimRight(seg.cachedRender, "\n")
+		b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
+		if stripped != "" {
+			*parts = append(*parts, stripped)
+			*kinds = append(*kinds, seg.kind)
+		}
+		return
+	}
+	rendered := b.renderSegment(*seg, width)
+	rendered = strings.TrimRight(rendered, "\n")
+	seg.cachedRender = rendered
+	seg.cachedRenderWidth = width
+	seg.renderDirty = false
+	b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
+	if rendered != "" {
+		*parts = append(*parts, rendered)
+		*kinds = append(*kinds, seg.kind)
+	}
 }
 
 // checkBufferDirty checks if any condition requires a full re-render of the buffer.
