@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
 	"github.com/luispabon/steiner/internal/output"

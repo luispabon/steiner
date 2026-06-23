@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )

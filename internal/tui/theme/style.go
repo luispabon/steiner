@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // bgEscape returns an ANSI escape sequence that sets the background to the

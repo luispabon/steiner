@@ -3,8 +3,8 @@ package theme
 import (
 	"testing"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type mockTheme struct{ id string }

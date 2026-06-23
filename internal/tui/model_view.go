@@ -3,9 +3,9 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/cursor"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"

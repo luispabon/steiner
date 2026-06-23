@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )

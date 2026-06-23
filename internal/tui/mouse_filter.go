@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func shouldIgnoreLeakedMouseRunes(msg tea.KeyMsg, recentWheel bool) bool {

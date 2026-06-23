@@ -3,9 +3,9 @@ package tui
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 )

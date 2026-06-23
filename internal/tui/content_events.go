@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
