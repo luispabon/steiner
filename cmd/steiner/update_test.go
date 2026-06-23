@@ -58,7 +58,7 @@ func TestUpdateCommand_DevToStable(t *testing.T) {
 		}
 		return "v1.2.3", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "stable" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "stable")
 		}
@@ -110,13 +110,13 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
 		}
 		return "dev", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "dev" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
@@ -163,13 +163,13 @@ func TestUpdateCommand_StableToDev(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
 		}
 		return "dev", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "dev" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
@@ -206,7 +206,7 @@ func TestUpdateCommand_StableUpToDate(t *testing.T) {
 	oldCheck := checkFunc
 	oldApply := applyFunc
 	calledApply := false
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "stable" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
 		}
@@ -252,13 +252,13 @@ func TestUpdateCommand_StableUpdate(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "stable" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
 		}
 		return "v1.2.3", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "stable" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "stable")
 		}
@@ -348,7 +348,7 @@ func TestUpdateCommand_SpecificVersionWithoutV(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, _, targetVersion string) (string, bool, error) {
 		if targetVersion != "1.1.0" {
 			t.Errorf("checkFunc targetVersion = %q, want %q", targetVersion, "1.1.0")
 		}
@@ -405,13 +405,13 @@ func TestUpdateCommand_RootDevFlag(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
 		}
 		return "dev", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "dev" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
@@ -470,13 +470,13 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
-	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "stable" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
 		}
 		return "v1.2.0", true, nil
 	}
-	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
 		return "v1.2.0", nil
 	}
 	t.Cleanup(func() {
