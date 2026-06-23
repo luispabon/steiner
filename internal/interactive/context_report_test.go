@@ -40,13 +40,13 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		},
 		MaxTokens: &maxTokens,
 		Blocks: []prompt.ContextBlock{
-			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreamble("", false, false, "").Content},
-			{Source: prompt.ContextSourceGlobalAgentsMD, Path: "/tmp/global/AGENTS.md", Content: "global agents"},
-			{Source: prompt.ContextSourceProjectAgentsMD, Path: "/tmp/project/AGENTS.md", Content: "project agents"},
-			{Source: prompt.ContextSourceProjectContext, Path: "/tmp/project/README.md", Content: "project readme"},
-			{Source: prompt.ContextSourceSkill, Path: "/skills/review/SKILL.md", Content: "skill instructions"},
-			{Source: prompt.ContextSourceDurableContext, Path: "retained context state", Content: `{"kind":"durable_context","content":"focus"}`},
-			{Source: prompt.ContextSourceConversationSummary, Content: `{"kind":"conversation_summary","content":"summary"}`},
+			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreamble("", false, false, "").Content, ByteSize: len(prompt.SystemPreamble("", false, false, "").Content)},
+			{Source: prompt.ContextSourceGlobalAgentsMD, Path: "/tmp/global/AGENTS.md", Content: "global agents", ByteSize: len("global agents")},
+			{Source: prompt.ContextSourceProjectAgentsMD, Path: "/tmp/project/AGENTS.md", Content: "project agents", ByteSize: len("project agents")},
+			{Source: prompt.ContextSourceProjectContext, Path: "/tmp/project/README.md", Content: "project readme", ByteSize: len("project readme")},
+			{Source: prompt.ContextSourceSkill, Path: "/skills/review/SKILL.md", Content: "skill instructions", ByteSize: len("skill instructions")},
+			{Source: prompt.ContextSourceDurableContext, Path: "retained context state", Content: `{"kind":"durable_context","content":"focus"}`, ByteSize: len(`{"kind":"durable_context","content":"focus"}`)},
+			{Source: prompt.ContextSourceConversationSummary, Content: `{"kind":"conversation_summary","content":"summary"}`, ByteSize: len(`{"kind":"conversation_summary","content":"summary"}`)},
 		},
 		ModelBudget: prompt.ModelTokenBudget{
 			ContextSize:         4096,
@@ -114,5 +114,109 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	}
 	if !strings.Contains(report, fmt.Sprintf("Prompt usage: `%.0f%%`", fit.PromptUsage*100)) {
 		t.Fatalf("report = %q, want prompt usage %.0f%%", report, fit.PromptUsage*100)
+	}
+}
+
+func TestBuildContextReportWithMergedMessages(t *testing.T) {
+	maxTokens := 64
+	preambleBlock := prompt.SystemPreamble("", false, false, "")
+	preambleContent := preambleBlock.Content
+
+	// Blocks and messages simulate merged real-assembly output:
+	//   - All system blocks (preamble, agents, conversation summary) are
+	//     merged into one system message.
+	//   - All user blocks (project context, skill, durable context) are
+	//     merged into one user message.
+	//   - Conversation turns follow, then tool results.
+	// Block order matches assembly order: system blocks first, then user
+	// blocks, then tool blocks (none here). Conversation summary appears
+	// with other system blocks because it belongs to the pre-conv zone.
+	snapshot := RequestContextSnapshot{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: preambleContent + "\n\nglobal agents\n\nproject agents\n\n{\"kind\":\"conversation_summary\",\"content\":\"summary\"}"},
+			{Role: provider.MessageRoleUser, Content: "project readme\nskill instructions\n{\"kind\":\"durable_context\",\"content\":\"focus\"}"},
+			{Role: provider.MessageRoleUser, Content: "current user message"},
+			{Role: provider.MessageRoleAssistant, Content: "assistant reply"},
+			{Role: provider.MessageRoleTool, Name: "read", Content: "tool output"},
+		},
+		Tools: []provider.ToolSpec{
+			{
+				Type: "function",
+				Function: provider.ToolFunctionSpec{
+					Name:        "read",
+					Description: "Read a file",
+					Parameters: map[string]any{
+						"type": "object",
+					},
+				},
+			},
+		},
+		MaxTokens: &maxTokens,
+		Blocks: []prompt.ContextBlock{
+			{Source: prompt.ContextSourcePreamble, Content: preambleContent, ByteSize: len(preambleContent)},
+			{Source: prompt.ContextSourceGlobalAgentsMD, Path: "/tmp/global/AGENTS.md", Content: "global agents", ByteSize: len("global agents")},
+			{Source: prompt.ContextSourceProjectAgentsMD, Path: "/tmp/project/AGENTS.md", Content: "project agents", ByteSize: len("project agents")},
+			{Source: prompt.ContextSourceConversationSummary, Content: `{"kind":"conversation_summary","content":"summary"}`, ByteSize: len(`{"kind":"conversation_summary","content":"summary"}`)},
+			{Source: prompt.ContextSourceProjectContext, Path: "/tmp/project/README.md", Content: "project readme", ByteSize: len("project readme")},
+			{Source: prompt.ContextSourceSkill, Path: "/skills/review/SKILL.md", Content: "skill instructions", ByteSize: len("skill instructions")},
+			{Source: prompt.ContextSourceDurableContext, Path: "retained context state", Content: `{"kind":"durable_context","content":"focus"}`, ByteSize: len(`{"kind":"durable_context","content":"focus"}`)},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+			SafetyMarginTokens:  32,
+		},
+	}
+
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+
+	// All block-source categories must appear.
+	for _, want := range []string{
+		"| system preamble |",
+		"| global AGENTS.md |",
+		"| project AGENTS.md |",
+		"| project context files |",
+		"| enabled skills |",
+		"| durable context |",
+		"| conversation summary blocks |",
+		"| conversation messages |",
+		"| tool result / tool summary blocks |",
+		"| tool definitions |",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report missing %q\n%s", want, report)
+		}
+	}
+
+	// Verify conversation messages total equals expected sum of conversation turns
+	// (user turn + assistant turn). Block-sourced tokens must not leak into
+	// conversation messages.
+	userTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[2])
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens(user) error = %v", err)
+	}
+	assistantTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[3])
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens(assistant) error = %v", err)
+	}
+	expectedConvTokens := userTokens + assistantTokens
+
+	convPrefix := "| conversation messages |"
+	convIdx := strings.Index(report, convPrefix)
+	if convIdx < 0 {
+		t.Fatalf("conversation messages category not found in report")
+	}
+	rest := report[convIdx+len(convPrefix):]
+	rest = strings.TrimSpace(rest)
+	var convTotal int
+	if _, err := fmt.Sscanf(rest, "%d", &convTotal); err != nil {
+		t.Fatalf("failed to parse conversation messages total: %v", err)
+	}
+	if convTotal != expectedConvTokens {
+		t.Fatalf("conversation messages total = %d, want %d (sum of user+assistant turns)", convTotal, expectedConvTokens)
 	}
 }
