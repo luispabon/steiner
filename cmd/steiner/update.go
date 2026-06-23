@@ -1,18 +1,21 @@
 package main
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/update"
 )
 
-var updateFunc = update.Channel
+var checkFunc = update.Check
+var applyFunc = update.Channel
 
 // isDevBuild returns true if the version is a dev build that cannot be
 // semver-compared: the literal "dev" or any version prefixed with "dev-".
@@ -20,56 +23,100 @@ func isDevBuild(v string) bool {
 	return v == "dev" || strings.HasPrefix(v, "dev-")
 }
 
+// displayVersion formats a version string for display, adding a "v" prefix
+// if it looks like a semver without one.
+func displayVersion(v string) string {
+	if isDevBuild(v) {
+		return v
+	}
+	if !strings.HasPrefix(v, "v") && !strings.HasPrefix(v, "V") {
+		return "v" + v
+	}
+	return v
+}
+
+// printChannelSwitchWarning prints a warning when switching between release
+// channels, using the same layout as printVersionLine.
+func printChannelSwitchWarning(w io.Writer, currentChannel, requestedChannel string) {
+	accent := accentColor()
+	labelStyle := lipgloss.NewStyle().Foreground(accent).Bold(true).Width(10)
+	valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+	warnStyle := lipgloss.NewStyle().Foreground(accent).Bold(true)
+	_, _ = fmt.Fprintf(w, "  %s %s%s%s%s%s\n",
+		labelStyle.Render("⚠ notice"),
+		valStyle.Render("switching from "),
+		warnStyle.Render(currentChannel),
+		valStyle.Render(" to "),
+		warnStyle.Render(requestedChannel),
+		valStyle.Render(" — this replaces your current build"),
+	)
+}
+
 func newUpdateCommand() *cobra.Command {
 	var devFlag bool
 
 	cmd := &cobra.Command{
-		Use:     "update",
-		Short:   "Update steiner to the latest release",
+		Use:     "update [version]",
+		Short:   "Update steiner to the latest release, or to a specific version",
 		Aliases: []string{"upgrade"},
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			// 1. Dev build warning (re-enabled).
-			// If this is a dev build and --dev is not set, warn and exit.
-			if isDevBuild(version) {
-				devSet := devFlag || devFlagFromCmd(cmd)
-				if !devSet {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: dev builds cannot check for stable updates. Use --dev to update to the latest dev build.")
-					return nil
-				}
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// 1. Extract target version from args.
+			targetVersion := ""
+			if len(args) > 0 {
+				targetVersion = args[0]
 			}
 
-			// 2. Determine channel.
-			channel := "stable"
-			if devFlagFromCmd(cmd) || devFlag {
-				channel = "dev"
+			// 2. Determine requested channel.
+			requestedChannel := "stable"
+			if devFlag || devFlagFromCmd(cmd) {
+				requestedChannel = "dev"
+			}
+
+			// 3. Validate: --dev and target version cannot be used together.
+			if targetVersion != "" && requestedChannel == "dev" {
+				return fmt.Errorf("--dev and a target version cannot be used together")
+			}
+
+			// 4. Channel switch warning.
+			if channel != requestedChannel {
+				printChannelSwitchWarning(cmd.OutOrStdout(), channel, requestedChannel)
 			}
 
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
 
-			// 3. Print current version before the download spinner.
-			printVersionLine(cmd.OutOrStdout(), "current", version)
-
-			// 4. Start spinner. Always deferred-stop to prevent goroutine leaks.
-			sp := NewSpinner(cmd.OutOrStdout(), "Downloading…")
+			// 5. Check phase.
+			sp := NewSpinner(cmd.OutOrStdout(), "checking version")
 			sp.Start()
-			defer sp.Stop(false, "aborted")
+			latestVer, needsUpdate, err := checkFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
+			sp.Clear()
 
-			// 5. Call updateFunc (fetch + download + verify + replace).
-			latestVer, err := updateFunc(cmd.Context(), version, "luispabon", "steiner", token, channel)
-
-			// 6. Handle results.
-			if errors.Is(err, update.ErrUpToDate) {
-				sp.Stop(true, "already up to date")
-				printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
-				return nil
-			}
 			if err != nil {
-				sp.Stop(false, err.Error())
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s %s\n", crossMark(), err.Error())
 				return err
 			}
-			sp.Stop(true, "updated to "+latestVer)
-			printVersionLine(cmd.OutOrStdout(), "latest", latestVer)
+
+			// 6. Print version info.
+			printVersionLine(cmd.OutOrStdout(), "Current:", displayVersion(version))
+			printVersionLine(cmd.OutOrStdout(), "Latest:", displayVersion(latestVer))
+
+			// 7. Already up to date.
+			if !needsUpdate {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  "+checkMark()+" Up to date")
+				return nil
+			}
+
+			// 8. Apply phase.
+			sp2 := NewSpinner(cmd.OutOrStdout(), "updating...")
+			sp2.Start()
+			_, err = applyFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
+
+			if err != nil {
+				sp2.Stop(false, err.Error())
+				return err
+			}
+
+			sp2.Stop(true, "updated")
 			return nil
 		},
 	}

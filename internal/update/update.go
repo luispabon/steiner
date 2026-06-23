@@ -277,6 +277,68 @@ func downloadAndVerify(ctx context.Context, release *release, releaseTag, token 
 	return releaseTag, nil
 }
 
+// normalizeVersionTag ensures a version string starts with "v" (or "V") for
+// stable releases. Dev builds and empty strings are returned unchanged.
+func normalizeVersionTag(v string) string {
+	if v == "" || isDevVersion(v) {
+		return v
+	}
+	if !strings.HasPrefix(v, "v") && !strings.HasPrefix(v, "V") {
+		return "v" + v
+	}
+	return v
+}
+
+// Check reports whether an update is available on the given channel.
+// targetVersion, if non-empty, requests a specific stable version tag
+// instead of the latest. It returns the version string for the release
+// that would be installed and whether an update is needed.
+func Check(ctx context.Context, currentVersion, owner, repo, token, channel, targetVersion string) (latestVersion string, needsUpdate bool, err error) {
+	switch channel {
+	case "dev":
+		release, err := fetchReleaseByTag(ctx, owner, repo, "dev", token)
+		if err != nil {
+			return "", false, fmt.Errorf("fetch dev release: %w", err)
+		}
+		return release.TagName, true, nil
+
+	default:
+		var release *release
+		var err error
+
+		if targetVersion != "" {
+			tag := normalizeVersionTag(targetVersion)
+			release, err = fetchReleaseByTag(ctx, owner, repo, tag, token)
+		} else {
+			release, err = fetchLatestRelease(ctx, owner, repo, token)
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("fetch release: %w", err)
+		}
+
+		latestTag := release.TagName
+
+		if isDevVersion(currentVersion) {
+			return latestTag, true, nil
+		}
+
+		latestVer, err := parseVersion(latestTag)
+		if err != nil {
+			return "", false, fmt.Errorf("parse latest version %q: %w", latestTag, err)
+		}
+
+		currVer, err := parseVersion(currentVersion)
+		if err != nil {
+			return "", false, fmt.Errorf("parse current version %q: %w", currentVersion, err)
+		}
+
+		if !currVer.isOlderThan(latestVer) {
+			return latestTag, false, nil
+		}
+		return latestTag, true, nil
+	}
+}
+
 // isDevVersion reports whether v is a dev build version string that cannot be
 // semver-compared: the literal "dev" or any version prefixed with "dev-".
 func isDevVersion(v string) bool {
@@ -298,7 +360,7 @@ func isDevVersion(v string) bool {
 // On success, the release tag name is returned. For stable updates, if the
 // current version is already up to date, ErrUpToDate is returned alongside the
 // latest tag.
-func Channel(ctx context.Context, currentVersion, owner, repo, token, channel string) (string, error) {
+func Channel(ctx context.Context, currentVersion, owner, repo, token, channel, targetVersion string) (string, error) {
 	switch channel {
 	case "dev":
 		release, err := fetchReleaseByTag(ctx, owner, repo, "dev", token)
@@ -308,8 +370,20 @@ func Channel(ctx context.Context, currentVersion, owner, repo, token, channel st
 		return downloadAndVerify(ctx, release, release.TagName, token)
 
 	default:
+		var release *release
+		var err error
+
+		if targetVersion != "" {
+			tag := normalizeVersionTag(targetVersion)
+			release, err = fetchReleaseByTag(ctx, owner, repo, tag, token)
+			if err != nil {
+				return "", fmt.Errorf("fetch release: %w", err)
+			}
+			return downloadAndVerify(ctx, release, release.TagName, token)
+		}
+
 		// Fetch the latest release.
-		release, err := fetchLatestRelease(ctx, owner, repo, token)
+		release, err = fetchLatestRelease(ctx, owner, repo, token)
 		if err != nil {
 			return "", fmt.Errorf("fetch latest release: %w", err)
 		}

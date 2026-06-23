@@ -88,6 +88,26 @@ func (s *Spinner) Stop(success bool, final string) {
 	}
 }
 
+// Clear stops the spinner and clears the current line.
+// In TTY mode, it writes a clear escape sequence. In non-TTY mode it is a
+// no-op. Safe to call when not started.
+func (s *Spinner) Clear() {
+	s.mu.Lock()
+	if !s.started {
+		s.mu.Unlock()
+		return
+	}
+	s.started = false
+	s.mu.Unlock()
+
+	if s.tty {
+		close(s.stopCh)
+		<-s.doneCh
+		s.ticker.Stop()
+		_, _ = fmt.Fprintf(s.w, "\r\x1b[2K")
+	}
+}
+
 func (s *Spinner) run() {
 	defer close(s.doneCh)
 	frames := spinner.Dot.Frames

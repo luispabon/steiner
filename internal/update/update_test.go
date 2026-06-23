@@ -450,7 +450,7 @@ func TestUpdate_HappyPath(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestUpdate_AlreadyUpToDate(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	latestVer, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	latestVer, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if !errors.Is(err, ErrUpToDate) {
 		t.Fatalf("Update: want ErrUpToDate, got %v", err)
 	}
@@ -506,7 +506,7 @@ func TestUpdate_InvalidCurrentVersion(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "invalid", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "invalid", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for invalid version, got nil")
 	}
@@ -526,7 +526,7 @@ func TestUpdate_InvalidLatestVersion(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for invalid version, got nil")
 	}
@@ -544,7 +544,7 @@ func TestUpdate_GitHubAPINon200(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for 500, got nil")
 	}
@@ -573,7 +573,7 @@ func TestUpdate_ReleaseJSONMissingAsset(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing asset, got nil")
 	}
@@ -601,7 +601,7 @@ func TestUpdate_ReleaseJSONMissingChecksumsAsset(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing checksums asset, got nil")
 	}
@@ -648,7 +648,7 @@ func TestUpdate_AssetDownloadFails(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for asset download failure, got nil")
 	}
@@ -695,7 +695,7 @@ func TestUpdate_ChecksumDownloadFails(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for checksum download failure, got nil")
 	}
@@ -747,7 +747,7 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for checksum mismatch, got nil")
 	}
@@ -801,7 +801,7 @@ func TestUpdate_MissingChecksumEntry(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for missing checksum entry, got nil")
 	}
@@ -848,7 +848,7 @@ func TestUpdate_OsExecutableFails(t *testing.T) {
 		return "", fmt.Errorf("executable error")
 	}
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err == nil {
 		t.Fatal("Update: expected error for os.Executable failure, got nil")
 	}
@@ -949,7 +949,7 @@ func TestChannel_Dev_HappyPath(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	tag, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev")
+	tag, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev", "")
 	if err != nil {
 		t.Fatalf("Channel(dev): %v", err)
 	}
@@ -975,7 +975,7 @@ func TestChannel_Dev_Non200(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "dev", "")
 	if err == nil {
 		t.Fatal("Channel(dev): expected error for 404, got nil")
 	}
@@ -1030,7 +1030,7 @@ func TestChannel_StableIsDefault(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
 	if err != nil {
 		t.Fatalf("Channel(stable): %v", err)
 	}
@@ -1102,7 +1102,7 @@ func TestChannel_StableFromDevBuild(t *testing.T) {
 			defer saveHTTPClient()()
 			httpClient = newTestClient(server.URL)
 
-			tag, err := Channel(context.Background(), tt.currentVersion, "owner", "repo", "", "stable")
+			tag, err := Channel(context.Background(), tt.currentVersion, "owner", "repo", "", "stable", "")
 			if err != nil {
 				t.Fatalf("Channel(stable, %q): %v", tt.currentVersion, err)
 			}
@@ -1167,7 +1167,7 @@ func TestChannel_UnknownChannelIsStable(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "unknown")
+	_, err := Channel(context.Background(), "v1.0.0", "owner", "repo", "", "unknown", "")
 	if err != nil {
 		t.Fatalf("Channel(unknown): %v", err)
 	}
@@ -1201,11 +1201,168 @@ func TestChannel_Dev_MissingAsset(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, err := Channel(context.Background(), "dev", "owner", "repo", "", "dev")
+	_, err := Channel(context.Background(), "dev", "owner", "repo", "", "dev", "")
 	if err == nil {
 		t.Fatal("Channel(dev): expected error for missing asset, got nil")
 	}
 	if !strings.Contains(err.Error(), "no asset found for "+an) {
 		t.Errorf("Channel(dev): error = %v, want missing asset error", err)
+	}
+}
+
+func TestNormalizeVersionTag(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"v1.0.0", "v1.0.0"},
+		{"1.0.0", "v1.0.0"},
+		{"dev", "dev"},
+		{"", ""},
+		{"V1.0.0", "V1.0.0"},
+		{"dev-abc1234", "dev-abc1234"},
+	}
+	for _, tt := range tests {
+		got := normalizeVersionTag(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeVersionTag(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestCheck_StableUpdateAvailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{TagName: "v1.2.0"}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.2.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true")
+	}
+}
+
+func TestCheck_StableUpToDate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{TagName: "v1.2.0"}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.2.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
+	}
+	if needsUpdate {
+		t.Errorf("Check needsUpdate = true, want false")
+	}
+}
+
+func TestCheck_DevAlwaysNeedsUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{TagName: "v1.2.0"}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "dev", "owner", "repo", "", "stable", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.2.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true")
+	}
+}
+
+func TestCheck_DevChannel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{TagName: "dev"}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.0.0", "owner", "repo", "", "dev", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "dev" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "dev")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true")
+	}
+}
+
+func TestCheck_SpecificVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		rel := release{TagName: "v1.0.0"}
+		_ = json.NewEncoder(w).Encode(rel)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "v1.0.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.0.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.0.0")
+	}
+	if needsUpdate {
+		t.Errorf("Check needsUpdate = true, want false (current v1.2.0 >= v1.0.0)")
+	}
+}
+
+func TestCheck_SpecificVersionWithoutV(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Should request tag "v1.0.0" (normalized)
+		if strings.Contains(r.URL.Path, "/tags/v1.0.0") {
+			w.Header().Set("Content-Type", "application/json")
+			rel := release{TagName: "v1.0.0"}
+			_ = json.NewEncoder(w).Encode(rel)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, _, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "1.0.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
 	}
 }
