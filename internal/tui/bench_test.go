@@ -8,6 +8,9 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+var benchStringSink string
+var benchViewSink string
+
 // BenchmarkView measures m.View() steady state performance.
 func BenchmarkView(b *testing.B) {
 	m := newModel(Config{
@@ -19,13 +22,14 @@ func BenchmarkView(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = m.View()
+		benchViewSink = m.View()
 	}
 }
 
-// BenchmarkContentString measures contentBuffer.String(width) during streaming.
-// Note: This is a mixed scenario with active delegation, so the full-render path
-// is taken on every call. See BenchmarkContentStringCacheHit for the cache-hit scenario.
+// BenchmarkContentString measures contentBuffer.String(width) on the full-render
+// (cache-miss) path. streaming=true with a non-empty streamBuffer causes
+// checkBufferDirty to return true every call, so the full segment render runs
+// each iteration. See BenchmarkContentStringCacheHit for the settled cache-hit path.
 func BenchmarkContentString(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
@@ -34,12 +38,14 @@ func BenchmarkContentString(b *testing.B) {
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	populateBenchModel(&m)
 
-	// Pre-warm the cache by calling String once to populate segment caches.
-	_ = m.content.String(m.viewport.Width)
+	// Force the dirty path on every call: streaming with buffered content causes
+	// checkBufferDirty() to return true, bypassing the wholesale string cache.
+	m.content.streaming = true
+	m.content.streamBuffer = "pending stream text"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = m.content.String(m.viewport.Width)
+		benchStringSink = m.content.String(m.viewport.Width)
 	}
 }
 
@@ -59,11 +65,11 @@ func BenchmarkContentStringCacheHit(b *testing.B) {
 	m.content.streaming = false
 
 	// Pre-warm the cache by calling String once to populate all caches.
-	_ = m.content.String(m.viewport.Width)
+	benchStringSink = m.content.String(m.viewport.Width)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = m.content.String(m.viewport.Width)
+		benchStringSink = m.content.String(m.viewport.Width)
 	}
 }
 
