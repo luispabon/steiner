@@ -119,7 +119,7 @@ func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m.input.SetValue("hello")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSteerPrompt() != 1 {
 		t.Fatalf("SteerPrompt count = %d, want 1 (busy regular run must queue steer)", ctrl.countSteerPrompt())
@@ -208,7 +208,7 @@ func TestNoArgSkillInvocationEnablesAndSubmits(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/myskill")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.enabledSkills["myskill"] {
 		t.Fatal("enabledSkills[myskill] = false, want true after no-arg invocation")
@@ -231,7 +231,7 @@ func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/myskill do the thing")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.enabledSkills["myskill"] {
 		t.Fatal("enabledSkills[myskill] = false, want true after args invocation")

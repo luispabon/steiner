@@ -22,7 +22,7 @@ func BenchmarkView(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchViewSink = m.View()
+		benchViewSink = m.View().Content
 	}
 }
 
@@ -45,7 +45,7 @@ func BenchmarkContentString(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width)
+		benchStringSink = m.content.String(m.viewport.Width())
 	}
 }
 
@@ -65,11 +65,11 @@ func BenchmarkContentStringCacheHit(b *testing.B) {
 	m.content.streaming = false
 
 	// Pre-warm the cache by calling String once to populate all caches.
-	benchStringSink = m.content.String(m.viewport.Width)
+	benchStringSink = m.content.String(m.viewport.Width())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width)
+		benchStringSink = m.content.String(m.viewport.Width())
 	}
 }
 
@@ -100,7 +100,7 @@ func BenchmarkKeystroke(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m = updateModelDirect(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+		m = updateModelDirect(m, tea.KeyPressMsg{Code: 'x', Text: "x"})
 	}
 }
 

@@ -2,6 +2,7 @@ package theme
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -20,21 +21,19 @@ func styleSnapshot(style lipgloss.Style) string {
 	)
 }
 
-func terminalColorSnapshot(color lipgloss.TerminalColor) string {
-	if color == nil {
+func terminalColorSnapshot(c color.Color) string {
+	if c == nil {
 		return ""
 	}
-	r, g, b, a := color.RGBA()
+	r, g, b, a := c.RGBA()
 	if r == 0 && g == 0 && b == 0 && a == 0 {
 		return ""
 	}
-	if snapshot := fmt.Sprint(color); snapshot == "{}" {
+	if snapshot := fmt.Sprint(c); snapshot == "{}" {
 		return ""
 	}
-	if hex, ok := color.(lipgloss.Color); ok {
-		return strings.ToLower(string(hex))
-	}
-	return strings.ToLower(fmt.Sprint(color))
+	// Reconstruct hex from RGBA (values are in [0, 0xffff] range).
+	return strings.ToLower(fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8))
 }
 
 func styleFromMap(styles map[string]lipgloss.Style, key string, fallback lipgloss.Style) lipgloss.Style {
@@ -46,7 +45,7 @@ func styleFromMap(styles map[string]lipgloss.Style, key string, fallback lipglos
 
 func TestWithBg_simpleText(t *testing.T) {
 	s := "hello"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	if !strings.HasPrefix(result, "\x1b[") {
 		t.Errorf("WithBg should start with ANSI escape, got %q", result)
@@ -58,7 +57,7 @@ func TestWithBg_simpleText(t *testing.T) {
 
 func TestWithBg_multiLine(t *testing.T) {
 	s := "hello\nworld"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	lines := strings.Split(result, "\n")
 	if len(lines) != 2 {
@@ -73,7 +72,7 @@ func TestWithBg_multiLine(t *testing.T) {
 
 func TestWithBg_resetReplaced(t *testing.T) {
 	s := "before\x1b[0mafter"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	// Reset should be followed by bg escape so background is re-applied
 	if !strings.Contains(result, "\x1b[0m\x1b[") {
@@ -83,7 +82,7 @@ func TestWithBg_resetReplaced(t *testing.T) {
 
 func TestWithBg_emptyLine(t *testing.T) {
 	s := "a\n\nb"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	lines := strings.Split(result, "\n")
 	if len(lines) != 3 {
@@ -108,7 +107,7 @@ func TestWithBg_emptyLine(t *testing.T) {
 
 func TestWithBg_preservesTrailingNewlines(t *testing.T) {
 	s := "hello\n"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 
 	if !strings.HasSuffix(result, "\n") {
@@ -129,7 +128,7 @@ func TestWithBg_preservesTrailingNewlines(t *testing.T) {
 
 func TestWithBg_visuallyIdempotent(t *testing.T) {
 	s := "hello\nworld"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	first := WithBg(s, bg)
 	second := WithBg(first, bg)
 	// Visually idempotent: second pass must preserve original text and have bg escapes
@@ -147,7 +146,7 @@ func TestWithBg_visuallyIdempotent(t *testing.T) {
 
 func TestWithBg_multipleResets(t *testing.T) {
 	s := "a\x1b[0mb\x1b[0mc"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	// Count occurrences of reset followed by bg escape
 	count := strings.Count(result, "\x1b[0m\x1b[")
@@ -158,7 +157,7 @@ func TestWithBg_multipleResets(t *testing.T) {
 
 func TestWithBg_bg49Reset(t *testing.T) {
 	s := "a\x1b[49mb"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	// Background reset (\x1b[49m) should be followed by bg escape
 	if !strings.Contains(result, "\x1b[49m\x1b[") {
@@ -168,7 +167,7 @@ func TestWithBg_bg49Reset(t *testing.T) {
 
 func TestWithBg_preservesForeground(t *testing.T) {
 	s := "\x1b[31mred\x1b[0mnormal"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	// Should still have the red ANSI code
 	if !strings.Contains(result, "\x1b[31m") {
@@ -185,7 +184,7 @@ func TestWithBg_preservesForeground(t *testing.T) {
 
 func TestWithBg_differentBg(t *testing.T) {
 	s := "test"
-	bg := lipgloss.Color("#FF0000")
+	bg := "#FF0000"
 	result := WithBg(s, bg)
 	if !strings.HasPrefix(result, "\x1b[") {
 		t.Errorf("WithBg should start with ANSI escape")

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/muesli/termenv"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -13,7 +13,7 @@ import (
 // newTestBuffer returns a minimal contentBuffer suitable for rendering tests.
 func newTestBuffer(t *testing.T) *contentBuffer {
 	t.Helper()
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.ASCII
 	styles := theme.BuildStyles("#5599ff")
 	return &contentBuffer{
 		styles:   styles,
@@ -133,9 +133,9 @@ func TestRenderDelegationHeaderAdvisor(t *testing.T) {
 
 func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T) {
 	b := newTestBuffer(t)
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Cleanup(func() {
-		lipgloss.SetColorProfile(termenv.Ascii)
+		lipgloss.Writer.Profile = colorprofile.ASCII
 	})
 	dd := &delegationDisplayState{
 		promptText:      "same text",

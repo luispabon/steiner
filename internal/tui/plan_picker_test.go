@@ -86,13 +86,13 @@ func TestPlanPickerUpdate(t *testing.T) {
 	m.OverlayShell = m.openShell()
 
 	// Type a character to filter
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("step")})
+	m, _ = m.Update(tea.KeyPressMsg{Text: "step"})
 	if len(m.candidates) != 2 {
 		t.Fatalf("expected 2 candidates after typing 'step', got %d: %v", len(m.candidates), m.candidates)
 	}
 
 	// Type more to narrow further
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("-2")})
+	m, _ = m.Update(tea.KeyPressMsg{Text: "-2"})
 	if len(m.candidates) != 1 {
 		t.Fatalf("expected 1 candidate after typing '-2', got %d: %v", len(m.candidates), m.candidates)
 	}
@@ -101,8 +101,8 @@ func TestPlanPickerUpdate(t *testing.T) {
 	}
 
 	// Press backspace to remove last chars
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if len(m.candidates) != 2 {
 		t.Fatalf("expected 2 candidates after backspace, got %d: %v", len(m.candidates), m.candidates)
 	}
@@ -155,7 +155,7 @@ func TestPlanPickerClose(t *testing.T) {
 	}
 
 	// Update should be no-op when closed
-	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd != nil {
 		t.Fatal("expected nil cmd after update on closed picker")
 	}

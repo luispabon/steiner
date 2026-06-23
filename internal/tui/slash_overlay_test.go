@@ -149,25 +149,25 @@ func TestSlashOverlayNavigateUpDown(t *testing.T) {
 	}
 
 	// Move down
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyDown})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if overlay.selection != 1 {
 		t.Fatalf("after down: selection = %d, want 1", overlay.selection)
 	}
 
 	// Move down again
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyDown})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if overlay.selection != 2 {
 		t.Fatalf("after down: selection = %d, want 2", overlay.selection)
 	}
 
 	// At boundary, shouldn't move further
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyDown})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if overlay.selection != 2 {
 		t.Fatalf("at boundary: selection = %d, want 2", overlay.selection)
 	}
 
 	// Move up
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyUp})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if overlay.selection != 1 {
 		t.Fatalf("after up: selection = %d, want 1", overlay.selection)
 	}
@@ -186,8 +186,8 @@ func TestSlashOverlayTypeToFilter(t *testing.T) {
 	overlay = overlay.Open(items)
 
 	// Type "co"
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: 'c', Text: string('c')})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: 'o', Text: string('o')})
 
 	if len(overlay.candidates) < 2 {
 		t.Fatalf("after typing 'co': candidates count = %d, want at least 2", len(overlay.candidates))
@@ -242,16 +242,16 @@ func TestSlashOverlayBackspace(t *testing.T) {
 	overlay = overlay.Open(items)
 
 	// Type "config"
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config"[0:1])})
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config"[1:2])})
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config"[2:3])})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[0:1][0]), Text: string("config"[0:1])})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[1:2][0]), Text: string("config"[1:2])})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[2:3][0]), Text: string("config"[2:3])})
 
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("after 'con': candidates = %d, want 2 (matches /config and /compact)", len(overlay.candidates))
 	}
 
 	// Backspace
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("after backspace: candidates = %d, want 2", len(overlay.candidates))
@@ -274,7 +274,7 @@ func TestSlashOverlaySelectedItem(t *testing.T) {
 		t.Fatalf("selected = %v, want /clear", selected)
 	}
 
-	overlay, _ = overlay.Update(tea.KeyMsg{Type: tea.KeyDown})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	selected = overlay.SelectedItem()
 	if selected == nil || selected.command != "/config" {
 		t.Fatalf("selected = %v, want /config", selected)

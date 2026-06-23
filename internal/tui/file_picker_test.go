@@ -36,7 +36,7 @@ func TestFilePickerOverlay_NewClose(t *testing.T) {
 func TestFilePickerOverlay_ViewEmpty(t *testing.T) {
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	view := f.View()
+	view := stripANSI(f.View())
 	if view != "" {
 		t.Fatal("expected empty view when closed")
 	}
@@ -51,7 +51,7 @@ func TestFilePickerOverlay_ViewNonEmpty(t *testing.T) {
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
-	view := f.View()
+	view := stripANSI(f.View())
 	if view == "" {
 		t.Fatal("expected non-empty view when open")
 	}
@@ -157,17 +157,17 @@ func TestFilePickerOverlay_Navigation(t *testing.T) {
 		t.Fatal("expected initial selection at 0")
 	}
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if f.selection != 1 {
 		t.Fatalf("expected selection 1 after Down, got %d", f.selection)
 	}
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyUp})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if f.selection != 0 {
 		t.Fatalf("expected selection 0 after Up, got %d", f.selection)
 	}
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyUp})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if f.selection != 0 {
 		t.Fatalf("expected selection to stay at 0 at top boundary")
 	}
@@ -181,7 +181,7 @@ func TestFilePickerOverlay_EscCloses(t *testing.T) {
 		t.Fatal("expected picker to be open")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if updated.IsOpen() {
 		t.Fatal("expected picker to close on Esc")
 	}
@@ -195,7 +195,7 @@ func TestFilePickerOverlay_EnterDoesNotClose(t *testing.T) {
 		t.Fatal("expected picker to be open")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !updated.IsOpen() {
 		t.Fatal("expected picker to stay open on Enter (handled by caller)")
 	}
@@ -208,7 +208,7 @@ func TestFilePickerOverlay_BackspaceRemovesQueryChar(t *testing.T) {
 	f.query = "abc"
 	f.filter()
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if f.query != "ab" {
 		t.Fatalf("expected query 'ab', got %q", f.query)
 	}
@@ -219,17 +219,17 @@ func TestFilePickerOverlay_KeyRunesAppendsToQuery(t *testing.T) {
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	f, _ = f.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	if f.query != "s" {
 		t.Fatalf("expected query 's', got %q", f.query)
 	}
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	f, _ = f.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	if f.query != "sr" {
 		t.Fatalf("expected query 'sr', got %q", f.query)
 	}
 
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	f, _ = f.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	if f.query != "src" {
 		t.Fatalf("expected query 'src', got %q", f.query)
 	}
@@ -270,7 +270,7 @@ func TestModelFilePicker_OpensOnAt(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
@@ -280,12 +280,12 @@ func TestModelFilePicker_EscCloses(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close on Esc")
 	}
@@ -295,7 +295,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open")
 	}
@@ -305,7 +305,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 
 	selected := m.filePicker.candidates[m.filePicker.selection]
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after Enter")
 	}
@@ -320,9 +320,9 @@ func TestModelFilePicker_TypingUpdatesComposerAndPickerQuery(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if got := m.input.Value(); got != "@go" {
 		t.Fatalf("input value = %q, want @go", got)
@@ -339,9 +339,9 @@ func TestModelFilePicker_EscRemovesActiveToken(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close on Esc")
@@ -366,7 +366,7 @@ func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 
 	// Down 7 times: selection 7, last item in the first visible window — no scroll yet
 	for range 7 {
-		f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+		f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 	if f.scrollOffset != 0 {
 		t.Fatalf("expected scrollOffset 0 after 7 downs (selection 7 still fits), got %d", f.scrollOffset)
@@ -376,7 +376,7 @@ func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 	}
 
 	// One more down: selection 8, which exceeds scrollOffset+maxDisplay-1 → scrollOffset=1
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if f.scrollOffset != 1 {
 		t.Fatalf("expected scrollOffset 1 when selection (8) leaves the first window, got %d", f.scrollOffset)
 	}
@@ -385,7 +385,7 @@ func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 	}
 
 	// Scroll down one more to verify offset keeps advancing
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if f.scrollOffset != 2 {
 		t.Fatalf("expected scrollOffset 2 after another Down, got %d", f.scrollOffset)
 	}
@@ -407,7 +407,7 @@ func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
 
 	// Press Up until selection moves below scrollOffset
 	for i := 0; i < 8; i++ {
-		f, _ = f.Update(tea.KeyMsg{Type: tea.KeyUp})
+		f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	}
 	if f.selection != 2 {
 		t.Fatalf("expected selection 2, got %d", f.selection)
@@ -465,7 +465,7 @@ func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
 	f.selection = 10
 	f.scrollOffset = 3
 
-	view := f.View()
+	view := stripANSI(f.View())
 	// The visible window includes items at indices 3 through 3+maxDisplay-1 (3..10)
 	if !strings.Contains(view, "zzz_file_03") {
 		t.Fatal("expected item at scrollOffset to be visible")
@@ -632,7 +632,7 @@ func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to stay closed on non-@")
 	}
@@ -647,7 +647,7 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 		t.Fatal("sidebar should be visible at width 120")
 	}
 
-	beforeView := stripANSI(m.View())
+	beforeView := stripANSI(m.View().Content)
 	branchRow := ""
 	for _, line := range strings.Split(beforeView, "\n") {
 		if idx := strings.Index(line, "branch "); idx >= 0 {
@@ -659,12 +659,12 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 		t.Fatal("expected sidebar branch row before opening file picker overlay")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := stripANSI(m.View())
+	view := stripANSI(m.View().Content)
 
 	if !strings.Contains(view, "workdir.") {
 		t.Fatal("expected sidebar workdir row to survive file picker overlay")
@@ -683,12 +683,12 @@ func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 		t.Fatal("sidebar should be visible at width 120")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := stripANSI(m.View())
+	view := stripANSI(m.View().Content)
 
 	if !strings.Contains(view, "test-model") {
 		t.Fatal("expected sidebar model name to survive file picker overlay")
