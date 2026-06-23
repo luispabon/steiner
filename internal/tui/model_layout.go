@@ -315,7 +315,7 @@ func (m *Model) renderScrollbar() string {
 	}
 
 	style := m.styles.Scrollbar
-	trackStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev))
+	trackStyle := m.styles.ScrollbarTrack
 	var sb strings.Builder
 	sb.Grow(vh * 2)
 	for i := 0; i < vh; i++ {

@@ -114,7 +114,8 @@ type Styles struct {
 	PaletteItemActive lipgloss.Style
 
 	// Scrollbar
-	Scrollbar lipgloss.Style
+	Scrollbar      lipgloss.Style
+	ScrollbarTrack lipgloss.Style
 
 	// SelectionStyle is used to highlight mouse-selected text in the viewport.
 	SelectionStyle lipgloss.Style
@@ -223,6 +224,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		Scrollbar: lipgloss.NewStyle().
 			Background(lipgloss.Color(BgElev)).
 			Foreground(lipgloss.Color(BorderSoft)),
+		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(BgElev)),
 
 		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
 

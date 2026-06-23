@@ -15,6 +15,12 @@ func isUserSegment(kind contentSegmentKind) bool {
 }
 
 func (b *contentBuffer) String(width int) string {
+	// Check if we can return cached result.
+	isBufferDirty := b.checkBufferDirty()
+	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
+		return b.stringCacheRendered
+	}
+
 	b.segmentHeights = make([]int, len(b.segments))
 	parts := make([]string, 0, len(b.segments)+2)
 	kinds := make([]contentSegmentKind, 0, len(b.segments)+2)
@@ -54,7 +60,40 @@ func (b *contentBuffer) String(width int) string {
 		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	return b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	result := b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	b.stringCacheWidth = width
+	b.stringCacheRendered = result
+	return result
+}
+
+// checkBufferDirty checks if any condition requires a full re-render of the buffer.
+func (b *contentBuffer) checkBufferDirty() bool {
+	// If streaming with new content, invalidate cache.
+	if b.streaming && b.streamBuffer != "" {
+		return true
+	}
+
+	// Any segment is explicitly dirty.
+	for i := range b.segments {
+		if b.segments[i].renderDirty {
+			return true
+		}
+	}
+	// Active delegation or compaction forces per-frame rebuild.
+	if b.compaction.Active() {
+		return true
+	}
+	for _, seg := range b.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+			return true
+		}
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			return true
+		}
+	}
+	// showThinking toggle changes visibility.
+	// (This would need tracking of previous showThinking value if we want to be more precise.)
+	return false
 }
 
 // joinWithUserMargin joins parts with "\n", inserting a blank line ("\n\n")

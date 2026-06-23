@@ -270,8 +270,12 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 		t.Fatalf("ChatCompletion calls = %d, want %d", got, want)
 	}
 	promptMessages := providerStub.requests[0].Messages
-	if len(providerStub.requests[0].Tools) != 0 {
-		t.Fatalf("compaction request tools = %d, want none", len(providerStub.requests[0].Tools))
+	// The compaction request must replay the same tools as a normal turn so it
+	// reuses the identical cached prefix (system + tools + conversation) and hits
+	// the prompt cache, rather than dropping tools and letting any ExtraParams
+	// tools leak through unfiltered.
+	if got, want := providerStub.requests[0].Tools, req.Tools; !reflect.DeepEqual(got, want) {
+		t.Fatalf("compaction request tools = %#v, want same as normal turn %#v", got, want)
 	}
 	if len(promptMessages) != len(expectedAssembly.Messages)+1 {
 		t.Fatalf("compaction prompt messages = %d, want assembled prefix %d plus final instruction", len(promptMessages), len(expectedAssembly.Messages))
