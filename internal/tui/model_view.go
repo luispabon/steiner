@@ -278,25 +278,8 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m *Model) inputChromeHeight(contentWidth int) int {
-	activityRows := m.activityRowHeight(contentWidth)
-	cacheKey := inputHeightCacheKey{
-		inputValue:       m.input.Value(),
-		contentWidth:     contentWidth,
-		activityRows:     activityRows,
-		hasPendingSteer:  m.steerQueued,
-		slashOverlayOpen: m.slashOverlay.IsOpen(),
-		fileOverlayOpen:  m.fileList.IsOpen(),
-		helpVisible:      m.helpVisible,
-		imageMarkerCount: len(m.imageMarkers),
-	}
-	if m.inputHeightCacheKey == cacheKey && m.inputHeightCacheValue > 0 {
-		return m.inputHeightCacheValue
-	}
-	height := lipgloss.Height(m.renderInputView(contentWidth))
-	m.inputHeightCacheKey = cacheKey
-	m.inputHeightCacheValue = height
-	return height
+func (m Model) inputChromeHeight(contentWidth int) int {
+	return lipgloss.Height(m.renderInputView(contentWidth))
 }
 
 func (m Model) bottomChromeHeight(contentWidth int) int {

@@ -168,23 +168,10 @@ type Model struct {
 	hDividerCacheRendered  string
 	scrollbarCacheKey      scrollbarCacheKey
 	scrollbarCacheRendered string
-	inputHeightCacheKey    inputHeightCacheKey
-	inputHeightCacheValue  int
 }
 
 type scrollbarCacheKey struct {
 	yOffset, height, totalLines int
-}
-
-type inputHeightCacheKey struct {
-	inputValue       string
-	contentWidth     int
-	activityRows     int
-	hasPendingSteer  bool
-	slashOverlayOpen bool
-	fileOverlayOpen  bool
-	helpVisible      bool
-	imageMarkerCount int
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
