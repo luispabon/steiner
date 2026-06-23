@@ -155,7 +155,7 @@ func renderStyledBox(content string, borderColor color.Color, bgColor color.Colo
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderColor).
-		Width(max(1, width-2)).
+		Width(max(1, width)).
 		Render(content)
 }
 

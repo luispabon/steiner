@@ -121,7 +121,7 @@ func (m planPickerOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
+	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
 	return theme.WithBg(rendered, theme.BgElev)
 }
 

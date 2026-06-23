@@ -159,7 +159,7 @@ func (b *contentBuffer) renderToolCallBox(content, tool string, width int) strin
 
 	content = theme.WithBg(content, theme.BgElev)
 
-	boxWidth := width - 2
+	boxWidth := width
 	if boxWidth < 1 {
 		boxWidth = 1
 	}

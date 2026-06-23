@@ -2460,6 +2460,34 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 }
 
+func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
+	m := newModel(Config{}, nil)
+
+	upCmd := m.onMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	if upCmd == nil {
+		t.Fatal("upCmd = nil, want wheel dispatch command")
+	}
+	upMsg, ok := upCmd().(mouseWheelMsg)
+	if !ok {
+		t.Fatalf("upCmd() type = %T, want mouseWheelMsg", upCmd())
+	}
+	if upMsg.direction != "up" {
+		t.Fatalf("up direction = %q, want up", upMsg.direction)
+	}
+
+	downCmd := m.onMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if downCmd == nil {
+		t.Fatal("downCmd = nil, want wheel dispatch command")
+	}
+	downMsg, ok := downCmd().(mouseWheelMsg)
+	if !ok {
+		t.Fatalf("downCmd() type = %T, want mouseWheelMsg", downCmd())
+	}
+	if downMsg.direction != "down" {
+		t.Fatalf("down direction = %q, want down", downMsg.direction)
+	}
+}
+
 func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
 	tests := []string{
 		"[<65;174;45M",
@@ -4005,5 +4033,12 @@ func TestScrollbarCacheInvalidationOnScroll(t *testing.T) {
 	}
 	if scroll1 == scroll2 {
 		t.Fatal("scrollbar rendering should differ after scroll")
+	}
+}
+
+func TestStripTrailingResetSupportsLipglossV2ShortReset(t *testing.T) {
+	input := "styled\x1b[m"
+	if got := stripTrailingReset(input); got != "styled" {
+		t.Fatalf("stripTrailingReset(%q) = %q, want %q", input, got, "styled")
 	}
 }

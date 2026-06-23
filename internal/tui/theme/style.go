@@ -9,6 +9,12 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+const (
+	ansiResetLong  = "\x1b[0m"
+	ansiResetShort = "\x1b[m"
+	ansiBgReset    = "\x1b[49m"
+)
+
 // ColorHex converts a color.Color to a "#RRGGBB" hex string suitable for
 // use with bgEscape, fgEscape, HighlightMatch, WithBg, and PadLines.
 // Returns an empty string for nil or zero-alpha colors.
@@ -60,13 +66,13 @@ func HighlightMatch(text string, fg string) string {
 }
 
 // WithBg ensures every line in s has its background set to bg.
-// It re-applies the background after every ANSI reset sequence (\x1b[0m)
-// and at the start of each logical line. Idempotent for the same bg.
+// It re-applies the background after ANSI reset sequences and at the start of
+// each logical line. Idempotent for the same bg.
 func WithBg(s string, bg string) string {
 	bgSeq := bgEscape(bg)
-	reset := "\x1b[0m"
-	resetBg := reset + bgSeq
-	bgReset := "\x1b[49m" + bgSeq
+	longResetBg := ansiResetLong + bgSeq
+	shortResetBg := ansiResetShort + bgSeq
+	bgReset := ansiBgReset + bgSeq
 
 	trailingNewlines := len(s) - len(strings.TrimRight(s, "\n"))
 	if trailingNewlines > 0 {
@@ -75,10 +81,11 @@ func WithBg(s string, bg string) string {
 
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		line = strings.ReplaceAll(line, reset, resetBg)
-		line = strings.ReplaceAll(line, "\x1b[49m", bgReset)
+		line = strings.ReplaceAll(line, ansiResetLong, longResetBg)
+		line = strings.ReplaceAll(line, ansiResetShort, shortResetBg)
+		line = strings.ReplaceAll(line, ansiBgReset, bgReset)
 		if line == "" {
-			lines[i] = bgSeq + " " + reset
+			lines[i] = bgSeq + " " + ansiResetLong
 		} else {
 			lines[i] = bgSeq + line
 		}

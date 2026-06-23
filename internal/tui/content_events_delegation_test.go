@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -53,5 +55,29 @@ func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "compacted child history") {
 		t.Fatalf("rendered output missing child-local compaction status: %q", rendered)
+	}
+}
+
+func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
+	useTrueColor(t)
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "done"))
+
+	segment := buffer.segments[0]
+	rendered := strings.TrimSuffix(buffer.renderDelegationSegment(segment, 50), "\n")
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		if i < len(lines)-1 && lipgloss.Width(line) != 50 {
+			t.Fatalf("box line width = %d, want 50 for line %q", lipgloss.Width(line), stripANSI(line))
+		}
+		if lipgloss.Width(line) > 50 {
+			t.Fatalf("line width = %d, want <= 50 for line %q", lipgloss.Width(line), stripANSI(line))
+		}
 	}
 }

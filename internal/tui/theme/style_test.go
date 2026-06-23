@@ -80,6 +80,15 @@ func TestWithBg_resetReplaced(t *testing.T) {
 	}
 }
 
+func TestWithBg_shortResetReplaced(t *testing.T) {
+	s := "before\x1b[mafter"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[m\x1b[") {
+		t.Errorf("short reset should be followed by bg escape, got %q", result)
+	}
+}
+
 func TestWithBg_emptyLine(t *testing.T) {
 	s := "a\n\nb"
 	bg := BgElev
@@ -152,6 +161,16 @@ func TestWithBg_multipleResets(t *testing.T) {
 	count := strings.Count(result, "\x1b[0m\x1b[")
 	if count != 2 {
 		t.Errorf("expected 2 reset+bg pairs, got %d", count)
+	}
+}
+
+func TestWithBg_multipleShortResets(t *testing.T) {
+	s := "a\x1b[mb\x1b[mc"
+	bg := BgElev
+	result := WithBg(s, bg)
+	count := strings.Count(result, "\x1b[m\x1b[")
+	if count != 2 {
+		t.Errorf("expected 2 short reset+bg pairs, got %d", count)
 	}
 }
 

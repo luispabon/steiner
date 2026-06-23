@@ -45,7 +45,7 @@ func (m *Model) renderExitModal() string {
 	s := m.exitModal
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
-	contentWidth := max(1, s.InnerWidth()-2)
+	contentWidth := s.InnerWidth()
 
 	title := lipgloss.NewStyle().
 		Foreground(m.styles.AccentColor).
@@ -80,8 +80,7 @@ func (m *Model) renderExitModal() string {
 		divider,
 		footer,
 	)
-	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
-	return theme.WithBg(box, theme.BgElev)
+	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
 }
 
 func (m *Model) renderExitModalButton(label string, selected bool) string {

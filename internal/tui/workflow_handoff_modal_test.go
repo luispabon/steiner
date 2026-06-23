@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -221,5 +222,47 @@ func TestWorkflowHandoffModalPlanningFolder(t *testing.T) {
 	}
 	if !strings.Contains(rendered, ".project_planning/2026-06-16_my-feature") {
 		t.Errorf("modal should contain the target path")
+	}
+}
+
+func TestWorkflowHandoffModalWithAttachedPickerKeepsLineWidthsBounded(t *testing.T) {
+	useTrueColor(t)
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	payload := output.WorkflowHandoffEvent{
+		Next:    "implement",
+		Target:  ".project_planning/2026-06-23_charm-tui-v2",
+		Message: "handoff now",
+	}
+	selection := interactive.WorkflowHandoffModelSelection{
+		ModelAlias:  "deepseek-v4-flash",
+		SourceLabel: "default",
+	}
+	m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, selection)
+	m.modelPicker = m.modelPicker.OpenForWorkflowHandoff(
+		"Select model for implementation",
+		[]string{"deepseek-v4-flash", "deepseek-v4-pro-think-max", "deepseek-v4-pro-think-std"},
+		"deepseek-v4-flash",
+	)
+	m.modelPicker.width = m.width
+	m.modelPicker.height = m.height
+
+	attached := m.modelPicker.ViewAttached(m.workflowHandoff.InnerWidth())
+	for _, line := range strings.Split(attached, "\n") {
+		if lipgloss.Width(line) > m.workflowHandoff.InnerWidth() {
+			t.Fatalf("attached picker line width = %d, want <= %d for line %q", lipgloss.Width(line), m.workflowHandoff.InnerWidth(), stripANSI(line))
+		}
+	}
+
+	rendered := m.renderWorkflowHandoffModal()
+	wantWidth := m.workflowHandoff.overlayWidth()
+	for _, line := range strings.Split(rendered, "\n") {
+		if lipgloss.Width(line) != wantWidth {
+			t.Fatalf("line width = %d, want %d for line %q", lipgloss.Width(line), wantWidth, stripANSI(line))
+		}
+	}
+	if !strings.Contains(stripANSI(rendered), "deepseek-v4-pro-think-max") {
+		t.Fatalf("rendered modal = %q, want attached picker content", stripANSI(rendered))
 	}
 }

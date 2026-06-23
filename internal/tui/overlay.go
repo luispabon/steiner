@@ -109,7 +109,7 @@ func (o OverlayShell) RenderFooter(footerText string) string {
 // The caller is responsible for assembling body lines (header, divider, list,
 // footer divider, footer) before calling Render.
 func (o OverlayShell) Render(box lipgloss.Style, body string) string {
-	return box.Width(o.InnerWidth()+2).Padding(1, 1).Render(body)
+	return box.Width(o.overlayWidth()).Padding(1, 1).Render(body)
 }
 
 // RenderWithBg renders the overlay body with the given box style and wraps it

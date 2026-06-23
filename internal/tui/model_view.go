@@ -374,7 +374,8 @@ const cursorChar = '█'
 
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
 func stripTrailingReset(s string) string {
-	return strings.TrimSuffix(s, "\x1b[0m")
+	s = strings.TrimSuffix(s, "\x1b[0m")
+	return strings.TrimSuffix(s, "\x1b[m")
 }
 
 // insertComposerCursorAnsi inserts the cursor character at the given visible column

@@ -78,7 +78,7 @@ func (s workflowHandoffModalState) promptText() string {
 func (m *Model) renderWorkflowHandoffModal() string {
 	s := m.workflowHandoff
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
-	contentWidth := max(1, s.InnerWidth()-2)
+	contentWidth := s.InnerWidth()
 
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.Fg)).
@@ -138,8 +138,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 
 	sections = append(sections, divider, footer)
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
-	return theme.WithBg(box, theme.BgElev)
+	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
 }
 
 func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {

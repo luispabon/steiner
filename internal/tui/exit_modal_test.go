@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
@@ -20,7 +21,14 @@ func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
 		}
 	}
 	lines := strings.Split(rendered, "\n")
-	if len(lines) < 2 || !strings.Contains(lines[1], "Exit steiner?") {
+	foundTitle := false
+	for _, line := range lines {
+		if strings.Contains(line, "Exit steiner?") {
+			foundTitle = true
+			break
+		}
+	}
+	if !foundTitle {
 		t.Fatalf("rendered modal = %q, want Exit steiner? on the title line", rendered)
 	}
 	dividerCount := 0
@@ -34,5 +42,29 @@ func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
 	}
 	if lines := strings.Count(rendered, "\n") + 1; lines > 12 {
 		t.Fatalf("rendered modal line count = %d, want compact dialog", lines)
+	}
+}
+
+func TestExitModalRenderKeepsButtonsOnSingleLine(t *testing.T) {
+	useTrueColor(t)
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = m.openExitModal()
+
+	rendered := m.renderExitModal()
+	lines := strings.Split(rendered, "\n")
+	wantWidth := m.exitModal.overlayWidth()
+	foundButtons := false
+	for _, line := range lines {
+		if lipgloss.Width(line) != wantWidth {
+			t.Fatalf("line width = %d, want %d for line %q", lipgloss.Width(line), wantWidth, stripANSI(line))
+		}
+		stripped := stripANSI(line)
+		if strings.Contains(stripped, "Cancel") && strings.Contains(stripped, "Exit") {
+			foundButtons = true
+		}
+	}
+	if !foundButtons {
+		t.Fatalf("rendered modal = %q, want a button row", stripANSI(rendered))
 	}
 }

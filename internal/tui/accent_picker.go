@@ -156,7 +156,7 @@ func (m accentPickerOverlay) render(innerW int, withBg bool) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
+	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
 	if withBg {
 		return theme.WithBg(rendered, theme.BgElev)
 	}
