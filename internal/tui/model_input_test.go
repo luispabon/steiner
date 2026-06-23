@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
@@ -64,6 +65,67 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 		}
 	default:
 		t.Fatal("steer channel empty, expected hello")
+	}
+}
+
+func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
+	input := newModelInput()
+	input.SetValue("describe this")
+	input.InsertString(" [Image 1]")
+
+	steerCh := make(chan agent.SteerMessage, 4)
+	m := Model{
+		oneshotRunning: true,
+		oneshotSteerCh: steerCh,
+		input:          input,
+		imageMarkers: []imageMarker{
+			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "queued-image-data"}},
+		},
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+		},
+	}
+
+	updated := m.executeSteerAction()
+	m = updated.(Model)
+
+	if len(m.imageMarkers) != 0 {
+		t.Fatalf("imageMarkers = %d, want 0 after steer", len(m.imageMarkers))
+	}
+
+	select {
+	case msg := <-steerCh:
+		if msg.Text != "describe this [Image 1]" {
+			t.Errorf("steer text = %q, want %q", msg.Text, "describe this [Image 1]")
+		}
+		if len(msg.Images) != 1 {
+			t.Fatalf("steer images = %d, want 1", len(msg.Images))
+		}
+		if msg.Images[0].Data != "queued-image-data" {
+			t.Errorf("steer image data = %q, want %q", msg.Images[0].Data, "queued-image-data")
+		}
+	default:
+		t.Fatal("steer channel empty, expected message with image")
+	}
+}
+
+func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m.input.SetValue("hello")
+
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if ctrl.countSteerPrompt() != 1 {
+		t.Fatalf("SteerPrompt count = %d, want 1 (busy regular run must queue steer)", ctrl.countSteerPrompt())
+	}
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("SubmitPrompt count = %d, want 0 (busy regular run must not submit)", ctrl.countSubmitPrompt())
 	}
 }
 

@@ -75,6 +75,8 @@ func NewRunner() *Runner {
 }
 
 // Run executes req until the loop completes, stops, or fails.
+//
+//nolint:gocyclo // turn loop branches are intentionally explicit
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	req = normalizeRunRequest(req)
 	state := initializeRunState(req)
@@ -111,9 +113,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 		state = outcome.State
 		// Drain all queued steering messages at turn boundary.
+		hadSteers := false
 		if req.DrainSteers != nil {
 			steers := req.DrainSteers()
 			if len(steers) > 0 {
+				hadSteers = true
 				merged := mergeSteers(steers)
 				state.Conversation = append(state.Conversation, merged)
 				state.Lineage = state.Lineage.WithAppendedMessages([]Message{merged})
@@ -133,6 +137,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 		runnerRetries = 0
 		if outcome.Stop {
+			// If the user queued steers during an assistant-only completion,
+			// continue so the queued messages are actually sent.
+			if hadSteers && state.StopReason == StopReasonComplete {
+				continue
+			}
+			if state.StopReason == StopReasonComplete {
+				emitStop(req.Events, state, nil)
+			}
 			return state, nil
 		}
 	}

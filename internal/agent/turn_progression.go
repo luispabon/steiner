@@ -114,7 +114,6 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 	state.StopReason = StopReasonComplete
 	state.Conversation = stripImagesFromMessages(state.Conversation)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
-	emitStop(p.request.Events, state, nil)
 	return turnOutcome{State: state, Stop: true}
 }
 
