@@ -232,7 +232,7 @@ func (m Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []str
 }
 
 func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
-	maxVisible := max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
+	maxVisible := m.maxVisibleInputLines(contentWidth)
 	if len(lines) > maxVisible {
 		start := max(0, cursorRow-maxVisible/2)
 		if start+maxVisible > len(lines) {
@@ -288,7 +288,13 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 }
 
 func (m Model) inputChromeHeight(contentWidth int) int {
-	return lipgloss.Height(m.renderInputView(contentWidth))
+	innerWidth := m.inputInnerWidth(contentWidth)
+	lines, isPlaceholder, _ := m.renderInputLines(innerWidth)
+	visibleLines := len(lines)
+	if !isPlaceholder {
+		visibleLines = min(visibleLines, m.maxVisibleInputLines(contentWidth))
+	}
+	return visibleLines + (2 * inputPadY)
 }
 
 func (m Model) bottomChromeHeight(contentWidth int) int {
@@ -300,6 +306,10 @@ func (m Model) bottomChromeHeight(contentWidth int) int {
 
 func (m Model) activityRowHeight(_ int) int {
 	return 1
+}
+
+func (m Model) maxVisibleInputLines(contentWidth int) int {
+	return max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
 }
 
 func (m Model) inputInnerWidth(contentWidth int) int {
