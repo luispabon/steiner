@@ -3,10 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/luispabon/steiner/internal/update"
 )
 
 // assertOrder checks that before appears before after in s.
@@ -27,37 +26,48 @@ func assertOrder(t *testing.T, s, before, after string) {
 	}
 }
 
-func TestUpdateCommand_DevBuild(t *testing.T) {
+// setVersion is a helper that sets version and channel together and returns a
+// cleanup function that restores both.
+func setVersion(t *testing.T, v string) {
+	t.Helper()
 	oldVersion := version
-	version = "dev"
-	t.Cleanup(func() { version = oldVersion })
-
-	// No updateFunc mock needed; it should not be called.
-
-	cmd := newRootCommand()
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"update"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
+	oldChannel := channel
+	version = v
+	if v == "dev" || strings.HasPrefix(v, "dev-") {
+		channel = "dev"
+	} else {
+		channel = "stable"
 	}
-
-	if !strings.Contains(stderr.String(), "Warning: dev builds cannot check for stable updates") {
-		t.Errorf("stderr = %q, want warning about dev builds", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty", stdout.String())
-	}
+	t.Cleanup(func() {
+		version = oldVersion
+		channel = oldChannel
+	})
 }
 
-func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
-	oldVersion := version
-	version = "dev-abc1234"
-	t.Cleanup(func() { version = oldVersion })
+func TestUpdateCommand_DevToStable(t *testing.T) {
+	setVersion(t, "dev")
 
-	// No updateFunc mock needed; it should not be called.
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+		if channel != "stable" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
+		}
+		if targetVersion != "" {
+			t.Errorf("checkFunc targetVersion = %q, want empty", targetVersion)
+		}
+		return "v1.2.3", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
+		if channel != "stable" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v1.2.3", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -69,27 +79,53 @@ func TestUpdateCommand_DevBuildWithDash(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), "Warning: dev builds cannot check for stable updates") {
-		t.Errorf("stderr = %q, want warning about dev builds", stderr.String())
+	got := stdout.String()
+	if !strings.Contains(got, "checking version") {
+		t.Errorf("stdout = %q, want substring %q", got, "checking version")
 	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty", stdout.String())
+	if !strings.Contains(got, "Current:") {
+		t.Errorf("stdout = %q, want substring %q", got, "Current:")
+	}
+	if !strings.Contains(got, "Latest:") {
+		t.Errorf("stdout = %q, want substring %q", got, "Latest:")
+	}
+	if !strings.Contains(got, "updating...") {
+		t.Errorf("stdout = %q, want substring %q", got, "updating...")
+	}
+	if !strings.Contains(got, "\u2714") {
+		t.Errorf("stdout = %q, want checkmark", got)
+	}
+	assertOrder(t, got, "\u26a0 notice", "checking version")
+	assertOrder(t, got, "checking version", "Current:")
+	assertOrder(t, got, "Current:", "Latest:")
+	assertOrder(t, got, "Latest:", "updating...")
+	assertOrder(t, got, "updating...", "\u2714")
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }
 
 func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
-	oldVersion := version
-	version = "dev"
-	t.Cleanup(func() { version = oldVersion })
+	setVersion(t, "dev")
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
-			t.Errorf("updateFunc channel = %q, want %q", channel, "dev")
+			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
+		}
+		return "dev", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
+		if channel != "dev" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
 		return "dev", nil
 	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -102,32 +138,289 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "Downloading…") {
-		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
+	// No channel switch warning when already on dev channel.
+	if strings.Contains(got, "\u26a0 notice") {
+		t.Errorf("stdout = %q, should not contain channel switch warning", got)
 	}
-	if !strings.Contains(got, "updated to dev") {
-		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
+	if !strings.Contains(got, "Latest:") {
+		t.Errorf("stdout = %q, want Latest label", got)
 	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "updated to", "latest")
+	if !strings.Contains(got, "updating...") {
+		t.Errorf("stdout = %q, want substring %q", got, "updating...")
+	}
+	if !strings.Contains(got, "\u2714") {
+		t.Errorf("stdout = %q, want checkmark", got)
+	}
+	assertOrder(t, got, "checking version", "Current:")
+	assertOrder(t, got, "updating...", "\u2714")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }
 
-func TestUpdateCommand_RootDevFlag(t *testing.T) {
-	oldVersion := version
-	version = "v0.1.0"
-	t.Cleanup(func() { version = oldVersion })
+func TestUpdateCommand_StableToDev(t *testing.T) {
+	setVersion(t, "v1.2.3")
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, channel string) (string, error) {
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
-			t.Errorf("updateFunc channel = %q, want %q", channel, "dev")
+			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
+		}
+		return "dev", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
+		if channel != "dev" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
 		return "dev", nil
 	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update", "--dev"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "switching from stable to dev") {
+		t.Errorf("stdout = %q, want channel switch warning", got)
+	}
+	assertOrder(t, got, "\u26a0 notice", "checking version")
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_StableUpToDate(t *testing.T) {
+	setVersion(t, "v1.2.3")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	calledApply := false
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
+		if channel != "stable" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v1.2.3", false, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		calledApply = true
+		return "", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Up to date") {
+		t.Errorf("stdout = %q, want 'Up to date'", got)
+	}
+	if !strings.Contains(got, "\u2714 Up to date") {
+		t.Errorf("stdout = %q, want checkmark with 'Up to date'", got)
+	}
+	if calledApply {
+		t.Errorf("applyFunc should not have been called when up to date")
+	}
+	assertOrder(t, got, "Latest:", "Up to date")
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_StableUpdate(t *testing.T) {
+	setVersion(t, "v1.2.0")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
+		if channel != "stable" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v1.2.3", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
+		if channel != "stable" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v1.2.3", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "\u2714 updated") {
+		t.Errorf("stdout = %q, want 'updated'", got)
+	}
+	if !strings.Contains(got, "updating...") {
+		t.Errorf("stdout = %q, want %q", got, "updating...")
+	}
+	assertOrder(t, got, "Latest:", "updating...")
+	assertOrder(t, got, "updating...", "\u2714 updated")
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_SpecificVersion(t *testing.T) {
+	setVersion(t, "v1.2.3")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, bool, error) {
+		if channel != "stable" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
+		}
+		if targetVersion != "v1.1.0" {
+			t.Errorf("checkFunc targetVersion = %q, want %q", targetVersion, "v1.1.0")
+		}
+		return "v1.1.0", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, targetVersion string) (string, error) {
+		if channel != "stable" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "stable")
+		}
+		if targetVersion != "v1.1.0" {
+			t.Errorf("applyFunc targetVersion = %q, want %q", targetVersion, "v1.1.0")
+		}
+		return "v1.1.0", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update", "v1.1.0"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "v1.1.0") {
+		t.Errorf("stdout = %q, want version v1.1.0", got)
+	}
+	if !strings.Contains(got, "\u2714 updated") {
+		t.Errorf("stdout = %q, want 'updated'", got)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_SpecificVersionWithoutV(t *testing.T) {
+	setVersion(t, "v1.2.3")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, _, targetVersion string) (string, bool, error) {
+		if targetVersion != "1.1.0" {
+			t.Errorf("checkFunc targetVersion = %q, want %q", targetVersion, "1.1.0")
+		}
+		return "v1.1.0", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, _, targetVersion string) (string, error) {
+		if targetVersion != "1.1.0" {
+			t.Errorf("applyFunc targetVersion = %q, want %q", targetVersion, "1.1.0")
+		}
+		return "v1.1.0", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update", "1.1.0"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "v1.1.0") {
+		t.Errorf("stdout = %q, want version v1.1.0", got)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_DevWithVersionError(t *testing.T) {
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update", "--dev", "v1.2.3"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for --dev with version, got nil")
+	}
+	if !strings.Contains(err.Error(), "--dev and a target version cannot be used together") {
+		t.Errorf("error = %v, want version/dev conflict error", err)
+	}
+}
+
+func TestUpdateCommand_RootDevFlag(t *testing.T) {
+	setVersion(t, "v1.0.0")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
+		if channel != "dev" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
+		}
+		return "dev", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
+		if channel != "dev" {
+			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
+		}
+		return "dev", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -140,14 +433,16 @@ func TestUpdateCommand_RootDevFlag(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "Downloading…") {
-		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
+	if !strings.Contains(got, "switching from stable to dev") {
+		t.Errorf("stdout = %q, want channel switch warning", got)
 	}
-	if !strings.Contains(got, "updated to dev") {
-		t.Errorf("stdout = %q, want substring %q", got, "updated to dev")
+	if !strings.Contains(got, "updating...") {
+		t.Errorf("stdout = %q, want %q", got, "updating...")
 	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "updated to", "latest")
+	if !strings.Contains(got, "\u2714") {
+		t.Errorf("stdout = %q, want checkmark", got)
+	}
+	assertOrder(t, got, "Latest:", "updating...")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
@@ -164,22 +459,30 @@ func TestUpdateCommand_Help(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	want := "Update steiner to the latest release"
+	want := "Update steiner to the latest release, or to a specific version"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout = %q, want substring %q", stdout.String(), want)
 	}
 }
 
 func TestUpdateCommand_UpgradeAlias(t *testing.T) {
-	oldVersion := version
-	version = "v0.1.0"
-	t.Cleanup(func() { version = oldVersion })
+	setVersion(t, "v1.0.0")
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, _ string) (string, error) {
-		return "v0.2.0", nil
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
+		if channel != "stable" {
+			t.Errorf("checkFunc channel = %q, want %q", channel, "stable")
+		}
+		return "v1.2.0", true, nil
 	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		return "v1.2.0", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -192,108 +495,41 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "Downloading…") {
-		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
+	if !strings.Contains(got, "checking version") {
+		t.Errorf("stdout = %q, want substring %q", got, "checking version")
 	}
-	if !strings.Contains(got, "updated to v0.2.0") {
-		t.Errorf("stdout = %q, want substring %q", got, "updated to v0.2.0")
+	if !strings.Contains(got, "updating...") {
+		t.Errorf("stdout = %q, want substring %q", got, "updating...")
 	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "updated to", "latest")
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(got, "\u2714 updated") {
+		t.Errorf("stdout = %q, want 'updated'", got)
 	}
-}
-
-func TestUpdateCommand_UpToDate(t *testing.T) {
-	oldVersion := version
-	version = "v0.1.0"
-	t.Cleanup(func() { version = oldVersion })
-
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, _ string) (string, error) {
-		return "v0.1.0", update.ErrUpToDate
+	if !strings.Contains(got, "v1.2.0") {
+		t.Errorf("stdout = %q, want version v1.2.0", got)
 	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
-
-	cmd := newRootCommand()
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"update"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	got := stdout.String()
-	if !strings.Contains(got, "already up to date") {
-		t.Errorf("stdout = %q, want up-to-date message", got)
-	}
-	if !strings.Contains(got, "current") {
-		t.Errorf("stdout = %q, want version block label 'current'", got)
-	}
-	if !strings.Contains(got, "latest") {
-		t.Errorf("stdout = %q, want version block label 'latest'", got)
-	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "already up to date", "latest")
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestUpdateCommand_Success(t *testing.T) {
-	oldVersion := version
-	version = "v0.1.0"
-	t.Cleanup(func() { version = oldVersion })
-
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, _ string) (string, error) {
-		return "v0.2.0", nil
-	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
-
-	cmd := newRootCommand()
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"update"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	got := stdout.String()
-	if !strings.Contains(got, "Downloading…") {
-		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
-	}
-	if !strings.Contains(got, "updated to v0.2.0") {
-		t.Errorf("stdout = %q, want substring %q", got, "updated to v0.2.0")
-	}
-	if !strings.Contains(got, "current") {
-		t.Errorf("stdout = %q, want version block label 'current'", got)
-	}
-	if !strings.Contains(got, "latest") {
-		t.Errorf("stdout = %q, want version block label 'latest'", got)
-	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "updated to", "latest")
+	assertOrder(t, got, "checking version", "Current:")
+	assertOrder(t, got, "Current:", "Latest:")
+	assertOrder(t, got, "Latest:", "updating...")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }
 
 func TestUpdateCommand_NoTTY(t *testing.T) {
-	oldVersion := version
-	version = "v0.1.0"
-	t.Cleanup(func() { version = oldVersion })
+	setVersion(t, "v1.0.0")
 
-	oldUpdateFunc := updateFunc
-	updateFunc = func(_ context.Context, _, _, _, _, _ string) (string, error) {
-		return "v0.2.0", nil
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, bool, error) {
+		return "v1.2.0", true, nil
 	}
-	t.Cleanup(func() { updateFunc = oldUpdateFunc })
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		return "v1.2.0", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
@@ -306,27 +542,97 @@ func TestUpdateCommand_NoTTY(t *testing.T) {
 	}
 
 	got := stdout.String()
-	// Non-TTY (bytes.Buffer): spinner writes static "Downloading…" line,
-	// followed by "✔ updated to v0.2.0" line. No \r, no braille glyphs.
-	if !strings.Contains(got, "Downloading…") {
-		t.Errorf("stdout = %q, want substring %q", got, "Downloading…")
-	}
+	// Non-TTY (bytes.Buffer): no \r, no braille glyphs.
 	if strings.Contains(got, "\r") {
 		t.Errorf("non-TTY output should not contain \\r: %q", got)
 	}
-	if strings.Contains(got, "⣾") {
+	if strings.Contains(got, "\u28be") {
 		t.Errorf("non-TTY output should not contain braille: %q", got)
 	}
-	if !strings.Contains(got, "✔") {
+	if !strings.Contains(got, "\u2714") {
 		t.Errorf("stdout = %q, want checkmark", got)
 	}
-	if !strings.Contains(got, "v0.2.0") {
-		t.Errorf("stdout = %q, want version v0.2.0", got)
+	if !strings.Contains(got, "v1.2.0") {
+		t.Errorf("stdout = %q, want version v1.2.0", got)
 	}
-	assertOrder(t, got, "current", "Downloading…")
-	assertOrder(t, got, "✔", "latest")
+	assertOrder(t, got, "checking version", "Current:")
+	assertOrder(t, got, "Current:", "Latest:")
+	assertOrder(t, got, "Latest:", "updating...")
+	assertOrder(t, got, "updating...", "\u2714")
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestUpdateCommand_CheckError(t *testing.T) {
+	setVersion(t, "v1.0.0")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	calledApply := false
+	checkFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, bool, error) {
+		return "", false, fmt.Errorf("network error")
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		calledApply = true
+		return "", nil
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(stderr.String(), "\u2717") {
+		t.Errorf("stderr = %q, want crossMark", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "network error") {
+		t.Errorf("stderr = %q, want error message", stderr.String())
+	}
+	if calledApply {
+		t.Errorf("applyFunc should not have been called after check error")
+	}
+}
+
+func TestUpdateCommand_ApplyError(t *testing.T) {
+	setVersion(t, "v1.0.0")
+
+	oldCheck := checkFunc
+	oldApply := applyFunc
+	checkFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, bool, error) {
+		return "v1.2.0", true, nil
+	}
+	applyFunc = func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+		return "", fmt.Errorf("download failed")
+	}
+	t.Cleanup(func() {
+		checkFunc = oldCheck
+		applyFunc = oldApply
+	})
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"update"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(stderr.String(), "download failed") {
+		t.Errorf("stderr = %q, want error message", stderr.String())
 	}
 }
 
@@ -347,6 +653,25 @@ func TestIsDevBuild(t *testing.T) {
 		got := isDevBuild(tt.input)
 		if got != tt.want {
 			t.Errorf("isDevBuild(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestDisplayVersion(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"dev", "dev"},
+		{"dev-abc1234", "dev-abc1234"},
+		{"v1.2.3", "v1.2.3"},
+		{"1.2.3", "v1.2.3"},
+		{"", "v"},
+	}
+	for _, tt := range tests {
+		got := displayVersion(tt.input)
+		if got != tt.want {
+			t.Errorf("displayVersion(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

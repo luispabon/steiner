@@ -63,7 +63,7 @@ go run ./cmd/steiner --exec "explain the auth package"
 |---------|--------------|
 | `version` | Print the build version; `--short` for script-friendly output |
 | `config` | Print the resolved configuration (providers, models, limits) |
-| `update` / `upgrade` | Self-update to the latest stable release |
+| `update` / `upgrade` | Self-update to the latest release; optionally specify a version |
 | `tools` | List configured tools and their approval status |
 | `skills` | List discovered skills |
 | `--help` | Print all flags and usage |
@@ -85,18 +85,35 @@ Labels are bold with the configured accent color; values use the default foregro
 `steiner version --short` to print only the raw version string (no styling,
 no labels) for scripts and CI.
 
-`steiner update` (alias `upgrade`) shows a four-stage output:
+`steiner update` (alias `upgrade`) runs in two phases: **check** then **apply**.
 
 ```
-  current    v0.1.0
-  Downloading…
-  ✔ updated to v0.2.0
-  latest     v0.2.0
+  checking version
+  Current:    v0.1.0
+  Latest:     v0.2.0
+  updating...
+  ✔ updated
 ```
 
-A spinner animates during the download. On a non-TTY or when `NO_COLOR` is
-set, the spinner degrades to a static line. Dev builds without `--dev` print
-a warning and exit without contacting GitHub.
+If already up to date, the apply phase is skipped:
+
+```
+  checking version
+  Current:    v0.2.0
+  Latest:     v0.2.0
+  ✔ Up to date
+```
+
+When switching between dev and stable channels, a warning is shown:
+
+```
+  ⚠ notice   switching from dev to stable — this replaces your current build
+  checking version
+  …
+```
+
+A spinner animates during check and download. On a non-TTY or when `NO_COLOR` is
+set, the spinner degrades to a static line.
 
 ## Configuration
 
@@ -399,15 +416,23 @@ without one. Set `STEINER_GITHUB_TOKEN` in your environment to authenticate:
 export STEINER_GITHUB_TOKEN=ghp_...
 ```
 
+### Specific version
+
+Pass a version tag to install a specific stable release instead of the latest:
+
+```bash
+steiner update v1.2.0
+steiner update 1.2.0     # "v" prefix is optional
+```
+
 ### Dev channel
 
 The `update` command selects the release channel via the `--dev` flag, which is
 a root-level persistent flag and also works on the `update` subcommand:
 
 ```bash
-# Stable channel (default): dev builds upgrade to the latest stable release.
+# Stable channel (default): installs the latest stable release.
 steiner update
-steiner --dev=false update
 
 # Dev channel: pulls the build published on every merge to main.
 steiner update --dev
@@ -416,10 +441,13 @@ steiner --dev update
 
 `--dev` selects the dev release channel; its absence selects the stable
 channel. Both a dev build version string (`dev` or `dev-<sha>`) and a stable
-semver (`vX.Y.Z`) honor the flag, so a dev build can update to a stable
-release by running `steiner update` (no `--dev`). The dev binary is always
-replaced with the latest dev release; the stable binary is only replaced when
-a newer semver is available.
+semver (`vX.Y.Z`) honor the flag. The dev binary is always replaced with the
+latest dev release; the stable binary is only replaced when a newer semver
+is available.
+
+When switching channels — dev to stable or stable to dev — a warning is
+printed with the channel names highlighted in the accent colour. `--dev` and
+a specific version cannot be used together.
 
 ## Development
 
