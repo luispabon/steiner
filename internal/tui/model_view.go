@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // View renders the full TUI frame for the current model state.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 
@@ -26,7 +27,12 @@ func (m Model) View() string {
 	if m.selection.hasSelection() {
 		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle)
 	}
-	return result
+
+	return tea.View{
+		Content:   result,
+		AltScreen: true,
+		MouseMode: tea.MouseModeCellMotion,
+	}
 }
 
 func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
