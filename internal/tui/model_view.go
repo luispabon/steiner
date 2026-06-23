@@ -278,8 +278,20 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m Model) inputChromeHeight(contentWidth int) int {
-	return lipgloss.Height(m.renderInputView(contentWidth))
+func (m *Model) inputChromeHeight(contentWidth int) int {
+	activityRows := m.activityRowHeight(contentWidth)
+	cacheKey := inputHeightCacheKey{
+		inputValue:   m.input.Value(),
+		contentWidth: contentWidth,
+		activityRows: activityRows,
+	}
+	if m.inputHeightCacheKey == cacheKey && m.inputHeightCacheValue > 0 {
+		return m.inputHeightCacheValue
+	}
+	height := lipgloss.Height(m.renderInputView(contentWidth))
+	m.inputHeightCacheKey = cacheKey
+	m.inputHeightCacheValue = height
+	return height
 }
 
 func (m Model) bottomChromeHeight(contentWidth int) int {
