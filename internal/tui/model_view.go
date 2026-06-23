@@ -33,8 +33,8 @@ func (m Model) View() tea.View {
 		AltScreen: true,
 		MouseMode: tea.MouseModeCellMotion,
 	}
-	// Attach v2 mouse handler via View.OnMouse callback.
-	v.OnMouse = m.onMouse
+	// Attach v2 mouse handler via View.OnMouse callback without capturing the model.
+	v.OnMouse = classifyMouse
 
 	return v
 }

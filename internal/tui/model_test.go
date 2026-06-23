@@ -2461,9 +2461,7 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 }
 
 func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
-	m := newModel(Config{}, nil)
-
-	upCmd := m.onMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	upCmd := classifyMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
 	if upCmd == nil {
 		t.Fatal("upCmd = nil, want wheel dispatch command")
 	}
@@ -2475,7 +2473,7 @@ func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
 		t.Fatalf("up direction = %q, want up", upMsg.direction)
 	}
 
-	downCmd := m.onMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	downCmd := classifyMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
 	if downCmd == nil {
 		t.Fatal("downCmd = nil, want wheel dispatch command")
 	}
@@ -2485,6 +2483,12 @@ func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
 	}
 	if downMsg.direction != "down" {
 		t.Fatalf("down direction = %q, want down", downMsg.direction)
+	}
+}
+
+func TestModelOnMouseIgnoresHoverMotion(t *testing.T) {
+	if cmd := classifyMouse(tea.MouseMotionMsg(tea.Mouse{X: 4, Y: 2})); cmd != nil {
+		t.Fatalf("hover motion cmd = %v, want nil", cmd)
 	}
 }
 

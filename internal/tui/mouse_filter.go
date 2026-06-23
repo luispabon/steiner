@@ -23,12 +23,12 @@ type mouseWheelMsg struct {
 	direction string // "up" or "down"
 }
 
-// onMouse implements View.OnMouse handler for v2 mouse events.
+// classifyMouse implements View.OnMouse handler for v2 mouse events.
 // It classifies MouseClickMsg, MouseMotionMsg, MouseReleaseMsg, and MouseWheelMsg,
 // extracting coordinates and emitting internal messages for Update to apply state mutations.
-// Note: value receiver, returns only Cmd; state mutations happen in Update handlers.
-func (m Model) onMouse(msg tea.MouseMsg) tea.Cmd {
-	// Type-switch on v2 mouse message types.
+// Motion events are only forwarded while the left button is held so ordinary
+// pointer movement does not create update churn.
+func classifyMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		mouse := msg.Mouse()
@@ -47,7 +47,9 @@ func (m Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 
 	case tea.MouseMotionMsg:
 		mouse := msg.Mouse()
-		return func() tea.Msg { return mouseMotionMsg{x: mouse.X, y: mouse.Y} }
+		if mouse.Button == tea.MouseLeft {
+			return func() tea.Msg { return mouseMotionMsg{x: mouse.X, y: mouse.Y} }
+		}
 
 	case tea.MouseReleaseMsg:
 		mouse := msg.Mouse()
