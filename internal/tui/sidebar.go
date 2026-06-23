@@ -82,7 +82,7 @@ func (s sidebarState) View(width, height int) string {
 	body := strings.Join(lines, "\n")
 	return theme.WithBg(
 		s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body),
-		lipgloss.Color(theme.Black),
+		theme.Black,
 	)
 }
 

@@ -73,8 +73,13 @@ func (m Model) hasActiveConversation() bool {
 	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 }
 
+// isCtrl reports whether the key press is Ctrl+key for the given letter rune.
+func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
+	return msg.Mod&tea.ModCtrl != 0 && msg.Code == letter
+}
+
 func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
-	if activeConversation && (msg.Code == tea.KeyEsc || msg.Code == tea.KeyCtrlC || msg.Code == tea.KeyCtrlD) {
+	if activeConversation && (msg.Code == tea.KeyEsc || isCtrl(msg, 'c') || isCtrl(msg, 'd')) {
 		return true, m.executeInterruptAction()
 	}
 	// During an active run, Enter queues a steer message instead of submitting normally.
@@ -93,25 +98,28 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation 
 }
 
 func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
-	switch msg.Code {
-	case tea.KeyCtrlC, tea.KeyCtrlD:
+	// Handle Ctrl-key shortcuts before the switch (msg.Code alone can't match ctrl keys).
+	switch {
+	case isCtrl(msg, 'c') || isCtrl(msg, 'd'):
 		if m.controller == nil {
 			return true, m, tea.Quit
 		}
 		return true, m.openExitModal(), nil
-	case tea.KeyCtrlB:
+	case isCtrl(msg, 'b'):
 		m.sidebar.Toggle()
 		m.layout()
 		return true, m, nil
-	case tea.KeyCtrlT:
+	case isCtrl(msg, 't'):
 		m.openContextOverlayImmediate()
 		return true, m, nil
-	case tea.KeyCtrlX:
+	case isCtrl(msg, 'x'):
 		m.content.ToggleLastDelegationOutput()
 		m.syncViewport()
 		return true, m, nil
-	case tea.KeyCtrlV:
+	case isCtrl(msg, 'v'):
 		return true, m, pasteImageCmd()
+	}
+	switch msg.Code {
 	case tea.KeyTab:
 		next, cmd := m.handleTabKey(msg)
 		return true, next, cmd
@@ -122,10 +130,10 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea
 		next, cmd := m.handleKeyDown(msg)
 		return true, next, cmd
 	case tea.KeyPgUp:
-		m.scrollUp(max(1, m.viewport.Height))
+		m.scrollUp(max(1, m.viewport.Height()))
 		return true, m, nil
 	case tea.KeyPgDown:
-		m.scrollDown(max(1, m.viewport.Height))
+		m.scrollDown(max(1, m.viewport.Height()))
 		return true, m, nil
 	case tea.KeyEsc:
 		return m.handleSelectionEscKey()
@@ -285,8 +293,10 @@ func (m Model) applyMarkerPostEdit(msg tea.KeyPressMsg) Model {
 
 func isEditKey(msg tea.KeyPressMsg) bool {
 	switch msg.Code {
-	case tea.KeyBackspace, tea.KeyDelete,
-		tea.KeyCtrlK, tea.KeyCtrlU, tea.KeyCtrlW:
+	case tea.KeyBackspace, tea.KeyDelete:
+		return true
+	}
+	if isCtrl(msg, 'k') || isCtrl(msg, 'u') || isCtrl(msg, 'w') {
 		return true
 	}
 	// Also check for printable characters (tea.KeyRunes equivalent)

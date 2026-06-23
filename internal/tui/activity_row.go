@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -15,7 +16,7 @@ type activityState struct {
 	label    string
 	detail   string
 	spinning bool
-	accent   lipgloss.Color
+	accent   color.Color
 	spinner  spinner.Model
 }
 
@@ -26,7 +27,7 @@ func newActivityState(styles theme.Styles) activityState {
 	}
 }
 
-func newActivitySpinner(accent lipgloss.Color) spinner.Model {
+func newActivitySpinner(accent color.Color) spinner.Model {
 	return spinner.New(
 		spinner.WithSpinner(spinner.MiniDot),
 		spinner.WithStyle(lipgloss.NewStyle().Foreground(accent)),
@@ -63,7 +64,7 @@ func (a activityState) view(width int, styles theme.Styles) string {
 	if text == "" {
 		text = " "
 	}
-	return theme.WithBg(styles.StatusBar.Width(width).Render(text), lipgloss.Color(theme.BgElev))
+	return theme.WithBg(styles.StatusBar.Width(width).Render(text), theme.BgElev)
 }
 
 func (a activityState) advance() activityState {

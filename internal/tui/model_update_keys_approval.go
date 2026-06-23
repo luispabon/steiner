@@ -16,7 +16,8 @@ func (m Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	case tea.KeyEsc:
 		return m.executeApprovalDecision(ApprovalDecisionDeny)
-	case tea.KeyCtrlC, tea.KeyCtrlD:
+	}
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
 		return m.executeInterruptAction(), nil
 	}
 	// Handle printable characters (tea.KeyRunes equivalent)

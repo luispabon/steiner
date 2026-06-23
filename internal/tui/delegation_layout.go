@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -40,7 +38,7 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 		{kind: delegationRowBorderTop},
 		{
 			kind: delegationRowHeader,
-			text: theme.WithBg(b.renderDelegationHeader(dd, headerWidth), lipgloss.Color(theme.BgElev)),
+			text: theme.WithBg(b.renderDelegationHeader(dd, headerWidth), theme.BgElev),
 		},
 	}
 	var promptBodyRows []delegationRow

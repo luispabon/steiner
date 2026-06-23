@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -48,7 +49,7 @@ func (s statusState) view(width int) string {
 		if s.contextBudget > 0 {
 			pct = (s.promptUsed * 100) / s.contextBudget
 		}
-		var ctxColor lipgloss.Color
+		var ctxColor color.Color
 		switch {
 		case pct > 90:
 			ctxColor = lipgloss.Color(theme.Removed)
@@ -81,7 +82,7 @@ func (s statusState) view(width int) string {
 		}
 	}
 	if width > 0 {
-		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), theme.BgElev)
 	}
-	return theme.WithBg(s.styles.StatusBar.Render(text), lipgloss.Color(theme.BgElev))
+	return theme.WithBg(s.styles.StatusBar.Render(text), theme.BgElev)
 }

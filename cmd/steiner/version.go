@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"io"
 	"strings"
 
@@ -26,7 +27,7 @@ func init() {
 
 // accentColor loads the user preference and returns the lipgloss color.
 // Falls back to theme.AccentPresets["amber"] if prefs can't be loaded.
-func accentColor() lipgloss.Color {
+func accentColor() color.Color {
 	p, err := prefs.Load()
 	if err != nil {
 		return lipgloss.Color(theme.AccentPresets["amber"])

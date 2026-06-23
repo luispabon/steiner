@@ -139,7 +139,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 	sections = append(sections, divider, footer)
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
-	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+	return theme.WithBg(box, theme.BgElev)
 }
 
 func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {

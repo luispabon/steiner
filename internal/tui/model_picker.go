@@ -158,7 +158,7 @@ func (m modelPickerOverlay) render(innerW int, withBg bool) string {
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
 	if withBg {
-		return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+		return theme.WithBg(rendered, theme.BgElev)
 	}
 	return rendered
 }

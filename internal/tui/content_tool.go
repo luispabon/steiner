@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -156,7 +157,7 @@ func (b *contentBuffer) renderToolCallBox(content, tool string, width int) strin
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderStyle.GetForeground())
 
-	content = theme.WithBg(content, lipgloss.Color(theme.BgElev))
+	content = theme.WithBg(content, theme.BgElev)
 
 	boxWidth := width - 2
 	if boxWidth < 1 {
@@ -260,7 +261,7 @@ func (b *contentBuffer) appendApprovalContent(bodyContent string, tc *toolCallSe
 }
 
 // toolAccentColor returns the full-opacity accent color for the given tool.
-func toolAccentColor(tool string) lipgloss.Color {
+func toolAccentColor(tool string) color.Color {
 	switch normalizeToolName(tool) {
 	case "bash":
 		return lipgloss.Color(theme.AccentAmber)
@@ -336,7 +337,7 @@ func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
 	return "\n" + b.styles.FgMute.Render(truncateRunes(raw, width)) + "\n"
 }
 
-func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC lipgloss.Color, width int) string {
+func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC color.Color, width int) string {
 	type btnSpec struct {
 		label string
 		key   string
@@ -357,7 +358,7 @@ func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC l
 	for _, spec := range specs {
 		selected := tc.approvalSelectedAction == spec.idx
 
-		var bg, fg lipgloss.Color
+		var bg, fg color.Color
 		if selected {
 			bg = accentC
 			fg = accentFg

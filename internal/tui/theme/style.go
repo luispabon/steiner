@@ -2,11 +2,24 @@ package theme
 
 import (
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 )
+
+// ColorHex converts a color.Color to a "#RRGGBB" hex string suitable for
+// use with bgEscape, fgEscape, HighlightMatch, WithBg, and PadLines.
+// Returns an empty string for nil or zero-alpha colors.
+func ColorHex(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	// RGBA returns 16-bit values; shift down to 8-bit.
+	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+}
 
 // bgEscape returns an ANSI escape sequence that sets the background to the
 // given color. Unlike lipgloss.Style.Render, this does not depend on the

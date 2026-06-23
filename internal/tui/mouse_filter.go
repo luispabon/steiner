@@ -33,11 +33,11 @@ func (m Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 	case tea.MouseClickMsg:
 		mouse := msg.Mouse()
 		switch mouse.Button {
-		case tea.MouseButtonWheelUp:
+		case tea.MouseWheelUp:
 			return func() tea.Msg { return mouseWheelMsg{direction: "up"} }
-		case tea.MouseButtonWheelDown:
+		case tea.MouseWheelDown:
 			return func() tea.Msg { return mouseWheelMsg{direction: "down"} }
-		case tea.MouseButtonLeft:
+		case tea.MouseLeft:
 			return func() tea.Msg { return mouseClickMsg{x: mouse.X, y: mouse.Y} }
 		}
 
@@ -47,7 +47,7 @@ func (m Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 
 	case tea.MouseReleaseMsg:
 		mouse := msg.Mouse()
-		if mouse.Button == tea.MouseButtonLeft {
+		if mouse.Button == tea.MouseLeft {
 			return func() tea.Msg { return mouseReleaseMsg{x: mouse.X, y: mouse.Y} }
 		}
 	}

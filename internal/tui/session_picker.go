@@ -103,7 +103,7 @@ func (s sessionPickerOverlay) View() string {
 	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return s.RenderWithBg(s.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(s.styles.PaletteOverlay, body, theme.BgElev)
 }
 
 //nolint:dupl // same row-layout algorithm as oneshotResumePickerOverlay.formatRunRow; types differ

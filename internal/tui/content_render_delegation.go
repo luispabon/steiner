@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strings"
 
@@ -148,7 +149,7 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 	return agentID
 }
 
-func renderStyledBox(content string, borderColor lipgloss.TerminalColor, bgColor lipgloss.Color, width int) string {
+func renderStyledBox(content string, borderColor color.Color, bgColor color.Color, width int) string {
 	return lipgloss.NewStyle().
 		Background(bgColor).
 		Padding(0, 1).

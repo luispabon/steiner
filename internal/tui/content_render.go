@@ -197,19 +197,19 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentThinkingBlock:
-		return theme.WithBg(b.renderThinkingBlockSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.renderThinkingBlockSegment(segment, width), theme.BgElev)
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), theme.BgElev)
 	case segmentSeparator:
 		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
-		return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", theme.BgElev)
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:
-		return theme.WithBg(b.renderStatusSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(b.renderStatusSegment(segment, width), theme.BgElev)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}

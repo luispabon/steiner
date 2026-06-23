@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"image/color"
 	"sort"
 	"strings"
 
@@ -239,7 +240,7 @@ func splitSlashOverlayMatch(item slashOverlayItem, indexes []int) slashOverlayMa
 	return result
 }
 
-func renderMatchedText(text string, matchedIndexes []int, baseStyle lipgloss.Style, matchedColor lipgloss.Color) string {
+func renderMatchedText(text string, matchedIndexes []int, baseStyle lipgloss.Style, matchedColor color.Color) string {
 	if text == "" {
 		return ""
 	}
@@ -249,11 +250,12 @@ func renderMatchedText(text string, matchedIndexes []int, baseStyle lipgloss.Sty
 		matched[idx] = struct{}{}
 	}
 
+	colorHex := theme.ColorHex(matchedColor)
 	var b strings.Builder
 	for idx, r := range text {
 		ch := string(r)
 		if _, ok := matched[idx]; ok {
-			b.WriteString(theme.HighlightMatch(ch, matchedColor))
+			b.WriteString(theme.HighlightMatch(ch, colorHex))
 			continue
 		}
 		b.WriteString(baseStyle.Render(ch))

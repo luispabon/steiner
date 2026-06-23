@@ -2,11 +2,8 @@ package tui
 
 import (
 	"fmt"
-
 	"strings"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -30,12 +27,12 @@ func (m *Model) layout() {
 	inputRows, activityRows := m.computeInputRows(contentWidth)
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
-	m.viewport.Width = max(1, contentWidth-6)
-	m.viewport.Height = max(1, m.height-3-inputRows-activityRows)
+	m.viewport.SetWidth(max(1, contentWidth-6))
+	m.viewport.SetHeight(max(1, m.height-3-inputRows-activityRows))
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
 	// Using delegationBodyOverhead leaves one spare row so the box never grazes the viewport edge.
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height()-delegationBodyOverhead)
 	m.syncViewport()
 }
 
@@ -48,11 +45,11 @@ func (m *Model) relayoutInput() {
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
 	newHeight := max(1, m.height-3-inputRows-activityRows)
-	if newHeight == m.viewport.Height {
+	if newHeight == m.viewport.Height() {
 		return
 	}
-	m.viewport.Height = newHeight
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
+	m.viewport.SetHeight(newHeight)
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height()-delegationBodyOverhead)
 	m.syncViewport()
 }
 
@@ -65,17 +62,17 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 }
 
 func (m *Model) syncViewport() {
-	rendered := m.content.String(m.viewport.Width)
+	rendered := m.content.String(m.viewport.Width())
 	if m.showContextDiagnostics {
-		if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
+		if header := m.renderContextInfoLine(m.viewport.Width()); header != "" {
 			rendered = header + rendered
 		}
 	}
-	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
-	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
+	rendered = theme.WithBg(rendered, theme.BgElev)
+	rendered = theme.PadLines(rendered, m.viewport.Width(), theme.BgElev)
 
 	contentLines := strings.Count(rendered, "\n") + 1
-	pad := m.viewport.Height - contentLines
+	pad := m.viewport.Height() - contentLines
 	if pad < 0 {
 		pad = 0
 	}
@@ -83,7 +80,7 @@ func (m *Model) syncViewport() {
 	if pad > 0 {
 		padLine := lipgloss.NewStyle().
 			Background(lipgloss.Color(theme.BgElev)).
-			Render(strings.Repeat(" ", m.viewport.Width))
+			Render(strings.Repeat(" ", m.viewport.Width()))
 		rendered = strings.Repeat(padLine+"\n", pad) + rendered
 	}
 	m.viewport.SetContent(rendered)
@@ -115,9 +112,9 @@ func (m *Model) handleLeftClick(termY int) {
 	// We need the content-area row. The viewport itself is positioned at
 	// some Y within the terminal — approximate by using termY directly
 	// adjusted for scroll offset.
-	// content line = termY + m.viewport.YOffset
+	// content line = termY + m.viewport.YOffset()
 	// (viewport renders from its YOffset in the scrollable content)
-	contentLine := termY + m.viewport.YOffset - m.contentTopPad - m.viewportContentTopOffset()
+	contentLine := termY + m.viewport.YOffset() - m.contentTopPad - m.viewportContentTopOffset()
 
 	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
 		return
@@ -226,7 +223,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	if dd == nil || rowInSegment < 0 {
 		return -1
 	}
-	rows := m.content.delegationRows(dd, m.viewport.Width)
+	rows := m.content.delegationRows(dd, m.viewport.Width())
 	if rowInSegment >= len(rows) {
 		return -1
 	}
@@ -245,17 +242,17 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 
 func (m *Model) renderScrollbar() string {
 	totalContent := m.viewport.TotalLineCount()
-	if totalContent <= m.viewport.Height {
+	if totalContent <= m.viewport.Height() {
 		return ""
 	}
 
-	vh := m.viewport.Height
+	vh := m.viewport.Height()
 	if vh <= 0 {
 		return ""
 	}
 
 	// Check cache before recomputing.
-	cacheKey := scrollbarCacheKey{yOffset: m.viewport.YOffset, height: vh, totalLines: totalContent}
+	cacheKey := scrollbarCacheKey{yOffset: m.viewport.YOffset(), height: vh, totalLines: totalContent}
 	if m.scrollbarCacheKey == cacheKey && m.scrollbarCacheRendered != "" {
 		return m.scrollbarCacheRendered
 	}
@@ -266,7 +263,7 @@ func (m *Model) renderScrollbar() string {
 	scrollRange := totalContent - vh
 	var thumbPos int
 	if scrollRange > 0 && trackH > 0 {
-		thumbPos = int(float64(m.viewport.YOffset) / float64(scrollRange) * float64(trackH))
+		thumbPos = int(float64(m.viewport.YOffset()) / float64(scrollRange) * float64(trackH))
 	}
 	if thumbPos > trackH {
 		thumbPos = trackH
@@ -405,7 +402,7 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 	if seg.toolGroupData == nil {
 		return
 	}
-	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width)
+	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width())
 	if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
 		return
 	}

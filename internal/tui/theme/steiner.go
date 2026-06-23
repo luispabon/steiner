@@ -75,7 +75,7 @@ func (t steinerTheme) LipGlossStyles() Styles {
 }
 
 func (t steinerTheme) GlamourStyleSheet() glamour.TermRendererOption {
-	return BuildGlamourStyleSheet(string(t.Accent()))
+	return BuildGlamourStyleSheet(AccentAmber)
 }
 
 // BuildGlamourStyleSheet creates a glamour stylesheet using the given accent hex.

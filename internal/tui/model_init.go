@@ -54,7 +54,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m := Model{
 		width:    80,
 		height:   24,
-		viewport: viewport.New(80, 22),
+		viewport: viewport.New(viewport.WithWidth(80), viewport.WithHeight(22)),
 		input:    input,
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
@@ -314,7 +314,7 @@ func tickCmd() tea.Cmd {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), tea.HideCursor}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}

@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"image/color"
 	"strings"
 
-	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -181,7 +181,7 @@ func (m *Model) applyInputStyles() {
 	text := m.styles.UserBg.Foreground(lipgloss.Color(theme.Fg))
 	endOfBuffer := m.styles.UserBg.Foreground(lipgloss.Color(theme.UserSoft))
 
-	style := textarea.Style{
+	style := textarea.StyleState{
 		Base:        base,
 		CursorLine:  base,
 		Placeholder: placeholder,
@@ -189,12 +189,11 @@ func (m *Model) applyInputStyles() {
 		Text:        text,
 		EndOfBuffer: endOfBuffer,
 	}
-	m.input.FocusedStyle = style
-	m.input.BlurredStyle = style
-
-	m.input.Cursor.TextStyle = text
-	m.input.Cursor.Style = text
-	_ = m.input.Cursor.SetMode(cursor.CursorHide)
+	m.input.SetStyles(textarea.Styles{
+		Focused: style,
+		Blurred: style,
+		Cursor:  textarea.CursorStyle{Blink: false},
+	})
 	if m.input.Focused() {
 		m.input.Focus()
 	} else {
@@ -415,7 +414,7 @@ func insertComposerCursorAnsi(s string, pos int) string {
 	return result.String()
 }
 
-func styleImageMarkers(line string, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
+func styleImageMarkers(line string, accentColor color.Color, bgColor color.Color) string {
 	markerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accentColor).
@@ -425,7 +424,7 @@ func styleImageMarkers(line string, accentColor lipgloss.Color, bgColor lipgloss
 	})
 }
 
-func renderInputLine(line string, width int, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
+func renderInputLine(line string, width int, accentColor color.Color, bgColor color.Color) string {
 	if styled := styleImageMarkers(line, accentColor, bgColor); styled != line {
 		return styled
 	}

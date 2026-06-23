@@ -114,7 +114,7 @@ func (o OverlayShell) Render(box lipgloss.Style, body string) string {
 
 // RenderWithBg renders the overlay body with the given box style and wraps it
 // with the provided background color.
-func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg lipgloss.Color) string {
+func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) string {
 	return theme.WithBg(o.Render(box, body), bg)
 }
 

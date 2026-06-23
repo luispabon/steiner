@@ -17,10 +17,13 @@ func (m Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.exitModal = m.exitModal.moveSelection(-1)
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
 		m.exitModal = m.exitModal.moveSelection(1)
-	case tea.KeyEnter, tea.KeyCtrlC, tea.KeyCtrlD:
+	case tea.KeyEnter:
 		return m.confirmExitModal()
 	case tea.KeyEsc:
 		m.exitModal = m.exitModal.closeExitModal()
+	}
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
+		return m.confirmExitModal()
 	}
 	return m, nil
 }
