@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -175,6 +176,269 @@ func TestSteerInjection(t *testing.T) {
 			if ev.Type == output.EventTypeSteerReceived {
 				t.Fatalf("unexpected %s event when drain returns nothing", output.EventTypeSteerReceived)
 			}
+		}
+	})
+}
+
+func TestSteerInjectionWithImages(t *testing.T) {
+	t.Run("delivers steer images into the next model request", func(t *testing.T) {
+		providerStub := &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role: provider.MessageRoleAssistant,
+						ToolCalls: []provider.ToolCall{
+							{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+						},
+					},
+					FinishReason: "tool_calls",
+					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+				},
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "done",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+				},
+			},
+		}
+		executor := &fakeExecutor{
+			execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+				return map[string]any{"contents": "hello"}, nil
+			},
+		}
+
+		vision := true
+		var drained bool
+		state, err := NewRunner().Run(context.Background(), RunRequest{
+			Provider: providerStub,
+			Executor: executor,
+			Prompt: prompt.AssemblyOptions{
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+			},
+			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+			DrainSteers: func() []SteerMessage {
+				if drained {
+					return nil
+				}
+				drained = true
+				return []SteerMessage{{Text: "see [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}}}}
+			},
+			ResolvedModel: provider.ResolvedModel{
+				Alias:  "test-model",
+				Vision: &vision,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got, want := state.StopReason, StopReasonComplete; got != want {
+			t.Fatalf("StopReason = %q, want %q", got, want)
+		}
+
+		if len(providerStub.requests) != 2 {
+			t.Fatalf("provider requests = %d, want 2", len(providerStub.requests))
+		}
+
+		secondReq := providerStub.requests[1]
+		var steerMsg provider.Message
+		for _, msg := range secondReq.Messages {
+			if msg.Role == provider.MessageRoleUser && msg.Content == "see [Image 1]" {
+				steerMsg = msg
+				break
+			}
+		}
+		if steerMsg.Role == "" {
+			t.Fatalf("steer message not found in second request: %+v", secondReq.Messages)
+		}
+		if len(steerMsg.Images) != 1 {
+			t.Fatalf("steer message images = %d, want 1", len(steerMsg.Images))
+		}
+		if steerMsg.Images[0].Data != "steer-image-data" {
+			t.Errorf("steer image data = %q, want %q", steerMsg.Images[0].Data, "steer-image-data")
+		}
+	})
+}
+
+func TestSteerInjectionMultipleImages(t *testing.T) {
+	t.Run("four queued steers with images on last two", func(t *testing.T) {
+		providerStub := &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role: provider.MessageRoleAssistant,
+						ToolCalls: []provider.ToolCall{
+							{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+						},
+					},
+					FinishReason: "tool_calls",
+					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+				},
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "I cannot see any images.",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+				},
+			},
+		}
+		executor := &fakeExecutor{
+			execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+				return map[string]any{"contents": "hello"}, nil
+			},
+		}
+
+		vision := true
+		var drained bool
+		state, err := NewRunner().Run(context.Background(), RunRequest{
+			Provider: providerStub,
+			Executor: executor,
+			Prompt: prompt.AssemblyOptions{
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+			},
+			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+			DrainSteers: func() []SteerMessage {
+				if drained {
+					return nil
+				}
+				drained = true
+				return []SteerMessage{
+					{Text: "first queued message"},
+					{Text: "second queued message"},
+					{Text: "third queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "third-image-data"}}},
+					{Text: "fourth queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "fourth-image-data"}}},
+				}
+			},
+			ResolvedModel: provider.ResolvedModel{
+				Alias:  "test-model",
+				Vision: &vision,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got, want := state.StopReason, StopReasonComplete; got != want {
+			t.Fatalf("StopReason = %q, want %q", got, want)
+		}
+
+		if len(providerStub.requests) != 2 {
+			t.Fatalf("provider requests = %d, want 2", len(providerStub.requests))
+		}
+
+		secondReq := providerStub.requests[1]
+		t.Logf("second request messages: %+v", secondReq.Messages)
+
+		var steerMsg provider.Message
+		for _, msg := range secondReq.Messages {
+			if msg.Role == provider.MessageRoleUser && strings.Contains(msg.Content, "queued message") {
+				steerMsg = msg
+				break
+			}
+		}
+		if steerMsg.Role == "" {
+			t.Fatalf("merged steer message not found in second request")
+		}
+		if len(steerMsg.Images) != 2 {
+			t.Fatalf("steer message images = %d, want 2", len(steerMsg.Images))
+		}
+		if steerMsg.Images[0].Data != "third-image-data" {
+			t.Errorf("first steer image data = %q, want %q", steerMsg.Images[0].Data, "third-image-data")
+		}
+		if steerMsg.Images[1].Data != "fourth-image-data" {
+			t.Errorf("second steer image data = %q, want %q", steerMsg.Images[1].Data, "fourth-image-data")
+		}
+		wantContent := "first queued message\n\nsecond queued message\n\nthird queued message [Image 1]\n\nfourth queued message [Image 2]"
+		if steerMsg.Content != wantContent {
+			t.Errorf("steer content = %q, want %q", steerMsg.Content, wantContent)
+		}
+	})
+}
+
+func TestSteerInjectionAtAssistantOnlyStop(t *testing.T) {
+	t.Run("queued steers are sent even when previous turn stopped", func(t *testing.T) {
+		providerStub := &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "I cannot see any images.",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+				},
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "Now I see them.",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+				},
+			},
+		}
+
+		vision := true
+		var drained bool
+		state, err := NewRunner().Run(context.Background(), RunRequest{
+			Provider: providerStub,
+			Executor: &fakeExecutor{},
+			Prompt: prompt.AssemblyOptions{
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+			},
+			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+			DrainSteers: func() []SteerMessage {
+				if drained {
+					return nil
+				}
+				drained = true
+				return []SteerMessage{
+					{Text: "first queued message"},
+					{Text: "second queued message"},
+					{Text: "third queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "third-image-data"}}},
+					{Text: "fourth queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "fourth-image-data"}}},
+				}
+			},
+			ResolvedModel: provider.ResolvedModel{
+				Alias:  "test-model",
+				Vision: &vision,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got, want := state.StopReason, StopReasonComplete; got != want {
+			t.Fatalf("StopReason = %q, want %q", got, want)
+		}
+
+		// The run must not stop after the first assistant-only response; it should
+		// continue and send the queued steers.
+		if len(providerStub.requests) != 2 {
+			t.Fatalf("provider requests = %d, want 2", len(providerStub.requests))
+		}
+
+		secondReq := providerStub.requests[1]
+		var steerMsg provider.Message
+		for _, msg := range secondReq.Messages {
+			if msg.Role == provider.MessageRoleUser && strings.Contains(msg.Content, "queued message") {
+				steerMsg = msg
+				break
+			}
+		}
+		if steerMsg.Role == "" {
+			t.Fatalf("merged steer message not found in second request")
+		}
+		if len(steerMsg.Images) != 2 {
+			t.Fatalf("steer message images = %d, want 2", len(steerMsg.Images))
+		}
+		if steerMsg.Images[0].Data != "third-image-data" {
+			t.Errorf("first steer image data = %q, want %q", steerMsg.Images[0].Data, "third-image-data")
+		}
+		if steerMsg.Images[1].Data != "fourth-image-data" {
+			t.Errorf("second steer image data = %q, want %q", steerMsg.Images[1].Data, "fourth-image-data")
 		}
 	})
 }
