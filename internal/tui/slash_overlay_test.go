@@ -242,9 +242,9 @@ func TestSlashOverlayBackspace(t *testing.T) {
 	overlay = overlay.Open(items)
 
 	// Type "config"
-	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[0:1][0]), Text: string("config"[0:1])})
-	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[1:2][0]), Text: string("config"[1:2])})
-	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: rune("config"[2:3][0]), Text: string("config"[2:3])})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("after 'con': candidates = %d, want 2 (matches /config and /compact)", len(overlay.candidates))

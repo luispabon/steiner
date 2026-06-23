@@ -244,9 +244,10 @@ func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
-	if msg.direction == "up" {
+	switch msg.direction {
+	case "up":
 		m.scrollUp(m.viewport.MouseWheelDelta)
-	} else if msg.direction == "down" {
+	case "down":
 		m.scrollDown(m.viewport.MouseWheelDelta)
 	}
 	return m, nil
