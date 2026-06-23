@@ -194,7 +194,6 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| `code` | Implement a scoped change: write code, run tests, fix errors |",
 		"| `plan` | Analyze a specific sub-problem: evaluate options, tradeoffs, produce a recommendation |",
 		"| `verify` | Run checks: tests, lint, build. Report pass/fail. No code changes |",
-		"| `delegate` | Generic: when no specialized type fits, or when you need custom tool access or system prompt |",
 		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",

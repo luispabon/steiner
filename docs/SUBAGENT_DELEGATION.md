@@ -1,6 +1,6 @@
 # Sub-agent delegation
 
-`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. This document covers both user-facing usage (tools, configuration, safety) and the internal delegation machinery.
+`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. This document covers both user-facing usage (tools, configuration, safety) and the internal delegation machinery.
 
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
@@ -10,7 +10,7 @@
 
 ### Available tools
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees seven additional tools alongside the built-in ones:
+Sub-agent delegation is **enabled by default**. When it is, the model sees six additional tools alongside the built-in ones:
 
 | Tool        | What it does                                                                     | Extra params                                               | Can mutate?            |
 |-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
@@ -19,10 +19,9 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees seven
 | `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
 | `plan`      | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
 | `verify`    | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
-| `delegate`  | Generic sub-agent with full customisation                                        | `task`, `context`, `system_prompt`, `max_turns`, `timeout` | Depends on config      |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The generic `delegate` tool lets you set a custom system prompt, pass extra context, and constrain turn/time budgets per invocation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -44,21 +43,21 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 
 ### `follow_up`
 
-The `follow_up` tool is a companion to `delegate`. It lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.
+The `follow_up` tool lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.
 
 Key behaviours:
 
 - **Preserves conversation** — the child's prior message history is retained and the new message is appended.
 - **Resets budget** — each follow-up resets the child's turn and token budgets to the configured defaults (not the remaining budget from the prior run).
 - **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
-- **Auto-approved** — like `delegate`, the `follow_up` tool is approval mode `auto` (no user gate).
+- **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
 
 ### Safety
 
-- A sub-agent **cannot delegate further** — the `delegate` and `follow_up` tools are always stripped from child registries.
+- A sub-agent **cannot delegate further** — `delegate` and `follow_up` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
-- Only the `code` sub-agent and the generic `delegate` (when its config allows it) have access to file-mutation tools (`mutate`) or `bash`.
+- Only the `code` sub-agent has access to file-mutation tools (`mutate`) or `bash`.
 - `explore`, `research`, and `plan` are read-only.
 - `verify` can run commands via `bash` but must not modify files.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
@@ -89,17 +88,6 @@ sub_agent:
   max_turns: 30
   max_tokens: 100000
 
-  # Tools available to the generic `delegate` sub-agent.
-  # Specialised agents (explore/research/code/plan/verify) use their own
-  # hardcoded allowlists and ignore this field.
-  allowed_tools:
-    - read
-    - glob
-    - grep
-    - ls
-    - mutate
-    - bash
-
   # Per-agent-type model overrides. When set, sub-agents of that type use
   # a different model than the parent agent.
   agents:
@@ -111,10 +99,6 @@ sub_agent:
 
 Each entry under `agents` keyed by agent type name can set `model` to any model alias defined in your `models` configuration. If no override is set, the sub-agent uses the same model as the parent.
 
-### Per-invocation overrides (generic `delegate` only)
-
-When calling the `delegate` tool, the model can pass `max_turns` and `timeout` to tighten limits for that single invocation. These follow **tighten-only** semantics — they can only reduce limits, never raise them above the configured default. `timeout` values below 60s are clamped up to a 60s minimum.
-
 ---
 
 ## Part 2 — Internals
@@ -125,11 +109,10 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 ┌─────────────────────────────────────────────┐
 │  Parent Agent Loop (internal/agent)         │
 │                                             │
-│  ┌─────────────────────────────────┐        │
-│  │ Tool: "delegate"                │        │
-│  │ Handler: delegation.NewDelegate │        │
-│  └──────────────┬──────────────────┘        │
-│                 │                           │
+│  Specialized sub-agent tools (explore,      │
+│  research, code, plan, verify) call into    │
+│  BuildChildRun() directly.                  │
+│                                             │
 │                 ▼                           │
 │  ┌──────────────────────────────────┐       │
 │  │ delegation.BuildChildRun()       │       │
@@ -166,11 +149,11 @@ When calling the `delegate` tool, the model can pass `max_turns` and `timeout` t
 | `internal/prompt`     | Delegation instructions preamble injected when delegation is enabled                                                                         |
 | `internal/output`     | Delegation lifecycle events (started, complete, failed, extension)                                                                           |
 | `internal/tui`        | Rendering of delegation events with spinner, lifecycle tracking, collapsible output                                                          |
-| `cmd/steiner`         | `buildActiveRegistry()` wires all delegate tools into the active registry                                                                    |
+| `cmd/steiner`         | `buildActiveRegistry()` wires delegate tools into the active registry                                                                    |
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and registers the generic `delegate` tool plus all five specialised tools. Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a narrower tool allowlist, and a simpler schema (single `task` parameter).
+When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and registers all five specialised tools. Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a narrower tool allowlist, and a simpler schema (single `task` parameter).
 
 `web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry is used as the parent reference for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
 
@@ -178,7 +161,7 @@ When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and re
 
 `BuildChildRun()` assembles the full `agent.RunRequest`:
 
-**1. Derive limits.** `deriveChildLimits()` combines `SubAgentConfig` defaults with spec-level overrides using tighten-only semantics — an override is applied only when it is more restrictive than the configured default. Defaults: `MaxTurns` 15, `MaxTokens` 100,000. `timeout` is accepted only as an optional `delegate` tool input and defaults to no timeout.
+**1. Derive limits.** `deriveChildLimits()` combines `SubAgentConfig` defaults with spec-level overrides using tighten-only semantics — an override is applied only when it is more restrictive than the configured default. Defaults: `MaxTurns` 15, `MaxTokens` 100,000. `timeout` is accepted as an optional parameter and defaults to no timeout.
 
 **2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the task (and optional `context`). The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message.
 
@@ -266,5 +249,5 @@ When delegation is enabled, the system prompt preamble includes a delegation ins
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
 9. **Summary cap**: retention summaries capped at 1000 runes.
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
-11. **Enforced allowlist**: `allowed_tools` is enforced during child registry construction; only listed tools (minus `delegate`/`follow_up`) are visible and executable.
+11. **Enforced allowlist**: `allowed_tools` is enforced during child registry construction; only listed tools (minus `follow_up`) are visible and executable.
 12. **Specialised tool allowlists**: each specialised type enforces a per-type tool allowlist that is narrower than the global `allowed_tools`.
