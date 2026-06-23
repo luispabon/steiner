@@ -562,9 +562,9 @@ func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: string('c')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: string('o')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if got := m.input.Value(); got != "/co" {
 		t.Fatalf("input value = %q, want /co", got)
@@ -594,8 +594,8 @@ func TestModelSlashOverlayEscRemovesActiveToken(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: string('c')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.slashOverlay.IsOpen() {
@@ -2476,7 +2476,7 @@ func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.input.SetValue("seed")
 
-			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(fragment[0]), Text: string(fragment)})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(fragment[0]), Text: fragment})
 
 			if got := m.input.Value(); got != "seed" {
 				t.Fatalf("input value = %q, want unchanged", got)
@@ -2493,7 +2493,7 @@ func TestModelAllowsNormalRuneInputNearMouseLikeText(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(text[0]), Text: string(text)})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(text[0]), Text: text})
 
 			if got := m.input.Value(); got != text {
 				t.Fatalf("input value = %q, want %q", got, text)
@@ -2571,7 +2571,7 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: string('@')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
@@ -2848,7 +2848,7 @@ func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: string('@')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open")
 	}
@@ -2873,7 +2873,7 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 	if !m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to open")
 	}
@@ -2899,14 +2899,14 @@ func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
 		name string
 		key  tea.KeyPressMsg
 	}{
-		{name: "rune space", key: tea.KeyPressMsg{Code: ' ', Text: string(' ')}},
+		{name: "rune space", key: tea.KeyPressMsg{Code: ' ', Text: " "}},
 		{name: "key space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 			for _, r := range "accent" {
 				m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
@@ -2940,7 +2940,7 @@ func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 			for _, r := range "accent" {
 				m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
@@ -2967,15 +2967,15 @@ func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: string('@')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: string('g')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: string('o')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @go")
 	}
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: string(' ')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after space")
 	}
@@ -2993,15 +2993,15 @@ func TestModelSlashOverlay_ReopensAfterSpaceBackspace(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: string('c')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: string('o')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay open after /co")
 	}
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: string(' ')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to close after space")
 	}
@@ -3016,15 +3016,15 @@ func TestModelFilePicker_ReopensOnLeftArrow(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: string('@')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: string('g')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: string('o')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @go")
 	}
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: string(' ')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after space")
 	}
@@ -3039,8 +3039,8 @@ func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: string('@')})
-	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: string('g')})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @g")
@@ -3178,7 +3178,7 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 		// Type "/" to open the slash overlay
-		m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 		if !m.slashOverlay.IsOpen() {
 			t.Fatal("expected slash overlay to open")
 		}
@@ -3189,7 +3189,7 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		}
 
 		// Type space to trigger plan picker
-		m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: string(' ')})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 		if !m.planPicker.IsOpen() {
 			t.Fatal("expected plan picker to open after '/implement '")
 		}
