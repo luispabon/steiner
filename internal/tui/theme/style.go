@@ -115,3 +115,46 @@ func PadLines(s string, width int, bg string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// FormatBgLines applies a background color and right-pads each logical line to
+// width in a single pass. This is cheaper than calling WithBg and PadLines
+// separately on large viewport buffers.
+func FormatBgLines(s string, width int, bg string) string {
+	bgSeq := bgEscape(bg)
+	if bgSeq == "" {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		if line == "" {
+			sb.WriteString(bgSeq)
+			sb.WriteByte(' ')
+			sb.WriteString(ansiResetLong)
+			if width > 1 {
+				sb.WriteString(bgSeq)
+				sb.WriteString(strings.Repeat(" ", width-1))
+				sb.WriteString(ansiResetShort)
+			}
+			continue
+		}
+
+		line = strings.ReplaceAll(line, ansiResetLong, ansiResetLong+bgSeq)
+		line = strings.ReplaceAll(line, ansiResetShort, ansiResetShort+bgSeq)
+		line = strings.ReplaceAll(line, ansiBgReset, ansiBgReset+bgSeq)
+		line = bgSeq + line
+		sb.WriteString(line)
+		if width > 0 {
+			if w := lipgloss.Width(line); w < width {
+				sb.WriteString(bgSeq)
+				sb.WriteString(strings.Repeat(" ", width-w))
+				sb.WriteString(ansiResetShort)
+			}
+		}
+	}
+	return sb.String()
+}

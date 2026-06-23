@@ -68,8 +68,7 @@ func (m *Model) syncViewport() {
 			rendered = header + rendered
 		}
 	}
-	rendered = theme.WithBg(rendered, theme.BgElev)
-	rendered = theme.PadLines(rendered, m.viewport.Width(), theme.BgElev)
+	rendered = theme.FormatBgLines(rendered, m.viewport.Width(), theme.BgElev)
 
 	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height() - contentLines

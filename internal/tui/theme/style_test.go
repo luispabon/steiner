@@ -213,6 +213,37 @@ func TestWithBg_differentBg(t *testing.T) {
 	}
 }
 
+func TestFormatBgLines_matchesWithBgAndPadLines(t *testing.T) {
+	s := "hello\n\x1b[31mred\x1b[0m\n\nworld"
+	bg := BgElev
+	width := 12
+
+	want := PadLines(WithBg(s, bg), width, bg)
+	got := FormatBgLines(s, width, bg)
+
+	if got != want {
+		t.Fatalf("FormatBgLines mismatch\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+func TestFormatBgLines_preservesTrailingNewline(t *testing.T) {
+	s := "hello\n"
+	bg := BgElev
+	width := 8
+
+	got := FormatBgLines(s, width, bg)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "hello") {
+		t.Fatalf("first line = %q, want original text", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "\x1b[") {
+		t.Fatalf("second line = %q, want background formatted trailing line", lines[1])
+	}
+}
+
 func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 	styles := BuildStyles(AccentAmber)
 
