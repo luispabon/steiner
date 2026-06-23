@@ -296,6 +296,12 @@ func (m *Model) renderScrollbar() string {
 		return ""
 	}
 
+	// Check cache before recomputing.
+	cacheKey := scrollbarCacheKey{yOffset: m.viewport.YOffset, height: vh, totalLines: totalContent}
+	if m.scrollbarCacheKey == cacheKey && m.scrollbarCacheRendered != "" {
+		return m.scrollbarCacheRendered
+	}
+
 	thumbH := max(1, vh*vh/totalContent)
 	trackH := vh - thumbH
 
@@ -322,7 +328,10 @@ func (m *Model) renderScrollbar() string {
 			sb.WriteString("\n")
 		}
 	}
-	return sb.String()
+	result := sb.String()
+	m.scrollbarCacheKey = cacheKey
+	m.scrollbarCacheRendered = result
+	return result
 }
 
 func (m *Model) renderContextInfoLine(width int) string {

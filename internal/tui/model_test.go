@@ -3113,6 +3113,9 @@ func TestSelectionSmallHeight(t *testing.T) {
 
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
 
+			// Activate selection so screenLines is populated during View().
+			m.selection.active = true
+
 			_ = m.View()
 
 			if len(*screenLines) != tt.wantScreenLines {

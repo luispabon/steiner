@@ -102,10 +102,17 @@ func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	if width < 1 {
 		width = 1
 	}
-	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+	var bgLine string
+	if b.fillEmptyLinesCacheWidth == width && b.fillEmptyLinesCacheBgLine != "" {
+		bgLine = b.fillEmptyLinesCacheBgLine
+	} else {
+		bgLine = lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
+		b.fillEmptyLinesCacheWidth = width
+		b.fillEmptyLinesCacheBgLine = bgLine
+	}
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if lipgloss.Width(line) == 0 {
+		if line == "" {
 			lines[i] = bgLine
 		}
 	}

@@ -162,6 +162,16 @@ type Model struct {
 	oneshotSteerCh               chan agent.SteerMessage
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
+
+	// Render caches for width/height-dependent styles.
+	hDividerCacheWidth     int
+	hDividerCacheRendered  string
+	scrollbarCacheKey      scrollbarCacheKey
+	scrollbarCacheRendered string
+}
+
+type scrollbarCacheKey struct {
+	yOffset, height, totalLines int
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {

@@ -19,7 +19,8 @@ func (m Model) View() string {
 	base := m.renderBaseView(contentWidth, sidebarVisible)
 	result := m.renderOverlayView(base, contentWidth)
 
-	if m.screenLines != nil {
+	// Only populate screenLines during an active selection drag; extract lazily on release.
+	if m.screenLines != nil && m.selection.active {
 		*m.screenLines = strings.Split(ansi.Strip(result), "\n")
 	}
 	if m.selection.hasSelection() {
@@ -45,12 +46,19 @@ func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, m.sidebar.View(m.width, m.height), vDivider, mainColumn)
 }
 
-func (m Model) renderMainColumn(contentWidth int) string {
+func (m *Model) renderMainColumn(contentWidth int) string {
 	viewportView := m.renderViewportView(contentWidth)
-	hDivider := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
-		Foreground(lipgloss.Color(theme.BorderSoft)).
-		Render(strings.Repeat("─", contentWidth))
+	var hDivider string
+	if m.hDividerCacheWidth == contentWidth && m.hDividerCacheRendered != "" {
+		hDivider = m.hDividerCacheRendered
+	} else {
+		hDivider = lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.BgElev)).
+			Foreground(lipgloss.Color(theme.BorderSoft)).
+			Render(strings.Repeat("─", contentWidth))
+		m.hDividerCacheWidth = contentWidth
+		m.hDividerCacheRendered = hDivider
+	}
 
 	mainComponents := []string{viewportView, hDivider}
 	mainComponents = append(mainComponents,
