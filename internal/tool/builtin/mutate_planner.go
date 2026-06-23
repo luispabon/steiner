@@ -75,6 +75,9 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 	if err := validateFields(index, op); err != nil {
 		return err
 	}
+	if err := validateRequired(index, op); err != nil {
+		return err
+	}
 	switch strings.TrimSpace(op.Type) {
 	case "create":
 		return p.planCreate(index, op)

@@ -188,7 +188,7 @@ These built-in tools are available to the model; some are gated by config:
 | Tool | Description |
 |------|-------------|
 | `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. The result also carries `resolved_path` — the absolute path actually read — so a relative path that resolved to a different physical file (e.g. across a git worktree boundary) is immediately visible. Max image size: 5MB. |
-| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching, initial-snapshot `file_hash` validation on existing targets, post-operation assertions, and bounded verification context (create, write, replace, line_replace, delete_line, delete, move) |
+| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching, initial-snapshot `file_hash` validation on existing targets, post-operation assertions, and bounded verification context (create, write, replace, line_replace, delete_line, delete, move, insert_before, insert_after) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
