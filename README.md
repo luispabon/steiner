@@ -210,7 +210,7 @@ See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full refere
 
 ## Sub-agent delegation
 
-Delegation is steiner's primary context management strategy. `steiner` exposes seven sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins:
+Delegation is steiner's primary context management strategy. `steiner` exposes six sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins:
 
 | Tool | What it does | Can mutate? |
 |------|--------------|-------------|
@@ -219,10 +219,9 @@ Delegation is steiner's primary context management strategy. `steiner` exposes s
 | `code` | Implement a scoped change — read relevant files, write changes, run tests | Yes |
 | `plan` | Analyse a sub-problem, evaluate options, and produce a structured recommendation | No |
 | `verify` | Run tests, linters, builds, or other checks and report pass or fail | No |
-| `delegate` | Generic sub-agent with custom system prompt, context, and per-invocation overrides | Configurable |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation, including per-agent tool allowlists, safety restrictions, and per-invocation overrides.
+See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 ## Optional features
 

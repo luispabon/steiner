@@ -125,7 +125,7 @@ type noopSink struct{}
 
 func (noopSink) Emit(output.Event) {}
 
-func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
+func TestBuildActiveRegistry_DelegateNotRegistered_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
 	cfg := config.Config{}
@@ -144,8 +144,8 @@ func TestBuildActiveRegistry_DelegatePresent_WhenEnabled(t *testing.T) {
 			foundFollowUp = true
 		}
 	}
-	if !found {
-		t.Errorf("delegate tool not found in registry when sub_agent.enabled=true; got %v", reg.Names())
+	if found {
+		t.Errorf("delegate tool found in registry after removal; should not be registered; got %v", reg.Names())
 	}
 	if !foundFollowUp {
 		t.Errorf("follow_up tool not found in registry when sub_agent.enabled=true; got %v", reg.Names())

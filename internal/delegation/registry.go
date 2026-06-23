@@ -120,9 +120,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		UsageRecorder:        deps.UsageRecorder,
 	}
 
-	// Register the generic delegate tool.
-	handler := NewDelegateHandler(delegateDeps)
-	cloned.Register(DelegateToolDef(handler))
+	// Register the follow_up tool.
 	cloned.Register(FollowUpToolDef(NewFollowUpHandler(delegateDeps)))
 
 	// Conditionally expose web_search to the parent model.
