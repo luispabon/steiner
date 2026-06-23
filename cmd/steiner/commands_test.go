@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +14,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/muesli/termenv"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -25,11 +24,9 @@ import (
 )
 
 func TestVersionOutput_Styling(t *testing.T) {
-	oldRenderer := lipgloss.DefaultRenderer()
-	r := lipgloss.NewRenderer(io.Discard)
-	r.SetColorProfile(termenv.TrueColor)
-	lipgloss.SetDefaultRenderer(r)
-	t.Cleanup(func() { lipgloss.SetDefaultRenderer(oldRenderer) })
+	oldProfile := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	t.Cleanup(func() { lipgloss.Writer.Profile = oldProfile })
 
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
