@@ -157,8 +157,6 @@ func (b *contentBuffer) renderToolCallBox(content, tool string, width int) strin
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderStyle.GetForeground())
 
-	content = theme.WithBg(content, theme.BgElev)
-
 	boxWidth := width
 	if boxWidth < 1 {
 		boxWidth = 1

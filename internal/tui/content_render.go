@@ -151,14 +151,7 @@ func (b *contentBuffer) fillEmptyLines(s string, width int) string {
 	if width < 1 {
 		width = 1
 	}
-	var bgLine string
-	if b.fillEmptyLinesCacheWidth == width && b.fillEmptyLinesCacheBgLine != "" {
-		bgLine = b.fillEmptyLinesCacheBgLine
-	} else {
-		bgLine = lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
-		b.fillEmptyLinesCacheWidth = width
-		b.fillEmptyLinesCacheBgLine = bgLine
-	}
+	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		if line == "" {
@@ -197,19 +190,19 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentThinkingBlock:
-		return theme.WithBg(b.renderThinkingBlockSegment(segment, width), theme.BgElev)
+		return b.renderThinkingBlockSegment(segment, width)
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), theme.BgElev)
+		return b.renderCompactionBannerSegment(segment, width)
 	case segmentSeparator:
 		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
-		return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", theme.BgElev)
+		return b.styles.FgMute.Render("interrupted") + "\n\n"
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:
-		return theme.WithBg(b.renderStatusSegment(segment, width), theme.BgElev)
+		return b.renderStatusSegment(segment, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}

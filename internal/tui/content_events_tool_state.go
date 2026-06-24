@@ -202,11 +202,9 @@ func (b *contentBuffer) Clear() {
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
 	b.activeAdvisorSegment = 0
-	// Invalidate render caches.
+	// Invalidate render cache.
 	b.stringCacheWidth = 0
 	b.stringCacheRendered = ""
-	b.fillEmptyLinesCacheWidth = 0
-	b.fillEmptyLinesCacheBgLine = ""
 }
 
 func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {

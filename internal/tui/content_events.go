@@ -225,11 +225,9 @@ type contentBuffer struct {
 	skillNames              []string       // skill names for command prefix matching
 	maxDelegationBodyLines  int            // max lines for delegation body (transcript + prompt); 0 = uncapped
 
-	// Render caches for width-dependent styles.
-	fillEmptyLinesCacheWidth  int
-	fillEmptyLinesCacheBgLine string
-	stringCacheWidth          int
-	stringCacheRendered       string
+	// Render cache.
+	stringCacheWidth    int
+	stringCacheRendered string
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

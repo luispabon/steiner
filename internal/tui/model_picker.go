@@ -83,8 +83,7 @@ func (m modelPickerOverlay) View() string {
 		return ""
 	}
 
-	innerW := m.modelPickerInnerWidth()
-	return m.render(innerW, true)
+	return m.render(m.modelPickerInnerWidth())
 }
 
 func (m modelPickerOverlay) ViewAttached(maxWidth int) string {
@@ -92,10 +91,10 @@ func (m modelPickerOverlay) ViewAttached(maxWidth int) string {
 		return ""
 	}
 
-	return m.render(m.modelPickerAttachedInnerWidth(maxWidth), false)
+	return m.render(m.modelPickerAttachedInnerWidth(maxWidth))
 }
 
-func (m modelPickerOverlay) render(innerW int, withBg bool) string {
+func (m modelPickerOverlay) render(innerW int) string {
 	const selectionPrefix = "> "
 	const idlePrefix = "  "
 
@@ -156,11 +155,7 @@ func (m modelPickerOverlay) render(innerW int, withBg bool) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
-	if withBg {
-		return theme.WithBg(rendered, theme.BgElev)
-	}
-	return rendered
+	return m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
 }
 
 func (m modelPickerOverlay) modelPickerInnerWidth() int {

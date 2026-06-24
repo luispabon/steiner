@@ -104,5 +104,5 @@ func renderHelp(styles theme.Styles, width int) string {
 		Padding(1, 2).
 		Render(sb.String())
 
-	return theme.WithBg(panel, theme.BgElev)
+	return panel
 }

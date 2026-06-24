@@ -160,14 +160,14 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	rendered = strings.TrimRight(rendered, "\n")
 	rendered = strings.TrimLeft(rendered, "\n")
 
+	userBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.UserSoft))
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
 	for _, line := range strings.Split(rendered, "\n") {
 		if line == "" {
 			continue
 		}
-		wrapped := theme.WithBg(line, theme.UserSoft)
-		padded := theme.PadLines(wrapped, contentWidth, theme.UserSoft)
+		padded := userBgStyle.Width(contentWidth).Render(line)
 		sb.WriteString(bar + padded + "\n")
 	}
 	sb.WriteString(pad + "\n")
@@ -196,7 +196,7 @@ func (b *contentBuffer) renderUserTimestampLine(timestamp time.Time, width int) 
 	if label == "" {
 		return ""
 	}
-	return theme.WithBg(label, theme.BgElev)
+	return label
 }
 
 func formatContentTimestamp(timestamp time.Time) string {
@@ -273,7 +273,7 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.UserBg.Render(label + "> " + block)
 	}
-	return theme.WithBg(rendered, theme.BgElev)
+	return rendered
 }
 
 func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {

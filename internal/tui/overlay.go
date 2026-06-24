@@ -112,10 +112,10 @@ func (o OverlayShell) Render(box lipgloss.Style, body string) string {
 	return box.Width(o.overlayWidth()).Padding(1, 1).Render(body)
 }
 
-// RenderWithBg renders the overlay body with the given box style and wraps it
-// with the provided background color.
-func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) string {
-	return theme.WithBg(o.Render(box, body), bg)
+// RenderWithBg renders the overlay body with the given box style.
+// Background is applied by the box style itself.
+func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string) string {
+	return o.Render(box, body)
 }
 
 // PlaceBottomAnchored composites the overlay string over the base view string

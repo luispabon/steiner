@@ -112,7 +112,7 @@ func (f fileListOverlay) View() string {
 		footerDivider,
 		footer,
 	)
-	return f.RenderWithBg(f.styles.PaletteOverlay, body, theme.BgElev)
+	return f.RenderWithBg(f.styles.PaletteOverlay, body)
 }
 
 func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {

@@ -98,11 +98,10 @@ func (m accentPickerOverlay) View() string {
 	if !m.IsOpen() {
 		return ""
 	}
-	innerW := m.accentPickerInnerWidth()
-	return m.render(innerW, true)
+	return m.render(m.accentPickerInnerWidth())
 }
 
-func (m accentPickerOverlay) render(innerW int, withBg bool) string {
+func (m accentPickerOverlay) render(innerW int) string {
 	const selectionPrefix = "> "
 	const idlePrefix = "  "
 
@@ -156,11 +155,7 @@ func (m accentPickerOverlay) render(innerW int, withBg bool) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
-	if withBg {
-		return theme.WithBg(rendered, theme.BgElev)
-	}
-	return rendered
+	return m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
 }
 
 // renderSwatch returns a coloured block character for the preset, or a neutral

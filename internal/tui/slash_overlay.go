@@ -241,8 +241,7 @@ func (s slashOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
-	return theme.WithBg(rendered, theme.BgElev)
+	return s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
 }
 
 func truncateOverlayText(text string, width int) string {

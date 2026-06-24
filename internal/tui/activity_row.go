@@ -64,7 +64,7 @@ func (a activityState) view(width int, styles theme.Styles) string {
 	if text == "" {
 		text = " "
 	}
-	return theme.WithBg(styles.StatusBar.Width(width).Render(text), theme.BgElev)
+	return styles.StatusBar.Width(width).Render(text)
 }
 
 func (a activityState) advance() activityState {

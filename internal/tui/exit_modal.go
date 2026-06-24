@@ -80,7 +80,7 @@ func (m *Model) renderExitModal() string {
 		divider,
 		footer,
 	)
-	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
+	return s.RenderWithBg(m.styles.PaletteOverlay, content)
 }
 
 func (m *Model) renderExitModalButton(label string, selected bool) string {

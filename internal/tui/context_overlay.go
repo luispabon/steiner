@@ -141,5 +141,5 @@ func (m *Model) renderContextOverlay() string {
 		BorderForeground(lipgloss.Color(theme.BorderSoft)).
 		Padding(1, 2)
 
-	return s.RenderWithBg(boxStyle, full, theme.BgElev)
+	return s.RenderWithBg(boxStyle, full)
 }

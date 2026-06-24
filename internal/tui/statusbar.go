@@ -82,7 +82,7 @@ func (s statusState) view(width int) string {
 		}
 	}
 	if width > 0 {
-		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), theme.BgElev)
+		return s.styles.StatusBar.Width(width).Render(text)
 	}
-	return theme.WithBg(s.styles.StatusBar.Render(text), theme.BgElev)
+	return s.styles.StatusBar.Render(text)
 }
