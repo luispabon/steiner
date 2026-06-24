@@ -175,3 +175,43 @@ func HighlightMatch(text string, fg string) string {
 	}
 	return style.Render(text)
 }
+
+// TruncateAndPadVertical truncates s to maxHeight lines and pads to exactly
+// maxHeight lines with bg-colored empty lines. Avoids the full lipgloss
+// Wrap/align pipeline for already-correctly-sized content.
+func TruncateAndPadVertical(s string, width, maxHeight int, bg string) string {
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(bg))
+	padLine := bgStyle.Render(strings.Repeat(" ", width))
+
+	lines := 0
+	truncated := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines++
+			if lines >= maxHeight {
+				s = s[:i]
+				truncated = true
+				break
+			}
+		}
+	}
+
+	actualLines := lines + 1
+	if truncated {
+		actualLines = maxHeight
+	}
+
+	if actualLines >= maxHeight {
+		return s
+	}
+
+	pad := maxHeight - actualLines
+	var sb strings.Builder
+	sb.Grow(len(s) + pad*(len(padLine)+1))
+	sb.WriteString(s)
+	for range pad {
+		sb.WriteByte('\n')
+		sb.WriteString(padLine)
+	}
+	return sb.String()
+}

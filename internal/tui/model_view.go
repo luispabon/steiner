@@ -73,13 +73,8 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 		m.status.view(contentWidth),
 	)
 
-	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
-		Width(contentWidth).
-		Height(m.height).
-		MaxHeight(m.height).
-		Render(mainColumn)
+	mainColumn := strings.Join(mainComponents, "\n")
+	return theme.TruncateAndPadVertical(mainColumn, contentWidth, m.height, theme.BgElev)
 }
 
 func (m Model) renderViewportView(contentWidth int) string {
