@@ -168,6 +168,8 @@ type Model struct {
 	hDividerCacheRendered  string
 	scrollbarCacheKey      scrollbarCacheKey
 	scrollbarCacheRendered string
+	padLineCacheWidth      int
+	padLineCacheRendered   string
 }
 
 type scrollbarCacheKey struct {

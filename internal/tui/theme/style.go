@@ -46,31 +46,89 @@ func bgEscape(bg string) string {
 // each logical line. Idempotent for the same bg.
 func WithBg(s string, bg string) string {
 	bgSeq := bgEscape(bg)
-	longResetBg := ansiResetLong + bgSeq
-	shortResetBg := ansiResetShort + bgSeq
-	bgReset := ansiBgReset + bgSeq
+	if bgSeq == "" {
+		return s
+	}
 
 	trailingNewlines := len(s) - len(strings.TrimRight(s, "\n"))
-	if trailingNewlines > 0 {
-		s = strings.TrimRight(s, "\n")
+	body := s[:len(s)-trailingNewlines]
+
+	var sb strings.Builder
+	sb.Grow(len(body) + len(bgSeq)*(strings.Count(body, "\n")+1)*3)
+
+	atLineStart := true
+	lineHasBytes := false
+
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+
+		if c == '\n' {
+			if !lineHasBytes {
+				sb.WriteString(bgSeq)
+				sb.WriteByte(' ')
+				sb.WriteString(ansiResetLong)
+			}
+			sb.WriteByte('\n')
+			atLineStart = true
+			lineHasBytes = false
+			continue
+		}
+
+		if atLineStart {
+			sb.WriteString(bgSeq)
+			atLineStart = false
+		}
+
+		// Check for ANSI escape sequences we replace.
+		if c == '\x1b' && i+1 < len(body) && body[i+1] == '[' {
+			// \x1b[49m (5 bytes) — ansiBgReset
+			if i+4 < len(body) && body[i+2] == '4' && body[i+3] == '9' && body[i+4] == 'm' {
+				sb.WriteString(ansiBgReset)
+				sb.WriteString(bgSeq)
+				i += 4
+				lineHasBytes = true
+				continue
+			}
+			// \x1b[0m (4 bytes) — ansiResetLong
+			if i+3 < len(body) && body[i+2] == '0' && body[i+3] == 'm' {
+				sb.WriteString(ansiResetLong)
+				sb.WriteString(bgSeq)
+				i += 3
+				lineHasBytes = true
+				continue
+			}
+			// \x1b[m (3 bytes) — ansiResetShort
+			if i+2 < len(body) && body[i+2] == 'm' {
+				sb.WriteString(ansiResetShort)
+				sb.WriteString(bgSeq)
+				i += 2
+				lineHasBytes = true
+				continue
+			}
+		}
+
+		sb.WriteByte(c)
+		lineHasBytes = true
 	}
 
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		line = strings.ReplaceAll(line, ansiResetLong, longResetBg)
-		line = strings.ReplaceAll(line, ansiResetShort, shortResetBg)
-		line = strings.ReplaceAll(line, ansiBgReset, bgReset)
-		if line == "" {
-			lines[i] = bgSeq + " " + ansiResetLong
-		} else {
-			lines[i] = bgSeq + line
+	// Flush the last line if body is non-empty (no trailing \n in body).
+	if len(body) > 0 {
+		if atLineStart {
+			// body ended immediately after a \n — edge case
+			sb.WriteString(bgSeq)
+			sb.WriteByte(' ')
+			sb.WriteString(ansiResetLong)
+		} else if !lineHasBytes {
+			// atLineStart is false but lineHasBytes is false: only bgSeq was written
+			sb.WriteByte(' ')
+			sb.WriteString(ansiResetLong)
 		}
 	}
-	result := strings.Join(lines, "\n")
+
 	if trailingNewlines > 0 {
-		result += strings.Repeat("\n", trailingNewlines)
+		sb.WriteString(strings.Repeat("\n", trailingNewlines))
 	}
-	return result
+	return sb.String()
 }
 
 // PadLines pads every line in s to the given width by appending spaces
@@ -81,15 +139,26 @@ func PadLines(s string, width int, bg string) string {
 		return s
 	}
 	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(bg))
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		w := lipgloss.Width(line)
-		if w < width {
-			pad := bgStyle.Render(strings.Repeat(" ", width-w))
-			lines[i] = line + pad
+
+	var sb strings.Builder
+	sb.Grow(len(s) + width)
+
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == '\n' {
+			line := s[start:i]
+			w := lipgloss.Width(line)
+			sb.WriteString(line)
+			if w < width {
+				sb.WriteString(bgStyle.Render(strings.Repeat(" ", width-w)))
+			}
+			if i < len(s) {
+				sb.WriteByte('\n')
+			}
+			start = i + 1
 		}
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 // HighlightMatch wraps text in explicit ANSI emphasis so matched glyphs stay
