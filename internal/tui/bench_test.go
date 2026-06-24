@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -104,6 +106,90 @@ func BenchmarkKeystroke(b *testing.B) {
 	}
 }
 
+// BenchmarkViewHeavy measures m.View() with ~100 segments.
+func BenchmarkViewHeavy(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModelHeavy(&m)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchViewSink = m.View().Content
+	}
+}
+
+// BenchmarkSyncViewportHeavy measures m.syncViewport() with ~100 segments.
+func BenchmarkSyncViewportHeavy(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModelHeavy(&m)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.syncViewport()
+	}
+}
+
+// BenchmarkContentStringHeavy measures dirty String() path with ~100 segments.
+func BenchmarkContentStringHeavy(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModelHeavy(&m)
+
+	m.content.streaming = true
+	m.content.streamBuffer = "pending stream text"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchStringSink = m.content.String(m.viewport.Width())
+	}
+}
+
+// BenchmarkScrollDownHeavy measures scrollDown(3) then View() with ~100 segments.
+func BenchmarkScrollDownHeavy(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModelHeavy(&m)
+
+	m.syncViewport()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.scrollDown(3)
+		benchViewSink = m.View().Content
+	}
+}
+
+// BenchmarkScrollFrame measures scrollDown(3) then View() on warmed caches.
+func BenchmarkScrollFrame(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	populateBenchModelHeavy(&m)
+
+	m.syncViewport()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.scrollDown(3)
+		benchViewSink = m.View().Content
+	}
+}
+
 // updateModelDirect calls Model.Update without test infrastructure.
 func updateModelDirect(m Model, msg tea.Msg) Model {
 	next, _ := m.Update(msg)
@@ -144,5 +230,73 @@ func populateBenchModel(m *Model) {
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "The user asked for optimization suggestions. I identified three key areas and proposed solutions.", output.ChunkSourceAssistant)})
 
 	// Context token budget
+	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 4096, 2, 70, 32, 600, "ok", false)})
+}
+
+// populateBenchModelHeavy populates a Model with ~100 segments of mixed types:
+// 30 assistant markdown chunks, 20 tool calls, 10 user messages, 5 thinking blocks,
+// 5 delegations, and 5 tool call groups (2-3 calls each).
+func populateBenchModelHeavy(m *Model) {
+	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
+
+	// 30 assistant markdown chunks with varying lengths
+	chunkSizes := []int{100, 200, 150, 300, 250, 180, 220, 280, 320, 160,
+		190, 240, 270, 210, 140, 290, 260, 170, 230, 310,
+		120, 195, 265, 285, 155, 275, 235, 305, 125, 245}
+	for i, size := range chunkSizes {
+		content := strings.Repeat("x", size) + " "
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, content, output.ChunkSourceAssistant)})
+		if i%5 == 0 {
+			*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "\n\n", output.ChunkSourceAssistant)})
+		}
+	}
+
+	// 20 tool calls (mix of read, bash, mutate)
+	toolNames := []string{"read", "bash", "mutate", "read", "bash",
+		"mutate", "read", "bash", "mutate", "read",
+		"bash", "mutate", "read", "bash", "mutate",
+		"read", "bash", "mutate", "read", "bash"}
+	for i, toolName := range toolNames {
+		callID := fmt.Sprintf("call_heavy_%d", i)
+		outputSize := 500 + (i%4)*500
+		toolOutput := strings.Repeat("y", outputSize)
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, toolName, callID, map[string]any{"arg": "value"})})
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, toolName, callID, toolOutput, nil)})
+	}
+
+	// 10 user messages
+	for i := 0; i < 10; i++ {
+		msg := "User message " + strings.Repeat("z", 100+i*10)
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewUserInputEvent(msg, "interactive")})
+	}
+
+	// 5 thinking blocks
+	for i := 0; i < 5; i++ {
+		thought := "Thinking about problem " + strings.Repeat("t", 200+i*50)
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, thought, output.ChunkSourceAssistant)})
+	}
+
+	// 5 delegations (started + completed pairs)
+	for i := 0; i < 5; i++ {
+		agentID := fmt.Sprintf("agent_heavy_%d", i)
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(agentID, "task preview "+fmt.Sprintf("%d", i))})
+		delegOutput := strings.Repeat("d", 300+i*100)
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(agentID, "complete", 3+i, 500+i*100, 2+i, delegOutput)})
+	}
+
+	// 5 tool call groups (2-3 calls each)
+	callIdx := len(toolNames)
+	for grp := 0; grp < 5; grp++ {
+		callsInGroup := 2 + grp%2
+		for j := 0; j < callsInGroup; j++ {
+			callID := fmt.Sprintf("call_heavy_%d", callIdx)
+			callIdx++
+			outputSize := 400 + (grp%3)*600
+			toolOutput := strings.Repeat("g", outputSize)
+			*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", callID, map[string]any{"file": "test.go"})})
+			*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "read", callID, toolOutput, nil)})
+		}
+	}
+
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 4096, 2, 70, 32, 600, "ok", false)})
 }
