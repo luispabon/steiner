@@ -176,13 +176,51 @@ func HighlightMatch(text string, fg string) string {
 	return style.Render(text)
 }
 
+// ApplyPanePadding applies ContentPane or ContentPaneWithScrollbar padding to
+// content using string operations, bypassing the lipgloss Wrap/align pipeline.
+// ContentPane adds PaddingTop(1), PaddingLeft(3), PaddingRight(3).
+// ContentPaneWithScrollbar adds PaddingLeft(3), PaddingRight(2) (no top pad —
+// renderViewportWithScrollbar already prepends a leading '\n').
+func ApplyPanePadding(content string, contentWidth int, hasScrollbar bool, bg string) string {
+	padLeft := 3
+	padRight := 3
+	padTop := 1
+	if hasScrollbar {
+		padRight = 2
+		padTop = 0
+	}
+
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(bg))
+	leftPad := bgStyle.Render(strings.Repeat(" ", padLeft))
+	rightPad := bgStyle.Render(strings.Repeat(" ", padRight))
+
+	var sb strings.Builder
+	sb.Grow(len(content) + (padLeft+padRight+2)*strings.Count(content, "\n") + contentWidth*(padTop+1))
+
+	if padTop > 0 {
+		sb.WriteString(bgStyle.Render(strings.Repeat(" ", contentWidth)))
+		sb.WriteByte('\n')
+	}
+
+	start := 0
+	for i := 0; i <= len(content); i++ {
+		if i == len(content) || content[i] == '\n' {
+			sb.WriteString(leftPad)
+			sb.WriteString(content[start:i])
+			sb.WriteString(rightPad)
+			if i < len(content) {
+				sb.WriteByte('\n')
+			}
+			start = i + 1
+		}
+	}
+	return sb.String()
+}
+
 // TruncateAndPadVertical truncates s to maxHeight lines and pads to exactly
 // maxHeight lines with bg-colored empty lines. Avoids the full lipgloss
 // Wrap/align pipeline for already-correctly-sized content.
 func TruncateAndPadVertical(s string, width, maxHeight int, bg string) string {
-	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(bg))
-	padLine := bgStyle.Render(strings.Repeat(" ", width))
-
 	lines := 0
 	truncated := false
 	for i := 0; i < len(s); i++ {
@@ -205,6 +243,8 @@ func TruncateAndPadVertical(s string, width, maxHeight int, bg string) string {
 		return s
 	}
 
+	// Only allocate the pad line when we actually need to pad.
+	padLine := lipgloss.NewStyle().Background(lipgloss.Color(bg)).Render(strings.Repeat(" ", width))
 	pad := maxHeight - actualLines
 	var sb strings.Builder
 	sb.Grow(len(s) + pad*(len(padLine)+1))

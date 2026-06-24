@@ -91,14 +91,11 @@ func (m *Model) renderViewportView(contentWidth int) string {
 
 	viewportInner := m.viewport.View()
 	viewportContent := viewportInner
-	paneStyle := m.styles.ContentPane
-
 	if hasScrollbar {
 		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
-		paneStyle = m.styles.ContentPaneWithScrollbar
 	}
 
-	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
+	viewportView := theme.ApplyPanePadding(viewportContent, contentWidth, hasScrollbar, theme.BgElev)
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
 		return composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
