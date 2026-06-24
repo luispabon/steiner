@@ -195,7 +195,18 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 	}
 }
 
+func (m Model) hasOpenBottomOverlay() bool {
+	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
+		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
+		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
+		m.planPicker.IsOpen() || m.accentPicker.IsOpen()
+}
+
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
+	if !m.hasOpenBottomOverlay() {
+		return base
+	}
+
 	offset := m.bottomChromeHeight(contentWidth)
 
 	// When the sidebar occupies the left side, push the slash overlay right so
