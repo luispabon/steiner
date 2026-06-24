@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -365,10 +364,8 @@ func (b *contentBuffer) wrapStyledDelegationLines(text string, width int, style 
 			lines = append(lines, style.Render(""))
 			continue
 		}
-		wrapped := ansi.Hardwrap(ansi.Wordwrap(part, width, ""), width, true)
-		for _, line := range strings.Split(wrapped, "\n") {
-			lines = append(lines, style.Render(line))
-		}
+		wrapped := style.Width(width).Render(part)
+		lines = append(lines, strings.Split(strings.TrimRight(wrapped, "\n"), "\n")...)
 	}
 	return lines
 }

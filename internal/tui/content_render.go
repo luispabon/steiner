@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -221,8 +220,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if b.tickCount%2 == 0 {
 		cursor = "█"
 	}
-	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
-	return b.styles.AssistantProse.Render(wrapped) + "\n"
+	return b.styles.AssistantProse.Width(max(1, width)).Render(preview+cursor) + "\n"
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {
