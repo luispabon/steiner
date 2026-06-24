@@ -163,8 +163,8 @@ type Model struct {
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
 
-	viewportLines       []string
-	viewportContentLen  int
+	viewportLines      []string
+	viewportContentLen int
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
