@@ -109,14 +109,53 @@ func (m Model) renderViewportView(contentWidth int) string {
 }
 
 func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
-	vpLines := strings.Split(viewportInner, "\n")
-	scLines := strings.Split(scrollbar, "\n")
-	merged := make([]string, 0, len(vpLines)+1)
-	merged = append(merged, "")
-	for i := 0; i < len(vpLines) && i < len(scLines); i++ {
-		merged = append(merged, vpLines[i]+scLines[i])
+	var b strings.Builder
+	b.Grow(len(viewportInner) + len(scrollbar) + 64)
+
+	b.WriteByte('\n') // leading empty line (top offset)
+
+	// Walk both strings line by line simultaneously, without intermediate slice
+	// allocations. strings.Split always yields at least one element, so the
+	// "done" condition is tracked via a boolean rather than byte-index exhaustion.
+	vpIdx, scIdx := 0, 0
+	vpLen, scLen := len(viewportInner), len(scrollbar)
+	vpDone, scDone := false, false
+	first := true
+	for !vpDone && !scDone {
+		// Consume one viewport line (strings.Split semantics: last segment after
+		// final '\n' is an empty string, not absent).
+		var vpLine string
+		vpLineEnd := strings.IndexByte(viewportInner[vpIdx:], '\n')
+		if vpLineEnd < 0 {
+			vpLine = viewportInner[vpIdx:]
+			vpIdx = vpLen
+			vpDone = true
+		} else {
+			vpLine = viewportInner[vpIdx : vpIdx+vpLineEnd]
+			vpIdx += vpLineEnd + 1
+		}
+
+		// Consume one scrollbar line.
+		var scLine string
+		scLineEnd := strings.IndexByte(scrollbar[scIdx:], '\n')
+		if scLineEnd < 0 {
+			scLine = scrollbar[scIdx:]
+			scIdx = scLen
+			scDone = true
+		} else {
+			scLine = scrollbar[scIdx : scIdx+scLineEnd]
+			scIdx += scLineEnd + 1
+		}
+
+		if !first {
+			b.WriteByte('\n')
+		}
+		first = false
+		b.WriteString(vpLine)
+		b.WriteString(scLine)
 	}
-	return strings.Join(merged, "\n")
+
+	return b.String()
 }
 
 func (m Model) renderOverlayView(base string, contentWidth int) string {
