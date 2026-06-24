@@ -115,6 +115,21 @@ type Styles struct {
 	PaletteItem       lipgloss.Style
 	PaletteItemActive lipgloss.Style
 
+	// VDivider is the base style for the vertical divider between main column and sidebar.
+	// Height must be applied per-frame: styles.VDivider.Height(h).Render("").
+	VDivider lipgloss.Style
+
+	// ContentPane variant used when the scrollbar is visible.
+	ContentPaneWithScrollbar lipgloss.Style
+
+	// CommandPrefixStyle highlights the command prefix in the input area.
+	// Rebuilt on accent change.
+	CommandPrefixStyle lipgloss.Style
+
+	// ImageMarkerStyle renders image marker tokens in input lines.
+	// Rebuilt on accent change.
+	ImageMarkerStyle lipgloss.Style
+
 	// Scrollbar
 	Scrollbar      lipgloss.Style
 	ScrollbarTrack lipgloss.Style
@@ -222,6 +237,25 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		StatusTag: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)).Bold(true),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
+
+		VDivider: lipgloss.NewStyle().
+			Background(lipgloss.Color(BorderSoft)).
+			Width(1),
+
+		ContentPaneWithScrollbar: lipgloss.NewStyle().
+			Background(lipgloss.Color(BgElev)).
+			PaddingLeft(3).
+			PaddingRight(2),
+
+		CommandPrefixStyle: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(accentHex)).
+			Background(lipgloss.Color(UserSoft)),
+
+		ImageMarkerStyle: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(accentHex)).
+			Background(lipgloss.Color(UserSoft)),
 
 		Scrollbar: lipgloss.NewStyle().
 			Background(lipgloss.Color(BgElev)).

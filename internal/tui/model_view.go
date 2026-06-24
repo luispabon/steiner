@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -45,11 +44,7 @@ func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 		return mainColumn
 	}
 
-	vDivider := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BorderSoft)).
-		Width(1).
-		Height(m.height).
-		Render("")
+	vDivider := m.styles.VDivider.Height(m.height).Render("")
 	if m.sidebarPosition == "right" {
 		return lipgloss.JoinHorizontal(lipgloss.Top, mainColumn, vDivider, m.sidebar.View(m.width, m.height))
 	}
@@ -94,10 +89,7 @@ func (m Model) renderViewportView(contentWidth int) string {
 
 	if scrollbar != "" {
 		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
-		paneStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.BgElev)).
-			PaddingLeft(3).
-			PaddingRight(2)
+		paneStyle = m.styles.ContentPaneWithScrollbar
 	}
 
 	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
@@ -294,11 +286,7 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 				if strings.HasPrefix(lineNoCursor, cmdPrefix) {
 					cursorIdx := strings.Index(line, cursorStr)
 					if cursorIdx < 0 || cursorIdx >= len(cmdPrefix) {
-						prefixStyle := lipgloss.NewStyle().
-							Bold(true).
-							Foreground(m.styles.AccentColor).
-							Background(m.styles.UserBg.GetBackground())
-						prefix := prefixStyle.Render(cmdPrefix)
+						prefix := m.styles.CommandPrefixStyle.Render(cmdPrefix)
 
 						restText := line[len(cmdPrefix):]
 						restVisibleWidth := ansi.StringWidth(restText)
@@ -315,7 +303,7 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 		}
 
 		if renderedLine == line {
-			renderedLine = renderInputLine(line, innerWidth, m.styles.AccentColor, m.styles.UserBg.GetBackground())
+			renderedLine = renderInputLine(line, innerWidth, m.styles.ImageMarkerStyle)
 		}
 		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
@@ -464,18 +452,14 @@ func insertComposerCursorAnsi(s string, pos int) string {
 	return result.String()
 }
 
-func styleImageMarkers(line string, accentColor color.Color, bgColor color.Color) string {
-	markerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(accentColor).
-		Background(bgColor)
+func styleImageMarkers(line string, markerStyle lipgloss.Style) string {
 	return imageMarkerPattern.ReplaceAllStringFunc(line, func(match string) string {
 		return markerStyle.Render(match)
 	})
 }
 
-func renderInputLine(line string, width int, accentColor color.Color, bgColor color.Color) string {
-	if styled := styleImageMarkers(line, accentColor, bgColor); styled != line {
+func renderInputLine(line string, width int, markerStyle lipgloss.Style) string {
+	if styled := styleImageMarkers(line, markerStyle); styled != line {
 		return styled
 	}
 	return lipgloss.NewStyle().Width(width).Render(line)
