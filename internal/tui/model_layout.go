@@ -62,6 +62,7 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 }
 
 func (m *Model) syncViewport() {
+	m.vpViewCache = ""
 	rendered := m.content.String(m.viewport.Width())
 	if m.showContextDiagnostics {
 		if header := m.renderContextInfoLine(m.viewport.Width()); header != "" {

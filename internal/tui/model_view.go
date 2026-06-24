@@ -77,13 +77,23 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 	return theme.TruncateAndPadVertical(mainColumn, contentWidth, m.height, theme.BgElev)
 }
 
-func (m Model) renderViewportView(contentWidth int) string {
-	viewportInner := m.viewport.View()
+func (m *Model) renderViewportView(contentWidth int) string {
+	scrollY := m.viewport.YOffset()
 	scrollbar := m.renderScrollbar()
+	hasScrollbar := scrollbar != ""
+
+	if m.vpViewCache != "" &&
+		m.vpViewCacheScrollY == scrollY &&
+		m.vpViewCacheWidth == contentWidth &&
+		m.vpViewCacheHasScrollbar == hasScrollbar {
+		return m.vpViewCache
+	}
+
+	viewportInner := m.viewport.View()
 	viewportContent := viewportInner
 	paneStyle := m.styles.ContentPane
 
-	if scrollbar != "" {
+	if hasScrollbar {
 		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
 		paneStyle = m.styles.ContentPaneWithScrollbar
 	}
@@ -93,6 +103,11 @@ func (m Model) renderViewportView(contentWidth int) string {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
 		return composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
 	}
+
+	m.vpViewCache = viewportView
+	m.vpViewCacheScrollY = scrollY
+	m.vpViewCacheWidth = contentWidth
+	m.vpViewCacheHasScrollbar = hasScrollbar
 	return viewportView
 }
 

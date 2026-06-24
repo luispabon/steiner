@@ -164,15 +164,19 @@ type Model struct {
 	notifier                     notifier
 
 	// Render caches for width/height-dependent styles.
-	hDividerCacheWidth     int
-	hDividerCacheRendered  string
-	scrollbarCacheKey      scrollbarCacheKey
-	scrollbarCacheRendered string
-	padLineCacheWidth      int
-	padLineCacheRendered   string
-	fmtBgCacheInput        string
-	fmtBgCacheWidth        int
-	fmtBgCacheOutput       string
+	hDividerCacheWidth      int
+	hDividerCacheRendered   string
+	scrollbarCacheKey       scrollbarCacheKey
+	scrollbarCacheRendered  string
+	padLineCacheWidth       int
+	padLineCacheRendered    string
+	fmtBgCacheInput         string
+	fmtBgCacheWidth         int
+	fmtBgCacheOutput        string
+	vpViewCache             string
+	vpViewCacheScrollY      int
+	vpViewCacheWidth        int
+	vpViewCacheHasScrollbar bool
 }
 
 type scrollbarCacheKey struct {
