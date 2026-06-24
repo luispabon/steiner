@@ -89,7 +89,7 @@ func (m *Model) renderViewportView(contentWidth int) string {
 		return m.vpViewCache
 	}
 
-	viewportInner := m.viewport.View()
+	viewportInner := m.visibleViewportContent()
 	viewportContent := viewportInner
 	if hasScrollbar {
 		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
@@ -106,6 +106,25 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	m.vpViewCacheWidth = contentWidth
 	m.vpViewCacheHasScrollbar = hasScrollbar
 	return viewportView
+}
+
+func (m *Model) visibleViewportContent() string {
+	if len(m.viewport.GetContent()) != m.viewportContentLen {
+		return m.viewport.View()
+	}
+	start := m.viewport.YOffset()
+	height := m.viewport.Height()
+	if start < 0 {
+		start = 0
+	}
+	end := start + height
+	if end > len(m.viewportLines) {
+		end = len(m.viewportLines)
+	}
+	if start >= end {
+		return ""
+	}
+	return strings.Join(m.viewportLines[start:end], "\n")
 }
 
 func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
