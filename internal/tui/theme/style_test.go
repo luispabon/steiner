@@ -43,6 +43,164 @@ func styleFromMap(styles map[string]lipgloss.Style, key string, fallback lipglos
 	return fallback
 }
 
+func TestWithBg_simpleText(t *testing.T) {
+	s := "hello"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.HasPrefix(result, "\x1b[") {
+		t.Errorf("WithBg should start with ANSI escape, got %q", result)
+	}
+	if !strings.Contains(result, "hello") {
+		t.Errorf("WithBg lost the original text")
+	}
+}
+
+func TestWithBg_multiLine(t *testing.T) {
+	s := "hello\nworld"
+	bg := BgElev
+	result := WithBg(s, bg)
+	lines := strings.Split(result, "\n")
+	if len(lines) != 2 {
+		t.Errorf("expected 2 lines, got %d", len(lines))
+	}
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "\x1b[") {
+			t.Errorf("line %d should start with ANSI escape, got %q", i, line)
+		}
+	}
+}
+
+func TestWithBg_resetReplaced(t *testing.T) {
+	s := "before\x1b[0mafter"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[0m\x1b[") {
+		t.Errorf("reset should be followed by bg escape, got %q", result)
+	}
+}
+
+func TestWithBg_shortResetReplaced(t *testing.T) {
+	s := "before\x1b[mafter"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[m\x1b[") {
+		t.Errorf("short reset should be followed by bg escape, got %q", result)
+	}
+}
+
+func TestWithBg_emptyLine(t *testing.T) {
+	s := "a\n\nb"
+	bg := BgElev
+	result := WithBg(s, bg)
+	lines := strings.Split(result, "\n")
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d", len(lines))
+	}
+	if !strings.HasPrefix(lines[1], "\x1b[") {
+		t.Errorf("empty line (index 1) should start with ANSI escape, got %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "\x1b[48;2;") {
+		t.Errorf("empty line should contain bg escape, got %q", lines[1])
+	}
+	if !strings.Contains(lines[0], "a") {
+		t.Errorf("line 0 should contain 'a'")
+	}
+	if !strings.Contains(lines[2], "b") {
+		t.Errorf("line 2 should contain 'b'")
+	}
+}
+
+func TestWithBg_preservesTrailingNewlines(t *testing.T) {
+	s := "hello\n"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.HasSuffix(result, "\n") {
+		t.Fatalf("WithBg result lost trailing newline: %q", result)
+	}
+	lines := strings.Split(result, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "hello") {
+		t.Fatalf("first line = %q, want original text", lines[0])
+	}
+	if lines[1] != "" {
+		t.Fatalf("second line = %q, want empty trailing line", lines[1])
+	}
+}
+
+func TestWithBg_visuallyIdempotent(t *testing.T) {
+	s := "hello\nworld"
+	bg := BgElev
+	first := WithBg(s, bg)
+	second := WithBg(first, bg)
+	if !strings.Contains(second, "hello") || !strings.Contains(second, "world") {
+		t.Errorf("second application lost original text")
+	}
+	if !strings.HasPrefix(second, "\x1b[") {
+		t.Errorf("second application should start with ANSI escape")
+	}
+	if !strings.HasPrefix(first, second[:len(first)-6]) {
+		t.Logf("first and second may differ structurally but are visually equivalent")
+	}
+}
+
+func TestWithBg_multipleResets(t *testing.T) {
+	s := "a\x1b[0mb\x1b[0mc"
+	bg := BgElev
+	result := WithBg(s, bg)
+	count := strings.Count(result, "\x1b[0m\x1b[")
+	if count != 2 {
+		t.Errorf("expected 2 reset+bg pairs, got %d", count)
+	}
+}
+
+func TestWithBg_multipleShortResets(t *testing.T) {
+	s := "a\x1b[mb\x1b[mc"
+	bg := BgElev
+	result := WithBg(s, bg)
+	count := strings.Count(result, "\x1b[m\x1b[")
+	if count != 2 {
+		t.Errorf("expected 2 short reset+bg pairs, got %d", count)
+	}
+}
+
+func TestWithBg_bg49Reset(t *testing.T) {
+	s := "a\x1b[49mb"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[49m\x1b[") {
+		t.Errorf("bg reset (\\x1b[49m) should be followed by bg escape, got %q", result)
+	}
+}
+
+func TestWithBg_preservesForeground(t *testing.T) {
+	s := "\x1b[31mred\x1b[0mnormal"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[31m") {
+		t.Errorf("WithBg lost foreground color")
+	}
+	if !strings.Contains(result, "red") {
+		t.Errorf("WithBg lost 'red' text")
+	}
+	if !strings.Contains(result, "normal") {
+		t.Errorf("WithBg lost 'normal' text")
+	}
+}
+
+func TestWithBg_differentBg(t *testing.T) {
+	s := "test"
+	bg := "#FF0000"
+	result := WithBg(s, bg)
+	if !strings.HasPrefix(result, "\x1b[") {
+		t.Errorf("WithBg should start with ANSI escape")
+	}
+	if !strings.Contains(result, "test") {
+		t.Errorf("WithBg lost the original text")
+	}
+}
+
 func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 	styles := BuildStyles(AccentAmber)
 

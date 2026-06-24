@@ -160,14 +160,14 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 	rendered = strings.TrimRight(rendered, "\n")
 	rendered = strings.TrimLeft(rendered, "\n")
 
-	userBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.UserSoft))
 	var sb strings.Builder
 	sb.WriteString(pad + "\n")
 	for _, line := range strings.Split(rendered, "\n") {
 		if line == "" {
 			continue
 		}
-		padded := userBgStyle.Width(contentWidth).Render(line)
+		wrapped := theme.WithBg(line, theme.UserSoft)
+		padded := theme.PadLines(wrapped, contentWidth, theme.UserSoft)
 		sb.WriteString(bar + padded + "\n")
 	}
 	sb.WriteString(pad + "\n")
