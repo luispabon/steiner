@@ -69,6 +69,23 @@ func (m *Model) syncViewport() {
 		}
 	}
 
+	// WithBg re-inserts the background escape after every ANSI reset in rendered
+	// content. This is necessary because terminals with transparency enabled
+	// composite ANSI resets (\x1b[0m) with their transparency setting, producing
+	// transparent gaps whenever nested lipgloss/glamour renders emit a reset.
+	// lipgloss Background() on a container does NOT fix this — it only fills
+	// padding/border cells. WithBg + PadLines ensures every cell in the viewport
+	// has an explicit SGR 48 background, making content fully opaque.
+	// The cache avoids re-running the O(n) byte scan on scroll-only updates where
+	// content hasn't changed (m.content.String returns the same string value).
+	if rendered != m.fmtBgCacheInput || m.viewport.Width() != m.fmtBgCacheWidth {
+		m.fmtBgCacheInput = rendered
+		m.fmtBgCacheWidth = m.viewport.Width()
+		formatted := theme.WithBg(rendered, theme.BgElev)
+		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
+	}
+	rendered = m.fmtBgCacheOutput
+
 	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height() - contentLines
 	if pad < 0 {

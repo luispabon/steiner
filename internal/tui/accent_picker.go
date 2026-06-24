@@ -155,7 +155,10 @@ func (m accentPickerOverlay) render(innerW int) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
 // renderSwatch returns a coloured block character for the preset, or a neutral

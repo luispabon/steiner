@@ -44,6 +44,8 @@ func bgEscape(bg string) string {
 // WithBg ensures every line in s has its background set to bg.
 // It re-applies the background after ANSI reset sequences and at the start of
 // each logical line. Idempotent for the same bg.
+//
+//nolint:gocyclo // byte-scanner: complexity is structural, not accidental
 func WithBg(s string, bg string) string {
 	bgSeq := bgEscape(bg)
 	if bgSeq == "" {

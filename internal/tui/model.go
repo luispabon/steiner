@@ -170,6 +170,9 @@ type Model struct {
 	scrollbarCacheRendered string
 	padLineCacheWidth      int
 	padLineCacheRendered   string
+	fmtBgCacheInput        string
+	fmtBgCacheWidth        int
+	fmtBgCacheOutput       string
 }
 
 type scrollbarCacheKey struct {

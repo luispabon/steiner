@@ -104,5 +104,7 @@ func renderHelp(styles theme.Styles, width int) string {
 		Padding(1, 2).
 		Render(sb.String())
 
-	return panel
+	// WithBg is required: glamour/lipgloss resets inside the panel body would
+	// clear cell backgrounds in transparent terminals without it.
+	return theme.WithBg(panel, theme.BgElev)
 }

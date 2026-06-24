@@ -81,8 +81,10 @@ func (s statusState) view(width int) string {
 			}
 		}
 	}
+	// WithBg is required: lipgloss resets inside the status bar content would
+	// clear cell backgrounds in transparent terminals without it.
 	if width > 0 {
-		return s.styles.StatusBar.Width(width).Render(text)
+		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), theme.BgElev)
 	}
-	return s.styles.StatusBar.Render(text)
+	return theme.WithBg(s.styles.StatusBar.Render(text), theme.BgElev)
 }

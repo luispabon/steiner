@@ -104,7 +104,7 @@ func (o oneshotResumePickerOverlay) View() string {
 	lines = append(lines, o.Divider(), o.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return o.RenderWithBg(o.styles.PaletteOverlay, body)
+	return o.RenderWithBg(o.styles.PaletteOverlay, body, theme.BgElev)
 }
 
 //nolint:dupl // same row-layout algorithm as sessionPickerOverlay.formatSessionRow; types differ

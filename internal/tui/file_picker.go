@@ -174,7 +174,10 @@ func (f filePickerOverlay) View() string {
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	rendered := f.styles.PaletteOverlay.Width(innerWidth+4).Padding(1, 1).Render(body)
-	return rendered
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(rendered, theme.BgElev)
 }
 
 func (f filePickerOverlay) filePickerInnerWidth() int {

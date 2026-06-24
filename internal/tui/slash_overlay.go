@@ -241,7 +241,10 @@ func (s slashOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the overlay box style Background()
+	// does not re-apply after resets inside the body.
+	return theme.WithBg(s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
 func truncateOverlayText(text string, width int) string {

@@ -64,7 +64,9 @@ func (a activityState) view(width int, styles theme.Styles) string {
 	if text == "" {
 		text = " "
 	}
-	return styles.StatusBar.Width(width).Render(text)
+	// WithBg is required: lipgloss resets inside spinner/label renders would
+	// clear cell backgrounds in transparent terminals without it.
+	return theme.WithBg(styles.StatusBar.Width(width).Render(text), theme.BgElev)
 }
 
 func (a activityState) advance() activityState {

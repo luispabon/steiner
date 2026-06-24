@@ -112,10 +112,13 @@ func (o OverlayShell) Render(box lipgloss.Style, body string) string {
 	return box.Width(o.overlayWidth()).Padding(1, 1).Render(body)
 }
 
-// RenderWithBg renders the overlay body with the given box style.
-// Background is applied by the box style itself.
-func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string) string {
-	return o.Render(box, body)
+// RenderWithBg renders the overlay body with the given box style and wraps the
+// result in WithBg(bg). The bg pass is required because nested lipgloss renders
+// emit ANSI resets that clear cell backgrounds in transparent terminals; the box
+// style's Background() only fills padding/border cells and does not re-apply
+// after resets inside the body.
+func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) string {
+	return theme.WithBg(o.Render(box, body), bg)
 }
 
 // PlaceBottomAnchored composites the overlay string over the base view string

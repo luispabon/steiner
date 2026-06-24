@@ -122,7 +122,10 @@ func (m planPickerOverlay) View() string {
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
-	return rendered
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(rendered, theme.BgElev)
 }
 
 func (m planPickerOverlay) planPickerInnerWidth() int {

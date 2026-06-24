@@ -80,7 +80,13 @@ func (s sidebarState) View(width, height int) string {
 	}
 	lines := s.lines(innerWidth, innerHeight)
 	body := strings.Join(lines, "\n")
-	return s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body)
+	// WithBg(Black) is required: the sidebar uses Black as its background colour.
+	// Nested renders emit ANSI resets that would create transparent gaps in
+	// transparent terminals without the explicit per-cell background pass.
+	return theme.WithBg(
+		s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body),
+		theme.Black,
+	)
 }
 
 func (s sidebarState) styledWithBg(baseStyle lipgloss.Style, text string) string {
