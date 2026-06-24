@@ -68,7 +68,6 @@ func (m *Model) syncViewport() {
 			rendered = header + rendered
 		}
 	}
-	rendered = lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(m.viewport.Width()).Render(rendered)
 
 	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height() - contentLines

@@ -34,7 +34,7 @@ func (b *contentBuffer) String(width int) string {
 		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	result := b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	result := joinWithUserMargin(parts, kinds)
 	b.stringCacheWidth = width
 	b.stringCacheRendered = result
 	return result
@@ -144,20 +144,6 @@ func (b *contentBuffer) skipHiddenSegment(index int) bool {
 	// don't perpetually dirty the buffer cache.
 	seg.renderDirty = false
 	return true
-}
-
-func (b *contentBuffer) fillEmptyLines(s string, width int) string {
-	if width < 1 {
-		width = 1
-	}
-	bgLine := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if line == "" {
-			lines[i] = bgLine
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 //nolint:gocyclo // dispatch-heavy segment renderer

@@ -1470,7 +1470,7 @@ func TestUserSegmentMargin(t *testing.T) {
 			// Promote "no ┃" helper for blank-line detection.
 			// A background-blank line has lipgloss.Width == 80 and contains no ┃.
 			isBlankLine := func(line string) bool {
-				return !strings.Contains(line, "\u2503") && lipgloss.Width(line) == 80
+				return !strings.Contains(line, "\u2503") && (line == "" || lipgloss.Width(line) == 80)
 			}
 
 			// Margin above the first user segment.

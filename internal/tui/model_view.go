@@ -28,9 +28,10 @@ func (m Model) View() tea.View {
 	}
 
 	v := tea.View{
-		Content:   result,
-		AltScreen: true,
-		MouseMode: tea.MouseModeCellMotion,
+		Content:         result,
+		AltScreen:       true,
+		MouseMode:       tea.MouseModeCellMotion,
+		BackgroundColor: lipgloss.Color(theme.BgElev),
 	}
 	// Attach v2 mouse handler via View.OnMouse callback without capturing the model.
 	v.OnMouse = classifyMouse
