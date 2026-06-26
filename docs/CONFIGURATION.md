@@ -164,16 +164,17 @@ providers:
 | `anthropic`      | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `gemini`         | Native Google Gemini API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `litellm`        | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable. Set `base_url` to your LiteLLM server. |
+| `codex`          | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key. Run `steiner login codex` before use. `api_key` and `api_key_env` are not used — authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. |
 
 **Field applicability by provider type:**
 
-| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini | litellm |
-|---------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `base_url`    | required | optional | required | — | — | — | — | required |
-| `api_key`     | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional |
-| `api_key_env` | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional |
-| `headers`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `timeout`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini | litellm | codex |
+|---------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `base_url`    | required | optional | required | — | — | — | — | required | optional |
+| `api_key`     | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional | — |
+| `api_key_env` | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional | — |
+| `headers`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `timeout`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ---
 

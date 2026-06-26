@@ -139,6 +139,10 @@ Code changes must update corresponding documentation in a single commit:
    * Update `docs/DESKTOP_NOTIFICATIONS.md` with the changed behaviour
    * Update the "Desktop notifications" section in README.md if the high-level description changes
 
+9. **`internal/oauth` changes** (add/change flow, token store, refresh, or PKCE behaviour):
+   * Update the "Codex OAuth" section in README.md if the setup steps or token storage location change
+   * Update `docs/CONFIGURATION.md` provider types table if authentication behaviour changes
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:

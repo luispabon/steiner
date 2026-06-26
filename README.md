@@ -403,6 +403,37 @@ Fork the current conversation or any saved session into a new independent sessio
 
 Forks are independent — changes in one session do not affect the source.
 
+### Codex OAuth
+
+Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key.
+
+**Setup:**
+
+1. Authenticate with your OpenAI account:
+   ```bash
+   steiner login codex
+   ```
+   This opens a browser for OAuth consent and saves a token to `~/.config/steiner/codex_auth.json`.
+
+2. Check authentication status:
+   ```bash
+   steiner login codex status
+   ```
+
+3. Configure a provider and model:
+   ```yaml
+   providers:
+     codex:
+       type: codex
+
+   models:
+     gpt-5:
+       provider: codex
+       id: gpt-5.5
+   ```
+
+Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output.
+
 ## Self-update
 
 Steiner can self-update via the `update` (or `upgrade`) command. It fetches the
