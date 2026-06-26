@@ -42,8 +42,16 @@ func newLoginCodexCommand() *cobra.Command {
 					AuthURL:  oauth.CodexAuthURL,
 					TokenURL: oauth.CodexTokenURL,
 				},
-				ClientID: oauth.CodexClientID,
-				Scopes:   []string{"openid", "profile", "email", "offline_access"},
+				ClientID:     oauth.CodexClientID,
+				RedirectURI:  oauth.CodexRedirectURI,
+				CallbackPort: 1455,
+				CallbackPath: "/auth/callback",
+				Scopes:       []string{"openid", "profile", "email", "offline_access"},
+				ExtraParams: map[string]string{
+					"id_token_add_organizations": "true",
+					"codex_cli_simplified_flow":  "true",
+					"originator":                 "codex",
+				},
 			}
 
 			if debugURL {

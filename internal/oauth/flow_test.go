@@ -27,8 +27,10 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 			AuthURL:  mockServer.URL + "/auth",
 			TokenURL: mockServer.URL + "/token",
 		},
-		ClientID: "test_client",
-		Scopes:   []string{"openid", "profile"},
+		ClientID:     "test_client",
+		CallbackPort: 0, // OS-assigned
+		CallbackPath: "/callback",
+		Scopes:       []string{"openid", "profile"},
 		// OpenBrowser receives the full auth URL; it extracts the state and the
 		// redirect_uri (which carries the actual bound port) then simulates the
 		// browser redirect by calling the callback endpoint.
@@ -45,7 +47,7 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 				if err != nil {
 					return
 				}
-				callbackURL := fmt.Sprintf("http://127.0.0.1:%s/callback?code=test_code&state=%s", ru.Port(), state)
+				callbackURL := fmt.Sprintf("http://localhost:%s/callback?code=test_code&state=%s", ru.Port(), state)
 				resp, err := http.Get(callbackURL) //nolint:noctx
 				if err != nil {
 					return
@@ -80,9 +82,11 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 			AuthURL:  mockServer.URL + "/auth",
 			TokenURL: mockServer.URL + "/token",
 		},
-		ClientID:    "test_client",
-		Scopes:      []string{"openid"},
-		OpenBrowser: func(url string) error { return nil },
+		ClientID:     "test_client",
+		CallbackPort: 0,
+		CallbackPath: "/callback",
+		Scopes:       []string{"openid"},
+		OpenBrowser:  func(url string) error { return nil },
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
