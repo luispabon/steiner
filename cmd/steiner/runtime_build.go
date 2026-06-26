@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
 	"golang.org/x/oauth2"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -160,12 +159,27 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 			} else if err != nil {
 				return nil, fmt.Errorf("load codex token: %w", err)
 			}
-			ts := oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+			token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
 				ClientID: oauth.CodexClientID,
 				Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-			}, token)
-			oauthClient := &http.Client{Transport: &oauth2.Transport{Source: ts, Base: httpClient.Transport}}
-			return newOpenAICompat(runtimeProviderConfig(rm, providerType, scheduler, oauthClient, streamErrorLog))
+			}, token).Token()
+			if err != nil {
+				return nil, fmt.Errorf("refresh codex token: %w", err)
+			}
+			cfg := runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog)
+			if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
+				cfg.APIKey = apiKey
+			} else {
+				accountID := oauth.TokenChatGPTAccountID(token)
+				if accountID == "" {
+					return nil, fmt.Errorf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
+				}
+				cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
+				cfg.APIKey = token.AccessToken
+				cfg.Headers = cloneStringMap(cfg.Headers)
+				cfg.Headers["ChatGPT-Account-ID"] = accountID
+			}
+			return newCodexResponses(cfg)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
@@ -191,6 +205,14 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 		HTTPClient:     httpClient,
 		StreamErrorLog: streamErrorLog,
 	}
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func runtimeHTTPClient() *http.Client {

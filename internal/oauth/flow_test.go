@@ -17,7 +17,7 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/token" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"access_token":"test_token","token_type":"Bearer","expires_in":3600}`)
+			_, _ = fmt.Fprintf(w, `{"access_token":"test_token","token_type":"Bearer","expires_in":3600}`)
 		}
 	}))
 	defer mockServer.Close()
@@ -71,9 +71,9 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 }
 
 func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"access_token":"test_token","token_type":"Bearer"}`)
+		_, _ = fmt.Fprintf(w, `{"access_token":"test_token","token_type":"Bearer"}`)
 	}))
 	defer mockServer.Close()
 
@@ -86,7 +86,7 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 		CallbackPort: 0,
 		CallbackPath: "/callback",
 		Scopes:       []string{"openid"},
-		OpenBrowser:  func(url string) error { return nil },
+		OpenBrowser:  func(_ string) error { return nil },
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)

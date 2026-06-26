@@ -235,7 +235,7 @@ func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if got, want := rm.ProviderConfig.BaseURL, "https://chatgpt.com/backend-api/codex"; got != want {
+	if got, want := rm.ProviderConfig.BaseURL, "https://api.openai.com/v1"; got != want {
 		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
 	}
 }
@@ -950,6 +950,10 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 				"kimi-k2.6":{
 					"provider":{"npm":"@ai-sdk/openai-compatible","api":"https://api.moonshot.ai/v1"},
 					"limit":{"context":256000,"output":16384}
+				},
+				"gpt-5.4-mini":{
+					"provider":{"npm":"@ai-sdk/openai-compatible","api":"https://api.openai.com/v1"},
+					"limit":{"context":400000,"output":128000}
 				}
 			}
 		}
@@ -991,13 +995,26 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 			wantTransport:    TransportOpenAICompat,
 			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
 		},
+		{
+			name:             "codex provider ignores models.dev openai-compatible transport",
+			modelID:          "gpt-5.4-mini",
+			wantProviderType: config.ProviderTypeCodex,
+			wantTransport:    TransportConfigured,
+			wantBaseURL:      "https://api.openai.com/v1",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			providerType := config.ProviderTypeOpenAICompat
+			providerBaseURL := "https://opencode.ai/zen/go/v1/"
+			if tt.wantProviderType == config.ProviderTypeCodex {
+				providerType = config.ProviderTypeCodex
+				providerBaseURL = ""
+			}
 			cfg := config.Config{
 				Providers: map[string]config.ProviderConfig{
-					"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
+					"opencode-go": {Type: providerType, BaseURL: providerBaseURL},
 				},
 				Models: map[string]config.ModelConfig{
 					"test": {

@@ -164,7 +164,7 @@ providers:
 | `anthropic`      | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `gemini`         | Native Google Gemini API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `litellm`        | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable. Set `base_url` to your LiteLLM server. |
-| `codex`          | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key. Run `steiner login codex` before use. `api_key` and `api_key_env` are not used — authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. |
+| `codex`          | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. |
 
 **Field applicability by provider type:**
 

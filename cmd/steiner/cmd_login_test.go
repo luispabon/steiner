@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,17 @@ func TestNewLoginCodexCommand(t *testing.T) {
 	}
 	if !found {
 		t.Error("status subcommand not found on codex command")
+	}
+}
+
+func TestCodexOAuthScopesMatchAllowedCodexScopes(t *testing.T) {
+	for _, scope := range []string{"api.connectors.read", "api.connectors.invoke"} {
+		if !slices.Contains(codexOAuthScopes, scope) {
+			t.Fatalf("codexOAuthScopes = %#v, want %s", codexOAuthScopes, scope)
+		}
+	}
+	if slices.Contains(codexOAuthScopes, "api.responses.write") {
+		t.Fatalf("codexOAuthScopes = %#v, must not include invalid api.responses.write", codexOAuthScopes)
 	}
 }
 

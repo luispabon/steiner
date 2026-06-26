@@ -32,7 +32,7 @@ func NewRefreshableTokenSource(store *TokenStore, conf *oauth2.Config, token *oa
 	return &RefreshableTokenSource{
 		inner: inner,
 		store: store,
-		last:  token,
+		last:  cloneToken(token),
 	}
 }
 
@@ -45,11 +45,50 @@ func (r *RefreshableTokenSource) Token() (*oauth2.Token, error) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.last == nil || tok.AccessToken != r.last.AccessToken {
+	if r.last == nil || !tokenPersistenceEqual(tok, r.last) {
 		if err := r.store.Save(tok); err != nil {
 			return nil, fmt.Errorf("save refreshed token: %w", err)
 		}
-		r.last = tok
+		r.last = cloneToken(tok)
 	}
 	return tok, nil
+}
+
+func tokenPersistenceEqual(a, b *oauth2.Token) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	if a.AccessToken != b.AccessToken {
+		return false
+	}
+	if a.RefreshToken != b.RefreshToken {
+		return false
+	}
+	if a.TokenType != b.TokenType {
+		return false
+	}
+	if !a.Expiry.Equal(b.Expiry) {
+		return false
+	}
+	if tokenExtraString(a, "id_token") != tokenExtraString(b, "id_token") {
+		return false
+	}
+	if tokenExtraString(a, chatGPTAccountIDExtraKey) != tokenExtraString(b, chatGPTAccountIDExtraKey) {
+		return false
+	}
+	if TokenOpenAIAPIKey(a) != TokenOpenAIAPIKey(b) {
+		return false
+	}
+
+	return true
+}
+
+func cloneToken(token *oauth2.Token) *oauth2.Token {
+	if token == nil {
+		return nil
+	}
+
+	cloned := *token
+	return &cloned
 }

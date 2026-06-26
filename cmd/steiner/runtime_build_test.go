@@ -2,6 +2,8 @@ package main
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,10 +15,12 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	oldNewScheduler := newScheduler
 	oldNewOpenAICompat := newOpenAICompat
 	oldNewAnthropic := newAnthropic
+	oldNewCodexResponses := newCodexResponses
 	t.Cleanup(func() {
 		newScheduler = oldNewScheduler
 		newOpenAICompat = oldNewOpenAICompat
 		newAnthropic = oldNewAnthropic
+		newCodexResponses = oldNewCodexResponses
 	})
 
 	const wantParallelism = 7
@@ -32,8 +36,10 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	type capture struct {
 		openAICompatCalls int
 		anthropicCalls    int
+		codexCalls        int
 		openAICompatCfg   provider.OpenAICompatConfig
 		anthropicCfg      provider.OpenAICompatConfig
+		codexCfg          provider.OpenAICompatConfig
 	}
 
 	runFactory := func(t *testing.T, rm provider.ResolvedModel, wantErr string, wantProviderKind string) capture {
@@ -54,6 +60,11 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		newAnthropic = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
 			got.anthropicCalls++
 			got.anthropicCfg = cfg
+			return &fakeProvider{}, nil
+		}
+		newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+			got.codexCalls++
+			got.codexCfg = cfg
 			return &fakeProvider{}, nil
 		}
 
@@ -98,6 +109,16 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			}
 			if got.openAICompatCalls != 0 {
 				t.Fatalf("openai compat constructor calls = %d, want 0", got.openAICompatCalls)
+			}
+		case "codex":
+			if got.codexCalls != 1 {
+				t.Fatalf("codex constructor calls = %d, want 1", got.codexCalls)
+			}
+			if got.openAICompatCalls != 0 {
+				t.Fatalf("openai compat constructor calls = %d, want 0", got.openAICompatCalls)
+			}
+			if got.anthropicCalls != 0 {
+				t.Fatalf("anthropic constructor calls = %d, want 0", got.anthropicCalls)
 			}
 		default:
 			t.Fatalf("unknown wantProviderKind %q", wantProviderKind)
@@ -186,6 +207,41 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		t.Fatalf("anthropic provider type = %q, want %q", got, config.ProviderTypeAnthropic)
 	}
 
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	tokenPath := filepath.Join(configHome, "steiner", "codex_auth.json")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(`{"access_token":"codex-token","refresh_token":"refresh-token","token_type":"Bearer","openai_api_key":"sk-codex"}`), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	codexRM := provider.ResolvedModel{
+		Alias:                 "codex",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex, BaseURL: "https://api.openai.com/v1", Timeout: config.MustDuration("20s")},
+		BackendModelID:        "gpt-5.5",
+		EffectiveProviderType: config.ProviderTypeCodex,
+	}
+	gotCodex := runFactory(t, codexRM, "", "codex")
+	if gotCodex.openAICompatCalls != 0 {
+		t.Fatalf("codex should not call openai compat constructor, got %d calls", gotCodex.openAICompatCalls)
+	}
+	if got := gotCodex.codexCfg.BaseURL; got != codexRM.ProviderConfig.BaseURL {
+		t.Fatalf("codex base URL = %q, want %q", got, codexRM.ProviderConfig.BaseURL)
+	}
+	if got := gotCodex.codexCfg.Model; got != codexRM.BackendModelID {
+		t.Fatalf("codex model = %q, want %q", got, codexRM.BackendModelID)
+	}
+	if got := gotCodex.codexCfg.ProviderType; got != string(config.ProviderTypeCodex) {
+		t.Fatalf("codex provider type = %q, want %q", got, config.ProviderTypeCodex)
+	}
+	if got := gotCodex.codexCfg.APIKey; got != "sk-codex" {
+		t.Fatalf("codex API key = %q, want sk-codex", got)
+	}
+	if gotCodex.codexCfg.HTTPClient != httpClient {
+		t.Fatalf("codex HTTP client = %p, want base runtime client %p", gotCodex.codexCfg.HTTPClient, httpClient)
+	}
+
 	legacyAnthropicRM := provider.ResolvedModel{
 		Alias:          "legacy-anthropic",
 		ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeAnthropic, BaseURL: "http://anthropic.example/v1", APIKey: "anthropic-key", Headers: map[string]string{"X-Test": "legacy"}, Timeout: config.MustDuration("30s")},
@@ -210,6 +266,86 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		EffectiveProviderType: config.ProviderTypeGemini,
 	}
 	runFactory(t, unsupportedRM, `provider type "gemini" is not implemented by the runtime provider factory`, "")
+}
+
+func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKey(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	tokenPath := filepath.Join(configHome, "steiner", "codex_auth.json")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(`{"access_token":"codex-token","refresh_token":"refresh-token","token_type":"Bearer","account_id":"acct-123"}`), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+
+	var gotCfg provider.OpenAICompatConfig
+	oldNewCodexResponses := newCodexResponses
+	t.Cleanup(func() { newCodexResponses = oldNewCodexResponses })
+	newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+		gotCfg = cfg
+		return &fakeProvider{}, nil
+	}
+
+	factory, err := buildRuntimeProviderFactory(config.Config{
+		Scheduler: config.SchedulerConfig{Parallelism: 1},
+	}, &http.Client{}, nil)
+	if err != nil {
+		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
+	}
+
+	codexRM := provider.ResolvedModel{
+		Alias:                 "codex",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex},
+		BackendModelID:        "codex-default",
+		EffectiveProviderType: config.ProviderTypeCodex,
+	}
+	if _, err := factory(codexRM); err != nil {
+		t.Fatalf("factory() error = %v", err)
+	}
+	if gotCfg.BaseURL != "https://chatgpt.com/backend-api/codex" {
+		t.Fatalf("codex base URL = %q, want ChatGPT Codex backend", gotCfg.BaseURL)
+	}
+	if gotCfg.APIKey != "codex-token" {
+		t.Fatalf("codex API key = %q, want access token", gotCfg.APIKey)
+	}
+	if got := gotCfg.Headers["ChatGPT-Account-ID"]; got != "acct-123" {
+		t.Fatalf("ChatGPT-Account-ID = %q, want acct-123", got)
+	}
+}
+
+func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	tokenPath := filepath.Join(configHome, "steiner", "codex_auth.json")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(`{"access_token":"codex-token","refresh_token":"refresh-token","token_type":"Bearer"}`), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+
+	factory, err := buildRuntimeProviderFactory(config.Config{
+		Scheduler: config.SchedulerConfig{Parallelism: 1},
+	}, &http.Client{}, nil)
+	if err != nil {
+		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
+	}
+
+	codexRM := provider.ResolvedModel{
+		Alias:                 "codex",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex},
+		BackendModelID:        "codex-default",
+		EffectiveProviderType: config.ProviderTypeCodex,
+	}
+	_, err = factory(codexRM)
+	if err == nil {
+		t.Fatal("factory() error = nil, want actionable error")
+	}
+	want := "codex token missing ChatGPT account metadata — run 'steiner login codex' again"
+	if err.Error() != want {
+		t.Fatalf("factory() error = %q, want %q", err.Error(), want)
+	}
 }
 
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {

@@ -405,7 +405,7 @@ Forks are independent — changes in one session do not affect the source.
 
 ### Codex OAuth
 
-Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key.
+Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key. Codex providers use the Responses wire format. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses the ChatGPT Codex backend at `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and account metadata.
 
 **Setup:**
 
@@ -432,7 +432,7 @@ Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without
        id: gpt-5.5
    ```
 
-Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output.
+Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output. Existing token files continue to load, but re-running `steiner login codex` refreshes stored `id_token`, ChatGPT account metadata, and the optional exchanged API credential used for direct OpenAI Responses API calls.
 
 ## Self-update
 

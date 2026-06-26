@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -15,7 +16,11 @@ func (p *OpenAICompat) buildRequestPayload(request ChatRequest, stream bool) ([]
 }
 
 func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(body))
+	return buildJSONPostRequest(ctx, p.chatCompletionsURL(), body, stream, p.apiKey, p.headers)
+}
+
+func buildJSONPostRequest(ctx context.Context, target string, body []byte, stream bool, apiKey string, headers map[string]string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -23,10 +28,10 @@ func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream
 	if stream {
 		req.Header.Set("Accept", "text/event-stream")
 	}
-	if strings.TrimSpace(p.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	for key, value := range p.headers {
+	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 	return req, nil
@@ -71,9 +76,38 @@ func (p *OpenAICompat) readErrorResponse(resp *http.Response) error {
 	return &HTTPError{
 		StatusCode: resp.StatusCode,
 		Status:     resp.Status,
-		Body:       strings.TrimSpace(string(body)),
+		Body:       summarizeErrorBody(resp.Header.Get("Content-Type"), string(body)),
 		Header:     resp.Header.Clone(),
 	}
+}
+
+func summarizeErrorBody(contentType, body string) string {
+	text := strings.TrimSpace(body)
+	if text == "" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(contentType), "html") || looksLikeHTML(text) {
+		text = htmlToErrorText(text)
+	}
+	const maxErrorBody = 1000
+	if len(text) > maxErrorBody {
+		text = strings.TrimSpace(text[:maxErrorBody]) + "..."
+	}
+	return text
+}
+
+func looksLikeHTML(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") || strings.Contains(lower, "<body")
+}
+
+func htmlToErrorText(body string) string {
+	text := regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(body, " ")
+	text = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`).ReplaceAllString(text, " ")
+	text = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`).ReplaceAllString(text, " title: $1 ")
+	text = regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(text, " ")
+	text = strings.NewReplacer("&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&#39;", "'", "&quot;", `"`).Replace(text)
+	return strings.Join(strings.Fields(text), " ")
 }
 
 func (p *OpenAICompat) chatCompletionsURL() string {

@@ -29,7 +29,7 @@ func TestRefreshableTokenSourceCached(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Error("Token refresh should not be called for valid cached token")
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -69,9 +69,9 @@ func TestRefreshableTokenSourceRefreshNearExpiry(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"access_token":"new_token","refresh_token":"refresh_token","expires_in":3600}`)
+		_, _ = fmt.Fprintf(w, `{"access_token":"new_token","refresh_token":"refresh_token","expires_in":3600,"id_token":"new-id","%s":"new-account"}`, chatGPTAccountIDExtraKey)
 	}))
 	defer mockServer.Close()
 
@@ -100,6 +100,12 @@ func TestRefreshableTokenSourceRefreshNearExpiry(t *testing.T) {
 	if reloaded.AccessToken != "new_token" {
 		t.Errorf("persisted AccessToken = %q, want 'new_token'", reloaded.AccessToken)
 	}
+	if reloaded.Extra("id_token") != "new-id" {
+		t.Errorf("persisted Extra(id_token) = %v, want new-id", reloaded.Extra("id_token"))
+	}
+	if reloaded.Extra(chatGPTAccountIDExtraKey) != "new-account" {
+		t.Errorf("persisted Extra(account_id) = %v, want new-account", reloaded.Extra(chatGPTAccountIDExtraKey))
+	}
 }
 
 func TestRefreshableTokenSourceConcurrency(t *testing.T) {
@@ -121,10 +127,10 @@ func TestRefreshableTokenSourceConcurrency(t *testing.T) {
 
 	var refreshCount atomic.Int32
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		refreshCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"access_token":"refreshed_token","refresh_token":"refresh_token","expires_in":3600}`)
+		_, _ = fmt.Fprintf(w, `{"access_token":"refreshed_token","refresh_token":"refresh_token","expires_in":3600}`)
 	}))
 	defer mockServer.Close()
 
@@ -158,5 +164,60 @@ func TestRefreshableTokenSourceConcurrency(t *testing.T) {
 
 	if refreshCount.Load() > 2 {
 		t.Errorf("refresh called %d times, expected 1-2", refreshCount.Load())
+	}
+}
+
+func TestRefreshableTokenSourcePreservesMetadataWhenResponseOmitsIt(t *testing.T) {
+	tmpDir := t.TempDir()
+	tokenPath := filepath.Join(tmpDir, "token.json")
+
+	store := NewTokenStore(tokenPath)
+	token := (&oauth2.Token{
+		AccessToken:  "old_token",
+		RefreshToken: "refresh_token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(2 * time.Minute),
+	}).WithExtra(map[string]any{
+		"id_token":               "existing-id",
+		chatGPTAccountIDExtraKey: "existing-account",
+	})
+
+	if err := store.Save(token); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"access_token":"new_token","refresh_token":"refresh_token","expires_in":3600}`)
+	}))
+	defer mockServer.Close()
+
+	conf := &oauth2.Config{
+		Endpoint: oauth2.Endpoint{
+			TokenURL: mockServer.URL,
+		},
+		ClientID: "test_client",
+	}
+
+	source := NewRefreshableTokenSource(store, conf, token)
+	retrieved, err := source.Token()
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+
+	if retrieved.AccessToken != "new_token" {
+		t.Errorf("AccessToken = %q, want 'new_token'", retrieved.AccessToken)
+	}
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if reloaded.Extra("id_token") != "existing-id" {
+		t.Errorf("persisted Extra(id_token) = %v, want existing-id", reloaded.Extra("id_token"))
+	}
+	if reloaded.Extra(chatGPTAccountIDExtraKey) != "existing-account" {
+		t.Errorf("persisted Extra(account_id) = %v, want existing-account", reloaded.Extra(chatGPTAccountIDExtraKey))
 	}
 }
