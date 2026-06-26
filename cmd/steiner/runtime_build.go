@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -14,9 +15,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"golang.org/x/oauth2"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/oauth"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -144,6 +148,23 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, scheduler, httpClient, streamErrorLog))
 		case config.ProviderTypeAnthropic:
 			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog))
+		case config.ProviderTypeCodex:
+			path, err := oauth.DefaultTokenPath()
+			if err != nil {
+				return nil, fmt.Errorf("resolve token path: %w", err)
+			}
+			store := oauth.NewTokenStore(path)
+			if _, err := store.Load(); errors.Is(err, oauth.ErrNoToken) {
+				return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
+			} else if err != nil {
+				return nil, fmt.Errorf("load codex token: %w", err)
+			}
+			ts := oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+				ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
+				Endpoint: oauth2.Endpoint{TokenURL: "https://auth.openai.com/oauth/token"},
+			})
+			oauthClient := &http.Client{Transport: &oauth2.Transport{Source: ts, Base: httpClient.Transport}}
+			return newOpenAICompat(runtimeProviderConfig(rm, providerType, scheduler, oauthClient, streamErrorLog))
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}

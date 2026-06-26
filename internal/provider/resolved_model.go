@@ -222,6 +222,8 @@ func defaultProviderBaseURL(providerType config.ProviderType) string {
 		return "https://openrouter.ai/api/v1"
 	case config.ProviderTypeOpenAI:
 		return "https://api.openai.com/v1"
+	case config.ProviderTypeCodex:
+		return "https://chatgpt.com/backend-api/codex"
 	default:
 		return ""
 	}
