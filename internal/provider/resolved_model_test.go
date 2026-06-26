@@ -221,6 +221,25 @@ func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"codex": {Type: config.ProviderTypeCodex},
+		},
+		Models: map[string]config.ModelConfig{
+			"codex-model": {Provider: "codex", ID: "codex-default"},
+		},
+	}
+
+	rm, err := Resolve(cfg, "codex-model")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.BaseURL, "https://chatgpt.com/backend-api/codex"; got != want {
+		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
+	}
+}
+
 // TestResolveEffectiveLimits tests derivation logic for missing token limits.
 func TestResolveEffectiveLimits(t *testing.T) {
 	tests := []struct {

@@ -25,6 +25,8 @@ const (
 	ProviderTypeGemini ProviderType = "gemini"
 	// ProviderTypeLiteLLM targets a LiteLLM gateway endpoint.
 	ProviderTypeLiteLLM ProviderType = "litellm"
+	// ProviderTypeCodex targets the OpenAI Codex API via OAuth.
+	ProviderTypeCodex ProviderType = "codex"
 )
 
 // ProviderConfig configures a model provider.

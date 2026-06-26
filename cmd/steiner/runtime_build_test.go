@@ -211,3 +211,29 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	}
 	runFactory(t, unsupportedRM, `provider type "gemini" is not implemented by the runtime provider factory`, "")
 }
+
+func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	factory, err := buildRuntimeProviderFactory(config.Config{
+		Scheduler: config.SchedulerConfig{Parallelism: 1},
+	}, &http.Client{}, nil)
+	if err != nil {
+		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
+	}
+
+	codexRM := provider.ResolvedModel{
+		Alias:                 "codex",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex},
+		BackendModelID:        "codex-default",
+		EffectiveProviderType: config.ProviderTypeCodex,
+	}
+	_, err = factory(codexRM)
+	if err == nil {
+		t.Fatal("factory() error = nil, want actionable error")
+	}
+	want := "codex provider requires authentication — run 'steiner login codex' first"
+	if err.Error() != want {
+		t.Fatalf("factory() error = %q, want %q", err.Error(), want)
+	}
+}
