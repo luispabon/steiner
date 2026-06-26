@@ -15,13 +15,22 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// Codex OAuth client identity and endpoints shared by the login command
+// and the codex provider transport.
+const (
+	CodexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+	CodexAuthURL  = "https://auth.openai.com/oauth/authorize"
+	CodexTokenURL = "https://auth.openai.com/oauth/token"
+)
+
 // FlowConfig holds configuration for the OAuth authorization code flow.
 type FlowConfig struct {
-	Endpoint     oauth2.Endpoint
-	ClientID     string
-	CallbackPort int
-	Scopes       []string
-	OpenBrowser  func(url string) error // if nil, uses platform default
+	Endpoint    oauth2.Endpoint
+	ClientID    string
+	Scopes      []string
+	ExtraParams map[string]string      // additional auth URL parameters (e.g. "audience")
+	OpenBrowser func(url string) error // if nil, uses platform default
+	OnAuthURL   func(url string)       // if set, called with the full auth URL before opening browser
 }
 
 // RunAuthCodeFlow executes the OAuth 2.0 authorization code flow with PKCE.
@@ -31,8 +40,6 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 		return nil, fmt.Errorf("generate pkce verifier: %w", err)
 	}
 
-	challenge := ChallengeS256(verifier)
-
 	// Generate CSRF state
 	state, err := generateState()
 	if err != nil {
@@ -40,7 +47,7 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 	}
 
 	// Start local callback server
-	listener, port, err := startCallbackServer(cfg.CallbackPort)
+	listener, port, err := startCallbackServer()
 	if err != nil {
 		return nil, fmt.Errorf("start callback server: %w", err)
 	}
@@ -54,8 +61,17 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 		RedirectURL: fmt.Sprintf("http://127.0.0.1:%d/callback", port),
 	}
 
-	// Build auth URL with PKCE challenge
-	authURL := conf.AuthCodeURL(state, oauth2.S256ChallengeOption(challenge))
+	// Build auth URL with PKCE: S256ChallengeOption takes the verifier and computes
+	// the challenge internally; we must not pre-hash it ourselves.
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
+	for k, v := range cfg.ExtraParams {
+		opts = append(opts, oauth2.SetAuthURLParam(k, v))
+	}
+	authURL := conf.AuthCodeURL(state, opts...)
+
+	if cfg.OnAuthURL != nil {
+		cfg.OnAuthURL(authURL)
+	}
 
 	// Open browser
 	launcher := cfg.OpenBrowser
@@ -106,29 +122,15 @@ func generateState() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// startCallbackServer starts a local HTTP server and returns the listener and bound port.
-// Tries preferredPort; if that fails, tries up to preferredPort+10.
-func startCallbackServer(preferredPort int) (net.Listener, int, error) {
-	var listener net.Listener
-	var port int
-
-	// Try to bind to the preferred port or next available
-	for offset := 0; offset <= 10; offset++ {
-		p := preferredPort + offset
-		addr := fmt.Sprintf("127.0.0.1:%d", p)
-		l, err := net.Listen("tcp", addr)
-		if err == nil {
-			listener = l
-			port = p
-			break
-		}
+// startCallbackServer starts a local HTTP server on an OS-assigned port and
+// returns the listener and bound port.
+func startCallbackServer() (net.Listener, int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, 0, fmt.Errorf("listen on localhost: %w", err)
 	}
-
-	if listener == nil {
-		return nil, 0, fmt.Errorf("could not bind to any port in range %d-%d", preferredPort, preferredPort+10)
-	}
-
-	return listener, port, nil
+	port := l.Addr().(*net.TCPAddr).Port
+	return l, port, nil
 }
 
 // serveCallback runs the HTTP callback handler and sends the auth code to codeChan.

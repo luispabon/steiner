@@ -154,15 +154,16 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 				return nil, fmt.Errorf("resolve token path: %w", err)
 			}
 			store := oauth.NewTokenStore(path)
-			if _, err := store.Load(); errors.Is(err, oauth.ErrNoToken) {
+			token, err := store.Load()
+			if errors.Is(err, oauth.ErrNoToken) {
 				return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
 			} else if err != nil {
 				return nil, fmt.Errorf("load codex token: %w", err)
 			}
 			ts := oauth.NewRefreshableTokenSource(store, &oauth2.Config{
-				ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
-				Endpoint: oauth2.Endpoint{TokenURL: "https://auth.openai.com/oauth/token"},
-			})
+				ClientID: oauth.CodexClientID,
+				Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
+			}, token)
 			oauthClient := &http.Client{Transport: &oauth2.Transport{Source: ts, Base: httpClient.Transport}}
 			return newOpenAICompat(runtimeProviderConfig(rm, providerType, scheduler, oauthClient, streamErrorLog))
 		default:

@@ -23,6 +23,7 @@ func newLoginCommand() *cobra.Command {
 
 func newLoginCodexCommand() *cobra.Command {
 	var timeout time.Duration
+	var debugURL bool
 
 	cmd := &cobra.Command{
 		Use:   "codex",
@@ -38,12 +39,17 @@ func newLoginCodexCommand() *cobra.Command {
 
 			cfg := oauth.FlowConfig{
 				Endpoint: oauth2.Endpoint{
-					AuthURL:  "https://auth.openai.com/oauth/authorize",
-					TokenURL: "https://auth.openai.com/oauth/token",
+					AuthURL:  oauth.CodexAuthURL,
+					TokenURL: oauth.CodexTokenURL,
 				},
-				ClientID:     "app_EMoamEEZ73f0CkXaXp7hrann",
-				CallbackPort: 1455,
-				Scopes:       []string{"openid", "profile", "email", "offline_access"},
+				ClientID: oauth.CodexClientID,
+				Scopes:   []string{"openid", "profile", "email", "offline_access"},
+			}
+
+			if debugURL {
+				cfg.OnAuthURL = func(u string) {
+					fmt.Fprintf(cmd.OutOrStdout(), "Auth URL: %s\n", u)
+				}
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Opening browser to authenticate with OpenAI...")
@@ -66,6 +72,7 @@ func newLoginCodexCommand() *cobra.Command {
 	}
 
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Second, "how long to wait for browser auth")
+	cmd.Flags().BoolVar(&debugURL, "debug-url", false, "print the full authorization URL before opening the browser")
 	cmd.AddCommand(newLoginCodexStatusCommand())
 	return cmd
 }

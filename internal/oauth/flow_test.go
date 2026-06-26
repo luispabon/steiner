@@ -27,9 +27,8 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 			AuthURL:  mockServer.URL + "/auth",
 			TokenURL: mockServer.URL + "/token",
 		},
-		ClientID:     "test_client",
-		CallbackPort: 18990,
-		Scopes:       []string{"openid", "profile"},
+		ClientID: "test_client",
+		Scopes:   []string{"openid", "profile"},
 		// OpenBrowser receives the full auth URL; it extracts the state and the
 		// redirect_uri (which carries the actual bound port) then simulates the
 		// browser redirect by calling the callback endpoint.
@@ -81,10 +80,9 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 			AuthURL:  mockServer.URL + "/auth",
 			TokenURL: mockServer.URL + "/token",
 		},
-		ClientID:     "test_client",
-		CallbackPort: 8080,
-		Scopes:       []string{"openid"},
-		OpenBrowser:  func(url string) error { return nil },
+		ClientID:    "test_client",
+		Scopes:      []string{"openid"},
+		OpenBrowser: func(url string) error { return nil },
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -103,31 +101,21 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 }
 
 func TestGenerateState(t *testing.T) {
-	tests := []struct {
-		name string
-	}{
-		{"generates unique states"},
+	state1, err := generateState()
+	if err != nil {
+		t.Fatalf("generateState() error = %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			state1, err := generateState()
-			if err != nil {
-				t.Fatalf("generateState() error = %v", err)
-			}
+	state2, err := generateState()
+	if err != nil {
+		t.Fatalf("generateState() error = %v", err)
+	}
 
-			state2, err := generateState()
-			if err != nil {
-				t.Fatalf("generateState() error = %v", err)
-			}
+	if len(state1) != 32 {
+		t.Errorf("state length = %d, want 32 (16 bytes hex-encoded)", len(state1))
+	}
 
-			if len(state1) != 32 {
-				t.Errorf("state length = %d, want 32 (16 bytes hex-encoded)", len(state1))
-			}
-
-			if state1 == state2 {
-				t.Errorf("states should be unique, got same value twice")
-			}
-		})
+	if state1 == state2 {
+		t.Errorf("states should be unique, got same value twice")
 	}
 }
