@@ -92,8 +92,6 @@ func newLoginCodexStatusCommand() *cobra.Command {
 				return fmt.Errorf("load token: %w", err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Authenticated as: %s\n", token.TokenType)
-
 			if token.Expiry.IsZero() {
 				fmt.Fprintln(cmd.OutOrStdout(), "Token expires: never")
 				fmt.Fprintln(cmd.OutOrStdout(), "Status: valid")

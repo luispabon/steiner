@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -12,9 +13,9 @@ import (
 )
 
 func TestRunAuthCodeFlowSuccess(t *testing.T) {
-	// Create a mock token server
+	// Mock token server: handles POST /token and returns a JSON token response.
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/token" {
+		if r.Method == http.MethodPost && r.URL.Path == "/token" {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"access_token":"test_token","token_type":"Bearer","expires_in":3600}`)
 		}
@@ -27,28 +28,45 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 			TokenURL: mockServer.URL + "/token",
 		},
 		ClientID:     "test_client",
-		CallbackPort: 8080,
+		CallbackPort: 18990,
 		Scopes:       []string{"openid", "profile"},
-		OpenBrowser:  func(url string) error { return nil },
+		// OpenBrowser receives the full auth URL; it extracts the state and the
+		// redirect_uri (which carries the actual bound port) then simulates the
+		// browser redirect by calling the callback endpoint.
+		OpenBrowser: func(authURL string) error {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				u, err := url.Parse(authURL)
+				if err != nil {
+					return
+				}
+				state := u.Query().Get("state")
+				redirectURI := u.Query().Get("redirect_uri")
+				ru, err := url.Parse(redirectURI)
+				if err != nil {
+					return
+				}
+				callbackURL := fmt.Sprintf("http://127.0.0.1:%s/callback?code=test_code&state=%s", ru.Port(), state)
+				resp, err := http.Get(callbackURL) //nolint:noctx
+				if err != nil {
+					return
+				}
+				_ = resp.Body.Close()
+			}()
+			return nil
+		},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Simulate browser callback in a goroutine
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-
-		// Find the callback URL from the listener
-		// In a real flow, we'd make HTTP GET request to the callback after parsing authURL
-		// For now, this test framework limitation means we can only test the flow logic
-	}()
-
-	// This test demonstrates the flow structure; a full integration test
-	// would require parsing the auth URL and making the callback request.
-	// The key components (PKCE generation, state handling) are tested separately.
-	_ = cfg
-	_ = ctx
+	token, err := RunAuthCodeFlow(ctx, cfg)
+	if err != nil {
+		t.Fatalf("RunAuthCodeFlow() error = %v", err)
+	}
+	if token.AccessToken != "test_token" {
+		t.Errorf("AccessToken = %q, want %q", token.AccessToken, "test_token")
+	}
 }
 
 func TestRunAuthCodeFlowContextCancellation(t *testing.T) {

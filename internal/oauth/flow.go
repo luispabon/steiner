@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"os/exec"
@@ -143,7 +144,7 @@ func serveCallback(listener net.Listener, expectedState string, codeChan chan st
 		if errParam != "" {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "<html><body>Authentication failed: %s</body></html>", errParam)
+			fmt.Fprintf(w, "<html><body>Authentication failed: %s</body></html>", html.EscapeString(errParam))
 			errChan <- fmt.Errorf("auth error: %s", errParam)
 			return
 		}

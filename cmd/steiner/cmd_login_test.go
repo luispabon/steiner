@@ -100,8 +100,8 @@ func TestLoginCodexStatusWithToken(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Authenticated") {
-		t.Errorf("output %q does not contain 'Authenticated'", out)
+	if !strings.Contains(out, "Token expires") {
+		t.Errorf("output %q does not contain 'Token expires'", out)
 	}
 	if !strings.Contains(out, "Status: valid") {
 		t.Errorf("output %q does not contain 'Status: valid'", out)
