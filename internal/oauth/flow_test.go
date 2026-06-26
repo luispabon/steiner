@@ -29,6 +29,7 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 		ClientID:     "test_client",
 		CallbackPort: 8080,
 		Scopes:       []string{"openid", "profile"},
+		OpenBrowser:  func(url string) error { return nil },
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -65,6 +66,7 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 		ClientID:     "test_client",
 		CallbackPort: 8080,
 		Scopes:       []string{"openid"},
+		OpenBrowser:  func(url string) error { return nil },
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)

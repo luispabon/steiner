@@ -20,6 +20,7 @@ type FlowConfig struct {
 	ClientID     string
 	CallbackPort int
 	Scopes       []string
+	OpenBrowser  func(url string) error // if nil, uses platform default
 }
 
 // RunAuthCodeFlow executes the OAuth 2.0 authorization code flow with PKCE.
@@ -38,7 +39,7 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 	}
 
 	// Start local callback server
-	listener, port, err := startCallbackServer(ctx, state)
+	listener, port, err := startCallbackServer(cfg.CallbackPort)
 	if err != nil {
 		return nil, fmt.Errorf("start callback server: %w", err)
 	}
@@ -56,7 +57,11 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 	authURL := conf.AuthCodeURL(state, oauth2.S256ChallengeOption(challenge))
 
 	// Open browser
-	if err := openBrowser(authURL); err != nil {
+	launcher := cfg.OpenBrowser
+	if launcher == nil {
+		launcher = openBrowser
+	}
+	if err := launcher(authURL); err != nil {
 		return nil, fmt.Errorf("open browser: %w", err)
 	}
 
@@ -101,14 +106,14 @@ func generateState() (string, error) {
 }
 
 // startCallbackServer starts a local HTTP server and returns the listener and bound port.
-// Tries CallbackPort; if that fails, tries up to CallbackPort+10.
-func startCallbackServer(ctx context.Context, state string) (net.Listener, int, error) {
+// Tries preferredPort; if that fails, tries up to preferredPort+10.
+func startCallbackServer(preferredPort int) (net.Listener, int, error) {
 	var listener net.Listener
 	var port int
 
 	// Try to bind to the preferred port or next available
 	for offset := 0; offset <= 10; offset++ {
-		p := 8080 + offset
+		p := preferredPort + offset
 		addr := fmt.Sprintf("127.0.0.1:%d", p)
 		l, err := net.Listen("tcp", addr)
 		if err == nil {
@@ -119,7 +124,7 @@ func startCallbackServer(ctx context.Context, state string) (net.Listener, int, 
 	}
 
 	if listener == nil {
-		return nil, 0, fmt.Errorf("could not bind to any port in range 8080-8090")
+		return nil, 0, fmt.Errorf("could not bind to any port in range %d-%d", preferredPort, preferredPort+10)
 	}
 
 	return listener, port, nil
