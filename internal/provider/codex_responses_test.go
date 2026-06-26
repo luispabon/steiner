@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -169,6 +170,32 @@ func TestCodexResponsesStreamNormalizesChunks(t *testing.T) {
 	}
 	if final.Usage == nil || final.Usage.TotalTokens != 7 {
 		t.Fatalf("final usage = %#v", final.Usage)
+	}
+}
+
+func TestCodexResponsesBuildResponsesPayload_OpenAIHostSetsStoreFalse(t *testing.T) {
+	parsed, err := url.Parse("https://api.openai.com/v1")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	prov := &CodexResponses{OpenAICompat: &OpenAICompat{
+		baseURL: parsed,
+		model:   "gpt-5.5",
+	}}
+
+	data, err := prov.buildResponsesPayload(ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}, false)
+	if err != nil {
+		t.Fatalf("buildResponsesPayload() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got, want := payload["store"], false; got != want {
+		t.Fatalf("store = %v, want %v", got, want)
 	}
 }
 

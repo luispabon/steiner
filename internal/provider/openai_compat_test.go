@@ -332,6 +332,50 @@ func TestOpenAICompatMarshalRequest_Characterization(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatMarshalRequest_OpenAIHostSetsStoreFalse(t *testing.T) {
+	parsed, err := url.Parse("https://api.openai.com/v1")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	p := &OpenAICompat{baseURL: parsed, model: "gpt-5.4-mini"}
+	data, err := p.marshalRequest(ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}, false)
+	if err != nil {
+		t.Fatalf("marshalRequest() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got, want := payload["store"], false; got != want {
+		t.Fatalf("store = %v, want %v", got, want)
+	}
+}
+
+func TestOpenAICompatMarshalRequest_GenericCompatHostOmitsStore(t *testing.T) {
+	parsed, err := url.Parse("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	p := &OpenAICompat{baseURL: parsed, model: "local-model"}
+	data, err := p.marshalRequest(ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}, false)
+	if err != nil {
+		t.Fatalf("marshalRequest() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := payload["store"]; ok {
+		t.Fatal("store present for generic compat provider, want omitted")
+	}
+}
+
 func TestOpenAICompatNormalizeChatResponse_Characterization(t *testing.T) {
 	response, err := normalizeChatResponse(&openAIResponse{
 		Choices: []openAIChoice{

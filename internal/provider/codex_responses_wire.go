@@ -11,6 +11,7 @@ type responsesRequest struct {
 	Instructions    string          `json:"instructions,omitempty"`
 	Input           []responsesItem `json:"input"`
 	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
+	Store           *bool           `json:"store,omitempty"`
 	Stream          bool            `json:"stream,omitempty"`
 	Tools           []responsesTool `json:"tools,omitempty"`
 	Params          map[string]any  `json:"-"`
@@ -27,6 +28,9 @@ func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	}
 	if r.MaxOutputTokens != nil {
 		base["max_output_tokens"] = *r.MaxOutputTokens
+	}
+	if r.Store != nil {
+		base["store"] = *r.Store
 	}
 	if r.Stream {
 		base["stream"] = true

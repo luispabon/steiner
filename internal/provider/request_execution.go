@@ -15,6 +15,10 @@ func (p *OpenAICompat) buildRequestPayload(request ChatRequest, stream bool) ([]
 	return p.marshalRequest(request, stream)
 }
 
+func boolValuePtr(v bool) *bool {
+	return &v
+}
+
 func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
 	return buildJSONPostRequest(ctx, p.chatCompletionsURL(), body, stream, p.apiKey, p.headers)
 }
@@ -120,6 +124,9 @@ func (p *OpenAICompat) marshalRequest(request ChatRequest, stream bool) ([]byte,
 	wire, err := chatRequestWire(request, p.model, stream)
 	if err != nil {
 		return nil, err
+	}
+	if p.shouldDisableRemoteStorage() {
+		wire.Store = boolValuePtr(false)
 	}
 	return json.Marshal(wire)
 }

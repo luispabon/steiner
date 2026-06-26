@@ -12,6 +12,7 @@ type openAIRequest struct {
 	Model         string               `json:"model"`
 	Messages      []openAIMessage      `json:"messages"`
 	MaxTokens     *int                 `json:"max_tokens,omitempty"`
+	Store         *bool                `json:"store,omitempty"`
 	Stream        bool                 `json:"stream,omitempty"`
 	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
 	Tools         []openAITool         `json:"tools,omitempty"`
@@ -32,6 +33,9 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 	}
 	if r.MaxTokens != nil {
 		base["max_tokens"] = *r.MaxTokens
+	}
+	if r.Store != nil {
+		base["store"] = *r.Store
 	}
 	if len(r.Tools) > 0 {
 		base["tools"] = r.Tools

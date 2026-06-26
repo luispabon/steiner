@@ -73,6 +73,9 @@ func (c *CodexResponses) buildResponsesPayload(request ChatRequest, stream bool)
 	if err != nil {
 		return nil, err
 	}
+	if c.shouldDisableRemoteStorage() {
+		wire.Store = boolValuePtr(false)
+	}
 	return json.Marshal(wire)
 }
 
