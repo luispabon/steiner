@@ -92,6 +92,9 @@ func TestCodexResponsesToolsToolCallsToolOutputsAndImages(t *testing.T) {
 	if tool["name"] != "lookup" || tool["type"] != "function" {
 		t.Fatalf("tool = %#v", tool)
 	}
+	if strict, ok := tool["strict"]; !ok || strict != false {
+		t.Fatalf("tool strict = %v (present=%v), want false", strict, ok)
+	}
 	input := gotPayload["input"].([]any)
 	user := input[0].(map[string]any)
 	content := user["content"].([]any)
@@ -101,6 +104,9 @@ func TestCodexResponsesToolsToolCallsToolOutputsAndImages(t *testing.T) {
 	call := input[1].(map[string]any)
 	if call["type"] != "function_call" || call["call_id"] != "call_1" {
 		t.Fatalf("function call input = %#v", call)
+	}
+	if call["id"] != nil {
+		t.Fatalf("function_call input id = %v, want absent (API requires fc_ prefix for id, but we use call_id for matching)", call["id"])
 	}
 	output := input[2].(map[string]any)
 	if output["type"] != "function_call_output" || output["output"] != "result" {

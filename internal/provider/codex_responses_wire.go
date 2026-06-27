@@ -63,6 +63,7 @@ type responsesTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+	Strict      *bool          `json:"strict,omitempty"`
 }
 
 type responsesResponse struct {
@@ -115,6 +116,7 @@ func responsesRequestWire(request ChatRequest, defaultModel string, stream bool)
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,
 				Parameters:  tool.Function.Parameters,
+				Strict:      boolValuePtr(false),
 			})
 		}
 	}
@@ -157,7 +159,6 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 			}
 			items = append(items, responsesItem{
 				Type:   "function_call",
-				ID:     call.ID,
 				CallID: call.ID,
 				Name:   call.Name,
 				Args:   args,
