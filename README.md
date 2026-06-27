@@ -403,6 +403,24 @@ Fork the current conversation or any saved session into a new independent sessio
 
 Forks are independent — changes in one session do not affect the source.
 
+### Code simplification
+
+Analyze branch changes for structural and code quality improvements before review. `/simplify` dispatches four parallel `explore` sub-agents — one each for reuse, simplification, efficiency, and altitude — against the changed files on your current branch, refines findings through an advisor sanity check, and presents a consolidated report. On confirmation, it enters a fix/review loop to apply approved improvements.
+
+```
+/simplify          # analyze against main (default)
+/simplify develop  # analyze against a custom base branch
+```
+
+**Categories analyzed:**
+
+- **Reuse** — duplicated logic, extractable helpers, dead code, unused existing utilities
+- **Simplification** — naming clarity, unnecessary nesting, verbose constructs, excess abstraction
+- **Efficiency** — unnecessary allocations, wasteful iteration, hot-path redundancy, unnecessary I/O
+- **Altitude** — logic at the wrong abstraction level, mixed concerns, package boundary violations
+
+`/simplify` does not hunt for bugs — use `/review` for that. All proposed changes preserve existing behavior.
+
 ### Codex OAuth
 
 Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key. Codex providers use the Responses wire format. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses the ChatGPT Codex backend at `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and account metadata.
