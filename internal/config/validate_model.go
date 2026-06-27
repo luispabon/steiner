@@ -82,7 +82,7 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 			switch p.Type {
 			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
 				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
-				ProviderTypeGemini, ProviderTypeLiteLLM:
+				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex:
 				// valid
 			default:
 				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))

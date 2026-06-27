@@ -130,6 +130,17 @@ func (p *OpenAICompat) SupportsUsageStats() bool {
 	return true
 }
 
+func (p *OpenAICompat) shouldDisableRemoteStorage() bool {
+	if p == nil || p.baseURL == nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(p.baseURL.Hostname()))
+	return host == "api.openai.com" ||
+		strings.HasSuffix(host, ".openai.com") ||
+		host == "chatgpt.com" ||
+		strings.HasSuffix(host, ".chatgpt.com")
+}
+
 // ChatCompletion executes a non-streaming chat completion request.
 func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
 	if p == nil {

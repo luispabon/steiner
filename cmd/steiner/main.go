@@ -19,6 +19,9 @@ var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, 
 var newAnthropic = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
 	return provider.NewAnthropic(cfg)
 }
+var newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+	return provider.NewCodexResponses(cfg)
+}
 
 func main() {
 	if err := newRootCommand().Execute(); err != nil {

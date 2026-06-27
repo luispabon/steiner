@@ -176,6 +176,10 @@ func resolveEffectiveTransport(override config.ModelTransportType, configuredTyp
 		return config.ProviderTypeAnthropic, TransportAnthropic, "explicit config override"
 	}
 
+	if configuredType == config.ProviderTypeCodex {
+		return configuredType, TransportConfigured, "codex provider uses OAuth Responses transport"
+	}
+
 	switch metadataProviderTransport(info) {
 	case TransportAnthropic:
 		return config.ProviderTypeAnthropic, TransportAnthropic, "models.dev provider override for " + backendID
@@ -221,6 +225,8 @@ func defaultProviderBaseURL(providerType config.ProviderType) string {
 	case config.ProviderTypeOpenRouter:
 		return "https://openrouter.ai/api/v1"
 	case config.ProviderTypeOpenAI:
+		return "https://api.openai.com/v1"
+	case config.ProviderTypeCodex:
 		return "https://api.openai.com/v1"
 	default:
 		return ""

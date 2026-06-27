@@ -53,8 +53,11 @@ func TestReadErrorResponseReturnsHTTPError(t *testing.T) {
 	if got, want := httpErr.Status, "429 Too Many Requests"; got != want {
 		t.Fatalf("Status = %q, want %q", got, want)
 	}
-	if got := len(httpErr.Body); got != 8192 {
-		t.Fatalf("Body length = %d, want 8192", got)
+	if got := len(httpErr.Body); got != 1003 {
+		t.Fatalf("Body length = %d, want 1003", got)
+	}
+	if !strings.HasSuffix(httpErr.Body, "...") {
+		t.Fatalf("Body suffix = %q, want ellipsis", httpErr.Body[len(httpErr.Body)-3:])
 	}
 	if got, ok := retryAfterDelay(httpErr.Header, 30*time.Second); !ok || got != 10*time.Second {
 		t.Fatalf("retryAfterDelay() = %v, %v, want 10s, true", got, ok)
