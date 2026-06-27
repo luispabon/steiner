@@ -139,7 +139,6 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 			finished:        false,
 			startTime:       nanoNow(),
 			compactionCount: payload.CompactionCount,
-			collapsed:       true,
 		})
 		return
 	}
@@ -173,7 +172,6 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		afterPct:          payload.AfterUsagePercent,
 		summaryTitle:      payload.SummaryTitle,
 		elapsed:           finishElapsed(b, nanoNow()),
-		collapsed:         true,
 	})
 }
 

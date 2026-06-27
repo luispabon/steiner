@@ -105,8 +105,6 @@ type compactionBannerData struct {
 	afterPct          float64 // context usage % after compaction
 	summaryTitle      string  // human-readable summary title
 
-	// UI state
-	collapsed bool // default true; controls whether detail rows are shown
 }
 
 type separatorData struct {

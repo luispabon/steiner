@@ -33,36 +33,11 @@ func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) [
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
-
-	var rows []string
-	rows = append(rows, b.renderCompactionHeader(cd, innerWidth))
-
-	if cd.collapsed {
-		return rows
-	}
-
-	// Divider
-	rows = append(rows, b.styles.FgDim.Render(strings.Repeat("─", innerWidth)))
-
-	// Key/value detail rows — omit zero/empty fields.
-	rows = append(rows, b.compactionDetailRows(cd, innerWidth)...)
-
-	// Divider before footer.
-	rows = append(rows, b.styles.FgDim.Render(strings.Repeat("─", innerWidth)))
-
-	// Footer stats.
-	rows = append(rows, b.renderCompactionFooter(cd))
-
-	return rows
+	return []string{b.renderCompactionHeader(cd, innerWidth)}
 }
 
 // renderCompactionHeader renders the single header line of the compaction box.
 func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width int) string {
-	disclosure := "▾"
-	if cd.collapsed {
-		disclosure = "▸"
-	}
-
 	tag := b.styles.Warn.Bold(true).Render("compaction")
 
 	subtitle := ""
@@ -70,7 +45,7 @@ func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width i
 		subtitle = " " + b.styles.FgDim.Render(cd.subtitle)
 	}
 
-	left := disclosure + " " + tag + subtitle
+	left := tag + subtitle
 
 	// Right-hand meta: spinner/✓ + elapsed + #count.
 	meta := b.renderCompactionHeaderMeta(cd)
@@ -107,90 +82,4 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 	}
 
 	return strings.Join(parts, " ")
-}
-
-// compactionKV holds a single key/value detail pair for the expanded compaction box.
-type compactionKV struct {
-	key string
-	val string
-}
-
-// compactionDetailPairs builds the ordered list of key/value pairs from cd,
-// omitting any entry whose data is zero or empty.
-func compactionDetailPairs(cd *compactionBannerData) []compactionKV {
-	var pairs []compactionKV
-	if cd.compactedTurns > 0 || cd.compactedMessages > 0 {
-		pairs = append(pairs, compactionKV{"Compacted", fmt.Sprintf("%d turns, %d messages", cd.compactedTurns, cd.compactedMessages)})
-	}
-	if cd.retainedTurns > 0 || cd.retainedMessages > 0 {
-		pairs = append(pairs, compactionKV{"Retained", fmt.Sprintf("%d turns, %d messages", cd.retainedTurns, cd.retainedMessages)})
-	}
-	if cd.mode != "" {
-		pairs = append(pairs, compactionKV{"Mode", cd.mode})
-	}
-	if cd.beforeTokens > 0 {
-		val := formatCompactCount(cd.beforeTokens)
-		if cd.beforePct > 0 {
-			val += fmt.Sprintf(" (%.0f%%)", cd.beforePct)
-		}
-		pairs = append(pairs, compactionKV{"Before", val})
-	}
-	if cd.afterTokens > 0 {
-		val := formatCompactCount(cd.afterTokens)
-		if cd.afterPct > 0 {
-			val += fmt.Sprintf(" (%.0f%%)", cd.afterPct)
-		}
-		pairs = append(pairs, compactionKV{"After", val})
-	}
-	if cd.summaryTitle != "" {
-		pairs = append(pairs, compactionKV{"Summary", cd.summaryTitle})
-	} else if cd.summary != "" {
-		pairs = append(pairs, compactionKV{"Summary", cd.summary})
-	}
-	return pairs
-}
-
-// compactionDetailRows returns key/value rows for the expanded view.
-// Rows with zero/empty data are omitted.
-func (b *contentBuffer) compactionDetailRows(cd *compactionBannerData, width int) []string {
-	pairs := compactionDetailPairs(cd)
-	if len(pairs) == 0 {
-		return nil
-	}
-
-	// Compute key column width.
-	keyW := 0
-	for _, p := range pairs {
-		if len(p.key) > keyW {
-			keyW = len(p.key)
-		}
-	}
-
-	rows := make([]string, 0, len(pairs))
-	valW := width - keyW - 2 // 2 for ": " separator
-	if valW < 1 {
-		valW = 1
-	}
-	for _, p := range pairs {
-		key := b.styles.FgMute.Render(fmt.Sprintf("%-*s", keyW, p.key))
-		val := b.styles.FgDim.Render(truncateRunes(p.val, valW))
-		rows = append(rows, key+": "+val)
-	}
-	return rows
-}
-
-// renderCompactionFooter renders the footer stats line for the expanded view.
-func (b *contentBuffer) renderCompactionFooter(cd *compactionBannerData) string {
-	parts := make([]string, 0, 2)
-	if cd.compactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("Compaction #%d", cd.compactionCount))
-	}
-	dur := cd.elapsed
-	if dur == "" && cd.startTime > 0 {
-		dur = formatElapsed(cd.startTime, nanoNow())
-	}
-	if dur != "" {
-		parts = append(parts, "Duration: "+dur)
-	}
-	return b.styles.FgDim.Render(strings.Join(parts, " · "))
 }
